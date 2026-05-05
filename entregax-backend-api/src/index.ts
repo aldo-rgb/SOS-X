@@ -197,6 +197,13 @@ import {
   markPayablePaid,
 } from './facturamaController';
 import {
+  getFacturapiConfig,
+  saveFacturapiConfig,
+  testFacturapiConnection,
+  syncFacturapiReceived,
+  downloadFacturapiAttachment,
+} from './facturapiController';
+import {
   getServiceInstructions,
   getAllServiceInstructions,
   updateServiceInstructions,
@@ -3188,6 +3195,16 @@ app.post('/api/admin/facturama/sync-portal/:emitterId', authenticateToken, requi
 app.post('/api/admin/facturama/register-webhook/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), registerFacturamaWebhook);
 // Webhook público (firma validada con secret por emisor)
 app.post('/api/webhooks/facturama/:emitterId', handleFacturamaWebhook);
+
+// ============================================
+// FACTURAPI — Descarga de CFDIs recibidos (Cuentas por Pagar)
+// (Facturama queda dedicado a EMISIÓN; Facturapi a DESCARGA de recibidas)
+// ============================================
+app.get('/api/admin/facturapi/config/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getFacturapiConfig);
+app.put('/api/admin/facturapi/config/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveFacturapiConfig);
+app.post('/api/admin/facturapi/test/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), testFacturapiConnection);
+app.post('/api/admin/facturapi/sync/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncFacturapiReceived);
+app.get('/api/admin/facturapi/:emitterId/download/:type/:facturapiId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), downloadFacturapiAttachment);
 // Cuentas por Pagar (admin/director/super_admin/contador con permiso al emisor)
 app.get('/api/accounting/:emitterId/payables', authenticateToken, listAccountsPayable);
 app.post('/api/accounting/:emitterId/payables/:invoiceId/approve', authenticateToken, approveAccountPayable);
@@ -7585,6 +7602,14 @@ async function ensureRequiredColumns() {
       -- Credenciales del PORTAL Facturama (app.facturama.mx) para scraper de Cuentas por Pagar
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturama_portal_email TEXT;
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturama_portal_password TEXT;
+      -- Facturapi.io (descarga de CFDIs recibidos / Cuentas por Pagar)
+      ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_api_key TEXT;
+      ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_environment TEXT DEFAULT 'live';
+      ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_enabled BOOLEAN DEFAULT FALSE;
+      ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_last_sync TIMESTAMP;
+      ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_last_sync_count INTEGER DEFAULT 0;
+      ALTER TABLE accounting_received_invoices ADD COLUMN IF NOT EXISTS facturapi_id TEXT;
+      CREATE INDEX IF NOT EXISTS idx_acc_recinv_facturapi ON accounting_received_invoices(facturapi_id);
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
 

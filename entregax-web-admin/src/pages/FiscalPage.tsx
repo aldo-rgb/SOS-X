@@ -170,6 +170,18 @@ export default function FiscalPage() {
   const [facturamaConfig, setFacturamaConfig] = useState<any>(null);
   const [savingFacturama, setSavingFacturama] = useState(false);
   const [syncingFacturama, setSyncingFacturama] = useState(false);
+  // Modal Facturapi (descarga CFDIs recibidos)
+  const [openFacturapiModal, setOpenFacturapiModal] = useState(false);
+  const [selectedEmpresaFacturapi, setSelectedEmpresaFacturapi] = useState<any>(null);
+  const [facturapiForm, setFacturapiForm] = useState({
+    api_key: '',
+    environment: 'live',
+    enabled: true,
+  });
+  const [facturapiConfig, setFacturapiConfig] = useState<any>(null);
+  const [savingFacturapi, setSavingFacturapi] = useState(false);
+  const [syncingFacturapi, setSyncingFacturapi] = useState(false);
+  const [testingFacturapi, setTestingFacturapi] = useState(false);
   const [registeringWebhook, setRegisteringWebhook] = useState(false);
 
   const getToken = () => localStorage.getItem('token');
@@ -625,6 +637,95 @@ export default function FiscalPage() {
     }
   };
 
+  // ========== FUNCIONES DE FACTURAPI ==========
+  const handleOpenFacturapiModal = async (emitter: any) => {
+    setSelectedEmpresaFacturapi(emitter);
+    setFacturapiConfig(null);
+    setFacturapiForm({
+      api_key: '',
+      environment: emitter.facturapi_environment || 'live',
+      enabled: emitter.facturapi_enabled ?? true,
+    });
+    setOpenFacturapiModal(true);
+    try {
+      const r = await axios.get(`${API_URL}/admin/facturapi/config/${emitter.id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setFacturapiConfig(r.data);
+      setFacturapiForm(f => ({
+        ...f,
+        environment: r.data.environment || 'live',
+        enabled: r.data.enabled ?? true,
+      }));
+    } catch { /* sin config previa */ }
+  };
+
+  const handleSaveFacturapiConfig = async () => {
+    if (!selectedEmpresaFacturapi) return;
+    if (!facturapiConfig?.configured && !facturapiForm.api_key) {
+      setSnackbar({ open: true, message: 'API key es requerida', severity: 'error' });
+      return;
+    }
+    setSavingFacturapi(true);
+    try {
+      await axios.put(`${API_URL}/admin/facturapi/config/${selectedEmpresaFacturapi.id}`,
+        facturapiForm,
+        { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({ open: true, message: '✅ Configuración de Facturapi guardada', severity: 'success' });
+      setOpenFacturapiModal(false);
+      loadData();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error guardando Facturapi', severity: 'error' });
+    } finally {
+      setSavingFacturapi(false);
+    }
+  };
+
+  const handleTestFacturapi = async () => {
+    if (!selectedEmpresaFacturapi) return;
+    setTestingFacturapi(true);
+    try {
+      const r = await axios.post(`${API_URL}/admin/facturapi/test/${selectedEmpresaFacturapi.id}`, {},
+        { headers: { Authorization: `Bearer ${getToken()}` } });
+      if (r.data.success) {
+        setSnackbar({ open: true, message: `✅ Conexión OK${r.data.sample_total != null ? ` · ${r.data.sample_total} CFDIs en bandeja` : ''}`, severity: 'success' });
+      } else {
+        setSnackbar({ open: true, message: `⚠️ ${r.data.detail || 'Conexión rechazada'}`, severity: 'warning' });
+      }
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.detail || error.response?.data?.error || 'Error probando conexión', severity: 'error' });
+    } finally {
+      setTestingFacturapi(false);
+    }
+  };
+
+  const handleSyncFacturapi = async () => {
+    if (!selectedEmpresaFacturapi) return;
+    setSyncingFacturapi(true);
+    try {
+      const today = new Date();
+      const ago = new Date(today); ago.setDate(today.getDate() - 30);
+      const r = await axios.post(`${API_URL}/admin/facturapi/sync/${selectedEmpresaFacturapi.id}`, {
+        from: ago.toISOString().slice(0, 10),
+        to: today.toISOString().slice(0, 10),
+      }, { headers: { Authorization: `Bearer ${getToken()}` } });
+      setSnackbar({
+        open: true,
+        message: `✅ ${r.data.inserted} nuevas, ${r.data.skipped} omitidas (de ${r.data.total_found} encontradas vía Facturapi)`,
+        severity: 'success'
+      });
+      loadData();
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.detail || error.response?.data?.error || 'Error sincronizando con Facturapi',
+        severity: 'error'
+      });
+    } finally {
+      setSyncingFacturapi(false);
+    }
+  };
+
   const handleRegisterFacturamaWebhook = async () => {
     if (!selectedEmpresaFacturama) return;
     const webhookUrl = `${PUBLIC_BACKEND_URL.replace(/\/$/, '').replace(/\/api$/, '')}/api/webhooks/facturama/${selectedEmpresaFacturama.id}`;
@@ -789,6 +890,7 @@ export default function FiscalPage() {
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>PayPal</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Belvo</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturama</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturapi</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>
                 </TableRow>
@@ -936,6 +1038,32 @@ export default function FiscalPage() {
                             color="default"
                             size="small"
                             onClick={() => handleOpenFacturamaModal(emitter)}
+                            sx={{ cursor: 'pointer' }}
+                          />
+                        </Tooltip>
+                      )}
+                    </TableCell>
+                    {/* Facturapi */}
+                    <TableCell align="center">
+                      {(emitter as any).facturapi_configured ? (
+                        <Tooltip title={`Facturapi (${(emitter as any).facturapi_environment || 'live'}) - Descarga de CFDIs recibidos`}>
+                          <Chip
+                            icon={<ReceiptLongIcon />}
+                            label={(emitter as any).facturapi_environment === 'test' ? 'Test' : 'Live'}
+                            color={(emitter as any).facturapi_environment === 'test' ? 'warning' : 'info'}
+                            size="small"
+                            onClick={() => handleOpenFacturapiModal(emitter)}
+                            sx={{ cursor: 'pointer' }}
+                          />
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="Configurar Facturapi para descargar CFDIs recibidos (Bandeja de Recibidas)">
+                          <Chip
+                            icon={<SettingsIcon />}
+                            label="Configurar"
+                            color="default"
+                            size="small"
+                            onClick={() => handleOpenFacturapiModal(emitter)}
                             sx={{ cursor: 'pointer' }}
                           />
                         </Tooltip>
@@ -1748,6 +1876,107 @@ export default function FiscalPage() {
             disabled={savingFacturama}
             startIcon={savingFacturama ? <CircularProgress size={16} /> : <SaveIcon />}
             sx={{ bgcolor: '#0a3d62', '&:hover': { bgcolor: '#082c47' } }}
+          >
+            Guardar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ========== MODAL FACTURAPI — Descarga CFDIs Recibidos ========== */}
+      <Dialog open={openFacturapiModal} onClose={() => setOpenFacturapiModal(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#0ea5e9', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ReceiptLongIcon /> Facturapi — Descarga de CFDIs Recibidos
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3, mt: 1 }}>
+          {selectedEmpresaFacturapi && (
+            <>
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Configurando para: <strong>{selectedEmpresaFacturapi.alias}</strong> ({selectedEmpresaFacturapi.rfc}).
+                Facturapi se usa <strong>únicamente</strong> para descargar facturas recibidas (Cuentas por Pagar).
+                La emisión de CFDI sigue con Facturama.
+              </Alert>
+
+              {facturapiConfig?.configured && (
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  Ya configurado · ambiente: <strong>{facturapiConfig.environment}</strong> · key: <code>{facturapiConfig.key_preview}</code>
+                  {facturapiConfig.last_sync && (
+                    <> · última sync: {new Date(facturapiConfig.last_sync).toLocaleString()}
+                       ({facturapiConfig.last_sync_count || 0} facturas)</>
+                  )}
+                </Alert>
+              )}
+
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Ambiente</InputLabel>
+                  <Select
+                    label="Ambiente"
+                    value={facturapiForm.environment}
+                    onChange={(e) => setFacturapiForm(f => ({ ...f, environment: e.target.value as string }))}
+                  >
+                    <MenuItem value="live">Producción (sk_live_…)</MenuItem>
+                    <MenuItem value="test">Test (sk_test_…)</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <TextField
+                  label="API Secret Key de Facturapi"
+                  type="password"
+                  fullWidth
+                  size="small"
+                  value={facturapiForm.api_key}
+                  onChange={(e) => setFacturapiForm(f => ({ ...f, api_key: e.target.value }))}
+                  helperText={facturapiConfig?.configured
+                    ? 'Dejar vacío para conservar la actual'
+                    : 'Obtén tu Secret Key en Facturapi Dashboard → API Keys'}
+                  placeholder="sk_live_xxxxxxxxxxxxxxxx"
+                />
+
+                <FormControlLabel
+                  control={
+                    <Switch
+                      checked={facturapiForm.enabled}
+                      onChange={(e) => setFacturapiForm(f => ({ ...f, enabled: e.target.checked }))}
+                    />
+                  }
+                  label="Activar descarga vía Facturapi"
+                />
+
+                <Alert severity="warning" sx={{ fontSize: 12 }}>
+                  📥 Tras guardar, podrás sincronizar las facturas recibidas desde:<br/>
+                  <strong>Contabilidad → Cuentas por Pagar → botón Facturapi</strong>
+                </Alert>
+              </Box>
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          {facturapiConfig?.configured && (
+            <>
+              <Button
+                onClick={handleTestFacturapi}
+                disabled={testingFacturapi}
+                startIcon={testingFacturapi ? <CircularProgress size={16} /> : null}
+              >
+                Probar conexión
+              </Button>
+              <Button
+                onClick={handleSyncFacturapi}
+                disabled={syncingFacturapi}
+                startIcon={syncingFacturapi ? <CircularProgress size={16} /> : <SyncIcon />}
+              >
+                Sincronizar 30 días
+              </Button>
+            </>
+          )}
+          <Box sx={{ flex: 1 }} />
+          <Button onClick={() => setOpenFacturapiModal(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveFacturapiConfig}
+            disabled={savingFacturapi}
+            startIcon={savingFacturapi ? <CircularProgress size={16} /> : <SaveIcon />}
+            sx={{ bgcolor: '#0ea5e9', '&:hover': { bgcolor: '#0284c7' } }}
           >
             Guardar
           </Button>

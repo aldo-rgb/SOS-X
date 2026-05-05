@@ -1323,6 +1323,7 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
   const [actionForm, setActionForm] = useState<any>({});
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' as 'success' | 'error' | 'info' | 'warning' });
   const [syncing, setSyncing] = useState(false);
+  const [syncingFacturapi, setSyncingFacturapi] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -1396,6 +1397,59 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
     } finally { setSyncing(false); }
   };
 
+  const handleSyncFacturapi = async () => {
+    setSyncingFacturapi(true);
+    try {
+      const today = new Date();
+      const ago = new Date(today); ago.setDate(today.getDate() - 30);
+      const r = await api.post(`/admin/facturapi/sync/${emitter.id}`, {
+        from: ago.toISOString().slice(0, 10),
+        to: today.toISOString().slice(0, 10),
+      });
+      const found = r.data.total_found ?? 0;
+      const ins = r.data.inserted ?? 0;
+      const skp = r.data.skipped ?? 0;
+      if (found === 0) {
+        setSnackbar({
+          open: true,
+          message: `⚠️ Facturapi no devolvió CFDIs recibidos en los últimos 30 días para ${emitter.rfc}. Verifica que el módulo de "Recibidas" esté habilitado.`,
+          severity: 'warning',
+        });
+      } else {
+        setSnackbar({
+          open: true,
+          message: `✅ ${ins} nuevas, ${skp} omitidas (de ${found} encontradas vía Facturapi)`,
+          severity: 'success',
+        });
+      }
+      load();
+    } catch (e: any) {
+      const code = e?.response?.status;
+      const detail = e?.response?.data?.detail || e?.response?.data?.error || e.message;
+      if (code === 400) {
+        setSnackbar({
+          open: true,
+          message: `⚠️ Facturapi no está configurado para este emisor. Ve a Empresas → Configuración Fiscal y agrega tu API key.`,
+          severity: 'warning',
+        });
+      } else if (code === 401 || code === 403) {
+        setSnackbar({
+          open: true,
+          message: `⚠️ API key de Facturapi rechazada. Verifica la clave en Empresas → Configuración Fiscal. ${detail}`,
+          severity: 'warning',
+        });
+      } else if (code === 404) {
+        setSnackbar({
+          open: true,
+          message: `⚠️ Tu cuenta Facturapi no tiene habilitada la "Bandeja de Recibidas". ${detail}`,
+          severity: 'warning',
+        });
+      } else {
+        setSnackbar({ open: true, message: detail || 'Error sincronizando con Facturapi', severity: 'error' });
+      }
+    } finally { setSyncingFacturapi(false); }
+  };
+
   const openAction = (mode: 'approve' | 'reject' | 'pay', row: any) => {
     setActionForm(mode === 'pay'
       ? { paid_amount: row.total, paid_reference: '', paid_at: new Date().toISOString().slice(0, 10) }
@@ -1423,6 +1477,8 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
   const sourceLabel = (s: string) => ({
     facturama_webhook: 'Facturama (webhook)',
     facturama_sync:    'Facturama (sync)',
+    facturama_portal:  'Facturama (portal)',
+    facturapi_sync:    'Facturapi',
     manual:            'Manual',
     sat_descarga_masiva: 'SAT'
   } as any)[s] || s || '—';
@@ -1453,14 +1509,20 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
           </CardContent></Card>
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ borderLeft: `4px solid ${ORANGE}` }}><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <Box>
-              <Typography variant="caption" color="text.secondary">Facturama</Typography>
-              <Typography variant="body2" fontWeight={600}>Sincronizar 30 días</Typography>
+          <Card sx={{ borderLeft: `4px solid ${ORANGE}` }}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Typography variant="caption" color="text.secondary">Sincronizar últimos 30 días</Typography>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="caption" sx={{ fontWeight: 600 }}>Facturama</Typography>
+              <IconButton size="small" onClick={handleSync} disabled={syncing} title="Descargar CFDIs recibidos vía Facturama" sx={{ bgcolor: ORANGE, color: 'white', '&:hover': { bgcolor: BLACK } }}>
+                {syncing ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <SyncIcon fontSize="small" />}
+              </IconButton>
             </Box>
-            <IconButton onClick={handleSync} disabled={syncing} sx={{ bgcolor: ORANGE, color: 'white', '&:hover': { bgcolor: BLACK } }}>
-              {syncing ? <CircularProgress size={18} sx={{ color: 'white' }} /> : <SyncIcon />}
-            </IconButton>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography variant="caption" sx={{ fontWeight: 600 }}>Facturapi</Typography>
+              <IconButton size="small" onClick={handleSyncFacturapi} disabled={syncingFacturapi} title="Descargar CFDIs recibidos vía Facturapi" sx={{ bgcolor: '#0ea5e9', color: 'white', '&:hover': { bgcolor: BLACK } }}>
+                {syncingFacturapi ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <SyncIcon fontSize="small" />}
+              </IconButton>
+            </Box>
           </CardContent></Card>
         </Grid>
       </Grid>

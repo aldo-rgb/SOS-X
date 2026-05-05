@@ -1030,17 +1030,10 @@ export async function pqtxClientQuote(req: Request, res: Response) {
     let clientPrice: number;
     let rule: string;
 
-    if (pqtxPerBox < 300) {
-      // Si cotización por caja < $300 → cobrar $400 por caja
-      pricePerBox = 400;
-      clientPrice = 400 * packageCount;
-      rule = 'min_400_per_box';
-    } else {
-      // Si cotización por caja >= $300 → agregar $100 por caja
-      pricePerBox = Math.round(pqtxPerBox + 100);
-      clientPrice = pricePerBox * packageCount;
-      rule = 'plus_100_per_box';
-    }
+    // Precio fijo $400/caja independientemente de la cotización PQTX
+    pricePerBox = 400;
+    clientPrice = 400 * packageCount;
+    rule = pqtxPerBox < 300 ? 'min_400_per_box' : 'fixed_400_per_box';
 
     console.log(`[PQTX-CLIENT] ZIP=${destZipCode}, boxes=${packageCount}, pqtxQuote=$${pqtxTotal}, pricePerBox=$${pricePerBox}, clientTotal=$${clientPrice}, rule=${rule}`);
 
