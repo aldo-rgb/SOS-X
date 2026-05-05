@@ -1,5 +1,6 @@
 // EntregaX Backend API v2.1.0
 import express, { NextFunction, Request, Response } from 'express';
+import http from 'http';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import multer from 'multer';
@@ -6889,8 +6890,34 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
   }
 });
 
+// ========== MÓDULO DE CHAT INTERNO ==========
+import {
+  listConversations as chatListConversations,
+  createConversation as chatCreateConversation,
+  listMessages as chatListMessages,
+  sendMessage as chatSendMessage,
+  markAsRead as chatMarkAsRead,
+  searchStaff as chatSearchStaff,
+  auditAllConversations as chatAuditAllConversations,
+  registerPushToken as chatRegisterPushToken,
+  unregisterPushToken as chatUnregisterPushToken,
+  syncAutoGroups as chatSyncAutoGroups,
+} from './chatController';
+
+const chatUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB
+
+app.get('/api/chat/conversations', authenticateToken, chatListConversations);
+app.post('/api/chat/conversations', authenticateToken, chatCreateConversation);
+app.get('/api/chat/conversations/:id/messages', authenticateToken, chatListMessages);
+app.post('/api/chat/conversations/:id/messages', authenticateToken, chatUpload.array('files', 10), chatSendMessage);
+app.post('/api/chat/conversations/:id/read', authenticateToken, chatMarkAsRead);
+app.get('/api/chat/staff/search', authenticateToken, chatSearchStaff);
+app.get('/api/chat/audit/conversations', authenticateToken, chatAuditAllConversations);
+app.post('/api/chat/push-tokens', authenticateToken, chatRegisterPushToken);
+app.delete('/api/chat/push-tokens', authenticateToken, chatUnregisterPushToken);
+app.post('/api/chat/auto-groups/sync', authenticateToken, chatSyncAutoGroups);
+
 // ========== MÓDULO DE REPARTIDOR - CARGA Y ENTREGA ==========
-// Ruta del día
 app.get('/api/driver/route-today', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getDriverRouteToday);
 
 // Scan-to-Load: Carga de paquetes a la unidad
@@ -7575,7 +7602,18 @@ async function ensureRequiredColumns() {
 }
 
 // Iniciar servidor (escuchar en todas las interfaces para acceso desde móvil)
-app.listen(PORT, '0.0.0.0', () => {
+const httpServer = http.createServer(app);
+
+// Adjuntar Socket.IO para chat en tiempo real (lazy import — no rompe si falta)
+import('./chatSocket').then((mod) => {
+  if (typeof (mod as any).attachChatSocket === 'function') {
+    (mod as any).attachChatSocket(httpServer).catch((err: any) =>
+      console.warn('[startup] no se pudo iniciar chat socket:', err.message)
+    );
+  }
+}).catch((err) => console.warn('[startup] chatSocket no disponible:', err.message));
+
+httpServer.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 EntregaX API corriendo en http://localhost:${PORT}`);
   console.log(`📱 Acceso móvil: http://192.168.1.107:${PORT}`);
   console.log(`📊 Health check: http://localhost:${PORT}/health`);
