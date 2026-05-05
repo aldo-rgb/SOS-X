@@ -4264,14 +4264,22 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
                 national_shipping_cost = $6,
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $4 AND user_id = $5
-            RETURNING id
-          `, [addrId, carrierService, notes || null, pkgId, userId, carrierCostMxn]);
-          
+            RETURNING id, COALESCE(summary_boxes, goods_num, 1) as boxes
+          `, [addrId, carrierService, notes || null, pkgId, userId, +(carrierCostPerBox * 1).toFixed(2)]);
+
           if (maritimeResult.rowCount && maritimeResult.rowCount > 0) {
+            // Recalcular con cajas reales
+            const mBoxes = Math.max(1, parseInt(maritimeResult.rows[0].boxes, 10) || 1);
+            const mShip = +(carrierCostPerBox * mBoxes).toFixed(2);
+            await client.query(
+              `UPDATE maritime_orders SET national_shipping_cost = $1 WHERE id = $2`,
+              [mShip, pkgId]
+            );
             updatedCount++;
-            console.log(`🚢 Maritime order ${pkgId} updated with carrier=${carrierService}`);
+            console.log(`🚢 Maritime order ${pkgId} (${mBoxes} cajas) → shipping=$${mShip}`);
           } else {
-            // Try dhl_shipments
+            // Try dhl_shipments (1 paquete = costo por caja × 1)
+            const dhlCost = +(carrierCostPerBox * 1).toFixed(2);
             const dhlResult = await client.query(`
               UPDATE dhl_shipments 
               SET delivery_address_id = $1,
@@ -4280,10 +4288,10 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
                   updated_at = CURRENT_TIMESTAMP
               WHERE id = $4 AND user_id = $5
               RETURNING id
-            `, [addrId, carrierService, carrierCostMxn, pkgId, userId]);
+            `, [addrId, carrierService, dhlCost, pkgId, userId]);
             if (dhlResult.rowCount && dhlResult.rowCount > 0) {
               updatedCount++;
-              console.log(`📦 DHL shipment ${pkgId} updated with carrier=${carrierService}`);
+              console.log(`📦 DHL shipment ${pkgId} → shipping=$${dhlCost}`);
             }
           }
         } else {

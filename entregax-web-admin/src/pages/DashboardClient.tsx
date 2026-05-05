@@ -3134,10 +3134,19 @@ export default function DashboardClient() {
       const isCarrierIncludedInAirFreight = selectedServiceType === 'china_air' && actualCarrier === 'paquete_express';
       if (isCarrierIncludedInAirFreight) {
         formData.append('carrierCost', '0');
+        formData.append('carrierCostPerBox', '0');
       } else if (selectedService?.price) {
         const priceNum = parseFloat(selectedService.price.replace(/[^0-9.]/g, ''));
         if (!isNaN(priceNum) && priceNum > 0) {
-          // isTotalPrice means the price is already the total, otherwise it's per-box
+          // 🎯 Asignación por caja: si la tarifa es total para el embarque, derivamos
+          // el precio por caja dividiendo entre el total de cajas. El backend luego
+          // multiplica por las cajas REALES de cada paquete (US-7967769772 con 1 caja
+          // recibe $400, US-5031479818 con 8 cajas recibe $3200 — NO $3600 a cada uno).
+          const pricePerBox = selectedService.isTotalPrice && totalBoxes > 0
+            ? priceNum / totalBoxes
+            : priceNum;
+          formData.append('carrierCostPerBox', String(pricePerBox));
+          // Mantener carrierCost (total) para compatibilidad con maritime/dhl branches
           const totalCost = selectedService.isTotalPrice ? priceNum : priceNum * totalBoxes;
           formData.append('carrierCost', String(totalCost));
         }
