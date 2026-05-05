@@ -450,27 +450,39 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           </View>
         </View>
 
-        {/* Progress Ring */}
-        <View style={styles.progressSection}>
-          <View style={styles.progressRing}>
-            <View style={[
-              styles.progressFill,
-              { 
-                width: stats.totalAssigned > 0 
-                  ? `${(stats.deliveredToday / stats.totalAssigned) * 100}%` 
-                  : '0%' 
-              }
-            ]} />
-            <View style={styles.progressContent}>
-              <Text style={styles.progressPercent}>
-                {stats.totalAssigned > 0 
-                  ? Math.round((stats.deliveredToday / stats.totalAssigned) * 100)
-                  : 0}%
-              </Text>
-              <Text style={styles.progressLabel}>Completado</Text>
+        {/* Progress Ring (oculto para monitoreo) / Botón X-SOS para monitoreo */}
+        {isMonitoreo ? (
+          <TouchableOpacity
+            style={styles.xsosButton}
+            onPress={() => navigation.navigate('ChatList', { user, token })}
+            activeOpacity={0.85}
+          >
+            <MaterialIcons name="chat" size={26} color="#fff" />
+            <Text style={styles.xsosText}>X-SOS</Text>
+            <MaterialIcons name="arrow-forward" size={22} color="rgba(255,255,255,0.85)" />
+          </TouchableOpacity>
+        ) : (
+          <View style={styles.progressSection}>
+            <View style={styles.progressRing}>
+              <View style={[
+                styles.progressFill,
+                { 
+                  width: stats.totalAssigned > 0 
+                    ? `${(stats.deliveredToday / stats.totalAssigned) * 100}%` 
+                    : '0%' 
+                }
+              ]} />
+              <View style={styles.progressContent}>
+                <Text style={styles.progressPercent}>
+                  {stats.totalAssigned > 0 
+                    ? Math.round((stats.deliveredToday / stats.totalAssigned) * 100)
+                    : 0}%
+                </Text>
+                <Text style={styles.progressLabel}>Completado</Text>
+              </View>
             </View>
           </View>
-        </View>
+        )}
 
         {/* Botón de asistencia - oculto para rol monitoreo */}
         {!isMonitoreo && (
@@ -687,6 +699,30 @@ const styles = StyleSheet.create({
   progressSection: {
     alignItems: 'center',
     paddingVertical: 20,
+  },
+  // Botón X-SOS (acceso directo al chat para monitoreo)
+  xsosButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F05A28',
+    marginHorizontal: 20,
+    marginVertical: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    borderRadius: 16,
+    shadowColor: '#F05A28',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  xsosText: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: '800',
+    letterSpacing: 2,
+    marginHorizontal: 12,
   },
   progressRing: {
     width: 180,

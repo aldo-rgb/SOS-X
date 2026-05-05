@@ -31,32 +31,26 @@ const FACTURAMA_PATHS = {
 
 // Candidatos para listar CFDIs recibidos (los planes Facturama usan distintos paths).
 // Se prueban en orden hasta encontrar uno que devuelve datos útiles.
+// Documentación oficial: https://apisandbox.facturama.mx/guias
 const FACTURAMA_RECEIVED_LIST_CANDIDATES = [
-    // Expense / Gastos (módulo "Cuentas por pagar" del portal de Facturama - ExpenseControl)
-    { path: '/api-lite/expenses',           params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to, status: 'unpaid' }) },
-    { path: '/api-lite/3/expenses',         params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    { path: '/api-lite/2/expenses',         params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    { path: '/Expense',                     params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    { path: '/api-lite/expense',            params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    // Accounts payable / Cuentas por pagar
-    { path: '/api-lite/accounts-payable',   params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    { path: '/api-lite/cuentas-por-pagar',  params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    // Buzón Fiscal moderno (requiere RFC del receptor)
-    { path: '/api-lite/cfdi-received',      params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    { path: '/api-lite/3/cfdi-received',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    { path: '/api-lite/2/cfdi-received',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    // Buzón Fiscal antiguo (CFDI emitidos vs recibidos vía type)
-    { path: '/api-lite/cfdis',              params: (from?: string, to?: string, rfc?: string) => ({ type: 'received', rfc, dateInitial: from, dateFinal: to }) },
-    { path: '/api-lite/2/cfdis',            params: (from?: string, to?: string, rfc?: string) => ({ type: 'received', rfc, dateInitial: from, dateFinal: to }) },
-    // Mailbox (lo que estaba respondiendo string vacío - probablemente requiere otro plan)
-    { path: '/api-lite/3/cfdis-mailbox',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    // === API MULTIEMISOR (CFDI 4.0) — Buzón Fiscal ===
+    { path: '/api-lite/cfdis-recibidos',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to, keyword: '' }) },
+    { path: '/api-lite/2/cfdis-recibidos',  params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to, keyword: '' }) },
+    { path: '/api-lite/3/cfdis-recibidos',  params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to, keyword: '' }) },
+    // === API WEB === (un solo emisor, no requiere RFC)
+    { path: '/cfdi/list-received',          params: (from?: string, to?: string) => ({ dateInitial: from, dateFinal: to }) },
+    { path: '/Cfdi',                        params: (from?: string, to?: string, rfc?: string) => ({ type: 'Received', rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/2/cfdis',                     params: (from?: string, to?: string) => ({ type: 'received', dateInitial: from, dateFinal: to }) },
+    // === Variantes en inglés ===
+    { path: '/api-lite/cfdis-received',     params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/2/cfdis-received',   params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/api-lite/3/cfdis-received',   params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    // === Mailbox / Buzón fiscal ===
     { path: '/api-lite/cfdis-mailbox',      params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
-    // Endpoint genérico Cfdi con type filter
-    { path: '/Cfdi',                        params: (from?: string, to?: string, rfc?: string) => ({ type: 'Received', rfc, dateFrom: from, dateTo: to }) },
-    // Originales
-    { path: '/api-lite/cfdis-received',     params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateFrom: from, dateTo: to }) },
-    { path: '/api-lite/3/cfdis-received',   params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateFrom: from, dateTo: to }) },
-    { path: '/api-lite/cfdis-recibidos',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateFrom: from, dateTo: to }) },
+    { path: '/api-lite/3/cfdis-mailbox',    params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    // === Expense / Gastos ===
+    { path: '/api-lite/expenses',           params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
+    { path: '/Expense',                     params: (from?: string, to?: string, rfc?: string) => ({ rfc, dateInitial: from, dateFinal: to }) },
 ];
 
 // Endpoints candidatos para probar credenciales (varían según plan API Web vs Multiemisor)

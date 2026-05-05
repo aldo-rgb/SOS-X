@@ -1341,86 +1341,58 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
   const handleSync = async () => {
     setSyncing(true);
     try {
-      // 1) Primero intentar el SCRAPER DEL PORTAL (app.facturama.mx) — es el método que sí
-      //    trae las facturas recibidas reales del módulo "Cuentas por Pagar" del portal.
-      //    Si las credenciales del portal no están configuradas, usa las del API como fallback.
-      try {
-        const r = await api.post(`/admin/facturama/sync-portal/${emitter.id}`, {});
-        const found = r.data.total_found ?? 0;
-        const ins = r.data.inserted ?? 0;
-        const skp = r.data.skipped ?? 0;
-        const usingFallback = r.data.using_api_credentials_as_fallback;
-        const unpaid = r.data.unpaid_count ?? 0;
-        const paidC = r.data.paid_count ?? 0;
-        if (found === 0) {
-          // Diagnóstico detallado en consola para debugging
-          console.warn('[Facturama Sync] 0 facturas. Diagnóstico:', r.data.diagnostic);
-          setSnackbar({
-            open: true,
-            message: `⚠️ El portal respondió OK pero no devolvió facturas (sin pagar: ${unpaid}, pagadas: ${paidC}). ${usingFallback ? 'Estás usando credenciales del API; quizá el RFC no tiene CFDIs recibidos en este portal o las credenciales son distintas.' : 'Verifica que el RFC tenga facturas recibidas en app.facturama.mx.'}`,
-            severity: 'warning'
-          });
-        } else {
-          setSnackbar({
-            open: true,
-            message: `✅ ${ins} nuevas, ${skp} omitidas (de ${found} encontradas en el portal${usingFallback ? ' usando credenciales del API' : ''})`,
-            severity: 'success'
-          });
-        }
-        load();
-        return;
-      } catch (portalErr: any) {
-        const code = portalErr?.response?.status;
-        const detail = portalErr?.response?.data?.detail || portalErr?.response?.data?.error || '';
-        const portalDiag = portalErr?.response?.data?.diagnostic;
-        const usingFallback = portalErr?.response?.data?.using_api_credentials_as_fallback;
-        // 401 = login rechazado por el portal (credenciales mal o distintas a las del API)
-        if (code === 401) {
-          console.warn('[Facturama Sync] Login rechazado:', portalDiag);
-          setSnackbar({
-            open: true,
-            message: usingFallback
-              ? `⚠️ Login al portal falló con las credenciales del API. Configura las credenciales específicas del portal en Configuración Fiscal. ${detail}`
-              : `⚠️ ${detail || 'Credenciales del portal incorrectas'}`,
-            severity: 'warning'
-          });
-          return;
-        }
-        // 400 = no hay credenciales configuradas
-        const shouldFallback = code === 400 || code === 404;
-        if (!shouldFallback) {
-          setSnackbar({
-            open: true,
-            message: detail || 'Error sincronizando con el portal Facturama',
-            severity: 'error'
-          });
-          return;
-        }
-        console.warn('[Sync] Portal falló, intentando API:', detail);
-      }
-
-      // 2) Fallback: API de Facturama (solo funciona en planes con Buzón Fiscal)
+      // Sincronización vía API oficial de Facturama (api.facturama.mx).
+      // Requiere plan con Buzón Fiscal / Recepción de CFDIs habilitado.
+      // Las credenciales son las mismas del API (facturama_username / facturama_password)
+      // configuradas en Configuración Fiscal del emisor.
       const today = new Date();
       const ago = new Date(today); ago.setDate(today.getDate() - 30);
       const r = await api.post(`/admin/facturama/sync/${emitter.id}`, {
         from: ago.toISOString().slice(0, 10),
-        to: today.toISOString().slice(0, 10)
+        to: today.toISOString().slice(0, 10),
       });
       const found = r.data.total_found ?? 0;
-      setSnackbar({
-        open: true,
-        message: found === 0
-          ? '⚠️ Sincronización completa pero Facturama no devolvió CFDIs recibidos. Configura las credenciales del PORTAL (app.facturama.mx) en Configuración Fiscal para ver tus facturas.'
-          : `✅ ${r.data.inserted} nuevas, ${r.data.skipped} omitidas (vía API)`,
-        severity: found === 0 ? 'warning' : 'success'
-      });
+      const ins = r.data.inserted ?? 0;
+      const skp = r.data.skipped ?? 0;
+      const diagnostic = r.data.diagnostic;
+      if (found === 0) {
+        console.warn('[Facturama Sync] 0 facturas vía API. Diagnóstico:', diagnostic);
+        setSnackbar({
+          open: true,
+          message: `⚠️ Facturama no devolvió CFDIs recibidos en los últimos 30 días${diagnostic?.endpoint_used ? ` (endpoint: ${diagnostic.endpoint_used})` : ''}. Verifica que el plan API tenga Buzón Fiscal habilitado para el RFC ${emitter.rfc}.`,
+          severity: 'warning',
+        });
+      } else {
+        setSnackbar({
+          open: true,
+          message: `✅ ${ins} nuevas, ${skp} omitidas (de ${found} encontradas vía API Facturama)`,
+          severity: 'success',
+        });
+      }
       load();
     } catch (e: any) {
-      setSnackbar({
-        open: true,
-        message: e.response?.data?.detail || e.response?.data?.error || 'Error sincronizando con Facturama. Configura las credenciales del PORTAL en Configuración Fiscal.',
-        severity: 'error'
-      });
+      const code = e?.response?.status;
+      const detail = e?.response?.data?.detail || e?.response?.data?.error || e.message;
+      console.warn('[Facturama Sync] Error API:', e?.response?.data || e);
+      if (code === 401 || code === 403) {
+        setSnackbar({
+          open: true,
+          message: `⚠️ Credenciales API Facturama rechazadas. Verifica usuario/contraseña y ambiente (sandbox/producción) en Configuración Fiscal. ${detail}`,
+          severity: 'warning',
+        });
+      } else if (code === 404) {
+        setSnackbar({
+          open: true,
+          message: `⚠️ Tu plan de Facturama no incluye Buzón Fiscal/Recepción de CFDIs. Contacta a Facturama para habilitarlo. ${detail}`,
+          severity: 'warning',
+        });
+      } else {
+        setSnackbar({
+          open: true,
+          message: detail || 'Error sincronizando con Facturama',
+          severity: 'error',
+        });
+      }
     } finally { setSyncing(false); }
   };
 
