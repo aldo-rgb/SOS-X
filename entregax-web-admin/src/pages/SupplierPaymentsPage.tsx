@@ -834,10 +834,9 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
           '& .Mui-selected': { color: `${ORANGE} !important` },
           '& .MuiTabs-indicator': { backgroundColor: ORANGE, height: 2, boxShadow: `0 0 8px ${ORANGE}` },
         }}>
-          <Tab icon={<PaymentsIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Solicitudes" />
-          <Tab icon={<CurrencyExchangeIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Tipo de Cambio" />
-          <Tab icon={<BusinessIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Proveedores" />
-          <Tab icon={<HubIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="ENTANGLED" />
+          <Tab value={0} icon={<PaymentsIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Solicitudes" />
+          <Tab value={2} icon={<BusinessIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Proveedores" />
+          <Tab value={3} icon={<HubIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="ENTANGLED" />
         </Tabs>
       </Paper>
 
@@ -1046,8 +1045,9 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         </Paper>
       )}
 
-      {/* Tab: Tipo de Cambio — Sección ENTANGLED (CRUD por proveedor) */}
-      {tabValue === 1 && (
+      {/* Tab ENTANGLED — Configuración global de proveedores + overrides por cliente + servicio v2 + solicitudes */}
+      {tabValue === 3 && (
+        <>
         <Paper sx={{ p: 3, borderRadius: 3, mt: 3, bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_PRIMARY }}>
           <Box sx={{ mb: 1 }}>
             <Typography variant="h6" fontWeight="bold">
@@ -1213,6 +1213,10 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
             </Table>
           </TableContainer>
         </Paper>
+
+        {/* Configuración v2 (servicio con/sin factura), overrides por cliente v2 y bandeja de solicitudes */}
+        <EntangledAdminTab />
+        </>
       )}
 
       {/* Tab: Proveedores — Base de datos global (beneficiarios reales registrados por clientes) */}
@@ -1472,8 +1476,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         </DialogActions>
       </Dialog>
 
-      {/* Tab: ENTANGLED */}
-      {tabValue === 3 && <EntangledAdminTab />}
+      {/* Tab: ENTANGLED — Render unificado se hace arriba dentro del bloque tabValue===3 */}
 
       {/* Modal Proveedor */}
       <Dialog open={providerModal} onClose={() => setProviderModal(false)} maxWidth="sm" fullWidth
