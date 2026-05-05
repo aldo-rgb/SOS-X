@@ -311,6 +311,19 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
     }
   })();
 
+  // Costo del servicio (PO Box) solo visible para super_admin / admin
+  const canViewServiceCost = (() => {
+    try {
+      const userStr = localStorage.getItem('user');
+      if (!userStr) return false;
+      const u = JSON.parse(userStr);
+      const role = String(u.role || '').toLowerCase().replace(/\s+/g, '_');
+      return ['super_admin', 'admin'].includes(role);
+    } catch {
+      return false;
+    }
+  })();
+
   const fmtMoney = (v: number | null | undefined, currency: 'MXN' | 'USD' = 'MXN') => {
     if (v == null || isNaN(Number(v))) return '—';
     return `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
@@ -813,7 +826,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                           })()}
                         </Grid>
                       )}
-                      {m.poboxServiceCost != null && (
+                      {canViewServiceCost && m.poboxServiceCost != null && (
                         <Grid size={{ xs: 6, md: 3 }}>
                           <Typography variant="overline" color="text.secondary">
                             Costo del servicio
