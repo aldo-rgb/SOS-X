@@ -388,6 +388,12 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           </View>
           <TouchableOpacity 
             style={styles.profileButton}
+            onPress={() => navigation.navigate('ChatList', { user, token })}
+          >
+            <MaterialIcons name="chat" size={24} color="#F05A28" />
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.profileButton}
             onPress={() => navigation.navigate('MyProfile', { user, token })}
           >
             <Image
@@ -498,7 +504,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             >
               <View style={[styles.actionIconBox, { backgroundColor: action.color }]}>
                 <MaterialIcons name={action.icon as any} size={28} color="#fff" />
-                {action.badge && action.badge > 0 && (
+                {!!action.badge && action.badge > 0 && (
                   <View style={styles.actionBadge}>
                     <Text style={styles.actionBadgeText}>{action.badge}</Text>
                   </View>

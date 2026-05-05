@@ -736,7 +736,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       >
         <View style={[styles.moduleIcon, { backgroundColor: module.color }]}>
           <IconComponent name={module.icon as any} size={28} color="#fff" />
-          {module.badge && module.badge > 0 && (
+          {!!module.badge && module.badge > 0 && (
             <View style={styles.moduleBadge}>
               <Text style={styles.moduleBadgeText}>{module.badge}</Text>
             </View>
