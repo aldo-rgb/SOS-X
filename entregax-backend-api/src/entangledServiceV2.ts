@@ -188,10 +188,14 @@ export const getTipoCambio = async (
       params: { divisa },
     });
     const data = res.data || {};
+    // Schema real del API: { divisa, valor }. Mantenemos fallback a tipo_cambio por compat.
+    const valor = data.valor != null ? Number(data.valor)
+      : data.tipo_cambio != null ? Number(data.tipo_cambio)
+      : undefined;
     return {
       ok: true,
       divisa: data.divisa,
-      tipo_cambio: data.tipo_cambio != null ? Number(data.tipo_cambio) : undefined,
+      tipo_cambio: valor,
       vigencia: data.vigencia,
       raw: data,
     };
@@ -222,11 +226,15 @@ export const searchConceptos = async (
       params: { q, limit },
     });
     const data = res.data || {};
-    const results: EntangledConceptoResultV2[] = Array.isArray(data.results)
-      ? data.results
-      : Array.isArray(data)
-        ? data
-        : [];
+    // Schema real del API: { total, conceptos: [{ clave_prodserv, descripcion }] }.
+    // Mantenemos fallbacks a results/array por compat.
+    const results: EntangledConceptoResultV2[] = Array.isArray(data.conceptos)
+      ? data.conceptos
+      : Array.isArray(data.results)
+        ? data.results
+        : Array.isArray(data)
+          ? data
+          : [];
     return { ok: true, results };
   } catch (err) {
     const ax = err as AxiosError;
