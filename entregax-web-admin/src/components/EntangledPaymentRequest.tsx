@@ -866,7 +866,6 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       return null;
     }
     if (step === 1) {
-      if (!selectedProviderId) return 'Selecciona un proveedor ENTANGLED';
       if (!form.monto || Number(form.monto) <= 0) return 'Captura un monto válido';
       if (!['USD', 'RMB'].includes(form.divisa_destino)) return 'Selecciona una divisa válida';
       if (!quote) return 'No se pudo calcular la cotización';
@@ -1642,64 +1641,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               💵 {t('entangled.sections.operation')}
             </Typography>
 
-            {selectedProviderId && providers.find((p) => p.id === selectedProviderId) && (
-              <Card sx={{ mb: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}` }}>
-                <CardContent sx={{ py: 1.5, px: 2, '&:last-child': { pb: 1.5 } }}>
-                  <Stack direction="row" spacing={0.8} alignItems="center" sx={{ mb: 1 }}>
-                    <CheckCircleIcon sx={{ color: ORANGE, fontSize: 18 }} />
-                    <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE }}>
-                      Proveedor de pago seleccionado
-                    </Typography>
-                  </Stack>
-                  <Stack spacing={0.5}>
-                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
-                      <strong>Proveedor:</strong> {providers.find((p) => p.id === selectedProviderId)?.name}
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
-                      <strong>TC USD:</strong> <span style={{ color: ORANGE, fontWeight: 600 }}>${Number(providers.find((p) => p.id === selectedProviderId)?.tipo_cambio_usd).toFixed(4)}</span> MXN
-                    </Typography>
-                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
-                      <strong>Comisión:</strong> <span style={{ color: ORANGE, fontWeight: 600 }}>{Number(providers.find((p) => p.id === selectedProviderId)?.porcentaje_compra).toFixed(2)}%</span>
-                    </Typography>
-                  </Stack>
-                </CardContent>
-              </Card>
-            )}
-
             <Grid container spacing={2}>
-              <Grid size={{ xs: 12 }}>
-                <TextField
-                  select fullWidth label="Proveedor ENTANGLED"
-                  value={selectedProviderId === '' ? '' : String(selectedProviderId)}
-                  onChange={(e) => setSelectedProviderId(e.target.value ? Number(e.target.value) : '')}
-                  required
-                  helperText={
-                    providers.length === 0
-                      ? 'No hay proveedores activos configurados'
-                      : 'Cada proveedor tiene su propio TC y % de compra'
-                  }
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      color: '#ffffff',
-                      backgroundColor: '#0a0a0a',
-                      '& fieldset': { borderColor: '#333333' },
-                      '&:hover fieldset': { borderColor: '#555555' },
-                      '&.Mui-focused fieldset': { borderColor: ORANGE },
-                    },
-                    '& .MuiInputLabel-root': { color: '#888888' },
-                    '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                    '& .MuiOutlinedInput-input': { color: '#ffffff' },
-                    '& .MuiSvgIcon-root': { color: ORANGE },
-                    '& .MuiFormHelperText-root': { color: '#666666' },
-                  }}
-                >
-                  {providers.map((p) => (
-                    <MenuItem key={p.id} value={String(p.id)}>
-                      {p.name}{p.is_default ? ' · default' : ''} — TC USD ${Number(p.tipo_cambio_usd).toFixed(2)} / TC RMB ${Number(p.tipo_cambio_rmb).toFixed(2)} / {Number(p.porcentaje_compra).toFixed(2)}%
-                    </MenuItem>
-                  ))}
-                </TextField>
-              </Grid>
               <Grid size={{ xs: 6 }}>
                 <TextField
                   fullWidth type="number" label={t('entangled.fields.amount')}
@@ -1763,7 +1705,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       {t('entangled.wizard.fxRate', 'Tipo de cambio')}: <strong>${quote.tipo_cambio.toFixed(4)} MXN / {form.divisa_destino}</strong>
                     </Typography>
                     <Typography variant="body2" sx={{ color: '#ffffff' }}>
-                      {t('entangled.wizard.totalToPay', 'Total a pagar a XOX')}: <strong style={{ color: ORANGE }}>${formatMoney(quote.monto_mxn_total)} MXN</strong>
+                      {t('entangled.wizard.totalToPay', 'Total a pagar')}: <strong style={{ color: ORANGE }}>${formatMoney(quote.monto_mxn_total)} MXN</strong>
                     </Typography>
                   </Stack>
                 </CardContent>
@@ -2211,7 +2153,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             <Card sx={{ mb: 2, bgcolor: 'rgba(255,102,0,0.08)', border: `1px solid rgba(255,102,0,0.45)` }}>
               <CardContent>
                 <Typography variant="subtitle2" sx={{ color: ORANGE, fontWeight: 700 }}>
-                  {t('entangled.wizard.totalToPay', 'Total a pagar a XOX')}
+                  {t('entangled.wizard.totalToPay', 'Total a pagar')}
                 </Typography>
                 <Typography variant="h5" sx={{ color: '#ffffff' }}>
                   ${formatMoney(lastCreated.quote.monto_mxn_total)} MXN
