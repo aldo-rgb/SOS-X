@@ -1232,60 +1232,26 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             }
         }
 
-        // Si tiene guía de Paquete Express y no hay national_shipping_cost capturado en packages,
-        // tomar el total real desde pqtx_shipments (lo que cobró Paquete Express).
-        if (pkg.national_tracking && (pkg.national_shipping_cost == null || Number(pkg.national_shipping_cost) === 0)) {
+        // NOTA: NO sobrescribir national_shipping_cost con el total de pqtx_shipments ni prorratear
+        // por número de packages en la guía. El costo asignado por caja se guarda directamente en
+        // packages.national_shipping_cost al momento de asignar paquetería (bulkAssignDelivery con
+        // carrierCostPerBox × total_boxes del package). Ese valor es la fuente de verdad.
+
+        // Sin embargo, para mostrar a admin/super_admin el costo real cobrado por la API de
+        // Paquete Express (referencia/auditoría), buscamos el total de pqtx_shipments por
+        // tracking_number sin modificar national_shipping_cost.
+        let pqtxApiTotal: number | null = null;
+        if (pkg.national_tracking) {
             try {
                 const pqtxRes = await pool.query(
-                    `SELECT total, subtotal FROM pqtx_shipments WHERE tracking_number = $1 LIMIT 1`,
+                    `SELECT total::numeric AS total FROM pqtx_shipments WHERE tracking_number = $1 LIMIT 1`,
                     [pkg.national_tracking]
                 );
                 if (pqtxRes.rows.length > 0 && pqtxRes.rows[0].total != null) {
-                    pkg.national_shipping_cost = pqtxRes.rows[0].total;
+                    pqtxApiTotal = parseFloat(pqtxRes.rows[0].total);
                 }
             } catch (err) {
                 console.warn('[getShipmentByTracking] No se pudo leer pqtx_shipments:', err);
-            }
-        }
-
-        // 🎯 SOLUCIÓN ESTRUCTURAL: si packages.pqtx_shipment_id está vinculado, ese es el costo real.
-        // Prorrateamos por número de packages que comparten la misma guía PQTX.
-        // Esto garantiza que un envío legacy con costo duplicado en varias filas se muestre correcto.
-        let pqtxShare: { total: number; siblingCount: number; pqtxTotal: number } | null = null;
-        if (pkg.pqtx_shipment_id) {
-            try {
-                const psRes = await pool.query(
-                    `SELECT ps.total::numeric AS pqtx_total,
-                            (SELECT COUNT(*)::int FROM packages WHERE pqtx_shipment_id = ps.id) AS sibling_count
-                     FROM pqtx_shipments ps WHERE ps.id = $1`,
-                    [pkg.pqtx_shipment_id]
-                );
-                if (psRes.rows.length > 0) {
-                    const pqtxTotal = parseFloat(psRes.rows[0].pqtx_total) || 0;
-                    const siblingCount = parseInt(psRes.rows[0].sibling_count, 10) || 1;
-                    if (pqtxTotal > 0 && siblingCount > 0) {
-                        // Si el package es master con hijas, el "share" del envío es el TOTAL completo
-                        // (el master representa al envío entero — sus hijas no son siblings extra para
-                        // este propósito; ya están dentro del mismo pqtx_shipment).
-                        // Si el package es hijo o suelto, su share = total / N (N = packages totalmente
-                        // independientes que comparten la guía).
-                        // Heurística: contar SOLO masters y singles entre siblings (excluir children
-                        // que pertenecen a un master del grupo).
-                        const distinctRes = await pool.query(
-                            `SELECT COUNT(*)::int AS n
-                             FROM packages
-                             WHERE pqtx_shipment_id = $1
-                               AND (master_id IS NULL OR is_master = true)`,
-                            [pkg.pqtx_shipment_id]
-                        );
-                        const distinctShipments = Math.max(1, parseInt(distinctRes.rows[0].n, 10) || 1);
-                        pqtxShare = { total: pqtxTotal / distinctShipments, siblingCount: distinctShipments, pqtxTotal };
-                        // Sobrescribir national_shipping_cost con el share real del paquete
-                        pkg.national_shipping_cost = pqtxShare.total;
-                    }
-                }
-            } catch (err) {
-                console.warn('[getShipmentByTracking] No se pudo prorratear pqtx_shipment:', err);
             }
         }
 
@@ -1389,11 +1355,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         return total / boxes;
                     })(),
                     // Información del envío PQTX cuando hay vínculo estructural (varios packages compartiendo guía)
-                    pqtxShipment: pqtxShare ? {
-                        totalGuia: pqtxShare.pqtxTotal,
-                        envíosEnGuia: pqtxShare.siblingCount,
-                        costoProrrateado: pqtxShare.total,
-                    } : null,
+                    pqtxShipment: null,
+                    // Total real cobrado por la API de Paquete Express (visible solo para admin/super_admin en frontend)
+                    pqtxApiTotal,
                     poboxServiceCost: pkg.pobox_service_cost != null ? parseFloat(pkg.pobox_service_cost) : null,
                     poboxVentaUsd: pkg.pobox_venta_usd != null ? parseFloat(pkg.pobox_venta_usd) : null,
                     poboxVentaMxn: pkg.pobox_venta_mxn != null ? parseFloat(pkg.pobox_venta_mxn) : null,

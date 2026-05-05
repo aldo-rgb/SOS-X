@@ -104,6 +104,7 @@ interface ShipmentMaster {
     envíosEnGuia: number;
     costoProrrateado: number;
   } | null;
+  pqtxApiTotal?: number | null;
   poboxServiceCost?: number | null;
   poboxVentaUsd?: number | null;
   poboxVentaMxn?: number | null;
@@ -798,7 +799,6 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                             const total = Number(m.nationalLabelCost) || 0;
                             const boxes = Number(m.totalBoxes) || 1;
                             const perBox = boxes > 0 ? total / boxes : total;
-                            const isProrated = !!m.pqtxShipment;
                             return (
                               <>
                                 <Typography variant="body1" fontWeight="bold" color="error.main">
@@ -807,15 +807,6 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                                 <Typography variant="caption" color="text.secondary" display="block">
                                   📦 {boxes} caja{boxes !== 1 ? 's' : ''} × {fmtMoney(perBox, 'MXN')}
                                 </Typography>
-                                {isProrated && m.pqtxShipment && (
-                                  <Chip
-                                    size="small"
-                                    label={`Prorrateado: ${m.pqtxShipment.envíosEnGuia} envíos en guía total ${fmtMoney(m.pqtxShipment.totalGuia, 'MXN')}`}
-                                    color="info"
-                                    variant="outlined"
-                                    sx={{ mt: 0.5, height: 22, fontSize: '0.7rem' }}
-                                  />
-                                )}
                                 {m.nationalCarrier && (
                                   <Typography variant="caption" color="text.secondary" display="block">
                                     {lastMileLabel(m.nationalCarrier)}
@@ -826,18 +817,35 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                           })()}
                         </Grid>
                       )}
-                      {canViewServiceCost && m.poboxServiceCost != null && (
+                      {canViewServiceCost && (m.poboxServiceCost != null || m.pqtxApiTotal != null) && (
                         <Grid size={{ xs: 6, md: 3 }}>
-                          <Typography variant="overline" color="text.secondary">
-                            Costo del servicio
-                          </Typography>
-                          <Typography variant="body1" fontWeight="bold">
-                            {fmtMoney(m.poboxServiceCost, 'MXN')}
-                          </Typography>
-                          {m.poboxCostUsd != null && (
-                            <Typography variant="caption" color="text.secondary">
-                              ({fmtMoney(m.poboxCostUsd, 'USD')})
-                            </Typography>
+                          {m.poboxServiceCost != null && (
+                            <>
+                              <Typography variant="overline" color="text.secondary">
+                                Costo del servicio
+                              </Typography>
+                              <Typography variant="body1" fontWeight="bold">
+                                {fmtMoney(m.poboxServiceCost, 'MXN')}
+                              </Typography>
+                              {m.poboxCostUsd != null && (
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  ({fmtMoney(m.poboxCostUsd, 'USD')})
+                                </Typography>
+                              )}
+                            </>
+                          )}
+                          {m.pqtxApiTotal != null && (
+                            <Box sx={{ mt: m.poboxServiceCost != null ? 1.5 : 0 }}>
+                              <Typography variant="overline" color="text.secondary">
+                                Costo paquetería (API)
+                              </Typography>
+                              <Typography variant="body1" fontWeight="bold" color="error.main">
+                                {fmtMoney(m.pqtxApiTotal, 'MXN')}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Total real cobrado por Paquete Express
+                              </Typography>
+                            </Box>
                           )}
                         </Grid>
                       )}

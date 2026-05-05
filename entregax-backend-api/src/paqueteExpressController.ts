@@ -1400,10 +1400,28 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
       phone: pkg.phone,
     };
 
-    // Construir lista de bultos: hijas si existen, si no master como única caja
+    // Construir lista de bultos: hijas si existen, si no master como única caja.
+    // 🛡️ Detección de bug de captura: si la suma de pesos de las hijas excede
+    // notoriamente al peso del master (>5% o >2kg), significa que el operador
+    // capturó el peso TOTAL en cada caja (caso real US-5031479818: master=123kg,
+    // 8 hijas con 123kg c/u → suma=984kg). En ese caso, distribuimos el peso
+    // del master uniformemente entre las cajas para no inflar la cotización.
+    const masterWeight = Number(pkg.weight) || 0;
+    const childWeightsSum = children.reduce((s: number, c: any) => s + (Number(c.weight) || 0), 0);
+    const useMasterEvenSplit = (
+      children.length > 1 &&
+      masterWeight > 0 &&
+      childWeightsSum > masterWeight * 1.05 &&
+      (childWeightsSum - masterWeight) > 2
+    );
+    if (useMasterEvenSplit) {
+      console.warn(`⚠️  [PQTX-GEN] Peso de hijas (${childWeightsSum.toFixed(2)} kg) excede al master (${masterWeight.toFixed(2)} kg) en ${pkg.tracking_internal}. Distribuyendo peso del master entre ${children.length} cajas.`);
+    }
+    const evenWeight = useMasterEvenSplit ? masterWeight / children.length : 0;
+
     const piecesData = children.length > 0
       ? children.map((c: any) => ({
-          weight: Number(c.weight) || Number(pkg.weight) || 1,
+          weight: useMasterEvenSplit ? evenWeight : (Number(c.weight) || Number(pkg.weight) || 1),
           pkgLength: Number(c.pkg_length) || Number(pkg.pkg_length) || 30,
           pkgWidth: Number(c.pkg_width) || Number(pkg.pkg_width) || 30,
           pkgHeight: Number(c.pkg_height) || Number(pkg.pkg_height) || 30,
