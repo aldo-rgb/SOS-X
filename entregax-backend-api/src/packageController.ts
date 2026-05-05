@@ -1484,7 +1484,7 @@ const formatStatusLabelForMovement = (status: string | null | undefined): string
 
 const getPackageMovementsBaseByTracking = async (tracking: string) => {
     const result = await pool.query(
-        `SELECT p.id, p.user_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
+        `SELECT p.id, p.user_id, p.box_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
                 p.is_master, p.current_branch_id, p.warehouse_location,
                 b.name AS current_branch_name, b.code AS current_branch_code
          FROM packages p
@@ -1503,6 +1503,7 @@ const getMaritimeOrderBaseByTracking = async (tracking: string) => {
         `SELECT mo.id,
                 mo.user_id,
                 mo.ordersn,
+                mo.shipping_mark,
                 mo.status,
                 mo.created_at,
                 mo.updated_at,
@@ -1532,7 +1533,7 @@ const getMaritimeOrderBaseByTracking = async (tracking: string) => {
     }
     for (const cand of candidates) {
         const r = await pool.query(
-            `SELECT mo.id, mo.user_id, mo.ordersn, mo.status, mo.created_at, mo.updated_at,
+            `SELECT mo.id, mo.user_id, mo.ordersn, mo.shipping_mark, mo.status, mo.created_at, mo.updated_at,
                     mo.last_tracking_status, mo.last_tracking_detail, mo.last_tracking_date
              FROM maritime_orders mo
              WHERE REGEXP_REPLACE(UPPER(COALESCE(mo.ordersn, '')), '[^A-Z0-9]', '', 'g') = $1
@@ -1547,7 +1548,7 @@ const getMaritimeOrderBaseByTracking = async (tracking: string) => {
 
 const getPackageMovementsBaseById = async (id: number) => {
     const result = await pool.query(
-        `SELECT p.id, p.user_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
+        `SELECT p.id, p.user_id, p.box_id, p.status, p.created_at, p.updated_at, p.tracking_internal, p.tracking_provider,
                 p.is_master
          FROM packages p
          WHERE p.id = $1
@@ -1927,7 +1928,7 @@ const buildMaritimeMovementsResponse = async (order: any) => {
 
 const getChinaReceiptBaseByTracking = async (tracking: string) => {
     const result = await pool.query(
-        `SELECT cr.id, cr.user_id, cr.fno, cr.status, cr.created_at, cr.updated_at
+        `SELECT cr.id, cr.user_id, cr.fno, cr.shipping_mark, cr.status, cr.created_at, cr.updated_at
          FROM china_receipts cr
          WHERE UPPER(cr.fno) = UPPER($1)
          LIMIT 1`,
@@ -1995,19 +1996,43 @@ const buildChinaAirMovementsResponse = async (receipt: any) => {
 };
 
 export const getPackageMovementsByTracking = async (req: Request, res: Response): Promise<any> => {
+    // Verifica si un cliente puede ver los movimientos del paquete/orden.
+    // Coincide por user_id directo o, si user_id es null, por box_id/shipping_mark.
+    const checkClientPermission = async (
+        user: any,
+        owner: { user_id?: any; box_id?: string | null; shipping_mark?: string | null }
+    ): Promise<boolean> => {
+        const requesterRole = String(user?.role || '').toLowerCase();
+        const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
+        if (!isClientRole) return true; // Staff/admin siempre puede
+
+        const requesterId = Number(user?.userId || 0);
+        if (owner?.user_id && Number(owner.user_id) === requesterId) return true;
+
+        // Fallback: comparar por box_id del cliente vs box_id/shipping_mark del paquete
+        try {
+            const ur = await pool.query('SELECT box_id FROM users WHERE id = $1', [requesterId]);
+            const userBox = String(ur.rows?.[0]?.box_id || '').toUpperCase().trim();
+            if (!userBox) return false;
+            const pkgBox = String(owner?.box_id || '').toUpperCase().trim();
+            if (pkgBox && pkgBox === userBox) return true;
+            const sm = String(owner?.shipping_mark || '').toUpperCase().trim();
+            if (sm && sm.includes(userBox)) return true;
+        } catch {}
+        return false;
+    };
+
     try {
         const tracking = String(req.params.tracking || '').trim();
         if (!tracking) return res.status(400).json({ success: false, error: 'Tracking requerido' });
+
+        const user = (req as any).user;
 
         const pkg = await getPackageMovementsBaseByTracking(tracking);
         if (!pkg) {
             const maritimeOrder = await getMaritimeOrderBaseByTracking(tracking);
             if (maritimeOrder) {
-                const user = (req as any).user;
-                const requesterId = Number(user?.userId || 0);
-                const requesterRole = String(user?.role || '').toLowerCase();
-                const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
-                if (isClientRole && requesterId !== Number(maritimeOrder.user_id)) {
+                if (!(await checkClientPermission(user, maritimeOrder))) {
                     return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
                 }
                 const maritimeResponse = await buildMaritimeMovementsResponse(maritimeOrder);
@@ -2018,11 +2043,7 @@ export const getPackageMovementsByTracking = async (req: Request, res: Response)
             const chinaReceipt = await getChinaReceiptBaseByTracking(tracking);
             if (!chinaReceipt) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
 
-            const user = (req as any).user;
-            const requesterId = Number(user?.userId || 0);
-            const requesterRole = String(user?.role || '').toLowerCase();
-            const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
-            if (isClientRole && requesterId !== Number(chinaReceipt.user_id)) {
+            if (!(await checkClientPermission(user, chinaReceipt))) {
                 return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
             }
 
@@ -2030,11 +2051,7 @@ export const getPackageMovementsByTracking = async (req: Request, res: Response)
             return res.json(chinaResponse);
         }
 
-        const user = (req as any).user;
-        const requesterId = Number(user?.userId || 0);
-        const requesterRole = String(user?.role || '').toLowerCase();
-        const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
-        if (isClientRole && requesterId !== Number(pkg.user_id)) {
+        if (!(await checkClientPermission(user, pkg))) {
             return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
         }
 
@@ -2055,11 +2072,22 @@ export const getPackageMovementsById = async (req: Request, res: Response): Prom
         if (!pkg) return res.status(404).json({ success: false, error: 'Paquete no encontrado' });
 
         const user = (req as any).user;
-        const requesterId = Number(user?.userId || 0);
         const requesterRole = String(user?.role || '').toLowerCase();
         const isClientRole = ['client', 'customer', 'usuario', 'user'].includes(requesterRole);
-        if (isClientRole && requesterId !== Number(pkg.user_id)) {
-            return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
+        if (isClientRole) {
+            const requesterId = Number(user?.userId || 0);
+            let allowed = pkg.user_id && Number(pkg.user_id) === requesterId;
+            if (!allowed) {
+                try {
+                    const ur = await pool.query('SELECT box_id FROM users WHERE id = $1', [requesterId]);
+                    const userBox = String(ur.rows?.[0]?.box_id || '').toUpperCase().trim();
+                    const pkgBox = String(pkg.box_id || '').toUpperCase().trim();
+                    if (userBox && pkgBox && userBox === pkgBox) allowed = true;
+                } catch {}
+            }
+            if (!allowed) {
+                return res.status(403).json({ success: false, error: 'No tienes permiso para ver estos movimientos' });
+            }
         }
 
         const response = await buildPackageMovementsResponse(pkg);
