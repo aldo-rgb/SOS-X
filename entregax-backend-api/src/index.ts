@@ -77,6 +77,7 @@ import {
   checkAddress,
   registerAddress,
   getPendingVerifications,
+  getVerificationDetails,
   approveVerification,
   rejectVerification,
   getVerificationStats
@@ -3110,6 +3111,7 @@ app.get('/api/verification/status', authenticateToken, getVerificationStatus);
 // --- RUTAS DE VERIFICACIÓN ADMIN (Revisión Manual KYC) ---
 app.get('/api/admin/verifications/pending', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getPendingVerifications);
 app.get('/api/admin/verifications/stats', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getVerificationStats);
+app.get('/api/admin/verifications/:userId/details', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getVerificationDetails);
 app.post('/api/admin/verifications/:userId/approve', authenticateToken, requireMinLevel(ROLES.DIRECTOR), approveVerification);
 app.post('/api/admin/verifications/:userId/reject', authenticateToken, requireMinLevel(ROLES.DIRECTOR), rejectVerification);
 

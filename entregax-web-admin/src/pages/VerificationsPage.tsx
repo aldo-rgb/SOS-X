@@ -24,8 +24,31 @@ import DirectionsCarIcon from '@mui/icons-material/DirectionsCar';
 import DiscountIcon from '@mui/icons-material/LocalOffer';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ORANGE = '#F05A28';
 const BLACK = '#111';
+
+// Resuelve cualquier formato de URL de imagen guardada:
+//  - data:image/...;base64,xxx  -> tal cual
+//  - https?://... -> tal cual
+//  - /uploads/xxx o uploads/xxx -> antepone API_BASE
+//  - base64 puro (sin prefijo) -> agrega prefijo image/jpeg
+//  - cualquier otra cosa -> null (no se puede mostrar)
+const resolveImageSrc = (raw?: string | null): string | null => {
+  if (!raw || typeof raw !== 'string') return null;
+  const v = raw.trim();
+  if (!v || v === 'signature_data') return null;
+  if (v.startsWith('data:')) return v;
+  if (v.startsWith('http://') || v.startsWith('https://')) return v;
+  if (v.startsWith('/uploads/') || v.startsWith('uploads/')) {
+    return `${API_BASE}${v.startsWith('/') ? '' : '/'}${v}`;
+  }
+  // Heurística: si parece base64 puro, agregar prefijo
+  if (/^[A-Za-z0-9+/=]+$/.test(v) && v.length > 100) {
+    return `data:image/jpeg;base64,${v}`;
+  }
+  return null;
+};
 
 interface PendingUser {
   id: number;
@@ -47,6 +70,15 @@ interface PendingUser {
   driver_license_front_url: string;
   driver_license_back_url: string;
   driver_license_expiry: string | null;
+  // Flags devueltos por el endpoint optimizado de listado
+  has_ine_front?: boolean;
+  has_ine_back?: boolean;
+  has_selfie?: boolean;
+  has_profile_photo?: boolean;
+  has_signature?: boolean;
+  has_license_front?: boolean;
+  has_license_back?: boolean;
+  avatar_url?: string | null;
 }
 
 interface Stats {
@@ -88,6 +120,7 @@ export default function VerificationsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<PendingUser | null>(null);
   const [viewDialog, setViewDialog] = useState(false);
+  const [loadingDetail, setLoadingDetail] = useState(false);
   const [rejectDialog, setRejectDialog] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -241,9 +274,30 @@ export default function VerificationsPage() {
     }
   };
 
-  const openViewDialog = (user: PendingUser) => {
+  const openViewDialog = async (user: PendingUser) => {
+    // Mostrar el diálogo de inmediato con la info ya conocida
     setSelectedUser(user);
     setViewDialog(true);
+    setLoadingDetail(true);
+    try {
+      const token = getToken();
+      const res = await axios.get(
+        `${API_URL}/admin/verifications/${user.id}/details`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      // Mezclar para conservar flags has_* del listado
+      setSelectedUser({ ...user, ...res.data });
+    } catch (err) {
+      const e = err as { response?: { data?: unknown }; message?: string };
+      console.error('Error cargando detalle:', e?.response?.data || e?.message);
+      setSnackbar({
+        open: true,
+        message: 'No se pudieron cargar las fotos del usuario',
+        severity: 'error',
+      });
+    } finally {
+      setLoadingDetail(false);
+    }
   };
 
   const openRejectDialog = () => {
@@ -397,7 +451,7 @@ export default function VerificationsPage() {
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                     <Avatar 
                       sx={{ bgcolor: ORANGE, width: 50, height: 50 }}
-                      src={user.selfie_url || user.profile_photo_url || undefined}
+                      src={resolveImageSrc(user.avatar_url || user.selfie_url || user.profile_photo_url) || undefined}
                     >
                       {user.full_name?.charAt(0) || '?'}
                     </Avatar>
@@ -649,10 +703,12 @@ export default function VerificationsPage() {
                   <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <BadgeIcon fontSize="small" /> ID Frente
                   </Typography>
-                  <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center' }}>
-                    {selectedUser.ine_front_url?.startsWith('data:') ? (
+                  <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {loadingDetail && !selectedUser.ine_front_url ? (
+                      <CircularProgress size={28} sx={{ color: ORANGE }} />
+                    ) : resolveImageSrc(selectedUser.ine_front_url) ? (
                       <img 
-                        src={selectedUser.ine_front_url} 
+                        src={resolveImageSrc(selectedUser.ine_front_url) as string} 
                         alt="INE Frente" 
                         style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
                       />
@@ -670,10 +726,12 @@ export default function VerificationsPage() {
                   <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <BadgeIcon fontSize="small" /> ID Reverso
                   </Typography>
-                  <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center' }}>
-                    {selectedUser.ine_back_url?.startsWith('data:') ? (
+                  <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {loadingDetail && !selectedUser.ine_back_url ? (
+                      <CircularProgress size={28} sx={{ color: ORANGE }} />
+                    ) : resolveImageSrc(selectedUser.ine_back_url) ? (
                       <img 
-                        src={selectedUser.ine_back_url} 
+                        src={resolveImageSrc(selectedUser.ine_back_url) as string} 
                         alt="INE Reverso" 
                         style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
                       />
@@ -691,19 +749,23 @@ export default function VerificationsPage() {
                   <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <CameraAltIcon fontSize="small" /> {selectedUser.is_employee_onboarded ? 'Foto de Perfil' : 'Selfie'}
                   </Typography>
-                  <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center' }}>
-                    {(selectedUser.selfie_url || selectedUser.profile_photo_url)?.startsWith('data:') ? (
-                      <img 
-                        src={selectedUser.selfie_url || selectedUser.profile_photo_url} 
-                        alt="Selfie" 
-                        style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
-                      />
-                    ) : (
-                      <Box sx={{ py: 4, color: 'text.secondary' }}>
-                        <CameraAltIcon sx={{ fontSize: 48, opacity: 0.3 }} />
-                        <Typography variant="body2">No disponible</Typography>
-                      </Box>
-                    )}
+                  <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    {(() => {
+                      const src = resolveImageSrc(selectedUser.selfie_url) || resolveImageSrc(selectedUser.profile_photo_url);
+                      if (loadingDetail && !src) return <CircularProgress size={28} sx={{ color: ORANGE }} />;
+                      return src ? (
+                        <img 
+                          src={src} 
+                          alt="Selfie" 
+                          style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
+                        />
+                      ) : (
+                        <Box sx={{ py: 4, color: 'text.secondary' }}>
+                          <CameraAltIcon sx={{ fontSize: 48, opacity: 0.3 }} />
+                          <Typography variant="body2">No disponible</Typography>
+                        </Box>
+                      );
+                    })()}
                   </Paper>
                 </Box>
 
@@ -714,29 +776,30 @@ export default function VerificationsPage() {
                     <DrawIcon fontSize="small" /> Firma Digital
                   </Typography>
                   <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center' }}>
-                    {selectedUser.signature_url && selectedUser.signature_url !== 'signature_data' ? (
-                      <Box sx={{ py: 2 }}>
-                        <img 
-                          src={selectedUser.signature_url.startsWith('data:') 
-                            ? selectedUser.signature_url 
-                            : `data:image/png;base64,${selectedUser.signature_url}`}
-                          alt="Firma" 
-                          style={{ 
-                            maxWidth: '100%', 
-                            maxHeight: 150, 
-                            border: '1px solid #e0e0e0',
-                            borderRadius: 8,
-                            backgroundColor: '#fff'
-                          }} 
-                        />
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Firma registrada</Typography>
-                      </Box>
-                    ) : (
-                      <Box sx={{ py: 4, color: 'text.secondary' }}>
-                        <DrawIcon sx={{ fontSize: 48, opacity: 0.3 }} />
-                        <Typography variant="body2">No disponible</Typography>
-                      </Box>
-                    )}
+                    {(() => {
+                      const src = resolveImageSrc(selectedUser.signature_url);
+                      return src ? (
+                        <Box sx={{ py: 2 }}>
+                          <img 
+                            src={src}
+                            alt="Firma" 
+                            style={{ 
+                              maxWidth: '100%', 
+                              maxHeight: 150, 
+                              border: '1px solid #e0e0e0',
+                              borderRadius: 8,
+                              backgroundColor: '#fff'
+                            }} 
+                          />
+                          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Firma registrada</Typography>
+                        </Box>
+                      ) : (
+                        <Box sx={{ py: 4, color: 'text.secondary' }}>
+                          <DrawIcon sx={{ fontSize: 48, opacity: 0.3 }} />
+                          <Typography variant="body2">No disponible</Typography>
+                        </Box>
+                      );
+                    })()}
                   </Paper>
                 </Box>
                 )}
@@ -764,10 +827,12 @@ export default function VerificationsPage() {
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
                     <Box sx={{ flex: '1 1 300px', minWidth: 250 }}>
                       <Typography variant="subtitle2" sx={{ mb: 1 }}>Licencia Frente</Typography>
-                      <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center' }}>
-                        {selectedUser.driver_license_front_url?.startsWith('data:') ? (
+                      <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {loadingDetail && !selectedUser.driver_license_front_url ? (
+                          <CircularProgress size={28} sx={{ color: ORANGE }} />
+                        ) : resolveImageSrc(selectedUser.driver_license_front_url) ? (
                           <img 
-                            src={selectedUser.driver_license_front_url} 
+                            src={resolveImageSrc(selectedUser.driver_license_front_url) as string} 
                             alt="Licencia Frente" 
                             style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
                           />
@@ -781,10 +846,12 @@ export default function VerificationsPage() {
                     </Box>
                     <Box sx={{ flex: '1 1 300px', minWidth: 250 }}>
                       <Typography variant="subtitle2" sx={{ mb: 1 }}>Licencia Reverso</Typography>
-                      <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center' }}>
-                        {selectedUser.driver_license_back_url?.startsWith('data:') ? (
+                      <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {loadingDetail && !selectedUser.driver_license_back_url ? (
+                          <CircularProgress size={28} sx={{ color: ORANGE }} />
+                        ) : resolveImageSrc(selectedUser.driver_license_back_url) ? (
                           <img 
-                            src={selectedUser.driver_license_back_url} 
+                            src={resolveImageSrc(selectedUser.driver_license_back_url) as string} 
                             alt="Licencia Reverso" 
                             style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
                           />

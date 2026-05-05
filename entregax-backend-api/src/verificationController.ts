@@ -300,8 +300,50 @@ export const registerAddress = async (req: Request, res: Response): Promise<void
 };
 
 // ============ ADMIN: LISTAR VERIFICACIONES PENDIENTES ============
-export const getPendingVerifications = async (req: Request, res: Response): Promise<void> => {
+// 🚀 OPTIMIZADO: NO devuelve los campos base64 (pueden ser MB cada uno).
+// Solo devuelve metadatos + flags has_* + URLs cortas (<500 chars) que sirven
+// para avatar. El detalle completo se carga en getVerificationDetails.
+export const getPendingVerifications = async (_req: Request, res: Response): Promise<void> => {
     try {
+        const result = await pool.query(`
+            SELECT 
+                id, full_name, email, box_id, phone, role,
+                verification_status, verification_submitted_at,
+                ai_verification_reason, created_at,
+                is_employee_onboarded, driver_license_expiry,
+                CASE WHEN ine_front_url IS NOT NULL AND LENGTH(ine_front_url) > 0 THEN TRUE ELSE FALSE END AS has_ine_front,
+                CASE WHEN ine_back_url IS NOT NULL AND LENGTH(ine_back_url) > 0 THEN TRUE ELSE FALSE END AS has_ine_back,
+                CASE WHEN selfie_url IS NOT NULL AND LENGTH(selfie_url) > 0 THEN TRUE ELSE FALSE END AS has_selfie,
+                CASE WHEN profile_photo_url IS NOT NULL AND LENGTH(profile_photo_url) > 0 THEN TRUE ELSE FALSE END AS has_profile_photo,
+                CASE WHEN signature_url IS NOT NULL AND LENGTH(signature_url) > 0 AND signature_url <> 'signature_data' THEN TRUE ELSE FALSE END AS has_signature,
+                CASE WHEN driver_license_front_url IS NOT NULL AND LENGTH(driver_license_front_url) > 0 THEN TRUE ELSE FALSE END AS has_license_front,
+                CASE WHEN driver_license_back_url IS NOT NULL AND LENGTH(driver_license_back_url) > 0 THEN TRUE ELSE FALSE END AS has_license_back,
+                CASE 
+                  WHEN selfie_url IS NOT NULL AND LENGTH(selfie_url) < 500 THEN selfie_url
+                  WHEN profile_photo_url IS NOT NULL AND LENGTH(profile_photo_url) < 500 THEN profile_photo_url
+                  ELSE NULL
+                END AS avatar_url
+            FROM users 
+            WHERE verification_status = 'pending_review'
+            ORDER BY verification_submitted_at DESC NULLS LAST
+            LIMIT 200
+        `);
+
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error obteniendo verificaciones pendientes:', error);
+        res.status(500).json({ error: 'Error al obtener verificaciones' });
+    }
+};
+
+// ============ ADMIN: DETALLE COMPLETO DE UNA VERIFICACIÓN (con fotos) ============
+export const getVerificationDetails = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { userId } = req.params;
+        if (!userId) {
+            res.status(400).json({ error: 'ID requerido' });
+            return;
+        }
         const result = await pool.query(`
             SELECT 
                 id, full_name, email, box_id, phone, role,
@@ -310,15 +352,16 @@ export const getPendingVerifications = async (req: Request, res: Response): Prom
                 profile_photo_url, ai_verification_reason, created_at,
                 is_employee_onboarded, driver_license_front_url, driver_license_back_url,
                 driver_license_expiry
-            FROM users 
-            WHERE verification_status = 'pending_review'
-            ORDER BY verification_submitted_at DESC NULLS LAST
-        `);
-
-        res.json(result.rows);
+            FROM users WHERE id = $1
+        `, [userId]);
+        if (result.rowCount === 0) {
+            res.status(404).json({ error: 'Usuario no encontrado' });
+            return;
+        }
+        res.json(result.rows[0]);
     } catch (error) {
-        console.error('Error obteniendo verificaciones pendientes:', error);
-        res.status(500).json({ error: 'Error al obtener verificaciones' });
+        console.error('Error obteniendo detalle de verificación:', error);
+        res.status(500).json({ error: 'Error al obtener detalle' });
     }
 };
 
