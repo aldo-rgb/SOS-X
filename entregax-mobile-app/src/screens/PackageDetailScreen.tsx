@@ -789,7 +789,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                     </Text>
                   ) : (
                     <Text style={[styles.totalValue, { color: ORANGE }]}>
-                      ${(details.saldo_pendiente ?? costSummary.saldo ?? costSummary.costoTotal).toFixed(2)} MXN
+                      ${(costSummary.saldo > 0 ? costSummary.saldo : (details.saldo_pendiente ?? costSummary.costoTotal)).toFixed(2)} MXN
                     </Text>
                   )}
                 </View>

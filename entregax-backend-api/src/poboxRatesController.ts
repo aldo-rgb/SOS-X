@@ -647,6 +647,9 @@ export const getUtilidadesData = async (req: Request, res: Response): Promise<vo
             LEFT JOIN users u ON p.user_id = u.id
             WHERE (p.service_type IS NULL OR UPPER(p.service_type) IN ('USA', 'POBOX_USA'))
             AND (p.is_master = true OR p.master_id IS NULL)
+            -- Excluir piezas hijas de guías multipieza (sufijo -NN, -NNN, -NNNN)
+            -- Solo el master/single debe contabilizarse para evitar duplicidad y costos negativos.
+            AND (p.tracking_internal IS NULL OR p.tracking_internal !~ '-[0-9]{2,}$')
             ${dateFilter}
             ORDER BY p.received_at DESC NULLS LAST, p.created_at DESC
             LIMIT 1000

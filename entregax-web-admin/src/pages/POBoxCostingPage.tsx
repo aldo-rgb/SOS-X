@@ -1108,10 +1108,15 @@ export default function POBoxCostingPage() {
                                         const envioNacional = parseFloat(String(pkg.national_shipping)) || 0;
                                         // Total cobrado al cliente (incluye envío)
                                         const totalCobrado = parseFloat(String(pkg.sale_price)) || 0;
-                                        // COSTO DE VENTA = Total - Envío Nacional (solo PO Box + GEX)
-                                        const costoVenta = totalCobrado - envioNacional;
+                                        // COSTO DE VENTA = Total - Envío Nacional (solo PO Box + GEX).
+                                        // Si el paquete legacy no tiene assigned_cost_mxn (sale_price=0)
+                                        // pero sí tiene envío nacional cargado, evitamos restar y
+                                        // mostramos 0 para no generar utilidad negativa artificial.
+                                        const costoVenta = totalCobrado > 0
+                                            ? Math.max(totalCobrado - envioNacional, 0)
+                                            : 0;
                                         // PO BOX = Costo de venta SIN GEX (precio PO Box puro)
-                                        const pobox = costoVenta - gexTotal;
+                                        const pobox = Math.max(costoVenta - gexTotal, 0);
                                         // UTILIDAD = Costo de venta - Costo (sin contar envío nacional)
                                         const utilidad = costoVenta - costo;
                                         

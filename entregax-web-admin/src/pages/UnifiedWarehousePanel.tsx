@@ -97,6 +97,15 @@ interface ShipmentMaster {
   clientPaidAt?: string | null;
   totalCost?: number | null;
   poboxCostUsd?: number | null;
+  nationalLabelCost?: number | null;
+  poboxServiceCost?: number | null;
+  poboxVentaUsd?: number | null;
+  poboxVentaMxn?: number | null;
+  poboxTarifaNivel?: number | null;
+  registeredExchangeRate?: number | null;
+  assignedCostMxn?: number | null;
+  montoPagado?: number | null;
+  saldoPendiente?: number | null;
   assignedAddress?: Address | null;
   currentBranch?: { id: number; code?: string | null; name?: string | null } | null;
   boxDimensions?: Array<{
@@ -282,6 +291,24 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
   const [movements, setMovements] = useState<MovementEvent[]>([]);
   const [loadingMovements, setLoadingMovements] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Roles autorizados a ver costos (paquetería + servicio)
+  const canViewCosts = (() => {
+    try {
+      const userStr = localStorage.getItem('user');
+      if (!userStr) return false;
+      const u = JSON.parse(userStr);
+      const role = String(u.role || '').toLowerCase().replace(/\s+/g, '_');
+      return ['super_admin', 'admin', 'director', 'customer_service'].includes(role);
+    } catch {
+      return false;
+    }
+  })();
+
+  const fmtMoney = (v: number | null | undefined, currency: 'MXN' | 'USD' = 'MXN') => {
+    if (v == null || isNaN(Number(v))) return '—';
+    return `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${currency}`;
+  };
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -724,6 +751,131 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                   </Box>
                 </Stack>
               </Grid>
+
+              {/* Costos (solo super_admin / admin / director / customer_service) */}
+              {canViewCosts && (
+                m.nationalLabelCost != null ||
+                m.poboxServiceCost != null ||
+                m.poboxVentaUsd != null ||
+                m.poboxCostUsd != null ||
+                m.assignedCostMxn != null ||
+                m.totalCost != null
+              ) && (
+                <Grid size={12}>
+                  <Paper variant="outlined" sx={{ p: 2, bgcolor: 'grey.50', borderColor: 'warning.light' }}>
+                    <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1.5 }}>
+                      <PaymentsIcon color="warning" />
+                      <Typography variant="subtitle2" fontWeight="bold" color="warning.dark">
+                        Costos internos (uso administrativo)
+                      </Typography>
+                    </Stack>
+                    <Grid container spacing={2}>
+                      {m.nationalLabelCost != null && (
+                        <Grid size={{ xs: 6, md: 3 }}>
+                          <Typography variant="overline" color="text.secondary">
+                            Costo paquetería (última milla)
+                          </Typography>
+                          <Typography variant="body1" fontWeight="bold" color="error.main">
+                            {fmtMoney(m.nationalLabelCost, 'MXN')}
+                          </Typography>
+                          {m.nationalCarrier && (
+                            <Typography variant="caption" color="text.secondary">
+                              {lastMileLabel(m.nationalCarrier)}
+                            </Typography>
+                          )}
+                        </Grid>
+                      )}
+                      {m.poboxServiceCost != null && (
+                        <Grid size={{ xs: 6, md: 3 }}>
+                          <Typography variant="overline" color="text.secondary">
+                            Costo del servicio
+                          </Typography>
+                          <Typography variant="body1" fontWeight="bold">
+                            {fmtMoney(m.poboxServiceCost, 'MXN')}
+                          </Typography>
+                          {m.poboxCostUsd != null && (
+                            <Typography variant="caption" color="text.secondary">
+                              ({fmtMoney(m.poboxCostUsd, 'USD')})
+                            </Typography>
+                          )}
+                        </Grid>
+                      )}
+                      {m.poboxVentaUsd != null && (
+                        <Grid size={{ xs: 12, md: 6 }}>
+                          <Typography variant="overline" color="text.secondary">
+                            Venta al cliente (PO Box)
+                          </Typography>
+                          {(() => {
+                            const totalUsd = Number(m.poboxVentaUsd) || 0;
+                            const tc = Number(m.registeredExchangeRate) || 0;
+                            const totalMxn = m.poboxVentaMxn != null
+                              ? Number(m.poboxVentaMxn)
+                              : (tc > 0 ? totalUsd * tc : 0);
+                            const boxes = Number(m.totalBoxes) || 1;
+                            const unitUsd = boxes > 0 ? totalUsd / boxes : totalUsd;
+                            const nivel = m.poboxTarifaNivel ?? null;
+                            return (
+                              <>
+                                <Typography variant="body1" fontWeight="bold" color="success.main">
+                                  {fmtMoney(totalMxn, 'MXN')}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  💵 {boxes > 1 ? `${boxes} cajas × ` : ''}${unitUsd.toFixed(2)} USD
+                                  {tc > 0 ? ` × TC $${tc.toFixed(2)}` : ''}
+                                  {nivel != null ? ` (Nivel ${nivel})` : ''}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  Total USD: ${totalUsd.toFixed(2)}
+                                </Typography>
+                              </>
+                            );
+                          })()}
+                        </Grid>
+                      )}
+                      {m.assignedCostMxn != null && (
+                        <Grid size={{ xs: 6, md: 3 }}>
+                          <Typography variant="overline" color="text.secondary">
+                            Costo asignado
+                          </Typography>
+                          <Typography variant="body1" fontWeight="bold">
+                            {fmtMoney(m.assignedCostMxn, 'MXN')}
+                          </Typography>
+                        </Grid>
+                      )}
+                      {m.totalCost != null && (
+                        <Grid size={{ xs: 6, md: 3 }}>
+                          <Typography variant="overline" color="text.secondary">
+                            Costo total GEX
+                          </Typography>
+                          <Typography variant="body1" fontWeight="bold">
+                            {fmtMoney(m.totalCost, 'MXN')}
+                          </Typography>
+                        </Grid>
+                      )}
+                      {m.montoPagado != null && (
+                        <Grid size={{ xs: 6, md: 3 }}>
+                          <Typography variant="overline" color="text.secondary">
+                            Monto pagado
+                          </Typography>
+                          <Typography variant="body1" fontWeight="bold" color="success.dark">
+                            {fmtMoney(m.montoPagado, 'MXN')}
+                          </Typography>
+                        </Grid>
+                      )}
+                      {m.saldoPendiente != null && Number(m.saldoPendiente) > 0 && (
+                        <Grid size={{ xs: 6, md: 3 }}>
+                          <Typography variant="overline" color="text.secondary">
+                            Saldo pendiente
+                          </Typography>
+                          <Typography variant="body1" fontWeight="bold" color="error.main">
+                            {fmtMoney(m.saldoPendiente, 'MXN')}
+                          </Typography>
+                        </Grid>
+                      )}
+                    </Grid>
+                  </Paper>
+                </Grid>
+              )}
 
               {/* Fechas */}
               <Grid size={{ xs: 12, md: 6 }}>

@@ -1193,7 +1193,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 const masterRes = await pool.query(
                     `SELECT status, payment_status, client_paid, client_paid_at, monto_pagado,
                             saldo_pendiente, assigned_cost_mxn, received_at, delivered_at,
-                            warehouse_location, current_branch_id
+                            warehouse_location, current_branch_id,
+                            pobox_service_cost, pobox_cost_usd, pobox_venta_usd, gex_total_cost,
+                            national_label_cost, national_carrier, national_tracking, national_label_url
                      FROM packages WHERE id = $1`,
                     [pkg.master_id]
                 );
@@ -1206,6 +1208,15 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     pkg.monto_pagado = m.monto_pagado ?? pkg.monto_pagado;
                     pkg.saldo_pendiente = m.saldo_pendiente ?? pkg.saldo_pendiente;
                     pkg.assigned_cost_mxn = m.assigned_cost_mxn ?? pkg.assigned_cost_mxn;
+                    // Costos internos (heredar del master si la hija no los tiene)
+                    pkg.pobox_service_cost = pkg.pobox_service_cost ?? m.pobox_service_cost;
+                    pkg.pobox_cost_usd = pkg.pobox_cost_usd ?? m.pobox_cost_usd;
+                    pkg.pobox_venta_usd = pkg.pobox_venta_usd ?? m.pobox_venta_usd;
+                    pkg.gex_total_cost = pkg.gex_total_cost ?? m.gex_total_cost;
+                    pkg.national_label_cost = pkg.national_label_cost ?? m.national_label_cost;
+                    pkg.national_carrier = pkg.national_carrier ?? m.national_carrier;
+                    pkg.national_tracking = pkg.national_tracking ?? m.national_tracking;
+                    pkg.national_label_url = pkg.national_label_url ?? m.national_label_url;
                     // Status: el más avanzado entre child y master
                     const order = ['received', 'in_transit', 'received_mty', 'received_partial',
                                    'out_for_delivery', 'ready_pickup', 'delivered'];
@@ -1218,6 +1229,22 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 }
             } catch (err) {
                 console.warn('[getShipmentByTracking] No se pudo heredar payment del master:', err);
+            }
+        }
+
+        // Si tiene guía de Paquete Express y no hay national_label_cost capturado en packages,
+        // tomar el total real desde pqtx_shipments (lo que cobró Paquete Express).
+        if (pkg.national_tracking && (pkg.national_label_cost == null || Number(pkg.national_label_cost) === 0)) {
+            try {
+                const pqtxRes = await pool.query(
+                    `SELECT total, subtotal FROM pqtx_shipments WHERE tracking_number = $1 LIMIT 1`,
+                    [pkg.national_tracking]
+                );
+                if (pqtxRes.rows.length > 0 && pqtxRes.rows[0].total != null) {
+                    pkg.national_label_cost = pqtxRes.rows[0].total;
+                }
+            } catch (err) {
+                console.warn('[getShipmentByTracking] No se pudo leer pqtx_shipments:', err);
             }
         }
 
@@ -1275,6 +1302,16 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     clientPaidAt: pkg.client_paid_at || null,
                     totalCost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : null,
                     poboxCostUsd: pkg.pobox_cost_usd ? parseFloat(pkg.pobox_cost_usd) : null,
+                    // Costos visibles solo para super_admin/admin/director/customer_service en frontend
+                    nationalLabelCost: pkg.national_label_cost != null ? parseFloat(pkg.national_label_cost) : null,
+                    poboxServiceCost: pkg.pobox_service_cost != null ? parseFloat(pkg.pobox_service_cost) : null,
+                    poboxVentaUsd: pkg.pobox_venta_usd != null ? parseFloat(pkg.pobox_venta_usd) : null,
+                    poboxVentaMxn: pkg.pobox_venta_mxn != null ? parseFloat(pkg.pobox_venta_mxn) : null,
+                    poboxTarifaNivel: pkg.pobox_tarifa_nivel != null ? Number(pkg.pobox_tarifa_nivel) : null,
+                    registeredExchangeRate: pkg.registered_exchange_rate != null ? parseFloat(pkg.registered_exchange_rate) : null,
+                    assignedCostMxn: pkg.assigned_cost_mxn != null ? parseFloat(pkg.assigned_cost_mxn) : null,
+                    montoPagado: pkg.monto_pagado != null ? parseFloat(pkg.monto_pagado) : null,
+                    saldoPendiente: pkg.saldo_pendiente != null ? parseFloat(pkg.saldo_pendiente) : null,
                     currentBranch: (() => {
                         // Determinar ubicación real según status (master o hijas) y warehouse_location.
                         // PRIORIDAD: el `status` manda sobre `warehouse_location`, ya que
