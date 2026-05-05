@@ -783,7 +783,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                           </Typography>
                           {(() => {
                             const total = Number(m.nationalLabelCost) || 0;
-                            const boxes = Number(m.totalBoxes) || Number(m.totalBoxesCount) || 1;
+                            const boxes = Number(m.totalBoxes) || 1;
                             const perBox = boxes > 0 ? total / boxes : total;
                             const isProrated = !!m.pqtxShipment;
                             return (

@@ -1322,7 +1322,6 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
   const [actionDlg, setActionDlg] = useState<{ open: boolean; mode: 'approve' | 'reject' | 'pay' | null; row: any | null }>({ open: false, mode: null, row: null });
   const [actionForm, setActionForm] = useState<any>({});
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' as 'success' | 'error' | 'info' | 'warning' });
-  const [syncing, setSyncing] = useState(false);
   const [syncingFacturapi, setSyncingFacturapi] = useState(false);
 
   const load = async () => {
@@ -1338,64 +1337,6 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [emitter.id, statusFilter]);
-
-  const handleSync = async () => {
-    setSyncing(true);
-    try {
-      // Sincronización vía API oficial de Facturama (api.facturama.mx).
-      // Requiere plan con Buzón Fiscal / Recepción de CFDIs habilitado.
-      // Las credenciales son las mismas del API (facturama_username / facturama_password)
-      // configuradas en Configuración Fiscal del emisor.
-      const today = new Date();
-      const ago = new Date(today); ago.setDate(today.getDate() - 30);
-      const r = await api.post(`/admin/facturama/sync/${emitter.id}`, {
-        from: ago.toISOString().slice(0, 10),
-        to: today.toISOString().slice(0, 10),
-      });
-      const found = r.data.total_found ?? 0;
-      const ins = r.data.inserted ?? 0;
-      const skp = r.data.skipped ?? 0;
-      const diagnostic = r.data.diagnostic;
-      if (found === 0) {
-        console.warn('[Facturama Sync] 0 facturas vía API. Diagnóstico:', diagnostic);
-        setSnackbar({
-          open: true,
-          message: `⚠️ Facturama no devolvió CFDIs recibidos en los últimos 30 días${diagnostic?.endpoint_used ? ` (endpoint: ${diagnostic.endpoint_used})` : ''}. Verifica que el plan API tenga Buzón Fiscal habilitado para el RFC ${emitter.rfc}.`,
-          severity: 'warning',
-        });
-      } else {
-        setSnackbar({
-          open: true,
-          message: `✅ ${ins} nuevas, ${skp} omitidas (de ${found} encontradas vía API Facturama)`,
-          severity: 'success',
-        });
-      }
-      load();
-    } catch (e: any) {
-      const code = e?.response?.status;
-      const detail = e?.response?.data?.detail || e?.response?.data?.error || e.message;
-      console.warn('[Facturama Sync] Error API:', e?.response?.data || e);
-      if (code === 401 || code === 403) {
-        setSnackbar({
-          open: true,
-          message: `⚠️ Credenciales API Facturama rechazadas. Verifica usuario/contraseña y ambiente (sandbox/producción) en Configuración Fiscal. ${detail}`,
-          severity: 'warning',
-        });
-      } else if (code === 404) {
-        setSnackbar({
-          open: true,
-          message: `⚠️ Tu plan de Facturama no incluye Buzón Fiscal/Recepción de CFDIs. Contacta a Facturama para habilitarlo. ${detail}`,
-          severity: 'warning',
-        });
-      } else {
-        setSnackbar({
-          open: true,
-          message: detail || 'Error sincronizando con Facturama',
-          severity: 'error',
-        });
-      }
-    } finally { setSyncing(false); }
-  };
 
   const handleSyncFacturapi = async () => {
     setSyncingFacturapi(true);
