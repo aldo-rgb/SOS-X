@@ -11,6 +11,7 @@ import {
   Platform,
   Linking,
   Image,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -647,6 +648,11 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
   if (step === dataStep) {
     return (
       <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={0}
+        >
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
             <Ionicons name="person" size={64} color="#C1272D" />
@@ -754,6 +760,7 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
             </TouchableOpacity>
           </View>
         </ScrollView>
+        </KeyboardAvoidingView>
       </SafeAreaView>
     );
   }
