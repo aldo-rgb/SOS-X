@@ -61,7 +61,7 @@ import axios from 'axios';
 import EntangledSupplierForm, { EMPTY_SUPPLIER } from './EntangledSupplierForm';
 import type { SupplierFormData } from './EntangledSupplierForm';
 
-import { Checkbox, FormControlLabel, Divider, List, ListItem, ListItemText, ListItemSecondaryAction, RadioGroup, Radio, FormControl, Card, CardContent } from '@mui/material';
+import { Checkbox, FormControlLabel, Divider, List, ListItem, ListItemText, ListItemSecondaryAction, Card, CardContent } from '@mui/material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ORANGE = '#FF6600';
@@ -885,6 +885,9 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       if (!form.rfc || !form.razon_social || !form.cp || !form.email) {
         return t('entangled.messages.requiredFields');
       }
+      if (!form.conceptos || !form.conceptos.trim()) {
+        return 'Captura al menos una clave SAT (clave_prodserv) a facturar';
+      }
     }
     return null;
   };
@@ -1546,6 +1549,32 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       <Typography variant="body2" sx={{ color: '#d1d5db', mb: 1 }}>
                         Emite factura SAT a tu cliente final. Requiere datos fiscales (RFC, régimen, uso CFDI) y conceptos.
                       </Typography>
+
+                      {(form.razon_social || form.rfc) && (
+                        <Box sx={{ mt: 1, mb: 1, p: 1.2, bgcolor: 'rgba(240,90,40,0.08)', border: '1px dashed rgba(240,90,40,0.4)', borderRadius: 1 }}>
+                          <Stack direction="row" spacing={1} alignItems="center">
+                            <CheckCircleIcon sx={{ color: ORANGE, fontSize: 18 }} />
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', lineHeight: 1.1 }}>
+                                Se facturará a:
+                              </Typography>
+                              <Typography
+                                variant="body2"
+                                sx={{ color: '#fff', fontWeight: 700, lineHeight: 1.2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                                title={form.razon_social || ''}
+                              >
+                                {form.razon_social || '—'}
+                              </Typography>
+                              {form.rfc && (
+                                <Typography variant="caption" sx={{ color: '#d1d5db', fontFamily: 'monospace', letterSpacing: '0.04em' }}>
+                                  {form.rfc}
+                                </Typography>
+                              )}
+                            </Box>
+                          </Stack>
+                        </Box>
+                      )}
+
                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
                         <Chip size="small" label="CFDI 4.0" sx={{ bgcolor: 'rgba(240,90,40,0.2)', color: ORANGE, fontWeight: 700 }} />
                         <Chip size="small" label="Triangulación SAT" sx={{ bgcolor: 'rgba(240,90,40,0.2)', color: ORANGE, fontWeight: 700 }} />
@@ -1593,7 +1622,11 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                 <ShieldOutlinedIcon sx={{ color: ORANGE }} />
                 <Box>
                   <Typography variant="caption" sx={{ color: '#d1d5db', fontWeight: 700, display: 'block' }}>
-                    {requiereFactura ? 'Has seleccionado: Pago con factura SAT' : 'Has seleccionado: Pago sin factura'}
+                    {requiereFactura
+                      ? (form.razon_social
+                          ? `Has seleccionado: Pago con factura SAT a ${form.razon_social}`
+                          : 'Has seleccionado: Pago con factura SAT')
+                      : 'Has seleccionado: Pago sin factura'}
                   </Typography>
                   <Typography variant="caption" sx={{ color: '#9ca3af' }}>
                     Puedes cambiar esta selección en cualquier momento desde la barra de pasos.
@@ -1739,40 +1772,19 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           </Paper>
           )}
 
-          {wizardStep === 3 && (
-          <>
-          {/* === ¿Requiere factura? === */}
-          <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
-            <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#ffffff' }}>
-              🧾 {t('entangled.wizard.invoiceQuestion', '¿Necesitas factura para este pago?')}
-            </Typography>
-            <FormControl>
-              <RadioGroup
-                row
-                value={requiereFactura ? 'yes' : 'no'}
-                onChange={(e) => setRequiereFactura(e.target.value === 'yes')}
-              >
-                <FormControlLabel
-                  value="yes"
-                  control={<Radio sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
-                  sx={{ color: '#ffffff' }}
-                  label={t('entangled.wizard.invoiceYes', 'Sí, quiero factura (CFDI)')}
-                />
-                <FormControlLabel
-                  value="no"
-                  control={<Radio sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
-                  sx={{ color: '#ffffff' }}
-                  label={t('entangled.wizard.invoiceNo', 'No, sin factura')}
-                />
-              </RadioGroup>
-            </FormControl>
-          </Paper>
-          </>
-          )}
-
-          {/* === Datos fiscales (solo si requiere factura) === */}
+          {/* === Paso 3: Clave SAT a facturar + datos fiscales (solo si eligió "con factura" en paso 0) === */}
           {wizardStep === 3 && requiereFactura && (
             <>
+              {/* Banner informativo: ya se eligió "con factura" en paso 0 */}
+              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}`, borderRadius: 1 }}>
+                <Stack direction="row" spacing={1} alignItems="center">
+                  <CheckCircleIcon sx={{ color: ORANGE, fontSize: 20 }} />
+                  <Typography variant="body2" sx={{ color: '#ffffff' }}>
+                    <strong style={{ color: ORANGE }}>Pago con factura SAT</strong> — indica la clave de producto/servicio a facturar y verifica tus datos fiscales.
+                  </Typography>
+                </Stack>
+              </Paper>
+
               {/* Mostrar datos precargados si existen */}
               {form.rfc && form.razon_social && !editingFiscalData && (
                 <Card sx={{ mb: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}` }}>
@@ -1955,11 +1967,14 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                   />
                 </Grid>
                 <Grid size={{ xs: 12 }}>
+                  <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mb: 0.5 }}>
+                    📝 Clave(s) de producto/servicio SAT a facturar *
+                  </Typography>
                   <TextField
-                    fullWidth label={t('entangled.fields.concepts')} value={form.conceptos}
+                    fullWidth required label="Clave SAT (clave_prodserv)" value={form.conceptos}
                     onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
                     placeholder="84111506, 90121800"
-                    helperText={t('entangled.fields.conceptsHelp', 'Códigos SAT separados por coma (opcional)')}
+                    helperText="Una o varias claves del catálogo SAT separadas por coma. Ej.: 84111506 (Servicios contables), 90121800 (Pago a proveedores)"
                     sx={{
                       '& .MuiOutlinedInput-root': {
                         color: '#ffffff',
@@ -1972,7 +1987,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       '& .MuiInputLabel-root': { color: '#888888' },
                       '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
                       '& .MuiOutlinedInput-input': { color: '#ffffff' },
-                      '& .MuiFormHelperText-root': { color: '#666666' },
+                      '& .MuiFormHelperText-root': { color: '#9ca3af' },
                     }}
                   />
                 </Grid>
