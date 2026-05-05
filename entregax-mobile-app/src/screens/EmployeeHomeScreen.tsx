@@ -827,6 +827,37 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             </TouchableOpacity>
           )}
 
+          {/* Banner de Verificación Pendiente: empleado ya completó alta pero
+              admin/director aún no aprueba sus documentos. */}
+          {isOnboarded && !isAdvisor && user.verificationStatus === 'pending_review' && (
+            <View style={[styles.onboardingBanner, { backgroundColor: '#F59E0B' }]}>
+              <Ionicons name="time" size={24} color="#fff" />
+              <View style={styles.onboardingContent}>
+                <Text style={styles.onboardingTitle}>⏳ Pendiente de verificación</Text>
+                <Text style={styles.onboardingSubtitle}>
+                  Tu alta está siendo revisada por un administrador. Recibirás una notificación cuando sea aprobada.
+                </Text>
+              </View>
+            </View>
+          )}
+
+          {/* Banner si la verificación fue rechazada */}
+          {isOnboarded && !isAdvisor && user.verificationStatus === 'rejected' && (
+            <TouchableOpacity
+              style={[styles.onboardingBanner, { backgroundColor: '#DC2626' }]}
+              onPress={() => navigation.navigate('EmployeeOnboarding', { user, token })}
+            >
+              <Ionicons name="close-circle" size={24} color="#fff" />
+              <View style={styles.onboardingContent}>
+                <Text style={styles.onboardingTitle}>❌ Verificación rechazada</Text>
+                <Text style={styles.onboardingSubtitle}>
+                  Toca aquí para volver a subir tus documentos.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
+
           {/* Banner de Aviso de Privacidad Pendiente para Asesores */}
           {isAdvisor && !user.privacyAcceptedAt && (
             <TouchableOpacity 
@@ -1113,8 +1144,9 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               )}
             </View>
 
-            {/* Botón de Checar Entrada/Salida para roles operativos */}
-            {['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff'].includes(user.role) && isOnboarded && (
+            {/* Botón de Checar Entrada/Salida para roles operativos
+                NOTA: 'monitoreo' queda excluido por solicitud (no checa asistencia desde la app) */}
+            {['repartidor', 'warehouse_ops', 'counter_staff'].includes(user.role) && isOnboarded && (
               <View style={styles.attendanceSection}>
                 <TouchableOpacity 
                   style={styles.attendanceButton}
