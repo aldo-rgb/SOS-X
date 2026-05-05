@@ -332,6 +332,13 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; }
     catch { return false; }
   })();
+  // 🔧 Permiso para eliminar guías (super_admin + gerente de sucursal)
+  const canDeletePackages = (() => {
+    try {
+      const role = JSON.parse(localStorage.getItem('user') || '{}').role;
+      return role === 'super_admin' || role === 'branch_manager';
+    } catch { return false; }
+  })();
   const [editingStatus, setEditingStatus] = useState(false);
   const [manualStatus, setManualStatus] = useState<PackageStatus>('received_mty');
   const [savingStatus, setSavingStatus] = useState(false);
@@ -1712,8 +1719,8 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                           handlePrintLabels(toPrint);
                         } catch { setSnackbar({ open: true, message: t('common.error'), severity: 'error' }); }
                       }}><PrintIcon fontSize="small" /></IconButton></Tooltip>
-                      {isSuperAdmin && (
-                        <Tooltip title="Eliminar guía (Super Admin)">
+                      {canDeletePackages && (
+                        <Tooltip title="Eliminar guía">
                           <IconButton
                             size="small"
                             color="error"

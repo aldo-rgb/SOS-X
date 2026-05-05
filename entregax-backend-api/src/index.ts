@@ -2774,7 +2774,7 @@ app.patch('/api/packages/:id/status', authenticateToken, requireMinLevel(ROLES.W
 app.patch('/api/packages/:id/client', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updatePackageClient);
 
 // DELETE package - SOLO super_admin
-app.delete('/api/packages/:id', authenticateToken, requireRole('super_admin'), deletePackage);
+app.delete('/api/packages/:id', authenticateToken, requireRole('super_admin', 'branch_manager'), deletePackage);
 
 // PATCH batch image - asigna una foto a varios paquetes (recepción en serie)
 app.patch('/api/packages/batch-image', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), batchAttachImage);
