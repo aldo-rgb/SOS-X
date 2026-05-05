@@ -34,17 +34,38 @@ const BLACK = '#111';
 //  - /uploads/xxx o uploads/xxx -> antepone API_BASE
 //  - base64 puro (sin prefijo) -> agrega prefijo image/jpeg
 //  - cualquier otra cosa -> null (no se puede mostrar)
+// Detecta HEIC (formato iOS no compatible con navegadores) y retorna null
+// para que se muestre "No disponible" en lugar de una imagen rota.
+const isHeicBase64 = (b64: string): boolean => {
+  // HEIC files have "ftypheic" or "ftypheix" or "ftypmif1" near the start.
+  // Base64 of "....ftyphei" includes "ZnR5cGhlaW" or "Z0eXBoZWlj".
+  return (
+    b64.includes('ZnR5cGhlaW') ||
+    b64.includes('Z0eXBoZWlj') ||
+    b64.includes('ZnR5cG1pZjE') ||
+    b64.includes('Z0eXBtaWYx')
+  );
+};
+
 const resolveImageSrc = (raw?: string | null): string | null => {
   if (!raw || typeof raw !== 'string') return null;
   const v = raw.trim();
   if (!v || v === 'signature_data') return null;
-  if (v.startsWith('data:')) return v;
+  if (v.startsWith('data:')) {
+    // Extraer la parte base64 y validar formato
+    const commaIdx = v.indexOf(',');
+    if (commaIdx > 0 && isHeicBase64(v.substring(commaIdx + 1, commaIdx + 100))) {
+      return null; // HEIC: no compatible con navegador
+    }
+    return v;
+  }
   if (v.startsWith('http://') || v.startsWith('https://')) return v;
   if (v.startsWith('/uploads/') || v.startsWith('uploads/')) {
     return `${API_BASE}${v.startsWith('/') ? '' : '/'}${v}`;
   }
   // Heurística: si parece base64 puro, agregar prefijo
   if (/^[A-Za-z0-9+/=]+$/.test(v) && v.length > 100) {
+    if (isHeicBase64(v.substring(0, 100))) return null;
     return `data:image/jpeg;base64,${v}`;
   }
   return null;
@@ -697,6 +718,34 @@ export default function VerificationsPage() {
               <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <BadgeIcon /> Documentos
               </Typography>
+              {/* Aviso si las fotos están en formato HEIC (iOS) no compatible */}
+              {(() => {
+                const fields = [
+                  selectedUser.ine_front_url,
+                  selectedUser.ine_back_url,
+                  selectedUser.selfie_url,
+                  selectedUser.profile_photo_url,
+                  selectedUser.driver_license_front_url,
+                  selectedUser.driver_license_back_url,
+                ];
+                const hasHeic = fields.some((f) => {
+                  if (!f || typeof f !== 'string') return false;
+                  const i = f.indexOf(',');
+                  const sample = i > 0 ? f.substring(i + 1, i + 100) : f.substring(0, 100);
+                  return isHeicBase64(sample);
+                });
+                if (!hasHeic) return null;
+                return (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    <Typography variant="body2" fontWeight={700}>
+                      Fotos en formato HEIC (iOS) no compatibles
+                    </Typography>
+                    <Typography variant="caption">
+                      El usuario subió las fotos en formato HEIC desde un iPhone, formato que no se puede mostrar en navegadores. Por favor solicítale que vuelva a tomar las fotos desde la app actualizada (la nueva versión las convierte a JPEG automáticamente).
+                    </Typography>
+                  </Alert>
+                );
+              })()}
               <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>
                 {/* INE Frente */}
                 <Box sx={{ flex: '1 1 300px', minWidth: 250 }}>
@@ -805,12 +854,12 @@ export default function VerificationsPage() {
                 )}
               </Box>
 
-              {/* Licencia de Conducir - solo para empleados */}
-              {selectedUser.is_employee_onboarded && (selectedUser.driver_license_front_url || selectedUser.driver_license_back_url) && (
+              {/* Licencia de Conducir - siempre visible para empleados */}
+              {selectedUser.is_employee_onboarded && (
                 <>
                   <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 2 }}>
                     <DirectionsCarIcon /> Licencia de Conducir
-                    {selectedUser.driver_license_expiry && (
+                    {selectedUser.driver_license_expiry ? (
                       <>
                         <Typography variant="body2" sx={{ ml: 2, color: 'text.secondary' }}>
                           Vence: {new Date(selectedUser.driver_license_expiry).toLocaleDateString('es-MX')}
@@ -822,6 +871,13 @@ export default function VerificationsPage() {
                           sx={{ ml: 1 }}
                         />
                       </>
+                    ) : (
+                      <Chip
+                        size="small"
+                        label="⚠️ Sin fecha de vencimiento"
+                        color="warning"
+                        sx={{ ml: 2 }}
+                      />
                     )}
                   </Typography>
                   <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 3 }}>

@@ -17,6 +17,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { api } from '../services/api';
 
 interface EmployeeOnboardingScreenProps {
@@ -110,7 +111,22 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
     // Permitir cámara o galería para todas las fotos (perfil, INE, licencia)
     const hasPermission = await requestMediaPermissions();
     if (!hasPermission) return;
-    
+
+    // 🔧 Convierte cualquier formato (HEIC iOS, PNG, etc.) a JPEG real,
+    // redimensionado para que sea liviano y compatible con navegadores.
+    const toJpegDataUrl = async (uri: string): Promise<string> => {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 1280 } }],
+        {
+          compress: 0.6,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: true,
+        }
+      );
+      return `data:image/jpeg;base64,${manipulated.base64}`;
+    };
+
     Alert.alert(
       'Seleccionar Foto',
       '¿Cómo deseas agregar la foto?',
@@ -126,13 +142,17 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
             const result = await ImagePicker.launchCameraAsync({
               mediaTypes: ['images'],
               allowsEditing: false,
-              quality: 0.4,
-              base64: true,
+              quality: 0.8,
             });
             
             if (!result.canceled && result.assets[0]) {
-              const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-              setPhotos(prev => ({ ...prev, [type]: base64Image }));
+              try {
+                const dataUrl = await toJpegDataUrl(result.assets[0].uri);
+                setPhotos(prev => ({ ...prev, [type]: dataUrl }));
+              } catch (err) {
+                console.error('Error procesando imagen:', err);
+                Alert.alert('Error', 'No se pudo procesar la imagen, intenta de nuevo.');
+              }
             }
           }
         },
@@ -142,13 +162,17 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
             const result = await ImagePicker.launchImageLibraryAsync({
               mediaTypes: ['images'],
               allowsEditing: false,
-              quality: 0.4,
-              base64: true,
+              quality: 0.8,
             });
             
             if (!result.canceled && result.assets[0]) {
-              const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-              setPhotos(prev => ({ ...prev, [type]: base64Image }));
+              try {
+                const dataUrl = await toJpegDataUrl(result.assets[0].uri);
+                setPhotos(prev => ({ ...prev, [type]: dataUrl }));
+              } catch (err) {
+                console.error('Error procesando imagen:', err);
+                Alert.alert('Error', 'No se pudo procesar la imagen, intenta de nuevo.');
+              }
             }
           }
         },
