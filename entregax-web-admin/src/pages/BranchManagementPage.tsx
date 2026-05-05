@@ -300,6 +300,9 @@ export default function BranchManagementPage() {
     'sales',
     'driver', 'repartidor',
     'manager',
+    'monitoreo',            // Monitoreo (observación)
+    'accountant', 'contador', // Contador
+    'advisor', 'sub_advisor', // Asesores
   ];
   const employeeUsers = users.filter(u => EMPLOYEE_ROLES.includes(u.role));
 
