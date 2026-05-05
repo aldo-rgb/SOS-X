@@ -9,6 +9,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import VerifiedIcon from '@mui/icons-material/Verified';
+import EntangledServiceConfigCard from './EntangledServiceConfigCard';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
@@ -64,7 +65,9 @@ export default function EntangledAdminTab() {
   useEffect(() => { load(); }, [load]);
 
   return (
-    <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
+    <>
+      <EntangledServiceConfigCard />
+      <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
       <Box sx={{ p: 2, bgcolor: 'grey.100', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
           <Typography fontWeight="bold">🔗 {t('entangled.title', 'Pago a Proveedores (ENTANGLED)')}</Typography>
@@ -168,5 +171,6 @@ export default function EntangledAdminTab() {
         </TableContainer>
       )}
     </Paper>
+    </>
   );
 }
