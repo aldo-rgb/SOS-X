@@ -113,7 +113,7 @@ import {
 import { Collapse } from '@mui/material';
 import api from '../services/api';
 import ClientTicketsPage from './ClientTicketsPage';
-import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
+import EntangledPaymentRequest from '../components/EntangledPaymentRequestV2';
 import ExternalProviderPage from './ExternalProviderPage';
 import OpenpaySavedCards from '../components/OpenpaySavedCards';
 import type { OpenpaySelection } from '../components/OpenpaySavedCards';
@@ -232,6 +232,7 @@ interface IncludedGuide {
   assigned_cost_mxn?: number;
   national_shipping_cost?: number;
   gex_total_cost?: number;
+  pobox_venta_usd?: number;
 }
 
 interface Invoice {
