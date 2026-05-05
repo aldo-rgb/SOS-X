@@ -113,7 +113,7 @@ import {
 import { Collapse } from '@mui/material';
 import api from '../services/api';
 import ClientTicketsPage from './ClientTicketsPage';
-import EntangledPaymentRequest from '../components/EntangledPaymentRequestV2';
+import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 import ExternalProviderPage from './ExternalProviderPage';
 import OpenpaySavedCards from '../components/OpenpaySavedCards';
 import type { OpenpaySelection } from '../components/OpenpaySavedCards';

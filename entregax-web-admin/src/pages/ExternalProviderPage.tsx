@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Box, IconButton, Tooltip, Typography } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { useTranslation } from 'react-i18next';
-import EntangledPaymentRequest from '../components/EntangledPaymentRequestV2';
+import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 
 const DARK = '#0A0A0A';
 const ORANGE = '#F05A28';
