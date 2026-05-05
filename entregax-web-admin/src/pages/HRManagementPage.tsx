@@ -73,6 +73,10 @@ const EMPLOYEE_ROLES = [
   { value: 'counter_staff', label: 'Mostrador', color: 'info' as const },
   { value: 'customer_service', label: 'Servicio a Cliente', color: 'primary' as const },
   { value: 'branch_manager', label: 'Operaciones', color: 'secondary' as const },
+  { value: 'monitoreo', label: 'Monitoreo', color: 'default' as const },
+  { value: 'accountant', label: 'Contador', color: 'default' as const },
+  { value: 'advisor', label: 'Asesor', color: 'primary' as const },
+  { value: 'sub_advisor', label: 'Sub-Asesor', color: 'primary' as const },
 ];
 
 interface Employee {
@@ -145,6 +149,13 @@ const translateRole = (role: string): string => {
     repartidor: 'Repartidor',
     customer_service: 'Servicio Cliente',
     branch_manager: 'Operaciones',
+    operaciones: 'Operaciones',
+    monitoreo: 'Monitoreo',
+    accountant: 'Contador',
+    contador: 'Contador',
+    advisor: 'Asesor',
+    sub_advisor: 'Sub-Asesor',
+    director: 'Director',
     admin: 'Admin',
     super_admin: 'Super Admin',
   };
@@ -159,6 +170,13 @@ const getRoleColor = (role: string): "error" | "warning" | "info" | "success" | 
     counter_staff: 'info',
     customer_service: 'primary',
     branch_manager: 'secondary',
+    operaciones: 'secondary',
+    monitoreo: 'default',
+    accountant: 'default',
+    contador: 'default',
+    advisor: 'primary',
+    sub_advisor: 'primary',
+    director: 'error',
     admin: 'error',
     super_admin: 'error',
   };
@@ -196,6 +214,7 @@ export default function HRManagementPage() {
   // Estado para mostrar contraseña temporal
   const [showTempPassword, setShowTempPassword] = useState(false);
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ name: string; password: string } | null>(null);
+  const [searchEmployee, setSearchEmployee] = useState('');
   
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
@@ -520,6 +539,30 @@ export default function HRManagementPage() {
 
       {/* TAB 0: Lista de Personal */}
       {tab === 0 && (
+        <>
+        <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+          <TextField
+            size="small"
+            fullWidth
+            placeholder="Buscar por nombre, email, teléfono, rol o # empleado..."
+            value={searchEmployee}
+            onChange={(e) => setSearchEmployee(e.target.value)}
+            sx={{ maxWidth: 480 }}
+          />
+          <Typography variant="body2" color="text.secondary">
+            {(() => {
+              const q = searchEmployee.trim().toLowerCase();
+              const total = employees.length;
+              const filtered = q
+                ? employees.filter(e =>
+                    [e.full_name, e.email, e.phone, e.role, e.employee_number, translateRole(e.role)]
+                      .filter(Boolean).some(v => String(v).toLowerCase().includes(q))
+                  ).length
+                : total;
+              return q ? `${filtered} de ${total}` : `${total} empleados`;
+            })()}
+          </Typography>
+        </Box>
         <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
           <Table>
             <TableHead sx={{ bgcolor: '#F05A28' }}>
@@ -553,14 +596,26 @@ export default function HRManagementPage() {
                     <TableCell><Skeleton variant="text" width={60} /></TableCell>
                   </TableRow>
                 ))
-              ) : employees.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
-                    <Typography color="text.secondary">No hay empleados registrados</Typography>
-                  </TableCell>
-                </TableRow>
-              ) : (
-                employees.map((emp) => (
+              ) : (() => {
+                const q = searchEmployee.trim().toLowerCase();
+                const filteredEmployees = q
+                  ? employees.filter(e =>
+                      [e.full_name, e.email, e.phone, e.role, e.employee_number, translateRole(e.role)]
+                        .filter(Boolean).some(v => String(v).toLowerCase().includes(q))
+                    )
+                  : employees;
+                if (filteredEmployees.length === 0) {
+                  return (
+                    <TableRow>
+                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                        <Typography color="text.secondary">
+                          {employees.length === 0 ? 'No hay empleados registrados' : 'Sin coincidencias para la búsqueda'}
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  );
+                }
+                return filteredEmployees.map((emp) => (
                 <TableRow key={emp.id} hover>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -626,11 +681,12 @@ export default function HRManagementPage() {
                     </Box>
                   </TableCell>
                 </TableRow>
-              ))
-              )}
+              ));
+              })()}
             </TableBody>
           </Table>
         </TableContainer>
+        </>
       )}
 
       {/* TAB 1: Asistencias del día */}
