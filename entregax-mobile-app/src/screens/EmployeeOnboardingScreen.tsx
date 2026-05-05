@@ -106,31 +106,7 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
   
   // Tomar foto con cámara o seleccionar de galería
   const pickImage = async (type: 'profilePhoto' | 'ineFront' | 'ineBack' | 'licenseFront' | 'licenseBack') => {
-    // Para documentos (INE, licencia), solo permitir cámara
-    const isDocument = ['ineFront', 'ineBack', 'licenseFront', 'licenseBack'].includes(type);
-    
-    if (isDocument) {
-      // Documentos: solo cámara, no galería
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permiso Requerido', 'Se necesita permiso de cámara para fotografiar tus documentos.');
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
-        allowsEditing: false,
-        quality: 0.8,
-        base64: true,
-      });
-      
-      if (!result.canceled && result.assets[0]) {
-        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-        setPhotos(prev => ({ ...prev, [type]: base64Image }));
-      }
-      return;
-    }
-    
-    // Para foto de perfil, permitir cámara o galería
+    // Permitir cámara o galería para todas las fotos (perfil, INE, licencia)
     const hasPermission = await requestMediaPermissions();
     if (!hasPermission) return;
     
@@ -671,7 +647,7 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
   if (step === dataStep) {
     return (
       <SafeAreaView style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
             <Ionicons name="person" size={64} color="#C1272D" />
             <Text style={styles.title}>Datos Personales</Text>
@@ -685,7 +661,6 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
               placeholder="Calle, número, colonia, ciudad, CP"
               value={formData.address}
               onChangeText={(text) => setFormData({ ...formData, address: text })}
-              multiline
             />
           </View>
 
@@ -708,6 +683,9 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
               placeholder="Nombre y teléfono"
               value={formData.emergencyContact}
               onChangeText={(text) => setFormData({ ...formData, emergencyContact: text })}
+              editable={true}
+              autoCorrect={false}
+              returnKeyType="next"
             />
           </View>
 
