@@ -100,7 +100,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#4CAF50',
     screen: 'DriverHome',
-    roles: ['repartidor'],
+    roles: ['repartidor', 'monitoreo'],
     requiresOnboarding: true,
   },
   {
@@ -613,7 +613,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   // Cargar estadísticas según rol
   const loadStats = useCallback(async () => {
     try {
-      if (user.role === 'repartidor') {
+      if (user.role === 'repartidor' || user.role === 'monitoreo') {
         const res = await api.get('/api/driver/route-today');
         if (res.data.success) {
           setStats(res.data.route);
@@ -844,8 +844,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             </TouchableOpacity>
           )}
 
-          {/* Stats para Repartidor */}
-          {user.role === 'repartidor' && isOnboarded && stats && (
+          {/* Stats para Repartidor / Monitoreo */}
+          {(user.role === 'repartidor' || user.role === 'monitoreo') && isOnboarded && stats && (
             <View style={styles.statsContainer}>
               <View style={styles.statItem}>
                 <Text style={styles.statNumber}>{stats.totalAssigned || 0}</Text>
@@ -1114,7 +1114,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             </View>
 
             {/* Botón de Checar Entrada/Salida para roles operativos */}
-            {['repartidor', 'warehouse_ops', 'counter_staff'].includes(user.role) && isOnboarded && (
+            {['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff'].includes(user.role) && isOnboarded && (
               <View style={styles.attendanceSection}>
                 <TouchableOpacity 
                   style={styles.attendanceButton}

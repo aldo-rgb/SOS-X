@@ -337,7 +337,7 @@ export const approveVerification = async (req: Request, res: Response): Promise<
         // Verificar si es empleado para también marcar onboarding completo
         const userCheck = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
         const userRole = userCheck.rows[0]?.role;
-        const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+        const employeeRoles = ['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
         const isEmployee = employeeRoles.includes(userRole);
 
         await pool.query(`

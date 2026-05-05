@@ -71,7 +71,7 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
       await changePasswordApi(token, currentPassword, newPassword);
       
       // Roles de empleados que necesitan onboarding (INE, fotos, tallas, etc.)
-      const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+      const employeeRoles = ['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
       const isEmployee = employeeRoles.includes(user.role);
       
       // Si es empleado, verificar si ya completó el onboarding
@@ -123,7 +123,7 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
             {
               text: 'Continuar',
               onPress: () => {
-                if (user.role === 'repartidor') {
+                if (user.role === 'repartidor' || user.role === 'monitoreo') {
                   navigation.replace('DriverHome', { user, token });
                   return;
                 }

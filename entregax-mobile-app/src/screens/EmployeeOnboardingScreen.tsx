@@ -40,7 +40,7 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
   // Obtener datos del usuario para saber si es repartidor
   const user = route?.params?.user;
   const token = route?.params?.token;
-  const isDriver = user?.role === 'repartidor';
+  const isDriver = user?.role === 'repartidor' || user?.role === 'monitoreo';
   const ADVISOR_ROLES = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
   const isAdvisor = ADVISOR_ROLES.includes(user?.role || '');
   
@@ -200,7 +200,7 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
               if (onComplete) {
                 onComplete();
               } else if (navigation) {
-                if (user?.role === 'repartidor') {
+                if (user?.role === 'repartidor' || user?.role === 'monitoreo') {
                   navigation.replace('DriverHome', { user, token: route?.params?.token });
                 } else {
                   navigation.replace('EmployeeHome', { user, token: route?.params?.token });
@@ -327,8 +327,8 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
             if (onComplete) {
               onComplete();
             } else if (navigation) {
-              // Repartidor va a su dashboard principal, resto a EmployeeHome
-              if (user?.role === 'repartidor') {
+              // Repartidor/Monitoreo van a su dashboard de chofer, resto a EmployeeHome
+              if (user?.role === 'repartidor' || user?.role === 'monitoreo') {
                 navigation.replace('DriverHome', { user, token: route?.params?.token });
               } else {
                 navigation.replace('EmployeeHome', { user, token: route?.params?.token });

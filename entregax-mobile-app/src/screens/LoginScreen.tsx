@@ -74,7 +74,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           currentPassword: password,
         });
       } else {
-        if (userData.role === 'repartidor') {
+        if (userData.role === 'repartidor' || userData.role === 'monitoreo') {
           navigation.replace('DriverHome', {
             user: userData,
             token,

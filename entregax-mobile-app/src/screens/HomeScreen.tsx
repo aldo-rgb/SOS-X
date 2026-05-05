@@ -133,7 +133,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const isPendingReview = verificationStatus === 'pending_review';
 
   // 👷 Detectar si es empleado (no requiere verificación de cliente)
-  const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'admin', 'super_admin'];
+  const employeeRoles = ['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'admin', 'super_admin'];
   const isEmployee = employeeRoles.includes(user.role);
   const isEmployeeOnboarded = user.isEmployeeOnboarded === true;
   
@@ -1770,8 +1770,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </View>
       )}
 
-      {/* � Banner de Módulo Repartidor - Solo para repartidores verificados */}
-      {user.role === 'repartidor' && employeeVerified && (
+      {/* � Banner de Módulo Repartidor - Solo para repartidores/monitoreo verificados */}
+      {(user.role === 'repartidor' || user.role === 'monitoreo') && employeeVerified && (
         <TouchableOpacity 
           style={styles.driverModuleBanner}
           onPress={() => navigation.navigate('DriverHome', { user, token })}

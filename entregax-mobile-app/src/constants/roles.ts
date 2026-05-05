@@ -21,6 +21,7 @@ export const CLIENT_ROLES = ['client', 'user'];
 // Roles que pueden acceder al escáner de bodega
 export const SCANNER_ROLES = [
   'repartidor',
+  'monitoreo',
   'warehouse_ops',
   'counter_staff',
   'branch_manager',

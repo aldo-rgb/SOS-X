@@ -729,7 +729,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     const isVerified = user.isVerified === true;
 
     // 👷 Detectar si es empleado
-    const employeeRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+    const employeeRoles = ['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
     const isEmployee = employeeRoles.includes(user.role);
     const isEmployeeOnboarded = user.isEmployeeOnboarded === true;
 
@@ -809,7 +809,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
 
     // Fallback cuando la pantalla se abrió sin historial en el stack
     const nav = navigation as any;
-    if (user?.role === 'repartidor') {
+    if (user?.role === 'repartidor' || user?.role === 'monitoreo') {
       nav.replace('DriverHome', { user, token });
       return;
     }

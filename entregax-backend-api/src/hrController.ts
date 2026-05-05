@@ -904,7 +904,7 @@ export const checkOnboardingStatus = async (req: Request, res: Response): Promis
     const userData = result.rows[0];
     
     // Solo roles de empleados requieren onboarding
-    const employeeRoles = ['warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager'];
+    const employeeRoles = ['warehouse_ops', 'counter_staff', 'repartidor', 'monitoreo', 'customer_service', 'branch_manager'];
     const advisorRoles = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
     const isEmployee = employeeRoles.includes(userData.role);
     const isAdvisor = advisorRoles.includes(userData.role);

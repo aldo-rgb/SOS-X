@@ -970,7 +970,7 @@ export const getAvailableDrivers = async (req: Request, res: Response) => {
     const result = await pool.query(`
       SELECT id, full_name, email, phone, role
       FROM users
-      WHERE role IN ('repartidor', 'warehouse_ops', 'branch_manager')
+      WHERE role IN ('repartidor', 'monitoreo', 'warehouse_ops', 'branch_manager')
       ORDER BY full_name
     `);
     
