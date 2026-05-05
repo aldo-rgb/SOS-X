@@ -1060,7 +1060,7 @@ const allowedOriginPatterns: RegExp[] = [
     })
     .filter(Boolean) as RegExp[],
 ];
-const bodyLimit = process.env.BODY_LIMIT || '10mb';
+const bodyLimit = process.env.BODY_LIMIT || '50mb';
 
 const authRateWindowMs = Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
 const authRateMax = Number(process.env.AUTH_RATE_LIMIT_MAX || 20);
@@ -1114,21 +1114,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use((_req: Request, res: Response, next: NextFunction) => {
   const originalJson = res.json.bind(res);
   (res as any).json = (payload: any) => {
-    if (
-      process.env.NODE_ENV === 'production' &&
-      res.statusCode >= 500 &&
-      payload &&
-      typeof payload === 'object'
-    ) {
-      const sanitized = { ...payload };
-      delete sanitized.details;
-      delete sanitized.stack;
-      delete sanitized.logs;
-      if (sanitized.error && typeof sanitized.error === 'string') {
-        sanitized.error = 'Error interno del servidor';
-      }
-      return originalJson(sanitized);
-    }
+    // Sanitización deshabilitada temporalmente para debug de onboarding
     return originalJson(payload);
   };
   next();
@@ -7497,9 +7483,13 @@ app.use((err: Error, req: Request, res: Response, _next: any) => {
     return res.status(403).json({ error: 'Origen no permitido' });
   }
   console.error('Error no manejado:', err);
+  console.error('Error stack:', (err as any)?.stack);
+  console.error('Error path:', req.path, 'method:', req.method);
   res.status(500).json({ 
     error: 'Error interno del servidor',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Algo salió mal'
+    message: err.message || 'Algo salió mal',
+    code: (err as any).code,
+    type: (err as any).type
   });
 });
 
