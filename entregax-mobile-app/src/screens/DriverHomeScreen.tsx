@@ -64,6 +64,8 @@ interface LoadedPackage {
 export default function DriverHomeScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const user = route?.params?.user;
+  // 👁️ Rol Monitoreo: NO conduce vehiculo, NO checa asistencia desde el dashboard.
+  const isMonitoreo = String(user?.role || '').toLowerCase() === 'monitoreo';
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
@@ -152,7 +154,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   };
 
   const getJourneyStatus = () => {
-    if (!inspectionDone) {
+    // Monitoreo no requiere inspección vehicular
+    if (!inspectionDone && !isMonitoreo) {
       return { text: 'Pendiente inspección', color: '#FF9800', icon: 'warning' };
     }
     if (stats.pendingToLoad > 0) {
@@ -418,19 +421,21 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           </View>
         </View>
 
-        {/* Botón de asistencia */}
-        <TouchableOpacity
-          style={styles.attendanceCard}
-          onPress={() => navigation.navigate('AttendanceChecker', { user, token })}
-        >
-          <View style={styles.attendanceLeft}>
-            <View style={styles.attendanceIconBox}>
-              <MaterialIcons name="schedule" size={28} color="#4CAF50" />
+        {/* Botón de asistencia - oculto para rol monitoreo */}
+        {!isMonitoreo && (
+          <TouchableOpacity
+            style={styles.attendanceCard}
+            onPress={() => navigation.navigate('AttendanceChecker', { user, token })}
+          >
+            <View style={styles.attendanceLeft}>
+              <View style={styles.attendanceIconBox}>
+                <MaterialIcons name="schedule" size={28} color="#4CAF50" />
+              </View>
+              <Text style={styles.attendanceText}>Checar Asistencia</Text>
             </View>
-            <Text style={styles.attendanceText}>Checar Asistencia</Text>
-          </View>
-          <MaterialIcons name="chevron-right" size={30} color="#4CAF50" />
-        </TouchableOpacity>
+            <MaterialIcons name="chevron-right" size={30} color="#4CAF50" />
+          </TouchableOpacity>
+        )}
 
         {/* Quick Actions */}
         <Text style={styles.sectionTitle}>Acciones Rápidas</Text>
