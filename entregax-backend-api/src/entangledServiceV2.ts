@@ -247,7 +247,7 @@ export const searchConceptos = async (
 };
 
 // ---------------------------------------------------------------------------
-// POST /admin/cliente-api/rotate
+// POST /api/admin/cliente-api/rotate
 // ---------------------------------------------------------------------------
 export const rotateApiKey = async (): Promise<{
   ok: boolean;
@@ -258,9 +258,10 @@ export const rotateApiKey = async (): Promise<{
 }> => {
   if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
   try {
-    const base = ENTANGLED_BASE_URL.replace(/\/$/, '').replace(/\/api\/v1$/i, '');
+    // El endpoint real vive en /api/admin/cliente-api/rotate (no bajo /api/v1).
+    const base = ENTANGLED_BASE_URL.replace(/\/$/, '').replace(/\/api\/v1$/i, '').replace(/\/api$/i, '');
     const res = await axios.post(
-      `${base}/admin/cliente-api/rotate`,
+      `${base}/api/admin/cliente-api/rotate`,
       {},
       {
         timeout: ENTANGLED_TIMEOUT_MS,
