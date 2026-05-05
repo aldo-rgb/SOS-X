@@ -1292,6 +1292,24 @@ export async function generateOnePqtxGuide(params: {
     console.error('No se pudo guardar pqtx_shipments:', e.message);
   }
 
+  // Vincular packages (master + hijas) al pqtx_shipment recién creado
+  try {
+    const psRes = await pool.query(
+      `SELECT id FROM pqtx_shipments WHERE tracking_number = $1 ORDER BY id DESC LIMIT 1`,
+      [guiaNo]
+    );
+    const psId = psRes.rows[0]?.id;
+    if (psId) {
+      const allIds = [params.pkgId, ...(params.childIds || [])];
+      await pool.query(
+        `UPDATE packages SET pqtx_shipment_id = $1, updated_at = NOW() WHERE id = ANY($2::int[])`,
+        [psId, allIds]
+      );
+    }
+  } catch (e: any) {
+    console.error('No se pudo vincular packages.pqtx_shipment_id:', e.message);
+  }
+
   return { ok: true, tracking: guiaNo, folioPorte, labelUrl, pieces: totalPieces };
 }
 

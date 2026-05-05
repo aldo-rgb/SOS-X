@@ -3439,6 +3439,51 @@ app.get('/api/admin/paquete-express/label/zpl/:trackingNumber', authenticateToke
 app.get('/api/admin/paquete-express/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxListShipments);
 app.post('/api/admin/paquete-express/generate-for-package', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), pqtxGenerateForPackage);
 
+// 🔗 Vincular packages a una guía PQTX existente (admin manual fix para legacy)
+// POST body: { packageIds: number[], pqtxTracking?: string, pqtxShipmentId?: number }
+app.post('/api/admin/paquete-express/link-packages', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: any, res: any) => {
+  try {
+    const { packageIds, pqtxTracking, pqtxShipmentId } = req.body || {};
+    if (!Array.isArray(packageIds) || packageIds.length === 0) {
+      return res.status(400).json({ error: 'packageIds requerido (array no vacío)' });
+    }
+    let psId = pqtxShipmentId;
+    if (!psId && pqtxTracking) {
+      const psRes = await pool.query(`SELECT id FROM pqtx_shipments WHERE tracking_number = $1 LIMIT 1`, [pqtxTracking]);
+      if (psRes.rows.length === 0) return res.status(404).json({ error: 'pqtx_shipment no encontrado' });
+      psId = psRes.rows[0].id;
+    }
+    if (!psId) return res.status(400).json({ error: 'pqtxTracking o pqtxShipmentId requerido' });
+
+    const result = await pool.query(
+      `UPDATE packages SET pqtx_shipment_id = $1, updated_at = NOW() WHERE id = ANY($2::int[]) RETURNING id, tracking_internal`,
+      [psId, packageIds]
+    );
+    res.json({ success: true, linked: result.rowCount, packages: result.rows, pqtxShipmentId: psId });
+  } catch (e: any) {
+    console.error('link-packages error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// 🔓 Desvincular packages (poner pqtx_shipment_id = NULL)
+app.post('/api/admin/paquete-express/unlink-packages', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: any, res: any) => {
+  try {
+    const { packageIds } = req.body || {};
+    if (!Array.isArray(packageIds) || packageIds.length === 0) {
+      return res.status(400).json({ error: 'packageIds requerido' });
+    }
+    const result = await pool.query(
+      `UPDATE packages SET pqtx_shipment_id = NULL, updated_at = NOW() WHERE id = ANY($1::int[]) RETURNING id`,
+      [packageIds]
+    );
+    res.json({ success: true, unlinked: result.rowCount });
+  } catch (e: any) {
+    console.error('unlink-packages error:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Maritime relabeling: capture per-box dimensions and generate PQTX guide
 app.get('/api/admin/relabeling/maritime/:orderId/boxes', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getMaritimeOrderBoxes);
 app.post('/api/admin/relabeling/maritime/:orderId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), upsertMaritimeOrderBox);
@@ -7610,8 +7655,30 @@ async function ensureRequiredColumns() {
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_last_sync_count INTEGER DEFAULT 0;
       ALTER TABLE accounting_received_invoices ADD COLUMN IF NOT EXISTS facturapi_id TEXT;
       CREATE INDEX IF NOT EXISTS idx_acc_recinv_facturapi ON accounting_received_invoices(facturapi_id);
+      -- 📦 Vínculo estructural packages ↔ pqtx_shipments (fuente de verdad del costo de paquetería)
+      -- Permite prorratear correctamente cuando varios paquetes viajan en la misma guía PQTX
+      -- (sea master multipieza o consolidación de varios envíos en una guía).
+      ALTER TABLE packages ADD COLUMN IF NOT EXISTS pqtx_shipment_id INTEGER;
+      CREATE INDEX IF NOT EXISTS idx_packages_pqtx_shipment_id ON packages(pqtx_shipment_id);
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
+
+    // Backfill: vincular packages.pqtx_shipment_id usando national_tracking → pqtx_shipments.tracking_number
+    try {
+      const linked = await pool.query(`
+        UPDATE packages p
+        SET pqtx_shipment_id = ps.id
+        FROM pqtx_shipments ps
+        WHERE p.pqtx_shipment_id IS NULL
+          AND p.national_tracking IS NOT NULL
+          AND p.national_tracking = ps.tracking_number
+      `);
+      if (linked.rowCount && linked.rowCount > 0) {
+        console.log(`🔗 [STARTUP] packages vinculados a pqtx_shipments: ${linked.rowCount}`);
+      }
+    } catch (e: any) {
+      console.warn('[STARTUP] No se pudo backfillear pqtx_shipment_id:', e.message);
+    }
 
     // Limpieza idempotente: borrar CLABEs simuladas legacy (formato 646180XXXXXXXXXXX)
     // que se generaban con generateVirtualClabe() antes de desactivar la simulación.
