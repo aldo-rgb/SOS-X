@@ -193,9 +193,14 @@ export const saveEmployeeOnboarding = async (req: Request, res: Response): Promi
       if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
         normalizedExpiry = v;
       } else if (/^\d{2}\/\d{2}\/\d{2,4}$/.test(v)) {
-        const [dd, mm, yy] = v.split('/');
+        const parts = v.split('/');
+        const dd = parts[0] || '';
+        const mm = parts[1] || '';
+        const yy = parts[2] || '';
         const yyyy = yy.length === 2 ? `20${yy}` : yy;
-        normalizedExpiry = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+        if (dd && mm && yyyy) {
+          normalizedExpiry = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+        }
       }
     }
 
