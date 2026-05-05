@@ -6,10 +6,9 @@ import {
   TableContainer, TableHead, TableRow, Chip, Avatar, CircularProgress,
   Alert, Snackbar, IconButton, Tooltip, Dialog, DialogTitle, DialogContent,
   DialogActions, FormControl, InputLabel, Select, MenuItem, InputAdornment,
-  Tabs, Tab, Card, CardContent, Divider, Switch, FormControlLabel, Autocomplete
+  Tabs, Tab, Card, CardContent, Divider, Switch, FormControlLabel
 } from '@mui/material';
 import DeleteIcon from '@mui/icons-material/Delete';
-import PercentIcon from '@mui/icons-material/Percent';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CurrencyExchangeIcon from '@mui/icons-material/CurrencyExchange';
 import PaymentsIcon from '@mui/icons-material/Payments';
@@ -170,16 +169,8 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
   const [entProviders, setEntProviders] = useState<EntProvider[]>([]);
   const [providerEditOpen, setProviderEditOpen] = useState(false);
   const [editingEntProvider, setEditingEntProvider] = useState<EntProvider | null>(null);
-  // Overrides por usuario
-  type UserPricing = { user_id: number; client_name: string; client_email: string; porcentaje_compra: string; notes: string | null; updated_at: string };
-  const [userPricing, setUserPricing] = useState<UserPricing[]>([]);
-  type UserOption = { id: number; full_name: string; email: string; box_id?: string };
-  const [userQuery, setUserQuery] = useState('');
-  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
-  const [selectedUser, setSelectedUser] = useState<UserOption | null>(null);
-  const [overridePct, setOverridePct] = useState<string>('');
-  const [overrideNotes, setOverrideNotes] = useState<string>('');
-  const [savingOverride, setSavingOverride] = useState(false);
+  // NOTA: el override por cliente legacy fue migrado al sistema unificado v2
+  // (servicio con/sin factura) en EntangledUserServicePricingCard.
 
   // Base de datos global de proveedores (beneficiarios) — agregada por número de cuenta
   type SupplierDb = {
@@ -225,9 +216,8 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
       // ENTANGLED: providers + overrides + solicitudes
       try {
         const statusQ = statusFilter !== 'all' ? `?status=${statusFilter}` : '';
-        const [provRes, upRes, reqRes] = await Promise.all([
+        const [provRes, reqRes] = await Promise.all([
           axios.get(`${API_URL}/admin/entangled/providers`, { headers }),
-          axios.get(`${API_URL}/admin/entangled/user-pricing`, { headers }),
           axios.get(`${API_URL}/admin/entangled/payment-requests${statusQ}`, { headers }),
         ]);
         const list = (provRes.data || []).map((p: any) => ({
@@ -235,7 +225,6 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
           bank_accounts: Array.isArray(p.bank_accounts) ? p.bank_accounts : [],
         }));
         setEntProviders(list);
-        setUserPricing(upRes.data || []);
         setEntangledRequests(reqRes.data || []);
       } catch (e) {
         console.warn('ENTANGLED endpoints no disponibles:', e);
@@ -308,59 +297,6 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
       loadData();
     } catch (e: any) {
       setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al guardar', severity: 'error' });
-    }
-  };
-
-  const handleSearchUsers = async (q: string) => {
-    setUserQuery(q);
-    if (!q || q.trim().length < 2) { setUserOptions([]); return; }
-    try {
-      const res = await axios.get(`${API_URL}/admin/users/search?q=${encodeURIComponent(q.trim())}`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      setUserOptions(res.data || []);
-    } catch (e) {
-      setUserOptions([]);
-    }
-  };
-
-  const handleSaveOverride = async () => {
-    if (!selectedUser) return;
-    const pct = Number(overridePct);
-    if (!Number.isFinite(pct) || pct < 0 || pct > 100) {
-      setSnackbar({ open: true, message: 'Porcentaje inválido (0–100)', severity: 'error' });
-      return;
-    }
-    setSavingOverride(true);
-    try {
-      await axios.put(`${API_URL}/admin/entangled/user-pricing/${selectedUser.id}`,
-        { porcentaje_compra: pct, notes: overrideNotes || null },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      setSnackbar({ open: true, message: 'Porcentaje guardado para el cliente', severity: 'success' });
-      setSelectedUser(null);
-      setOverridePct('');
-      setOverrideNotes('');
-      setUserQuery('');
-      setUserOptions([]);
-      loadData();
-    } catch (e) {
-      setSnackbar({ open: true, message: 'Error al guardar porcentaje', severity: 'error' });
-    } finally {
-      setSavingOverride(false);
-    }
-  };
-
-  const handleDeleteOverride = async (userId: number) => {
-    if (!window.confirm('¿Eliminar el override de este cliente? Dejará de tener comisión adicional.')) return;
-    try {
-      await axios.delete(`${API_URL}/admin/entangled/user-pricing/${userId}`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      setSnackbar({ open: true, message: 'Override eliminado', severity: 'success' });
-      loadData();
-    } catch (e) {
-      setSnackbar({ open: true, message: 'Error al eliminar', severity: 'error' });
     }
   };
 
