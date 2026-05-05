@@ -110,9 +110,29 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     horario: string;
   } | null>(null);
 
-  // 🔧 FIX: Usar saldo_pendiente para calcular el total a pagar
   const totalMXN = packages.reduce((sum, p) => {
-    const saldo = parseFloat(String((p as any).saldo_pendiente || p.assigned_cost_mxn || 0));
+    const pp = p as any;
+    const gexTotal = parseFloat(pp.gex_total_cost) || 0;
+    const shipping = parseFloat(pp.national_shipping_cost) || 0;
+    const pagado = parseFloat(pp.monto_pagado) || 0;
+    let poboxMxn = 0;
+    const poboxUsd = parseFloat(pp.pobox_venta_usd) || 0;
+    const tc = parseFloat(pp.registered_exchange_rate) || 0;
+    if (poboxUsd > 0 && tc > 0) {
+      poboxMxn = poboxUsd * tc;
+    } else if (pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0) {
+      poboxMxn = pp.child_packages.reduce((s: number, c: any) => {
+        const cMxn = parseFloat(c.pobox_venta_mxn) || 0;
+        const cUsd = parseFloat(c.pobox_venta_usd) || 0;
+        const cTc = parseFloat(c.registered_exchange_rate) || 0;
+        if (cMxn > 0) return s + cMxn;
+        if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
+        return s + (parseFloat(c.assigned_cost_mxn) || 0);
+      }, 0);
+    }
+    const saldo = poboxMxn > 0
+      ? Math.max(0, poboxMxn + gexTotal + shipping - pagado)
+      : parseFloat(String(pp.saldo_pendiente || p.assigned_cost_mxn || 0));
     return sum + saldo;
   }, 0);
   const totalWeight = packages.reduce((sum, p) => sum + parseFloat(String(p.weight || 0)), 0);
@@ -824,7 +844,28 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                     </View>
                     <View style={styles.packageCost}>
                       <Text style={styles.costValue}>
-                        ${parseFloat(String(pkg.assigned_cost_mxn || 0)).toFixed(2)}
+                        ${(() => {
+                          const pp = pkg as any;
+                          const poboxUsd = parseFloat(pp.pobox_venta_usd) || 0;
+                          const tc = parseFloat(pp.registered_exchange_rate) || 0;
+                          const gex = parseFloat(pp.gex_total_cost) || 0;
+                          const ship = parseFloat(pp.national_shipping_cost) || 0;
+                          const pagado = parseFloat(pp.monto_pagado) || 0;
+                          let poboxMxn = poboxUsd > 0 && tc > 0 ? poboxUsd * tc : 0;
+                          if (!poboxMxn && pp.is_master && Array.isArray(pp.child_packages)) {
+                            poboxMxn = pp.child_packages.reduce((s: number, c: any) => {
+                              const cMxn = parseFloat(c.pobox_venta_mxn) || 0;
+                              const cUsd = parseFloat(c.pobox_venta_usd) || 0;
+                              const cTc = parseFloat(c.registered_exchange_rate) || 0;
+                              if (cMxn > 0) return s + cMxn;
+                              if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
+                              return s + (parseFloat(c.assigned_cost_mxn) || 0);
+                            }, 0);
+                          }
+                          return poboxMxn > 0
+                            ? Math.max(0, poboxMxn + gex + ship - pagado).toFixed(2)
+                            : parseFloat(String(pp.saldo_pendiente || pkg.assigned_cost_mxn || 0)).toFixed(2);
+                        })()}
                       </Text>
                       <Text style={styles.costLabel}>MXN</Text>
                     </View>

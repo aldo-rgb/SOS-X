@@ -2368,12 +2368,16 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                         tracking_internal: child.tracking_internal,
                         tracking_courier: child.tracking_provider,
                         weight: child.weight ? parseFloat(child.weight) : null,
-                        dimensions: child.pkg_length && child.pkg_width && child.pkg_height 
-                            ? `${child.pkg_length}×${child.pkg_width}×${child.pkg_height} cm` 
+                        dimensions: child.pkg_length && child.pkg_width && child.pkg_height
+                            ? `${child.pkg_length}×${child.pkg_width}×${child.pkg_height} cm`
                             : null,
                         box_number: child.box_number,
                         description: child.description,
-                        imageUrl: child.image_url || null
+                        imageUrl: child.image_url || null,
+                        pobox_venta_usd: child.pobox_venta_usd ? parseFloat(child.pobox_venta_usd) : null,
+                        pobox_venta_mxn: child.pobox_venta_mxn ? parseFloat(child.pobox_venta_mxn) : null,
+                        assigned_cost_mxn: child.assigned_cost_mxn ? parseFloat(child.assigned_cost_mxn) : null,
+                        registered_exchange_rate: child.registered_exchange_rate ? parseFloat(child.registered_exchange_rate) : null,
                     });
                 }
             });
@@ -2444,6 +2448,21 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                     const pagado = parseFloat(pkg.monto_pagado) || 0;
                     if (poboxUsd > 0 && tc > 0) {
                         return Math.max(0, (poboxUsd * tc) + gexTotal + shipping - pagado);
+                    }
+                    // Para masters sin pobox_venta_usd propio, sumar costos de hijas
+                    if (pkg.is_master) {
+                        const children = childrenByMaster[pkg.id] || [];
+                        const childPoboxMxn = children.reduce((s: number, c: any) => {
+                            const cUsd = parseFloat(c.pobox_venta_usd) || 0;
+                            const cTc = parseFloat(c.registered_exchange_rate) || 0;
+                            const cMxn = parseFloat(c.pobox_venta_mxn) || 0;
+                            if (cMxn > 0) return s + cMxn;
+                            if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
+                            return s + (parseFloat(c.assigned_cost_mxn) || 0);
+                        }, 0);
+                        if (childPoboxMxn > 0) {
+                            return Math.max(0, childPoboxMxn + gexTotal + shipping - pagado);
+                        }
                     }
                     return pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0;
                 })(),
