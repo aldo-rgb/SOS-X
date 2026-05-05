@@ -37,6 +37,7 @@ import {
   TuneOutlined as TuneIcon,
   PrintOutlined as PrintIcon,
   HeadsetMicOutlined as HeadsetIcon,
+  VerifiedUserOutlined as VerifiedUserIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import DelayedPackagesPage from './DelayedPackagesPage';
@@ -100,22 +101,30 @@ export default function DashboardBranchManager() {
   const [delayedOpen, setDelayedOpen] = useState(false);
   const [delayedService, setDelayedService] = useState<'pobox' | 'air' | 'sea'>('pobox');
   const [userRole, setUserRole] = useState<string>('');
+  const [pendingVerifications, setPendingVerifications] = useState<number>(0);
 
   useEffect(() => {
     loadData();
     loadDelayedCount();
+    loadPendingVerifications();
     const user = localStorage.getItem('user');
     if (user) {
       const parsed = JSON.parse(user);
       setUserName(parsed.name?.split(' ')[0] || 'Gerente');
       setUserRole(String(parsed.role || '').toLowerCase());
     }
-    const iv = setInterval(loadDelayedCount, 60000);
+    const iv = setInterval(() => {
+      loadDelayedCount();
+      loadPendingVerifications();
+    }, 60000);
     return () => clearInterval(iv);
   }, []);
 
   // Widget "Recepción Parcial" solo visible para roles globales (no gerente sucursal)
   const canSeePartialReceptions = ['super_admin', 'admin', 'director', 'customer_service'].includes(userRole);
+
+  // Widget "Verificaciones Pendientes" solo para Director / Admin / Super Admin
+  const canSeeVerifications = ['super_admin', 'admin', 'director'].includes(userRole);
 
   const loadDelayedCount = async () => {
     try {
@@ -155,6 +164,23 @@ export default function DashboardBranchManager() {
     } catch (err) {
       console.error('Error loading delayed counts:', err);
     }
+  };
+
+  const loadPendingVerifications = async () => {
+    try {
+      const res = await api.get('/admin/verifications/stats');
+      const pending = Number(res.data?.pending || 0);
+      setPendingVerifications(pending);
+    } catch (err) {
+      // Silenciar: usuarios sin nivel DIRECTOR no tienen acceso
+      console.debug('No se pudieron cargar verificaciones pendientes:', err);
+    }
+  };
+
+  const openVerifications = () => {
+    window.dispatchEvent(
+      new CustomEvent('branch-manager-quick-nav', { detail: { action: 'verifications' } })
+    );
   };
 
   const openDelayedModal = (svc: 'pobox' | 'air' | 'sea') => {
@@ -641,6 +667,113 @@ export default function DashboardBranchManager() {
                         sx={{ bgcolor: '#FEF2F2', color: '#B91C1C', height: 22, fontWeight: 600, fontSize: '0.7rem' }} />
                     )}
                   </Stack>
+                </Paper>
+              </Grid>
+            )}
+
+            {canSeeVerifications && (
+              <Grid size={{ xs: 12, sm: 6, md: 3, lg: 3 }}>
+                <Paper
+                  onClick={openVerifications}
+                  elevation={0}
+                  sx={{
+                    position: 'relative',
+                    p: 2.25,
+                    height: '100%',
+                    bgcolor: '#fff',
+                    borderRadius: 2,
+                    border: pendingVerifications > 0 ? '1px solid #FCA5A5' : '1px solid #E2E8F0',
+                    cursor: 'pointer',
+                    transition: 'box-shadow .18s, transform .18s, border-color .18s',
+                    boxShadow: pendingVerifications > 0
+                      ? '0 4px 14px rgba(220,38,38,0.15)'
+                      : '0 1px 2px rgba(15,23,42,0.04)',
+                    animation: pendingVerifications > 0 ? 'pulseAlert 2s ease-in-out infinite' : 'none',
+                    '@keyframes pulseAlert': {
+                      '0%, 100%': { boxShadow: '0 4px 14px rgba(220,38,38,0.15)' },
+                      '50%': { boxShadow: '0 4px 22px rgba(220,38,38,0.32)' },
+                    },
+                    '&:hover': {
+                      boxShadow: '0 6px 20px rgba(15,23,42,0.10)',
+                      transform: 'translateY(-1px)',
+                      borderColor: pendingVerifications > 0 ? '#DC2626' : '#94A3B8',
+                    },
+                    '&::before': pendingVerifications > 0 ? {
+                      content: '""',
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      height: 3,
+                      borderTopLeftRadius: 8,
+                      borderTopRightRadius: 8,
+                      bgcolor: '#DC2626',
+                    } : {},
+                  }}
+                >
+                  <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                    <Box>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: pendingVerifications > 0 ? '#B91C1C' : '#64748B',
+                          fontWeight: 700,
+                          letterSpacing: 0.3,
+                          textTransform: 'uppercase',
+                          fontSize: '0.7rem',
+                        }}
+                      >
+                        Verificaciones Pendientes
+                      </Typography>
+                      <Typography
+                        sx={{
+                          color: pendingVerifications > 0 ? '#DC2626' : '#0F172A',
+                          fontWeight: 700,
+                          fontSize: '2rem',
+                          lineHeight: 1.1,
+                          mt: 0.5,
+                        }}
+                      >
+                        {pendingVerifications}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mt: 0.5 }}>
+                        {pendingVerifications === 0
+                          ? 'sin pendientes'
+                          : pendingVerifications === 1
+                          ? 'usuario por revisar'
+                          : 'usuarios por revisar'}
+                      </Typography>
+                    </Box>
+                    <Badge
+                      badgeContent={pendingVerifications}
+                      color="error"
+                      invisible={pendingVerifications === 0}
+                      sx={{ '& .MuiBadge-badge': { fontWeight: 700 } }}
+                    >
+                      <Box
+                        sx={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 1.5,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          bgcolor: pendingVerifications > 0 ? '#FEE2E2' : '#F1F5F9',
+                          color: pendingVerifications > 0 ? '#DC2626' : '#0F172A',
+                        }}
+                      >
+                        <VerifiedUserIcon sx={{ fontSize: 22 }} />
+                      </Box>
+                    </Badge>
+                  </Stack>
+                  {pendingVerifications > 0 && (
+                    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 1.25 }}>
+                      <ArrowForwardIcon sx={{ fontSize: 14, color: '#DC2626' }} />
+                      <Typography variant="caption" sx={{ color: '#DC2626', fontWeight: 600 }}>
+                        Revisar ahora
+                      </Typography>
+                    </Stack>
+                  )}
                 </Paper>
               </Grid>
             )}

@@ -238,6 +238,32 @@ export const saveEmployeeOnboarding = async (req: Request, res: Response): Promi
 
     console.log('✅ [HR] Empleado registrado - Pendiente de verificación');
 
+    // 📢 Notificar a Directores/Admins/Super Admins que hay un empleado pendiente de verificación
+    try {
+      const employeeInfo = await pool.query(
+        'SELECT full_name, role, email FROM users WHERE id = $1',
+        [user.userId]
+      );
+      const emp = employeeInfo.rows[0];
+      const recipients = await pool.query(
+        `SELECT id FROM users WHERE role IN ('director', 'admin', 'super_admin')`
+      );
+      const { createCustomNotification } = await import('./notificationController');
+      for (const r of recipients.rows) {
+        await createCustomNotification(
+          r.id,
+          '📝 Nuevo empleado pendiente de verificación',
+          `${emp?.full_name || 'Empleado'} (${emp?.role || ''}) completó su alta y está esperando aprobación.`,
+          'warning',
+          'account-clock',
+          { employeeId: user.userId, role: emp?.role, email: emp?.email },
+          '/admin/verifications'
+        );
+      }
+    } catch (notifyErr) {
+      console.warn('No se pudo notificar a directores sobre verificación pendiente:', notifyErr);
+    }
+
     res.json({ 
       success: true, 
       message: '¡Documentos enviados! Tu alta está pendiente de verificación por un administrador.',

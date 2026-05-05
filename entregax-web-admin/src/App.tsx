@@ -696,6 +696,16 @@ function App() {
         setSelectedIndex(panelsIndex);
         setSelectedSubIndex(serviceSubIndex >= 0 ? serviceSubIndex : null);
       }
+
+      if (action === 'verifications') {
+        const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(adminSubIndex >= 0 ? adminSubIndex : null);
+        setTimeout(() => {
+          window.dispatchEvent(new Event('open-admin-verifications'));
+        }, 120);
+      }
     };
 
     window.addEventListener('branch-manager-quick-nav', quickNavHandler as EventListener);

@@ -423,7 +423,6 @@ export const getVerificationStats = async (_req: Request, res: Response): Promis
                 COUNT(*) FILTER (WHERE verification_status = 'rejected') as rejected,
                 COUNT(*) FILTER (WHERE verification_status IS NULL OR verification_status = 'not_started') as not_started
             FROM users
-            WHERE role = 'client'
         `);
 
         res.json(result.rows[0]);
