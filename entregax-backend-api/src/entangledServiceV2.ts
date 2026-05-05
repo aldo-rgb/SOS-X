@@ -25,12 +25,24 @@ export const ENTANGLED_WEBHOOK_SECRET =
 
 export const isEntangledConfigured = (): boolean => Boolean(ENTANGLED_API_KEY);
 
-const buildUrl = (path: string): string => {
-  const base = ENTANGLED_BASE_URL.replace(/\/$/, '');
-  // Si la base ya termina en /api/v1 no la duplicamos.
-  if (/\/api\/v1$/i.test(base)) return `${base}${path}`;
-  return `${base}/api/v1${path}`;
+// Normaliza la base URL para tolerar las tres formas que llegan de configuración:
+//   * https://api.entangledclothing.com
+//   * https://api.entangledclothing.com/api          (Railway)
+//   * https://api.entangledclothing.com/api/v1
+// y siempre apunta a `<root>/api/v1`.
+const normalizeBase = (raw: string): string => {
+  const base = raw.replace(/\/+$/, '');
+  if (/\/api\/v1$/i.test(base)) return base;
+  if (/\/api$/i.test(base)) return `${base}/v1`;
+  return `${base}/api/v1`;
 };
+
+// Devuelve la raíz del dominio (sin `/api/v1` ni `/api`) para endpoints fuera de v1
+// como `/api/admin/cliente-api/rotate`.
+const rootBase = (): string =>
+  ENTANGLED_BASE_URL.replace(/\/+$/, '').replace(/\/api\/v1$/i, '').replace(/\/api$/i, '');
+
+const buildUrl = (path: string): string => `${normalizeBase(ENTANGLED_BASE_URL)}${path}`;
 
 const authHeaders = (extra: Record<string, string> = {}): Record<string, string> => ({
   Authorization: `Bearer ${ENTANGLED_API_KEY}`,
@@ -259,9 +271,8 @@ export const rotateApiKey = async (): Promise<{
   if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
   try {
     // El endpoint real vive en /api/admin/cliente-api/rotate (no bajo /api/v1).
-    const base = ENTANGLED_BASE_URL.replace(/\/$/, '').replace(/\/api\/v1$/i, '').replace(/\/api$/i, '');
     const res = await axios.post(
-      `${base}/api/admin/cliente-api/rotate`,
+      `${rootBase()}/api/admin/cliente-api/rotate`,
       {},
       {
         timeout: ENTANGLED_TIMEOUT_MS,
