@@ -208,6 +208,7 @@ interface MaritimeStats {
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; labelEn: string; labelZh: string }> = {
     'received_origin': { label: 'Recibido en China', labelEn: 'Received in China', labelZh: '中国已收', color: '#9E9E9E' },
+    'received_partial': { label: 'Recibido Parcial', labelEn: 'Partially Received', labelZh: '部分收货', color: '#BDBDBD' },
     'consolidated': { label: 'Consolidado', labelEn: 'Consolidated', labelZh: '已合并', color: '#FF9800' },
     'in_transit': { label: 'Ya Zarpó', labelEn: 'Departed', labelZh: '已出发', color: '#2196F3' },
     'arrived_port': { label: 'Arribo a Puerto', labelEn: 'Arrived at Port', labelZh: '已到港', color: '#673AB7' },
@@ -215,8 +216,9 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; labelEn: str
     'customs_cleared': { label: 'Liberado', labelEn: 'Customs Cleared', labelZh: '已清关', color: '#4CAF50' },
     'in_transit_mx': { label: 'En Ruta a CEDIS', labelEn: 'In Transit to CEDIS', labelZh: '运往仓库中', color: '#03A9F4' },
     'received_cedis': { label: 'En CEDIS', labelEn: 'At CEDIS', labelZh: '已到仓库', color: '#00BCD4' },
+    'received_mty': { label: 'Recibido en MTY', labelEn: 'Received in MTY', labelZh: '已到蒙特雷', color: '#00ACC1' },
     'ready_pickup': { label: 'Listo para Recoger', labelEn: 'Ready for Pickup', labelZh: '可取货', color: '#8BC34A' },
-    'delivered': { label: 'Entregado', labelEn: 'Delivered', labelZh: '已送达', color: '#4CAF50' },
+    'delivered': { label: 'Entregado', labelEn: 'Delivered', labelZh: '已送达', color: '#43A047' },
     'cancelled': { label: 'Cancelado', labelEn: 'Cancelled', labelZh: '已取消', color: '#F44336' },
     'returned': { label: 'Devuelto', labelEn: 'Returned', labelZh: '已退回', color: '#795548' },
 };
@@ -2787,33 +2789,49 @@ export default function CostingPanelMaritimo() {
                                             ✏️ Agregar Evento Manual
                                         </Typography>
                                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                                            <Button 
-                                                size="small" 
-                                                variant="outlined"
-                                                onClick={() => addManualTrackingEvent('VD', 'Ya Zarpó - Salida del Puerto Origen', selectedContainer.port_of_loading || '')}
-                                            >
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('RO', 'Recibido en Bodega China', selectedContainer.port_of_loading || 'China')}>
+                                                📦 Recibido China
+                                            </Button>
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('CO', 'Consolidado en Contenedor', selectedContainer.port_of_loading || 'China')}>
+                                                📦 Consolidado
+                                            </Button>
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('VD', 'Ya Zarpó - Salida del Puerto Origen', selectedContainer.port_of_loading || '')}>
                                                 🚢 Ya Zarpó
                                             </Button>
-                                            <Button 
-                                                size="small" 
-                                                variant="outlined"
-                                                onClick={() => addManualTrackingEvent('VA', 'Arribo a Puerto Destino', selectedContainer.port_of_discharge || '')}
-                                            >
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('VA', 'Arribo a Puerto Destino', selectedContainer.port_of_discharge || '')}>
                                                 ⚓ Arribo a Puerto
                                             </Button>
-                                            <Button 
-                                                size="small" 
-                                                variant="outlined"
-                                                onClick={() => addManualTrackingEvent('CR', 'Liberado de Aduana', 'México')}
-                                            >
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('CA', 'En Aduana México', 'México')}>
+                                                🛃 En Aduana
+                                            </Button>
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('CR', 'Liberado de Aduana', 'México')}>
                                                 ✅ Liberado
                                             </Button>
-                                            <Button 
-                                                size="small" 
-                                                variant="outlined"
-                                                onClick={() => addManualTrackingEvent('GT', 'En CEDIS', 'México')}
-                                            >
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('TR', 'En Ruta a CEDIS', 'México')}>
+                                                🚛 En Ruta a CEDIS
+                                            </Button>
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('GT', 'Recibido en CEDIS', 'CEDIS México')}>
                                                 🏭 En CEDIS
+                                            </Button>
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('MT', 'Recibido en Monterrey', 'Monterrey, México')}>
+                                                🏙️ Recibido MTY
+                                            </Button>
+                                            <Button size="small" variant="outlined"
+                                                onClick={() => addManualTrackingEvent('RK', 'Listo para Recoger', selectedContainer.port_of_discharge || 'México')}>
+                                                📍 Listo Recoger
+                                            </Button>
+                                            <Button size="small" variant="outlined" color="success"
+                                                onClick={() => addManualTrackingEvent('DL', 'Entregado al Cliente', 'México')}>
+                                                ✅ Entregado
                                             </Button>
                                         </Box>
                                     </CardContent>

@@ -6850,6 +6850,26 @@ app.get('/api/fleet/available-vehicles', authenticateToken, getAvailableVehicles
 app.post('/api/fleet/inspection', authenticateToken, submitDailyInspection);
 app.get('/api/fleet/inspection/today', authenticateToken, checkTodayInspection);
 
+// 📊 Stats para rol Monitoreo: contenedores marítimos en estado "liberado"
+// (customs_cleared) listos para coordinar movimiento.
+app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!['monitoreo', 'admin', 'super_admin', 'director'].includes(role)) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+    const result = await pool.query(
+      `SELECT COUNT(*)::int AS liberados FROM containers WHERE status = 'customs_cleared'`
+    );
+    res.json({
+      liberados: result.rows[0]?.liberados || 0,
+    });
+  } catch (error) {
+    console.error('Error obteniendo stats monitoreo:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
 // ========== MÓDULO DE REPARTIDOR - CARGA Y ENTREGA ==========
 // Ruta del día
 app.get('/api/driver/route-today', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getDriverRouteToday);

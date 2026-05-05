@@ -97,6 +97,29 @@ export default function DriverHomeScreen({ navigation, route }: any) {
 
   const loadDayData = async () => {
     try {
+      // 👁️ Monitoreo: el widget "Asignados Hoy" muestra contenedores liberados (customs_cleared)
+      if (isMonitoreo) {
+        try {
+          const statsRes = await api.get('/api/monitoreo/stats', {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+          const liberados = Number(statsRes.data?.liberados) || 0;
+          setStats({
+            totalAssigned: liberados,
+            loadedToday: 0,
+            deliveredToday: 0,
+            pendingToLoad: 0,
+            pendingDelivery: 0,
+            returnedToday: 0,
+          });
+          setLoadedPackages([]);
+          setInspectionDone(true); // Monitoreo no requiere inspección
+        } catch (monitorErr) {
+          console.error('Error cargando stats monitoreo:', monitorErr);
+        }
+        return;
+      }
+
       // Cargar estadísticas de ruta (resistente a cambios de forma del payload)
       try {
         const routeRes = await api.get('/api/driver/route-today', {
@@ -380,9 +403,9 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         <View style={styles.statsContainer}>
           <View style={styles.statsRow}>
             <View style={[styles.statCard, styles.statCardPrimary]}>
-              <MaterialIcons name="inventory-2" size={32} color="#fff" />
+              <MaterialIcons name={isMonitoreo ? 'directions-boat' : 'inventory-2'} size={32} color="#fff" />
               <Text style={styles.statNumber}>{stats.totalAssigned}</Text>
-              <Text style={styles.statLabel}>Asignados Hoy</Text>
+              <Text style={styles.statLabel}>{isMonitoreo ? 'Contenedores Liberados' : 'Asignados Hoy'}</Text>
             </View>
             <View style={styles.statCard}>
               <MaterialIcons name="local-shipping" size={28} color="#2196F3" />

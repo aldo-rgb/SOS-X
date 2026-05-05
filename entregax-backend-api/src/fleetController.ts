@@ -703,17 +703,25 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
     if (!vehicle_id || !reported_mileage) {
       return res.status(400).json({ error: 'Vehículo y kilometraje son requeridos' });
     }
-    
+
+    // 👁️ Detectar rol monitoreo: puede recibir cualquier vehículo, varias veces al día
+    const userRoleRes = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
+    const userRole = String(userRoleRes.rows[0]?.role || '').toLowerCase();
+    const isMonitoreo = userRole === 'monitoreo';
+
     // Verificar si ya existe inspección esta semana (lun-dom, zona CDMX) para este vehículo y tipo
-    const existing = await pool.query(`
-      SELECT id FROM daily_vehicle_inspections 
-      WHERE vehicle_id = $1 AND driver_id = $2 AND inspection_type = $3
-        AND date_trunc('week', (inspection_date AT TIME ZONE 'America/Mexico_City'))
-            = date_trunc('week', (NOW() AT TIME ZONE 'America/Mexico_City'))
-    `, [vehicle_id, userId, inspection_type || 'check_in']);
-    
-    if (existing.rows.length > 0) {
-      return res.status(400).json({ error: 'Ya registraste una inspección de este tipo esta semana' });
+    // Monitoreo NO tiene este límite (recibe unidades varias veces al día)
+    if (!isMonitoreo) {
+      const existing = await pool.query(`
+        SELECT id FROM daily_vehicle_inspections 
+        WHERE vehicle_id = $1 AND driver_id = $2 AND inspection_type = $3
+          AND date_trunc('week', (inspection_date AT TIME ZONE 'America/Mexico_City'))
+              = date_trunc('week', (NOW() AT TIME ZONE 'America/Mexico_City'))
+      `, [vehicle_id, userId, inspection_type || 'check_in']);
+      
+      if (existing.rows.length > 0) {
+        return res.status(400).json({ error: 'Ya registraste una inspección de este tipo esta semana' });
+      }
     }
     
     // Validar kilometraje (no puede ser menor al actual)
@@ -729,7 +737,8 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'El vehículo no está activo para inspección' });
     }
 
-    if (Number(vehicle.rows[0].assigned_driver_id) !== userId) {
+    // Monitoreo puede recibir cualquier vehículo (no requiere ser el asignado)
+    if (!isMonitoreo && Number(vehicle.rows[0].assigned_driver_id) !== userId) {
       return res.status(403).json({ error: 'No tienes permiso para inspeccionar este vehículo' });
     }
     
