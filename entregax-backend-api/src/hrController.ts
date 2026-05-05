@@ -186,6 +186,19 @@ export const saveEmployeeOnboarding = async (req: Request, res: Response): Promi
       driverLicenseExpiry
     } = req.body;
 
+    // Normalizar fecha: aceptar DD/MM/YYYY, DD/MM/YY o YYYY-MM-DD
+    let normalizedExpiry: string | null = null;
+    if (driverLicenseExpiry && typeof driverLicenseExpiry === 'string') {
+      const v = driverLicenseExpiry.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+        normalizedExpiry = v;
+      } else if (/^\d{2}\/\d{2}\/\d{2,4}$/.test(v)) {
+        const [dd, mm, yy] = v.split('/');
+        const yyyy = yy.length === 2 ? `20${yy}` : yy;
+        normalizedExpiry = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+      }
+    }
+
     // Actualizar datos del empleado y poner en estado PENDIENTE DE VERIFICACIÓN
     await pool.query(`
       UPDATE users SET
@@ -214,7 +227,7 @@ export const saveEmployeeOnboarding = async (req: Request, res: Response): Promi
       address, phone, emergencyContact, pantsSize, shirtSize, shoeSize,
       maritalStatus, spouseName, childrenCount || 0,
       ineFrontUrl, ineBackUrl, profilePhotoUrl,
-      driverLicenseFrontUrl, driverLicenseBackUrl, driverLicenseExpiry,
+      driverLicenseFrontUrl, driverLicenseBackUrl, normalizedExpiry,
       user.userId
     ]);
 

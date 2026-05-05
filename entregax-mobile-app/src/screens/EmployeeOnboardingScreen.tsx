@@ -275,6 +275,15 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
 
     setLoading(true);
     try {
+      // Convertir DD/MM/AAAA a YYYY-MM-DD (ISO) para PostgreSQL
+      let licenseExpiryISO: string | null = null;
+      if (formData.licenseExpiry && formData.licenseExpiry.length === 10) {
+        const [dd, mm, yyyy] = formData.licenseExpiry.split('/');
+        if (dd && mm && yyyy) {
+          licenseExpiryISO = `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+        }
+      }
+
       await api.post('/api/hr/onboarding', {
         address: formData.address,
         phone: formData.phone,
@@ -290,7 +299,7 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
         ineBackUrl: photos.ineBack,
         driverLicenseFrontUrl: photos.licenseFront,
         driverLicenseBackUrl: photos.licenseBack,
-        driverLicenseExpiry: formData.licenseExpiry || null,
+        driverLicenseExpiry: licenseExpiryISO,
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
