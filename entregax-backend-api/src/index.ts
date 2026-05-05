@@ -6898,6 +6898,7 @@ import {
   sendMessage as chatSendMessage,
   markAsRead as chatMarkAsRead,
   searchStaff as chatSearchStaff,
+  listParticipants as chatListParticipants,
   auditAllConversations as chatAuditAllConversations,
   registerPushToken as chatRegisterPushToken,
   unregisterPushToken as chatUnregisterPushToken,
@@ -6912,6 +6913,7 @@ app.get('/api/chat/conversations/:id/messages', authenticateToken, chatListMessa
 app.post('/api/chat/conversations/:id/messages', authenticateToken, chatUpload.array('files', 10), chatSendMessage);
 app.post('/api/chat/conversations/:id/read', authenticateToken, chatMarkAsRead);
 app.get('/api/chat/staff/search', authenticateToken, chatSearchStaff);
+app.get('/api/chat/conversations/:id/participants', authenticateToken, chatListParticipants);
 app.get('/api/chat/audit/conversations', authenticateToken, chatAuditAllConversations);
 app.post('/api/chat/push-tokens', authenticateToken, chatRegisterPushToken);
 app.delete('/api/chat/push-tokens', authenticateToken, chatUnregisterPushToken);

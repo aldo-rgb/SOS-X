@@ -254,6 +254,20 @@ export default function ChatRoomScreen({ route, navigation }: any) {
           subtitle={typingUsers.length > 0 ? `${typingUsers.join(', ')} escribiendo…` : undefined}
           titleStyle={{ color: '#fff', fontWeight: '700', fontSize: 16 }}
           subtitleStyle={{ color: '#FFD7C7', fontSize: 11 }}
+          onPress={() => navigation.navigate('ChatGroupInfo', {
+            user, token, conversationId,
+            title: headerTitle,
+            type: type || (otherUser ? 'direct' : 'group'),
+          })}
+        />
+        <Appbar.Action
+          icon="information"
+          color="#fff"
+          onPress={() => navigation.navigate('ChatGroupInfo', {
+            user, token, conversationId,
+            title: headerTitle,
+            type: type || (otherUser ? 'direct' : 'group'),
+          })}
         />
       </Appbar.Header>
 

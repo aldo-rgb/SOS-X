@@ -72,6 +72,7 @@ import AdvisorNotificationsScreen from './src/screens/AdvisorNotificationsScreen
 import ChatListScreen from './src/screens/ChatListScreen';
 import ChatRoomScreen from './src/screens/ChatRoomScreen';
 import NewChatScreen from './src/screens/NewChatScreen';
+import ChatGroupInfoScreen from './src/screens/ChatGroupInfoScreen';
 
 import { Package } from './src/services/api';
 import { EMPLOYEE_ROLES } from './src/constants/roles';
@@ -160,6 +161,13 @@ export type RootStackParamList = {
     otherUser?: any;
   };
   NewChat: { user: any; token: string };
+  ChatGroupInfo: {
+    user: any;
+    token: string;
+    conversationId: number;
+    title?: string;
+    type?: 'direct' | 'group';
+  };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -420,6 +428,7 @@ export default function App() {
           <Stack.Screen name="ChatList" component={ChatListScreen} />
           <Stack.Screen name="ChatRoom" component={ChatRoomScreen} />
           <Stack.Screen name="NewChat" component={NewChatScreen} />
+          <Stack.Screen name="ChatGroupInfo" component={ChatGroupInfoScreen} />
         </Stack.Navigator>
       </NavigationContainer>
     </PaperProvider>

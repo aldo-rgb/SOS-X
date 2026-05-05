@@ -137,6 +137,24 @@ export const searchStaff = async (token: string, q: string = '') => {
   return r.users || [];
 };
 
+export interface ChatParticipant {
+  id: number;
+  full_name: string;
+  email: string;
+  role: string;
+  profile_photo_url?: string | null;
+  participant_role?: string;
+  joined_at?: string;
+  is_muted?: boolean;
+}
+
+export const fetchParticipants = async (
+  token: string,
+  conversationId: number
+): Promise<{ conversation: any; participants: ChatParticipant[] }> => {
+  return await request(`/api/chat/conversations/${conversationId}/participants`, token);
+};
+
 export const createConversation = async (
   token: string,
   payload: { type: 'direct' | 'group'; title?: string; description?: string; participant_ids: number[] }

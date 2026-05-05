@@ -498,6 +498,51 @@ export const markAsRead = async (req: AuthRequest, res: Response) => {
 };
 
 // ===================================================================
+// 5b) Listar participantes de una conversación
+// ===================================================================
+export const listParticipants = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?.userId;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+    const conversationId = parseInt(String(req.params.id || ''), 10);
+    if (!conversationId) return res.status(400).json({ error: 'ID inválido' });
+
+    // Verificar acceso (que sea participante)
+    const access = await pool.query(
+      `SELECT 1 FROM chat_participants
+        WHERE conversation_id = $1 AND user_id = $2 AND left_at IS NULL`,
+      [conversationId, userId]
+    );
+    if (access.rows.length === 0) {
+      const role = String(req.user?.role || '').toLowerCase();
+      if (!isSuperAdmin(role)) return res.status(403).json({ error: 'Sin acceso' });
+    }
+
+    const conv = await pool.query(
+      `SELECT id, type, title, description, avatar_url, auto_group_key, branch_id
+         FROM chat_conversations WHERE id = $1`,
+      [conversationId]
+    );
+    if (conv.rows.length === 0) return res.status(404).json({ error: 'No existe' });
+
+    const r = await pool.query(
+      `SELECT u.id, u.full_name, u.email, u.role, u.profile_photo_url,
+              cp.role AS participant_role, cp.joined_at, cp.is_muted
+         FROM chat_participants cp
+         JOIN users u ON u.id = cp.user_id
+        WHERE cp.conversation_id = $1 AND cp.left_at IS NULL
+        ORDER BY (cp.role = 'admin') DESC, u.full_name ASC`,
+      [conversationId]
+    );
+
+    res.json({ conversation: conv.rows[0], participants: r.rows });
+  } catch (error: any) {
+    console.error('[chat] listParticipants:', error);
+    res.status(500).json({ error: 'Error al listar participantes' });
+  }
+};
+
+// ===================================================================
 // 6) Buscar staff (para iniciar nuevo chat)
 // ===================================================================
 export const searchStaff = async (req: AuthRequest, res: Response) => {
