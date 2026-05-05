@@ -1195,7 +1195,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                             saldo_pendiente, assigned_cost_mxn, received_at, delivered_at,
                             warehouse_location, current_branch_id,
                             pobox_service_cost, pobox_cost_usd, pobox_venta_usd, gex_total_cost,
-                            national_label_cost, national_carrier, national_tracking, national_label_url
+                            national_shipping_cost, national_carrier, national_tracking, national_label_url
                      FROM packages WHERE id = $1`,
                     [pkg.master_id]
                 );
@@ -1213,7 +1213,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     pkg.pobox_cost_usd = pkg.pobox_cost_usd ?? m.pobox_cost_usd;
                     pkg.pobox_venta_usd = pkg.pobox_venta_usd ?? m.pobox_venta_usd;
                     pkg.gex_total_cost = pkg.gex_total_cost ?? m.gex_total_cost;
-                    pkg.national_label_cost = pkg.national_label_cost ?? m.national_label_cost;
+                    pkg.national_shipping_cost = pkg.national_shipping_cost ?? m.national_shipping_cost;
                     pkg.national_carrier = pkg.national_carrier ?? m.national_carrier;
                     pkg.national_tracking = pkg.national_tracking ?? m.national_tracking;
                     pkg.national_label_url = pkg.national_label_url ?? m.national_label_url;
@@ -1232,19 +1232,56 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             }
         }
 
-        // Si tiene guía de Paquete Express y no hay national_label_cost capturado en packages,
+        // Si tiene guía de Paquete Express y no hay national_shipping_cost capturado en packages,
         // tomar el total real desde pqtx_shipments (lo que cobró Paquete Express).
-        if (pkg.national_tracking && (pkg.national_label_cost == null || Number(pkg.national_label_cost) === 0)) {
+        if (pkg.national_tracking && (pkg.national_shipping_cost == null || Number(pkg.national_shipping_cost) === 0)) {
             try {
                 const pqtxRes = await pool.query(
                     `SELECT total, subtotal FROM pqtx_shipments WHERE tracking_number = $1 LIMIT 1`,
                     [pkg.national_tracking]
                 );
                 if (pqtxRes.rows.length > 0 && pqtxRes.rows[0].total != null) {
-                    pkg.national_label_cost = pqtxRes.rows[0].total;
+                    pkg.national_shipping_cost = pqtxRes.rows[0].total;
                 }
             } catch (err) {
                 console.warn('[getShipmentByTracking] No se pudo leer pqtx_shipments:', err);
+            }
+        }
+
+        // Para masters multipieza: los costos por servicio/venta viven en las hijas.
+        // Sumamos para mostrar el total del envío.
+        if (pkg.is_master && children.length > 0) {
+            const sum = (key: string) => children.reduce((acc, c) => acc + (parseFloat(c[key]) || 0), 0);
+            const masterServ = parseFloat(pkg.pobox_service_cost) || 0;
+            const masterCostUsd = parseFloat(pkg.pobox_cost_usd) || 0;
+            const masterVenta = parseFloat(pkg.pobox_venta_usd) || 0;
+            const masterGex = parseFloat(pkg.gex_total_cost) || 0;
+            if (masterServ === 0) pkg.pobox_service_cost = sum('pobox_service_cost');
+            if (masterCostUsd === 0) pkg.pobox_cost_usd = sum('pobox_cost_usd');
+            if (masterVenta === 0) pkg.pobox_venta_usd = sum('pobox_venta_usd');
+            if (masterGex === 0) pkg.gex_total_cost = sum('gex_total_cost');
+            // TC: si el master no tiene, tomar el primer hijo con TC
+            if (!pkg.registered_exchange_rate || Number(pkg.registered_exchange_rate) === 0) {
+                const firstWithTc = children.find((c: any) => c.registered_exchange_rate && Number(c.registered_exchange_rate) > 0);
+                if (firstWithTc) pkg.registered_exchange_rate = firstWithTc.registered_exchange_rate;
+            }
+
+            // Recalcular saldo_pendiente del master multipieza:
+            // total = (PO Box venta USD × TC) + GEX + envío nacional
+            // saldo = total - monto_pagado
+            const tcMaster = parseFloat(pkg.registered_exchange_rate) || 0;
+            const ventaTotalMxn = (parseFloat(pkg.pobox_venta_usd) || 0) * tcMaster;
+            const gexMxn = parseFloat(pkg.gex_total_cost) || 0;
+            const envioMxn = parseFloat(pkg.national_shipping_cost) || 0;
+            const totalCalc = ventaTotalMxn + gexMxn + envioMxn;
+            const pagadoMaster = parseFloat(pkg.monto_pagado) || 0;
+            const saldoCalc = Math.max(0, totalCalc - pagadoMaster);
+
+            // Si el saldo guardado parece desfasado (no incluye PO Box), usar el calculado.
+            const savedSaldo = parseFloat(pkg.saldo_pendiente) || 0;
+            if (totalCalc > 0 && Math.abs(savedSaldo - saldoCalc) > 1) {
+                pkg.saldo_pendiente = saldoCalc;
+                pkg.assigned_cost_mxn = totalCalc;
             }
         }
 
@@ -1303,12 +1340,19 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     totalCost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : null,
                     poboxCostUsd: pkg.pobox_cost_usd ? parseFloat(pkg.pobox_cost_usd) : null,
                     // Costos visibles solo para super_admin/admin/director/customer_service en frontend
-                    nationalLabelCost: pkg.national_label_cost != null ? parseFloat(pkg.national_label_cost) : null,
+                    nationalLabelCost: pkg.national_shipping_cost != null ? parseFloat(pkg.national_shipping_cost) : null,
+                    nationalLabelCostPerBox: (() => {
+                        const total = parseFloat(pkg.national_shipping_cost);
+                        const boxes = pkg.total_boxes || (children?.length || 1);
+                        if (!isFinite(total) || total <= 0 || !boxes || boxes <= 1) return null;
+                        return total / boxes;
+                    })(),
                     poboxServiceCost: pkg.pobox_service_cost != null ? parseFloat(pkg.pobox_service_cost) : null,
                     poboxVentaUsd: pkg.pobox_venta_usd != null ? parseFloat(pkg.pobox_venta_usd) : null,
                     poboxVentaMxn: pkg.pobox_venta_mxn != null ? parseFloat(pkg.pobox_venta_mxn) : null,
                     poboxTarifaNivel: pkg.pobox_tarifa_nivel != null ? Number(pkg.pobox_tarifa_nivel) : null,
                     registeredExchangeRate: pkg.registered_exchange_rate != null ? parseFloat(pkg.registered_exchange_rate) : null,
+                    totalBoxesCount: pkg.total_boxes || (children?.length || 1),
                     assignedCostMxn: pkg.assigned_cost_mxn != null ? parseFloat(pkg.assigned_cost_mxn) : null,
                     montoPagado: pkg.monto_pagado != null ? parseFloat(pkg.monto_pagado) : null,
                     saldoPendiente: pkg.saldo_pendiente != null ? parseFloat(pkg.saldo_pendiente) : null,
@@ -2343,9 +2387,19 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 // 🛡️ GEX - Garantía Extendida
                 has_gex: pkg.has_gex || false,
                 gex_folio: pkg.gex_folio || null,
-                // 💰 Costos
+                // 💰 Costos — recalcular saldo si hay datos PO Box para evitar que quede solo el envío nacional
                 assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
-                saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
+                saldo_pendiente: (() => {
+                    const poboxUsd = parseFloat(pkg.pobox_venta_usd) || 0;
+                    const tc = parseFloat(pkg.registered_exchange_rate) || 0;
+                    const gexTotal = parseFloat(pkg.gex_total_cost) || 0;
+                    const shipping = parseFloat(pkg.national_shipping_cost) || 0;
+                    const pagado = parseFloat(pkg.monto_pagado) || 0;
+                    if (poboxUsd > 0 && tc > 0) {
+                        return Math.max(0, (poboxUsd * tc) + gexTotal + shipping - pagado);
+                    }
+                    return pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0;
+                })(),
                 monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
                 client_paid: pkg.client_paid || false,
                 // 💳 Orden de pago pendiente

@@ -98,6 +98,7 @@ interface ShipmentMaster {
   totalCost?: number | null;
   poboxCostUsd?: number | null;
   nationalLabelCost?: number | null;
+  nationalLabelCostPerBox?: number | null;
   poboxServiceCost?: number | null;
   poboxVentaUsd?: number | null;
   poboxVentaMxn?: number | null;
@@ -771,18 +772,30 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                     </Stack>
                     <Grid container spacing={2}>
                       {m.nationalLabelCost != null && (
-                        <Grid size={{ xs: 6, md: 3 }}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                           <Typography variant="overline" color="text.secondary">
                             Costo paquetería (última milla)
                           </Typography>
-                          <Typography variant="body1" fontWeight="bold" color="error.main">
-                            {fmtMoney(m.nationalLabelCost, 'MXN')}
-                          </Typography>
-                          {m.nationalCarrier && (
-                            <Typography variant="caption" color="text.secondary">
-                              {lastMileLabel(m.nationalCarrier)}
-                            </Typography>
-                          )}
+                          {(() => {
+                            const total = Number(m.nationalLabelCost) || 0;
+                            const boxes = Number(m.totalBoxes) || Number(m.totalBoxesCount) || 1;
+                            const perBox = boxes > 0 ? total / boxes : total;
+                            return (
+                              <>
+                                <Typography variant="body1" fontWeight="bold" color="error.main">
+                                  {fmtMoney(total, 'MXN')}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">
+                                  📦 {boxes} caja{boxes !== 1 ? 's' : ''} × {fmtMoney(perBox, 'MXN')}
+                                </Typography>
+                                {m.nationalCarrier && (
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    {lastMileLabel(m.nationalCarrier)}
+                                  </Typography>
+                                )}
+                              </>
+                            );
+                          })()}
                         </Grid>
                       )}
                       {m.poboxServiceCost != null && (
@@ -832,17 +845,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                           })()}
                         </Grid>
                       )}
-                      {m.assignedCostMxn != null && (
-                        <Grid size={{ xs: 6, md: 3 }}>
-                          <Typography variant="overline" color="text.secondary">
-                            Costo asignado
-                          </Typography>
-                          <Typography variant="body1" fontWeight="bold">
-                            {fmtMoney(m.assignedCostMxn, 'MXN')}
-                          </Typography>
-                        </Grid>
-                      )}
-                      {m.totalCost != null && (
+                      {m.totalCost != null && Number(m.totalCost) > 0 && (
                         <Grid size={{ xs: 6, md: 3 }}>
                           <Typography variant="overline" color="text.secondary">
                             Costo total GEX
@@ -852,26 +855,52 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                           </Typography>
                         </Grid>
                       )}
-                      {m.montoPagado != null && (
-                        <Grid size={{ xs: 6, md: 3 }}>
-                          <Typography variant="overline" color="text.secondary">
-                            Monto pagado
-                          </Typography>
-                          <Typography variant="body1" fontWeight="bold" color="success.dark">
-                            {fmtMoney(m.montoPagado, 'MXN')}
-                          </Typography>
-                        </Grid>
-                      )}
-                      {m.saldoPendiente != null && Number(m.saldoPendiente) > 0 && (
-                        <Grid size={{ xs: 6, md: 3 }}>
-                          <Typography variant="overline" color="text.secondary">
-                            Saldo pendiente
-                          </Typography>
-                          <Typography variant="body1" fontWeight="bold" color="error.main">
-                            {fmtMoney(m.saldoPendiente, 'MXN')}
-                          </Typography>
-                        </Grid>
-                      )}
+                      {/* Total a cobrar al cliente = Venta PO Box (MXN) + Paquetería + GEX */}
+                      {(() => {
+                        const tc = Number(m.registeredExchangeRate) || 0;
+                        const ventaMxn = m.poboxVentaMxn != null
+                          ? Number(m.poboxVentaMxn)
+                          : (tc > 0 && m.poboxVentaUsd != null ? Number(m.poboxVentaUsd) * tc : 0);
+                        const paqueteria = Number(m.nationalLabelCost) || 0;
+                        const gex = Number(m.totalCost) || 0;
+                        const totalCobrar = ventaMxn + paqueteria + gex;
+                        const pagado = Number(m.montoPagado) || 0;
+                        const saldoReal = Math.max(totalCobrar - pagado, 0);
+                        if (totalCobrar <= 0) return null;
+                        return (
+                          <>
+                            <Grid size={{ xs: 12, md: 6 }}>
+                              <Typography variant="overline" color="text.secondary">
+                                Total a cobrar al cliente
+                              </Typography>
+                              <Typography variant="body1" fontWeight="bold" color="primary.main">
+                                {fmtMoney(totalCobrar, 'MXN')}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Venta PO Box {fmtMoney(ventaMxn, 'MXN')}
+                                {paqueteria > 0 ? ` + Paquetería ${fmtMoney(paqueteria, 'MXN')}` : ''}
+                                {gex > 0 ? ` + GEX ${fmtMoney(gex, 'MXN')}` : ''}
+                              </Typography>
+                            </Grid>
+                            <Grid size={{ xs: 6, md: 3 }}>
+                              <Typography variant="overline" color="text.secondary">
+                                Monto pagado
+                              </Typography>
+                              <Typography variant="body1" fontWeight="bold" color="success.dark">
+                                {fmtMoney(pagado, 'MXN')}
+                              </Typography>
+                            </Grid>
+                            <Grid size={{ xs: 6, md: 3 }}>
+                              <Typography variant="overline" color="text.secondary">
+                                Saldo pendiente
+                              </Typography>
+                              <Typography variant="body1" fontWeight="bold" color={saldoReal > 0 ? 'error.main' : 'success.main'}>
+                                {fmtMoney(saldoReal, 'MXN')}
+                              </Typography>
+                            </Grid>
+                          </>
+                        );
+                      })()}
                     </Grid>
                   </Paper>
                 </Grid>
