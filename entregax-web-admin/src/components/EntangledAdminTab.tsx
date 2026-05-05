@@ -9,7 +9,11 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import ReceiptIcon from '@mui/icons-material/Receipt';
 import VerifiedIcon from '@mui/icons-material/Verified';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import EntangledServiceConfigCard from './EntangledServiceConfigCard';
+import EntangledUserServicePricingCard from './EntangledUserServicePricingCard';
+import EntangledRequestDetailDialog from './EntangledRequestDetailDialog';
+import type { EntangledRequestDetail } from './EntangledRequestDetailDialog';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
@@ -31,7 +35,13 @@ interface EntangledRow {
   factura_url?: string;
   comprobante_proveedor_url?: string;
   comprobante_cliente_url?: string;
+  url_comprobante_cliente?: string;
   created_at: string;
+  servicio?: 'pago_con_factura' | 'pago_sin_factura' | null;
+  comision_cliente_final_porcentaje?: number | string | null;
+  comision_cobrada_porcentaje?: number | string | null;
+  tc_aplicado_usd?: number | string | null;
+  empresas_asignadas?: unknown;
 }
 
 const statusColor = (s: string): 'default' | 'warning' | 'info' | 'success' | 'error' => {
@@ -46,6 +56,7 @@ export default function EntangledAdminTab() {
   const { t } = useTranslation();
   const [rows, setRows] = useState<EntangledRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [detail, setDetail] = useState<EntangledRequestDetail | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -67,6 +78,7 @@ export default function EntangledAdminTab() {
   return (
     <>
       <EntangledServiceConfigCard />
+      <EntangledUserServicePricingCard />
       <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
       <Box sx={{ p: 2, bgcolor: 'grey.100', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
@@ -89,10 +101,12 @@ export default function EntangledAdminTab() {
               <TableRow sx={{ bgcolor: 'grey.50' }}>
                 <TableCell>ID</TableCell>
                 <TableCell>Referencia</TableCell>
+                <TableCell>Servicio</TableCell>
                 <TableCell>Cliente</TableCell>
                 <TableCell>RFC / Razón social</TableCell>
                 <TableCell align="right">Monto</TableCell>
                 <TableCell>Divisa</TableCell>
+                <TableCell align="right">Util. XPAY (MXN)</TableCell>
                 <TableCell>Global</TableCell>
                 <TableCell>Factura</TableCell>
                 <TableCell>Proveedor</TableCell>
@@ -101,7 +115,15 @@ export default function EntangledAdminTab() {
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((r) => (
+              {rows.map((r) => {
+                const monto = Number(r.op_monto) || 0;
+                const pctC = r.comision_cliente_final_porcentaje != null ? Number(r.comision_cliente_final_porcentaje) : null;
+                const pctK = r.comision_cobrada_porcentaje != null ? Number(r.comision_cobrada_porcentaje) : null;
+                const tcUsd = r.tc_aplicado_usd != null ? Number(r.tc_aplicado_usd) : null;
+                const utilMxn = (pctC != null && pctK != null && tcUsd != null)
+                  ? monto * (pctC - pctK) / 100 * tcUsd
+                  : null;
+                return (
                 <TableRow key={r.id} hover>
                   <TableCell>{r.id}</TableCell>
                   <TableCell>
@@ -111,6 +133,14 @@ export default function EntangledAdminTab() {
                     >
                       {r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`}
                     </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={r.servicio === 'pago_sin_factura' ? 'Sin' : 'Con'}
+                      color={r.servicio === 'pago_sin_factura' ? 'default' : 'primary'}
+                      variant={r.servicio ? 'filled' : 'outlined'}
+                    />
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="bold">{r.user_name || r.user_email || `#${r.user_id}`}</Typography>
@@ -124,6 +154,20 @@ export default function EntangledAdminTab() {
                     <Typography fontWeight="bold">{Number(r.op_monto).toLocaleString()}</Typography>
                   </TableCell>
                   <TableCell>{r.op_divisa_destino}</TableCell>
+                  <TableCell align="right">
+                    {utilMxn != null ? (
+                      <Typography fontWeight="bold" color={utilMxn >= 0 ? 'success.main' : 'error.main'}>
+                        ${utilMxn.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">—</Typography>
+                    )}
+                    {pctC != null && pctK != null && (
+                      <Typography variant="caption" color="text.secondary" display="block">
+                        {pctC.toFixed(2)}% − {pctK.toFixed(2)}%
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_global)} label={r.estatus_global || '-'} /></TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_factura)} label={r.estatus_factura || '-'} /></TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_proveedor)} label={r.estatus_proveedor || '-'} /></TableCell>
@@ -134,9 +178,14 @@ export default function EntangledAdminTab() {
                   </TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      {r.comprobante_cliente_url && (
+                      <Tooltip title="Ver detalles">
+                        <IconButton size="small" color="primary" onClick={() => setDetail(r as EntangledRequestDetail)}>
+                          <InfoOutlinedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      {(r.comprobante_cliente_url || r.url_comprobante_cliente) && (
                         <Tooltip title="Comprobante cliente">
-                          <IconButton size="small" component="a" href={r.comprobante_cliente_url} target="_blank">
+                          <IconButton size="small" component="a" href={r.comprobante_cliente_url || r.url_comprobante_cliente!} target="_blank">
                             <OpenInNewIcon fontSize="small" />
                           </IconButton>
                         </Tooltip>
@@ -158,10 +207,11 @@ export default function EntangledAdminTab() {
                     </Box>
                   </TableCell>
                 </TableRow>
-              ))}
+                );
+              })}
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">Sin solicitudes ENTANGLED</Typography>
                   </TableCell>
                 </TableRow>
@@ -171,6 +221,11 @@ export default function EntangledAdminTab() {
         </TableContainer>
       )}
     </Paper>
+      <EntangledRequestDetailDialog
+        open={!!detail}
+        row={detail}
+        onClose={() => setDetail(null)}
+      />
     </>
   );
 }

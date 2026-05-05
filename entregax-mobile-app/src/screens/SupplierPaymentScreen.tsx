@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
   StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal, Image, ImageBackground, Dimensions,
@@ -180,6 +181,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [lastRequestId, setLastRequestId] = useState<number | null>(null);
   const [lastReferencia, setLastReferencia] = useState<string | null>(null);
 
+  // Comprobante v2: archivo elegido en wizard antes de submit
+  const [comprobanteAsset, setComprobanteAsset] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
+
   // Comprobante upload + live chronometer
   const [uploadingId, setUploadingId] = useState<number | null>(null);
   const [uploadSuccessModal, setUploadSuccessModal] = useState<{ visible: boolean; referencia: string }>({ visible: false, referencia: '' });
@@ -338,6 +342,28 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     return CHART_H - PAD - ((chartValues[chartValues.length - 1] - min) / range) * (CHART_H - PAD * 2);
   })();
 
+  const pickComprobanteForSubmit = async (): Promise<{ uri: string; name: string; mimeType: string } | null> => {
+    try {
+      const r = await DocumentPicker.getDocumentAsync({
+        type: ['image/*', 'application/pdf'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (r.canceled || !r.assets?.length) return null;
+      const a = r.assets[0];
+      const asset = {
+        uri: a.uri,
+        name: a.name || `comprobante-${Date.now()}`,
+        mimeType: a.mimeType || 'application/octet-stream',
+      };
+      setComprobanteAsset(asset);
+      return asset;
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudo abrir el selector de archivos');
+      return null;
+    }
+  };
+
   const submit = async () => {
     if (!monto || parseFloat(monto) <= 0) { Alert.alert('Faltan datos', 'Captura el monto'); return; }
     if (requiereFactura && (!rfc || !razon || !cp || !email)) {
@@ -346,16 +372,26 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (!benefName || !benefAccount || !benefBankName) {
       Alert.alert('Faltan datos', 'Completa beneficiario, número de cuenta y banco del proveedor de envío'); return;
     }
-    if (!selectedProviderId) { Alert.alert('Falta proveedor', 'Selecciona un proveedor ENTANGLED'); return; }
     if (divisa === 'RMB' && !benefNameZh) {
       Alert.alert('Faltan datos', 'Para envíos en RMB se requiere el nombre del beneficiario en chino'); return;
     }
+
+    // ENTANGLED v2 requiere comprobante en la primera llamada (multipart)
+    let asset = comprobanteAsset;
+    if (!asset) {
+      asset = await pickComprobanteForSubmit();
+      if (!asset) {
+        Alert.alert('Falta comprobante', 'Para enviar la solicitud necesitas adjuntar el comprobante de pago.');
+        return;
+      }
+    }
+
     setSubmitting(true);
     try {
-      let supplierId: number | undefined = selectedSupplierId !== 'new' ? Number(selectedSupplierId) : undefined;
+      // Persistir el supplier por separado (igual que antes) para tu base local
       if (selectedSupplierId === 'new' && saveSupplier) {
         try {
-          const r = await fetch(`${API_URL}/api/entangled/suppliers`, {
+          await fetch(`${API_URL}/api/entangled/suppliers`, {
             method: 'POST',
             headers: { ...authHeaders, 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -366,30 +402,54 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               aba_routing: benefAba, divisa_default: divisa,
             }),
           });
-          const sd = await r.json();
-          if (sd?.id) supplierId = sd.id;
         } catch {}
       }
-      const payload: any = {
-        requiere_factura: requiereFactura, provider_id: selectedProviderId,
-        operacion: {
-          montos: parseFloat(monto), divisa_destino: divisa,
-          conceptos: requiereFactura ? conceptos.split(',').map(s => s.trim()).filter(Boolean) : [],
-        },
-        proveedor_envio: {
-          supplier_id: supplierId || null, nombre_beneficiario: benefName,
-          nombre_chino: benefNameZh, direccion_beneficiario: benefAddress,
-          numero_cuenta: benefAccount, iban: benefIban, banco_nombre: benefBankName,
-          banco_direccion: benefBankAddress, swift_bic: benefSwift, aba_routing: benefAba,
-        },
-      };
+
+      // Notas: incluimos los datos del beneficiario para que el operador los tenga
+      const notas = [
+        `Beneficiario: ${benefName}`,
+        benefNameZh ? `Nombre chino: ${benefNameZh}` : null,
+        benefAccount ? `Cuenta: ${benefAccount}` : null,
+        benefIban ? `IBAN: ${benefIban}` : null,
+        benefBankName ? `Banco: ${benefBankName}` : null,
+        benefBankAddress ? `Dirección banco: ${benefBankAddress}` : null,
+        benefSwift ? `SWIFT: ${benefSwift}` : null,
+        benefAba ? `ABA: ${benefAba}` : null,
+        benefAddress ? `Dirección beneficiario: ${benefAddress}` : null,
+      ].filter(Boolean).join('\n');
+
+      const servicio = requiereFactura ? 'pago_con_factura' : 'pago_sin_factura';
+
+      const fd = new FormData();
+      fd.append('servicio', servicio);
+      fd.append('monto_usd', String(parseFloat(monto)));
+      fd.append('divisa', divisa);
+      fd.append(
+        'cliente_final',
+        JSON.stringify(
+          requiereFactura
+            ? { rfc, razon_social: razon, regimen_fiscal: regimen, cp, uso_cfdi: uso, email }
+            : { razon_social: razon || benefName }
+        )
+      );
       if (requiereFactura) {
-        payload.cliente_final = { rfc, razon_social: razon, regimen_fiscal: regimen, cp, uso_cfdi: uso, email };
+        const conceptosArr = conceptos.split(',').map(s => s.trim()).filter(Boolean).map(c => {
+          const m = c.match(/^(\S+)\s*[-:]?\s*(.*)$/);
+          return { clave_prodserv: m?.[1] || c, descripcion: m?.[2] || undefined };
+        });
+        fd.append('conceptos', JSON.stringify(conceptosArr));
       }
+      if (notas) fd.append('notas', notas);
+      fd.append('comprobante', {
+        uri: asset.uri,
+        name: asset.name,
+        type: asset.mimeType,
+      } as any);
+
       const res = await fetch(`${API_URL}/api/entangled/payment-requests`, {
         method: 'POST',
-        headers: { ...authHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
       });
       const data = await res.json();
       if (res.ok) {
@@ -401,6 +461,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setBenefName(''); setBenefNameZh(''); setBenefAddress('');
         setBenefAccount(''); setBenefIban(''); setBenefBankName('');
         setBenefBankAddress(''); setBenefSwift(''); setBenefAba(''); setBenefAlias('');
+        setComprobanteAsset(null);
         setSelectedSupplierId('new');
         setEditingFiscalData(false); setEditingSupplierData(false); setWizardStep(1);
         loadRequests(); loadSuppliers();
