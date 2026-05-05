@@ -5545,8 +5545,8 @@ export default function DashboardClient() {
                             icon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
                             label={
                               pkg.national_carrier
-                                ? `🚚 ${getCarrierDisplayName(pkg.national_carrier)}${isPaidPackage(pkg) ? ' · Pagado' : ''}`
-                                : `Con Instrucciones${isPaidPackage(pkg) ? ' · Pagado' : ''}`
+                                ? `🚚 ${getCarrierDisplayName(pkg.national_carrier)}`
+                                : `Con Instrucciones`
                             }
                             size="small"
                             sx={{ 
