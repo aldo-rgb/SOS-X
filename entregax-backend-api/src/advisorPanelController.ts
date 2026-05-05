@@ -35,7 +35,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         COUNT(DISTINCT CASE WHEN u.verification_status = 'unverified' THEN u.id END) as pending_verification
       FROM users u
       WHERE u.role = 'client'
-        AND (u.referred_by_id = $1)
+        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
     `, [advisorId]);
     const clientStats = clientsRes.rows[0];
 
@@ -45,7 +45,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       FROM packages p
       JOIN users u ON p.user_id = u.id
       WHERE u.role = 'client'
-        AND (u.referred_by_id = $1)
+        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND p.created_at >= NOW() - INTERVAL '30 days'
     `, [advisorId]);
 
@@ -54,7 +54,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       SELECT COUNT(*) as dormant_clients
       FROM users u
       WHERE u.role = 'client'
-        AND (u.referred_by_id = $1)
+        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND NOT EXISTS (
           SELECT 1 FROM packages p 
           WHERE p.user_id = u.id 
@@ -72,7 +72,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       FROM packages p
       JOIN users u ON p.user_id = u.id
       WHERE u.role = 'client'
-        AND (u.referred_by_id = $1)
+        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND p.status IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
     `, [advisorId]);
 
@@ -85,7 +85,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       FROM packages p
       JOIN users u ON p.user_id = u.id
       WHERE u.role = 'client'
-        AND (u.referred_by_id = $1)
+        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
     `, [advisorId]);
 
     // Registros mensuales (últimos 6 meses)
@@ -95,7 +95,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         COUNT(*) as new_clients
       FROM users u
       WHERE u.role = 'client'
-        AND (u.referred_by_id = $1)
+        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND u.created_at >= NOW() - INTERVAL '6 months'
       GROUP BY to_char(u.created_at, 'YYYY-MM')
       ORDER BY month
@@ -153,7 +153,7 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
     const { search, status, page = '1', limit = '50' } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    let whereClause = `u.role = 'client' AND (u.referred_by_id = $1)`;
+    let whereClause = `u.role = 'client' AND (u.advisor_id = $1 OR u.referred_by_id = $1)`;
     const params: any[] = [advisorId];
     let paramIdx = 2;
 
@@ -279,7 +279,7 @@ export const saveAdvisorNote = async (req: Request, res: Response): Promise<any>
 
     // Verificar que el cliente pertenece al asesor
     const check = await pool.query(
-      `SELECT id FROM users WHERE id = $1 AND (referred_by_id = $2)`,
+      `SELECT id FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2)`,
       [clientId, advisorId]
     );
     if (check.rows.length === 0) return res.status(403).json({ error: 'Cliente no pertenece a este asesor' });
@@ -338,7 +338,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         p.description as description
       FROM packages p
       JOIN users u ON p.user_id = u.id
-      WHERE u.referred_by_id = $1 AND u.role = 'client' AND p.master_id IS NULL
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client' AND p.master_id IS NULL
     `;
 
     // 2) maritime_orders (SEA_CHN_MX)
@@ -363,7 +363,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         mo.goods_name as description
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
-      WHERE u.referred_by_id = $1 AND u.role = 'client'
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
     `;
 
     // 3) dhl_shipments (AA_DHL)
@@ -388,7 +388,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         ds.description as description
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
-      WHERE u.referred_by_id = $1 AND u.role = 'client'
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
     `;
 
     // Dynamic filters per sub-query
@@ -599,7 +599,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
           SELECT 1 FROM packages p WHERE p.user_id = u.id
         ) THEN u.id END) as with_shipments
       FROM users u
-      WHERE (u.referred_by_id = $1) AND u.role = 'client'
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
     `, [advisorId]);
 
     const totals = totalsRes.rows[0] || {};
@@ -684,7 +684,7 @@ export const getRepackChildren = async (req: Request, res: Response): Promise<an
     const verifyRes = await pool.query(`
       SELECT p.id FROM packages p
       JOIN users u ON p.user_id = u.id
-      WHERE p.id = $1 AND p.is_master = true AND u.referred_by_id = $2 AND u.role = 'client'
+      WHERE p.id = $1 AND p.is_master = true AND (u.advisor_id = $2 OR u.referred_by_id = $2) AND u.role = 'client'
     `, [masterId, advisorId]);
 
     if (verifyRes.rows.length === 0) {
@@ -739,7 +739,7 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
               COALESCE(has_credit, false) as has_credit, 
               COALESCE(credit_limit, 0) as credit_limit, 
               COALESCE(used_credit, 0) as used_credit 
-       FROM users WHERE id = $1 AND referred_by_id = $2 AND role = 'client'`,
+       FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) AND role = 'client'`,
       [clientId, advisorId]
     );
     if (clientCheck.rows.length === 0) {
@@ -885,14 +885,14 @@ export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> 
         u.role,
         u.created_at,
         CASE WHEN u.is_verified = true THEN 'active' ELSE 'inactive' END as status,
-        (SELECT COUNT(*) FROM users c WHERE c.referred_by_id = u.id AND c.role = 'client') as total_clients,
-        (SELECT COUNT(*) FROM users c WHERE c.referred_by_id = u.id AND c.role = 'client' 
+        (SELECT COUNT(*) FROM users c WHERE (c.advisor_id = u.id OR c.referred_by_id = u.id) AND c.role = 'client') as total_clients,
+        (SELECT COUNT(*) FROM users c WHERE (c.advisor_id = u.id OR c.referred_by_id = u.id) AND c.role = 'client' 
          AND c.created_at >= date_trunc('month', NOW())) as monthly_clients,
         COALESCE((
           SELECT SUM(COALESCE(p.monto_pagado, p.assigned_cost_mxn, 0))
           FROM packages p 
           JOIN users c ON p.user_id = c.id 
-          WHERE c.referred_by_id = u.id AND c.role = 'client'
+          WHERE (c.advisor_id = u.id OR c.referred_by_id = u.id) AND c.role = 'client'
             AND COALESCE(p.saldo_pendiente, 0) = 0 
             AND COALESCE(p.monto_pagado, 0) > 0
         ), 0) as total_revenue,
@@ -900,13 +900,13 @@ export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> 
           SELECT SUM(COALESCE(p.monto_pagado, p.assigned_cost_mxn, 0))
           FROM packages p 
           JOIN users c ON p.user_id = c.id 
-          WHERE c.referred_by_id = u.id AND c.role = 'client'
+          WHERE (c.advisor_id = u.id OR c.referred_by_id = u.id) AND c.role = 'client'
             AND COALESCE(p.saldo_pendiente, 0) = 0 
             AND COALESCE(p.monto_pagado, 0) > 0
             AND p.updated_at >= date_trunc('month', NOW())
         ), 0) as monthly_revenue
       FROM users u
-      WHERE u.referred_by_id = $1
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND u.role IN ('advisor', 'asesor', 'sub_advisor')
       ORDER BY total_clients DESC, u.created_at DESC
     `, [advisorId]);
@@ -968,7 +968,7 @@ export const getAdvisorClientTickets = async (req: Request, res: Response): Prom
         (SELECT sender_type FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_sender
       FROM support_tickets t
       JOIN users u ON t.user_id = u.id
-      WHERE u.referred_by_id = $1
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
     `;
     const params: any[] = [advisorId];
 
@@ -1005,7 +1005,7 @@ export const getAdvisorClientTickets = async (req: Request, res: Response): Prom
         COUNT(*) FILTER (WHERE t.created_at >= NOW() - INTERVAL '7 days') as last_7_days
       FROM support_tickets t
       JOIN users u ON t.user_id = u.id
-      WHERE u.referred_by_id = $1
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
     `, [advisorId]);
 
     res.json({
@@ -1037,7 +1037,7 @@ export const getAdvisorTicketDetail = async (req: Request, res: Response): Promi
         u.phone as client_phone
       FROM support_tickets t
       JOIN users u ON t.user_id = u.id
-      WHERE t.id = $1 AND u.referred_by_id = $2
+      WHERE t.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2)
     `, [ticketId, advisorId]);
 
     if (ticketRes.rows.length === 0) {
@@ -1108,7 +1108,7 @@ export const getAdvisorNotifications = async (req: Request, res: Response): Prom
         COALESCE(p.updated_at, p.created_at) as created_at
       FROM packages p
       JOIN users u ON p.user_id = u.id
-      WHERE u.referred_by_id = $1
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND COALESCE(p.updated_at, p.created_at) >= NOW() - INTERVAL '30 days'
       ORDER BY COALESCE(p.updated_at, p.created_at) DESC
       LIMIT 30
@@ -1129,7 +1129,7 @@ export const getAdvisorNotifications = async (req: Request, res: Response): Prom
         pay.created_at
       FROM payment_invoices pay
       JOIN users u ON pay.user_id = u.id
-      WHERE u.referred_by_id = $1
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND pay.created_at >= NOW() - INTERVAL '30 days'
       ORDER BY pay.created_at DESC
       LIMIT 20
@@ -1149,7 +1149,7 @@ export const getAdvisorNotifications = async (req: Request, res: Response): Prom
         json_build_object('client_id', u.id) as data,
         u.created_at
       FROM users u
-      WHERE u.referred_by_id = $1
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND u.role = 'client'
         AND u.created_at >= NOW() - INTERVAL '30 days'
       ORDER BY u.created_at DESC
@@ -1175,7 +1175,7 @@ export const getAdvisorNotifications = async (req: Request, res: Response): Prom
         COALESCE(t.updated_at, t.created_at) as created_at
       FROM support_tickets t
       JOIN users u ON t.user_id = u.id
-      WHERE u.referred_by_id = $1
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND COALESCE(t.updated_at, t.created_at) >= NOW() - INTERVAL '30 days'
       ORDER BY COALESCE(t.updated_at, t.created_at) DESC
       LIMIT 10
@@ -1195,7 +1195,7 @@ export const getAdvisorNotifications = async (req: Request, res: Response): Prom
         json_build_object('client_id', u.id) as data,
         u.created_at
       FROM users u
-      WHERE u.referred_by_id = $1
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
         AND u.role = 'client'
         AND (u.verification_status = 'unverified' OR u.verification_status IS NULL)
         AND u.is_verified = false
@@ -1255,11 +1255,11 @@ export const getAdvisorNotifications = async (req: Request, res: Response): Prom
       SELECT COUNT(*) as count FROM (
         SELECT p.id FROM packages p 
         JOIN users u ON p.user_id = u.id
-        WHERE u.referred_by_id = $1 AND COALESCE(p.updated_at, p.created_at) >= NOW() - INTERVAL '7 days'
+        WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND COALESCE(p.updated_at, p.created_at) >= NOW() - INTERVAL '7 days'
         UNION ALL
         SELECT pay.id FROM payment_invoices pay
         JOIN users u ON pay.user_id = u.id
-        WHERE u.referred_by_id = $1 AND pay.created_at >= NOW() - INTERVAL '7 days'
+        WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND pay.created_at >= NOW() - INTERVAL '7 days'
       ) activity
     `, [advisorId]);
 
@@ -1298,21 +1298,21 @@ export const getAdvisorUnreadCount = async (req: Request, res: Response): Promis
       SELECT COUNT(*) as count FROM (
         SELECT p.id FROM packages p 
         JOIN users u ON p.user_id = u.id
-        WHERE u.referred_by_id = $1 AND COALESCE(p.updated_at, p.created_at) >= NOW() - INTERVAL '3 days'
+        WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND COALESCE(p.updated_at, p.created_at) >= NOW() - INTERVAL '3 days'
         UNION ALL
         Select pay.id FROM payment_invoices pay
         JOIN users u ON pay.user_id = u.id
-        WHERE u.referred_by_id = $1 AND pay.created_at >= NOW() - INTERVAL '3 days'
+        WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND pay.created_at >= NOW() - INTERVAL '3 days'
         UNION ALL
         SELECT u.id FROM users u
-        WHERE u.referred_by_id = $1 AND u.role = 'client' AND u.created_at >= NOW() - INTERVAL '3 days'
+        WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client' AND u.created_at >= NOW() - INTERVAL '3 days'
       ) activity
     `, [advisorId]);
 
     // Clientes pendientes de verificación (SIEMPRE se cuentan hasta que se verifiquen)
     const pendingVerification = await pool.query(`
       SELECT COUNT(*) as count FROM users u
-      WHERE u.referred_by_id = $1 
+      WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) 
         AND u.role = 'client' 
         AND (u.verification_status = 'unverified' OR u.verification_status IS NULL)
         AND u.is_verified = false
