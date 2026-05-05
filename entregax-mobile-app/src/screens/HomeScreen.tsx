@@ -200,6 +200,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       ready_pickup: '📍 Pick Up',
       delivered: t('status.delivered'),
       pending: t('status.pending'),
+      received_mty: '📦 Recibido en MTY',
     };
     return statusLabels[status] || status;
   };

@@ -1512,20 +1512,14 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
           </CardContent></Card>
         </Grid>
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ borderLeft: `4px solid ${ORANGE}` }}><CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-            <Typography variant="caption" color="text.secondary">Sincronizar últimos 30 días</Typography>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography variant="caption" sx={{ fontWeight: 600 }}>Facturama</Typography>
-              <IconButton size="small" onClick={handleSync} disabled={syncing} title="Descargar CFDIs recibidos vía Facturama" sx={{ bgcolor: ORANGE, color: 'white', '&:hover': { bgcolor: BLACK } }}>
-                {syncing ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <SyncIcon fontSize="small" />}
-              </IconButton>
+          <Card sx={{ borderLeft: `4px solid #0ea5e9` }}><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Box>
+              <Typography variant="caption" color="text.secondary">Facturapi</Typography>
+              <Typography variant="body2" fontWeight={600}>Sincronizar 30 días</Typography>
             </Box>
-            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', justifyContent: 'space-between' }}>
-              <Typography variant="caption" sx={{ fontWeight: 600 }}>Facturapi</Typography>
-              <IconButton size="small" onClick={handleSyncFacturapi} disabled={syncingFacturapi} title="Descargar CFDIs recibidos vía Facturapi" sx={{ bgcolor: '#0ea5e9', color: 'white', '&:hover': { bgcolor: BLACK } }}>
-                {syncingFacturapi ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <SyncIcon fontSize="small" />}
-              </IconButton>
-            </Box>
+            <IconButton onClick={handleSyncFacturapi} disabled={syncingFacturapi} title="Descargar CFDIs recibidos vía Facturapi" sx={{ bgcolor: '#0ea5e9', color: 'white', '&:hover': { bgcolor: BLACK } }}>
+              {syncingFacturapi ? <CircularProgress size={18} sx={{ color: 'white' }} /> : <SyncIcon />}
+            </IconButton>
           </CardContent></Card>
         </Grid>
       </Grid>
