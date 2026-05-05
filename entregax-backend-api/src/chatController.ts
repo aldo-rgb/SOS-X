@@ -527,9 +527,11 @@ export const listParticipants = async (req: AuthRequest, res: Response) => {
 
     const r = await pool.query(
       `SELECT u.id, u.full_name, u.email, u.role, u.profile_photo_url,
+              u.branch_id, b.name AS branch_name,
               cp.role AS participant_role, cp.joined_at, cp.is_muted
          FROM chat_participants cp
          JOIN users u ON u.id = cp.user_id
+         LEFT JOIN branches b ON b.id = u.branch_id
         WHERE cp.conversation_id = $1 AND cp.left_at IS NULL
         ORDER BY (cp.role = 'admin') DESC, u.full_name ASC`,
       [conversationId]
@@ -554,13 +556,15 @@ export const searchStaff = async (req: AuthRequest, res: Response) => {
     // de lo contrario, ve todo el staff.
     const allowedRoles = VISIBLE_ROLES_FOR[requesterRole] || STAFF_ROLES;
     const r = await pool.query(
-      `SELECT id, full_name, email, role, profile_photo_url, branch_id
-         FROM users
-        WHERE role = ANY($1::text[])
-          AND (is_blocked IS NULL OR is_blocked = FALSE)
-          AND id <> $2
-          AND ($3 = '' OR full_name ILIKE '%' || $3 || '%' OR email ILIKE '%' || $3 || '%')
-        ORDER BY role, full_name
+      `SELECT u.id, u.full_name, u.email, u.role, u.profile_photo_url,
+              u.branch_id, b.name AS branch_name
+         FROM users u
+         LEFT JOIN branches b ON b.id = u.branch_id
+        WHERE u.role = ANY($1::text[])
+          AND (u.is_blocked IS NULL OR u.is_blocked = FALSE)
+          AND u.id <> $2
+          AND ($3 = '' OR u.full_name ILIKE '%' || $3 || '%' OR u.email ILIKE '%' || $3 || '%')
+        ORDER BY u.role, u.full_name
         LIMIT 100`,
       [allowedRoles, requesterId, q]
     );

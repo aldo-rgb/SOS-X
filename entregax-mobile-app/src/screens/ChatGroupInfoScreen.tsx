@@ -158,6 +158,7 @@ export default function ChatGroupInfoScreen({ route, navigation }: any) {
           </Text>
           <Text style={styles.role}>
             {ROLE_LABELS[item.role] || item.role}
+            {(item as any).branch_name ? ` · ${(item as any).branch_name}` : ''}
             {item.participant_role === 'admin' ? ' · Admin del grupo' : ''}
           </Text>
         </View>

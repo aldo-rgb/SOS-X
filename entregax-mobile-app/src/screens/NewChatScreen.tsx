@@ -49,6 +49,7 @@ interface StaffUser {
   role: string;
   profile_photo_url?: string | null;
   branch_id?: number | null;
+  branch_name?: string | null;
 }
 
 export default function NewChatScreen({ route, navigation }: any) {
@@ -140,8 +141,10 @@ export default function NewChatScreen({ route, navigation }: any) {
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={styles.userName}>{item.full_name}</Text>
           <Text style={styles.userRole}>
-            {ROLE_LABELS[item.role] || item.role} · {item.email}
+            {ROLE_LABELS[item.role] || item.role}
+            {item.branch_name ? ` · ${item.branch_name}` : ''}
           </Text>
+          <Text style={styles.userEmail} numberOfLines={1}>{item.email}</Text>
         </View>
         <View style={[styles.checkbox, isSelected && styles.checkboxOn]}>
           {isSelected && <Ionicons name="checkmark" size={16} color="#fff" />}
@@ -323,6 +326,7 @@ const styles = StyleSheet.create({
   avatarText: { color: '#fff', fontSize: 17, fontWeight: '700' },
   userName: { fontSize: 15, fontWeight: '600', color: '#111' },
   userRole: { fontSize: 12, color: '#666', marginTop: 2 },
+  userEmail: { fontSize: 11, color: '#999', marginTop: 1 },
   checkbox: {
     width: 24,
     height: 24,
