@@ -287,7 +287,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   });
 
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
+  const [wizardStep, setWizardStep] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [submitting, setSubmitting] = useState(false);
   const [uploading, setUploading] = useState(false);
 
@@ -860,7 +860,11 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   };
 
-  const validateWizardStep = (step: 1 | 2 | 3 | 4): string | null => {
+  const validateWizardStep = (step: 0 | 1 | 2 | 3 | 4): string | null => {
+    if (step === 0) {
+      // Selector de servicio: siempre válido (default: requiereFactura=true)
+      return null;
+    }
     if (step === 1) {
       if (!selectedProviderId) return 'Selecciona un proveedor ENTANGLED';
       if (!form.monto || Number(form.monto) <= 0) return 'Captura un monto válido';
@@ -891,7 +895,13 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       setSnack({ open: true, severity: 'error', message: err });
       return;
     }
-    setWizardStep((s) => (s === 1 ? 2 : s === 2 ? 3 : s === 3 ? 4 : 4));
+    setWizardStep((s) => {
+      if (s === 0) return 1;
+      if (s === 1) return 2;
+      if (s === 2) return requiereFactura ? 3 : 4;
+      if (s === 3) return 4;
+      return 4;
+    });
   };
 
   const handleStartWizardFromWidget = () => {
@@ -901,7 +911,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       monto: Number.isFinite(amount) && amount > 0 ? String(amount) : prev.monto,
       divisa_destino: 'USD',
     }));
-    setWizardStep(1);
+    setWizardStep(0);
     setDialogOpen(true);
   };
 
@@ -1451,7 +1461,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         open={dialogOpen}
         onClose={() => {
           setDialogOpen(false);
-          setWizardStep(1);
+          setWizardStep(0);
         }}
         maxWidth="md"
         fullWidth
@@ -1471,10 +1481,11 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         <DialogContent sx={{ pt: 3, bgcolor: '#0a0a0c' }}>
           <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap' }}>
             {[
-              { id: 1 as const, label: '1. Moneda y monto' },
-              { id: 2 as const, label: '2. Beneficiario' },
-              { id: 3 as const, label: '3. Factura' },
-              { id: 4 as const, label: '4. Resumen' },
+              { id: 0 as const, label: '0. Servicio', enabled: true },
+              { id: 1 as const, label: '1. Moneda y monto', enabled: true },
+              { id: 2 as const, label: '2. Beneficiario', enabled: true },
+              { id: 3 as const, label: '3. Factura', enabled: requiereFactura },
+              { id: 4 as const, label: '4. Resumen', enabled: true },
             ].map((s) => (
               <Box
                 key={s.id}
@@ -1486,16 +1497,111 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                   fontWeight: 700,
                   border: '1px solid',
                   borderColor: wizardStep === s.id ? ORANGE : '#2f2f33',
-                  color: wizardStep === s.id ? '#fff' : '#9ca3af',
+                  color: !s.enabled ? '#4b5563' : (wizardStep === s.id ? '#fff' : '#9ca3af'),
                   bgcolor: wizardStep === s.id ? 'rgba(240,90,40,0.26)' : '#121214',
-                  cursor: 'pointer',
+                  cursor: s.enabled ? 'pointer' : 'not-allowed',
+                  textDecoration: !s.enabled ? 'line-through' : 'none',
+                  opacity: !s.enabled ? 0.5 : 1,
                 }}
-                onClick={() => setWizardStep(s.id)}
+                onClick={() => { if (s.enabled) setWizardStep(s.id); }}
               >
                 {s.label}
               </Box>
             ))}
           </Box>
+
+          {wizardStep === 0 && (
+            <Paper variant="outlined" sx={{ p: 2.5, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5, color: '#ffffff' }}>
+                ¿Qué tipo de envío necesitas?
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mb: 2 }}>
+                Selecciona si requieres factura SAT para tu cliente final o si solo necesitas enviar el pago al proveedor.
+              </Typography>
+
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Card
+                    onClick={() => { setRequiereFactura(true); setWizardStep(1); }}
+                    sx={{
+                      cursor: 'pointer',
+                      bgcolor: requiereFactura ? 'rgba(240,90,40,0.12)' : '#0f0f10',
+                      border: `2px solid ${requiereFactura ? ORANGE : '#2f2f33'}`,
+                      transition: 'all 0.18s ease',
+                      '&:hover': { borderColor: ORANGE, transform: 'translateY(-2px)' },
+                    }}
+                  >
+                    <CardContent>
+                      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
+                        <ReceiptLongIcon sx={{ color: ORANGE, fontSize: 32 }} />
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: '#fff' }}>
+                            Pago con factura SAT
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+                            Recomendado para empresas
+                          </Typography>
+                        </Box>
+                      </Stack>
+                      <Typography variant="body2" sx={{ color: '#d1d5db', mb: 1 }}>
+                        Emite factura SAT a tu cliente final. Requiere datos fiscales (RFC, régimen, uso CFDI) y conceptos.
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                        <Chip size="small" label="CFDI 4.0" sx={{ bgcolor: 'rgba(240,90,40,0.2)', color: ORANGE, fontWeight: 700 }} />
+                        <Chip size="small" label="Triangulación SAT" sx={{ bgcolor: 'rgba(240,90,40,0.2)', color: ORANGE, fontWeight: 700 }} />
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+
+                <Grid size={{ xs: 12, md: 6 }}>
+                  <Card
+                    onClick={() => { setRequiereFactura(false); setWizardStep(1); }}
+                    sx={{
+                      cursor: 'pointer',
+                      bgcolor: !requiereFactura ? 'rgba(240,90,40,0.12)' : '#0f0f10',
+                      border: `2px solid ${!requiereFactura ? ORANGE : '#2f2f33'}`,
+                      transition: 'all 0.18s ease',
+                      '&:hover': { borderColor: ORANGE, transform: 'translateY(-2px)' },
+                    }}
+                  >
+                    <CardContent>
+                      <Stack direction="row" spacing={1.5} alignItems="center" sx={{ mb: 1 }}>
+                        <AccountBalanceWalletOutlinedIcon sx={{ color: ORANGE, fontSize: 32 }} />
+                        <Box sx={{ flex: 1 }}>
+                          <Typography variant="subtitle1" fontWeight={800} sx={{ color: '#fff' }}>
+                            Pago sin factura
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+                            Más rápido, sin trámite fiscal
+                          </Typography>
+                        </Box>
+                      </Stack>
+                      <Typography variant="body2" sx={{ color: '#d1d5db', mb: 1 }}>
+                        Solo envía el pago al proveedor internacional. No se emite factura SAT.
+                      </Typography>
+                      <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 1 }}>
+                        <Chip size="small" label="Sin RFC" sx={{ bgcolor: 'rgba(240,90,40,0.2)', color: ORANGE, fontWeight: 700 }} />
+                        <Chip size="small" label="Proceso ágil" sx={{ bgcolor: 'rgba(240,90,40,0.2)', color: ORANGE, fontWeight: 700 }} />
+                      </Box>
+                    </CardContent>
+                  </Card>
+                </Grid>
+              </Grid>
+
+              <Stack direction="row" spacing={2} alignItems="center" sx={{ mt: 2.5, p: 1.5, bgcolor: '#0f0f10', borderRadius: 1, border: '1px dashed #2f2f33' }}>
+                <ShieldOutlinedIcon sx={{ color: ORANGE }} />
+                <Box>
+                  <Typography variant="caption" sx={{ color: '#d1d5db', fontWeight: 700, display: 'block' }}>
+                    {requiereFactura ? 'Has seleccionado: Pago con factura SAT' : 'Has seleccionado: Pago sin factura'}
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: '#9ca3af' }}>
+                    Puedes cambiar esta selección en cualquier momento desde la barra de pasos.
+                  </Typography>
+                </Box>
+              </Stack>
+            </Paper>
+          )}
 
           {wizardStep === 1 && (
           <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
@@ -2014,11 +2120,17 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           )}
         </DialogContent>
         <DialogActions sx={{ bgcolor: '#0a0a0a', borderTop: '1px solid #333333', p: 2, display: 'flex', gap: 1 }}>
-          <Button onClick={() => { setDialogOpen(false); setWizardStep(1); }} sx={{ color: '#888888', mr: 'auto', '&:hover': { bgcolor: '#2a2a2a' } }}>
+          <Button onClick={() => { setDialogOpen(false); setWizardStep(0); }} sx={{ color: '#888888', mr: 'auto', '&:hover': { bgcolor: '#2a2a2a' } }}>
             {t('common.cancel')}
           </Button>
-          {wizardStep > 1 && (
-            <Button variant="outlined" onClick={() => setWizardStep((s) => (s === 4 ? 3 : s === 3 ? 2 : s === 2 ? 1 : 1))}
+          {wizardStep > 0 && (
+            <Button variant="outlined" onClick={() => setWizardStep((s) => {
+              if (s === 4) return requiereFactura ? 3 : 2;
+              if (s === 3) return 2;
+              if (s === 2) return 1;
+              if (s === 1) return 0;
+              return 0;
+            })}
               sx={{ borderColor: '#555', color: '#ddd', minWidth: 90, flex: '0 0 auto' }}>
               {t('common.back', 'Atrás')}
             </Button>
@@ -2028,8 +2140,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               sx={{ bgcolor: ORANGE, color: '#000', fontWeight: 700, minWidth: 90, flex: '0 0 auto', '&:hover': { bgcolor: '#E54A1F' } }}>
               {t('common.next', 'Siguiente')}
             </Button>
-          ) : (
-            <Button
+          ) : (            <Button
               variant="contained"
               onClick={handleSubmit}
               disabled={submitting || !quote}
