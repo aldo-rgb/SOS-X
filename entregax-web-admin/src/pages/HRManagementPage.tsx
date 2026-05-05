@@ -75,8 +75,6 @@ const EMPLOYEE_ROLES = [
   { value: 'branch_manager', label: 'Operaciones', color: 'secondary' as const },
   { value: 'monitoreo', label: 'Monitoreo', color: 'default' as const },
   { value: 'accountant', label: 'Contador', color: 'default' as const },
-  { value: 'advisor', label: 'Asesor', color: 'primary' as const },
-  { value: 'sub_advisor', label: 'Sub-Asesor', color: 'primary' as const },
 ];
 
 interface Employee {

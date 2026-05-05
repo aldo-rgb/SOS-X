@@ -428,7 +428,7 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         END AS profile_photo_url,
         u.privacy_accepted_at
       FROM users u
-      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'advisor', 'sub_advisor', 'operaciones', 'director', 'admin', 'super_admin')
+      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director', 'admin', 'super_admin')
       ORDER BY u.role, u.full_name
     `);
 
@@ -866,7 +866,7 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<void>
       UPDATE users SET
         is_active = FALSE,
         deleted_at = NOW()
-      WHERE id = $1 AND role IN ('repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'advisor', 'sub_advisor', 'operaciones')
+      WHERE id = $1 AND role IN ('repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones')
       RETURNING id, full_name
     `, [id]);
 
