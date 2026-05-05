@@ -30,6 +30,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { getMyPackagesApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
+import { getPackageCostBreakdown } from '../utils/packageCosts';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
@@ -2009,27 +2010,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         });
         const totalToPay = selectedPackages.reduce((sum, p) => {
           const pp = p as any;
-          const gexTotal = parseFloat(pp.gex_total_cost) || 0;
-          const shipping = parseFloat(pp.national_shipping_cost) || 0;
-          const pagado = parseFloat(pp.monto_pagado) || 0;
-          // Master: intentar sumar costos de hijas si el master no tiene pobox_venta_usd
-          let poboxMxn = 0;
-          const poboxUsd = parseFloat(pp.pobox_venta_usd) || 0;
-          const tc = parseFloat(pp.registered_exchange_rate) || 0;
-          if (poboxUsd > 0 && tc > 0) {
-            poboxMxn = poboxUsd * tc;
-          } else if (pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0) {
-            poboxMxn = pp.child_packages.reduce((s: number, c: any) => {
-              const cMxn = parseFloat(c.pobox_venta_mxn) || 0;
-              const cUsd = parseFloat(c.pobox_venta_usd) || 0;
-              const cTc = parseFloat(c.registered_exchange_rate) || 0;
-              if (cMxn > 0) return s + cMxn;
-              if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
-              return s + (parseFloat(c.assigned_cost_mxn) || 0);
-            }, 0);
-          }
-          const saldo = poboxMxn > 0
-            ? Math.max(0, poboxMxn + gexTotal + shipping - pagado)
+          // 📦 Helper canónico: lee pobox_service_cost / national_shipping_cost / gex_total_cost
+          // y, si el master no los tiene, los suma desde child_packages.
+          const breakdown = getPackageCostBreakdown(pp);
+          // Fallback a saldo_pendiente / assigned_cost_mxn si nada en BD aún (paquete sin costear)
+          const saldo = breakdown.totalMxn > 0
+            ? breakdown.pendingMxn
             : parseFloat(String(pp.saldo_pendiente || p.assigned_cost_mxn || 0));
           return sum + saldo;
         }, 0);

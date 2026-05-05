@@ -15,6 +15,7 @@
  */
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getScannerBreakdown, fmtMXN } from '../utils/packageCosts';
 import {
   Box,
   Paper,
@@ -891,49 +892,49 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                           </Typography>
                         </Grid>
                       )}
-                      {/* Total a cobrar al cliente = Venta PO Box (MXN) + Paquetería + GEX */}
+                      {/* Total a cobrar al cliente — usa helper canónico (pobox_service_cost prioritario).
+                          Si se escaneó una hija (m.scannedBox presente), muestra costos POR CAJA. */}
                       {(() => {
-                        const tc = Number(m.registeredExchangeRate) || 0;
-                        const ventaMxn = m.poboxVentaMxn != null
-                          ? Number(m.poboxVentaMxn)
-                          : (tc > 0 && m.poboxVentaUsd != null ? Number(m.poboxVentaUsd) * tc : 0);
-                        const paqueteria = Number(m.nationalLabelCost) || 0;
-                        const gex = Number(m.totalCost) || 0;
-                        const totalCobrar = ventaMxn + paqueteria + gex;
-                        const pagado = Number(m.montoPagado) || 0;
-                        const saldoReal = Math.max(totalCobrar - pagado, 0);
-                        if (totalCobrar <= 0) return null;
+                        const scannedIsChild = !!m.scannedBox;
+                        const breakdown = getScannerBreakdown(m, scannedIsChild, children);
+                        const { poboxServiceMxn, nationalShippingMxn, gexMxn, totalMxn, paidMxn, pendingMxn, boxCount } = breakdown;
+                        if (totalMxn <= 0) return null;
+                        const perBoxLabel = scannedIsChild ? ` · por caja (de ${boxCount})` : '';
                         return (
                           <>
                             <Grid size={{ xs: 12, md: 6 }}>
                               <Typography variant="overline" color="text.secondary">
-                                Total a cobrar al cliente
+                                {scannedIsChild ? `Total por caja escaneada${perBoxLabel}` : 'Total a cobrar al cliente'}
                               </Typography>
                               <Typography variant="body1" fontWeight="bold" color="primary.main">
-                                {fmtMoney(totalCobrar, 'MXN')}
+                                {fmtMXN(totalMxn)}
                               </Typography>
                               <Typography variant="caption" color="text.secondary" display="block">
-                                Venta PO Box {fmtMoney(ventaMxn, 'MXN')}
-                                {paqueteria > 0 ? ` + Paquetería ${fmtMoney(paqueteria, 'MXN')}` : ''}
-                                {gex > 0 ? ` + GEX ${fmtMoney(gex, 'MXN')}` : ''}
+                                Servicio PO Box {fmtMXN(poboxServiceMxn)}
+                                {nationalShippingMxn > 0 ? ` + Paquetería ${fmtMXN(nationalShippingMxn)}` : ''}
+                                {gexMxn > 0 ? ` + GEX ${fmtMXN(gexMxn)}` : ''}
                               </Typography>
                             </Grid>
-                            <Grid size={{ xs: 6, md: 3 }}>
-                              <Typography variant="overline" color="text.secondary">
-                                Monto pagado
-                              </Typography>
-                              <Typography variant="body1" fontWeight="bold" color="success.dark">
-                                {fmtMoney(pagado, 'MXN')}
-                              </Typography>
-                            </Grid>
-                            <Grid size={{ xs: 6, md: 3 }}>
-                              <Typography variant="overline" color="text.secondary">
-                                Saldo pendiente
-                              </Typography>
-                              <Typography variant="body1" fontWeight="bold" color={saldoReal > 0 ? 'error.main' : 'success.main'}>
-                                {fmtMoney(saldoReal, 'MXN')}
-                              </Typography>
-                            </Grid>
+                            {!scannedIsChild && (
+                              <>
+                                <Grid size={{ xs: 6, md: 3 }}>
+                                  <Typography variant="overline" color="text.secondary">
+                                    Monto pagado
+                                  </Typography>
+                                  <Typography variant="body1" fontWeight="bold" color="success.dark">
+                                    {fmtMXN(paidMxn)}
+                                  </Typography>
+                                </Grid>
+                                <Grid size={{ xs: 6, md: 3 }}>
+                                  <Typography variant="overline" color="text.secondary">
+                                    Saldo pendiente
+                                  </Typography>
+                                  <Typography variant="body1" fontWeight="bold" color={pendingMxn > 0 ? 'error.main' : 'success.main'}>
+                                    {fmtMXN(pendingMxn)}
+                                  </Typography>
+                                </Grid>
+                              </>
+                            )}
                           </>
                         );
                       })()}
