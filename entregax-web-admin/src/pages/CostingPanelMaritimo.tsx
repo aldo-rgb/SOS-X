@@ -211,8 +211,14 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; labelEn: str
     'consolidated': { label: 'Consolidado', labelEn: 'Consolidated', labelZh: '已合并', color: '#FF9800' },
     'in_transit': { label: 'Ya Zarpó', labelEn: 'Departed', labelZh: '已出发', color: '#2196F3' },
     'arrived_port': { label: 'Arribo a Puerto', labelEn: 'Arrived at Port', labelZh: '已到港', color: '#673AB7' },
+    'customs_mx': { label: 'En Aduana México', labelEn: 'At Customs MX', labelZh: '墨西哥海关', color: '#FF5722' },
     'customs_cleared': { label: 'Liberado', labelEn: 'Customs Cleared', labelZh: '已清关', color: '#4CAF50' },
+    'in_transit_mx': { label: 'En Ruta a CEDIS', labelEn: 'In Transit to CEDIS', labelZh: '运往仓库中', color: '#03A9F4' },
     'received_cedis': { label: 'En CEDIS', labelEn: 'At CEDIS', labelZh: '已到仓库', color: '#00BCD4' },
+    'ready_pickup': { label: 'Listo para Recoger', labelEn: 'Ready for Pickup', labelZh: '可取货', color: '#8BC34A' },
+    'delivered': { label: 'Entregado', labelEn: 'Delivered', labelZh: '已送达', color: '#4CAF50' },
+    'cancelled': { label: 'Cancelado', labelEn: 'Cancelled', labelZh: '已取消', color: '#F44336' },
+    'returned': { label: 'Devuelto', labelEn: 'Returned', labelZh: '已退回', color: '#795548' },
 };
 
 const emptyCosts: ContainerCosts = {

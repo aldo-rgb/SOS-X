@@ -63,6 +63,11 @@ const STEPS = [
 
 export default function VehicleInspectionScreen({ navigation, route }: any) {
   const token = route?.params?.token;
+  const user = route?.params?.user;
+  // 👁️ Rol Monitoreo: NO es inspección semanal; es asignación cada vez
+  // que recibe la unidad (puede pasar varias veces al día).
+  const isMonitoreo = String(user?.role || '').toLowerCase() === 'monitoreo';
+  const screenTitle = isMonitoreo ? 'Recibir Unidad' : 'Inspección Semanal';
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -98,12 +103,16 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
         : (vehiclesRes.data?.vehicles || []);
       setVehicles(vehiclesData);
 
-      // Verificar si ya hizo inspección hoy
-      const checkRes = await api.get('/api/fleet/inspection/today', {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
-      if (checkRes.data?.has_inspection || checkRes.data?.already_inspected) {
-        setAlreadyInspected(true);
+      // Verificar si ya hizo inspección hoy.
+      // Para rol Monitoreo NO se aplica el bloqueo: pueden recibir/asignar
+      // unidad varias veces al día.
+      if (!isMonitoreo) {
+        const checkRes = await api.get('/api/fleet/inspection/today', {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        if (checkRes.data?.has_inspection || checkRes.data?.already_inspected) {
+          setAlreadyInspected(true);
+        }
       }
     } catch (error) {
       console.error('Error cargando datos:', error);
@@ -248,7 +257,9 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
 
       Alert.alert(
         '✅ Inspección Completada',
-        'Tu inspección semanal ha sido registrada. ¡Puedes iniciar tu ruta!',
+        isMonitoreo
+          ? 'La asignación de la unidad ha sido registrada. ¡Puedes iniciar tu jornada!'
+          : 'Tu inspección semanal ha sido registrada. ¡Puedes iniciar tu ruta!',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     } catch (error: any) {
@@ -528,9 +539,11 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
       <SafeAreaView style={styles.container}>
         <View style={styles.completedContainer}>
           <MaterialIcons name="check-circle" size={100} color="#4CAF50" />
-          <Text style={styles.completedTitle}>¡Inspección Completada!</Text>
+          <Text style={styles.completedTitle}>{isMonitoreo ? '¡Unidad Asignada!' : '¡Inspección Completada!'}</Text>
           <Text style={styles.completedSubtitle}>
-            Ya realizaste tu inspección semanal. Puedes continuar con tu ruta.
+            {isMonitoreo
+              ? 'Ya registraste la asignación de la unidad para esta jornada.'
+              : 'Ya realizaste tu inspección semanal. Puedes continuar con tu ruta.'}
           </Text>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Text style={styles.backButtonText}>Volver al inicio</Text>
@@ -547,7 +560,7 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
         <TouchableOpacity onPress={handleBack}>
           <MaterialIcons name="arrow-back" size={28} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Inspección Semanal</Text>
+        <Text style={styles.headerTitle}>{screenTitle}</Text>
         <View style={{ width: 28 }} />
       </View>
 

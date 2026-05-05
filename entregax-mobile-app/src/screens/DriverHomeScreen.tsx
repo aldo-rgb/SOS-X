@@ -245,12 +245,14 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       // vehículo, sino la asignación/recepción de un vehículo a su cargo.
       title: isMonitoreo ? 'Recibir Unidad' : 'Inspección Semanal',
       subtitle: isMonitoreo
-        ? (inspectionDone ? 'Asignación registrada ✓' : 'Asignación de vehículo')
+        ? 'Asignación de vehículo'
         : (inspectionDone ? 'Completada ✓' : 'Requerida una vez por semana'),
       icon: 'assignment',
-      color: inspectionDone ? '#4CAF50' : '#FF9800',
+      color: isMonitoreo ? '#FF9800' : (inspectionDone ? '#4CAF50' : '#FF9800'),
       screen: 'VehicleInspection',
-      enabled: !inspectionDone,
+      // Monitoreo: siempre habilitado (puede recibir varias veces).
+      // Repartidor: solo si aún no hizo la inspección del periodo.
+      enabled: isMonitoreo ? true : !inspectionDone,
     },
     {
       id: 'load',
