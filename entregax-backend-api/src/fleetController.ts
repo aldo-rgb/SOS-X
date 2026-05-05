@@ -654,7 +654,30 @@ export const getAvailableVehicles = async (req: Request, res: Response) => {
     if (!userId) {
       return res.status(401).json({ error: 'Sesión no válida' });
     }
-    
+
+    // 👁️ Detectar rol monitoreo: ve TODOS los vehículos activos de su sucursal
+    // (asignados o no) para poder recibir unidades de cualquier chofer.
+    const userRoleRes = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
+    const userRole = String(userRoleRes.rows[0]?.role || '').toLowerCase();
+    const isMonitoreo = userRole === 'monitoreo';
+
+    if (isMonitoreo) {
+      const monitorVehicles = await pool.query(`
+        SELECT v.id, v.economic_number, v.vehicle_type, v.brand, v.model, v.year,
+               v.license_plates, v.current_mileage,
+               v.assigned_driver_id,
+               drv.full_name AS assigned_driver_name
+        FROM vehicles v
+        JOIN users u ON u.id = $1
+        LEFT JOIN users drv ON drv.id = v.assigned_driver_id
+        WHERE v.status = 'active'
+          AND u.branch_id IS NOT NULL
+          AND v.branch_id = u.branch_id
+        ORDER BY (v.assigned_driver_id IS NULL), v.economic_number
+      `, [userId]);
+      return res.json(monitorVehicles.rows);
+    }
+
     // Vehículos activos asignados al chofer autenticado
     const assigned = await pool.query(`
       SELECT id, economic_number, vehicle_type, brand, model, year, license_plates, current_mileage
@@ -775,18 +798,47 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
       UPDATE vehicles SET current_mileage = $1, updated_at = NOW() WHERE id = $2
     `, [reported_mileage, vehicle_id]);
     
-    // Si es check_in, asignar chofer al vehículo
-    if (inspection_type === 'check_in' || !inspection_type) {
+    if (isMonitoreo) {
+      // 👁️ Monitoreo "Recibe Unidad": cierra la asignación activa del chofer,
+      // registra el kilometraje de devolución y libera el vehículo (queda disponible).
+      const activeAssignment = await pool.query(`
+        SELECT id, driver_id FROM vehicle_assignments
+        WHERE vehicle_id = $1 AND released_at IS NULL
+        ORDER BY assigned_at DESC LIMIT 1
+      `, [vehicle_id]);
+
+      if (activeAssignment.rows.length > 0) {
+        await pool.query(`
+          UPDATE vehicle_assignments
+          SET released_at = NOW(),
+              mileage_at_release = $1
+          WHERE id = $2
+        `, [reported_mileage, activeAssignment.rows[0].id]);
+      }
+
+      // Liberar vehículo (vuelve al pool de disponibles)
+      await pool.query(`
+        UPDATE vehicles SET assigned_driver_id = NULL, updated_at = NOW() WHERE id = $1
+      `, [vehicle_id]);
+    } else if (inspection_type === 'check_in' || !inspection_type) {
+      // Chofer hace check-in: asignar la unidad y mantenerla asignada hasta
+      // que monitoreo la reciba (o admin la reasigne).
       await pool.query(`
         UPDATE vehicles SET assigned_driver_id = $1, updated_at = NOW() WHERE id = $2
       `, [userId, vehicle_id]);
-      
-      // Registrar asignación
-      await pool.query(`
-        INSERT INTO vehicle_assignments (vehicle_id, driver_id, mileage_at_assignment)
-        VALUES ($1, $2, $3)
-        ON CONFLICT DO NOTHING
-      `, [vehicle_id, userId, reported_mileage]);
+
+      // Registrar asignación SOLO si no hay una activa para este chofer/vehículo.
+      const existingActive = await pool.query(`
+        SELECT id FROM vehicle_assignments
+        WHERE vehicle_id = $1 AND driver_id = $2 AND released_at IS NULL
+      `, [vehicle_id, userId]);
+
+      if (existingActive.rows.length === 0) {
+        await pool.query(`
+          INSERT INTO vehicle_assignments (vehicle_id, driver_id, mileage_at_assignment)
+          VALUES ($1, $2, $3)
+        `, [vehicle_id, userId, reported_mileage]);
+      }
     }
     
     // Crear alerta si hay daño nuevo
