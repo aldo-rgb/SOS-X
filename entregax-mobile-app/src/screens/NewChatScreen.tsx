@@ -59,6 +59,8 @@ export default function NewChatScreen({ route, navigation }: any) {
   const [selected, setSelected] = useState<StaffUser[]>([]);
   const [groupTitle, setGroupTitle] = useState('');
   const [creating, setCreating] = useState(false);
+  // Modo explícito: si se activa "Nuevo grupo" se permite seleccionar varios.
+  const [groupMode, setGroupMode] = useState(false);
 
   const search = useCallback(async (q: string) => {
     setLoading(true);
@@ -78,9 +80,13 @@ export default function NewChatScreen({ route, navigation }: any) {
   }, [query, search]);
 
   const toggleSelect = (u: StaffUser) => {
-    setSelected((prev) =>
-      prev.find((p) => p.id === u.id) ? prev.filter((p) => p.id !== u.id) : [...prev, u]
-    );
+    setSelected((prev) => {
+      const exists = prev.find((p) => p.id === u.id);
+      if (exists) return prev.filter((p) => p.id !== u.id);
+      // Si NO es modo grupo, solo permite uno seleccionado a la vez
+      if (!groupMode) return [u];
+      return [...prev, u];
+    });
   };
 
   const handleCreate = async () => {
@@ -88,7 +94,7 @@ export default function NewChatScreen({ route, navigation }: any) {
       Alert.alert('Selecciona', 'Elige al menos un compañero.');
       return;
     }
-    const isGroup = selected.length > 1;
+    const isGroup = groupMode && selected.length >= 1;
     if (isGroup && !groupTitle.trim()) {
       Alert.alert('Nombre del grupo', 'Asigna un nombre al grupo.');
       return;
@@ -144,13 +150,16 @@ export default function NewChatScreen({ route, navigation }: any) {
     );
   };
 
-  const isGroup = selected.length > 1;
+  const isGroup = groupMode;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <Appbar.Header style={styles.appbar}>
         <Appbar.BackAction color="#fff" onPress={() => navigation.goBack()} />
-        <Appbar.Content title="Nuevo chat" titleStyle={{ color: '#fff', fontWeight: '700' }} />
+        <Appbar.Content
+          title={isGroup ? 'Nuevo grupo' : 'Nuevo chat'}
+          titleStyle={{ color: '#fff', fontWeight: '700' }}
+        />
         <Appbar.Action
           icon="check"
           color="#fff"
@@ -158,6 +167,31 @@ export default function NewChatScreen({ route, navigation }: any) {
           onPress={handleCreate}
         />
       </Appbar.Header>
+
+      {/* Selector de modo: chat directo vs grupo */}
+      <View style={styles.modeRow}>
+        <TouchableOpacity
+          style={[styles.modeBtn, !groupMode && styles.modeBtnActive]}
+          onPress={() => {
+            setGroupMode(false);
+            setSelected((prev) => prev.slice(0, 1));
+          }}
+        >
+          <Ionicons name="person" size={16} color={!groupMode ? '#fff' : '#666'} />
+          <Text style={[styles.modeBtnText, !groupMode && styles.modeBtnTextActive]}>
+            Chat directo
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.modeBtn, groupMode && styles.modeBtnActive]}
+          onPress={() => setGroupMode(true)}
+        >
+          <Ionicons name="people" size={16} color={groupMode ? '#fff' : '#666'} />
+          <Text style={[styles.modeBtnText, groupMode && styles.modeBtnTextActive]}>
+            Crear grupo
+          </Text>
+        </TouchableOpacity>
+      </View>
 
       {selected.length > 0 && (
         <View style={styles.selectedBar}>
@@ -243,6 +277,28 @@ const styles = StyleSheet.create({
     margin: 4,
   },
   chipText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  modeRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 4,
+    gap: 8,
+  },
+  modeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: '#F4F5F7',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    gap: 6,
+  },
+  modeBtnActive: { backgroundColor: ORANGE, borderColor: ORANGE },
+  modeBtnText: { fontSize: 13, fontWeight: '600', color: '#666' },
+  modeBtnTextActive: { color: '#fff' },
   groupTitle: {
     margin: 12,
     paddingHorizontal: 14,

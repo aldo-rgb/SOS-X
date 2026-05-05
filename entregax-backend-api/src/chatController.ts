@@ -21,11 +21,64 @@ export const setChatSocketEmitter = (emitter: typeof socketEmitter) => {
 const STAFF_ROLES = [
   'super_admin', 'admin', 'director', 'branch_manager', 'customer_service',
   'operaciones', 'counter_staff', 'warehouse_ops', 'repartidor',
-  'accountant', 'monitoreo'
+  'accountant', 'monitoreo', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor'
+];
+
+// Roles que un usuario puede ver al crear un nuevo chat,
+// según su propio rol. Si el rol no está en este mapa, ve todo el staff.
+const VISIBLE_ROLES_FOR: Record<string, string[]> = {
+  monitoreo: ['super_admin', 'admin', 'director', 'branch_manager',
+              'operaciones', 'counter_staff', 'warehouse_ops', 'monitoreo'],
+  repartidor: ['super_admin', 'admin', 'director', 'branch_manager',
+               'operaciones', 'counter_staff', 'warehouse_ops', 'monitoreo', 'repartidor'],
+};
+
+// Grupos automáticos por rol — se mantienen sincronizados en cada listConversations
+const AUTO_ROLE_GROUPS: { key: string; title: string; roles: string[] }[] = [
+  { key: 'role:monitoreo', title: 'Monitoreo',
+    roles: ['monitoreo', 'super_admin', 'admin', 'director', 'operaciones'] },
+  { key: 'role:repartidores', title: 'Repartidores',
+    roles: ['repartidor', 'super_admin', 'admin', 'director', 'branch_manager'] },
+  { key: 'role:operaciones', title: 'Operaciones',
+    roles: ['operaciones', 'counter_staff', 'warehouse_ops', 'branch_manager',
+            'super_admin', 'admin', 'director'] },
+  { key: 'role:gerentes', title: 'Gerentes y Dirección',
+    roles: ['super_admin', 'admin', 'director', 'branch_manager'] },
 ];
 
 const isSuperAdmin = (role: string) => String(role).toLowerCase() === 'super_admin';
 const isAdminOrAbove = (role: string) => ['super_admin', 'admin', 'director'].includes(String(role).toLowerCase());
+
+/**
+ * Asegura que existan los grupos automáticos por rol y que el usuario esté
+ * agregado al grupo correspondiente a su rol (idempotente, barato de llamar).
+ */
+async function ensureAutoRoleGroupsForUser(userId: number, role: string): Promise<void> {
+  const userRole = String(role || '').toLowerCase();
+  for (const g of AUTO_ROLE_GROUPS) {
+    if (!g.roles.includes(userRole)) continue;
+    let conv = await pool.query(
+      `SELECT id FROM chat_conversations WHERE auto_group_key = $1 LIMIT 1`,
+      [g.key]
+    );
+    let conversationId: number;
+    if (conv.rows.length === 0) {
+      const ins = await pool.query(
+        `INSERT INTO chat_conversations (type, title, auto_group_key, created_by)
+         VALUES ('group', $1, $2, $3) RETURNING id`,
+        [g.title, g.key, userId]
+      );
+      conversationId = ins.rows[0].id;
+    } else {
+      conversationId = conv.rows[0].id;
+    }
+    await pool.query(
+      `INSERT INTO chat_participants (conversation_id, user_id, role)
+       VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING`,
+      [conversationId, userId]
+    );
+  }
+}
 
 async function isParticipant(conversationId: number, userId: number): Promise<boolean> {
   const r = await pool.query(
@@ -59,7 +112,13 @@ async function resolveAttachmentUrl(s3Key: string): Promise<string> {
 export const listConversations = async (req: AuthRequest, res: Response) => {
   try {
     const userId = req.user?.userId;
+    const userRole = req.user?.role || '';
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+    // Asegurar que el usuario pertenezca a sus grupos automáticos por rol
+    try { await ensureAutoRoleGroupsForUser(userId, userRole); } catch (e) {
+      console.warn('[chat] ensureAutoRoleGroupsForUser:', (e as any)?.message);
+    }
 
     const result = await pool.query(
       `SELECT c.id, c.type, c.title, c.description, c.avatar_url,
@@ -444,14 +503,21 @@ export const markAsRead = async (req: AuthRequest, res: Response) => {
 export const searchStaff = async (req: AuthRequest, res: Response) => {
   try {
     const q = String(req.query.q || '').trim();
+    const requesterRole = String(req.user?.role || '').toLowerCase();
+    const requesterId = req.user?.userId || 0;
+    // Si el rol del solicitante tiene un filtro restringido, usarlo;
+    // de lo contrario, ve todo el staff.
+    const allowedRoles = VISIBLE_ROLES_FOR[requesterRole] || STAFF_ROLES;
     const r = await pool.query(
       `SELECT id, full_name, email, role, profile_photo_url, branch_id
          FROM users
-        WHERE role = ANY($1::text[]) AND is_active = TRUE
-          AND ($2 = '' OR full_name ILIKE '%' || $2 || '%' OR email ILIKE '%' || $2 || '%')
-        ORDER BY full_name
-        LIMIT 50`,
-      [STAFF_ROLES, q]
+        WHERE role = ANY($1::text[])
+          AND (is_blocked IS NULL OR is_blocked = FALSE)
+          AND id <> $2
+          AND ($3 = '' OR full_name ILIKE '%' || $3 || '%' OR email ILIKE '%' || $3 || '%')
+        ORDER BY role, full_name
+        LIMIT 100`,
+      [allowedRoles, requesterId, q]
     );
     res.json({ users: r.rows });
   } catch (error: any) {
@@ -545,7 +611,7 @@ export const syncAutoGroups = async (req: AuthRequest, res: Response) => {
     if (!isAdminOrAbove(role)) return res.status(403).json({ error: 'No autorizado' });
 
     // 1) Grupo por sucursal: todos los empleados de la sucursal
-    const branches = await pool.query(`SELECT id, name FROM branches WHERE active IS NOT FALSE`);
+    const branches = await pool.query(`SELECT id, name FROM branches WHERE is_active IS NOT FALSE`);
     let createdGroups = 0;
     let addedMembers = 0;
 
@@ -570,7 +636,7 @@ export const syncAutoGroups = async (req: AuthRequest, res: Response) => {
 
       // Agregar a todos los empleados activos de esa sucursal
       const employees = await pool.query(
-        `SELECT id FROM users WHERE branch_id = $1 AND role = ANY($2::text[]) AND is_active = TRUE`,
+        `SELECT id FROM users WHERE branch_id = $1 AND role = ANY($2::text[]) AND (is_blocked IS NULL OR is_blocked = FALSE)`,
         [b.id, STAFF_ROLES]
       );
       for (const e of employees.rows) {
@@ -583,16 +649,8 @@ export const syncAutoGroups = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // 2) Grupos por rol: repartidores, asesores, monitoreo
-    const roleGroups = [
-      { key: 'role:repartidor', title: 'Repartidores', roles: ['repartidor'] },
-      { key: 'role:asesor', title: 'Asesores', roles: ['customer_service'] },
-      { key: 'role:monitoreo', title: 'Monitoreo', roles: ['monitoreo'] },
-      { key: 'role:operaciones', title: 'Operaciones', roles: ['operaciones', 'warehouse_ops', 'counter_staff'] },
-      { key: 'role:gerentes', title: 'Gerentes', roles: ['admin', 'director', 'branch_manager', 'super_admin'] },
-    ];
-
-    for (const g of roleGroups) {
+    // 2) Grupos por rol (mismos que ensureAutoRoleGroupsForUser usa, lazily)
+    for (const g of AUTO_ROLE_GROUPS) {
       let conv = await pool.query(
         `SELECT id FROM chat_conversations WHERE auto_group_key = $1 LIMIT 1`,
         [g.key]
@@ -610,7 +668,7 @@ export const syncAutoGroups = async (req: AuthRequest, res: Response) => {
         conversationId = conv.rows[0].id;
       }
       const users = await pool.query(
-        `SELECT id FROM users WHERE role = ANY($1::text[]) AND is_active = TRUE`,
+        `SELECT id FROM users WHERE role = ANY($1::text[]) AND (is_blocked IS NULL OR is_blocked = FALSE)`,
         [g.roles]
       );
       for (const u of users.rows) {
