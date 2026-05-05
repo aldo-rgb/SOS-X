@@ -67,7 +67,13 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
   // 👁️ Rol Monitoreo: NO es inspección semanal; es asignación cada vez
   // que recibe la unidad (puede pasar varias veces al día).
   const isMonitoreo = String(user?.role || '').toLowerCase() === 'monitoreo';
-  const screenTitle = isMonitoreo ? 'Recibir Unidad' : 'Inspección Semanal';
+  // mode: 'check_in' (recibir) | 'check_out' (devolver). Solo aplica a monitoreo.
+  const mode: 'check_in' | 'check_out' = route?.params?.mode === 'check_out' ? 'check_out' : 'check_in';
+  const isReturn = isMonitoreo && mode === 'check_out';
+  const preselectedVehicle = route?.params?.vehicle || null;
+  const screenTitle = isMonitoreo
+    ? (isReturn ? 'Devolver Unidad' : 'Recibir Unidad')
+    : 'Inspección Semanal';
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -90,6 +96,22 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
   useEffect(() => {
     loadVehiclesAndCheckInspection();
   }, []);
+
+  // Si viene un vehículo preseleccionado (modo devolver), saltar el paso 0.
+  useEffect(() => {
+    if (preselectedVehicle && !inspectionData.vehicle_id) {
+      setInspectionData((prev) => ({
+        ...prev,
+        vehicle_id: preselectedVehicle.vehicle_id || preselectedVehicle.id,
+        reported_mileage: String(
+          preselectedVehicle.current_mileage ||
+            preselectedVehicle.mileage_at_assignment ||
+            ''
+        ),
+      }));
+      setCurrentStep(1);
+    }
+  }, [preselectedVehicle]);
 
   const loadVehiclesAndCheckInspection = async () => {
     setLoading(true);
@@ -241,6 +263,7 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
       // y luego enviarías las URLs
       await api.post('/api/fleet/inspection', {
         vehicle_id: inspectionData.vehicle_id,
+        inspection_type: isReturn ? 'check_out' : 'check_in',
         reported_mileage: parseInt(inspectionData.reported_mileage),
         odometer_photo_url: inspectionData.odometer_photo_url,
         front_photo_url: inspectionData.front_photo_url,
@@ -257,9 +280,11 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
 
       Alert.alert(
         '✅ Inspección Completada',
-        isMonitoreo
-          ? 'La asignación de la unidad ha sido registrada. ¡Puedes iniciar tu jornada!'
-          : 'Tu inspección semanal ha sido registrada. ¡Puedes iniciar tu ruta!',
+        isReturn
+          ? 'La unidad fue devuelta y queda disponible.'
+          : isMonitoreo
+            ? 'La asignación de la unidad ha sido registrada. ¡Puedes iniciar tu jornada!'
+            : 'Tu inspección semanal ha sido registrada. ¡Puedes iniciar tu ruta!',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     } catch (error: any) {

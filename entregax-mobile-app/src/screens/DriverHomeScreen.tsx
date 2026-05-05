@@ -48,6 +48,7 @@ interface QuickAction {
   badge?: number;
   enabled: boolean;
   condition?: string;
+  params?: Record<string, any>;
 }
 
 interface LoadedPackage {
@@ -78,6 +79,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     returnedToday: 0,
   });
   const [inspectionDone, setInspectionDone] = useState(false);
+  const [monitorAssignment, setMonitorAssignment] = useState<any | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [scanModal, setScanModal] = useState<{ visible: boolean; action: QuickAction | null }>({ visible: false, action: null });
   const [rememberChoice, setRememberChoice] = useState(false);
@@ -104,6 +106,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             headers: token ? { Authorization: `Bearer ${token}` } : undefined,
           });
           const liberados = Number(statsRes.data?.liberados) || 0;
+          const assignment = statsRes.data?.currentAssignment || null;
           setStats({
             totalAssigned: liberados,
             loadedToday: 0,
@@ -114,6 +117,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           });
           setLoadedPackages([]);
           setInspectionDone(true); // Monitoreo no requiere inspección
+          setMonitorAssignment(assignment);
         } catch (monitorErr) {
           console.error('Error cargando stats monitoreo:', monitorErr);
         }
@@ -266,16 +270,28 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       id: 'inspection',
       // 🔧 Para rol Monitoreo el flujo NO es inspección semanal del propio
       // vehículo, sino la asignación/recepción de un vehículo a su cargo.
-      title: isMonitoreo ? 'Recibir Unidad' : 'Inspección Semanal',
+      // Si ya recibió una unidad, el botón cambia a "Devolver Unidad".
+      title: isMonitoreo
+        ? (monitorAssignment ? 'Devolver Unidad' : 'Recibir Unidad')
+        : 'Inspección Semanal',
       subtitle: isMonitoreo
-        ? 'Asignación de vehículo'
+        ? (monitorAssignment
+            ? `Unidad: ${monitorAssignment.economic_number || ''}${monitorAssignment.license_plates ? ' · ' + monitorAssignment.license_plates : ''}`
+            : 'Asignación de vehículo')
         : (inspectionDone ? 'Completada ✓' : 'Requerida una vez por semana'),
       icon: 'assignment',
-      color: isMonitoreo ? '#FF9800' : (inspectionDone ? '#4CAF50' : '#FF9800'),
+      color: isMonitoreo
+        ? (monitorAssignment ? '#9C27B0' : '#FF9800')
+        : (inspectionDone ? '#4CAF50' : '#FF9800'),
       screen: 'VehicleInspection',
       // Monitoreo: siempre habilitado (puede recibir varias veces).
       // Repartidor: solo si aún no hizo la inspección del periodo.
       enabled: isMonitoreo ? true : !inspectionDone,
+      params: isMonitoreo
+        ? (monitorAssignment
+            ? { mode: 'check_out', vehicle: monitorAssignment }
+            : { mode: 'check_in' })
+        : undefined,
     },
     {
       id: 'load',
@@ -324,7 +340,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       return;
     }
 
-    navigation.navigate(action.screen, { user, token });
+    navigation.navigate(action.screen, { user, token, ...(action.params || {}) });
   };
 
   const handleScanModalChoice = async (mode: 'scanner' | 'camera') => {

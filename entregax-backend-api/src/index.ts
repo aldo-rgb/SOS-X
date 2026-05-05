@@ -6858,11 +6858,30 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
     if (!['monitoreo', 'admin', 'super_admin', 'director'].includes(role)) {
       return res.status(403).json({ error: 'Acceso denegado' });
     }
+    const userId = Number(req.user?.id || req.user?.userId);
     const result = await pool.query(
       `SELECT COUNT(*)::int AS liberados FROM containers WHERE status = 'customs_cleared'`
     );
+
+    // Asignación activa del usuario monitoreo (si tiene una unidad recibida)
+    let currentAssignment: any = null;
+    if (userId) {
+      const assign = await pool.query(`
+        SELECT va.id AS assignment_id, va.mileage_at_assignment, va.assigned_at,
+               v.id AS vehicle_id, v.economic_number, v.license_plates,
+               v.brand, v.model, v.year, v.vehicle_type, v.current_mileage
+        FROM vehicle_assignments va
+        JOIN vehicles v ON v.id = va.vehicle_id
+        WHERE va.driver_id = $1 AND va.released_at IS NULL
+        ORDER BY va.assigned_at DESC
+        LIMIT 1
+      `, [userId]);
+      if (assign.rows.length > 0) currentAssignment = assign.rows[0];
+    }
+
     res.json({
       liberados: result.rows[0]?.liberados || 0,
+      currentAssignment,
     });
   } catch (error) {
     console.error('Error obteniendo stats monitoreo:', error);

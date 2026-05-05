@@ -799,27 +799,64 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
     `, [reported_mileage, vehicle_id]);
     
     if (isMonitoreo) {
-      // 👁️ Monitoreo "Recibe Unidad": cierra la asignación activa del chofer,
-      // registra el kilometraje de devolución y libera el vehículo (queda disponible).
-      const activeAssignment = await pool.query(`
-        SELECT id, driver_id FROM vehicle_assignments
-        WHERE vehicle_id = $1 AND released_at IS NULL
-        ORDER BY assigned_at DESC LIMIT 1
-      `, [vehicle_id]);
+      // 👁️ Rol Monitoreo:
+      // - check_out / return → cierra asignación activa de monitoreo y libera la unidad.
+      // - check_in (default) → asigna la unidad a monitoreo (queda en su poder
+      //   hasta que la devuelva). Si la unidad estaba en poder de otro usuario
+      //   primero cerramos esa asignación antes de tomarla.
+      const isReturn = inspection_type === 'check_out' || inspection_type === 'return';
 
-      if (activeAssignment.rows.length > 0) {
+      if (isReturn) {
+        const activeMine = await pool.query(`
+          SELECT id FROM vehicle_assignments
+          WHERE vehicle_id = $1 AND driver_id = $2 AND released_at IS NULL
+          ORDER BY assigned_at DESC LIMIT 1
+        `, [vehicle_id, userId]);
+
+        if (activeMine.rows.length > 0) {
+          await pool.query(`
+            UPDATE vehicle_assignments
+            SET released_at = NOW(), mileage_at_release = $1
+            WHERE id = $2
+          `, [reported_mileage, activeMine.rows[0].id]);
+        }
+
         await pool.query(`
-          UPDATE vehicle_assignments
-          SET released_at = NOW(),
-              mileage_at_release = $1
-          WHERE id = $2
-        `, [reported_mileage, activeAssignment.rows[0].id]);
-      }
+          UPDATE vehicles SET assigned_driver_id = NULL, updated_at = NOW() WHERE id = $1
+        `, [vehicle_id]);
+      } else {
+        // Recibir: cerrar asignación activa de cualquier otro usuario
+        const activeOther = await pool.query(`
+          SELECT id FROM vehicle_assignments
+          WHERE vehicle_id = $1 AND released_at IS NULL AND driver_id <> $2
+          ORDER BY assigned_at DESC LIMIT 1
+        `, [vehicle_id, userId]);
 
-      // Liberar vehículo (vuelve al pool de disponibles)
-      await pool.query(`
-        UPDATE vehicles SET assigned_driver_id = NULL, updated_at = NOW() WHERE id = $1
-      `, [vehicle_id]);
+        if (activeOther.rows.length > 0) {
+          await pool.query(`
+            UPDATE vehicle_assignments
+            SET released_at = NOW(), mileage_at_release = $1
+            WHERE id = $2
+          `, [reported_mileage, activeOther.rows[0].id]);
+        }
+
+        // Asignar a monitoreo si aún no tiene una activa propia
+        const existingMine = await pool.query(`
+          SELECT id FROM vehicle_assignments
+          WHERE vehicle_id = $1 AND driver_id = $2 AND released_at IS NULL
+        `, [vehicle_id, userId]);
+
+        if (existingMine.rows.length === 0) {
+          await pool.query(`
+            INSERT INTO vehicle_assignments (vehicle_id, driver_id, mileage_at_assignment)
+            VALUES ($1, $2, $3)
+          `, [vehicle_id, userId, reported_mileage]);
+        }
+
+        await pool.query(`
+          UPDATE vehicles SET assigned_driver_id = $1, updated_at = NOW() WHERE id = $2
+        `, [userId, vehicle_id]);
+      }
     } else if (inspection_type === 'check_in' || !inspection_type) {
       // Chofer hace check-in: asignar la unidad y mantenerla asignada hasta
       // que monitoreo la reciba (o admin la reasigne).
