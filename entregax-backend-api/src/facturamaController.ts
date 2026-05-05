@@ -181,7 +181,9 @@ async function loginFacturamaPortal(email: string, password: string): Promise<{
         diagnostic.csrf_found = !!csrfToken;
 
         // 2) POST /Account/Login con email/password + CSRF token
+        // El portal de Facturama acepta Email o UserName según la versión — enviamos ambos
         const form = new URLSearchParams();
+        form.append('UserName', email);
         form.append('Email', email);
         form.append('Password', password);
         form.append('RememberMe', 'false');
