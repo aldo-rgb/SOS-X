@@ -656,14 +656,29 @@ export const getAvailableVehicles = async (req: Request, res: Response) => {
     }
     
     // Vehículos activos asignados al chofer autenticado
-    const result = await pool.query(`
+    const assigned = await pool.query(`
       SELECT id, economic_number, vehicle_type, brand, model, year, license_plates, current_mileage
       FROM vehicles
       WHERE status = 'active' AND assigned_driver_id = $1
       ORDER BY economic_number
     `, [userId]);
-    
-    res.json(result.rows);
+
+    if (assigned.rows.length > 0) {
+      return res.json(assigned.rows);
+    }
+
+    // Fallback: si no tiene vehículo asignado, mostrar todos los vehículos activos de su sucursal
+    const branchVehicles = await pool.query(`
+      SELECT v.id, v.economic_number, v.vehicle_type, v.brand, v.model, v.year, v.license_plates, v.current_mileage
+      FROM vehicles v
+      JOIN users u ON u.id = $1
+      WHERE v.status = 'active'
+        AND u.branch_id IS NOT NULL
+        AND v.branch_id = u.branch_id
+      ORDER BY v.economic_number
+    `, [userId]);
+
+    res.json(branchVehicles.rows);
   } catch (error) {
     console.error('Error obteniendo vehículos disponibles:', error);
     res.status(500).json({ error: 'Error al obtener vehículos' });
