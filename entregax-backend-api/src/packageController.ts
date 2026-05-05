@@ -2449,6 +2449,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 })(),
                 monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
                 client_paid: pkg.client_paid || false,
+                pobox_venta_usd: pkg.pobox_venta_usd ? parseFloat(pkg.pobox_venta_usd) : null,
+                registered_exchange_rate: pkg.registered_exchange_rate ? parseFloat(pkg.registered_exchange_rate) : null,
+                gex_total_cost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : 0,
                 // 💳 Orden de pago pendiente
                 pending_payment_reference: packagePaymentMap[pkg.id]?.reference || null,
                 pending_payment_amount: packagePaymentMap[pkg.id]?.amount || null,
@@ -4166,6 +4169,15 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
     const wantsFacturaBool = wantsFacturaPaqueteria === 'true' || wantsFacturaPaqueteria === true;
     const saveConstanciaBool = saveConstanciaFlag === 'true' || saveConstanciaFlag === true;
     const carrierCostMxn = parseFloat(req.body.carrierCost) || 0;
+    // 🎯 Precio por caja: el frontend lo envía explícitamente. Si no llega (callers
+    // legacy), lo derivamos del total dividiendo entre el total de cajas reportado.
+    const totalBoxesReq = parseInt(req.body.totalBoxes, 10) || 0;
+    const carrierCostPerBox = (() => {
+      const v = parseFloat(req.body.carrierCostPerBox);
+      if (isFinite(v) && v >= 0) return v;
+      if (totalBoxesReq > 0) return carrierCostMxn / totalBoxesReq;
+      return 0;
+    })();
 
     console.log(`📦 [Bulk Assign Delivery] User ${userId}: ${pkgIds.length} packages, carrier=${carrierService}, isCollect=${isCollectBool}`);
 
@@ -4194,10 +4206,32 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
       // Update all selected packages
       let updatedCount = 0;
       for (const pkgId of pkgIds) {
+        // Pre-fetch para calcular costo proporcional por cajas y recalcular saldo
+        const preRes = await client.query(
+          `SELECT id, total_boxes, pobox_venta_usd, gex_total_cost,
+                  registered_exchange_rate, monto_pagado
+           FROM packages WHERE id = $1 AND user_id = $2`,
+          [pkgId, userId]
+        );
+        const pre = preRes.rows[0];
+        const pkgBoxes = pre ? Math.max(1, parseInt(pre.total_boxes, 10) || 1) : 1;
+        const pkgShippingCost = +(carrierCostPerBox * pkgBoxes).toFixed(2);
+        const ventaUsd = pre ? (parseFloat(pre.pobox_venta_usd) || 0) : 0;
+        const tc = pre ? (parseFloat(pre.registered_exchange_rate) || 0) : 0;
+        const gex = pre ? (parseFloat(pre.gex_total_cost) || 0) : 0;
+        const pagado = pre ? (parseFloat(pre.monto_pagado) || 0) : 0;
+        const ventaMxn = ventaUsd * tc;
+        const newTotal = +(ventaMxn + gex + pkgShippingCost).toFixed(2);
+        const newSaldo = Math.max(0, +(newTotal - pagado).toFixed(2));
+
         const result = await client.query(`
           UPDATE packages 
           SET assigned_address_id = $1,
               carrier = $2,
+              national_carrier = $2,
+              national_shipping_cost = $9,
+              assigned_cost_mxn = CASE WHEN $10::numeric > 0 THEN $10 ELSE assigned_cost_mxn END,
+              saldo_pendiente = CASE WHEN $10::numeric > 0 THEN $11 ELSE saldo_pendiente END,
               notes = COALESCE($3, notes),
               needs_instructions = false,
               is_collect = $4,
@@ -4206,7 +4240,19 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
               updated_at = CURRENT_TIMESTAMP
           WHERE id = $7 AND user_id = $8
           RETURNING id
-        `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, userId]);
+        `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, userId, pkgShippingCost, newTotal, newSaldo]);
+
+        if (result.rowCount && result.rowCount > 0) {
+          // Si es master multipieza, propagar carrier + shipping cost a hijas (split equitativo por caja)
+          await client.query(`
+            UPDATE packages
+            SET carrier = $2,
+                national_carrier = $2,
+                national_shipping_cost = $3,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE master_id = $1
+          `, [pkgId, carrierService, +(carrierCostPerBox).toFixed(2)]);
+        }
         
         // If not found in packages, try maritime_orders
         if (!result.rowCount || result.rowCount === 0) {

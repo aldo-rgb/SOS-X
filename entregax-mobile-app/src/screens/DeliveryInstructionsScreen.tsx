@@ -922,6 +922,21 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
     let errors: string[] = [];
     
     try {
+      // 📦 Calcular precio por caja del carrier seleccionado para asignar costo
+      // proporcional a cada paquete según su número real de cajas.
+      // Ejemplo: guía A (1 caja) y guía B (8 cajas) con tarifa $400/caja:
+      //   guía A → $400, guía B → $3200 (NO $3600 a cada una).
+      const selectedCarrierObj = carrierRates.find(c => c.id === selectedCarrier);
+      const isIncludedInFreight = shipmentType === 'china_air' && selectedCarrier === 'paquete_express';
+      const pricePerBox = isIncludedInFreight ? 0 : (selectedCarrierObj?.price || 0);
+
+      const getBoxesForPackage = (pkg: any): number => {
+        if (isRepackPackage(pkg)) return 1;
+        const childCount = pkg.child_packages?.length || 0;
+        if (childCount > 0) return childCount;
+        return Number(pkg.total_boxes) || 1;
+      };
+
       // Guardar instrucciones para cada paquete
       for (const currentPkg of allPackages) {
         try {
@@ -941,6 +956,10 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
             endpoint = `${API_URL}/api/packages/${packageType}/${packageId}/delivery-instructions`;
           }
           
+          // Costo proporcional según cajas reales de este paquete
+          const pkgBoxes = getBoxesForPackage(currentPkg);
+          const pkgCarrierCost = pricePerBox * pkgBoxes;
+
           const controller = new AbortController();
           const timeoutId = setTimeout(() => controller.abort(), 20000);
           let response: Response;
@@ -954,9 +973,9 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
               body: JSON.stringify({
                 deliveryAddressId: selectedAddressId,
                 deliveryInstructions: additionalNotes,
-                // Información de paquetería seleccionada
+                // Información de paquetería seleccionada (costo proporcional por cajas del paquete)
                 carrier: selectedCarrier,
-                carrierCost: getSelectedCarrierCost(),
+                carrierCost: pkgCarrierCost,
                 carrierName: carrierRates.find(c => c.id === selectedCarrier)?.name || localEntregaxOptions[0]?.name || 'EntregaX Local',
               }),
               signal: controller.signal,
