@@ -134,6 +134,8 @@ export const getEmpresasOpenpay = async (req: Request, res: Response): Promise<a
                 paypal_configured, paypal_sandbox,
                 belvo_connected, belvo_institution, belvo_last_sync,
                 facturama_configured, facturama_environment, facturama_reception_enabled, facturama_last_sync,
+                (facturapi_api_key IS NOT NULL AND LENGTH(facturapi_api_key) > 0) AS facturapi_configured,
+                facturapi_environment, facturapi_enabled, facturapi_last_sync, facturapi_last_sync_count,
                 (SELECT COUNT(*) FROM users u WHERE u.openpay_empresa_id = fiscal_emitters.id AND u.virtual_clabe IS NOT NULL) as clientes_con_clabe
             FROM fiscal_emitters 
             WHERE is_active = TRUE
