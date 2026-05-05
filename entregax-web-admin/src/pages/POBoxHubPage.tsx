@@ -318,6 +318,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [inventoryLoading, setInventoryLoading] = useState(false);
     const [inventoryStatusFilter, setInventoryStatusFilter] = useState('received');
     const [inventorySearch, setInventorySearch] = useState('');
+    const [inventoryConsolidationFilter, setInventoryConsolidationFilter] = useState('');
     const [inventoryPage, setInventoryPage] = useState(0);
     const [inventoryRowsPerPage, setInventoryRowsPerPage] = useState(10);
 
@@ -940,16 +941,23 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }
     }, [inventoryModalOpen, fetchInventoryPackages]);
 
-    // Filtrar paquetes por búsqueda
+    // Filtrar paquetes por búsqueda y consolidación
     const filteredInventoryPackages = inventoryPackages.filter(pkg => {
-        if (!inventorySearch) return true;
-        const search = inventorySearch.toLowerCase();
-        return (
-            pkg.tracking?.toLowerCase().includes(search) ||
-            pkg.client?.name?.toLowerCase().includes(search) ||
-            pkg.client?.boxId?.toLowerCase().includes(search) ||
-            pkg.description?.toLowerCase().includes(search)
-        );
+        if (inventorySearch) {
+            const search = inventorySearch.toLowerCase();
+            const matchesSearch = (
+                pkg.tracking?.toLowerCase().includes(search) ||
+                pkg.client?.name?.toLowerCase().includes(search) ||
+                pkg.client?.boxId?.toLowerCase().includes(search) ||
+                pkg.description?.toLowerCase().includes(search)
+            );
+            if (!matchesSearch) return false;
+        }
+        if (inventoryConsolidationFilter) {
+            const needle = inventoryConsolidationFilter.replace(/^#/, '');
+            if (!pkg.consolidationId || !String(pkg.consolidationId).includes(needle)) return false;
+        }
+        return true;
     });
 
     // Obtener color del status
@@ -2088,6 +2096,19 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                 ))}
                             </Select>
                         </FormControl>
+                        <TextField
+                            placeholder="Consolidación (ej. 56)"
+                            value={inventoryConsolidationFilter}
+                            onChange={(e) => {
+                                setInventoryConsolidationFilter(e.target.value);
+                                setInventoryPage(0);
+                            }}
+                            size="small"
+                            sx={{ minWidth: 180 }}
+                            InputProps={{
+                                startAdornment: <InputAdornment position="start">#</InputAdornment>,
+                            }}
+                        />
                         <Button
                             variant="outlined"
                             startIcon={<RefreshIcon />}
