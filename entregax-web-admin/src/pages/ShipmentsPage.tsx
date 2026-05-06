@@ -235,6 +235,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const [packages, setPackages] = useState<Package[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [consolidationFilter, setConsolidationFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -405,7 +406,17 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   useEffect(() => { fetchPackages(); }, [fetchPackages]);
 
   const filteredPackages = packages.filter(pkg => {
-    const search = searchTerm.toLowerCase();
+    // 🔢 Filtro específico por # de consolidación (campo dedicado)
+    if (consolidationFilter.trim()) {
+      const wanted = consolidationFilter.replace(/[^0-9]/g, '');
+      if (!wanted) return false;
+      if (String(pkg.consolidationId || '') !== wanted) return false;
+    }
+    const search = searchTerm.toLowerCase().trim();
+    if (!search) return true;
+    // Permitir buscar por consolidación con "#56" o "56" en el buscador general
+    const numeric = search.replace(/[^0-9]/g, '');
+    if (numeric && String(pkg.consolidationId || '') === numeric) return true;
     return (
       (pkg.tracking || '').toLowerCase().includes(search) ||
       (pkg.description || '').toLowerCase().includes(search) ||
@@ -1636,7 +1647,21 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
           <TextField placeholder={t('common.search') + '...'} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-            sx={{ flexGrow: 1, minWidth: 300 }} />
+            sx={{ flexGrow: 1, minWidth: 280 }} />
+          <TextField
+            label="Consolidación #"
+            placeholder="Ej: 56"
+            value={consolidationFilter}
+            onChange={(e) => setConsolidationFilter(e.target.value.replace(/[^0-9]/g, ''))}
+            sx={{ width: 160 }}
+            InputProps={{
+              endAdornment: consolidationFilter ? (
+                <InputAdornment position="end">
+                  <IconButton size="small" onClick={() => setConsolidationFilter('')}>×</IconButton>
+                </InputAdornment>
+              ) : null,
+            }}
+          />
           <FormControl sx={{ minWidth: 180 }}>
             <InputLabel>{t('common.status')}</InputLabel>
             <Select value={statusFilter} label={t('common.status')} onChange={(e: SelectChangeEvent) => setStatusFilter(e.target.value)}>
