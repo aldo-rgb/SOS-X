@@ -148,7 +148,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
   // (basado en CBM por caja). NO debemos recalcular con tarifas hardcoded.
   // Preferimos siempre los valores del backend (pobox_service_cost MXN, pobox_venta_usd).
   const calcularCostoPOBox = () => {
-    if (!details) return { costoMxn: 0, costoTotal: 0, saldo: 0, totalBoxes: 1, precioUnitarioUsd: 39, tc: 18.09, nivel: 1 };
+    if (!details) return { costoMxn: 0, costoTotal: 0, saldo: 0, totalBoxes: 1, precioUnitarioUsd: 39, tc: 18.09, nivel: 1, gexInsurance: 0, gexFixed: 0, gexTotal: 0 };
 
     // 🎯 Cantidad de cajas (informativo)
     let totalBoxes: number;
@@ -201,14 +201,27 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     // Precio unitario USD = total USD / cajas (para mostrar el desglose)
     const precioUnitarioUsd = totalBoxes > 0 ? costoPoboxUsd / totalBoxes : costoPoboxUsd;
 
-    const gexTotal = Number((details as any).gex_total_cost) || 0;
+    const declaredValue = Number(details.declared_value) || 0;
+    const gexInsuranceFromDb = Number((details as any).gex_insurance_cost) || 0;
+    const gexFixedFromDb = Number((details as any).gex_fixed_cost) || 0;
+    const gexTotalFromDb = Number((details as any).gex_total_cost) || 0;
+    // ⚠️ Fuente de verdad: DB (gex_total_cost). Si no existe, calcular con fórmula
+    //   GEX = (valor declarado USD × 0.05 × TC) + 625 MXN (póliza fija)
+    const gexInsuranceFallback = declaredValue * 0.05 * tc;
+    const gexFixedFallback = 625;
+    const gexTotal = details.has_gex
+      ? (gexTotalFromDb > 0 ? gexTotalFromDb : (gexInsuranceFallback + gexFixedFallback))
+      : 0;
+    // Para el desglose: usar valores específicos de DB si están; si no, fallback
+    const gexInsurance = gexInsuranceFromDb > 0 ? gexInsuranceFromDb : gexInsuranceFallback;
+    const gexFixed = gexFixedFromDb > 0 ? gexFixedFromDb : gexFixedFallback;
     const nationalShipping = Number(details.national_shipping_cost) || 0;
     const costoTotal = costoPoboxMxn + nationalShipping + gexTotal;
     const saldo = costoTotal - (Number(details.monto_pagado) || 0);
 
-    console.log('💰 calcularCostoPOBox:', { totalBoxes, tc, nivel, precioUnitarioUsd, costoPoboxMxn, gexTotal, nationalShipping, costoTotal, saldo });
+    console.log('💰 calcularCostoPOBox:', { totalBoxes, tc, nivel, precioUnitarioUsd, costoPoboxMxn, gexInsurance, gexFixed, gexTotal, nationalShipping, costoTotal, saldo });
 
-    return { costoMxn: costoPoboxMxn, costoTotal, saldo, totalBoxes, precioUnitarioUsd, tc, nivel };
+    return { costoMxn: costoPoboxMxn, costoTotal, saldo, totalBoxes, precioUnitarioUsd, tc, nivel, gexInsurance, gexFixed, gexTotal };
   };
 
   useEffect(() => {
@@ -740,21 +753,21 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                   </>
                 )}
 
-                {/* Costo GEX si está contratado - desglosado */}
-                {details.has_gex && (details.gex_total_cost || details.declared_value) && (
+                {/* Costo GEX si está contratado.
+                    Mostramos UNA sola línea "Valor Asegurado" con el total real
+                    almacenado en DB (gex_total_cost). */}
+                {details.has_gex && (costSummary.gexTotal > 0 || details.declared_value) && (
                   <>
-                    <View style={styles.costRow}>
-                      <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• 5% Valor Asegurado (${(details.declared_value || 0).toFixed(2)} USD)</Text>
-                      <Text style={styles.costValue}>${(Number(details.gex_insurance_cost) || (Number(details.declared_value) || 0) * 0.05 * (Number(details.registered_exchange_rate) || 18.09)).toFixed(2)} MXN</Text>
-                    </View>
-                    <View style={styles.costRow}>
-                      <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• Cargo Fijo GEX</Text>
-                      <Text style={styles.costValue}>${(Number(details.gex_fixed_cost) || 625).toFixed(2)} MXN</Text>
-                    </View>
-                    <View style={styles.costRow}>
-                      <Text style={[styles.costLabel, { fontWeight: '600' }]}>🛡️ Subtotal Garantía Extendida</Text>
-                      <Text style={[styles.costValue, { color: ORANGE }]}>${(Number(details.gex_total_cost) || ((Number(details.declared_value) || 0) * 0.05 * (Number(details.registered_exchange_rate) || 18.09) + (Number(details.gex_fixed_cost) || 625))).toFixed(2)} MXN</Text>
-                    </View>
+                    {(() => {
+                      const totalFromDb = Number((details as any).gex_total_cost) || 0;
+                      const totalShown = totalFromDb > 0 ? totalFromDb : costSummary.gexTotal;
+                      return (
+                        <View style={styles.costRow}>
+                          <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• Valor Asegurado (${(details.declared_value || 0).toFixed(2)} USD)</Text>
+                          <Text style={styles.costValue}>${totalShown.toFixed(2)} MXN</Text>
+                        </View>
+                      );
+                    })()}
                   </>
                 )}
 

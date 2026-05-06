@@ -116,6 +116,9 @@ interface ShipmentMaster {
   // GEX (paquetería garantizada) — visible solo si fue contratada
   hasGex?: boolean;
   gexTotalCost?: number | null;
+  gexInsuranceCost?: number | null;
+  gexFixedCost?: number | null;
+  declaredValueMxn?: number | null;
   gexFolio?: string | null;
   assignedCostMxn?: number | null;
   montoPagado?: number | null;
@@ -965,13 +968,51 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                         </Grid>
                       )}
                       {m.totalCost != null && Number(m.totalCost) > 0 && (
-                        <Grid size={{ xs: 6, md: 3 }}>
+                        <Grid size={{ xs: 12, md: 6 }}>
                           <Typography variant="overline" color="text.secondary">
                             Costo total GEX
                           </Typography>
                           <Typography variant="body1" fontWeight="bold">
                             {fmtMoney(m.totalCost, 'MXN')}
                           </Typography>
+                          {m.gexFolio && (
+                            <Typography variant="caption" color="text.secondary" display="block" sx={{ fontFamily: 'monospace' }}>
+                              Folio: {m.gexFolio}
+                            </Typography>
+                          )}
+                          {(() => {
+                            const declaredUsd = Number(m.declaredValue) || 0;
+                            const tc = Number(m.registeredExchangeRate) || 0;
+                            const insuredMxn = m.gexInsuranceCost != null
+                              ? Number(m.gexInsuranceCost)
+                              : (declaredUsd * 0.05 * tc);
+                            const declaredMxn = m.declaredValueMxn != null
+                              ? Number(m.declaredValueMxn)
+                              : (declaredUsd * tc);
+                            const fixedMxn = m.gexFixedCost != null
+                              ? Number(m.gexFixedCost)
+                              : Math.max(0, Number(m.totalCost) - insuredMxn);
+                            return (
+                              <Box sx={{ mt: 0.5, pl: 1, borderLeft: '2px solid', borderColor: 'warning.light' }}>
+                                {declaredUsd > 0 && (
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    💵 Valor declarado: <strong>${declaredUsd.toFixed(2)} USD</strong>
+                                    {declaredMxn > 0 ? ` (${fmtMoney(declaredMxn, 'MXN')})` : ''}
+                                  </Typography>
+                                )}
+                                {insuredMxn > 0 && (
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    🛡️ 5% Valor asegurado: <strong>{fmtMoney(insuredMxn, 'MXN')}</strong>
+                                  </Typography>
+                                )}
+                                {fixedMxn > 0 && (
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    📜 Póliza GEX (fija): <strong>{fmtMoney(fixedMxn, 'MXN')}</strong>
+                                  </Typography>
+                                )}
+                              </Box>
+                            );
+                          })()}
                         </Grid>
                       )}
                       {/* Total a cobrar al cliente — usa helper canónico (pobox_service_cost prioritario).

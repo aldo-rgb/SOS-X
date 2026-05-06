@@ -312,7 +312,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         let cancelled = false;
         const t = setTimeout(async () => {
             try {
-                const r = await api.get(`/api/packages/lookup-client/${encodeURIComponent(id)}`);
+                const r = await api.get(`/packages/lookup-client/${encodeURIComponent(id)}`);
                 if (cancelled) return;
                 if (r.data?.found) {
                     setBulkClientLookup({
