@@ -4,10 +4,11 @@
  * REGLA: Toda pantalla que muestre "Servicio PO Box", "Envío Nacional",
  * "Total", "Saldo Pendiente" o "Desglose de Costos" DEBE usar este helper.
  *
- * Prioridad de campos (de mayor a menor confianza):
- *   1) pobox_service_cost (MXN ya cobrado y guardado)        ← canónico
- *   2) pobox_venta_usd × registered_exchange_rate            ← derivado al recibir
- *   3) Σ children pobox_venta_mxn / pobox_venta_usd × tc     ← master sin valor propio
+ * Prioridad de campos (de mayor a menor confianza, alineada con PackageDetailScreen):
+ *   1) pobox_venta_mxn (MXN canónico — lo que muestra la pantalla de Detalle) ← VERDAD
+ *   2) pobox_service_cost (puede contener valores legacy stale en masters viejos)
+ *   3) pobox_venta_usd × registered_exchange_rate
+ *   4) Σ children (cuando el master no tiene ningún valor propio)
  *
  * NO se debe recalcular con tipo de cambio actual ni con tarifas dinámicas.
  */
@@ -66,25 +67,29 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
   const children = opts.children ?? pkg?.child_packages ?? pkg?.included_guides ?? [];
   const tc = num(pkg?.registered_exchange_rate);
 
-  // 1) PO Box service (MXN)
-  let poboxServiceMxn = num(pkg?.pobox_service_cost);
+  // 1) PO Box service (MXN) — prioridad alineada con PackageDetailScreen
+  let poboxServiceMxn = num(pkg?.pobox_venta_mxn);
+  if (poboxServiceMxn === 0) {
+    poboxServiceMxn = num(pkg?.pobox_service_cost);
+  }
   if (poboxServiceMxn === 0) {
     const ventaUsd = num(pkg?.pobox_venta_usd);
     if (ventaUsd > 0 && tc > 0) {
       poboxServiceMxn = ventaUsd * tc;
-    } else {
-      // Master sin valor propio → sumar hijas
-      poboxServiceMxn = sumChildren(children, (c) => {
-        const cServ = num(c.pobox_service_cost);
-        if (cServ > 0) return cServ;
-        const cVentaMxn = num(c.pobox_venta_mxn);
-        if (cVentaMxn > 0) return cVentaMxn;
-        const cVentaUsd = num(c.pobox_venta_usd);
-        const cTc = num(c.registered_exchange_rate);
-        if (cVentaUsd > 0 && cTc > 0) return cVentaUsd * cTc;
-        return 0;
-      });
     }
+  }
+  if (poboxServiceMxn === 0) {
+    // Master sin valor propio → sumar hijas
+    poboxServiceMxn = sumChildren(children, (c) => {
+      const cVentaMxn = num(c.pobox_venta_mxn);
+      if (cVentaMxn > 0) return cVentaMxn;
+      const cServ = num(c.pobox_service_cost);
+      if (cServ > 0) return cServ;
+      const cVentaUsd = num(c.pobox_venta_usd);
+      const cTc = num(c.registered_exchange_rate);
+      if (cVentaUsd > 0 && cTc > 0) return cVentaUsd * cTc;
+      return num(c.assigned_cost_mxn);
+    });
   }
 
   // 2) Envío nacional (MXN)

@@ -112,6 +112,7 @@ import {
 } from '@mui/icons-material';
 import { Collapse } from '@mui/material';
 import api from '../services/api';
+import { getPackageCostBreakdown } from '../utils/packageCosts';
 import ClientTicketsPage from './ClientTicketsPage';
 import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 import ExternalProviderPage from './ExternalProviderPage';
@@ -202,6 +203,10 @@ interface PackageTracking {
   merchandise_type?: string;
   // PO Box
   pobox_venta_usd?: number;
+  pobox_venta_mxn?: number;
+  pobox_service_cost?: number;
+  pobox_cost_usd?: number;
+  pobox_tarifa_nivel?: number | null;
   // TC registrado al asignar costo
   registered_exchange_rate?: number;
   exchange_rate?: number;
@@ -233,6 +238,10 @@ interface IncludedGuide {
   national_shipping_cost?: number;
   gex_total_cost?: number;
   pobox_venta_usd?: number;
+  pobox_venta_mxn?: number;
+  pobox_service_cost?: number;
+  pobox_tarifa_nivel?: number | null;
+  registered_exchange_rate?: number;
 }
 
 interface Invoice {
@@ -9854,27 +9863,28 @@ export default function DashboardClient() {
                       detailLine = isFCL 
                         ? `Contenedor completo · ${merchLabel}`
                         : `${Number(selectedPackage.cbm || 0).toFixed(3)} m³ · ${merchLabel}`;
-                    } else if (isPobox && (Number(selectedPackage.pobox_venta_usd) > 0 || (selectedPackage.is_master && (selectedPackage.included_guides || []).some(g => Number(g.pobox_venta_usd) > 0)))) {
-                      // PO BOX: pobox_venta_usd es el precio USD del cliente.
-                      // Para masters multipieza, sumar pobox_venta_usd de todas las hijas
-                      // (cada caja tiene su propio venta_usd según tarifa por caja).
-                      const masterVenta = Number(selectedPackage.pobox_venta_usd) || 0;
-                      const childrenVentaSum = (selectedPackage.included_guides || [])
-                        .reduce((s, g) => s + (Number(g.pobox_venta_usd) || 0), 0);
-                      costoUSD = (selectedPackage.is_master && childrenVentaSum > masterVenta)
-                        ? childrenVentaSum
-                        : masterVenta;
-                      montoMXN = costoUSD * tcConfig;
-                      tcToShow = tcConfig;
-                      detailLine = 'PO Box USA';
                     } else if (isPobox) {
-                      // PO BOX sin precio aún (pobox_venta_usd no asignado): NO usar fallback
-                      // genérico de displayMonto/assigned_cost_mxn, porque ese valor sólo contiene
-                      // la paquetería ya capturada y se sumaría dos veces en el desglose.
-                      costoUSD = 0;
-                      montoMXN = 0;
-                      tcToShow = tcConfig;
-                      detailLine = 'PO Box USA — servicio pendiente de cotizar';
+                      // 📦 PO BOX — fuente única: helper canónico packageCosts.
+                      // Lee pobox_service_cost (MXN) / pobox_venta_usd / pobox_tarifa_nivel /
+                      // registered_exchange_rate ya guardados al recibir. NO recalcula.
+                      const breakdown = getPackageCostBreakdown(selectedPackage);
+                      if (breakdown.poboxServiceMxn > 0) {
+                        montoMXN = breakdown.poboxServiceMxn;
+                        // TC real usado al recibir (NO el actual)
+                        tcToShow = breakdown.exchangeRate > 0 ? breakdown.exchangeRate : tcConfig;
+                        costoUSD = tcToShow > 0 ? montoMXN / tcToShow : breakdown.poboxVentaUsd;
+                        const ventaUsdUnit = breakdown.poboxVentaUsd || (breakdown.boxCount > 0 ? costoUSD / breakdown.boxCount : 0);
+                        const nivelLabel = breakdown.tarifaNivel ? ` (Nivel ${breakdown.tarifaNivel})` : '';
+                        detailLine = breakdown.boxCount > 1
+                          ? `${breakdown.boxCount} cajas × $${ventaUsdUnit.toFixed(2)} USD × TC $${tcToShow.toFixed(2)}${nivelLabel}`
+                          : `$${ventaUsdUnit.toFixed(2)} USD × TC $${tcToShow.toFixed(2)}${nivelLabel}`;
+                      } else {
+                        // Sin precio aún — pendiente de cotizar
+                        costoUSD = 0;
+                        montoMXN = 0;
+                        tcToShow = tcConfig;
+                        detailLine = 'PO Box USA — servicio pendiente de cotizar';
+                      }
                     } else if (isDhl && selectedPackage.monto_currency === 'USD' && displayMonto > 0) {
                       // AA DHL: monto = import_cost_usd (es USD)
                       costoUSD = displayMonto;

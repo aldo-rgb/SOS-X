@@ -2407,31 +2407,37 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 // 🛡️ GEX - Garantía Extendida
                 has_gex: pkg.has_gex || false,
                 gex_folio: pkg.gex_folio || null,
-                // 💰 Costos — Fórmula CANÓNICA: pobox_service_cost (BD) prioriza sobre venta_usd × tc
+                // 💰 Costos — Fórmula CANÓNICA alineada con PackageDetailScreen.
+                //   Prioridad: pobox_venta_mxn > pobox_service_cost > venta_usd × tc > Σ children
                 assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
                 saldo_pendiente: (() => {
+                    const ventaMxn = parseFloat(pkg.pobox_venta_mxn) || 0;
                     const serviceCost = parseFloat(pkg.pobox_service_cost) || 0;
                     const poboxUsd = parseFloat(pkg.pobox_venta_usd) || 0;
                     const tc = parseFloat(pkg.registered_exchange_rate) || 0;
                     const gexTotal = parseFloat(pkg.gex_total_cost) || 0;
                     const shipping = parseFloat(pkg.national_shipping_cost) || 0;
                     const pagado = parseFloat(pkg.monto_pagado) || 0;
-                    // 1) Canónico: pobox_service_cost guardado en BD
+                    // 1) Canónico: pobox_venta_mxn (lo que muestra el detalle)
+                    if (ventaMxn > 0) {
+                        return Math.max(0, ventaMxn + gexTotal + shipping - pagado);
+                    }
+                    // 2) pobox_service_cost guardado en BD
                     if (serviceCost > 0) {
                         return Math.max(0, serviceCost + gexTotal + shipping - pagado);
                     }
-                    // 2) Derivado: venta_usd × tc
+                    // 3) Derivado: venta_usd × tc
                     if (poboxUsd > 0 && tc > 0) {
                         return Math.max(0, (poboxUsd * tc) + gexTotal + shipping - pagado);
                     }
-                    // 3) Master sin valor propio: sumar hijas (prefiriendo pobox_service_cost de cada hija)
+                    // 4) Master sin valor propio: sumar hijas
                     if (pkg.is_master) {
                         const children = childrenByMaster[pkg.id] || [];
                         const childPoboxMxn = children.reduce((s: number, c: any) => {
-                            const cServ = parseFloat(c.pobox_service_cost) || 0;
-                            if (cServ > 0) return s + cServ;
                             const cMxn = parseFloat(c.pobox_venta_mxn) || 0;
                             if (cMxn > 0) return s + cMxn;
+                            const cServ = parseFloat(c.pobox_service_cost) || 0;
+                            if (cServ > 0) return s + cServ;
                             const cUsd = parseFloat(c.pobox_venta_usd) || 0;
                             const cTc = parseFloat(c.registered_exchange_rate) || 0;
                             if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
