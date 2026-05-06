@@ -705,6 +705,7 @@ export default function DashboardClient() {
       'received_china': 'Recibido China', 'received_origin': 'En Bodega China', 'in_transit_sea': 'En Tránsito Marítimo', 'in_transit_air': 'En Tránsito Aéreo',
       'in_customs': 'En Aduana', 'at_customs': 'En Tránsito', 'received_mx': 'Recibido en México', 'ready_pickup': 'EN RUTA',
       'in_transit': 'En Tránsito', 'in_transit_mx': 'En Tránsito', 'received_cedis': 'En CEDIS MX', 'in_transit_mty': 'EN TRÁNSITO A MTY, N.L.',
+      'received_mty': 'Recibido MTY',
       'out_for_delivery': 'EN RUTA', 'shipped': 'ENVIADO', 'delivered': 'Entregado', 'pending': 'Pendiente',
       'received_warehouse': 'Recibido en Bodega', 'assigned': 'Asignado', 'processing': 'Procesando', 'customs': 'Procesando',
       'returned_to_warehouse': 'Devuelto a CEDIS MTY',
@@ -1057,6 +1058,7 @@ export default function DashboardClient() {
   const [selectedPackage, setSelectedPackage] = useState<PackageTracking | null>(null);
   const [highlightedGuideTracking, setHighlightedGuideTracking] = useState<string | null>(null);
   const [boxListExpanded, setBoxListExpanded] = useState(false);
+  const [includedGuidesExpanded, setIncludedGuidesExpanded] = useState(false);
 
   // Modal Trayectoria China (MoJie) - historial de movimientos
   const [trajectoryOpen, setTrajectoryOpen] = useState(false);
@@ -9161,6 +9163,7 @@ export default function DashboardClient() {
           setPackageDetailOpen(false);
           setHighlightedGuideTracking(null);
           setBoxListExpanded(false);
+          setIncludedGuidesExpanded(false);
         }} 
         maxWidth="sm" 
         fullWidth
@@ -9364,10 +9367,28 @@ export default function DashboardClient() {
                 {/* Guías Incluidas (para consolidaciones) */}
                 {selectedPackage.is_master && selectedPackage.included_guides && selectedPackage.included_guides.length > 0 && (
                   <Box sx={{ mb: 2 }}>
-                    <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
-                      📋 {t('cd.detail.includedGuides')} ({selectedPackage.included_guides.length})
-                    </Typography>
-                    <Paper sx={{ bgcolor: '#f8f9fa' }}>
+                    <Button
+                      fullWidth
+                      variant="outlined"
+                      onClick={() => setIncludedGuidesExpanded(!includedGuidesExpanded)}
+                      endIcon={includedGuidesExpanded ? <KeyboardArrowUpIcon /> : <KeyboardArrowDownIcon />}
+                      sx={{
+                        justifyContent: 'space-between',
+                        borderColor: '#e0e0e0',
+                        color: 'text.primary',
+                        textTransform: 'none',
+                        fontWeight: 'bold',
+                        py: 1.2,
+                        bgcolor: includedGuidesExpanded ? '#f5f5f5' : 'transparent',
+                        '&:hover': { bgcolor: '#f5f5f5', borderColor: ORANGE }
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        📋 {t('cd.detail.includedGuides')} ({selectedPackage.included_guides.length})
+                      </Box>
+                    </Button>
+                    <Collapse in={includedGuidesExpanded} timeout="auto">
+                    <Paper sx={{ bgcolor: '#f8f9fa', mt: 0.5 }}>
                       {selectedPackage.included_guides.map((guide, idx) => {
                         const isHighlighted = highlightedGuideTracking === guide.tracking;
                         return (
@@ -9405,16 +9426,29 @@ export default function DashboardClient() {
                             )}
                           </Box>
                           <Box sx={{ textAlign: 'right' }}>
+                            {guide.status && (
+                              <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: '0.7rem' }}>
+                                {getStatusDisplayLabel(guide.status)}
+                              </Typography>
+                            )}
                             {guide.weight && (
                               <Typography variant="caption" sx={{ display: 'block' }}>{guide.weight} kg</Typography>
                             )}
                             {guide.dimensions && (
-                              <Typography variant="caption" color="text.secondary">{guide.dimensions}</Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>{guide.dimensions}</Typography>
+                            )}
+                            {(guide.pobox_tarifa_nivel != null || (guide.pobox_venta_usd != null && Number(guide.pobox_venta_usd) > 0)) && (
+                              <Typography variant="caption" sx={{ display: 'block', color: 'success.dark', fontWeight: 600, mt: 0.25 }}>
+                                {guide.pobox_tarifa_nivel != null ? `N${guide.pobox_tarifa_nivel}` : ''}
+                                {guide.pobox_tarifa_nivel != null && guide.pobox_venta_usd != null ? ' · ' : ''}
+                                {guide.pobox_venta_usd != null && Number(guide.pobox_venta_usd) > 0 ? `$${Number(guide.pobox_venta_usd).toFixed(2)} USD` : ''}
+                              </Typography>
                             )}
                           </Box>
                         </Box>
                       )})}
                     </Paper>
+                    </Collapse>
                   </Box>
                 )}
 

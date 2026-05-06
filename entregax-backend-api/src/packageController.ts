@@ -1201,7 +1201,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         if (pkg.master_id) {
             try {
                 const masterRes = await pool.query(
-                    `SELECT status, payment_status, client_paid, client_paid_at, monto_pagado,
+                    `SELECT tracking_internal, status, payment_status, client_paid, client_paid_at, monto_pagado,
                             saldo_pendiente, assigned_cost_mxn, received_at, delivered_at,
                             warehouse_location, current_branch_id,
                             pobox_service_cost, pobox_cost_usd, pobox_venta_usd, gex_total_cost,
@@ -1211,6 +1211,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 );
                 if (masterRes.rows.length > 0) {
                     const m = masterRes.rows[0];
+                    // Guardamos el tracking real del master para exponerlo en scannedBox.
+                    pkg._master_tracking_internal = m.tracking_internal;
                     // El master rige el cobro y el progreso "público" del envío.
                     pkg.payment_status = m.payment_status ?? pkg.payment_status;
                     pkg.client_paid = m.client_paid ?? pkg.client_paid;
@@ -1351,6 +1353,19 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     nationalTracking: pkg.national_tracking || null,
                     nationalLabelUrl: pkg.national_label_url || null,
                     internationalTracking: pkg.international_tracking || null,
+                    // 🎯 Si el usuario rastreó una guía hija (pkg.master_id existe),
+                    //   exponemos scannedBox para que el frontend oculte costos agregados
+                    //   y muestre "Consulta guía master".
+                    scannedBox: pkg.master_id ? {
+                        boxNumber: pkg.box_number || 1,
+                        tracking: pkg.tracking_internal,
+                        masterTracking: pkg._master_tracking_internal || null,
+                        weight: pkg.weight != null ? parseFloat(pkg.weight) : null,
+                        length: pkg.pkg_length != null ? parseFloat(pkg.pkg_length) : null,
+                        width: pkg.pkg_width != null ? parseFloat(pkg.pkg_width) : null,
+                        height: pkg.pkg_height != null ? parseFloat(pkg.pkg_height) : null,
+                        captured: !!(pkg.weight && pkg.pkg_length && pkg.pkg_width && pkg.pkg_height),
+                    } : null,
                     paymentStatus: pkg.payment_status || null,
                     clientPaid: pkg.client_paid === true,
                     clientPaidAt: pkg.client_paid_at || null,

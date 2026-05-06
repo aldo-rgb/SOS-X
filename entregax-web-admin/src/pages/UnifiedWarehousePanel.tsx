@@ -133,6 +133,7 @@ interface ShipmentMaster {
   scannedBox?: {
     boxNumber: number;
     tracking: string;
+    masterTracking?: string | null;
     weight?: number | null;
     length?: number | null;
     width?: number | null;
@@ -814,9 +815,9 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                               <Typography variant="caption" color="text.secondary" display="block">
                                 ⚠ Esta guía es hija de un master múltiple. El costo de paquetería se aplica al master completo.
                               </Typography>
-                              {m.tracking && (
+                              {(m.scannedBox?.masterTracking || m.tracking) && (
                                 <Typography variant="caption" color="text.secondary" display="block" fontFamily="monospace">
-                                  Master: {m.tracking}
+                                  Master: {m.scannedBox?.masterTracking || m.tracking}
                                 </Typography>
                               )}
                             </>
@@ -864,22 +865,40 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                               <Typography variant="overline" color="text.secondary">
                                 Costo paquetería (API)
                               </Typography>
-                              <Typography variant="body1" fontWeight="bold" color="error.main">
-                                {fmtMoney(m.pqtxApiTotal, 'MXN')}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary" display="block">
-                                Total real cobrado por Paquete Express
-                              </Typography>
-                              {m.registeredExchangeRate != null && Number(m.registeredExchangeRate) > 0 && (
-                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                                  💱 Tipo de cambio asignado: <strong>${Number(m.registeredExchangeRate).toFixed(2)} MXN/USD</strong>
-                                </Typography>
-                              )}
-                              {m.hasGex && Number(m.gexTotalCost ?? 0) > 0 && (
-                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
-                                  🛡️ GEX contratado: <strong>{fmtMoney(Number(m.gexTotalCost), 'MXN')}</strong>
-                                  {m.gexFolio ? ` (folio ${m.gexFolio})` : ''}
-                                </Typography>
+                              {m.scannedBox ? (
+                                <>
+                                  <Typography variant="body1" fontWeight="bold" color="warning.dark">
+                                    Consulta guía master
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    ⚠ Esta guía es hija de un master múltiple. El costo API se aplica al master completo.
+                                  </Typography>
+                                  {(m.scannedBox?.masterTracking || m.tracking) && (
+                                    <Typography variant="caption" color="text.secondary" display="block" fontFamily="monospace">
+                                      Master: {m.scannedBox?.masterTracking || m.tracking}
+                                    </Typography>
+                                  )}
+                                </>
+                              ) : (
+                                <>
+                                  <Typography variant="body1" fontWeight="bold" color="error.main">
+                                    {fmtMoney(m.pqtxApiTotal, 'MXN')}
+                                  </Typography>
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    Total real cobrado por Paquete Express
+                                  </Typography>
+                                  {m.registeredExchangeRate != null && Number(m.registeredExchangeRate) > 0 && (
+                                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                      💱 Tipo de cambio asignado: <strong>${Number(m.registeredExchangeRate).toFixed(2)} MXN/USD</strong>
+                                    </Typography>
+                                  )}
+                                  {m.hasGex && Number(m.gexTotalCost ?? 0) > 0 && (
+                                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                      🛡️ GEX contratado: <strong>{fmtMoney(Number(m.gexTotalCost), 'MXN')}</strong>
+                                      {m.gexFolio ? ` (folio ${m.gexFolio})` : ''}
+                                    </Typography>
+                                  )}
+                                </>
                               )}
                             </Box>
                           )}
@@ -959,10 +978,12 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                           Si se escaneó una hija (m.scannedBox presente), muestra costos POR CAJA. */}
                       {(() => {
                         const scannedIsChild = !!m.scannedBox;
+                        // Si es hija, el cobro se gestiona en el master: no mostrar totales por caja.
+                        if (scannedIsChild) return null;
                         const breakdown = getScannerBreakdown(m, scannedIsChild, children);
-                        const { poboxServiceMxn, nationalShippingMxn, gexMxn, totalMxn, paidMxn, pendingMxn, boxCount } = breakdown;
+                        const { poboxServiceMxn, nationalShippingMxn, gexMxn, totalMxn, paidMxn, pendingMxn } = breakdown;
                         if (totalMxn <= 0) return null;
-                        const perBoxLabel = scannedIsChild ? ` · por caja (de ${boxCount})` : '';
+                        const perBoxLabel = '';
                         return (
                           <>
                             <Grid size={{ xs: 12, md: 6 }}>

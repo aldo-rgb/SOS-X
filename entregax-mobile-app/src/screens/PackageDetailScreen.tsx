@@ -54,6 +54,8 @@ interface ChildPackage {
   };
   status: string;
   imageUrl?: string;
+  poboxVentaUsd?: number | null;
+  poboxTarifaNivel?: number | null;
 }
 
 interface PackageDetails {
@@ -587,6 +589,13 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                             </Text>
                           )}
                         </View>
+                        {(child.poboxTarifaNivel != null || (child.poboxVentaUsd != null && Number(child.poboxVentaUsd) > 0)) && (
+                          <Text style={[styles.childStat, { color: '#2E7D32', fontWeight: '700', marginTop: 2 }]}>
+                            💰 {child.poboxTarifaNivel != null ? `N${child.poboxTarifaNivel}` : ''}
+                            {child.poboxTarifaNivel != null && child.poboxVentaUsd != null ? ' · ' : ''}
+                            {child.poboxVentaUsd != null && Number(child.poboxVentaUsd) > 0 ? `$${Number(child.poboxVentaUsd).toFixed(2)} USD` : ''}
+                          </Text>
+                        )}
                       </View>
                       <View style={styles.childActions}>
                         {/* Miniatura de foto del paquete hijo */}
