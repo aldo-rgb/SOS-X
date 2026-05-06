@@ -204,7 +204,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     const costoTotal = costoPoboxMxn + nationalShipping + gexTotal;
     const saldo = costoTotal - (Number(details.monto_pagado) || 0);
 
-    console.log('💰 calcularCostoPOBox:', { totalBoxes, tc, nivel, precioUnitarioUsd, costoPoboxMxn, ventaMxnBackend, gexTotal, nationalShipping, costoTotal, saldo });
+    console.log('💰 calcularCostoPOBox:', { totalBoxes, tc, nivel, precioUnitarioUsd, costoPoboxMxn, gexTotal, nationalShipping, costoTotal, saldo });
 
     return { costoMxn: costoPoboxMxn, costoTotal, saldo, totalBoxes, precioUnitarioUsd, tc, nivel };
   };

@@ -106,11 +106,17 @@ interface ShipmentMaster {
     costoProrrateado: number;
   } | null;
   pqtxApiTotal?: number | null;
-  poboxServiceCost?: number | null;
+  poboxServiceCost?: number | null;       // VENTA MXN (precio cobrado al cliente)
+  poboxProviderCostMxn?: number | null;   // COSTO INTERNO MXN (lo que paga el proveedor)
+  poboxProviderCostUsd?: number | null;   // COSTO INTERNO USD
   poboxVentaUsd?: number | null;
   poboxVentaMxn?: number | null;
   poboxTarifaNivel?: number | null;
   registeredExchangeRate?: number | null;
+  // GEX (paquetería garantizada) — visible solo si fue contratada
+  hasGex?: boolean;
+  gexTotalCost?: number | null;
+  gexFolio?: string | null;
   assignedCostMxn?: number | null;
   montoPagado?: number | null;
   saldoPendiente?: number | null;
@@ -144,6 +150,10 @@ interface ShipmentChild {
   dimensions?: { formatted?: string };
   status?: string;
   imageUrl?: string | null;
+  // 💰 Tarifa PO Box por hija (para desglose en scanner multisucursal)
+  poboxTarifaNivel?: number | null;
+  poboxVentaUsd?: number | null;
+  poboxServiceCost?: number | null;
 }
 
 interface ShipmentClient {
@@ -791,12 +801,26 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                       </Typography>
                     </Stack>
                     <Grid container spacing={2}>
-                      {m.nationalLabelCost != null && (
+                      {(m.nationalLabelCost != null || !!m.scannedBox) && (
                         <Grid size={{ xs: 12, md: 6 }}>
                           <Typography variant="overline" color="text.secondary">
                             Costo paquetería (última milla)
                           </Typography>
-                          {(() => {
+                          {m.scannedBox ? (
+                            <>
+                              <Typography variant="body1" fontWeight="bold" color="warning.dark">
+                                Revisar guía master
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                ⚠ Esta guía es hija de un master múltiple. El costo de paquetería se aplica al master completo.
+                              </Typography>
+                              {m.tracking && (
+                                <Typography variant="caption" color="text.secondary" display="block" fontFamily="monospace">
+                                  Master: {m.tracking}
+                                </Typography>
+                              )}
+                            </>
+                          ) : (() => {
                             const total = Number(m.nationalLabelCost) || 0;
                             const boxes = Number(m.totalBoxes) || 1;
                             const perBox = boxes > 0 ? total / boxes : total;
@@ -818,25 +842,25 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                           })()}
                         </Grid>
                       )}
-                      {canViewServiceCost && (m.poboxServiceCost != null || m.pqtxApiTotal != null) && (
+                      {canViewServiceCost && (m.poboxProviderCostMxn != null || m.poboxServiceCost != null || m.pqtxApiTotal != null) && (
                         <Grid size={{ xs: 6, md: 3 }}>
-                          {m.poboxServiceCost != null && (
+                          {(m.poboxProviderCostMxn != null || m.poboxServiceCost != null) && (
                             <>
                               <Typography variant="overline" color="text.secondary">
-                                Costo del servicio
+                                Costo del servicio (proveedor)
                               </Typography>
                               <Typography variant="body1" fontWeight="bold">
-                                {fmtMoney(m.poboxServiceCost, 'MXN')}
+                                {fmtMoney(m.poboxProviderCostMxn ?? m.poboxServiceCost ?? 0, 'MXN')}
                               </Typography>
-                              {m.poboxCostUsd != null && (
+                              {(m.poboxProviderCostUsd ?? m.poboxCostUsd) != null && (
                                 <Typography variant="caption" color="text.secondary" display="block">
-                                  ({fmtMoney(m.poboxCostUsd, 'USD')})
+                                  ({fmtMoney(m.poboxProviderCostUsd ?? m.poboxCostUsd ?? 0, 'USD')})
                                 </Typography>
                               )}
                             </>
                           )}
                           {m.pqtxApiTotal != null && (
-                            <Box sx={{ mt: m.poboxServiceCost != null ? 1.5 : 0 }}>
+                            <Box sx={{ mt: (m.poboxProviderCostMxn != null || m.poboxServiceCost != null) ? 1.5 : 0 }}>
                               <Typography variant="overline" color="text.secondary">
                                 Costo paquetería (API)
                               </Typography>
@@ -846,37 +870,76 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                               <Typography variant="caption" color="text.secondary" display="block">
                                 Total real cobrado por Paquete Express
                               </Typography>
+                              {m.registeredExchangeRate != null && Number(m.registeredExchangeRate) > 0 && (
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                  💱 Tipo de cambio asignado: <strong>${Number(m.registeredExchangeRate).toFixed(2)} MXN/USD</strong>
+                                </Typography>
+                              )}
+                              {m.hasGex && Number(m.gexTotalCost ?? 0) > 0 && (
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                                  🛡️ GEX contratado: <strong>{fmtMoney(Number(m.gexTotalCost), 'MXN')}</strong>
+                                  {m.gexFolio ? ` (folio ${m.gexFolio})` : ''}
+                                </Typography>
+                              )}
                             </Box>
                           )}
                         </Grid>
                       )}
-                      {m.poboxVentaUsd != null && (
+                      {(m.poboxVentaUsd != null || m.poboxServiceCost != null) && (
                         <Grid size={{ xs: 12, md: 6 }}>
                           <Typography variant="overline" color="text.secondary">
                             Venta al cliente (PO Box)
                           </Typography>
                           {(() => {
-                            const totalUsd = Number(m.poboxVentaUsd) || 0;
+                            // Desglose REAL por hija (suma de pobox_venta_usd y pobox_service_cost)
+                            const childRows = (children || []).filter(c => (c.poboxVentaUsd ?? 0) > 0 || (c.poboxServiceCost ?? 0) > 0);
+                            const totalUsdReal = childRows.reduce((s, c) => s + Number(c.poboxVentaUsd || 0), 0);
+                            const totalMxnReal = childRows.reduce((s, c) => s + Number(c.poboxServiceCost || 0), 0);
                             const tc = Number(m.registeredExchangeRate) || 0;
-                            const totalMxn = m.poboxVentaMxn != null
-                              ? Number(m.poboxVentaMxn)
-                              : (tc > 0 ? totalUsd * tc : 0);
-                            const boxes = Number(m.totalBoxes) || 1;
-                            const unitUsd = boxes > 0 ? totalUsd / boxes : totalUsd;
-                            const nivel = m.poboxTarifaNivel ?? null;
+                            // Fallback a totales del master si no hay datos por hija
+                            const totalUsd = totalUsdReal > 0 ? totalUsdReal : (Number(m.poboxVentaUsd) || 0);
+                            const totalMxn = totalMxnReal > 0 ? totalMxnReal : (Number(m.poboxServiceCost) || (tc > 0 ? totalUsd * tc : 0));
+                            // Agrupar por nivel para resumen "6×N1 + 2×N2"
+                            const byLevel = new Map<string, { qty: number; unitUsd: number; subtotalUsd: number }>();
+                            childRows.forEach(c => {
+                              const lvl = c.poboxTarifaNivel != null ? `N${c.poboxTarifaNivel}` : '?';
+                              const unit = Number(c.poboxVentaUsd || 0);
+                              const cur = byLevel.get(lvl) || { qty: 0, unitUsd: unit, subtotalUsd: 0 };
+                              cur.qty += 1;
+                              cur.unitUsd = unit; // asume tarifa fija por nivel
+                              cur.subtotalUsd += unit;
+                              byLevel.set(lvl, cur);
+                            });
+                            const summary = Array.from(byLevel.entries())
+                              .map(([lvl, v]) => `${v.qty}×${lvl} $${v.unitUsd.toFixed(2)} = $${v.subtotalUsd.toFixed(2)}`)
+                              .join(' + ');
                             return (
                               <>
                                 <Typography variant="body1" fontWeight="bold" color="success.main">
                                   {fmtMoney(totalMxn, 'MXN')}
                                 </Typography>
-                                <Typography variant="caption" color="text.secondary" display="block">
-                                  💵 {boxes > 1 ? `${boxes} cajas × ` : ''}${unitUsd.toFixed(2)} USD
-                                  {tc > 0 ? ` × TC $${tc.toFixed(2)}` : ''}
-                                  {nivel != null ? ` (Nivel ${nivel})` : ''}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary" display="block">
-                                  Total USD: ${totalUsd.toFixed(2)}
-                                </Typography>
+                                {summary && (
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    💵 {summary} = <strong>${totalUsd.toFixed(2)} USD</strong>
+                                  </Typography>
+                                )}
+                                {tc > 0 && (
+                                  <Typography variant="caption" color="text.secondary" display="block">
+                                    × TC ${tc.toFixed(2)} = <strong>{fmtMoney(totalUsd * tc, 'MXN')}</strong>
+                                  </Typography>
+                                )}
+                                {childRows.length > 0 && (
+                                  <Box sx={{ mt: 1, pl: 1, borderLeft: '2px solid', borderColor: 'success.light' }}>
+                                    <Typography variant="caption" color="text.secondary" display="block" sx={{ fontWeight: 600, mb: 0.25 }}>
+                                      Desglose por guía hija:
+                                    </Typography>
+                                    {childRows.map(c => (
+                                      <Typography key={c.id} variant="caption" color="text.secondary" display="block" sx={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>
+                                        {c.tracking} · N{c.poboxTarifaNivel ?? '?'} · ${Number(c.poboxVentaUsd || 0).toFixed(2)} USD · {fmtMoney(Number(c.poboxServiceCost || 0), 'MXN')}
+                                      </Typography>
+                                    ))}
+                                  </Box>
+                                )}
                               </>
                             );
                           })()}

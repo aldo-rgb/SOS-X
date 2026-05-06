@@ -1368,10 +1368,20 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     pqtxShipment: null,
                     // Total real cobrado por la API de Paquete Express (visible solo para admin/super_admin en frontend)
                     pqtxApiTotal,
+                    // 💰 Re-significados (post-migración pobox_provider_cost):
+                    //   pobox_service_cost      = PRECIO VENTA MXN (lo que cobra al cliente)
+                    //   pobox_provider_cost_mxn = COSTO INTERNO MXN (lo que paga el proveedor)
+                    //   pobox_cost_usd          = espejo de pobox_provider_cost_usd (deprecado)
                     poboxServiceCost: pkg.pobox_service_cost != null ? parseFloat(pkg.pobox_service_cost) : null,
+                    poboxProviderCostMxn: pkg.pobox_provider_cost_mxn != null ? parseFloat(pkg.pobox_provider_cost_mxn) : null,
+                    poboxProviderCostUsd: pkg.pobox_provider_cost_usd != null ? parseFloat(pkg.pobox_provider_cost_usd) : null,
                     poboxVentaUsd: pkg.pobox_venta_usd != null ? parseFloat(pkg.pobox_venta_usd) : null,
                     poboxTarifaNivel: pkg.pobox_tarifa_nivel != null ? Number(pkg.pobox_tarifa_nivel) : null,
                     registeredExchangeRate: pkg.registered_exchange_rate != null ? parseFloat(pkg.registered_exchange_rate) : null,
+                    // GEX (paquetería garantizada) — costos contratados
+                    hasGex: pkg.has_gex === true,
+                    gexTotalCost: pkg.gex_total_cost != null ? parseFloat(pkg.gex_total_cost) : null,
+                    gexFolio: pkg.gex_folio || null,
                     totalBoxesCount: pkg.total_boxes || (children?.length || 1),
                     assignedCostMxn: pkg.assigned_cost_mxn != null ? parseFloat(pkg.assigned_cost_mxn) : null,
                     montoPagado: pkg.monto_pagado != null ? parseFloat(pkg.monto_pagado) : null,
@@ -1476,7 +1486,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     status: c.status, imageUrl: c.image_url || null,
                     nationalTracking: c.national_tracking || null,
                     nationalLabelUrl: c.national_label_url || null,
-                    nationalCarrier: c.national_carrier || null })),
+                    nationalCarrier: c.national_carrier || null,
+                    // 💰 Tarifa PO Box por hija (para desglose en scanner multisucursal)
+                    poboxTarifaNivel: c.pobox_tarifa_nivel != null ? Number(c.pobox_tarifa_nivel) : null,
+                    poboxVentaUsd: c.pobox_venta_usd != null ? parseFloat(c.pobox_venta_usd) : null,
+                    poboxServiceCost: c.pobox_service_cost != null ? parseFloat(c.pobox_service_cost) : null })),
                 labels,
                 client: pkg.user_id 
                     ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.user_box_id || 'N/A' } 
