@@ -26,6 +26,11 @@ import {
     IconButton,
     Divider,
     Stack,
+    FormControl,
+    FormLabel,
+    RadioGroup,
+    FormControlLabel,
+    Radio,
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
@@ -165,6 +170,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
     // Impresión de etiquetas (1 por caja)
     const [labelsModalOpen, setLabelsModalOpen] = useState(false);
+    const [labelFormat, setLabelFormat] = useState<'4x6' | '4x2'>('4x2');
     const [selectedOrderIds, setSelectedOrderIds] = useState<Set<number>>(new Set());
     // Cajas realmente recibidas por orden (orderId → cantidad). Default = total esperado.
     const [receivedByOrder, setReceivedByOrder] = useState<Record<number, number>>({});
@@ -265,7 +271,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             return;
         }
 
-        // Renderiza una mini-etiqueta (4in × 3in) — caben exactamente 2 por página 4×6
+        // ───────── Layout 4×6 (2 etiquetas por hoja) ─────────
         const renderHalf = (label: Label, idx: number, position: 'top' | 'bottom') => `
             <div class="half ${position}">
                 <div class="header">
@@ -280,19 +286,89 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 </div>
             </div>`;
 
-        // Empareja etiquetas de a 2 por página (corte exacto a la mitad: 3in)
-        const pages: string[] = [];
-        for (let i = 0; i < labels.length; i += 2) {
-            const top = labels[i];
-            const bottom = labels[i + 1];
-            const isLast = i + 2 >= labels.length;
-            pages.push(`
-                <div class="page" style="page-break-after: ${isLast ? 'auto' : 'always'};">
-                    ${renderHalf(top, i, 'top')}
-                    <div class="cut-line"><span>✂  cortar aquí  ✂</span></div>
-                    ${bottom ? renderHalf(bottom, i + 1, 'bottom') : '<div class="half bottom empty"></div>'}
-                </div>`);
+        // ───────── Layout 4×2 (1 etiqueta compacta por hoja) ─────────
+        const renderSingle4x2 = (label: Label, idx: number) => `
+            <div class="page-4x2" style="page-break-after: ${idx === labels.length - 1 ? 'auto' : 'always'};">
+                <div class="row-top">
+                    <span class="svc">MARÍTIMO</span>
+                    <span class="box-n">${label.boxNumber}/${label.totalBoxes}</span>
+                </div>
+                <div class="mark">${label.shippingMark}</div>
+                <div class="barcode-wrap"><svg id="barcode-${idx}"></svg></div>
+                <div class="trk">${label.tracking}</div>
+            </div>`;
+
+        let pagesHtml = '';
+        let pageCount = 0;
+        let pageStyle = '';
+
+        if (labelFormat === '4x2') {
+            pagesHtml = labels.map((l, i) => renderSingle4x2(l, i)).join('');
+            pageCount = labels.length;
+            // Página 4in × 2in (landscape) — tú configuras la impresora a 4×2 horizontal
+            pageStyle = `
+                @page { size: 4in 2in; margin: 0; }
+                .page-4x2 {
+                    width: 4in; height: 2in;
+                    padding: 0.08in 0.12in;
+                    display: flex; flex-direction: column; justify-content: space-between;
+                    overflow: hidden; box-sizing: border-box;
+                }
+                .row-top { display: flex; justify-content: space-between; align-items: center; }
+                .svc { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+                .box-n { font-size: 18px; font-weight: 900; }
+                .mark { text-align: center; font-size: 32px; color: #FF6B35; font-weight: 900; letter-spacing: 1px; line-height: 1; margin: 0.04in 0; }
+                .barcode-wrap { text-align: center; }
+                .barcode-wrap svg { width: 95%; height: 0.55in; }
+                .trk { text-align: center; font-size: 12px; font-weight: bold; font-family: 'Courier New', monospace; letter-spacing: 0.5px; line-height: 1; }
+            `;
+        } else {
+            // Empareja etiquetas de a 2 por página 4×6
+            const pages: string[] = [];
+            for (let i = 0; i < labels.length; i += 2) {
+                const top = labels[i];
+                const bottom = labels[i + 1];
+                const isLast = i + 2 >= labels.length;
+                pages.push(`
+                    <div class="page" style="page-break-after: ${isLast ? 'auto' : 'always'};">
+                        ${renderHalf(top, i, 'top')}
+                        <div class="cut-line"><span>✂  cortar aquí  ✂</span></div>
+                        ${bottom ? renderHalf(bottom, i + 1, 'bottom') : '<div class="half bottom empty"></div>'}
+                    </div>`);
+            }
+            pagesHtml = pages.join('');
+            pageCount = Math.ceil(labels.length / 2);
+            pageStyle = `
+                @page { size: 4in 6in; margin: 0; }
+                .page {
+                    width: 4in; height: 6in;
+                    margin: 0 auto; position: relative; overflow: hidden;
+                }
+                .half {
+                    position: absolute;
+                    left: 0; right: 0;
+                    padding: 0.18in 0.18in 0.14in 0.18in;
+                    display: flex; flex-direction: column; justify-content: space-between;
+                    overflow: hidden;
+                }
+                .half.top { top: 0; height: calc(3in + 1cm); }
+                .half.bottom { bottom: 0; height: calc(3in - 1cm); padding-top: 0.45in; }
+                .half.empty { background: transparent; }
+                .cut-line { display: none; }
+                .header { display: flex; justify-content: space-between; align-items: center; }
+                .service { color: #000; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+                .date-badge { color: #000; font-size: 22px; font-weight: 900; }
+                .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
+                .barcode-section { text-align: center; }
+                .barcode-section svg { width: 92%; height: 50px; }
+                .client-mark { text-align: center; font-size: 38px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 2px 0; }
+                .details { text-align: center; font-size: 12px; font-weight: 600; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+                .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
+            `;
         }
+
+        const barcodeHeight = labelFormat === '4x2' ? 36 : 50;
+        const barcodeWidth = labelFormat === '4x2' ? 1.6 : 2;
 
         try {
             printWindow.document.write(`<!DOCTYPE html><html><head>
@@ -300,46 +376,21 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 <style>
                     * { margin: 0; padding: 0; box-sizing: border-box; }
                     body { font-family: 'Arial', sans-serif; }
-                    .page {
-                        width: 4in; height: 6in;
-                        margin: 0 auto; position: relative; overflow: hidden;
-                    }
-                    .half {
-                        position: absolute;
-                        left: 0; right: 0;
-                        padding: 0.18in 0.18in 0.14in 0.18in;
-                        display: flex; flex-direction: column; justify-content: space-between;
-                        overflow: hidden;
-                    }
-                    .half.top { top: 0; height: calc(3in + 1cm); }
-                    .half.bottom { bottom: 0; height: calc(3in - 1cm); padding-top: 0.45in; }
-                    .half.empty { background: transparent; }
-                    .cut-line { display: none; }
-                    .header { display: flex; justify-content: space-between; align-items: center; }
-                    .service { color: #000; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
-                    .date-badge { color: #000; font-size: 22px; font-weight: 900; }
-                    .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
-                    .barcode-section { text-align: center; }
-                    .barcode-section svg { width: 92%; height: 50px; }
-                    .client-mark { text-align: center; font-size: 38px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 2px 0; }
-                    .details { text-align: center; font-size: 12px; font-weight: 600; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
-                    .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
-                    @page { size: 4in 6in; margin: 0; }
+                    ${pageStyle}
                     @media print {
                         body { margin: 0; padding: 0; }
-                        .page { page-break-inside: avoid; overflow: hidden; }
+                        .page, .page-4x2 { page-break-inside: avoid; overflow: hidden; }
                     }
                 </style>
                 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
-            </head><body>${pages.join('')}
+            </head><body>${pagesHtml}
             <script>
-                ${labels.map((label, i) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/[^A-Z0-9]/gi, '')}", { format: "CODE128", width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
+                ${labels.map((label, i) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/[^A-Z0-9]/gi, '')}", { format: "CODE128", width: ${barcodeWidth}, height: ${barcodeHeight}, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
                 window.onload = function() { setTimeout(function() { window.print(); }, 600); };
             <\/script></body></html>`);
             printWindow.document.close();
             setLabelsModalOpen(false);
-            const pageCount = Math.ceil(labels.length / 2);
-            setScanFeedback({ type: 'success', msg: `${labels.length} etiqueta(s) en ${pageCount} hoja(s) 4×6` });
+            setScanFeedback({ type: 'success', msg: `${labels.length} etiqueta(s) en ${pageCount} hoja(s) ${labelFormat === '4x2' ? '4×2' : '4×6'}` });
         } catch (err) {
             console.error('Error generando etiquetas:', err);
             setScanFeedback({ type: 'error', msg: 'Error generando etiquetas' });
@@ -1150,6 +1201,27 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                             💡 Si un log llegó incompleto, ajusta las cajas recibidas. Al dar <strong>Reportar faltantes</strong> se marcarán como retraso y se notificará a CEDIS CDMX y Administradores.
                         </Typography>
+                        <FormControl sx={{ mt: 1.5 }}>
+                            <FormLabel sx={{ fontSize: 12, fontWeight: 700, color: BLACK, '&.Mui-focused': { color: BLACK } }}>
+                                Formato de impresión
+                            </FormLabel>
+                            <RadioGroup
+                                row
+                                value={labelFormat}
+                                onChange={(e) => setLabelFormat(e.target.value as '4x6' | '4x2')}
+                            >
+                                <FormControlLabel
+                                    value="4x6"
+                                    control={<Radio size="small" sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
+                                    label={<Typography variant="body2"><strong>📄 4×6 in</strong> · 2 etiquetas por hoja (láser/A4)</Typography>}
+                                />
+                                <FormControlLabel
+                                    value="4x2"
+                                    control={<Radio size="small" sx={{ color: ORANGE, '&.Mui-checked': { color: ORANGE } }} />}
+                                    label={<Typography variant="body2"><strong>🏷️ 4×2 in</strong> · 1 etiqueta compacta (térmica Zebra/Brother)</Typography>}
+                                />
+                            </RadioGroup>
+                        </FormControl>
                     </Box>
                     <Box sx={{ maxHeight: '60vh', overflow: 'auto' }}>
                         {orders.map((o) => {

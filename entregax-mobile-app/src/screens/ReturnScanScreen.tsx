@@ -26,7 +26,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
+import { createAudioPlayer } from 'expo-audio';
 import api from '../services/api';
+
+// Sonidos pre-cargados
+const successPlayer = createAudioPlayer(require('../../assets/sounds/success.wav'));
+const errorPlayer = createAudioPlayer(require('../../assets/sounds/error.wav'));
+const playSuccess = () => { try { successPlayer.seekTo(0); successPlayer.play(); } catch {} };
+const playError = () => { try { errorPlayer.seekTo(0); errorPlayer.play(); } catch {} };
 
 interface PackageToReturn {
   id: number;
@@ -173,6 +180,7 @@ export default function ReturnScanScreen({ navigation, route }: any) {
   };
 
   const showFeedback = (fb: FeedbackMessage) => {
+    if (fb.type === 'success') playSuccess(); else playError();
     setFeedback(fb);
     Animated.sequence([
       Animated.timing(feedbackOpacity, {
@@ -198,9 +206,25 @@ export default function ReturnScanScreen({ navigation, route }: any) {
     if (source === 'camera') setScannerActive(false);
     setLastScannedCode(data);
     
+    // Comparación tolerante: normaliza sufijos con padding de ceros
+    // Ej: US-9133402085-0001 == US-9133402085-01 == US-9133402085-1
+    const stripSuffixZeros = (t: string) => {
+      const parts = t.toUpperCase().split('-');
+      if (parts.length > 1) {
+        const last = parts[parts.length - 1];
+        if (/^\d+$/.test(last)) {
+          parts[parts.length - 1] = String(parseInt(last, 10));
+        }
+      }
+      return parts.join('-');
+    };
+    const dataKey = stripSuffixZeros(data);
+
     // Verificar si el paquete está en la lista
     const packageFound = packagesToReturn.find(
-      p => p.tracking_number === data || p.tracking_number.includes(data)
+      p => p.tracking_number === data
+        || stripSuffixZeros(p.tracking_number) === dataKey
+        || p.tracking_number.includes(data)
     );
     
     if (!packageFound) {
@@ -218,7 +242,7 @@ export default function ReturnScanScreen({ navigation, route }: any) {
     }
 
     // Mostrar modal para seleccionar motivo
-    setPendingBarcode(data);
+    setPendingBarcode(packageFound.tracking_number);
     setShowReasonModal(true);
   }, [scannerActive, isScanning, lastScannedCode, packagesToReturn]);
 

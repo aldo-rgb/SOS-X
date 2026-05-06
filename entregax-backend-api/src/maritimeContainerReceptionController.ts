@@ -106,6 +106,7 @@ export const getContainerOrders = async (req: AuthRequest, res: Response): Promi
          mo.summary_boxes,
          mo.summary_weight,
          mo.summary_volume,
+         mo.received_boxes,
          COALESCE(mo.missing_on_arrival, FALSE) AS missing_on_arrival,
          u.box_id AS user_box_id,
          u.full_name AS user_name

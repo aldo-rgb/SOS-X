@@ -80,6 +80,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   });
   const [inspectionDone, setInspectionDone] = useState(false);
   const [monitorAssignment, setMonitorAssignment] = useState<any | null>(null);
+  const [attendance, setAttendance] = useState<{ check_in_time: string | null; check_out_time: string | null } | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [scanModal, setScanModal] = useState<{ visible: boolean; action: QuickAction | null }>({ visible: false, action: null });
   const [rememberChoice, setRememberChoice] = useState(false);
@@ -158,6 +159,24 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         setInspectionDone(inspRes.data?.has_inspection || inspRes.data?.already_inspected || false);
       } catch {
         setInspectionDone(false);
+      }
+
+      // Cargar estado de asistencia del día
+      try {
+        const attRes = await api.get('/api/hr/my-attendance', {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        const data = attRes.data;
+        if (data && data.check_in_time) {
+          setAttendance({
+            check_in_time: data.check_in_time,
+            check_out_time: data.check_out_time || null,
+          });
+        } else {
+          setAttendance(null);
+        }
+      } catch {
+        setAttendance(null);
       }
 
     } catch (error) {
@@ -485,20 +504,59 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         )}
 
         {/* Botón de asistencia - oculto para rol monitoreo */}
-        {!isMonitoreo && (
-          <TouchableOpacity
-            style={styles.attendanceCard}
-            onPress={() => navigation.navigate('AttendanceChecker', { user, token })}
-          >
-            <View style={styles.attendanceLeft}>
-              <View style={styles.attendanceIconBox}>
-                <MaterialIcons name="schedule" size={28} color="#4CAF50" />
+        {!isMonitoreo && (() => {
+          const hasIn = !!attendance?.check_in_time;
+          const hasOut = !!attendance?.check_out_time;
+          const fmtHour = (iso: string | null | undefined) => {
+            if (!iso) return '';
+            try {
+              const d = new Date(iso);
+              return d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
+            } catch { return ''; }
+          };
+          let title = 'Checar Asistencia';
+          let subtitle = '';
+          let iconName: any = 'schedule';
+          let iconColor = '#4CAF50';
+          let bgColor = '#fff';
+          let borderColor = '#4CAF50';
+          if (hasIn && !hasOut) {
+            title = 'Checar Salida';
+            subtitle = `Entrada registrada a las ${fmtHour(attendance?.check_in_time)}`;
+            iconName = 'logout';
+            iconColor = '#FF9800';
+            borderColor = '#FF9800';
+            bgColor = '#FFF8E1';
+          } else if (hasIn && hasOut) {
+            title = 'Jornada completada';
+            subtitle = `${fmtHour(attendance?.check_in_time)} → ${fmtHour(attendance?.check_out_time)}`;
+            iconName = 'check-circle';
+            iconColor = '#9E9E9E';
+            borderColor = '#E0E0E0';
+            bgColor = '#FAFAFA';
+          }
+          return (
+            <TouchableOpacity
+              style={[styles.attendanceCard, { backgroundColor: bgColor, borderColor }]}
+              onPress={() => navigation.navigate('AttendanceChecker', { user, token })}
+            >
+              <View style={styles.attendanceLeft}>
+                <View style={[styles.attendanceIconBox, { backgroundColor: iconColor + '22' }]}>
+                  <MaterialIcons name={iconName} size={28} color={iconColor} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.attendanceText, { color: hasIn && !hasOut ? '#FF9800' : (hasIn && hasOut ? '#666' : '#333') }]}>
+                    {title}
+                  </Text>
+                  {!!subtitle && (
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>{subtitle}</Text>
+                  )}
+                </View>
               </View>
-              <Text style={styles.attendanceText}>Checar Asistencia</Text>
-            </View>
-            <MaterialIcons name="chevron-right" size={30} color="#4CAF50" />
-          </TouchableOpacity>
-        )}
+              <MaterialIcons name="chevron-right" size={30} color={iconColor} />
+            </TouchableOpacity>
+          );
+        })()}
 
         {/* Quick Actions */}
         <Text style={styles.sectionTitle}>Acciones Rápidas</Text>

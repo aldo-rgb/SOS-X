@@ -30,6 +30,7 @@ import {
   EntangledServicio,
   EntangledDivisa,
   EntangledSolicitudPayloadV2,
+  listProveedoresRemote,
 } from './entangledServiceV2';
 
 const SERVICIOS_VALIDOS: EntangledServicio[] = ['pago_con_factura', 'pago_sin_factura'];
@@ -215,6 +216,27 @@ export const createPaymentRequestV2 = async (
       ]
     );
     requestId = ins.rows[0].id;
+    // Guardar histórico de claves SAT del usuario (autocomplete)
+    if (servicio === 'pago_con_factura' && Array.isArray(conceptos)) {
+      for (const c of conceptos) {
+        const clave = String(c?.clave_prodserv || '').trim();
+        if (!clave) continue;
+        const desc = c?.descripcion ? String(c.descripcion).trim() : null;
+        try {
+          await pool.query(
+            `INSERT INTO entangled_clave_sat_history (user_id, clave, descripcion, uses_count, last_used_at)
+             VALUES ($1, $2, $3, 1, NOW())
+             ON CONFLICT (user_id, clave) DO UPDATE
+               SET uses_count = entangled_clave_sat_history.uses_count + 1,
+                   last_used_at = NOW(),
+                   descripcion = COALESCE(EXCLUDED.descripcion, entangled_clave_sat_history.descripcion)`,
+            [userId, clave, desc]
+          );
+        } catch (histErr) {
+          console.warn('[ENTANGLED v2] historial clave SAT:', histErr);
+        }
+      }
+    }
   } catch (err) {
     console.error('[ENTANGLED v2] Error creando registro local:', err);
     return res.status(500).json({ error: 'No se pudo crear la solicitud local' });
@@ -351,8 +373,9 @@ export const searchConceptosProxy = async (req: Request, res: Response): Promise
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
   const q = String(req.query.q || '').trim();
   const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 10));
+  const proveedorId = req.query.proveedor_id ? String(req.query.proveedor_id) : undefined;
   if (!q) return res.json({ results: [] });
-  const r = await searchConceptos(q, limit);
+  const r = await searchConceptos(q, limit, proveedorId);
   if (!r.ok) return res.status(502).json({ error: r.error });
   return res.json({ results: r.results || [] });
 };
@@ -736,4 +759,207 @@ export const rotateApiKeyAdmin = async (req: Request, res: Response): Promise<an
       : undefined,
     new_api_key: r.new_api_key, // accesible sólo a super_admin/admin/director
   });
+};
+
+// ===========================================================================
+// POST /api/admin/entangled/providers/sync
+// Sincroniza la tabla entangled_providers con el listado real del API ENTANGLED
+// (/v1/proveedores). Hace upsert por external_id (UUID remoto), actualiza
+// nombre/descripcion/tarifas y desactiva los proveedores que ya no existen
+// en el remoto.
+// ===========================================================================
+export const syncProveedoresFromRemote = async (req: Request, res: Response): Promise<any> => {
+  if (!isAdminRole(req)) return res.status(403).json({ error: 'Sin permisos' });
+  if (!isEntangledConfigured()) return res.status(400).json({ error: 'ENTANGLED_API_KEY no configurada' });
+
+  const remote = await listProveedoresRemote();
+  if (!remote.ok) return res.status(502).json({ error: remote.error || 'Error consultando proveedores remotos' });
+
+  // Tipo de cambio global (el API solo expone USD; RMB no está disponible y queda en 0)
+  const tcUsdRes = await getTipoCambio('USD');
+  const tcUsd = tcUsdRes.ok && tcUsdRes.tipo_cambio != null ? Number(tcUsdRes.tipo_cambio) : 0;
+  const tcRmbRes = await getTipoCambio('RMB' as any).catch(() => ({ ok: false, tipo_cambio: 0 } as any));
+  const tcRmb = tcRmbRes.ok && tcRmbRes.tipo_cambio != null ? Number(tcRmbRes.tipo_cambio) : 0;
+
+  const proveedores = remote.proveedores || [];
+  const summary = {
+    total_remotos: proveedores.length,
+    inserted: 0,
+    updated: 0,
+    deactivated: 0,
+    activos_externos: [] as string[],
+    detalles: [] as any[],
+  };
+
+  // 1) Upsert por external_id
+  for (const p of proveedores) {
+    summary.activos_externos.push(p.id);
+    // ¿Ya existe?
+    const existing = await pool.query(
+      `SELECT id, name, descripcion, tarifas FROM entangled_providers WHERE external_id = $1`,
+      [p.id]
+    );
+    const pctConFactura = (() => {
+      const t = (p.tarifas || []).find((x: any) => x.servicio_codigo === 'pago_con_factura');
+      return t && t.comision_cliente_porcentaje != null ? Number(t.comision_cliente_porcentaje) : 0;
+    })();
+    // Nuevos campos del API (post-update ENTANGLED): tipos_cambio, costo_operacion, monto_minimo por tarifa.
+    // tipos_cambio.USD/RMB puede ser number (legacy) u objeto { modo, valor_efectivo, valor_base, ... }.
+    const extractTC = (v: any): number | null => {
+      if (v == null) return null;
+      if (typeof v === 'number') return v;
+      if (typeof v === 'object') {
+        const ef = v.valor_efectivo ?? v.valor_base ?? v.valor;
+        return ef != null ? Number(ef) : null;
+      }
+      return null;
+    };
+    const remoteUsd = extractTC(p.tipos_cambio?.USD);
+    const remoteRmb = extractTC(p.tipos_cambio?.RMB);
+    const provTcUsd = remoteUsd != null ? remoteUsd : tcUsd;
+    const provTcRmb = remoteRmb != null ? remoteRmb : tcRmb;
+    const costoOpFijo = p.costo_operacion?.monto_fijo != null ? Number(p.costo_operacion.monto_fijo) : 0;
+    const costoOpPct = p.costo_operacion?.porcentaje != null ? Number(p.costo_operacion.porcentaje) : 0;
+    const costoOpMoneda = (p.costo_operacion?.moneda || 'USD').toString().slice(0, 8);
+    // Mínimos: tomamos los del servicio "con factura"; si no hay, los del primero.
+    const tarifaRef = (p.tarifas || []).find((x: any) => x.servicio_codigo === 'pago_con_factura') || (p.tarifas || [])[0];
+    const minUsd = tarifaRef?.monto_minimo?.USD != null ? Number(tarifaRef.monto_minimo.USD) : 0;
+    const minRmb = tarifaRef?.monto_minimo?.RMB != null ? Number(tarifaRef.monto_minimo.RMB) : 0;
+    if (existing.rows.length > 0) {
+      const r = await pool.query(
+        `UPDATE entangled_providers
+            SET name = $1,
+                descripcion = $2,
+                tarifas = $3::jsonb,
+                tipo_cambio_usd = $5,
+                tipo_cambio_rmb = $6,
+                porcentaje_compra = $7,
+                total_empresas_activas = $8,
+                remote_activo = $9,
+                is_active = $9,
+                costo_operacion_usd = $10,
+                costo_operacion_porcentaje = $11,
+                costo_operacion_moneda = $12,
+                min_operacion_usd = $13,
+                min_operacion_rmb = $14,
+                last_synced_at = NOW(),
+                updated_at = NOW()
+          WHERE external_id = $4
+          RETURNING id, name, external_id, is_default, total_empresas_activas`,
+        [
+          p.nombre,
+          p.descripcion ?? null,
+          JSON.stringify(p.tarifas || []),
+          p.id,
+          provTcUsd,
+          provTcRmb,
+          pctConFactura,
+          Number(p.total_empresas_activas ?? 0) || 0,
+          p.activo !== false,
+          costoOpFijo,
+          costoOpPct,
+          costoOpMoneda,
+          minUsd,
+          minRmb,
+        ]
+      );
+      summary.updated++;
+      summary.detalles.push({ action: 'updated', ...r.rows[0] });
+    } else {
+      // Insert. El primero recibido se marca como default si no hay default activo
+      const hasDefault = await pool.query(
+        `SELECT 1 FROM entangled_providers WHERE is_default = true AND is_active = true LIMIT 1`
+      );
+      const isDefault = hasDefault.rows.length === 0;
+      const r = await pool.query(
+        `INSERT INTO entangled_providers
+           (name, code, external_id, descripcion, tarifas,
+            tipo_cambio_usd, tipo_cambio_rmb, porcentaje_compra,
+            total_empresas_activas, remote_activo,
+            costo_operacion_usd, costo_operacion_porcentaje, costo_operacion_moneda,
+            min_operacion_usd, min_operacion_rmb,
+            is_active, is_default, sort_order, last_synced_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, $7, $8, $9, $10, $11,
+                 $12, $13, $14, $15, $16,
+                 $11, $6, 0, NOW(), NOW(), NOW())
+         RETURNING id, name, external_id, is_default, total_empresas_activas`,
+        [
+          p.nombre,
+          (p.nombre || '').toUpperCase().slice(0, 16).replace(/[^A-Z0-9]/g, ''),
+          p.id,
+          p.descripcion ?? null,
+          JSON.stringify(p.tarifas || []),
+          isDefault,
+          provTcUsd,
+          provTcRmb,
+          pctConFactura,
+          Number(p.total_empresas_activas ?? 0) || 0,
+          p.activo !== false,
+          costoOpFijo,
+          costoOpPct,
+          costoOpMoneda,
+          minUsd,
+          minRmb,
+        ]
+      );
+      summary.inserted++;
+      summary.detalles.push({ action: 'inserted', ...r.rows[0] });
+    }
+  }
+
+  // 2) Desactivar proveedores que YA NO están en el remoto.
+  //    Sólo desactivamos los que SÍ tenían external_id (vinieron de sync) o legacy
+  //    sin external_id. No los borramos por integridad referencial con
+  //    entangled_payment_requests.
+  if (summary.activos_externos.length > 0) {
+    const deact = await pool.query(
+      `UPDATE entangled_providers
+          SET is_active = false, is_default = false, updated_at = NOW()
+        WHERE is_active = true
+          AND (external_id IS NULL OR external_id <> ALL($1::text[]))
+        RETURNING id, name, external_id`,
+      [summary.activos_externos]
+    );
+    summary.deactivated = deact.rows.length;
+    summary.detalles.push(...deact.rows.map(r => ({ action: 'deactivated', ...r })));
+  } else {
+    // Si remoto no devolvió ninguno, no desactivamos nada (precaución)
+  }
+
+  // 3) Si después del sync no hay default activo, marcar el primero activo
+  const def = await pool.query(
+    `SELECT id FROM entangled_providers WHERE is_active = true AND is_default = true LIMIT 1`
+  );
+  if (def.rows.length === 0) {
+    const first = await pool.query(
+      `SELECT id FROM entangled_providers WHERE is_active = true ORDER BY id ASC LIMIT 1`
+    );
+    if (first.rows.length > 0) {
+      await pool.query(`UPDATE entangled_providers SET is_default = true WHERE id = $1`, [first.rows[0].id]);
+    }
+  }
+
+  return res.json({ ok: true, ...summary, raw: remote.raw });
+};
+
+// ===========================================================================
+// GET /api/entangled/clave-sat-history    — historial de claves SAT del usuario
+// ===========================================================================
+export const listClaveSatHistory = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  try {
+    const r = await pool.query(
+      `SELECT clave, descripcion, uses_count, last_used_at
+         FROM entangled_clave_sat_history
+        WHERE user_id = $1
+        ORDER BY uses_count DESC, last_used_at DESC
+        LIMIT 50`,
+      [userId]
+    );
+    return res.json(r.rows);
+  } catch (err) {
+    console.error('[ENTANGLED] listClaveSatHistory:', err);
+    return res.status(500).json({ error: 'Error al consultar historial' });
+  }
 };

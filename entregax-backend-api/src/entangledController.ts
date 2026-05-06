@@ -1274,8 +1274,9 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
     if (b.is_default === true) {
       await pool.query(`UPDATE entangled_providers SET is_default = false WHERE id <> $1`, [id]);
     }
-    // Solo se permiten editar overrides + cuentas bancarias + flags + notas/orden + comisiones de asesor.
-    // name/code/tipo_cambio_*/porcentaje_compra son sincronizados desde el API y no se tocan aquí.
+    // Editables: overrides, cuentas bancarias, flags, notas/orden, comisiones,
+    // y único campo local que NO llega del API: code.
+    // name, tipo_cambio_*, porcentaje_compra, costo_operacion_*, min_operacion_* se sincronizan.
     const r = await pool.query(
       `UPDATE entangled_providers SET
          override_tipo_cambio_usd = $1,
@@ -1291,8 +1292,9 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
          over_pct = COALESCE($11, over_pct),
          over_split_asesor = COALESCE($12, over_split_asesor),
          cancellation_fee_usd = COALESCE($13, cancellation_fee_usd),
+         code = COALESCE($14, code),
          updated_at = NOW()
-       WHERE id = $14 RETURNING *,
+       WHERE id = $15 RETURNING *,
          (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS effective_tipo_cambio_usd,
          (tipo_cambio_rmb   + COALESCE(override_tipo_cambio_rmb, 0))   AS effective_tipo_cambio_rmb,
          (porcentaje_compra + COALESCE(override_porcentaje_compra, 0)) AS effective_porcentaje_compra,
@@ -1311,6 +1313,7 @@ export const updateProvider = async (req: Request, res: Response): Promise<any> 
         b.over_pct !== undefined && b.over_pct !== '' ? Number(b.over_pct) : null,
         b.over_split_asesor !== undefined && b.over_split_asesor !== '' ? Number(b.over_split_asesor) : null,
         b.cancellation_fee_usd !== undefined && b.cancellation_fee_usd !== '' ? Number(b.cancellation_fee_usd) : null,
+        b.code !== undefined && b.code !== null ? String(b.code).toUpperCase().slice(0, 16).replace(/[^A-Z0-9]/g, '') || null : null,
         id,
       ]
     );

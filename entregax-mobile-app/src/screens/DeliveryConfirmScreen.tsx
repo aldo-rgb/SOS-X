@@ -30,6 +30,13 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import * as ImagePicker from 'expo-image-picker';
 import api from '../services/api';
 import SignatureScreen from 'react-native-signature-canvas';
+import { createAudioPlayer } from 'expo-audio';
+
+// Sonidos pre-cargados (success/error)
+const successPlayer = createAudioPlayer(require('../../assets/sounds/success.wav'));
+const errorPlayer = createAudioPlayer(require('../../assets/sounds/error.wav'));
+const playSuccess = () => { try { successPlayer.seekTo(0); successPlayer.play(); } catch {} };
+const playError = () => { try { errorPlayer.seekTo(0); errorPlayer.play(); } catch {} };
 
 interface PackageInfo {
   id: number;
@@ -150,6 +157,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const [scannedPackages, setScannedPackages] = useState<Array<{packageId: string, internalGuide: string, carrierGuide: string}>>([]);
   const [currentScanStep, setCurrentScanStep] = useState<'internal' | 'carrier'>('internal');
   const [tempInternalGuide, setTempInternalGuide] = useState('');
+  const [tempMasterTracking, setTempMasterTracking] = useState('');
   const [tempCarrierGuide, setTempCarrierGuide] = useState('');
   const [deliveryTypeAsked, setDeliveryTypeAsked] = useState(false);
   
@@ -163,6 +171,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
   const showFeedback = (fb: {type: 'success' | 'error', message: string}) => {
     setFeedback(fb);
+    if (fb.type === 'success') playSuccess(); else playError();
     Animated.sequence([
       Animated.timing(feedbackOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
       Animated.delay(2000),
@@ -211,6 +220,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       // Guardar el paquete ya escaneado como la guía interna del primer paquete
       const scannedGuide = packageInfo.tracking_number || '';
       setTempInternalGuide(scannedGuide);
+      setTempMasterTracking(((packageInfo as any).national_tracking || '').toString().toUpperCase());
       setCurrentScanStep('carrier'); // Pasar directamente a escanear guía de Paquete Express
       setIsBulkDelivery(true);
       setCurrentStep('scan');
@@ -297,6 +307,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           }
 
           setTempInternalGuide(data);
+          setTempMasterTracking((pkg.national_tracking || '').toString().toUpperCase());
           setCurrentScanStep('carrier');
           Vibration.vibrate(50);
           showFeedback({
@@ -315,14 +326,87 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             return;
           }
 
-          // Verificar que la guía del carrier sea diferente de otras ya escaneadas
-          if (scannedPackages.some(p => p.carrierGuide === data)) {
+          // Validar que NO sea la guía MASTER de Paquete Express — debe ser la guía HIJA (caja específica)
+          // Master: ~14 chars (ej: MTY01WE0A18456)
+          // Hija:   master + 3 a 6 dígitos de pieza (ej: MTY01WE0A18456001, MTY01WE0A18456001002)
+          const dataUpper = data.toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+          // Rechazar lectura demasiado corta (parcial del scanner)
+          if (dataUpper.length < 14) {
             Vibration.vibrate([0, 200, 100, 200]);
             showFeedback({
               type: 'error',
-              message: `❌ Esta guía de Paquete Express (${data}) ya fue escaneada.`,
+              message: `❌ Lectura incompleta (${data}). Vuelve a escanear la guía HIJA completa de Paquete Express.`,
             });
             return;
+          }
+
+          // Detectar prefijo "master" extrayendo letras+dígitos hasta el último bloque alfa
+          // Ej: MTY01WE0A18456001 → base "MTY01WE0A" + dígitos "18456001"
+          const baseAlphaMatch = dataUpper.match(/^([A-Z]+\d+[A-Z]+\d*[A-Z]*)(\d*)$/);
+          const totalDigits = (dataUpper.match(/\d+$/)?.[0] || '');
+
+          // Considerar MASTER si NO tiene sufijo de pieza adicional (longitud cercana a 14)
+          // En PQTX multipieza, master son 14 chars y hijas tienen al menos +3 dígitos extra
+          if (dataUpper.length <= 14) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: `❌ Escaneaste la guía MASTER (${data}). Debes escanear la guía HIJA de cada caja (master + dígitos de pieza).`,
+            });
+            return;
+          }
+
+          // Comparación contra master capturada (si la tenemos y coincide exactamente)
+          const masterUpper = (tempMasterTracking || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (masterUpper && dataUpper === masterUpper) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: `❌ Escaneaste la guía MASTER (${data}). Debes escanear la guía HIJA de cada caja.`,
+            });
+            return;
+          }
+
+          // Verificar que la guía del carrier sea diferente de otras ya escaneadas
+          // Comparación tolerante: quita no-alfanuméricos y ceros a la izquierda del sufijo
+          const normalizeForDup = (s: string) => {
+            const clean = String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            // quita ceros redundantes después del último bloque alfa para igualar truncados/padding
+            return clean.replace(/^([A-Z0-9]*?[A-Z])0*(\d+)$/, '$1$2');
+          };
+          const dataKey = normalizeForDup(data);
+          const dupFound = scannedPackages.find(p => {
+            const k = normalizeForDup(p.carrierGuide);
+            return k === dataKey || k.startsWith(dataKey) || dataKey.startsWith(k);
+          });
+          if (dupFound) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: `❌ Esta guía de Paquete Express (${data}) ya fue escaneada (Caja ${dupFound.packageId}).`,
+            });
+            return;
+          }
+
+          // Validar contra el servidor: que no esté asignada a OTRO paquete
+          try {
+            const checkRes = await api.get(`/api/driver/check-carrier-guide/${encodeURIComponent(data)}`, {
+              params: { excludeInternal: tempInternalGuide },
+              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+            });
+            if (checkRes.data && checkRes.data.available === false) {
+              const usedBy = checkRes.data.usedBy || {};
+              Vibration.vibrate([0, 200, 100, 200]);
+              showFeedback({
+                type: 'error',
+                message: `❌ Esta guía (${data}) ya está asignada al paquete ${usedBy.tracking || 'otro'} (estado: ${usedBy.status || 'n/a'}).`,
+              });
+              return;
+            }
+          } catch (e) {
+            // Si el endpoint falla, continuamos pero advertimos en consola
+            console.warn('check-carrier-guide falló, continuando:', e);
           }
 
           // Escanear guía Paquete Express
@@ -333,6 +417,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           };
           setScannedPackages([...scannedPackages, newPackage]);
           setTempInternalGuide('');
+          setTempMasterTracking('');
           setCurrentScanStep('internal');
           Vibration.vibrate(100);
           showFeedback({
@@ -399,7 +484,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         setLastScannedCode('');
       }, source === 'camera' ? 1500 : 500);
     }
-  }, [scannerActive, isScanning, lastScannedCode, token, isBulkDelivery, currentScanStep, tempInternalGuide, scannedPackages]);
+  }, [scannerActive, isScanning, lastScannedCode, token, isBulkDelivery, currentScanStep, tempInternalGuide, tempMasterTracking, scannedPackages]);
 
   const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
     await processScanCode(result.data, 'camera');
@@ -413,7 +498,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   };
 
   // Auto-submit cuando el input se llena por scanner QR (escribe rápido y se detiene).
-  // Si pasa 250ms sin nuevos cambios y el código tiene al menos 4 chars, valida automáticamente.
+  // Espera 250ms de inactividad y mínimo 4 chars.
   useEffect(() => {
     if (!manualCode || manualCode.length < 4) return;
     if (isScanning) return;
@@ -590,13 +675,30 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
         if (res.data.success) {
           Vibration.vibrate(100);
-          // Resetear estado y volver al menú anterior inmediatamente
-          setIsBulkDelivery(false);
-          setScannedPackages([]);
-          setCurrentScanStep('internal');
-          setPhoto('');
-          setNotes('');
-          navigation.goBack();
+          const confirmedCount = res.data.confirmed?.length ?? scannedPackages.length;
+          const errs: string[] = res.data.errors || [];
+          if (errs.length > 0) {
+            Alert.alert(
+              `Entrega parcial: ${confirmedCount} de ${scannedPackages.length}`,
+              `Algunos paquetes no se actualizaron:\n\n${errs.join('\n')}`,
+              [{ text: 'OK', onPress: () => {
+                setIsBulkDelivery(false);
+                setScannedPackages([]);
+                setCurrentScanStep('internal');
+                setPhoto('');
+                setNotes('');
+                navigation.goBack();
+              }}]
+            );
+          } else {
+            // Resetear estado y volver al menú anterior inmediatamente
+            setIsBulkDelivery(false);
+            setScannedPackages([]);
+            setCurrentScanStep('internal');
+            setPhoto('');
+            setNotes('');
+            navigation.goBack();
+          }
         } else {
           throw new Error(res.data.error || 'Error desconocido');
         }
@@ -1338,6 +1440,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                 setScannedPackages([]);
                 setCurrentScanStep('internal');
                 setTempInternalGuide('');
+                setTempMasterTracking('');
                 setTempCarrierGuide('');
               } else {
                 // Cambiar a modo múltiple

@@ -75,7 +75,8 @@
         }
       ],
       "expo-web-browser",
-      "expo-video"
+      "expo-video",
+      "expo-audio"
     ],
     "extra": {
       "eas": {

@@ -117,6 +117,9 @@ export interface EntangledTipoCambioV2 {
 export interface EntangledConceptoResultV2 {
   clave_prodserv: string;
   descripcion: string;
+  // Estos campos solo llegan si ENTANGLED los agrega al API en el futuro.
+  empresa_asignada?: { id?: string; nombre?: string; rfc?: string } | null;
+  disponible?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -227,15 +230,18 @@ export const getTipoCambio = async (
 // ---------------------------------------------------------------------------
 export const searchConceptos = async (
   q: string,
-  limit = 10
+  limit = 10,
+  proveedorId?: string
 ): Promise<{ ok: boolean; results?: EntangledConceptoResultV2[]; error?: string }> => {
   if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
   if (!q || q.trim().length < 2) return { ok: true, results: [] };
   try {
+    const params: Record<string, any> = { q, limit };
+    if (proveedorId) params.proveedor_id = proveedorId;
     const res = await axios.get(buildUrl('/conceptos/search'), {
       timeout: ENTANGLED_TIMEOUT_MS,
       headers: authHeaders(),
-      params: { q, limit },
+      params,
     });
     const data = res.data || {};
     // Schema real del API: { total, conceptos: [{ clave_prodserv, descripcion }] }.
@@ -292,6 +298,73 @@ export const rotateApiKey = async (): Promise<{
     return {
       ok: false,
       error: responseData?.error || ax.message || 'Error rotando API key',
+      raw: responseData,
+    };
+  }
+};
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/proveedores
+// ---------------------------------------------------------------------------
+export interface EntangledProveedorTarifaRemote {
+  servicio_codigo: EntangledServicio;
+  servicio_nombre?: string;
+  requiere_factura?: boolean;
+  comision_cliente_porcentaje: number;
+  monto_minimo?: { USD?: number | null; RMB?: number | null } | null;
+}
+
+export interface EntangledTipoCambioRemote {
+  modo?: string;
+  valor_efectivo?: number | null;
+  valor_base?: number | null;
+  override_monto?: number | null;
+  fuente?: string;
+  expira_en?: string | null;
+  ultima_actualizacion?: string | null;
+}
+
+export interface EntangledProveedorRemote {
+  id: string; // UUID externo
+  nombre: string;
+  descripcion?: string | null;
+  activo?: boolean;
+  total_empresas_activas?: number;
+  costo_operacion?: { porcentaje?: number | null; monto_fijo?: number | null; moneda?: string | null } | null;
+  // Antes era number|null, ahora es objeto. Aceptamos ambos por compat.
+  tipos_cambio?: {
+    USD?: number | EntangledTipoCambioRemote | null;
+    RMB?: number | EntangledTipoCambioRemote | null;
+  } | null;
+  tarifas: EntangledProveedorTarifaRemote[];
+}
+
+export const listProveedoresRemote = async (): Promise<{
+  ok: boolean;
+  total?: number;
+  proveedores?: EntangledProveedorRemote[];
+  error?: string;
+  raw?: any;
+}> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  try {
+    const res = await axios.get(buildUrl('/proveedores'), {
+      timeout: ENTANGLED_TIMEOUT_MS,
+      headers: authHeaders(),
+    });
+    const data = res.data || {};
+    return {
+      ok: true,
+      total: data.total ?? (Array.isArray(data.proveedores) ? data.proveedores.length : 0),
+      proveedores: Array.isArray(data.proveedores) ? data.proveedores : [],
+      raw: data,
+    };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const responseData = ax.response?.data as any;
+    return {
+      ok: false,
+      error: responseData?.error || ax.message || 'Error listando proveedores',
       raw: responseData,
     };
   }

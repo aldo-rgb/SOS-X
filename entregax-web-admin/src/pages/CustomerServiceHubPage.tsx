@@ -17,6 +17,7 @@ import PersonSearchIcon from '@mui/icons-material/PersonSearch';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
 
 // Importar las páginas individuales
 import UnifiedLeadsPage from './UnifiedLeadsPage';
@@ -24,6 +25,7 @@ import CRMClientsPage from './CRMClientsPage';
 import SupportBoardPage from './SupportBoardPage';
 import CarteraVencidaPage from './CarteraVencidaPage';
 import DelayedPackagesPage from './DelayedPackagesPage';
+import AssignClientPage from './AssignClientPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -34,6 +36,7 @@ const TOOL_PERMISSIONS: Record<string, string> = {
   'support': 'cs_support',
   'cartera': 'cs_cartera', // Este panel podría no existir aún, usamos cs_clients como fallback
   'delayed': 'cs_support', // Usa el mismo permiso que soporte
+  'assign_client': 'cs_clients', // Asignación de cliente a paquetes
 };
 
 interface User {
@@ -50,7 +53,7 @@ interface CustomerServiceHubPageProps {
   onRefresh: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -64,7 +67,8 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
     openTickets: number;
     escalatedTickets: number;
     delayedPackages: number;
-  }>({ pendingLeads: 0, activeClients: 0, atRiskClients: 0, openTickets: 0, escalatedTickets: 0, delayedPackages: 0 });
+    unassignedPackages: number;
+  }>({ pendingLeads: 0, activeClients: 0, atRiskClients: 0, openTickets: 0, escalatedTickets: 0, delayedPackages: 0, unassignedPackages: 0 });
 
   const token = localStorage.getItem('token');
   const savedUser = localStorage.getItem('user');
@@ -137,7 +141,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
         }
 
         if (!cancelled) {
-          setHubStats({ pendingLeads, activeClients, atRiskClients, openTickets, escalatedTickets, delayedPackages: 0 });
+          setHubStats({ pendingLeads, activeClients, atRiskClients, openTickets, escalatedTickets, delayedPackages: 0, unassignedPackages: 0 });
         }
 
         // Cargar paquetes con retraso
@@ -148,6 +152,18 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           if (delayedRes.ok && !cancelled) {
             const delayedData = await delayedRes.json();
             setHubStats((prev) => ({ ...prev, delayedPackages: (delayedData.packages || []).length }));
+          }
+        } catch {}
+
+        // Cargar paquetes sin cliente
+        try {
+          const unassignedRes = await fetch(`${API_URL}/api/packages/unassigned`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (unassignedRes.ok && !cancelled) {
+            const unassignedData = await unassignedRes.json();
+            const list = Array.isArray(unassignedData) ? unassignedData : (unassignedData.packages || []);
+            setHubStats((prev) => ({ ...prev, unassignedPackages: list.length }));
           }
         } catch {}
       } catch (err) {
@@ -208,6 +224,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       icon: <LocalShippingIcon sx={{ fontSize: 40 }} />,
       color: '#F05A28',
       bgColor: 'rgba(240, 90, 40, 0.1)',
+    },
+    {
+      key: 'assign_client',
+      title: t('customerService.assignClient.title', 'Asignar Cliente'),
+      description: t('customerService.assignClient.description', 'Guías en bodega PO Box sin cliente asignado'),
+      icon: <AssignmentIndIcon sx={{ fontSize: 40 }} />,
+      color: '#FF6F00',
+      bgColor: 'rgba(255, 111, 0, 0.1)',
     },
   ];
 
@@ -305,6 +329,22 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
     );
   }
 
+  if (activeView === 'assign_client') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>
+            {t('customerService.assignClient.title', 'Asignar Cliente')}
+          </Typography>
+        </Box>
+        <AssignClientPage onBack={() => setActiveView('hub')} />
+      </Box>
+    );
+  }
+
   // Hub principal
   // Filtrar herramientas según permisos
   const filteredTools = serviceTools.filter(tool => hasPermission(tool.key));
@@ -348,6 +388,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
             : tool.key === 'support' ? hubStats.escalatedTickets
             : tool.key === 'clients' ? hubStats.atRiskClients
             : tool.key === 'delayed' ? hubStats.delayedPackages
+            : tool.key === 'assign_client' ? hubStats.unassignedPackages
             : 0;
           return (
             <Paper

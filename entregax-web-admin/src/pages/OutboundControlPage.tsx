@@ -83,6 +83,7 @@ export default function OutboundControlPage() {
   const [scannedPackages, setScannedPackages] = useState<ScannedPackage[]>([]);
   const [processing, setProcessing] = useState(false);
   const scanInputRef = useRef<HTMLInputElement>(null);
+  const scannedKeysRef = useRef<Set<string>>(new Set()); // dedup síncrono (id + tracking sin guiones)
   
   // Selección de proveedor
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -203,6 +204,7 @@ export default function OutboundControlPage() {
   const openWizard = () => {
     setWizardOpen(true);
     setScannedPackages([]);
+    scannedKeysRef.current.clear();
     setScanInput('');
     setTimeout(() => scanInputRef.current?.focus(), 100);
   };
@@ -211,6 +213,7 @@ export default function OutboundControlPage() {
   const closeWizard = () => {
     setWizardOpen(false);
     setScannedPackages([]);
+    scannedKeysRef.current.clear();
     setScanInput('');
   };
 
@@ -261,10 +264,12 @@ export default function OutboundControlPage() {
       tracking = `${noDashMatch[1]}-${noDashMatch[2]}`;
     }
     
-    // Verificar si ya está escaneado
-    if (scannedPackages.some(p => p.tracking === tracking)) {
+    // Verificar si ya está escaneado (síncrono vía ref para evitar duplicados por scans rápidos)
+    const trackingKeyEarly = tracking.replace(/-/g, '');
+    if (scannedKeysRef.current.has(`T:${trackingKeyEarly}`) || scannedPackages.some(p => p.tracking === tracking)) {
       notify(`⚠️ La guía ${tracking} ya fue escaneada`, 'warning');
       setScanInput('');
+      scanInputRef.current?.focus();
       return;
     }
 
@@ -279,6 +284,17 @@ export default function OutboundControlPage() {
     );
 
     if (pkg) {
+      // Dedupe adicional por ID (mismo paquete con tracking distinto)
+      if (scannedKeysRef.current.has(`ID:${pkg.id}`)) {
+        notify(`⚠️ La guía ${tracking} ya fue escaneada`, 'warning');
+        setScanInput('');
+        scanInputRef.current?.focus();
+        return;
+      }
+      scannedKeysRef.current.add(`ID:${pkg.id}`);
+      scannedKeysRef.current.add(`T:${(pkg.tracking_internal || '').toUpperCase().replace(/-/g, '')}`);
+      scannedKeysRef.current.add(`T:${(pkg.tracking_provider || '').toUpperCase().replace(/-/g, '')}`);
+      scannedKeysRef.current.add(`T:${trackingKeyEarly}`);
       setScannedPackages(prev => [...prev, {
         id: pkg.id,
         tracking: pkg.tracking_internal,
@@ -297,6 +313,11 @@ export default function OutboundControlPage() {
 
   // Remover paquete escaneado
   const removeScannedPackage = (tracking: string) => {
+    const removed = scannedPackages.find(p => p.tracking === tracking);
+    if (removed) {
+      scannedKeysRef.current.delete(`ID:${removed.id}`);
+      scannedKeysRef.current.delete(`T:${(removed.tracking || '').toUpperCase().replace(/-/g, '')}`);
+    }
     setScannedPackages(prev => prev.filter(p => p.tracking !== tracking));
   };
 

@@ -11,7 +11,15 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import * as Print from 'expo-print';
+import { createAudioPlayer } from 'expo-audio';
+import * as Haptics from 'expo-haptics';
 import { API_URL } from '../services/api';
+
+// Sonidos pre-cargados (success/error). createAudioPlayer es síncrono y reusable.
+const successPlayer = createAudioPlayer(require('../../assets/sounds/success.wav'));
+const errorPlayer = createAudioPlayer(require('../../assets/sounds/error.wav'));
+const playSuccess = () => { try { successPlayer.seekTo(0); successPlayer.play(); } catch {} };
+const playError = () => { try { errorPlayer.seekTo(0); errorPlayer.play(); } catch {} };
 
 const TEAL = '#0097A7';
 const ORANGE = '#F05A28';
@@ -50,6 +58,7 @@ interface Order {
   user_name: string | null;
   bl_client_code?: string | null;
   bl_client_name?: string | null;
+  received_boxes?: number | null;
 }
 
 const cleanRef = (raw: string): string => {
@@ -76,12 +85,15 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [scanInput, setScanInput] = useState('');
+  const [scanLocked, setScanLocked] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
   const inputRef = useRef<TextInput | null>(null);
   const lockRef = useRef(false);
 
   // Tracking de cajas escaneadas por orden (orderId -> Set de números '0001')
   const [scannedBoxesByOrder, setScannedBoxesByOrder] = useState<Record<number, Set<string>>>({});
+  // Orden expandida para ver cajas individuales
+  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
   const [cameraOpen, setCameraOpen] = useState(false);
   const [confirmPartial, setConfirmPartial] = useState(false);
@@ -144,6 +156,26 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
     }
   }, [step]);
 
+  const hydrateScannedFromOrders = (list: Order[]) => {
+    setScannedBoxesByOrder((prev) => {
+      const next = { ...prev };
+      list.forEach((o) => {
+        const expected = Number(o.summary_boxes) || Number(o.goods_num) || 0;
+        const persisted = Number(o.received_boxes ?? 0);
+        // Si está marcado received_mty, asume todas las cajas escaneadas
+        const totalScanned = o.status === 'received_mty' ? expected : persisted;
+        // Si ya tenemos más en local que en server, no pisar
+        const localCount = next[o.id]?.size || 0;
+        if (totalScanned > localCount && totalScanned > 0) {
+          const set = new Set<string>();
+          for (let i = 1; i <= totalScanned; i++) set.add(String(i).padStart(4, '0'));
+          next[o.id] = set;
+        }
+      });
+      return next;
+    });
+  };
+
   const open = async (c: Container) => {
     setLoading(true); setError(null);
     try {
@@ -152,7 +184,9 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
-      setOrders(data.orders || []);
+      const list: Order[] = data.orders || [];
+      setOrders(list);
+      hydrateScannedFromOrders(list);
       setSelected(c);
       setStep(1);
     } catch (e: any) { setError(e.message || 'Error'); } finally { setLoading(false); }
@@ -165,14 +199,69 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
         headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
-      setOrders(data.orders || []);
+      const list: Order[] = data.orders || [];
+      setOrders(list);
+      hydrateScannedFromOrders(list);
     } catch {}
+  };
+
+  // Buffer para juntar fragmentos rápidos del escáner (cuando el TextInput pierde foco a la mitad)
+  const scanBufferRef = useRef<string>('');
+  const scanBufferTimerRef = useRef<any>(null);
+  // Debounce de auto-submit cuando el escáner BT/HID escribe carácter por carácter
+  const autoSubmitTimerRef = useRef<any>(null);
+
+  const onScanInputChange = (text: string) => {
+    if (scanLocked) return;
+    setScanInput(text);
+    // Si el texto contiene salto de línea (Enter del escáner), procesar inmediatamente
+    if (/[\n\r]/.test(text)) {
+      const clean = text.replace(/[\n\r]+/g, '');
+      if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current);
+      handleScan(clean);
+      return;
+    }
+    // Si no hay Enter pero llegan caracteres rápidos, esperar 120ms a que termine la ráfaga
+    if (autoSubmitTimerRef.current) clearTimeout(autoSubmitTimerRef.current);
+    if (text.trim().length >= 6) {
+      autoSubmitTimerRef.current = setTimeout(() => {
+        // Solo dispara si el texto sigue igual (no hubo más tipeo)
+        handleScan(text);
+      }, 150);
+    }
   };
 
   const handleScan = async (raw: string) => {
     if (!selected) return;
+    if (scanLocked) return; // 🔒 No procesar otro escaneo hasta confirmar el actual
     const reference = cleanRef(raw);
     if (!reference) return;
+
+    // Descartar fragmentos LOG demasiado cortos (escáner BT que perdió foco a mitad)
+    const isLogLike = /^[A-Z]{2,5}\d/.test(reference);
+    if (isLogLike && reference.length < 14) {
+      setScanInput('');
+      inputRef.current?.focus();
+      return;
+    }
+
+    setScanLocked(true);
+    try {
+      await processScan(reference);
+    } finally {
+      // Refocus inmediato y tras cooldown para evitar pérdida de foco con escáneres BT/HID
+      inputRef.current?.focus();
+      setTimeout(() => { inputRef.current?.focus(); }, 150);
+      setTimeout(() => {
+        setScanLocked(false);
+        inputRef.current?.focus();
+      }, 500);
+      setTimeout(() => { inputRef.current?.focus(); }, 700);
+    }
+  };
+
+  const processScan = async (reference: string) => {
+    if (!selected) return;
 
     // Detectar patrón LOG...-NNNN (caja individual con guión)
     const dashMatch = reference.match(/^(.+?)-(\d{1,4})$/);
@@ -204,6 +293,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
     // 🔒 Si el escaneo trae número de caja, FORZAR tracking por caja.
     if (boxNumber) {
       if (!matchedOrder) {
+        playError(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
         Vibration.vibrate([0, 80, 50, 80]);
         setFeedback({ type: 'error', msg: `❌ Log ${parentRef} no pertenece a este contenedor` });
         setScanInput('');
@@ -212,6 +302,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       const expected = Number(matchedOrder.summary_boxes) || Number(matchedOrder.goods_num) || 0;
       const boxNum = parseInt(boxNumber, 10);
       if (expected > 0 && boxNum > expected) {
+        playError(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
         Vibration.vibrate([0, 80, 50, 80]);
         setFeedback({ type: 'error', msg: `⚠️ Caja ${boxNum} fuera de rango (${matchedOrder.ordersn} solo tiene ${expected} caja(s))` });
         setScanInput('');
@@ -219,6 +310,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       }
       const prevSet = scannedBoxesByOrder[matchedOrder.id] || new Set<string>();
       if (prevSet.has(boxNumber)) {
+        playError(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
         setFeedback({ type: 'info', msg: `ℹ️ Caja ${boxNum} de ${matchedOrder.ordersn} ya escaneada` });
         setScanInput('');
         return;
@@ -226,6 +318,8 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       const nextSet = new Set(prevSet);
       nextSet.add(boxNumber);
       setScannedBoxesByOrder((prev) => ({ ...prev, [matchedOrder.id]: nextSet }));
+      // Auto-expandir esta orden mientras se escanean sus cajas
+      setExpandedOrderId(matchedOrder.id);
 
       const remaining = expected - nextSet.size;
       if (expected > 0 && remaining === 0) {
@@ -238,19 +332,21 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || 'Error');
+          playSuccess(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
           Vibration.vibrate([0, 60, 40, 60, 40, 60]);
           setFeedback({ type: 'success', msg: `✅ ${matchedOrder.ordersn} completo (${nextSet.size}/${expected})` });
           await refresh();
         } catch (e: any) {
+          playError(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
           Vibration.vibrate([0, 80, 50, 80]);
           setFeedback({ type: 'error', msg: e.message || 'Error al marcar como recibido' });
         }
       } else {
+        playSuccess(); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
         Vibration.vibrate(50);
         setFeedback({ type: 'success', msg: `✓ Caja ${boxNum} de ${matchedOrder.ordersn} · ${nextSet.size}/${expected} (faltan ${remaining})` });
       }
       setScanInput('');
-      setTimeout(() => inputRef.current?.focus(), 100);
       return;
     }
 
@@ -258,6 +354,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
     if (matchedOrder) {
       const expected = Number(matchedOrder.summary_boxes) || Number(matchedOrder.goods_num) || 0;
       if (expected !== 1) {
+        playError(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
         Vibration.vibrate([0, 80, 50, 80]);
         const expectedLabel = expected > 1 ? `${expected} cajas` : 'múltiples cajas';
         setFeedback({
@@ -279,26 +376,28 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Error');
       if (data.already_received) {
+        playError(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
         setFeedback({ type: 'info', msg: `Ya escaneado: ${data.order?.ordersn || reference}` });
       } else {
         // Si existe localmente y tiene 1 caja, sembrar el set
         if (matchedOrder) {
           setScannedBoxesByOrder((prev) => ({ ...prev, [matchedOrder.id]: new Set(['0001']) }));
         }
+        playSuccess(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
         Vibration.vibrate(50);
         setFeedback({ type: 'success', msg: `✓ ${data.order?.ordersn || reference}` });
       }
       await refresh();
     } catch (e: any) {
+      playError(); Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
       Vibration.vibrate([0, 80, 50, 80]);
       setFeedback({ type: 'error', msg: e.message || 'Error' });
     }
     setScanInput('');
-    setTimeout(() => inputRef.current?.focus(), 100);
   };
 
   const onCameraScan = (r: BarcodeScanningResult) => {
-    if (lockRef.current) return;
+    if (lockRef.current || scanLocked) return;
     lockRef.current = true;
     setCameraOpen(false);
     setTimeout(() => { lockRef.current = false; }, 1200);
@@ -311,6 +410,29 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
     if (missing > 0 && !forcePartial) { setConfirmPartial(true); return; }
     setLoading(true); setError(null);
     try {
+      // 🆕 Antes de finalizar, persistir cajas parciales escaneadas (ej. 49/52)
+      // para que NO se pierdan al marcar la orden como missing_on_arrival.
+      const partialPayload: Array<{ order_id: number; received_boxes: number }> = [];
+      for (const o of orders) {
+        if (o.status === 'received_mty') continue;
+        const scanned = scannedBoxesByOrder[o.id];
+        const count = scanned ? scanned.size : 0;
+        if (count > 0) {
+          partialPayload.push({ order_id: o.id, received_boxes: count });
+        }
+      }
+      if (partialPayload.length > 0) {
+        try {
+          await fetch(`${API_URL}/api/admin/china-sea/containers/${selected.id}/report-partial-boxes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ orders: partialPayload }),
+          });
+        } catch (e) {
+          console.warn('No se pudo guardar conteo parcial:', e);
+        }
+      }
+
       const res = await fetch(`${API_URL}/api/admin/china-sea/containers/${selected.id}/finalize`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -681,16 +803,18 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
           <View style={styles.scanRow}>
             <TextInput
               ref={inputRef}
-              style={styles.scanInput}
-              placeholder="Escanear referencia (LOG..., shipping mark)..."
-              placeholderTextColor="#999"
+              style={[styles.scanInput, scanLocked && { backgroundColor: '#FFF3E0', borderColor: ORANGE }]}
+              placeholder={scanLocked ? '⏳ Procesando…' : 'Escanear referencia (LOG..., shipping mark)...'}
+              placeholderTextColor={scanLocked ? ORANGE : '#999'}
               value={scanInput}
-              onChangeText={setScanInput}
+              onChangeText={onScanInputChange}
               onSubmitEditing={() => handleScan(scanInput)}
               autoCapitalize="characters"
+              autoCorrect={false}
               autoFocus
               blurOnSubmit={false}
               returnKeyType="done"
+              showSoftInputOnFocus={false}
             />
             <TouchableOpacity style={[styles.scanIconBtn, { backgroundColor: accent }]} onPress={async () => {
               if (!permission?.granted) { const r = await requestPermission(); if (!r.granted) return; }
@@ -734,30 +858,80 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                 ? '#FFF3E0'
                 : '#fff';
               return (
-                <View key={o.id} style={[styles.row, { backgroundColor: bg }]}>
-                  <Ionicons
-                    name={isComplete ? 'checkmark-circle' : 'ellipse-outline'}
-                    size={22}
-                    color={isComplete ? GREEN : wasMissing ? '#F9A825' : isPartial ? '#FF9800' : '#BBB'}
-                  />
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.tracking}>
-                      {o.ordersn}
-                      {expectedBoxes > 0 ? (
-                        <Text style={{ fontWeight: '700', color: isComplete ? GREEN : isPartial ? '#FF9800' : '#666' }}>
-                          {`  ${scannedCount}/${expectedBoxes} cajas`}
-                          {isPartial ? `  · faltan ${remaining}` : ''}
-                        </Text>
-                      ) : null}
-                    </Text>
-                    <Text style={styles.subRow}>
-                      {o.user_box_id ? `${o.user_box_id} · ` : ''}{o.user_name || 'Sin cliente'}
-                    </Text>
-                    <Text style={styles.subMini}>
-                      {o.goods_name || '—'} · {Number(o.weight || 0).toFixed(2)} kg · {Number(o.volume || 0).toFixed(3)} m³
-                    </Text>
-                    {o.shipping_mark ? <Text style={styles.subMini}>Mark: {o.shipping_mark}</Text> : null}
-                  </View>
+                <View key={o.id} style={{ marginBottom: 6 }}>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    onPress={() => setExpandedOrderId(expandedOrderId === o.id ? null : o.id)}
+                    style={[styles.row, { backgroundColor: bg }]}
+                  >
+                    <Ionicons
+                      name={isComplete ? 'checkmark-circle' : 'ellipse-outline'}
+                      size={22}
+                      color={isComplete ? GREEN : wasMissing ? '#F9A825' : isPartial ? '#FF9800' : '#BBB'}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.tracking}>
+                        {o.ordersn}
+                        {expectedBoxes > 0 ? (
+                          <Text style={{ fontWeight: '700', color: isComplete ? GREEN : isPartial ? '#FF9800' : '#666' }}>
+                            {`  ${scannedCount}/${expectedBoxes} cajas`}
+                            {isPartial ? `  · faltan ${remaining}` : ''}
+                          </Text>
+                        ) : null}
+                      </Text>
+                      <Text style={styles.subRow}>
+                        {o.user_box_id ? `${o.user_box_id} · ` : ''}{o.user_name || 'Sin cliente'}
+                      </Text>
+                      <Text style={styles.subMini}>
+                        {o.goods_name || '—'} · {Number(o.weight || 0).toFixed(2)} kg · {Number(o.volume || 0).toFixed(3)} m³
+                      </Text>
+                      {o.shipping_mark ? <Text style={styles.subMini}>Mark: {o.shipping_mark}</Text> : null}
+                    </View>
+                    {expectedBoxes > 1 ? (
+                      <Ionicons
+                        name={expandedOrderId === o.id ? 'chevron-up' : 'chevron-down'}
+                        size={20}
+                        color="#999"
+                      />
+                    ) : null}
+                  </TouchableOpacity>
+
+                  {/* Grilla de cajas (chips numerados) */}
+                  {expectedBoxes > 1 && expandedOrderId === o.id && (
+                    <View style={styles.boxesPanel}>
+                      <Text style={styles.boxesHeader}>
+                        📦 Cajas del log (escanea cada caja: {o.ordersn}-0001 … {o.ordersn}-{String(expectedBoxes).padStart(4, '0')})
+                      </Text>
+                      <View style={styles.chipsRow}>
+                        {Array.from({ length: expectedBoxes }, (_, idx) => {
+                          const num = idx + 1;
+                          const key = String(num).padStart(4, '0');
+                          const scanned = scannedSet?.has(key);
+                          return (
+                            <View
+                              key={key}
+                              style={[
+                                styles.boxChip,
+                                scanned
+                                  ? { backgroundColor: GREEN, borderColor: GREEN }
+                                  : { backgroundColor: '#fff', borderColor: '#FFB74D' },
+                              ]}
+                            >
+                              <Text style={[styles.boxChipText, { color: scanned ? '#fff' : '#E65100' }]}>
+                                {num}
+                              </Text>
+                            </View>
+                          );
+                        })}
+                      </View>
+                      {remaining > 0 && (
+                        <Text style={styles.boxesFooter}>⚠️ Faltan {remaining} caja(s) por escanear</Text>
+                      )}
+                      {remaining === 0 && scannedCount > 0 && (
+                        <Text style={[styles.boxesFooter, { color: GREEN }]}>✅ Todas las cajas escaneadas</Text>
+                      )}
+                    </View>
+                  )}
                 </View>
               );
             })}
@@ -792,17 +966,20 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
           <View style={styles.resultRow}>
             <View style={styles.resultCell}>
               <Text style={[styles.resultNum, { color: GREEN }]}>{result.received}</Text>
-              <Text style={styles.resultLbl}>Recibidos</Text>
+              <Text style={styles.resultLbl}>Logs OK</Text>
             </View>
             <View style={styles.resultCell}>
               <Text style={[styles.resultNum, { color: result.missing === 0 ? '#999' : RED }]}>{result.missing}</Text>
-              <Text style={styles.resultLbl}>Faltantes</Text>
+              <Text style={styles.resultLbl}>Logs faltantes</Text>
             </View>
             <View style={styles.resultCell}>
               <Text style={[styles.resultNum, { color: BLACK }]}>{result.total}</Text>
-              <Text style={styles.resultLbl}>Total</Text>
+              <Text style={styles.resultLbl}>Logs total</Text>
             </View>
           </View>
+          <Text style={{ marginTop: 12, fontSize: 12, color: '#666', textAlign: 'center', paddingHorizontal: 20 }}>
+            Cada log puede contener múltiples cajas. Un log se cuenta como recibido cuando todas sus cajas son escaneadas.
+          </Text>
           <TouchableOpacity style={[styles.btnPrimary, { marginTop: 24, paddingHorizontal: 30, backgroundColor: accent }]} onPress={reset}>
             <Text style={styles.btnPrimaryText}>Recibir otro</Text>
           </TouchableOpacity>
@@ -1039,6 +1216,12 @@ const styles = StyleSheet.create({
   tracking: { fontFamily: 'monospace', fontWeight: '700', fontSize: 13, color: BLACK },
   subRow: { fontSize: 11, color: '#444', marginTop: 2 },
   subMini: { fontSize: 10, color: '#888' },
+  boxesPanel: { backgroundColor: '#FFF8E1', borderLeftWidth: 3, borderLeftColor: '#FF9800', padding: 10, borderBottomLeftRadius: 8, borderBottomRightRadius: 8, marginTop: -2 },
+  boxesHeader: { fontSize: 11, color: '#1976D2', fontWeight: '600', marginBottom: 8 },
+  chipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  boxChip: { minWidth: 32, height: 32, paddingHorizontal: 6, borderRadius: 16, borderWidth: 1.5, alignItems: 'center', justifyContent: 'center' },
+  boxChipText: { fontSize: 12, fontWeight: '700' },
+  boxesFooter: { marginTop: 8, fontSize: 11, color: '#E65100', fontWeight: '700' },
   footer: { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: '#fff', borderTopWidth: 1, borderColor: '#EEE' },
   btnPrimary: { flex: 1, paddingVertical: 14, borderRadius: 10, alignItems: 'center', backgroundColor: ORANGE },
   btnPrimaryText: { color: '#fff', fontWeight: '800', fontSize: 14 },

@@ -146,6 +146,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [uso, setUso] = useState('G03');
   const [email, setEmail] = useState('');
   const [conceptos, setConceptos] = useState('');
+  const [claveHistory, setClaveHistory] = useState<Array<{ clave: string; descripcion?: string | null; uses_count: number }>>([]);
   const [monto, setMonto] = useState('');
   const [divisa, setDivisa] = useState<'USD' | 'RMB'>('USD');
   const [savedSuppliers, setSavedSuppliers] = useState<any[]>([]);
@@ -249,12 +250,29 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     } catch {}
   }, [token]);
 
+  const loadClaveHistory = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/entangled/clave-sat-history`, { headers: authHeaders });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data)) setClaveHistory(data);
+    } catch {}
+  }, [token]);
+
+  const appendClaveFromHistory = (h: { clave: string; descripcion?: string | null }) => {
+    const existing = conceptos.split(',').map(s => s.trim()).filter(Boolean);
+    if (existing.includes(h.clave)) return;
+    const next = existing.length ? `${conceptos}, ${h.clave}` : h.clave;
+    setConceptos(next);
+  };
+
   useEffect(() => {
     loadRequests();
     loadSuppliers();
     loadPricing();
     loadFiscalProfile();
-  }, [loadRequests, loadSuppliers, loadPricing, loadFiscalProfile]);
+    loadClaveHistory();
+  }, [loadRequests, loadSuppliers, loadPricing, loadFiscalProfile, loadClaveHistory]);
 
   const handlePickSupplier = (id: number | 'new') => {
     setSelectedSupplierId(id);
@@ -1156,11 +1174,47 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
                     <Text style={styles.label}>{t('entangled.fields.email', 'Email')}</Text>
                     <TextInput style={styles.input} value={email} onChangeText={setEmail} keyboardType="email-address" autoCapitalize="none" />
-
-                    <Text style={styles.label}>{t('entangled.fields.concepts', 'Conceptos SAT')} {t('xpay.conceptsHelp', '(códigos separados por coma)')}</Text>
-                    <TextInput style={styles.input} value={conceptos} onChangeText={setConceptos} placeholder="84111506, 90121800" placeholderTextColor={TEXT_MUTED} />
                   </>
                 )}
+
+                {/* Claves SAT por operación (siempre visible cuando requiere factura) */}
+                <View style={{ marginTop: 16, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#FFD580', backgroundColor: '#FFF8E7' }}>
+                  <Text style={[styles.sectionTitle, { fontSize: 13, marginBottom: 4 }]}>🧾 {t('xpay.claveSatPerOp', 'Claves SAT a facturar (por operación)')}</Text>
+                  <Text style={{ fontSize: 11, color: TEXT_DIM, marginBottom: 8 }}>
+                    {t('xpay.claveSatHint', 'Captura los códigos SAT de producto/servicio de esta operación específica.')}
+                  </Text>
+                  {claveHistory.length > 0 && (
+                    <>
+                      <Text style={{ fontSize: 11, color: TEXT_DIM, marginBottom: 4 }}>
+                        ⭐ {t('xpay.claveSatRecent', 'Tus claves más usadas:')}
+                      </Text>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }}>
+                        {claveHistory.slice(0, 10).map(h => (
+                          <TouchableOpacity
+                            key={h.clave}
+                            style={[styles.chip, { borderColor: ORANGE }]}
+                            onPress={() => appendClaveFromHistory(h)}
+                          >
+                            <Text style={[styles.chipText, { fontWeight: '600' }]}>{h.clave}</Text>
+                            {!!h.descripcion && (
+                              <Text style={[styles.chipText, { fontSize: 10 }]} numberOfLines={1}>
+                                {String(h.descripcion).slice(0, 24)}
+                              </Text>
+                            )}
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </>
+                  )}
+                  <TextInput
+                    style={[styles.input, { minHeight: 60 }]}
+                    value={conceptos}
+                    onChangeText={setConceptos}
+                    placeholder="84111506, 90121800"
+                    placeholderTextColor={TEXT_MUTED}
+                    multiline
+                  />
+                </View>
               </>
             )}
           </>

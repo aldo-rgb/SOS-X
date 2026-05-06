@@ -21,6 +21,8 @@ const TRACKING_MATCH_SQL = `(
     OR REPLACE(UPPER(${TRACKING_PUBLIC_SQL}), '-', '') = REPLACE(UPPER($1), '-', '')
     OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'skydropx_label_id', '')), '-', '') = REPLACE(UPPER($1), '-', '')
     OR REPLACE(UPPER(COALESCE(to_jsonb(p)->>'dhl_awb', '')), '-', '') = REPLACE(UPPER($1), '-', '')
+    OR REGEXP_REPLACE(UPPER(${TRACKING_PUBLIC_SQL}), '-0+([0-9])', '-\\1', 'g')
+       = REGEXP_REPLACE(UPPER($1), '-0+([0-9])', '-\\1', 'g')
 )`;
 
 const DELIVERY_STATUS_SQL = `COALESCE(
@@ -1019,6 +1021,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
             }
 
             try {
+                console.log(`📦 [BULK] Procesando: internal="${internalGuide}" carrier="${carrierGuide}"`);
                 // Buscar paquete por guía interna
                 const pkgRes = await pool.query(`
                     SELECT p.id, ${statusColumn} as status
@@ -1028,11 +1031,13 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                 `, [internalGuide]);
 
                 if (pkgRes.rows.length === 0) {
+                    console.warn(`⚠️ [BULK] Paquete NO encontrado: "${internalGuide}"`);
                     errors.push(`Paquete ${internalGuide} no encontrado`);
                     continue;
                 }
 
                 const packageId = pkgRes.rows[0].id;
+                console.log(`✅ [BULK] Paquete encontrado: ID=${packageId} status=${pkgRes.rows[0].status} → '${finalStatus}'`);
                 
                 // Construir UPDATE dinámicamente
                 const setParts: string[] = [`${statusColumn} = '${finalStatus}'`, 'updated_at = NOW()'];
@@ -1274,5 +1279,53 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
     } catch (error) {
         console.error('Error en verifyPackageForDelivery:', error);
         res.status(500).json({ error: 'Error al verificar paquete.' });
+    }
+};
+
+/**
+ * Verifica si una guía de carrier (national_tracking) ya está asignada a OTRO paquete.
+ * GET /api/driver/check-carrier-guide/:guide?excludeInternal=US-...
+ * Devuelve { available: boolean, usedBy?: { tracking, status } }
+ */
+export const checkCarrierGuideAvailable = async (req: Request, res: Response): Promise<any> => {
+    const { guide } = req.params;
+    const excludeInternal = String(req.query.excludeInternal || '').trim();
+    if (!guide) return res.status(400).json({ error: 'guide requerida' });
+
+    try {
+        const hasNT = await hasPackageColumn('national_tracking');
+        if (!hasNT) return res.json({ available: true });
+
+        // Comparación tolerante (sin guiones, mayúsculas)
+        const normGuide = guide.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const r = await pool.query(`
+            SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number, ${DELIVERY_STATUS_SQL} as status,
+                   to_jsonb(p)->>'national_tracking' as national_tracking
+            FROM packages p
+            WHERE REPLACE(UPPER(COALESCE(to_jsonb(p)->>'national_tracking','')), '-', '') = $1
+            LIMIT 5
+        `, [normGuide]);
+
+        const others = r.rows.filter((row: any) => {
+            if (!excludeInternal) return true;
+            const t = String(row.tracking_number || '').toUpperCase();
+            const e = excludeInternal.toUpperCase();
+            return t !== e && t.replace(/-/g, '') !== e.replace(/-/g, '');
+        });
+
+        if (others.length > 0) {
+            return res.json({
+                available: false,
+                usedBy: {
+                    tracking: others[0].tracking_number,
+                    status: others[0].status,
+                    national_tracking: others[0].national_tracking,
+                }
+            });
+        }
+        return res.json({ available: true });
+    } catch (err) {
+        console.error('Error checkCarrierGuideAvailable:', err);
+        return res.status(500).json({ error: 'Error al validar guía' });
     }
 };

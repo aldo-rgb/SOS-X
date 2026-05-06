@@ -92,6 +92,7 @@ import POBoxQuoterPage from './POBoxQuoterPage';
 import RepackPage from './RepackPage';
 import POBoxInventoryPage from './POBoxInventoryPage';
 import POBoxConsolidationReceptionWizard from './POBoxConsolidationReceptionWizard';
+import AssignClientPage from './AssignClientPage';
 
 // Interfaces para cotización
 interface CotizacionResultado {
@@ -180,7 +181,7 @@ const PAQUETERIAS = [
 
 const ORANGE = '#F05A28';
 
-const POBOX_MODULES = ['receive', 'receive_consolidation', 'entry', 'exit', 'collect', 'quote', 'repack', 'inventory'];
+const POBOX_MODULES = ['receive', 'receive_consolidation', 'entry', 'exit', 'collect', 'quote', 'repack', 'inventory', 'assign_client'];
 
 // Definición de las opciones del menú - ORDEN: Recibir, Entrada, Salida, Cobrar, Cotizar, Reempaque, Inventario
 const POBOX_MENU_OPTIONS = [
@@ -247,6 +248,14 @@ const POBOX_MENU_OPTIONS = [
         bgGradient: 'linear-gradient(135deg, #455A64 0%, #78909C 100%)',
         bgColor: '#eceff1',
         iconColor: '#607D8B',
+    },
+    {
+        id: 'assign_client',
+        icon: <PersonIcon sx={{ fontSize: 48 }} />,
+        color: '#FF6F00',
+        bgGradient: 'linear-gradient(135deg, #E65100 0%, #FFA726 100%)',
+        bgColor: '#fff8e1',
+        iconColor: '#FF6F00',
     },
 ];
 
@@ -1091,6 +1100,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             case 'inventory':
                 // Inventario PO Box USA - página completa con stats y filtros
                 return <POBoxInventoryPage onBack={handleBackToMenu} />;
+            case 'assign_client':
+                // Asignar Cliente - paquetes sin cliente asignado
+                return <AssignClientPage onBack={handleBackToMenu} />;
             default:
                 return null;
         }
@@ -2333,6 +2345,7 @@ function getDefaultTitle(id: string): string {
         quote: 'Cotizar',
         repack: 'Reempaque',
         inventory: 'Inventario',
+        assign_client: 'Asignar Cliente',
     };
     return titles[id] || id;
 }
@@ -2347,6 +2360,7 @@ function getDefaultDescription(id: string): string {
         quote: 'Calcular costos y generar cotizaciones',
         repack: 'Consolidar múltiples paquetes en una caja',
         inventory: 'Ver todos los paquetes PO Box',
+        assign_client: 'Asignar cliente a paquetes pendientes',
     };
     return descriptions[id] || '';
 }

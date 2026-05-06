@@ -1043,7 +1043,7 @@ ${body}
         // Quitamos el sufijo si existe para reconstruir cada caja del rango.
         const baseTracking = reprintLabel.tracking.replace(/-\d{1,4}$/, '');
         for (let i = from; i <= to; i++) {
-            const suffix = String(i).padStart(4, '0');
+            const suffix = String(i).padStart(2, '0');
             labels.push({
                 ...reprintLabel,
                 boxNumber: i,

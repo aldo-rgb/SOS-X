@@ -760,9 +760,12 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'El vehículo no está activo para inspección' });
     }
 
-    // Monitoreo puede recibir cualquier vehículo (no requiere ser el asignado)
-    if (!isMonitoreo && Number(vehicle.rows[0].assigned_driver_id) !== userId) {
-      return res.status(403).json({ error: 'No tienes permiso para inspeccionar este vehículo' });
+    // 🆕 Política: cualquier chofer puede inspeccionar (check_in) un vehículo activo;
+    // al enviar la inspección se le asigna automáticamente. Solo check_out/return
+    // requiere que el vehículo esté asignado al usuario actual.
+    const isCheckOut = inspection_type === 'check_out' || inspection_type === 'return';
+    if (!isMonitoreo && isCheckOut && Number(vehicle.rows[0].assigned_driver_id) !== userId) {
+      return res.status(403).json({ error: 'No puedes entregar este vehículo: no está asignado a ti' });
     }
     
     if (reported_mileage < vehicle.rows[0].current_mileage) {
@@ -858,8 +861,22 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
         `, [userId, vehicle_id]);
       }
     } else if (inspection_type === 'check_in' || !inspection_type) {
-      // Chofer hace check-in: asignar la unidad y mantenerla asignada hasta
-      // que monitoreo la reciba (o admin la reasigne).
+      // Chofer hace check-in: si el vehículo estaba asignado a otro usuario, cerrar
+      // esa asignación primero. Luego asignar al usuario actual.
+      const activeOther = await pool.query(`
+        SELECT id FROM vehicle_assignments
+        WHERE vehicle_id = $1 AND released_at IS NULL AND driver_id <> $2
+        ORDER BY assigned_at DESC LIMIT 1
+      `, [vehicle_id, userId]);
+
+      if (activeOther.rows.length > 0) {
+        await pool.query(`
+          UPDATE vehicle_assignments
+          SET released_at = NOW(), mileage_at_release = $1
+          WHERE id = $2
+        `, [reported_mileage, activeOther.rows[0].id]);
+      }
+
       await pool.query(`
         UPDATE vehicles SET assigned_driver_id = $1, updated_at = NOW() WHERE id = $2
       `, [userId, vehicle_id]);

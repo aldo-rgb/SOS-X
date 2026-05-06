@@ -65,7 +65,9 @@ import {
   deletePackage,
   batchAttachImage,
   startBulkMaster,
-  addBulkBoxToMaster
+  addBulkBoxToMaster,
+  getUnassignedPackages,
+  searchClients
 } from './packageController';
 import {
   createPaymentOrder,
@@ -279,6 +281,8 @@ import {
   webhookFacturaGeneradaV2 as entangledWebhookFacturaV2,
   webhookPagoProveedorV2 as entangledWebhookProveedorV2,
   rotateApiKeyAdmin as rotateEntangledApiKey,
+  syncProveedoresFromRemote as syncEntangledProveedoresFromRemote,
+  listClaveSatHistory as listEntangledClaveSatHistory,
 } from './entangledControllerV2';
 import {
   getLogisticsServices,
@@ -344,7 +348,8 @@ import {
   confirmDelivery,
   confirmDeliveryBulk,
   getDeliveriesToday,
-  verifyPackageForDelivery
+  verifyPackageForDelivery,
+  checkCarrierGuideAvailable
 } from './driverController';
 import {
   // PO Box USA Rates
@@ -2764,6 +2769,11 @@ app.get('/api/packages/repack-instructions', authenticateToken, requireMinLevel(
 app.post('/api/packages/assign-delivery', authenticateToken, uploadDeliveryDocs, bulkAssignDelivery);
 app.get('/api/packages/saved-constancia', authenticateToken, getSavedConstancia);
 
+// 📋 Paquetes PO Box sin cliente asignado (con días en bodega) - DEBE IR ANTES DE /:id
+app.get('/api/packages/unassigned', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getUnassignedPackages);
+// 🔎 Búsqueda libre de clientes (users + legacy_clients) - DEBE IR ANTES DE /:id
+app.get('/api/packages/search-clients', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), searchClients);
+
 // Obtener detalle de paquete por ID (usuario dueño o staff+)
 app.get('/api/packages/:id', authenticateToken, getPackageById);
 
@@ -2789,7 +2799,7 @@ app.patch('/api/packages/batch-image', authenticateToken, requireMinLevel(ROLES.
 app.post('/api/packages/bulk-master/start', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), startBulkMaster);
 app.post('/api/packages/bulk-master/:masterId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addBulkBoxToMaster);
 
-// 🔍 Lookup de cliente por casillero (busca en users y legacy_clients)
+//  Lookup de cliente por casillero (busca en users y legacy_clients)
 app.get('/api/packages/lookup-client/:boxId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req, res) => {
   try {
     const boxId = String(req.params.boxId || '').trim().toUpperCase();
@@ -3408,6 +3418,7 @@ app.get('/api/entangled/exchange-rate', authenticateToken, getEntangledExchangeR
 app.get('/api/entangled/conceptos/search', authenticateToken, searchEntangledConceptos);
 // Rotación de API key (admin)
 app.post('/api/admin/entangled/rotate-api-key', authenticateToken, requireMinLevel(ROLES.DIRECTOR), rotateEntangledApiKey);
+app.post('/api/admin/entangled/providers/sync', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncEntangledProveedoresFromRemote);
 // Proveedores de envío (beneficiarios) por cliente
 app.get('/api/entangled/suppliers', authenticateToken, listMyEntangledSuppliers);
 app.post('/api/entangled/suppliers', authenticateToken, createMyEntangledSupplier);
@@ -3415,6 +3426,7 @@ app.put('/api/entangled/suppliers/:id', authenticateToken, updateMyEntangledSupp
 app.delete('/api/entangled/suppliers/:id', authenticateToken, deleteMyEntangledSupplier);
 // Perfil fiscal reutilizable, pricing y cotización
 app.get('/api/entangled/fiscal-profile', authenticateToken, getMyEntangledFiscalProfile);
+app.get('/api/entangled/clave-sat-history', authenticateToken, listEntangledClaveSatHistory);
 app.put('/api/entangled/fiscal-profile', authenticateToken, upsertMyEntangledFiscalProfile);
 app.get('/api/entangled/pricing', authenticateToken, getEntangledPricingConfig);
 app.put('/api/admin/entangled/pricing', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateEntangledPricingConfig);
@@ -7120,6 +7132,7 @@ app.get('/api/driver/deliveries-today', authenticateToken, requireMinLevel(ROLES
 
 // Verificar paquete antes de entregar
 app.get('/api/driver/verify-package/:barcode', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), verifyPackageForDelivery);
+app.get('/api/driver/check-carrier-guide/:guide', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), checkCarrierGuideAvailable);
 
 // ============================================
 // COTIZADOR PÚBLICO UNIVERSAL

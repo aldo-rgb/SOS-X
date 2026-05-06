@@ -85,6 +85,7 @@ export default function EntangledPaymentRequestV2() {
   const [cp, setCp] = useState('');
   const [usoCfdi, setUsoCfdi] = useState('G03');
   const [conceptosText, setConceptosText] = useState(''); // 1 por línea: "01010101 - Descripción"
+  const [claveHistory, setClaveHistory] = useState<{ clave: string; descripcion?: string; uses_count: number }[]>([]);
   const [notas, setNotas] = useState('');
   const [comprobante, setComprobante] = useState<File | null>(null);
 
@@ -112,6 +113,28 @@ export default function EntangledPaymentRequestV2() {
   }, []);
 
   useEffect(() => { loadCfg(); loadRequests(); }, [loadCfg, loadRequests]);
+
+  // Carga el historial de claves SAT del usuario para autocomplete
+  const loadClaveHistory = useCallback(async () => {
+    try {
+      const r = await axios.get(`${API_URL}/api/entangled/clave-sat-history`, { headers: authHeaders });
+      setClaveHistory(Array.isArray(r.data) ? r.data : []);
+    } catch {
+      setClaveHistory([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => { loadClaveHistory(); }, [loadClaveHistory]);
+
+  const appendClaveFromHistory = (h: { clave: string; descripcion?: string }) => {
+    const line = h.descripcion ? `${h.clave} - ${h.descripcion}` : h.clave;
+    setConceptosText((prev) => {
+      if (!prev.trim()) return line;
+      const lines = prev.split('\n');
+      if (lines.some(l => l.trim().startsWith(h.clave))) return prev; // ya está
+      return prev.trimEnd() + '\n' + line;
+    });
+  };
 
   const currentPct = cfg?.[servicio]?.comision_porcentaje ?? null;
   const montoNum = Number(monto) || 0;
@@ -401,17 +424,10 @@ export default function EntangledPaymentRequestV2() {
                     {USOS_CFDI.map((u) => <MenuItem key={u} value={u}>{u}</MenuItem>)}
                   </TextField>
                 </Stack>
-                <TextField
-                  label="Conceptos SAT (uno por línea: clave - descripción)"
-                  value={conceptosText}
-                  onChange={(e) => setConceptosText(e.target.value)}
-                  multiline
-                  minRows={3}
-                  fullWidth
-                  required
-                  placeholder={"01010101 - Servicios profesionales\n50211503 - Pago a proveedor"}
-                  helperText="Una línea por concepto. Formato: clave_prodserv - descripción"
-                />
+                <Alert severity="info" sx={{ mt: 1 }}>
+                  📋 <b>Datos fiscales del cliente</b> — RFC, razón social, régimen y uso CFDI son los datos del receptor de la factura.
+                  Las claves de producto/servicio SAT a facturar se capturan abajo, <b>por cada operación</b>.
+                </Alert>
               </>
             )}
             <TextField
@@ -421,6 +437,50 @@ export default function EntangledPaymentRequestV2() {
               fullWidth
             />
           </Stack>
+
+          {servicio === 'pago_con_factura' && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              {/* Conceptos SAT — bloque independiente, captura por operación */}
+              <Box sx={{ p: 2, borderRadius: 2, border: (theme) => `1px solid ${theme.palette.divider}`, bgcolor: 'action.hover' }}>
+                <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
+                  🧾 Claves SAT a facturar <b>(por operación)</b>
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                  Captura las claves de producto/servicio SAT que correspondan a este pago. Se guardan en tu historial para reutilizarlas.
+                </Typography>
+                {claveHistory.length > 0 && (
+                  <Box sx={{ mb: 1.5 }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                      Tus claves más usadas (click para agregar):
+                    </Typography>
+                    <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 0.5 }}>
+                      {claveHistory.slice(0, 10).map((h) => (
+                        <Chip
+                          key={h.clave}
+                          label={h.descripcion ? `${h.clave} · ${h.descripcion.slice(0, 24)}` : h.clave}
+                          size="small"
+                          onClick={() => appendClaveFromHistory(h)}
+                          sx={{ cursor: 'pointer' }}
+                        />
+                      ))}
+                    </Stack>
+                  </Box>
+                )}
+                <TextField
+                  label="Claves SAT (uno por línea: clave - descripción)"
+                  value={conceptosText}
+                  onChange={(e) => setConceptosText(e.target.value)}
+                  multiline
+                  minRows={3}
+                  fullWidth
+                  required
+                  placeholder={"01010101 - Servicios profesionales\n50211503 - Pago a proveedor"}
+                  helperText="Una línea por clave. Formato: clave_prodserv - descripción (la descripción es opcional)"
+                />
+              </Box>
+            </>
+          )}
 
           <Divider sx={{ my: 2 }} />
 

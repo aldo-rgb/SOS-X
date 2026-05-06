@@ -25,6 +25,7 @@ import SecurityIcon from '@mui/icons-material/Security';
 import BoltIcon from '@mui/icons-material/Bolt';
 import PublicIcon from '@mui/icons-material/Public';
 import EntangledAdminTab from '../components/EntangledAdminTab';
+import ClaveSatSearchBlock from '../components/ClaveSatSearchBlock';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 const ORANGE = '#FF6600';
@@ -121,7 +122,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
   const TEXT_DIM = adminMode ? '#9CA3AF' : '#666666';
   const TEXT_DIMMER = adminMode ? '#B0B6BF' : '#555555';
 
-  const [tabValue, setTabValue] = useState(0);
+  const [tabValue, setTabValue] = useState(3);
   const [loading, setLoading] = useState(true);
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
@@ -156,6 +157,8 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
     over_pct: number | string | null;
     over_split_asesor: number | string | null;
     cancellation_fee_usd: number | string | null;
+    min_operacion_usd: number | string | null;
+    min_operacion_rmb: number | string | null;
     effective_tipo_cambio_usd?: number | string;
     effective_tipo_cambio_rmb?: number | string;
     effective_porcentaje_compra?: number | string;
@@ -269,6 +272,27 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
   };
 
   // ===== ENTANGLED handlers =====
+  const [syncingProviders, setSyncingProviders] = useState(false);
+  const handleSyncEntProviders = async () => {
+    if (syncingProviders) return;
+    setSyncingProviders(true);
+    try {
+      const headers = { Authorization: `Bearer ${getToken()}` };
+      const r = await axios.post(`${API_URL}/admin/entangled/providers/sync`, {}, { headers });
+      const d = r.data || {};
+      setSnackbar({
+        open: true,
+        message: `Sync OK · ${d.total_remotos ?? 0} remotos · +${d.inserted ?? 0} nuevos · ↻${d.updated ?? 0} actualizados · ✕${d.deactivated ?? 0} desactivados`,
+        severity: 'success',
+      });
+      await loadData();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al sincronizar proveedores', severity: 'error' });
+    } finally {
+      setSyncingProviders(false);
+    }
+  };
+
   const handleSaveEntProvider = async () => {
     if (!editingEntProvider) return;
     try {
@@ -283,6 +307,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
         over_pct: toNullable(editingEntProvider.over_pct),
         over_split_asesor: toNullable(editingEntProvider.over_split_asesor),
         cancellation_fee_usd: toNullable(editingEntProvider.cancellation_fee_usd),
+        code: editingEntProvider.code || null,
         bank_accounts: editingEntProvider.bank_accounts || [],
         notes: editingEntProvider.notes || null,
         is_active: editingEntProvider.is_active,
@@ -770,9 +795,9 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
           '& .Mui-selected': { color: `${ORANGE} !important` },
           '& .MuiTabs-indicator': { backgroundColor: ORANGE, height: 2, boxShadow: `0 0 8px ${ORANGE}` },
         }}>
+          <Tab value={3} icon={<HubIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="ENTANGLED" />
           <Tab value={0} icon={<PaymentsIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Solicitudes" />
           <Tab value={2} icon={<BusinessIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Proveedores" />
-          <Tab value={3} icon={<HubIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="ENTANGLED" />
         </Tabs>
       </Paper>
 
@@ -985,13 +1010,25 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
       {tabValue === 3 && (
         <>
         <Paper sx={{ p: 3, borderRadius: 3, mt: 3, bgcolor: SURFACE, border: `1px solid ${BORDER}`, color: TEXT_PRIMARY }}>
-          <Box sx={{ mb: 1 }}>
-            <Typography variant="h6" fontWeight="bold">
-              🌐 Proveedores ENTANGLED (Triangulación internacional)
-            </Typography>
-            <Typography variant="body2" sx={{ color: TEXT_MUTED }}>
-              Los proveedores se sincronizan desde el API. Aquí solo configuras TC USD, TC RMB, % de compra y cuentas bancarias para recibir el depósito MXN del cliente.
-            </Typography>
+          <Box sx={{ mb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2, flexWrap: 'wrap' }}>
+            <Box>
+              <Typography variant="h6" fontWeight="bold">
+                🌐 Proveedores ENTANGLED (Triangulación internacional)
+              </Typography>
+              <Typography variant="body2" sx={{ color: TEXT_MUTED }}>
+                Los proveedores se sincronizan desde el API. Aquí solo configuras TC USD, TC RMB, % de compra y cuentas bancarias para recibir el depósito MXN del cliente.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              size="small"
+              startIcon={<RefreshIcon />}
+              disabled={syncingProviders}
+              onClick={handleSyncEntProviders}
+              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#e65a00' }, textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap' }}
+            >
+              {syncingProviders ? 'Sincronizando…' : 'Sincronizar desde API'}
+            </Button>
           </Box>
           <Divider sx={{ my: 2 }} />
 
@@ -999,36 +1036,49 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
             <Table size="small">
               <TableHead>
                 <TableRow sx={{ bgcolor: HEADER_BG }}>
-                  {['Nombre','Código','TC USD efectivo','TC RMB efectivo','% compra efectivo','Cuentas','Activo','Default','Acciones'].map((h) => (
+                  {['Nombre','TC USD efectivo','TC RMB efectivo','% compra efectivo','Empresas activas','Activo','Default','Acciones'].map((h) => (
                     <TableCell key={h} sx={{ color: TEXT_DIMMER, fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>{h}</TableCell>
                   ))}
                 </TableRow>
               </TableHead>
               <TableBody>
-                {entProviders.map((p) => {
+                {entProviders.filter((p: any) => (p.code || '').toUpperCase() !== 'XOX').map((p) => {
+                  const apiUsd = Number(p.tipo_cambio_usd) || 0;
+                  const apiRmb = Number(p.tipo_cambio_rmb) || 0;
+                  const apiPct = Number(p.porcentaje_compra) || 0;
                   const effUsd = Number(p.effective_tipo_cambio_usd ?? p.tipo_cambio_usd);
                   const effRmb = Number(p.effective_tipo_cambio_rmb ?? p.tipo_cambio_rmb);
                   const effPct = Number(p.effective_porcentaje_compra ?? p.porcentaje_compra);
-                  const ovUsd = p.override_tipo_cambio_usd != null;
-                  const ovRmb = p.override_tipo_cambio_rmb != null;
-                  const ovPct = p.override_porcentaje_compra != null;
+                  const ovUsd = p.override_tipo_cambio_usd != null && apiUsd > 0;
+                  const ovRmb = p.override_tipo_cambio_rmb != null && apiRmb > 0;
+                  const ovPct = p.override_porcentaje_compra != null && apiPct > 0;
                   return (
                   <TableRow key={p.id} hover sx={{ bgcolor: SURFACE, '&:hover': { bgcolor: SURFACE2 } }}>
                     <TableCell sx={{ color: TEXT_PRIMARY, fontWeight: 600, borderBottom: `1px solid ${BORDER}` }}>{p.name}</TableCell>
-                    <TableCell sx={{ color: TEXT_MUTED, borderBottom: `1px solid ${BORDER}` }}>{p.code || '—'}</TableCell>
                     <TableCell align="center" sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
-                      ${effUsd.toFixed(4)}
+                      {apiUsd > 0 ? `$${effUsd.toFixed(4)}` : <span style={{ color: TEXT_DIMMER, fontStyle: 'italic' }}>No disponible</span>}
                       {ovUsd && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
                     </TableCell>
                     <TableCell align="center" sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
-                      ${effRmb.toFixed(4)}
+                      {apiRmb > 0 ? `$${effRmb.toFixed(4)}` : <span style={{ color: TEXT_DIMMER, fontStyle: 'italic' }}>No disponible</span>}
                       {ovRmb && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
                     </TableCell>
                     <TableCell align="center" sx={{ color: TEXT_SECONDARY, borderBottom: `1px solid ${BORDER}` }}>
-                      {effPct.toFixed(2)}%
+                      {apiPct > 0 ? `${effPct.toFixed(2)}%` : <span style={{ color: TEXT_DIMMER, fontStyle: 'italic' }}>No disponible</span>}
                       {ovPct && <Chip size="small" sx={{ ml: 0.5, bgcolor: 'rgba(255,102,0,0.15)', color: ORANGE, border: `1px solid rgba(255,102,0,0.3)` }} label="OV" />}
                     </TableCell>
-                    <TableCell align="center" sx={{ color: TEXT_MUTED, borderBottom: `1px solid ${BORDER}` }}>{p.bank_accounts?.length || 0}</TableCell>
+                    <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
+                      <Chip
+                        size="small"
+                        label={Number(p.total_empresas_activas ?? 0)}
+                        sx={{
+                          fontWeight: 700,
+                          bgcolor: Number(p.total_empresas_activas ?? 0) > 0 ? 'rgba(74,222,128,0.15)' : 'rgba(120,120,120,0.12)',
+                          color: Number(p.total_empresas_activas ?? 0) > 0 ? '#4ade80' : TEXT_DIMMER,
+                          minWidth: 48,
+                        }}
+                      />
+                    </TableCell>
                     <TableCell align="center" sx={{ borderBottom: `1px solid ${BORDER}` }}>
                       {p.is_active ? <CheckCircleIcon fontSize="small" sx={{ color: '#4ade80' }} /> : <CancelIcon fontSize="small" sx={{ color: '#ff6b6b' }} />}
                     </TableCell>
@@ -1047,7 +1097,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                 })}
                 {entProviders.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={9} align="center" sx={{ py: 3, borderBottom: 'none' }}>
+                    <TableCell colSpan={8} align="center" sx={{ py: 3, borderBottom: 'none' }}>
                       <Typography sx={{ color: TEXT_DIMMER }}>No hay proveedores configurados.</Typography>
                     </TableCell>
                   </TableRow>
@@ -1406,46 +1456,146 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                     InputProps={{ readOnly: true }}
                     sx={{ flex: 1, minWidth: 240 }}
                     variant="filled"
-                  />
-                  <TextField
-                    label="Código"
-                    value={editingEntProvider.code || ''}
-                    InputProps={{ readOnly: true }}
-                    sx={{ width: 160 }}
-                    variant="filled"
+                    helperText="Sincronizado desde el API"
                   />
                 </Box>
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
                   <TextField
                     label="TC USD del API"
-                    value={Number(editingEntProvider.tipo_cambio_usd).toFixed(4)}
-                    InputProps={{ readOnly: true, startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                    sx={{ width: 180 }}
+                    value={Number(editingEntProvider.tipo_cambio_usd) > 0 ? `$${Number(editingEntProvider.tipo_cambio_usd).toFixed(4)}` : 'No disponible'}
+                    InputProps={{ readOnly: true }}
+                    sx={{ width: 200 }}
                     variant="filled"
                   />
                   <TextField
                     label="TC RMB del API"
-                    value={Number(editingEntProvider.tipo_cambio_rmb).toFixed(4)}
-                    InputProps={{ readOnly: true, startAdornment: <InputAdornment position="start">$</InputAdornment> }}
-                    sx={{ width: 180 }}
+                    value={Number(editingEntProvider.tipo_cambio_rmb) > 0 ? `$${Number(editingEntProvider.tipo_cambio_rmb).toFixed(4)}` : 'No disponible'}
+                    InputProps={{ readOnly: true }}
+                    sx={{ width: 200 }}
                     variant="filled"
                   />
                   <TextField
                     label="% compra del API"
-                    value={Number(editingEntProvider.porcentaje_compra).toFixed(2)}
-                    InputProps={{ readOnly: true, endAdornment: <InputAdornment position="end">%</InputAdornment> }}
-                    sx={{ width: 160 }}
+                    value={Number(editingEntProvider.porcentaje_compra) > 0 ? `${Number(editingEntProvider.porcentaje_compra).toFixed(2)}%` : 'No disponible'}
+                    InputProps={{ readOnly: true }}
+                    sx={{ width: 180 }}
                     variant="filled"
                   />
                   <TextField
-                    label="Costo operación del API"
-                    value={Number(editingEntProvider.costo_operacion_usd || 0).toFixed(2)}
-                    InputProps={{ readOnly: true, startAdornment: <InputAdornment position="start">$</InputAdornment>, endAdornment: <InputAdornment position="end">USD</InputAdornment> }}
+                    label="Costo operación (fijo)"
+                    value={Number(editingEntProvider.costo_operacion_usd || 0) > 0 ? `$${Number(editingEntProvider.costo_operacion_usd).toFixed(2)} ${(editingEntProvider as any).costo_operacion_moneda || 'USD'}` : 'No disponible'}
+                    InputProps={{ readOnly: true }}
+                    sx={{ width: 220 }}
+                    variant="filled"
+                  />
+                  <TextField
+                    label="Costo operación (%)"
+                    value={Number((editingEntProvider as any).costo_operacion_porcentaje || 0) > 0 ? `${Number((editingEntProvider as any).costo_operacion_porcentaje).toFixed(2)}%` : 'No disponible'}
+                    InputProps={{ readOnly: true }}
                     sx={{ width: 200 }}
                     variant="filled"
                   />
                 </Box>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
+                  <TextField
+                    label="Mínimo operación USD del API"
+                    value={`$${Number((editingEntProvider as any).min_operacion_usd || 0).toFixed(2)} USD`}
+                    InputProps={{ readOnly: true }}
+                    sx={{ width: 240 }}
+                    variant="filled"
+                    helperText={Number((editingEntProvider as any).min_operacion_usd || 0) === 0 ? 'Sin mínimo configurado' : 'Sincronizado del API'}
+                  />
+                  <TextField
+                    label="Mínimo operación RMB del API"
+                    value={`¥${Number((editingEntProvider as any).min_operacion_rmb || 0).toFixed(2)} RMB`}
+                    InputProps={{ readOnly: true }}
+                    sx={{ width: 240 }}
+                    variant="filled"
+                    helperText={Number((editingEntProvider as any).min_operacion_rmb || 0) === 0 ? 'Sin mínimo configurado' : 'Sincronizado del API'}
+                  />
+                </Box>
+                <Typography variant="caption" sx={{ display: 'block', mt: 1, color: TEXT_MUTED }}>
+                  ℹ️ El API ENTANGLED expone: <b>nombre, tipos de cambio, costo de operación, % compra, tarifas y mínimos por servicio</b>. Solo el <b>código</b> es local.
+                </Typography>
+
+                {/* Tarifas reales del API por servicio */}
+                {Array.isArray((editingEntProvider as any).tarifas) && (editingEntProvider as any).tarifas.length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="caption" fontWeight={700} sx={{ color: TEXT_MUTED, display: 'block', mb: 1 }}>
+                      TARIFAS POR SERVICIO (DEL API)
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+                      {(editingEntProvider as any).tarifas.map((t: any, i: number) => (
+                        <Paper key={i} variant="outlined" sx={{ p: 1.5, minWidth: 220, flex: 1, bgcolor: SURFACE }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                            <Chip
+                              size="small"
+                              label={t.requiere_factura ? 'Con factura' : 'Sin factura'}
+                              sx={{
+                                bgcolor: t.requiere_factura ? 'rgba(74,222,128,0.15)' : 'rgba(255,102,0,0.15)',
+                                color: t.requiere_factura ? '#4ade80' : ORANGE,
+                                fontWeight: 700,
+                              }}
+                            />
+                          </Box>
+                          <Typography variant="body2" sx={{ color: TEXT_PRIMARY, fontWeight: 600 }}>
+                            {t.servicio_nombre || t.servicio_codigo}
+                          </Typography>
+                          <Typography variant="h6" sx={{ color: ORANGE, fontWeight: 700, mt: 0.5 }}>
+                            {Number(t.comision_cliente_porcentaje ?? 0).toFixed(2)}%
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: TEXT_MUTED }}>
+                            Comisión cliente · código: {t.servicio_codigo}
+                          </Typography>
+                          <Box sx={{ mt: 0.75, display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                            <Chip
+                              size="small"
+                              label={`mín USD: $${Number(t.monto_minimo?.USD || 0).toFixed(2)}`}
+                              sx={{ fontSize: 11, bgcolor: Number(t.monto_minimo?.USD || 0) > 0 ? 'rgba(74,222,128,0.15)' : undefined }}
+                            />
+                            <Chip
+                              size="small"
+                              label={`mín RMB: ¥${Number(t.monto_minimo?.RMB || 0).toFixed(2)}`}
+                              sx={{ fontSize: 11, bgcolor: Number(t.monto_minimo?.RMB || 0) > 0 ? 'rgba(74,222,128,0.15)' : undefined }}
+                            />
+                          </Box>
+                        </Paper>
+                      ))}
+                    </Box>
+                  </Box>
+                )}
               </Paper>
+
+              {/* Configuración LOCAL (solo el código no llega del API) */}
+              <Paper variant="outlined" sx={{ p: 2, bgcolor: INNER_BG, border: `1px dashed ${BORDER}` }}>
+                <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 0.5 }}>
+                  Configuración local
+                </Typography>
+                <Typography variant="caption" sx={{ color: TEXT_MUTED, display: 'block', mb: 2 }}>
+                  Único valor que administra EntregaX porque el API ENTANGLED no lo expone.
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                  <TextField
+                    label="Código"
+                    value={editingEntProvider.code || ''}
+                    onChange={(e) => setEditingEntProvider({
+                      ...editingEntProvider,
+                      code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16),
+                    })}
+                    helperText="Identificador corto local (mayúsculas y números)"
+                    sx={{ width: 240 }}
+                    inputProps={{ maxLength: 16 }}
+                  />
+                </Box>
+              </Paper>
+
+              {/* Buscador de claves SAT (motor /conceptos/search del API ENTANGLED) */}
+              <ClaveSatSearchBlock
+                providerName={editingEntProvider.name}
+                providerExternalId={(editingEntProvider as any).external_id || null}
+                token={getToken()}
+              />
+
 
               {/* Overrides editables */}
               <Paper variant="outlined" sx={{ p: 2, borderColor: ORANGE }}>
@@ -1461,14 +1611,22 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                   const ovRmb = Number(editingEntProvider.override_tipo_cambio_rmb ?? 0) || 0;
                   const ovPct = Number(editingEntProvider.override_porcentaje_compra ?? 0) || 0;
                   const ovCosto = Number(editingEntProvider.override_costo_operacion_usd ?? 0) || 0;
-                  const effUsd = Number(editingEntProvider.tipo_cambio_usd) + ovUsd;
-                  const effRmb = Number(editingEntProvider.tipo_cambio_rmb) + ovRmb;
-                  const effPct = Number(editingEntProvider.porcentaje_compra) + ovPct;
-                  const effCosto = Number(editingEntProvider.costo_operacion_usd || 0) + ovCosto;
+                  const apiUsd = Number(editingEntProvider.tipo_cambio_usd) || 0;
+                  const apiRmb = Number(editingEntProvider.tipo_cambio_rmb) || 0;
+                  const apiPct = Number(editingEntProvider.porcentaje_compra) || 0;
+                  const apiCosto = Number(editingEntProvider.costo_operacion_usd || 0) || 0;
+                  const effUsd = apiUsd + ovUsd;
+                  const effRmb = apiRmb + ovRmb;
+                  const effPct = apiPct + ovPct;
+                  const effCosto = apiCosto + ovCosto;
                   const cancelFee = Number(editingEntProvider.cancellation_fee_usd ?? 1) || 1;
+                  const fmtUsd = apiUsd > 0 ? `$${effUsd.toFixed(4)}` : 'No disponible';
+                  const fmtRmb = apiRmb > 0 ? `$${effRmb.toFixed(4)}` : 'No disponible';
+                  const fmtPct = apiPct > 0 ? `${effPct.toFixed(2)}%` : 'No disponible';
+                  const fmtCosto = apiCosto > 0 ? `$${effCosto.toFixed(2)} USD` : 'No disponible';
                   return (
                     <Typography variant="caption" sx={{ display: 'block', mt: 1, color: ORANGE, fontWeight: 600 }}>
-                      Efectivo: TC USD ${effUsd.toFixed(4)} · TC RMB ${effRmb.toFixed(4)} · % {effPct.toFixed(2)} · Costo op. ${effCosto.toFixed(2)} USD · Cancelación ${cancelFee.toFixed(2)} USD
+                      Efectivo: TC USD {fmtUsd} · TC RMB {fmtRmb} · % {fmtPct} · Costo op. {fmtCosto} · Cancelación ${cancelFee.toFixed(2)} USD
                     </Typography>
                   );
                 })()}
@@ -1486,32 +1644,36 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                     slotProps={{ input: { startAdornment: <InputAdornment position="start">+$</InputAdornment> } }}
                     sx={{ width: 220 }}
                   />
-                  <TextField
-                    label="Incremento TC RMB"
-                    type="number"
-                    value={editingEntProvider.override_tipo_cambio_rmb ?? ''}
-                    onChange={(e) => setEditingEntProvider({
-                      ...editingEntProvider,
-                      override_tipo_cambio_rmb: e.target.value === '' ? null : e.target.value,
-                    })}
-                    placeholder="0.0000"
-                    helperText={`API: $${Number(editingEntProvider.tipo_cambio_rmb).toFixed(4)}`}
-                    slotProps={{ input: { startAdornment: <InputAdornment position="start">+$</InputAdornment> } }}
-                    sx={{ width: 220 }}
-                  />
-                  <TextField
-                    label="Incremento % de compra (Comisión EntregaX)"
-                    type="number"
-                    value={editingEntProvider.override_porcentaje_compra ?? ''}
-                    onChange={(e) => setEditingEntProvider({
-                      ...editingEntProvider,
-                      override_porcentaje_compra: e.target.value === '' ? null : e.target.value,
-                    })}
-                    placeholder="0.00"
-                    helperText={`API: ${Number(editingEntProvider.porcentaje_compra).toFixed(2)}% · Lo que cobra EntregaX`}
-                    slotProps={{ input: { startAdornment: <InputAdornment position="start">+</InputAdornment>, endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
-                    sx={{ width: 280 }}
-                  />
+                  {Number(editingEntProvider.tipo_cambio_rmb) > 0 && (
+                    <TextField
+                      label="Incremento TC RMB"
+                      type="number"
+                      value={editingEntProvider.override_tipo_cambio_rmb ?? ''}
+                      onChange={(e) => setEditingEntProvider({
+                        ...editingEntProvider,
+                        override_tipo_cambio_rmb: e.target.value === '' ? null : e.target.value,
+                      })}
+                      placeholder="0.0000"
+                      helperText={`API: $${Number(editingEntProvider.tipo_cambio_rmb).toFixed(4)}`}
+                      slotProps={{ input: { startAdornment: <InputAdornment position="start">+$</InputAdornment> } }}
+                      sx={{ width: 220 }}
+                    />
+                  )}
+                  {Number(editingEntProvider.porcentaje_compra) > 0 && (
+                    <TextField
+                      label="Incremento % de compra (Comisión EntregaX)"
+                      type="number"
+                      value={editingEntProvider.override_porcentaje_compra ?? ''}
+                      onChange={(e) => setEditingEntProvider({
+                        ...editingEntProvider,
+                        override_porcentaje_compra: e.target.value === '' ? null : e.target.value,
+                      })}
+                      placeholder="0.00"
+                      helperText={`API: ${Number(editingEntProvider.porcentaje_compra).toFixed(2)}% · Lo que cobra EntregaX`}
+                      slotProps={{ input: { startAdornment: <InputAdornment position="start">+</InputAdornment>, endAdornment: <InputAdornment position="end">%</InputAdornment> } }}
+                      sx={{ width: 280 }}
+                    />
+                  )}
                   <TextField
                     label="Comisión Asesor %"
                     type="number"

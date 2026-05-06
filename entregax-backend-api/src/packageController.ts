@@ -859,6 +859,131 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
     }
 };
 
+// ============ LISTAR PAQUETES POBOX SIN CLIENTE ASIGNADO ============
+// GET /api/packages/unassigned
+// Devuelve paquetes POBOX_USA que no tienen user_id válido vinculado.
+// Incluye días desde que se recibió en bodega (Hidalgo TX).
+export const getUnassignedPackages = async (_req: Request, res: Response): Promise<void> => {
+    try {
+        const query = `
+            SELECT
+                p.id,
+                p.tracking_internal,
+                p.tracking_provider,
+                p.description,
+                p.weight,
+                p.pkg_length, p.pkg_width, p.pkg_height,
+                p.status,
+                p.box_id,
+                p.received_at,
+                p.created_at,
+                COALESCE(p.received_at, p.created_at) AS arrival_date,
+                EXTRACT(DAY FROM (NOW() - COALESCE(p.received_at, p.created_at))) AS days_in_warehouse,
+                lc.full_name AS legacy_name,
+                lc.box_id AS legacy_box_id
+            FROM packages p
+            LEFT JOIN legacy_clients lc
+                ON p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
+            WHERE p.user_id IS NULL
+                AND (p.is_master = true OR p.master_id IS NULL)
+                AND (
+                    p.service_type = 'POBOX_USA'
+                    OR p.service_type = 'air'
+                    OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%')
+                )
+                AND p.status NOT IN ('delivered', 'cancelled')
+            ORDER BY arrival_date ASC
+        `;
+        const result = await pool.query(query);
+
+        const packages = result.rows.map((pkg) => ({
+            id: pkg.id,
+            tracking: pkg.tracking_internal,
+            trackingProvider: pkg.tracking_provider,
+            description: pkg.description,
+            weight: pkg.weight ? parseFloat(pkg.weight) : null,
+            dimensions: {
+                length: pkg.pkg_length ? parseFloat(pkg.pkg_length) : null,
+                width: pkg.pkg_width ? parseFloat(pkg.pkg_width) : null,
+                height: pkg.pkg_height ? parseFloat(pkg.pkg_height) : null,
+            },
+            status: pkg.status,
+            statusLabel: getStatusLabel(pkg.status),
+            arrivalDate: pkg.arrival_date,
+            daysInWarehouse: Number(pkg.days_in_warehouse) || 0,
+            currentBoxId: pkg.box_id,
+            legacyMatch: pkg.legacy_name
+                ? { name: pkg.legacy_name, boxId: pkg.legacy_box_id }
+                : null,
+        }));
+
+        res.json({ success: true, total: packages.length, packages });
+    } catch (error: any) {
+        console.error('❌ Error en getUnassignedPackages:', error?.message || error);
+        res.status(500).json({ error: 'Error al consultar paquetes sin cliente', details: error?.message });
+    }
+};
+
+// ============ BÚSQUEDA LIBRE DE CLIENTES (users + legacy_clients) ============
+// GET /api/packages/search-clients?q=...
+// Busca por nombre, email o casillero en users y legacy_clients.
+export const searchClients = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const q = String(req.query.q || '').trim();
+        if (!q || q.length < 2) {
+            res.json({ success: true, results: [] });
+            return;
+        }
+        const pattern = `%${q}%`;
+        const upperQ = q.toUpperCase();
+
+        const usersRes = await pool.query(
+            `SELECT id, full_name, email, box_id, phone
+             FROM users
+             WHERE UPPER(box_id) = $2
+                OR full_name ILIKE $1
+                OR email ILIKE $1
+                OR phone ILIKE $1
+             ORDER BY (UPPER(box_id) = $2) DESC, full_name ASC
+             LIMIT 20`,
+            [pattern, upperQ]
+        );
+        const legacyRes = await pool.query(
+            `SELECT id, full_name, box_id
+             FROM legacy_clients
+             WHERE UPPER(box_id) = $2
+                OR full_name ILIKE $1
+             ORDER BY (UPPER(box_id) = $2) DESC, full_name ASC
+             LIMIT 20`,
+            [pattern, upperQ]
+        );
+
+        const results = [
+            ...usersRes.rows.map((r) => ({
+                source: 'users' as const,
+                id: r.id,
+                fullName: r.full_name,
+                email: r.email || null,
+                boxId: r.box_id,
+                phone: r.phone || null,
+            })),
+            ...legacyRes.rows.map((r) => ({
+                source: 'legacy' as const,
+                id: r.id,
+                fullName: r.full_name,
+                email: null,
+                boxId: r.box_id,
+                phone: null,
+            })),
+        ];
+
+        res.json({ success: true, results });
+    } catch (error: any) {
+        console.error('❌ Error en searchClients:', error?.message || error);
+        res.status(500).json({ error: 'Error al buscar clientes', details: error?.message });
+    }
+};
+
 // ============ OBTENER ENVÍO POR TRACKING ============
 export const getShipmentByTracking = async (req: Request, res: Response): Promise<void> => {
     try {
