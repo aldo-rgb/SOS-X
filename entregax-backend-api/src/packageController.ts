@@ -2340,6 +2340,11 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                         imageUrl: child.image_url || null,
                         pobox_venta_usd: child.pobox_venta_usd ? parseFloat(child.pobox_venta_usd) : null,
                         pobox_venta_mxn: child.pobox_venta_mxn ? parseFloat(child.pobox_venta_mxn) : null,
+                        // 🆕 Campo canónico: lo que realmente se cobra al cliente (MXN ya guardado)
+                        pobox_service_cost: child.pobox_service_cost ? parseFloat(child.pobox_service_cost) : null,
+                        pobox_tarifa_nivel: child.pobox_tarifa_nivel != null ? Number(child.pobox_tarifa_nivel) : null,
+                        national_shipping_cost: child.national_shipping_cost ? parseFloat(child.national_shipping_cost) : 0,
+                        gex_total_cost: child.gex_total_cost ? parseFloat(child.gex_total_cost) : 0,
                         assigned_cost_mxn: child.assigned_cost_mxn ? parseFloat(child.assigned_cost_mxn) : null,
                         registered_exchange_rate: child.registered_exchange_rate ? parseFloat(child.registered_exchange_rate) : null,
                     });
@@ -2402,25 +2407,33 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 // 🛡️ GEX - Garantía Extendida
                 has_gex: pkg.has_gex || false,
                 gex_folio: pkg.gex_folio || null,
-                // 💰 Costos — recalcular saldo si hay datos PO Box para evitar que quede solo el envío nacional
+                // 💰 Costos — Fórmula CANÓNICA: pobox_service_cost (BD) prioriza sobre venta_usd × tc
                 assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
                 saldo_pendiente: (() => {
+                    const serviceCost = parseFloat(pkg.pobox_service_cost) || 0;
                     const poboxUsd = parseFloat(pkg.pobox_venta_usd) || 0;
                     const tc = parseFloat(pkg.registered_exchange_rate) || 0;
                     const gexTotal = parseFloat(pkg.gex_total_cost) || 0;
                     const shipping = parseFloat(pkg.national_shipping_cost) || 0;
                     const pagado = parseFloat(pkg.monto_pagado) || 0;
+                    // 1) Canónico: pobox_service_cost guardado en BD
+                    if (serviceCost > 0) {
+                        return Math.max(0, serviceCost + gexTotal + shipping - pagado);
+                    }
+                    // 2) Derivado: venta_usd × tc
                     if (poboxUsd > 0 && tc > 0) {
                         return Math.max(0, (poboxUsd * tc) + gexTotal + shipping - pagado);
                     }
-                    // Para masters sin pobox_venta_usd propio, sumar costos de hijas
+                    // 3) Master sin valor propio: sumar hijas (prefiriendo pobox_service_cost de cada hija)
                     if (pkg.is_master) {
                         const children = childrenByMaster[pkg.id] || [];
                         const childPoboxMxn = children.reduce((s: number, c: any) => {
-                            const cUsd = parseFloat(c.pobox_venta_usd) || 0;
-                            const cTc = parseFloat(c.registered_exchange_rate) || 0;
+                            const cServ = parseFloat(c.pobox_service_cost) || 0;
+                            if (cServ > 0) return s + cServ;
                             const cMxn = parseFloat(c.pobox_venta_mxn) || 0;
                             if (cMxn > 0) return s + cMxn;
+                            const cUsd = parseFloat(c.pobox_venta_usd) || 0;
+                            const cTc = parseFloat(c.registered_exchange_rate) || 0;
                             if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
                             return s + (parseFloat(c.assigned_cost_mxn) || 0);
                         }, 0);
@@ -2433,6 +2446,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
                 client_paid: pkg.client_paid || false,
                 pobox_venta_usd: pkg.pobox_venta_usd ? parseFloat(pkg.pobox_venta_usd) : null,
+                pobox_venta_mxn: pkg.pobox_venta_mxn ? parseFloat(pkg.pobox_venta_mxn) : null,
+                // 🆕 Campos canónicos para que el front use el helper packageCosts
+                pobox_service_cost: pkg.pobox_service_cost ? parseFloat(pkg.pobox_service_cost) : null,
+                pobox_tarifa_nivel: pkg.pobox_tarifa_nivel != null ? Number(pkg.pobox_tarifa_nivel) : null,
                 registered_exchange_rate: pkg.registered_exchange_rate ? parseFloat(pkg.registered_exchange_rate) : null,
                 gex_total_cost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : 0,
                 // 💳 Orden de pago pendiente
