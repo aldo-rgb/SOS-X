@@ -42,28 +42,25 @@ export function getPackageCostBreakdown(pkg: any, opts: { children?: any[] } = {
   const children = opts.children ?? pkg?.child_packages ?? pkg?.included_guides ?? [];
   const tc = num(pkg?.registered_exchange_rate ?? pkg?.registeredExchangeRate);
 
-  // 1) PO Box service (MXN). Prioridad alineada con PackageDetailScreen mobile.
-  let poboxServiceMxn = num(pkg?.pobox_venta_mxn ?? pkg?.poboxVentaMxn);
-  if (poboxServiceMxn === 0) {
-    poboxServiceMxn = num(pkg?.pobox_service_cost ?? pkg?.poboxServiceCost);
-  }
-  if (poboxServiceMxn === 0) {
-    const ventaUsd = num(pkg?.pobox_venta_usd ?? pkg?.poboxVentaUsd);
-    if (ventaUsd > 0 && tc > 0) {
-      poboxServiceMxn = ventaUsd * tc;
-    }
-  }
-  if (poboxServiceMxn === 0) {
-    poboxServiceMxn = sumChildren(children, (c) => {
-      const cVentaMxn = num(c.pobox_venta_mxn ?? c.poboxVentaMxn);
-      if (cVentaMxn > 0) return cVentaMxn;
-      const cServ = num(c.pobox_service_cost ?? c.poboxServiceCost);
-      if (cServ > 0) return cServ;
-      const cVentaUsd = num(c.pobox_venta_usd ?? c.poboxVentaUsd);
-      const cTc = num(c.registered_exchange_rate ?? c.registeredExchangeRate);
-      if (cVentaUsd > 0 && cTc > 0) return cVentaUsd * cTc;
-      return 0;
-    });
+  // Resolver costo PO Box MXN de un paquete individual
+  const resolvePobox = (p: any, fallbackTc: number): number => {
+    const s = num(p?.pobox_service_cost ?? p?.poboxServiceCost);
+    if (s > 0) return s;
+    const u = num(p?.pobox_venta_usd ?? p?.poboxVentaUsd);
+    const t = num(p?.registered_exchange_rate ?? p?.registeredExchangeRate) || fallbackTc;
+    if (u > 0 && t > 0) return u * t;
+    return num(p?.assigned_cost_mxn ?? p?.assignedCostMxn);
+  };
+
+  // 1) PO Box service (MXN). Master multipieza con hijas → Σ hijas; resto → propio.
+  let poboxServiceMxn = 0;
+  const isMaster = !!(pkg?.is_master ?? pkg?.isMaster);
+  const hasChildren = Array.isArray(children) && children.length > 0;
+  if (isMaster && hasChildren) {
+    poboxServiceMxn = children.reduce((s: number, c: any) => s + resolvePobox(c, tc), 0);
+    if (poboxServiceMxn === 0) poboxServiceMxn = resolvePobox(pkg, tc);
+  } else {
+    poboxServiceMxn = resolvePobox(pkg, tc);
   }
 
   // 2) Envío nacional

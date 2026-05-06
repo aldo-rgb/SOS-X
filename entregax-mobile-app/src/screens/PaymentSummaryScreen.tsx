@@ -831,20 +831,22 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                         ${(() => {
                           const pp = pkg as any;
                           const poboxUsd = parseFloat(pp.pobox_venta_usd) || 0;
+                          const poboxServ = parseFloat(pp.pobox_service_cost) || 0;
                           const tc = parseFloat(pp.registered_exchange_rate) || 0;
                           const gex = parseFloat(pp.gex_total_cost) || 0;
                           const ship = parseFloat(pp.national_shipping_cost) || 0;
                           const pagado = parseFloat(pp.monto_pagado) || 0;
-                          let poboxMxn = poboxUsd > 0 && tc > 0 ? poboxUsd * tc : 0;
-                          if (!poboxMxn && pp.is_master && Array.isArray(pp.child_packages)) {
-                            poboxMxn = pp.child_packages.reduce((s: number, c: any) => {
-                              const cMxn = parseFloat(c.pobox_venta_mxn) || 0;
+                          let poboxMxn = poboxServ > 0 ? poboxServ : (poboxUsd > 0 && tc > 0 ? poboxUsd * tc : 0);
+                          if (pp.is_master && Array.isArray(pp.child_packages) && pp.child_packages.length > 0) {
+                            const sumHijas = pp.child_packages.reduce((s: number, c: any) => {
+                              const cServ = parseFloat(c.pobox_service_cost) || 0;
+                              if (cServ > 0) return s + cServ;
                               const cUsd = parseFloat(c.pobox_venta_usd) || 0;
-                              const cTc = parseFloat(c.registered_exchange_rate) || 0;
-                              if (cMxn > 0) return s + cMxn;
+                              const cTc = parseFloat(c.registered_exchange_rate) || tc;
                               if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
                               return s + (parseFloat(c.assigned_cost_mxn) || 0);
                             }, 0);
+                            if (sumHijas > 0) poboxMxn = sumHijas;
                           }
                           return poboxMxn > 0
                             ? Math.max(0, poboxMxn + gex + ship - pagado).toFixed(2)

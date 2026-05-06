@@ -2052,7 +2052,6 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         air_tariff_type,
         pro_name,
         pobox_venta_usd,
-        pobox_venta_mxn,
         pobox_service_cost,
         pobox_cost_usd,
         pobox_tarifa_nivel,
@@ -2586,7 +2585,6 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
         air_price_per_kg,
         air_tariff_type,
         pobox_venta_usd,
-        pobox_venta_mxn,
         pobox_service_cost,
         pobox_cost_usd,
         pobox_tarifa_nivel,
@@ -2790,6 +2788,43 @@ app.patch('/api/packages/batch-image', authenticateToken, requireMinLevel(ROLES.
 // Recepción incremental en serie: crea master vacío y agrega hijas una por una
 app.post('/api/packages/bulk-master/start', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), startBulkMaster);
 app.post('/api/packages/bulk-master/:masterId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addBulkBoxToMaster);
+
+// 🔍 Lookup de cliente por casillero (busca en users y legacy_clients)
+app.get('/api/packages/lookup-client/:boxId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req, res) => {
+  try {
+    const boxId = String(req.params.boxId || '').trim().toUpperCase();
+    if (!boxId) return res.status(400).json({ found: false, error: 'boxId requerido' });
+
+    const u = await pool.query(
+      'SELECT id, full_name, box_id, email FROM users WHERE UPPER(box_id) = $1 LIMIT 1',
+      [boxId]
+    );
+    if (u.rows.length > 0) {
+      const r = u.rows[0];
+      return res.json({
+        found: true, source: 'users',
+        id: r.id, fullName: r.full_name, boxId: r.box_id, email: r.email || null,
+      });
+    }
+
+    const lg = await pool.query(
+      'SELECT id, full_name, box_id FROM legacy_clients WHERE UPPER(box_id) = $1 LIMIT 1',
+      [boxId]
+    );
+    if (lg.rows.length > 0) {
+      const r = lg.rows[0];
+      return res.json({
+        found: true, source: 'legacy',
+        id: r.id, fullName: r.full_name, boxId: r.box_id, email: null,
+      });
+    }
+
+    return res.json({ found: false });
+  } catch (err: any) {
+    console.error('[lookup-client] error:', err);
+    res.status(500).json({ found: false, error: err.message });
+  }
+});
 
 // Solicitar reempaque/consolidación de paquetes (Usuario autenticado)
 app.post('/api/packages/repack', authenticateToken, requestRepack);

@@ -290,11 +290,52 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [bulkCurrentBox, setBulkCurrentBox] = useState({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
     const [bulkBoxId, setBulkBoxId] = useState(''); // Número de casillero del cliente
     const [bulkExpectedBoxes, setBulkExpectedBoxes] = useState<string>(''); // Total esperado de cajas
+    // 🔍 Lookup del cliente por casillero (users + legacy_clients)
+    const [bulkClientLookup, setBulkClientLookup] = useState<{
+      status: 'idle' | 'loading' | 'found' | 'notfound' | 'error';
+      fullName?: string;
+      source?: 'users' | 'legacy';
+      message?: string;
+    }>({ status: 'idle' });
     const [bulkRegisteredIds, setBulkRegisteredIds] = useState<number[]>([]); // IDs de paquetes ya creados en esta sesión
     const [bulkImage, setBulkImage] = useState<string | null>(null);
     const [bulkSubmitting, setBulkSubmitting] = useState(false);
     const [bulkError, setBulkError] = useState('');
     const [zplEnabled, setZplEnabled] = useState<boolean>(isZplModeEnabled());
+
+    // 🔍 Lookup debounced del cliente (busca en users + legacy_clients)
+    useEffect(() => {
+        const id = (bulkBoxId || '').trim().toUpperCase();
+        if (!id) { setBulkClientLookup({ status: 'idle' }); return; }
+        if (id.length < 2) { setBulkClientLookup({ status: 'idle' }); return; }
+        setBulkClientLookup({ status: 'loading' });
+        let cancelled = false;
+        const t = setTimeout(async () => {
+            try {
+                const r = await api.get(`/api/packages/lookup-client/${encodeURIComponent(id)}`);
+                if (cancelled) return;
+                if (r.data?.found) {
+                    setBulkClientLookup({
+                        status: 'found',
+                        fullName: r.data.fullName,
+                        source: r.data.source,
+                    });
+                } else {
+                    setBulkClientLookup({
+                        status: 'notfound',
+                        message: `❌ El casillero "${id}" no existe en clientes registrados ni en legacy.`,
+                    });
+                }
+            } catch (e: any) {
+                if (cancelled) return;
+                setBulkClientLookup({
+                    status: 'error',
+                    message: e?.response?.data?.error || 'Error al validar casillero',
+                });
+            }
+        }, 350);
+        return () => { cancelled = true; clearTimeout(t); };
+    }, [bulkBoxId]);
     // Master incremental: id del master creado al definir la cantidad esperada
     const [bulkMasterId, setBulkMasterId] = useState<number | null>(null);
     const [, setBulkMasterTracking] = useState<string>('');
@@ -877,6 +918,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             setBulkBoxes([]);
             setSessionLabels([]);
             setBulkBoxId('');
+            setBulkClientLookup({ status: 'idle' });
             setBulkExpectedBoxes('');
             setBulkRegisteredIds([]);
             setBulkMasterId(null);
@@ -900,6 +942,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setSessionLabels([]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
         setBulkBoxId('');
+        setBulkClientLookup({ status: 'idle' });
         setBulkExpectedBoxes('');
         setBulkRegisteredIds([]);
         setBulkMasterId(null);
@@ -1567,13 +1610,30 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                             ⚠️ Sin cliente: los paquetes se guardarán como "Sin Cliente" y podrán asignarse después.
                                                         </Typography>
                                                     </Alert>
-                                                ) : (
+                                                ) : bulkClientLookup.status === 'loading' ? (
+                                                    <Alert severity="info">
+                                                        <Typography variant="caption">🔍 Buscando "{bulkBoxId}"...</Typography>
+                                                    </Alert>
+                                                ) : bulkClientLookup.status === 'found' ? (
                                                     <Alert severity="success">
-                                                        <Typography variant="caption">
-                                                            ✅ Cliente {bulkBoxId} se asignará a todas las cajas del embarque.
+                                                        <Typography variant="caption" sx={{ display: 'block', fontWeight: 600 }}>
+                                                            ✅ {bulkClientLookup.fullName}
+                                                        </Typography>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            Casillero {bulkBoxId} · {bulkClientLookup.source === 'legacy' ? 'Cliente legacy' : 'Cliente registrado'}
                                                         </Typography>
                                                     </Alert>
-                                                )}
+                                                ) : bulkClientLookup.status === 'notfound' ? (
+                                                    <Alert severity="error">
+                                                        <Typography variant="caption">
+                                                            {bulkClientLookup.message}
+                                                        </Typography>
+                                                    </Alert>
+                                                ) : bulkClientLookup.status === 'error' ? (
+                                                    <Alert severity="error">
+                                                        <Typography variant="caption">{bulkClientLookup.message}</Typography>
+                                                    </Alert>
+                                                ) : null}
                                             </Card>
                                         </Grid>
 
@@ -2007,12 +2067,16 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                 onClick={handleBulkNextStep}
                                 disabled={
                                     (bulkStep === 0 && (parseInt(bulkExpectedBoxes) || 0) < 1) ||
+                                    // Si escribió un casillero pero no se encontró → bloquear
+                                    (bulkStep === 0 && !!bulkBoxId && bulkClientLookup.status !== 'found' && bulkClientLookup.status !== 'idle') ||
                                     (bulkStep === 1 && bulkBoxes.length < (parseInt(bulkExpectedBoxes) || 0))
                                 }
                                 endIcon={<ArrowForwardIcon />}
                                 sx={{ bgcolor: ORANGE }}
                             >
-                                {bulkStep === 1 && bulkBoxes.length < (parseInt(bulkExpectedBoxes) || 0)
+                                {bulkStep === 0 && !!bulkBoxId && bulkClientLookup.status === 'notfound'
+                                    ? 'Casillero inválido'
+                                    : bulkStep === 1 && bulkBoxes.length < (parseInt(bulkExpectedBoxes) || 0)
                                     ? `Faltan ${(parseInt(bulkExpectedBoxes) || 0) - bulkBoxes.length} caja(s)`
                                     : 'Siguiente'}
                             </Button>

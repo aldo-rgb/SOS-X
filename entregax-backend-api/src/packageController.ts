@@ -622,10 +622,11 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                   assigned_cost_mxn, single_cbm, saldo_pendiente, long_cm, width_cm, height_cm,
                   pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
                   registered_exchange_rate, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, national_shipping_cost,
-                  assigned_address_id, needs_instructions, national_carrier)
+                  assigned_address_id, needs_instructions, national_carrier,
+                  pobox_provider_cost_mxn, pobox_provider_cost_usd)
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, false, 1, 1, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24,
                          $25, $26, $25, $7, $8, $9, $27, $28, $29, $30, $31, $32, $33, $34, $35, $36,
-                         $37, $38, $39) 
+                         $37, $38, $39, $40, $41) 
                  RETURNING *`,
                 [user?.id || null, user?.box_id || null, masterTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                  box.length, box.width, box.height, declaredValue || null, notes || null, initialStatus,
@@ -633,9 +634,13 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                  safeDestination.zip || null, safeDestination.phone || null, safeDestination.contact || null, imageUrl || null,
                  serviceType, wLocation, hasGex, consolidationId,
                  totalCostMxn, costResult.cbm,
-                 costResult.poboxServiceCost, costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
+                 // pobox_service_cost = PRECIO VENTA MXN = venta_usd × tc
+                 (costResult.precioVentaUsd || 0) * (costResult.registeredExchangeRate || 0),
+                 costResult.gexInsuranceCost, costResult.gexFixedCost, costResult.gexTotalCost, costResult.declaredValueMxn,
                  costResult.registeredExchangeRate, costResult.poboxCostUsd, costResult.nivelTarifa || null, costResult.precioVentaUsd || null, nationalShippingCost,
-                 defaultAddressId, defaultAddressId ? false : true, effectiveNationalCarrier]
+                 defaultAddressId, defaultAddressId ? false : true, effectiveNationalCarrier,
+                 // pobox_provider_cost_mxn / _usd = COSTO INTERNO
+                 costResult.poboxServiceCost, costResult.poboxCostUsd]
             );
             masterPackage = result.rows[0];
             
@@ -708,15 +713,20 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
                       is_master, master_id, box_number, total_boxes, carrier,
                       destination_country, destination_city, destination_address,
                       service_type, warehouse_location, consolidation_id,
-                      pobox_service_cost, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, registered_exchange_rate)
+                      pobox_service_cost, pobox_cost_usd, pobox_tarifa_nivel, pobox_venta_usd, registered_exchange_rate,
+                      pobox_provider_cost_mxn, pobox_provider_cost_usd)
                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, false, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20,
-                             $21, $22, $23, $24, $25) 
+                             $21, $22, $23, $24, $25, $26, $27) 
                      RETURNING *`,
                     [user?.id || null, user?.box_id || null, childTracking, box.trackingCourier || trackingProvider || null, description, box.weight, 
                      box.length, box.width, box.height, initialStatus, masterPackage.id, boxNumber, totalBoxes,
                      safeCarrier, safeDestination.country, safeDestination.city, safeDestination.address,
                      serviceType, wLocation, consolidationId,
-                     childPoboxCostMxn, childPoboxCostUsd, childNivelTarifa, childPoboxVentaUsd, childTcFinal]
+                     // pobox_service_cost = VENTA MXN = venta_usd × tc
+                     (childPoboxVentaUsd || 0) * (childTcFinal || 0),
+                     childPoboxCostUsd, childNivelTarifa, childPoboxVentaUsd, childTcFinal,
+                     // pobox_provider_cost_mxn / _usd = COSTO INTERNO
+                     childPoboxCostMxn, childPoboxCostUsd]
                 );
                 childPackages.push(childResult.rows[0]);
 
@@ -1360,7 +1370,6 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     pqtxApiTotal,
                     poboxServiceCost: pkg.pobox_service_cost != null ? parseFloat(pkg.pobox_service_cost) : null,
                     poboxVentaUsd: pkg.pobox_venta_usd != null ? parseFloat(pkg.pobox_venta_usd) : null,
-                    poboxVentaMxn: pkg.pobox_venta_mxn != null ? parseFloat(pkg.pobox_venta_mxn) : null,
                     poboxTarifaNivel: pkg.pobox_tarifa_nivel != null ? Number(pkg.pobox_tarifa_nivel) : null,
                     registeredExchangeRate: pkg.registered_exchange_rate != null ? parseFloat(pkg.registered_exchange_rate) : null,
                     totalBoxesCount: pkg.total_boxes || (children?.length || 1),
@@ -2339,9 +2348,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                         description: child.description,
                         imageUrl: child.image_url || null,
                         pobox_venta_usd: child.pobox_venta_usd ? parseFloat(child.pobox_venta_usd) : null,
-                        pobox_venta_mxn: child.pobox_venta_mxn ? parseFloat(child.pobox_venta_mxn) : null,
                         // 🆕 Campo canónico: lo que realmente se cobra al cliente (MXN ya guardado)
                         pobox_service_cost: child.pobox_service_cost ? parseFloat(child.pobox_service_cost) : null,
+                        pobox_cost_usd: child.pobox_cost_usd ? parseFloat(child.pobox_cost_usd) : null,
                         pobox_tarifa_nivel: child.pobox_tarifa_nivel != null ? Number(child.pobox_tarifa_nivel) : null,
                         national_shipping_cost: child.national_shipping_cost ? parseFloat(child.national_shipping_cost) : 0,
                         gex_total_cost: child.gex_total_cost ? parseFloat(child.gex_total_cost) : 0,
@@ -2408,53 +2417,52 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 has_gex: pkg.has_gex || false,
                 gex_folio: pkg.gex_folio || null,
                 // 💰 Costos — Fórmula CANÓNICA alineada con PackageDetailScreen.
-                //   Prioridad: pobox_venta_mxn > pobox_service_cost > venta_usd × tc > Σ children
+                //   Para MASTER multipieza: siempre Σ hijas (cada hija guarda su propio
+                //   pobox_service_cost por caja según su tarifa). El master suele estar en 0.
+                //   Para no-master: pobox_service_cost > pobox_venta_usd × tc.
                 assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
-                saldo_pendiente: (() => {
-                    const ventaMxn = parseFloat(pkg.pobox_venta_mxn) || 0;
-                    const serviceCost = parseFloat(pkg.pobox_service_cost) || 0;
-                    const poboxUsd = parseFloat(pkg.pobox_venta_usd) || 0;
-                    const tc = parseFloat(pkg.registered_exchange_rate) || 0;
+                ...(() => {
                     const gexTotal = parseFloat(pkg.gex_total_cost) || 0;
                     const shipping = parseFloat(pkg.national_shipping_cost) || 0;
                     const pagado = parseFloat(pkg.monto_pagado) || 0;
-                    // 1) Canónico: pobox_venta_mxn (lo que muestra el detalle)
-                    if (ventaMxn > 0) {
-                        return Math.max(0, ventaMxn + gexTotal + shipping - pagado);
+                    const tc = parseFloat(pkg.registered_exchange_rate) || 0;
+
+                    const resolvePobox = (p: any, fallbackTc: number): number => {
+                        const s = parseFloat(p.pobox_service_cost) || 0;
+                        if (s > 0) return s;
+                        const u = parseFloat(p.pobox_venta_usd) || 0;
+                        const t = parseFloat(p.registered_exchange_rate) || fallbackTc;
+                        if (u > 0 && t > 0) return u * t;
+                        return parseFloat(p.assigned_cost_mxn) || 0;
+                    };
+
+                    const masterChildren = pkg.is_master ? (childrenByMaster[pkg.id] || []) : [];
+                    let poboxMxn = 0;
+                    if (masterChildren.length > 0) {
+                        // Master multipieza → Σ hijas
+                        poboxMxn = masterChildren.reduce((s: number, c: any) => s + resolvePobox(c, tc), 0);
+                        // Si todas las hijas están en 0, fallback al master
+                        if (poboxMxn === 0) poboxMxn = resolvePobox(pkg, tc);
+                    } else {
+                        poboxMxn = resolvePobox(pkg, tc);
                     }
-                    // 2) pobox_service_cost guardado en BD
-                    if (serviceCost > 0) {
-                        return Math.max(0, serviceCost + gexTotal + shipping - pagado);
-                    }
-                    // 3) Derivado: venta_usd × tc
-                    if (poboxUsd > 0 && tc > 0) {
-                        return Math.max(0, (poboxUsd * tc) + gexTotal + shipping - pagado);
-                    }
-                    // 4) Master sin valor propio: sumar hijas
-                    if (pkg.is_master) {
-                        const children = childrenByMaster[pkg.id] || [];
-                        const childPoboxMxn = children.reduce((s: number, c: any) => {
-                            const cMxn = parseFloat(c.pobox_venta_mxn) || 0;
-                            if (cMxn > 0) return s + cMxn;
-                            const cServ = parseFloat(c.pobox_service_cost) || 0;
-                            if (cServ > 0) return s + cServ;
-                            const cUsd = parseFloat(c.pobox_venta_usd) || 0;
-                            const cTc = parseFloat(c.registered_exchange_rate) || 0;
-                            if (cUsd > 0 && cTc > 0) return s + cUsd * cTc;
-                            return s + (parseFloat(c.assigned_cost_mxn) || 0);
-                        }, 0);
-                        if (childPoboxMxn > 0) {
-                            return Math.max(0, childPoboxMxn + gexTotal + shipping - pagado);
-                        }
-                    }
-                    return pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0;
+
+                    const totalMxn = poboxMxn + gexTotal + shipping;
+                    const saldo = totalMxn > 0
+                        ? Math.max(0, totalMxn - pagado)
+                        : (pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0);
+
+                    return {
+                        saldo_pendiente: saldo,
+                        // Inyectar valor resuelto para que el front lo lea sin recalcular
+                        pobox_service_cost: poboxMxn > 0 ? poboxMxn : null,
+                    };
                 })(),
                 monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
                 client_paid: pkg.client_paid || false,
                 pobox_venta_usd: pkg.pobox_venta_usd ? parseFloat(pkg.pobox_venta_usd) : null,
-                pobox_venta_mxn: pkg.pobox_venta_mxn ? parseFloat(pkg.pobox_venta_mxn) : null,
-                // 🆕 Campos canónicos para que el front use el helper packageCosts
-                pobox_service_cost: pkg.pobox_service_cost ? parseFloat(pkg.pobox_service_cost) : null,
+                pobox_cost_usd: pkg.pobox_cost_usd ? parseFloat(pkg.pobox_cost_usd) : null,
+                // pobox_service_cost ya inyectado arriba con valor canónico resuelto
                 pobox_tarifa_nivel: pkg.pobox_tarifa_nivel != null ? Number(pkg.pobox_tarifa_nivel) : null,
                 registered_exchange_rate: pkg.registered_exchange_rate ? parseFloat(pkg.registered_exchange_rate) : null,
                 gex_total_cost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : 0,
@@ -4615,19 +4623,47 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
     const boxNumber = currentChildren + 1;
     const childTracking = `${master.tracking_internal}-${String(boxNumber).padStart(4, '0')}`;
 
+    // 💰 Calcular costo PO Box para ESTA caja individual usando la misma fórmula
+    // que createShipment (calculatePOBoxCost), para que toda hija tenga sus campos
+    // canónicos: pobox_service_cost (MXN), pobox_cost_usd, pobox_venta_usd,
+    // pobox_tarifa_nivel y registered_exchange_rate.
+    let childServiceMxn = 0;
+    let childCostUsd: number | null = null;
+    let childVentaUsd: number | null = null;
+    let childNivel: number | null = null;
+    let childTc: number | null = null;
+    if ((master.service_type || 'POBOX_USA') === 'POBOX_USA') {
+      try {
+        const cr = await calculatePOBoxCost(client, [{ weight: w, length: l, width: wd, height: h }]);
+        childServiceMxn = cr.poboxServiceCost || 0;
+        childCostUsd = cr.poboxCostUsd ?? null;
+        childVentaUsd = cr.precioVentaUsd ?? null;
+        childNivel = cr.nivelTarifa ?? null;
+        childTc = cr.registeredExchangeRate || null;
+      } catch (calcErr) {
+        console.warn('[addBulkBoxToMaster] No se pudo calcular costo PO Box, hija quedará sin valores:', calcErr);
+      }
+    }
+
     await client.query('BEGIN');
+    // pobox_service_cost = VENTA MXN (= venta_usd × tc); pobox_provider_cost_* = COSTO INTERNO
+    const childVentaMxn = (childVentaUsd || 0) * (childTc || 0);
     const r = await client.query(
       `INSERT INTO packages
         (user_id, box_id, tracking_internal, tracking_provider, description, weight,
          pkg_length, pkg_width, pkg_height, status,
          is_master, master_id, box_number, total_boxes, carrier,
          destination_country, destination_city, destination_address,
-         service_type, warehouse_location)
+         service_type, warehouse_location,
+         pobox_service_cost, pobox_cost_usd, pobox_venta_usd, pobox_tarifa_nivel, registered_exchange_rate,
+         pobox_provider_cost_mxn, pobox_provider_cost_usd)
        VALUES ($1, $2, $3, $4, $5, $6,
                $7, $8, $9, $10,
                false, $11, $12, $13, $14,
                $15, $16, $17,
-               $18, $19)
+               $18, $19,
+               $20, $21, $22, $23, $24,
+               $25, $26)
        RETURNING id, tracking_internal, weight, pkg_length, pkg_width, pkg_height`,
       [
         master.user_id,
@@ -4647,13 +4683,26 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
         master.destination_address || 'Pendiente de asignar',
         master.service_type || 'POBOX_USA',
         master.warehouse_location || 'usa_pobox',
+        childVentaMxn,         // pobox_service_cost (VENTA MXN)
+        childCostUsd,          // pobox_cost_usd (legacy = costo interno USD)
+        childVentaUsd,
+        childNivel,
+        childTc,
+        childServiceMxn,       // pobox_provider_cost_mxn (COSTO INTERNO MXN)
+        childCostUsd,          // pobox_provider_cost_usd (COSTO INTERNO USD)
       ]
     );
 
-    // Recalcular peso total del master sumando todas las hijas
+    // Sincronizar el master sumando hijas (peso + venta + costo proveedor)
     await client.query(
-      `UPDATE packages SET weight = COALESCE((SELECT SUM(weight) FROM packages WHERE master_id = $1), 0),
-                            updated_at = NOW()
+      `UPDATE packages SET
+         weight                  = COALESCE((SELECT SUM(weight)                  FROM packages WHERE master_id = $1), 0),
+         pobox_service_cost      = COALESCE((SELECT SUM(pobox_service_cost)      FROM packages WHERE master_id = $1), 0),
+         pobox_provider_cost_mxn = COALESCE((SELECT SUM(pobox_provider_cost_mxn) FROM packages WHERE master_id = $1), 0),
+         pobox_provider_cost_usd = COALESCE((SELECT SUM(pobox_provider_cost_usd) FROM packages WHERE master_id = $1), 0),
+         pobox_cost_usd          = COALESCE((SELECT SUM(pobox_provider_cost_usd) FROM packages WHERE master_id = $1), 0),
+         pobox_venta_usd         = COALESCE((SELECT SUM(pobox_venta_usd)         FROM packages WHERE master_id = $1), 0),
+         updated_at = NOW()
        WHERE id = $1`,
       [masterId]
     );

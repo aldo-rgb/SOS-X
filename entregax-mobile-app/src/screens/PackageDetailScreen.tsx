@@ -144,7 +144,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
   // 💰 Calcular costo PO Box correcto.
   // ⚠️ El backend ya calcula el precio real según la tabla pobox_tarifas_volumen
   // (basado en CBM por caja). NO debemos recalcular con tarifas hardcoded.
-  // Preferimos siempre los valores del backend (pobox_venta_mxn, pobox_venta_usd).
+  // Preferimos siempre los valores del backend (pobox_service_cost MXN, pobox_venta_usd).
   const calcularCostoPOBox = () => {
     if (!details) return { costoMxn: 0, costoTotal: 0, saldo: 0, totalBoxes: 1, precioUnitarioUsd: 39, tc: 18.09, nivel: 1 };
 
@@ -161,21 +161,23 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     const tc = Number(details.registered_exchange_rate) || 18.09;
     const nivel = details.pobox_tarifa_nivel || 1;
 
-    // ✅ Costo PO Box en MXN: usar valor del backend
-    const ventaMxnBackend = Number((details as any).pobox_venta_mxn) || 0;
+    // ✅ Costo PO Box en MXN: usar pobox_service_cost del backend (MXN canónico)
+    const serviceCostBackend = Number((details as any).pobox_service_cost) || 0;
     const ventaUsdBackend = Number((details as any).pobox_venta_usd) || 0;
 
-    let costoPoboxMxn = ventaMxnBackend;
-    let costoPoboxUsd = ventaUsdBackend;
+    let costoPoboxMxn = serviceCostBackend;
+    let costoPoboxUsd = ventaUsdBackend * totalBoxes;
 
     // Si el master no trae costo pero sí hay hijas con costo, sumar hijas.
     const childrenCostMxn = childPackages.reduce(
-      (sum, child: any) =>
-        sum +
-        (Number(child?.pobox_venta_mxn) ||
-          Number(child?.assigned_cost_mxn) ||
-          Number(child?.saldo_pendiente) ||
-          0),
+      (sum, child: any) => {
+        const cServ = Number(child?.pobox_service_cost) || 0;
+        if (cServ > 0) return sum + cServ;
+        const cUsd = Number(child?.pobox_venta_usd) || 0;
+        const cTc = Number(child?.registered_exchange_rate) || tc;
+        if (cUsd > 0 && cTc > 0) return sum + cUsd * cTc;
+        return sum + (Number(child?.assigned_cost_mxn) || 0);
+      },
       0
     );
 
