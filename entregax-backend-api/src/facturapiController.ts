@@ -313,6 +313,15 @@ export async function runFacturapiSyncAll(opts: { days?: number; source?: string
 export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Promise<any> => {
   const emitterId = parseInt(String(req.params.emitterId || ''), 10);
   const { from, to } = req.body || {};
+  const userId = req.user?.userId || (req.user as any)?.id;
+  const role = req.user?.role;
+  if (role === 'accountant') {
+    const perm = await pool.query(
+      `SELECT 1 FROM accountant_emitter_permissions WHERE user_id=$1 AND fiscal_emitter_id=$2 AND can_view=TRUE`,
+      [userId, emitterId]
+    );
+    if (perm.rowCount === 0) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
+  }
 
   const e = await loadEmitter(emitterId);
   if (!e) return res.status(404).json({ error: 'Emisor no encontrado' });
@@ -385,6 +394,15 @@ export const downloadFacturapiAttachment = async (req: AuthRequest, res: Respons
     const facturapiId = String(req.params.facturapiId || '');
     const type = String(req.params.type || '').toLowerCase();
     if (!['xml', 'pdf'].includes(type)) return res.status(400).json({ error: 'type debe ser xml o pdf' });
+    const userId = req.user?.userId || (req.user as any)?.id;
+    const role = req.user?.role;
+    if (role === 'accountant') {
+      const perm = await pool.query(
+        `SELECT 1 FROM accountant_emitter_permissions WHERE user_id=$1 AND fiscal_emitter_id=$2 AND can_view=TRUE`,
+        [userId, emitterId]
+      );
+      if (perm.rowCount === 0) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
+    }
     const e = await loadEmitter(emitterId);
     if (!e || !e.facturapi_api_key) return res.status(400).json({ error: 'Facturapi no configurado' });
 

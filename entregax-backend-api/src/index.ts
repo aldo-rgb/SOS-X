@@ -3312,8 +3312,8 @@ app.post('/api/webhooks/facturama/:emitterId', handleFacturamaWebhook);
 app.get('/api/admin/facturapi/config/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getFacturapiConfig);
 app.put('/api/admin/facturapi/config/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), saveFacturapiConfig);
 app.post('/api/admin/facturapi/test/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), testFacturapiConnection);
-app.post('/api/admin/facturapi/sync/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncFacturapiReceived);
-app.get('/api/admin/facturapi/:emitterId/download/:type/:facturapiId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), downloadFacturapiAttachment);
+app.post('/api/admin/facturapi/sync/:emitterId', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), syncFacturapiReceived);
+app.get('/api/admin/facturapi/:emitterId/download/:type/:facturapiId', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), downloadFacturapiAttachment);
 // Webhook público (Facturapi → backend) para sincronización en tiempo real
 app.post('/api/webhooks/facturapi/:emitterId', handleFacturapiWebhook);
 // Cuentas por Pagar (admin/director/super_admin/contador con permiso al emisor)
