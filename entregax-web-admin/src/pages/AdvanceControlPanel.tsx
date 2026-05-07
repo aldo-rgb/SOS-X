@@ -168,6 +168,7 @@ export default function AdvanceControlPanel() {
     const [referenciasValidas, setReferenciasValidas] = useState<{ reference_code: string; container_number: string }[]>([]);
     const [referenciasValidacion, setReferenciasValidacion] = useState<{ [key: string]: { valida: boolean; container_number?: string; duplicada?: boolean } }>({});
     const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
+    const [comprobantePreviewUrl, setComprobantePreviewUrl] = useState<string | null>(null);
     
     // Referencias y UI
     const [referencias, setReferencias] = useState<Referencia[]>([]);
@@ -182,6 +183,17 @@ export default function AdvanceControlPanel() {
     // UI
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
     const [saving, setSaving] = useState(false);
+
+    // Preview de comprobante (solo imágenes)
+    useEffect(() => {
+        if (!comprobanteFile || !comprobanteFile.type.startsWith('image/')) {
+            setComprobantePreviewUrl(null);
+            return;
+        }
+        const objectUrl = URL.createObjectURL(comprobanteFile);
+        setComprobantePreviewUrl(objectUrl);
+        return () => URL.revokeObjectURL(objectUrl);
+    }, [comprobanteFile]);
 
     const getToken = () => localStorage.getItem('token');
 
@@ -1012,9 +1024,32 @@ export default function AdvanceControlPanel() {
                                     type="file"
                                     hidden
                                     accept=".pdf,.jpg,.jpeg,.png"
-                                    onChange={(e) => setComprobanteFile(e.target.files?.[0] || null)}
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0] || null;
+                                        setComprobanteFile(file);
+                                    }}
                                 />
                             </Button>
+                            {comprobantePreviewUrl && (
+                                <Box sx={{ mt: 1.5 }}>
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
+                                        Preview del comprobante
+                                    </Typography>
+                                    <Box
+                                        component="img"
+                                        src={comprobantePreviewUrl}
+                                        alt="Preview comprobante"
+                                        sx={{
+                                            width: '100%',
+                                            maxHeight: 220,
+                                            objectFit: 'contain',
+                                            border: '1px solid #E0E0E0',
+                                            borderRadius: 1,
+                                            bgcolor: '#FAFAFA',
+                                        }}
+                                    />
+                                </Box>
+                            )}
                         </Grid>
 
                         {/* Area de Referencias */}

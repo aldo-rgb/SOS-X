@@ -196,8 +196,12 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         }, 0);
 
     const openLabelsModal = () => {
-        // Por defecto seleccionar todas las órdenes y resetear cantidades
-        setSelectedOrderIds(new Set(orders.map((o) => o.id)));
+        // Por defecto seleccionar solo órdenes PENDIENTES.
+        // Las ya recibidas en MTY deben aparecer deseleccionadas.
+        const pendingIds = orders
+            .filter((o) => o.status !== 'received_mty')
+            .map((o) => o.id);
+        setSelectedOrderIds(new Set(pendingIds));
         setReceivedByOrder({});
         setLabelsModalOpen(true);
     };
@@ -216,10 +220,16 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     };
 
     const toggleAllOrdersForLabel = () => {
-        if (selectedOrderIds.size === orders.length) {
+        const pendingIds = orders
+            .filter((o) => o.status !== 'received_mty')
+            .map((o) => o.id);
+
+        const allPendingSelected = pendingIds.length > 0 && pendingIds.every((id) => selectedOrderIds.has(id));
+
+        if (allPendingSelected) {
             setSelectedOrderIds(new Set());
         } else {
-            setSelectedOrderIds(new Set(orders.map((o) => o.id)));
+            setSelectedOrderIds(new Set(pendingIds));
         }
     };
 
@@ -1195,9 +1205,18 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 )}
                             </Typography>
                             <Button size="small" variant="outlined" onClick={toggleAllOrdersForLabel} sx={{ color: BLACK, borderColor: BLACK }}>
-                                {selectedOrderIds.size === orders.length ? 'Quitar todo' : 'Seleccionar todo'}
+                                {(() => {
+                                    const pendingIds = orders
+                                        .filter((o) => o.status !== 'received_mty')
+                                        .map((o) => o.id);
+                                    const allPendingSelected = pendingIds.length > 0 && pendingIds.every((id) => selectedOrderIds.has(id));
+                                    return allPendingSelected ? 'Quitar todo' : 'Seleccionar pendientes';
+                                })()}
                             </Button>
                         </Stack>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                            Los logs ya recibidos en MTY aparecen deseleccionados por defecto.
+                        </Typography>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                             💡 Si un log llegó incompleto, ajusta las cajas recibidas. Al dar <strong>Reportar faltantes</strong> se marcarán como retraso y se notificará a CEDIS CDMX y Administradores.
                         </Typography>
