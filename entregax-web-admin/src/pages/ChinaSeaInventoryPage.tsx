@@ -140,16 +140,28 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
 
             {stats && (
                 <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
-                    <StatCard label="En China" value={stats.received_china} color="#1976D2" />
-                    <StatCard label="En tránsito" value={stats.in_transit} color={ORANGE} />
-                    <StatCard label="Aduana" value={stats.customs} color="#7B1FA2" />
-                                        <StatCard
-                                            label="Recibidos CEDIS"
-                                            value={Number(stats.received_cedis || 0) || Number(stats.received_cdmx || 0)}
-                                            color="#2E7D32"
-                                        />
-                    <StatCard label="Entregados" value={stats.delivered} color="#424242" />
-                    <StatCard label="Faltantes" value={stats.missing} color={RED} />
+                    <StatCard label="En China" value={stats.received_china} color="#1976D2"
+                        active={statusFilter === 'received_china'}
+                        onClick={() => { setStatusFilter(statusFilter === 'received_china' ? 'all' : 'received_china'); setPage(0); }} />
+                    <StatCard label="En tránsito" value={stats.in_transit} color={ORANGE}
+                        active={statusFilter === 'in_transit'}
+                        onClick={() => { setStatusFilter(statusFilter === 'in_transit' ? 'all' : 'in_transit'); setPage(0); }} />
+                    <StatCard label="Aduana" value={stats.customs} color="#7B1FA2"
+                        active={statusFilter === 'customs_cleared'}
+                        onClick={() => { setStatusFilter(statusFilter === 'customs_cleared' ? 'all' : 'customs_cleared'); setPage(0); }} />
+                    <StatCard
+                        label="Recibidos CEDIS"
+                        value={Number(stats.received_cedis || 0) || Number(stats.received_cdmx || 0)}
+                        color="#2E7D32"
+                        active={statusFilter === 'received_cdmx'}
+                        onClick={() => { setStatusFilter(statusFilter === 'received_cdmx' ? 'all' : 'received_cdmx'); setPage(0); }}
+                    />
+                    <StatCard label="Entregados" value={stats.delivered} color="#424242"
+                        active={statusFilter === 'delivered'}
+                        onClick={() => { setStatusFilter(statusFilter === 'delivered' ? 'all' : 'delivered'); setPage(0); }} />
+                    <StatCard label="Faltantes" value={stats.missing} color={RED}
+                        active={statusFilter === 'missing'}
+                        onClick={() => { setStatusFilter(statusFilter === 'missing' ? 'all' : 'missing'); setPage(0); }} />
                 </Stack>
             )}
 
@@ -294,9 +306,19 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
     );
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({ label, value, color, active, onClick }: { label: string; value: number; color: string; active?: boolean; onClick?: () => void }) {
     return (
-        <Paper sx={{ p: 2, minWidth: 130, borderLeft: `4px solid ${color}`, flex: 1 }}>
+        <Paper
+            onClick={onClick}
+            sx={{
+                p: 2, minWidth: 130, borderLeft: `4px solid ${color}`, flex: 1,
+                cursor: onClick ? 'pointer' : 'default',
+                bgcolor: active ? `${color}18` : 'background.paper',
+                outline: active ? `2px solid ${color}` : 'none',
+                transition: 'all 0.15s',
+                '&:hover': onClick ? { bgcolor: `${color}12`, transform: 'translateY(-1px)', boxShadow: 3 } : {},
+            }}
+        >
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>
                 {label}
             </Typography>
