@@ -1021,11 +1021,12 @@ export const listAccountsPayable = async (req: AuthRequest, res: Response): Prom
         const sql = `
             SELECT r.id, r.uuid_sat, r.folio, r.serie,
                    r.emisor_rfc, r.emisor_nombre,
+                   r.tipo_comprobante, r.metodo_pago, r.forma_pago, r.uso_cfdi,
                    r.total, r.subtotal, r.moneda,
                    r.fecha_emision, r.due_date, r.scheduled_payment_date,
                    r.detection_source, r.approval_status, r.payment_status,
                    r.paid_at, r.paid_amount,
-                   r.pdf_url, r.xml_url,
+                   r.pdf_url, r.xml_url, r.facturapi_id, r.fiscal_emitter_id,
                    u.email AS approved_by_email
             FROM accounting_received_invoices r
             LEFT JOIN users u ON u.id = r.approved_by

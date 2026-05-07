@@ -906,7 +906,7 @@ function ReceivedInvoicesTab({ emitter }: { emitter: Emitter }) {
                   <TableCell>{fmtDate(r.fecha_emision)}</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 'bold' }}>{fmt(parseFloat(r.total))}</TableCell>
                   <TableCell>
-                    <Chip label={r.tipo_comprobante === 'I' ? 'Ingreso' : r.tipo_comprobante === 'E' ? 'Egreso' : r.tipo_comprobante} size="small" variant="outlined" />
+                    <Chip label={r.tipo_comprobante || '—'} size="small" variant="outlined" />
                   </TableCell>
                   <TableCell>
                     {r.inventory_imported ? (
@@ -1318,6 +1318,7 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
   const [totals, setTotals] = useState<any>({});
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'pending' | 'approved' | 'rejected' | 'paid'>('pending');
+  const [monthFilter, setMonthFilter] = useState<string>(''); // '' = todos, 'YYYY-MM' = mes específico
   const [search, setSearch] = useState('');
   const [actionDlg, setActionDlg] = useState<{ open: boolean; mode: 'approve' | 'reject' | 'pay' | null; row: any | null }>({ open: false, mode: null, row: null });
   const [actionForm, setActionForm] = useState<any>({});
@@ -1329,6 +1330,13 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
     try {
       const params: any = { status: statusFilter };
       if (search.trim()) params.q = search.trim();
+      if (monthFilter) {
+        const [y, m] = monthFilter.split('-').map(Number);
+        const from = new Date(y, m - 1, 1);
+        const to = new Date(y, m, 0); // último día del mes
+        params.from = from.toISOString().slice(0, 10);
+        params.to = to.toISOString().slice(0, 10);
+      }
       const res = await api.get(`/accounting/${emitter.id}/payables`, { params });
       setRows(res.data.data || []);
       setTotals(res.data.totals || {});
@@ -1336,7 +1344,7 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
       setSnackbar({ open: true, message: e.response?.data?.error || 'Error cargando CxP', severity: 'error' });
     } finally { setLoading(false); }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [emitter.id, statusFilter]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [emitter.id, statusFilter, monthFilter]);
 
   const handleSyncFacturapi = async () => {
     setSyncingFacturapi(true);
@@ -1474,6 +1482,25 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
           <Tab value="rejected" label="Rechazadas" />
         </Tabs>
         <Box sx={{ flex: 1 }} />
+        <FormControl size="small" sx={{ minWidth: 160 }}>
+          <InputLabel>Mes</InputLabel>
+          <Select label="Mes" value={monthFilter} onChange={(e) => setMonthFilter(String(e.target.value))}>
+            <MenuItem value=""><em>Todos los meses</em></MenuItem>
+            {(() => {
+              const opts: { value: string; label: string }[] = [];
+              const now = new Date();
+              const start = new Date(2026, 0, 1); // enero 2026
+              let d = new Date(now.getFullYear(), now.getMonth(), 1);
+              while (d >= start) {
+                const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+                const label = d.toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+                opts.push({ value, label: label.charAt(0).toUpperCase() + label.slice(1) });
+                d = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+              }
+              return opts.map(o => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>);
+            })()}
+          </Select>
+        </FormControl>
         <TextField size="small" placeholder="Buscar UUID, RFC, folio…" value={search}
           onChange={(e) => setSearch(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && load()}
           sx={{ minWidth: 280 }}
@@ -1556,8 +1583,73 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
                   </TableCell>
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                      {r.pdf_url && <IconButton size="small" component="a" href={r.pdf_url} target="_blank"><PictureAsPdfIcon fontSize="small" /></IconButton>}
-                      {r.xml_url && <IconButton size="small" component="a" href={r.xml_url} target="_blank"><CodeIcon fontSize="small" /></IconButton>}
+                      {(() => {
+                        const isFacturapi = r.facturapi_id && r.fiscal_emitter_id;
+                        const downloadFacturapi = async (type: 'pdf' | 'xml') => {
+                          try {
+                            const resp = await api.get(
+                              `/admin/facturapi/${r.fiscal_emitter_id}/download/${type}/${r.facturapi_id}`,
+                              { responseType: 'blob' }
+                            );
+                            const blob = new Blob([resp.data], {
+                              type: type === 'pdf' ? 'application/pdf' : 'application/xml',
+                            });
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = `${r.uuid_sat || r.facturapi_id}.${type}`;
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            setTimeout(() => URL.revokeObjectURL(url), 1000);
+                          } catch (err: any) {
+                            setSnackbar({ open: true, message: err?.response?.data?.error || 'Error descargando archivo', severity: 'error' });
+                          }
+                        };
+                        return (
+                          <>
+                            {(r.pdf_url || isFacturapi) && (
+                              <Tooltip title="Descargar PDF">
+                                <IconButton
+                                  size="small"
+                                  sx={{ color: '#D32F2F' }}
+                                  {...(isFacturapi
+                                    ? { onClick: () => downloadFacturapi('pdf') }
+                                    : { component: 'a' as any, href: r.pdf_url, target: '_blank' })}
+                                >
+                                  <PictureAsPdfIcon fontSize="small" />
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                            {(r.xml_url || isFacturapi) && (
+                              <Tooltip title="Descargar XML">
+                                <IconButton
+                                  size="small"
+                                  sx={{ p: 0.5 }}
+                                  {...(isFacturapi
+                                    ? { onClick: () => downloadFacturapi('xml') }
+                                    : { component: 'a' as any, href: r.xml_url, target: '_blank' })}
+                                >
+                                  <Box
+                                    sx={{
+                                      fontSize: '0.62rem',
+                                      fontWeight: 800,
+                                      px: 0.6,
+                                      py: 0.15,
+                                      borderRadius: 0.5,
+                                      bgcolor: '#1565C0',
+                                      color: 'white',
+                                      lineHeight: 1.4,
+                                    }}
+                                  >
+                                    XML
+                                  </Box>
+                                </IconButton>
+                              </Tooltip>
+                            )}
+                          </>
+                        );
+                      })()}
                       {r.approval_status === 'pending' && (
                         <>
                           <Tooltip title="Aprobar"><IconButton size="small" color="success" onClick={() => openAction('approve', r)}><ThumbUpIcon fontSize="small" /></IconButton></Tooltip>

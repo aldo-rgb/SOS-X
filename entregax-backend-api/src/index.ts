@@ -204,6 +204,8 @@ import {
   testFacturapiConnection,
   syncFacturapiReceived,
   downloadFacturapiAttachment,
+  handleFacturapiWebhook,
+  runFacturapiSyncAll,
 } from './facturapiController';
 import {
   getServiceInstructions,
@@ -3308,6 +3310,8 @@ app.put('/api/admin/facturapi/config/:emitterId', authenticateToken, requireMinL
 app.post('/api/admin/facturapi/test/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), testFacturapiConnection);
 app.post('/api/admin/facturapi/sync/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncFacturapiReceived);
 app.get('/api/admin/facturapi/:emitterId/download/:type/:facturapiId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), downloadFacturapiAttachment);
+// Webhook público (Facturapi → backend) para sincronización en tiempo real
+app.post('/api/webhooks/facturapi/:emitterId', handleFacturapiWebhook);
 // Cuentas por Pagar (admin/director/super_admin/contador con permiso al emisor)
 app.get('/api/accounting/:emitterId/payables', authenticateToken, listAccountsPayable);
 app.post('/api/accounting/:emitterId/payables/:invoiceId/approve', authenticateToken, approveAccountPayable);

@@ -147,6 +147,169 @@ export const testFacturapiConnection = async (req: AuthRequest, res: Response): 
  * POST /api/admin/facturapi/sync/:emitterId  body { from, to }
  * Inserta en accounting_received_invoices con detection_source='facturapi_sync'.
  * =============================================================== */
+
+/**
+ * Núcleo reutilizable de sincronización (usado por endpoint manual,
+ * cron automático y webhook). Devuelve un objeto resumen sin tocar `res`.
+ * Lanza error si las credenciales son inválidas.
+ */
+export async function runFacturapiSync(
+  emitterId: number,
+  opts: { from?: string; to?: string; source?: string } = {}
+): Promise<{
+  emitter_id: number;
+  total_found: number;
+  inserted: number;
+  skipped: number;
+  pages_fetched: number;
+}> {
+  const e = await loadEmitter(emitterId);
+  if (!e) throw new Error(`Emisor ${emitterId} no encontrado`);
+  if (!e.facturapi_api_key) throw new Error(`Facturapi no configurado para emisor ${emitterId}`);
+  if (!e.facturapi_enabled) throw new Error(`Facturapi deshabilitado para emisor ${emitterId}`);
+
+  const auth = getFacturapiAuth(e.facturapi_api_key);
+  const { from, to } = opts;
+
+  const limit = 100;
+  let page = 1;
+  let totalPages = 1;
+  const allItems: any[] = [];
+
+  do {
+    const params: any = { page, limit, issuer_type: 'receiving' };
+    if (from) params['date[gt]'] = `${from}T00:00:00`;
+    if (to)   params['date[lt]'] = `${to}T23:59:59`;
+
+    const r = await axios.get(`${FACTURAPI_BASE}/invoices`, {
+      ...auth,
+      params,
+      validateStatus: () => true,
+    });
+
+    if (r.status < 200 || r.status >= 300) {
+      const msg = r.data?.message || r.statusText || 'Error desconocido';
+      throw new Error(`Facturapi ${r.status}: ${msg}`);
+    }
+
+    const data = r.data || {};
+    const items = Array.isArray(data) ? data : (data.data || data.results || []);
+    allItems.push(...items);
+    totalPages = data.total_pages ?? data.totalPages ?? (items.length < limit ? page : page + 1);
+    page += 1;
+    if (page > 50) break;
+  } while (page <= totalPages);
+
+  const detectionSource = opts.source || 'facturapi_sync';
+  let inserted = 0;
+  let skipped = 0;
+
+  for (const cfdi of allItems) {
+    const uuid = cfdi.uuid || cfdi.UUID || cfdi.fiscal_uuid || cfdi.id;
+    if (!uuid) { skipped++; continue; }
+
+    const dup = await pool.query(
+      `SELECT id FROM accounting_received_invoices
+        WHERE fiscal_emitter_id = $1 AND uuid_sat = $2`,
+      [emitterId, uuid]
+    );
+    if (dup.rows.length) { skipped++; continue; }
+
+    const issuer   = cfdi.issuer_info || cfdi.issuer || cfdi.emisor || {};
+    const customer = cfdi.customer || cfdi.receiver || cfdi.receptor || {};
+    const emisorRfc    = issuer.tax_id || issuer.rfc || cfdi.issuer_tax_id || cfdi.issuer_rfc || null;
+    const emisorNombre = issuer.legal_name || issuer.name || cfdi.issuer_legal_name || cfdi.issuer_name || null;
+    const total        = parseFloat(cfdi.total ?? 0) || 0;
+    const subtotal     = parseFloat(cfdi.subtotal ?? 0) || 0;
+    const fechaEmision = cfdi.date || cfdi.created_at || null;
+    const formaPago    = cfdi.payment_form || null;
+    const metodoPago   = cfdi.payment_method || null;
+    const usoCfdi      = cfdi.use || customer.use || null;
+    const moneda       = cfdi.currency || 'MXN';
+    const folio        = cfdi.folio_number ? String(cfdi.folio_number) : (cfdi.folio || null);
+    const serie        = cfdi.series || null;
+    const tipo         = cfdi.type || 'I';
+    const facturapiId  = cfdi.id || null;
+    const pdfUrl       = facturapiId ? `${FACTURAPI_BASE}/invoices/${facturapiId}/pdf` : null;
+    const xmlUrl       = facturapiId ? `${FACTURAPI_BASE}/invoices/${facturapiId}/xml` : null;
+
+    await pool.query(
+      `INSERT INTO accounting_received_invoices (
+          fiscal_emitter_id, uuid_sat, folio, serie,
+          emisor_rfc, emisor_nombre,
+          receptor_rfc, receptor_nombre,
+          tipo_comprobante, uso_cfdi, metodo_pago, forma_pago,
+          moneda, subtotal, total, fecha_emision,
+          pdf_url, xml_url, facturapi_id, detection_source,
+          approval_status, payment_status
+       ) VALUES (
+          $1,$2,$3,$4,
+          $5,$6,
+          $7,$8,
+          $9,$10,$11,$12,
+          $13,$14,$15,$16,
+          $17,$18,$19,$20,
+          'pending','pending'
+       )`,
+      [
+        emitterId, uuid, folio, serie,
+        emisorRfc, emisorNombre,
+        e.rfc, customer.legal_name || null,
+        tipo, usoCfdi, metodoPago, formaPago,
+        moneda, subtotal, total, fechaEmision,
+        pdfUrl, xmlUrl, facturapiId, detectionSource,
+      ]
+    );
+    inserted++;
+  }
+
+  await pool.query(
+    `UPDATE fiscal_emitters
+        SET facturapi_last_sync = NOW(), facturapi_last_sync_count = $1
+      WHERE id = $2`,
+    [inserted, emitterId]
+  );
+
+  return {
+    emitter_id: emitterId,
+    total_found: allItems.length,
+    inserted,
+    skipped,
+    pages_fetched: page - 1,
+  };
+}
+
+/**
+ * Sincroniza TODOS los emisores con Facturapi habilitado (usado por cron).
+ */
+export async function runFacturapiSyncAll(opts: { days?: number; source?: string } = {}): Promise<any[]> {
+  const days = opts.days ?? 30;
+  const to = new Date();
+  const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const fromStr = from.toISOString().slice(0, 10);
+  const toStr = to.toISOString().slice(0, 10);
+
+  const r = await pool.query(
+    `SELECT id, alias FROM fiscal_emitters
+      WHERE facturapi_enabled = TRUE AND facturapi_api_key IS NOT NULL`
+  );
+
+  const results: any[] = [];
+  for (const row of r.rows) {
+    try {
+      const res = await runFacturapiSync(row.id, {
+        from: fromStr,
+        to: toStr,
+        source: opts.source || 'facturapi_cron',
+      });
+      results.push({ ...res, alias: row.alias, ok: true });
+    } catch (err: any) {
+      results.push({ emitter_id: row.id, alias: row.alias, ok: false, error: err.message });
+    }
+  }
+  return results;
+}
+
 export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Promise<any> => {
   const emitterId = parseInt(String(req.params.emitterId || ''), 10);
   const { from, to } = req.body || {};
@@ -157,152 +320,14 @@ export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Pr
     return res.status(400).json({ error: 'Facturapi no configurado para este emisor' });
   }
 
-  const auth = getFacturapiAuth(e.facturapi_api_key);
-
   try {
-    // Endpoint OFICIAL de Facturapi v2:
-    //   GET /invoices?issuer_type=receiving  → facturas donde tu org es el receptor
-    // Paginado: page=1..N, limit hasta 100.
-    const limit = 100;
-    let page = 1;
-    let totalPages = 1;
-    let allItems: any[] = [];
-    const triedParams: any[] = [];
-
-    do {
-      const params: any = { page, limit, issuer_type: 'receiving' };
-      if (from) params['date[gt]'] = `${from}T00:00:00`;
-      if (to)   params['date[lt]'] = `${to}T23:59:59`;
-      triedParams.push({ ...params });
-
-      const r = await axios.get(`${FACTURAPI_BASE}/invoices`, {
-        ...auth,
-        params,
-        validateStatus: () => true,
-      });
-
-      if (r.status === 401 || r.status === 403) {
-        return res.status(401).json({
-          error: 'Credenciales Facturapi rechazadas',
-          detail: r.data?.message || 'Verifica la API key y el ambiente (LIVE/TEST).',
-          status: r.status,
-          tried_url: `${FACTURAPI_BASE}/invoices`,
-          tried_params: params,
-        });
-      }
-      if (r.status === 404) {
-        return res.status(404).json({
-          error: 'Facturapi devolvió 404 al consultar facturas recibidas',
-          detail: r.data?.message || 'Resource not found',
-          tried_url: `${FACTURAPI_BASE}/invoices`,
-          tried_params: params,
-          how_to_fix: [
-            'Verifica que la API key sea LIVE (sk_live_...) si tu dashboard está en Live, o TEST (sk_test_...) si está en Test.',
-            'Confirma que la organización tenga el módulo "Bandeja de Recibidas" / "Buzón Fiscal" activado en https://app.facturapi.io',
-            'Si el módulo no está activado, sigue el asistente con tu e.firma para autorizar la descarga desde el SAT',
-          ].join(' • '),
-        });
-      }
-      if (r.status < 200 || r.status >= 300) {
-        return res.status(r.status).json({
-          error: 'Facturapi respondió con error',
-          detail: r.data?.message || r.data,
-          status: r.status,
-          tried_url: `${FACTURAPI_BASE}/invoices`,
-          tried_params: params,
-        });
-      }
-
-      const data = r.data || {};
-      const items = Array.isArray(data) ? data : (data.data || data.results || []);
-      allItems.push(...items);
-      totalPages = data.total_pages ?? data.totalPages ?? (items.length < limit ? page : page + 1);
-      page += 1;
-      if (page > 50) break; // safeguard máx 5000 facturas por sync
-    } while (page <= totalPages);
-
-    let inserted = 0;
-    let skipped = 0;
-
-    for (const cfdi of allItems) {
-      const uuid = cfdi.uuid || cfdi.UUID || cfdi.fiscal_uuid || cfdi.id;
-      if (!uuid) { skipped++; continue; }
-
-      const dup = await pool.query(
-        `SELECT id FROM accounting_received_invoices
-          WHERE fiscal_emitter_id = $1 AND uuid_sat = $2`,
-        [emitterId, uuid]
-      );
-      if (dup.rows.length) { skipped++; continue; }
-
-      // Para facturas RECIBIDAS, Facturapi v2 expone el emisor en `issuer_info`
-      // y el receptor (tu org) en `customer`. Mantenemos fallbacks por si la
-      // estructura cambia.
-      const issuer   = cfdi.issuer_info || cfdi.issuer || cfdi.emisor || {};
-      const customer = cfdi.customer || cfdi.receiver || cfdi.receptor || {};
-      const emisorRfc    = issuer.tax_id || issuer.rfc || cfdi.issuer_tax_id || cfdi.issuer_rfc || null;
-      const emisorNombre = issuer.legal_name || issuer.name || cfdi.issuer_legal_name || cfdi.issuer_name || null;
-      const total        = parseFloat(cfdi.total ?? 0) || 0;
-      const subtotal     = parseFloat(cfdi.subtotal ?? 0) || 0;
-      const fechaEmision = cfdi.date || cfdi.created_at || null;
-      const formaPago    = cfdi.payment_form || null;
-      const metodoPago   = cfdi.payment_method || null;
-      const usoCfdi      = cfdi.use || customer.use || null;
-      const moneda       = cfdi.currency || 'MXN';
-      const folio        = cfdi.folio_number ? String(cfdi.folio_number) : (cfdi.folio || null);
-      const serie        = cfdi.series || null;
-      const tipo         = cfdi.type || 'I';
-      const facturapiId  = cfdi.id || null;
-      const pdfUrl       = facturapiId ? `${FACTURAPI_BASE}/invoices/${facturapiId}/pdf` : null;
-      const xmlUrl       = facturapiId ? `${FACTURAPI_BASE}/invoices/${facturapiId}/xml` : null;
-
-      await pool.query(
-        `INSERT INTO accounting_received_invoices (
-            fiscal_emitter_id, uuid_sat, folio, serie,
-            emisor_rfc, emisor_nombre,
-            receptor_rfc, receptor_nombre,
-            tipo_comprobante, uso_cfdi, metodo_pago, forma_pago,
-            moneda, subtotal, total, fecha_emision,
-            pdf_url, xml_url, facturapi_id, detection_source,
-            approval_status, payment_status
-         ) VALUES (
-            $1,$2,$3,$4,
-            $5,$6,
-            $7,$8,
-            $9,$10,$11,$12,
-            $13,$14,$15,$16,
-            $17,$18,$19,'facturapi_sync',
-            'pending','pending'
-         )`,
-        [
-          emitterId, uuid, folio, serie,
-          emisorRfc, emisorNombre,
-          e.rfc, customer.legal_name || null,
-          tipo, usoCfdi, metodoPago, formaPago,
-          moneda, subtotal, total, fechaEmision,
-          pdfUrl, xmlUrl, facturapiId,
-        ]
-      );
-      inserted++;
-    }
-
-    await pool.query(
-      `UPDATE fiscal_emitters
-          SET facturapi_last_sync = NOW(), facturapi_last_sync_count = $1
-        WHERE id = $2`,
-      [inserted, emitterId]
-    );
-
+    const result = await runFacturapiSync(emitterId, { from, to, source: 'facturapi_sync' });
     res.json({
       success: true,
-      total_found: allItems.length,
-      inserted,
-      skipped,
-      pages_fetched: page - 1,
+      ...result,
       diagnostic: {
         environment: e.facturapi_environment || 'live',
         base_url: FACTURAPI_BASE,
-        tried: triedParams,
       },
     });
   } catch (err: any) {
@@ -312,6 +337,40 @@ export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Pr
       detail: err.response?.data?.message || err.message,
       status: err.response?.status,
     });
+  }
+};
+
+/* =================================================================
+ * 6) WEBHOOK — Facturapi nos avisa de eventos (invoice.status_updated, etc.)
+ *    URL pública: POST /api/webhooks/facturapi/:emitterId
+ *    Configurar en https://app.facturapi.io → Webhooks
+ *    No requiere auth (Facturapi no firma payloads en v2 estándar).
+ *    Ante cualquier evento gatillamos un sync rápido (últimos 7 días) del emisor.
+ * =============================================================== */
+export const handleFacturapiWebhook = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const emitterId = parseInt(String(req.params.emitterId || ''), 10);
+    const evt = req.body || {};
+    console.log(`[facturapi-webhook] emitter=${emitterId} type=${evt.type || '?'} id=${evt.id || '?'}`);
+
+    // Respondemos inmediatamente para no hacer esperar a Facturapi.
+    res.json({ ok: true });
+
+    if (!emitterId) return;
+    const days = 7;
+    const to = new Date();
+    const from = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    runFacturapiSync(emitterId, {
+      from: from.toISOString().slice(0, 10),
+      to: to.toISOString().slice(0, 10),
+      source: 'facturapi_webhook',
+    })
+      .then((r) => console.log(`[facturapi-webhook] sync ok emitter=${emitterId} inserted=${r.inserted} skipped=${r.skipped}`))
+      .catch((err) => console.error(`[facturapi-webhook] sync error emitter=${emitterId}:`, err.message));
+  } catch (err: any) {
+    console.error('handleFacturapiWebhook:', err.message);
+    if (!res.headersSent) res.status(200).json({ ok: false });
   }
 };
 

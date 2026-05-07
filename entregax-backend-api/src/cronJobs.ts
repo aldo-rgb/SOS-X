@@ -5,6 +5,7 @@ import { blockOverdueAccounts, runCreditCollectionEngine } from './financeContro
 import { checkExpiringDocuments, checkUpcomingMaintenance } from './fleetController';
 import { actualizarCarteraVencida, sincronizarCartera } from './customerServiceController';
 import { syncActiveMJCustomerOrders } from './chinaController';
+import { runFacturapiSyncAll } from './facturapiController';
 
 /**
  * CRON JOB: Detección automática de clientes en riesgo
@@ -569,6 +570,30 @@ export const startMJCustomerSyncCron = () => {
 };
 
 /**
+ * CRON JOB: Sincronización con Facturapi (Cuentas por Pagar / CFDIs recibidos)
+ * Se ejecuta cada 6 horas. Para cada emisor con Facturapi habilitado, baja
+ * las facturas recibidas de los últimos 30 días y las inserta si son nuevas.
+ */
+export const startFacturapiSyncCron = () => {
+  cron.schedule('0 */6 * * *', async () => {
+    console.log('🧾 [CRON] Sincronizando Facturapi (CFDIs recibidos)...');
+    try {
+      const results = await runFacturapiSyncAll({ days: 30, source: 'facturapi_cron' });
+      const ok = results.filter(r => r.ok).length;
+      const totalInserted = results.reduce((s, r) => s + (r.inserted || 0), 0);
+      console.log(`✅ [CRON] Facturapi: ${ok}/${results.length} emisores sincronizados, ${totalInserted} facturas nuevas`);
+      const failed = results.filter(r => !r.ok);
+      if (failed.length) {
+        for (const f of failed) console.warn(`   ⚠️  ${f.alias} (id=${f.emitter_id}): ${f.error}`);
+      }
+    } catch (error: any) {
+      console.error('❌ [CRON] Error en sincronización Facturapi:', error.message);
+    }
+  });
+  console.log('📅 [CRON] Job de Facturapi (CFDIs recibidos) programado cada 6 horas');
+};
+
+/**
  * Inicializar todos los CRON jobs
  */
 export const initCronJobs = () => {
@@ -582,6 +607,7 @@ export const initCronJobs = () => {
   startExchangeRateCheckCron();
   startCarteraVencidaCron();
   startMJCustomerSyncCron();
+  startFacturapiSyncCron();
 };
 
 export default initCronJobs;
