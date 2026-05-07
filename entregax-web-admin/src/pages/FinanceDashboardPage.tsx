@@ -598,6 +598,8 @@ export default function FinanceDashboardPage() {
   };
 
   const token = localStorage.getItem('token') || '';
+  const currentUserRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; } })();
+  const isSuperAdmin = currentUserRole === 'super_admin';
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -624,9 +626,10 @@ export default function FinanceDashboardPage() {
     fetchDashboard();
   }, [fetchDashboard]);
 
-  // Auto-cargar historial de estado de cuenta al entrar al tab 2
+  // Auto-cargar historial de estado de cuenta al entrar al tab 2 o al cambiar empresa
   useEffect(() => {
-    if (tabValue === 2 && data && estadoCuentaRows.length === 0) {
+    if (tabValue === 2 && data) {
+      setEstadoCuentaRows([]);
       loadSavedBankEntries();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1821,12 +1824,29 @@ export default function FinanceDashboardPage() {
                 Extraer y Guardar
               </Button>
 
-              {estadoCuentaRows.length > 0 && (
+              {estadoCuentaRows.length > 0 && isSuperAdmin && (
                 <Button
                   variant="outlined"
                   color="error"
                   size="small"
-                  onClick={() => { setEstadoCuentaRows([]); setEstadoCuentaRaw(''); setCsvFile(null); setSavedEntriesCount(null); }}
+                  onClick={async () => {
+                    const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
+                    if (!empresaFilt) return;
+                    const confirmed = window.confirm(`¿Borrar TODOS los movimientos de ${empresaFilt.alias} de la base de datos? Esta acción no se puede deshacer.`);
+                    if (!confirmed) return;
+                    try {
+                      await api.delete(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                      });
+                      setEstadoCuentaRows([]);
+                      setEstadoCuentaRaw('');
+                      setCsvFile(null);
+                      setSavedEntriesCount(null);
+                      setSnackbar({ open: true, message: 'Movimientos eliminados correctamente', severity: 'success' });
+                    } catch (err: any) {
+                      setSnackbar({ open: true, message: 'Error al borrar: ' + (err.response?.data?.error || err.message), severity: 'error' });
+                    }
+                  }}
                 >
                   Limpiar
                 </Button>

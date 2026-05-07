@@ -6262,6 +6262,27 @@ app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(RO
 });
 
 // ============================================
+// BORRAR TODOS LOS MOVIMIENTOS DE ESTADO DE CUENTA POR EMPRESA
+// Solo super_admin puede ejecutar esta acción
+// ============================================
+app.delete('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { empresa_id } = req.query;
+    if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
+
+    const result = await pool.query(
+      'DELETE FROM bank_statement_entries WHERE empresa_id = $1 RETURNING id',
+      [empresa_id]
+    );
+
+    res.json({ success: true, deleted: result.rowCount });
+  } catch (error: any) {
+    console.error('Error deleting bank entries:', error);
+    res.status(500).json({ error: 'Error borrando movimientos', details: error.message });
+  }
+});
+
+// ============================================
 // MATCH REFERENCIAS DE ESTADO DE CUENTA BANCARIO
 // Busca referencias de pago en la BD
 // ============================================
