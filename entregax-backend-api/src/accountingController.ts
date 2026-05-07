@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { Pool } from 'pg';
+import { FacturamaClient, FacturamaError } from './facturamaClient';
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -245,6 +246,128 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
     } catch (e: any) {
         console.error('listPendingStamp:', e);
         res.status(500).json({ error: 'Error listando pendientes', message: e.message });
+    }
+};
+
+// Mapa de métodos de pago EntregaX → código SAT forma_pago
+const FORMA_PAGO_MAP: Record<string, string> = {
+    card: '04',        // Tarjeta de crédito
+    debit_card: '28',  // Tarjeta de débito
+    cash: '01',        // Efectivo
+    transfer: '03',    // Transferencia electrónica
+    spei: '03',
+    openpay: '04',
+    paypal: '31',      // Intermediario de pagos
+};
+
+/**
+ * POST /api/fiscal/invoice/manual
+ * Emite un CFDI por Facturama para un pago completado con requiere_factura=true.
+ */
+export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<any> => {
+    const userId = req.user?.userId || (req.user as any)?.id;
+    const role = req.user?.role;
+    const { payment_id, fiscal_emitter_id } = req.body;
+
+    if (!payment_id || !fiscal_emitter_id) {
+        return res.status(400).json({ error: 'Faltan payment_id o fiscal_emitter_id' });
+    }
+
+    const access = await checkEmitterAccess(userId!, role, Number(fiscal_emitter_id));
+    if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
+
+    try {
+        // 1. Obtener datos del pago y del usuario
+        const payRes = await pool.query(`
+            SELECT pp.id, pp.payment_reference, pp.amount, pp.currency, pp.payment_method,
+                   pp.paid_at, pp.facturada, pp.user_id,
+                   u.full_name, u.email, u.rfc, u.razon_social,
+                   u.regimen_fiscal, u.cfdi_zip, u.zip_code
+            FROM pobox_payments pp
+            LEFT JOIN users u ON u.id = pp.user_id
+            WHERE pp.id = $1 AND pp.status = 'completed'
+        `, [payment_id]);
+
+        if (payRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Pago no encontrado o no completado' });
+        }
+        const pay = payRes.rows[0];
+
+        if (pay.facturada) {
+            return res.status(409).json({ error: 'Este pago ya fue facturado' });
+        }
+
+        // 2. Datos del receptor (usar XAXX si no tiene RFC fiscal)
+        const receptorRfc = pay.rfc?.toUpperCase()?.trim() || 'XAXX010101000';
+        const receptorNombre = pay.razon_social?.trim() || pay.full_name?.trim() || 'Público en General';
+        const regimenFiscal = pay.regimen_fiscal?.trim() || '616'; // 616 = Sin obligaciones fiscales (PF)
+        const cpReceptor = pay.cfdi_zip?.trim() || pay.zip_code?.trim() || '06600';
+        const formaPago = FORMA_PAGO_MAP[pay.payment_method] || '99'; // 99 = Por definir
+
+        // 3. Crear cliente Facturama con credenciales del emisor
+        const client = await FacturamaClient.fromEmitterId(fiscal_emitter_id);
+
+        // 4. Emitir CFDI
+        const invoice = await client.invoices.create({
+            customer: {
+                legal_name: receptorNombre,
+                tax_id: receptorRfc,
+                tax_system: regimenFiscal,
+                address: { zip: cpReceptor },
+                email: pay.email || undefined,
+            },
+            items: [{
+                quantity: 1,
+                product: {
+                    description: `Servicio de logística - Ref: ${pay.payment_reference || pay.id}`,
+                    product_key: '78101803', // Servicios de logística y transporte
+                    unit_key: 'E48',
+                    price: parseFloat(pay.amount),
+                    taxes: [{ type: 'IVA', rate: 0.16 }],
+                },
+            }],
+            payment_form: formaPago,
+            payment_method: 'PUE',
+            use: receptorRfc === 'XAXX010101000' ? 'S01' : 'G03',
+            currency: pay.currency || 'MXN',
+        });
+
+        // 5. Guardar en facturas_emitidas
+        await pool.query(`
+            INSERT INTO facturas_emitidas
+                (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
+                 receptor_rfc, receptor_razon_social, subtotal, total, currency,
+                 payment_form, status, pdf_url, xml_url, created_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
+        `, [
+            pay.user_id, fiscal_emitter_id,
+            invoice.id, invoice.uuid, invoice.folio_number, invoice.series || null,
+            receptorRfc, receptorNombre,
+            invoice.subtotal, invoice.total, invoice.currency,
+            formaPago, invoice.pdf_url, invoice.xml_url,
+        ]);
+
+        // 6. Marcar el pago como facturado
+        await pool.query(
+            `UPDATE pobox_payments SET facturada=TRUE, factura_error=NULL WHERE id=$1`,
+            [payment_id]
+        );
+
+        return res.json({ success: true, invoice_id: invoice.id, uuid: invoice.uuid, pdf_url: invoice.pdf_url });
+
+    } catch (e: any) {
+        const errMsg = e instanceof FacturamaError
+            ? (e.details?.Message || e.details?.message || e.message)
+            : e.message;
+
+        // Guardar el error en el pago para mostrarlo en la UI
+        await pool.query(
+            `UPDATE pobox_payments SET factura_error=$1 WHERE id=$2`,
+            [errMsg, payment_id]
+        ).catch(() => {});
+
+        console.error('[emitManualCFDI]', errMsg);
+        return res.status(500).json({ error: 'Error al emitir CFDI', message: errMsg });
     }
 };
 
