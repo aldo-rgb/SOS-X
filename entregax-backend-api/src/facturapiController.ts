@@ -235,10 +235,10 @@ export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Pr
       );
       if (dup.rows.length) { skipped++; continue; }
 
-      // Para facturas RECIBIDAS, el customer es TU org (receptor) y necesitamos
-      // el emisor desde otros campos. Facturapi v2 estándar no expone "issuer"
-      // como objeto separado en el modelo Invoice; intentamos varias claves.
-      const issuer   = cfdi.issuer || cfdi.emisor || {};
+      // Para facturas RECIBIDAS, Facturapi v2 expone el emisor en `issuer_info`
+      // y el receptor (tu org) en `customer`. Mantenemos fallbacks por si la
+      // estructura cambia.
+      const issuer   = cfdi.issuer_info || cfdi.issuer || cfdi.emisor || {};
       const customer = cfdi.customer || cfdi.receiver || cfdi.receptor || {};
       const emisorRfc    = issuer.tax_id || issuer.rfc || cfdi.issuer_tax_id || cfdi.issuer_rfc || null;
       const emisorNombre = issuer.legal_name || issuer.name || cfdi.issuer_legal_name || cfdi.issuer_name || null;

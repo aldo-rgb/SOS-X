@@ -339,7 +339,7 @@ export const createPaymentRequestV2 = async (
 
   // 2.b) FASE 2 (opcional) — Si el cliente adjuntó comprobante en el mismo
   //      request, lo enviamos ahora con uploadComprobanteToTransaccion.
-  let uploadResult: { ok: boolean; error?: string; url?: string } | null = null;
+  let uploadResult: { ok: boolean; error?: string | undefined; url?: string | undefined } | null = null;
   if (hasFile) {
     const up = await uploadComprobanteToTransaccion(remote.transaccion_id, {
       buffer: file!.buffer,

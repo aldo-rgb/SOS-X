@@ -1490,6 +1490,7 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
           <Table size="small">
             <TableHead>
               <TableRow>
+                <TableCell>Tipo</TableCell>
                 <TableCell>Proveedor</TableCell>
                 <TableCell>UUID / Folio</TableCell>
                 <TableCell>Origen</TableCell>
@@ -1503,6 +1504,33 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
             <TableBody>
               {rows.map(r => (
                 <TableRow key={r.id} hover>
+                  <TableCell>
+                    <Chip
+                      size="small"
+                      label={r.tipo_comprobante || '—'}
+                      sx={{
+                        fontWeight: 700,
+                        minWidth: 32,
+                        bgcolor:
+                          r.tipo_comprobante === 'I' ? '#E3F2FD' :
+                          r.tipo_comprobante === 'E' ? '#FFEBEE' :
+                          r.tipo_comprobante === 'P' ? '#E8F5E9' :
+                          r.tipo_comprobante === 'N' ? '#FFF3E0' :
+                          r.tipo_comprobante === 'T' ? '#F3E5F5' : '#EEEEEE',
+                        color:
+                          r.tipo_comprobante === 'I' ? '#1565C0' :
+                          r.tipo_comprobante === 'E' ? '#C62828' :
+                          r.tipo_comprobante === 'P' ? '#2E7D32' :
+                          r.tipo_comprobante === 'N' ? '#E65100' :
+                          r.tipo_comprobante === 'T' ? '#6A1B9A' : '#616161',
+                      }}
+                    />
+                    {r.metodo_pago && (
+                      <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.3, fontSize: '0.65rem' }}>
+                        {r.metodo_pago}
+                      </Typography>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight={600}>{r.emisor_nombre || '—'}</Typography>
                     <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>{r.emisor_rfc || ''}</Typography>
