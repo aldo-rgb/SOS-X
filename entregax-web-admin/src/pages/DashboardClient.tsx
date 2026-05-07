@@ -113,6 +113,7 @@ import {
 import { Collapse } from '@mui/material';
 import api from '../services/api';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
+import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import ClientTicketsPage from './ClientTicketsPage';
 import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 import ExternalProviderPage from './ExternalProviderPage';
@@ -367,6 +368,8 @@ export default function DashboardClient() {
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
+  const { xpayEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
+  const paymentsEnabled = xpayEnabled; // alias para el botón X-Pay; entregaxPaymentsEnabled disponible para el flujo nativo
 
   const SERVICE_CONFIG = useMemo<ServiceConfigItem[]>(() => [
     { type: 'china_air', name: t('cd.services.china_air'), icon: '✈️', timeframe: t('cd.services.china_air_time'), tutorial: t('cd.services.china_air_tutorial') },
@@ -4768,22 +4771,26 @@ export default function DashboardClient() {
               />
             </Tabs>
 
+<Tooltip title={!paymentsEnabled ? 'Función temporalmente no disponible' : ''} disableHoverListener={paymentsEnabled}>
+              <span>
             <Button
               variant="contained"
+              disabled={!paymentsEnabled}
               onClick={() => {
+                if (!paymentsEnabled) return;
                 const token = localStorage.getItem('token');
                 const url = new URL('https://x-pay.direct');
                 if (token) url.searchParams.set('token', token);
                 window.location.href = url.toString();
               }}
               sx={{
-                bgcolor: '#000000',
-                background: '#000000 !important',
+                bgcolor: paymentsEnabled ? '#000000' : '#9E9E9E',
+                background: paymentsEnabled ? '#000000 !important' : '#9E9E9E !important',
                 backgroundImage: 'none !important',
                 color: 'white',
                 fontWeight: 700,
                 borderRadius: 999,
-                border: '1px solid #000000',
+                border: `1px solid ${paymentsEnabled ? '#000000' : '#9E9E9E'}`,
                   px: 1.25,
                 py: 0.45,
                   minWidth: 164,
@@ -4791,12 +4798,19 @@ export default function DashboardClient() {
                 textTransform: 'none',
                 boxShadow: 'none',
                 whiteSpace: 'nowrap',
+                opacity: paymentsEnabled ? 1 : 0.45,
+                cursor: paymentsEnabled ? 'pointer' : 'not-allowed',
                 '&:hover': {
-                  bgcolor: '#050505',
-                  background: '#050505 !important',
+                  bgcolor: paymentsEnabled ? '#050505' : '#9E9E9E',
+                  background: paymentsEnabled ? '#050505 !important' : '#9E9E9E !important',
                   backgroundImage: 'none !important',
-                  border: '1px solid #050505',
+                  border: `1px solid ${paymentsEnabled ? '#050505' : '#9E9E9E'}`,
                   boxShadow: 'none',
+                },
+                '&.Mui-disabled': {
+                  color: 'rgba(255,255,255,0.5)',
+                  bgcolor: '#9E9E9E !important',
+                  background: '#9E9E9E !important',
                 }
               }}
             >
@@ -4804,10 +4818,12 @@ export default function DashboardClient() {
                 component="img"
                 src="/logo-completo-xpay-t.png"
                 alt="X-Pay"
-                sx={{ width: 132, height: 32, objectFit: 'contain', filter: 'drop-shadow(0 0 6px rgba(255,255,255,0.15))' }}
+                sx={{ width: 132, height: 32, objectFit: 'contain', filter: paymentsEnabled ? 'drop-shadow(0 0 6px rgba(255,255,255,0.15))' : 'grayscale(1) opacity(0.5)' }}
                 onError={(e: React.SyntheticEvent<HTMLImageElement>) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </Button>
+              </span>
+            </Tooltip>
           </Box>
         </Paper>
       )}
@@ -5237,8 +5253,13 @@ export default function DashboardClient() {
                       fontSize: isMobile ? '0.7rem' : '0.8rem',
                       px: isMobile ? 1.5 : 2,
                     }}
+                    disabled={!entregaxPaymentsEnabled}
                     startIcon={<MoneyIcon sx={{ fontSize: isMobile ? 16 : 20 }} />}
                     onClick={() => {
+                      if (!entregaxPaymentsEnabled) {
+                        setSnackbar({ open: true, message: 'Función de pagos temporalmente no disponible', severity: 'warning' });
+                        return;
+                      }
                       const selectedPayable = getSelectedPayablePackages();
                       if (selectedPayable.length === 0) {
                         setSnackbar({ open: true, message: 'Esta guía ya está pagada o autorizada con crédito.', severity: 'info' });
@@ -13405,6 +13426,10 @@ export default function DashboardClient() {
             onChange={(_, newValue) => {
               // newValue 1 es "Pago a proveedores" - redirigir a x-pay.direct
               if (newValue === 1) {
+                if (!paymentsEnabled) {
+                  alert('Función temporalmente no disponible');
+                  return;
+                }
                 const token = localStorage.getItem('token');
                 const url = new URL('https://x-pay.direct');
                 if (token) url.searchParams.set('token', token);

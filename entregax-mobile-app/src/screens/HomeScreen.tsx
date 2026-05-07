@@ -31,6 +31,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { getMyPackagesApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
+import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import { Ionicons } from '@expo/vector-icons';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
@@ -97,6 +98,7 @@ type HomeScreenProps = {
 export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const { t } = useTranslation();
   const { user: initialUser, token } = route.params;
+  const { xpayEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
   const [user, setUser] = useState(initialUser); // Estado local para actualizar usuario
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]); // 🔥 IDs seleccionados
@@ -1601,8 +1603,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           <View style={styles.headerButtonsRow}>
             {/* 💰 Botón X-Pay */}
             <TouchableOpacity
-              style={styles.supplierPaymentButton}
+              style={[styles.supplierPaymentButton, !xpayEnabled && { opacity: 0.4 }]}
+              disabled={!xpayEnabled}
               onPress={() => {
+                if (!xpayEnabled) return;
                 navigation.navigate('ExternalProviderTransition' as any, {
                   user,
                   token,
@@ -1611,7 +1615,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 });
               }}
             >
-              <Image source={require('../../assets/logo-completo-xpay-t.png')} style={styles.supplierPaymentLogo} />
+              <Image source={require('../../assets/logo-completo-xpay-t.png')} style={[styles.supplierPaymentLogo, !xpayEnabled && { tintColor: '#999' }]} />
             </TouchableOpacity>
             {/* 🚀 Botón ¿Cómo enviar? o Cambiar Método */}
             <TouchableOpacity
@@ -2070,7 +2074,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               if (needsInstructions) {
                 handleMaritimeInstructions();
               } else {
-                // Pagar (procesando o bodega con instrucciones)
+                if (!entregaxPaymentsEnabled) {
+                  Alert.alert('No disponible', 'Los pagos están temporalmente desactivados.');
+                  return;
+                }
                 navigation.navigate('PaymentSummary', {
                   packages: selectedPackages,
                   user,
