@@ -99,12 +99,14 @@ export const createPaymentRequestV2 = async (
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
+  // Comprobante OPCIONAL: si no se envía, la solicitud queda en estado
+  // 'pendiente' a la espera de que el cliente suba su comprobante después.
+  // Cuando suba el comprobante (endpoint upload-proof-file), recién entonces
+  // se enviará a ENTANGLED.
   const file = (req as any).file as
     | { buffer: Buffer; originalname: string; mimetype: string; size: number }
     | undefined;
-  if (!file || !file.buffer || file.buffer.length === 0) {
-    return res.status(400).json({ error: 'Falta el comprobante (campo "comprobante")' });
-  }
+  const hasFile = !!(file && file.buffer && file.buffer.length > 0);
 
   const body = req.body || {};
   const servicio = String(body.servicio || '').trim() as EntangledServicio;
@@ -242,6 +244,19 @@ export const createPaymentRequestV2 = async (
     return res.status(500).json({ error: 'No se pudo crear la solicitud local' });
   }
 
+  // Si NO se envió comprobante, la solicitud queda pendiente esperando
+  // que el cliente suba su comprobante de pago. NO se envía a ENTANGLED aún.
+  if (!hasFile) {
+    return res.status(201).json({
+      message:
+        'Solicitud creada. Sube tu comprobante de pago para procesarla con ENTANGLED.',
+      request_id: requestId,
+      referencia_pago: referenciaPago,
+      status: 'pendiente_comprobante',
+      requires_proof_upload: true,
+    });
+  }
+
   // 2) Construir y enviar payload a ENTANGLED v2
   const payload: EntangledSolicitudPayloadV2 = {
     servicio,
@@ -345,6 +360,161 @@ export const createPaymentRequestV2 = async (
     empresas_asignadas: remote.empresas_asignadas || [],
   });
 };
+
+// ===========================================================================
+// Helper: envía a ENTANGLED una solicitud que estaba en estado pendiente
+// (creada SIN comprobante). Se invoca desde el endpoint upload-proof-file
+// cuando el cliente sube su comprobante y la solicitud aún no fue enviada.
+// Devuelve { ok, status, payload } con el resultado para responder al cliente.
+// ===========================================================================
+export async function sendPendingRequestToEntangled(
+  requestId: number,
+  fileBuffer: Buffer,
+  fileName: string,
+  fileMime: string
+): Promise<{ ok: boolean; status: number; payload: any }> {
+  // 1) Cargar solicitud local
+  const r = await pool.query(
+    `SELECT * FROM entangled_payment_requests WHERE id = $1 LIMIT 1`,
+    [requestId]
+  );
+  if (r.rows.length === 0) {
+    return { ok: false, status: 404, payload: { error: 'Solicitud no encontrada' } };
+  }
+  const reqRow = r.rows[0];
+
+  // Si ya tiene transaccion_id, NO reenviamos (idempotencia)
+  if (reqRow.entangled_transaccion_id) {
+    return {
+      ok: true,
+      status: 200,
+      payload: {
+        message: 'La solicitud ya fue enviada anteriormente a ENTANGLED.',
+        request_id: requestId,
+        entangled_transaccion_id: reqRow.entangled_transaccion_id,
+        already_sent: true,
+      },
+    };
+  }
+
+  const servicio = reqRow.servicio as EntangledServicio;
+  const conceptos = Array.isArray(reqRow.op_conceptos)
+    ? reqRow.op_conceptos
+    : (() => {
+        try {
+          return JSON.parse(reqRow.op_conceptos || '[]');
+        } catch {
+          return [];
+        }
+      })();
+
+  const payload: EntangledSolicitudPayloadV2 = {
+    servicio,
+    comision_cliente_final_porcentaje: Number(
+      reqRow.comision_cliente_final_porcentaje || 0
+    ),
+    monto_usd: Number(reqRow.op_monto),
+    divisa: reqRow.op_divisa_destino as EntangledDivisa,
+    cliente_final:
+      servicio === 'pago_con_factura'
+        ? {
+            razon_social: reqRow.cf_razon_social,
+            rfc: String(reqRow.cf_rfc || '').toUpperCase(),
+            email: reqRow.cf_email,
+            regimen_fiscal: reqRow.cf_regimen_fiscal,
+            cp: String(reqRow.cf_cp || ''),
+            uso_cfdi: reqRow.cf_uso_cfdi,
+          }
+        : { razon_social: reqRow.cf_razon_social },
+    referencia_xpay: reqRow.referencia_pago,
+  };
+  if (servicio === 'pago_con_factura') {
+    payload.conceptos = conceptos as any[];
+  }
+
+  if (!isEntangledConfigured()) {
+    await pool.query(
+      `UPDATE entangled_payment_requests
+          SET estatus_global = 'error_envio',
+              error_message = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      ['ENTANGLED_API_KEY no configurada', requestId]
+    );
+    return {
+      ok: false,
+      status: 202,
+      payload: {
+        message:
+          'Comprobante guardado. ENTANGLED no está configurado; la solicitud será procesada manualmente.',
+        request_id: requestId,
+        status: 'error_envio',
+      },
+    };
+  }
+
+  const remote = await sendSolicitudPago(payload, {
+    buffer: fileBuffer,
+    filename: fileName || `comprobante-${requestId}`,
+    mimetype: fileMime || 'application/octet-stream',
+  });
+
+  if (!remote.ok || !remote.transaccion_id) {
+    await pool.query(
+      `UPDATE entangled_payment_requests
+          SET estatus_global = 'error_envio',
+              error_message = $1,
+              raw_response = $2::jsonb,
+              updated_at = NOW()
+        WHERE id = $3`,
+      [remote.error || 'Sin transaccion_id', JSON.stringify(remote.raw || {}), requestId]
+    );
+    return {
+      ok: false,
+      status: 502,
+      payload: {
+        error: remote.error || 'ENTANGLED no devolvió un transaccion_id.',
+        request_id: requestId,
+      },
+    };
+  }
+
+  const upd = await pool.query(
+    `UPDATE entangled_payment_requests
+        SET entangled_transaccion_id = $1,
+            estatus_global = 'en_proceso',
+            comision_cobrada_porcentaje = $2,
+            tc_aplicado_usd = $3,
+            empresas_asignadas = $4::jsonb,
+            url_comprobante_cliente = COALESCE($5, url_comprobante_cliente),
+            comprobante_subido_at = NOW(),
+            raw_response = $6::jsonb,
+            updated_at = NOW()
+      WHERE id = $7
+      RETURNING *`,
+    [
+      remote.transaccion_id,
+      remote.comision_cobrada_porcentaje ?? null,
+      remote.tc_aplicado_usd ?? null,
+      JSON.stringify(remote.empresas_asignadas || []),
+      remote.url_comprobante_cliente || null,
+      JSON.stringify(remote.raw || {}),
+      requestId,
+    ]
+  );
+
+  return {
+    ok: true,
+    status: 200,
+    payload: {
+      message: 'Comprobante recibido y solicitud enviada a ENTANGLED.',
+      request: upd.rows[0],
+      comision_cobrada_porcentaje: remote.comision_cobrada_porcentaje,
+      tc_aplicado_usd: remote.tc_aplicado_usd,
+      empresas_asignadas: remote.empresas_asignadas || [],
+    },
+  };
+}
 
 // ===========================================================================
 // GET /api/entangled/exchange-rate?divisa=USD|RMB   (proxy)

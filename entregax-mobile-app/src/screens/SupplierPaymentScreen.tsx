@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import * as Clipboard from 'expo-clipboard';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
   StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal, Image, ImageBackground, Dimensions,
@@ -436,15 +437,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       Alert.alert('Faltan datos', 'Para envíos en RMB se requiere el nombre del beneficiario en chino'); return;
     }
 
-    // ENTANGLED v2 requiere comprobante en la primera llamada (multipart)
-    let asset = comprobanteAsset;
-    if (!asset) {
-      asset = await pickComprobanteForSubmit();
-      if (!asset) {
-        Alert.alert('Falta comprobante', 'Para enviar la solicitud necesitas adjuntar el comprobante de pago.');
-        return;
-      }
-    }
+    // Nuevo flujo: la solicitud se crea SIN comprobante en estado pendiente.
+    // El cliente sube su comprobante después desde "Últimos envíos" y ese
+    // upload dispara el envío a ENTANGLED en el backend.
 
     setSubmitting(true);
     try {
@@ -500,11 +495,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         fd.append('conceptos', JSON.stringify(conceptosArr));
       }
       if (notas) fd.append('notas', notas);
-      fd.append('comprobante', {
-        uri: asset.uri,
-        name: asset.name,
-        type: asset.mimeType,
-      } as any);
+      // NO se envía comprobante aquí: la solicitud queda en estado 'pendiente'
+      // y el comprobante se sube después desde Últimos envíos.
 
       const res = await fetch(`${API_URL}/api/entangled/payment-requests`, {
         method: 'POST',
@@ -1330,6 +1322,41 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             <Text style={styles.quoteLine}>Divisa: <Text style={styles.quoteVal}>{divisa}</Text></Text>
             <Text style={styles.quoteLine}>Monto al proveedor: <Text style={styles.quoteVal}>${formatMoney(monto || 0, 2)} {divisa}</Text></Text>
             <Text style={styles.quoteLine}>Proveedor ENTANGLED: <Text style={styles.quoteVal}>{providers.find((x) => x.id === selectedProviderId)?.name || '-'}</Text></Text>
+            {(() => {
+              const prov = providers.find((x) => x.id === selectedProviderId);
+              const all = Array.isArray(prov?.bank_accounts) ? prov!.bank_accounts! : [];
+              if (all.length === 0) return null;
+              const mxn = all.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
+              const accounts = mxn.length > 0 ? mxn : all;
+              return (
+                <View style={{ marginTop: 8, padding: 10, backgroundColor: '#0a0a0a', borderRadius: 8, borderWidth: 1, borderColor: ORANGE }}>
+                  <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 6 }}>💳 DEPOSITAR / TRANSFERIR A:</Text>
+                  {accounts.map((acc, i) => (
+                    <View key={i} style={{ marginBottom: i < accounts.length - 1 ? 8 : 0, paddingBottom: i < accounts.length - 1 ? 8 : 0, borderBottomWidth: i < accounts.length - 1 ? 1 : 0, borderColor: '#333', borderStyle: 'dashed' }}>
+                      {!!acc.bank && <Text style={styles.quoteLine}>Banco: <Text style={styles.quoteVal}>{acc.bank}{acc.currency ? ` (${acc.currency})` : ''}</Text></Text>}
+                      {!!acc.holder && <Text style={styles.quoteLine}>Titular: <Text style={styles.quoteVal}>{acc.holder}</Text></Text>}
+                      {!!acc.account && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={styles.quoteLine}>Cuenta: <Text style={[styles.quoteVal, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{acc.account}</Text></Text>
+                          <TouchableOpacity onPress={async () => { await Clipboard.setStringAsync(String(acc.account)); }}>
+                            <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700' }}>Copiar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {!!acc.clabe && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={styles.quoteLine}>CLABE: <Text style={[styles.quoteVal, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{acc.clabe}</Text></Text>
+                          <TouchableOpacity onPress={async () => { await Clipboard.setStringAsync(String(acc.clabe)); }}>
+                            <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700' }}>Copiar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {!!acc.reference && <Text style={styles.quoteLine}>Referencia: <Text style={styles.quoteVal}>{acc.reference}</Text></Text>}
+                    </View>
+                  ))}
+                </View>
+              );
+            })()}
             <Text style={styles.quoteLine}>Beneficiario: <Text style={styles.quoteVal}>{benefName || '-'}</Text></Text>
             <Text style={styles.quoteLine}>Factura: <Text style={styles.quoteVal}>{requiereFactura ? 'Sí' : 'No'}</Text></Text>
             {requiereFactura && (

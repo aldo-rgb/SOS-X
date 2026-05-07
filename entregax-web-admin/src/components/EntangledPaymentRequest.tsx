@@ -691,21 +691,27 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   };
 
-  // Subida diferida del comprobante a una solicitud existente
+  // Subida diferida del comprobante a una solicitud existente.
+  // Usa el endpoint multipart `/upload-proof-file` que, además de guardar el
+  // archivo, dispara el envío a ENTANGLED si la solicitud aún estaba pendiente.
   const handleUploadProofToRequest = async (requestId: number, file: File) => {
     setUploading(true);
     try {
       const fd = new FormData();
-      fd.append('file', file);
-      const upRes = await axios.post(`${API_URL}/api/uploads/evidence`, fd, {
-        headers: { ...authHeader, 'Content-Type': 'multipart/form-data' },
-      });
-      await axios.post(
-        `${API_URL}/api/entangled/payment-requests/${requestId}/upload-proof`,
-        { comprobante_cliente_url: upRes.data.url },
-        { headers: authHeader }
+      fd.append('comprobante', file);
+      const res = await axios.post(
+        `${API_URL}/api/entangled/payment-requests/${requestId}/upload-proof-file`,
+        fd,
+        { headers: { ...authHeader, 'Content-Type': 'multipart/form-data' } }
       );
-      setSnack({ open: true, severity: 'success', message: t('entangled.actions.viewMyProof') });
+      const sentToEntangled = !!res.data?.request?.entangled_transaccion_id;
+      setSnack({
+        open: true,
+        severity: 'success',
+        message: sentToEntangled
+          ? t('entangled.messages.proofSentToEntangled', 'Comprobante recibido. Solicitud enviada a ENTANGLED.')
+          : t('entangled.messages.proofUploaded', 'Comprobante subido correctamente.'),
+      });
       loadRequests();
     } catch (err: unknown) {
       setSnack({
@@ -874,13 +880,22 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         quote: res.data?.quote,
       });
       setInstructionsOpen(true);
+      const isPending =
+        res.data?.requires_proof_upload ||
+        res.data?.status === 'pendiente_comprobante' ||
+        res.data?.request?.estatus_global === 'pendiente';
       setSnack({
         open: true,
         severity: 'success',
         message:
           res.data?.request?.estatus_global === 'error_envio'
             ? t('entangled.messages.successPending')
-            : t('entangled.messages.success'),
+            : isPending
+              ? t(
+                  'entangled.messages.successAwaitingProof',
+                  'Solicitud creada. Sube tu comprobante de pago desde "Últimos envíos" para enviarla a ENTANGLED.'
+                )
+              : t('entangled.messages.success'),
       });
       loadRequests();
       loadSuppliers();
@@ -2162,6 +2177,47 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Divisa destino: <strong style={{ color: '#fff' }}>{form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Monto al proveedor: <strong style={{ color: '#fff' }}>${formatMoney(form.monto)} {form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Proveedor de pago: <strong style={{ color: '#fff' }}>{providers.find((p) => p.id === selectedProviderId)?.name || '—'}</strong></Typography>
+              {(() => {
+                const prov = providers.find((p) => p.id === selectedProviderId);
+                const allAccounts = Array.isArray(prov?.bank_accounts) ? prov!.bank_accounts! : [];
+                if (allAccounts.length === 0) return null;
+                // El cliente paga en MXN al proveedor de pago.
+                const mxnAccounts = allAccounts.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
+                const accountsToShow = mxnAccounts.length > 0 ? mxnAccounts : allAccounts;
+                const copy = (text: string) => { try { navigator.clipboard.writeText(text); } catch {} };
+                return (
+                  <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: `1px solid ${ORANGE}`, borderRadius: 1.5 }}>
+                    <Typography sx={{ color: ORANGE, fontSize: '0.78rem', fontWeight: 700, mb: 0.6, letterSpacing: 0.4 }}>
+                      💳 DEPOSITAR / TRANSFERIR A:
+                    </Typography>
+                    {accountsToShow.map((acc, i) => (
+                      <Box key={i} sx={{ mb: i < accountsToShow.length - 1 ? 1 : 0, pb: i < accountsToShow.length - 1 ? 1 : 0, borderBottom: i < accountsToShow.length - 1 ? '1px dashed #333' : 'none' }}>
+                        {acc.bank && (
+                          <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>Banco: <strong style={{ color: '#fff' }}>{acc.bank}</strong>{acc.currency ? <span style={{ color: '#888' }}> ({acc.currency})</span> : null}</Typography>
+                        )}
+                        {acc.holder && (
+                          <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>Titular: <strong style={{ color: '#fff' }}>{acc.holder}</strong></Typography>
+                        )}
+                        {acc.account && (
+                          <Stack direction="row" spacing={0.8} alignItems="center">
+                            <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>Cuenta: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{acc.account}</strong></Typography>
+                            <Button size="small" onClick={() => copy(String(acc.account))} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
+                          </Stack>
+                        )}
+                        {acc.clabe && (
+                          <Stack direction="row" spacing={0.8} alignItems="center">
+                            <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>CLABE: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{acc.clabe}</strong></Typography>
+                            <Button size="small" onClick={() => copy(String(acc.clabe))} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
+                          </Stack>
+                        )}
+                        {acc.reference && (
+                          <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>Referencia: <strong style={{ color: '#fff' }}>{acc.reference}</strong></Typography>
+                        )}
+                      </Box>
+                    ))}
+                  </Box>
+                );
+              })()}
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Beneficiario: <strong style={{ color: '#fff' }}>{supplierForm.nombre_beneficiario || '—'}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Factura: <strong style={{ color: '#fff' }}>{requiereFactura ? 'Sí' : 'No'}</strong></Typography>
               {requiereFactura && (

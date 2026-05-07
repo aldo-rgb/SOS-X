@@ -3458,10 +3458,12 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
     if (!userId) return res.status(401).json({ error: 'No autenticado' });
     const { pool: dbPool } = await import('./db');
     const owner = await dbPool.query(
-      'SELECT user_id FROM entangled_payment_requests WHERE id = $1', [id]
+      'SELECT user_id, entangled_transaccion_id FROM entangled_payment_requests WHERE id = $1', [id]
     );
     if (!owner.rows.length) return res.status(404).json({ error: 'Solicitud no encontrada' });
     if (owner.rows[0].user_id !== userId) return res.status(403).json({ error: 'Sin acceso' });
+
+    // 1) Persistir el comprobante (sube a S3 si está configurado)
     const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
     const key = `entangled/comprobantes/${id}_${Date.now()}.${ext}`;
     const { uploadToS3, isS3Configured } = await import('./s3Service');
@@ -3471,13 +3473,37 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
     } else {
       url = `data:${req.file.mimetype};base64,${req.file.buffer.toString('base64')}`;
     }
-    const r = await dbPool.query(
+    await dbPool.query(
       `UPDATE entangled_payment_requests SET
          op_comprobante_cliente_url = $2,
          comprobante_subido_at = NOW(),
          updated_at = NOW()
-       WHERE id = $1 RETURNING id, referencia_pago, op_comprobante_cliente_url, comprobante_subido_at`,
+       WHERE id = $1`,
       [id, url]
+    );
+
+    // 2) Si la solicitud aún NO ha sido enviada a ENTANGLED (no tiene
+    //    transaccion_id), este es el momento de enviarla con el comprobante.
+    if (!owner.rows[0].entangled_transaccion_id) {
+      const { sendPendingRequestToEntangled } = await import('./entangledControllerV2');
+      const result = await sendPendingRequestToEntangled(
+        id,
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype
+      );
+      return res.status(result.status).json({
+        ok: result.ok,
+        comprobante_url: url,
+        ...result.payload,
+      });
+    }
+
+    // 3) Comprobante adicional/reemplazo para una solicitud ya enviada
+    const r = await dbPool.query(
+      `SELECT id, referencia_pago, op_comprobante_cliente_url, comprobante_subido_at
+         FROM entangled_payment_requests WHERE id = $1`,
+      [id]
     );
     return res.json({ ok: true, ...r.rows[0] });
   } catch (err: any) {
