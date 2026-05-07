@@ -168,6 +168,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
     is_active: boolean;
     is_default: boolean;
     sort_order: number;
+    total_empresas_activas?: number;
   };
   const [entProviders, setEntProviders] = useState<EntProvider[]>([]);
   const [providerEditOpen, setProviderEditOpen] = useState(false);
