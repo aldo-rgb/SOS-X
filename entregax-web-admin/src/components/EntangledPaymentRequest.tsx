@@ -363,6 +363,44 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   const [widgetDestinationCountry, setWidgetDestinationCountry] = useState('CN');
   const [widgetAmountUsd, setWidgetAmountUsd] = useState('');
   const [showHowItWorks, setShowHowItWorks] = useState(false);
+
+  // ---- Validación de claves SAT contra catálogo ENTANGLED ----
+  type ClaveValidation = { clave: string; ok: boolean; descripcion?: string; loading?: boolean };
+  const [claveValidations, setClaveValidations] = useState<ClaveValidation[]>([]);
+  useEffect(() => {
+    const claves = (form.conceptos || '')
+      .split(',')
+      .map(s => s.trim().split('|')[0].trim())
+      .filter(Boolean)
+      .filter(s => /^\d{6,10}$/.test(s));
+    if (claves.length === 0) {
+      setClaveValidations([]);
+      return;
+    }
+    setClaveValidations(claves.map(c => ({ clave: c, ok: false, loading: true })));
+    const handle = setTimeout(async () => {
+      const out: ClaveValidation[] = [];
+      for (const clave of claves) {
+        try {
+          const r = await axios.get(`${API_URL}/api/entangled/conceptos/search`, {
+            params: { q: clave, limit: 5 },
+            headers: authHeader,
+          });
+          const list = Array.isArray(r.data?.results) ? r.data.results : [];
+          const match = list.find((x: { clave_prodserv: string; descripcion?: string }) => String(x.clave_prodserv) === clave);
+          out.push(match
+            ? { clave, ok: true, descripcion: match.descripcion || '' }
+            : { clave, ok: false }
+          );
+        } catch {
+          out.push({ clave, ok: false });
+        }
+      }
+      setClaveValidations(out);
+    }, 600);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.conceptos]);
   const [rateWidgetCurrency, setRateWidgetCurrency] = useState<'USD' | 'RMB'>('USD');
 
   const widgetEstimate = useMemo(() => {
@@ -884,6 +922,13 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       }
       if (!form.conceptos || !form.conceptos.trim()) {
         return 'Captura al menos una clave SAT (clave_prodserv) a facturar';
+      }
+      if (claveValidations.some(v => v.loading)) {
+        return 'Validando claves SAT, espera un momento...';
+      }
+      const invalid = claveValidations.filter(v => !v.ok && !v.loading).map(v => v.clave);
+      if (invalid.length > 0) {
+        return `Claves SAT no encontradas en catálogo: ${invalid.join(', ')}`;
       }
     }
     return null;
@@ -1948,6 +1993,64 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                     '& .MuiFormHelperText-root': { color: '#9ca3af' },
                   }}
                 />
+
+                {/* Validación inline contra catálogo SAT ENTANGLED */}
+                {claveValidations.length > 0 && (
+                  <Box sx={{ mt: 1.5 }}>
+                    {claveValidations.map((v, i) => (
+                      <Box
+                        key={`${v.clave}-${i}`}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          py: 0.6,
+                          px: 1,
+                          mb: 0.5,
+                          borderRadius: 1,
+                          bgcolor: v.loading ? 'rgba(245, 158, 11, 0.15)' : v.ok ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
+                          border: `1px solid ${v.loading ? '#f59e0b' : v.ok ? '#10b981' : '#ef4444'}`,
+                        }}
+                      >
+                        <Typography sx={{ fontWeight: 700, mr: 1, color: v.loading ? '#f59e0b' : v.ok ? '#10b981' : '#ef4444' }}>
+                          {v.loading ? '⏳' : v.ok ? '✓' : '✗'}
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#fff', mr: 1 }}>
+                          {v.clave}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: '#d1d5db', flex: 1 }}>
+                          {v.loading ? 'Validando...' : v.ok ? (v.descripcion || 'Disponible en catálogo') : 'No encontrada en catálogo SAT'}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+
+                {/* Empresa proveedora que recibirá el pago */}
+                {claveValidations.length > 0 && claveValidations.every(v => v.ok) && (
+                  <Box
+                    sx={{
+                      mt: 1.5,
+                      p: 1.5,
+                      borderRadius: 1,
+                      border: `1px solid ${ORANGE}`,
+                      bgcolor: 'rgba(240, 90, 40, 0.10)',
+                      display: 'flex',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Typography sx={{ color: ORANGE, fontSize: 18, mr: 1 }}>🏢</Typography>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block' }}>
+                        Empresa que enviará el pago
+                      </Typography>
+                      <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>
+                        {providers.find(p => p.id === selectedProviderId)?.name
+                          || providers.find(p => p.is_default)?.name
+                          || '—'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                )}
               </Paper>
             </>
           )}

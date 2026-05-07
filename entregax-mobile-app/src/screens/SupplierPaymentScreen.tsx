@@ -266,6 +266,48 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     setConceptos(next);
   };
 
+  // Validación de claves SAT contra catálogo ENTANGLED (debounced)
+  type ClaveValidation = { clave: string; ok: boolean; descripcion?: string; loading?: boolean };
+  const [claveValidations, setClaveValidations] = useState<ClaveValidation[]>([]);
+  const claveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (claveDebounceRef.current) clearTimeout(claveDebounceRef.current);
+    const claves = conceptos
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .filter(s => /^\d{6,10}$/.test(s.split('|')[0].trim()));
+    if (claves.length === 0) {
+      setClaveValidations([]);
+      return;
+    }
+    setClaveValidations(claves.map(c => ({ clave: c.split('|')[0].trim(), ok: false, loading: true })));
+    claveDebounceRef.current = setTimeout(async () => {
+      const out: ClaveValidation[] = [];
+      for (const c of claves) {
+        const clave = c.split('|')[0].trim();
+        try {
+          const r = await fetch(
+            `${API_URL}/api/entangled/conceptos/search?q=${encodeURIComponent(clave)}&limit=5`,
+            { headers: authHeaders }
+          );
+          const data = await r.json();
+          const list = Array.isArray(data?.results) ? data.results : [];
+          const match = list.find((x: any) => String(x.clave_prodserv) === clave);
+          if (match) {
+            out.push({ clave, ok: true, descripcion: match.descripcion || '' });
+          } else {
+            out.push({ clave, ok: false });
+          }
+        } catch {
+          out.push({ clave, ok: false });
+        }
+      }
+      setClaveValidations(out);
+    }, 600);
+    return () => { if (claveDebounceRef.current) clearTimeout(claveDebounceRef.current); };
+  }, [conceptos, token]);
+
   useEffect(() => {
     loadRequests();
     loadSuppliers();
@@ -508,6 +550,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     }
     if (step === 3 && requiereFactura && (!rfc || !razon || !cp || !email)) {
       return 'Completa todos los datos fiscales para generar factura';
+    }
+    if (step === 3 && requiereFactura) {
+      const claves = conceptos.split(',').map(s => s.trim().split('|')[0].trim()).filter(Boolean);
+      if (claves.length === 0) return 'Captura al menos una clave SAT (clave_prodserv)';
+      if (claveValidations.some(v => v.loading)) return 'Validando claves SAT, espera un momento...';
+      const invalid = claveValidations.filter(v => !v.ok && !v.loading).map(v => v.clave);
+      if (invalid.length > 0) return `Claves SAT no encontradas en catálogo: ${invalid.join(', ')}`;
     }
     return null;
   };
@@ -1214,6 +1263,60 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     placeholderTextColor={TEXT_MUTED}
                     multiline
                   />
+
+                  {/* Validación inline contra catálogo SAT ENTANGLED */}
+                  {claveValidations.length > 0 && (
+                    <View style={{ marginTop: 8 }}>
+                      {claveValidations.map((v, i) => (
+                        <View
+                          key={`${v.clave}-${i}`}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            paddingVertical: 4,
+                            paddingHorizontal: 8,
+                            marginBottom: 4,
+                            borderRadius: 6,
+                            backgroundColor: v.loading ? '#FFF3CD' : v.ok ? '#D1FAE5' : '#FEE2E2',
+                          }}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '700', marginRight: 8, color: v.loading ? '#92400E' : v.ok ? '#065F46' : '#991B1B' }}>
+                            {v.loading ? '⏳' : v.ok ? '✓' : '✗'}
+                          </Text>
+                          <Text style={{ fontSize: 12, fontWeight: '700', color: '#111', marginRight: 6 }}>{v.clave}</Text>
+                          <Text style={{ fontSize: 11, color: '#374151', flex: 1 }} numberOfLines={2}>
+                            {v.loading ? 'Validando...' : v.ok ? (v.descripcion || 'Disponible en catálogo') : 'No encontrada en catálogo SAT'}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Empresa proveedora que recibirá el pago */}
+                  {claveValidations.length > 0 && claveValidations.every(v => v.ok) && (
+                    <View
+                      style={{
+                        marginTop: 10,
+                        padding: 10,
+                        borderRadius: 8,
+                        borderWidth: 1,
+                        borderColor: ORANGE,
+                        backgroundColor: '#FFF6F0',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <Ionicons name="business-outline" size={18} color={ORANGE} style={{ marginRight: 8 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 11, color: TEXT_DIM }}>
+                          {t('xpay.providerAssigned', 'Empresa que enviará el pago')}
+                        </Text>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: '#111' }}>
+                          {providers.find(p => p.id === selectedProviderId)?.name || providers.find(p => p.is_default)?.name || '—'}
+                        </Text>
+                      </View>
+                    </View>
+                  )}
                 </View>
               </>
             )}
