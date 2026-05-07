@@ -58,6 +58,7 @@ if (typeof document !== 'undefined' && !document.getElementById('xpay-epr-style'
   document.head.appendChild(s);
 }
 import axios from 'axios';
+import jsPDF from 'jspdf';
 import EntangledSupplierForm, { EMPTY_SUPPLIER } from './EntangledSupplierForm';
 import type { SupplierFormData } from './EntangledSupplierForm';
 
@@ -331,7 +332,15 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   });
   const [selectedProviderId, setSelectedProviderId] = useState<number | ''>('');
   const [quote, setQuote] = useState<{ tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null>(null);
-  const [lastCreated, setLastCreated] = useState<{ request: unknown; instrucciones_pago: unknown; referencia_pago?: string; quote: { tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null } | null>(null);
+  const [lastCreated, setLastCreated] = useState<{
+    request: unknown;
+    instrucciones_pago: unknown;
+    referencia_pago?: string;
+    quote: { tipo_cambio: number; porcentaje_compra: number; costo_operacion_usd: number; monto_mxn_base: number; monto_mxn_comision: number; monto_mxn_costo_op: number; monto_mxn_total: number } | null;
+    providerSnapshot?: { name: string; bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }> } | null;
+    operationSnapshot?: { divisa: string; monto: number; servicio: string; requiere_factura: boolean; rfc?: string; razon_social?: string } | null;
+    beneficiarioSnapshot?: { nombre: string; nombre_chino?: string; cuenta?: string; iban?: string; banco?: string; swift?: string; aba?: string } | null;
+  } | null>(null);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
 
   // ----- Proveedores de envío (beneficiarios) -----
@@ -724,6 +733,196 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   };
 
+  // Genera un PDF con la confirmación + instrucciones de pago + cuenta destino
+  const generateInstructionsPDF = () => {
+    if (!lastCreated) return;
+    const doc = new jsPDF({ unit: 'pt', format: 'letter' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const margin = 40;
+    let y = 50;
+
+    // Header: barra naranja + título
+    doc.setFillColor(240, 90, 40);
+    doc.rect(0, 0, pageW, 70, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(20);
+    doc.text('X-PAY · Instrucciones de Pago', margin, 38);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text('Confirmación de solicitud de triangulación internacional', margin, 56);
+
+    y = 100;
+    doc.setTextColor(20, 20, 20);
+
+    // Referencia destacada
+    if (lastCreated.referencia_pago) {
+      doc.setFillColor(255, 245, 235);
+      doc.setDrawColor(240, 90, 40);
+      doc.roundedRect(margin, y, pageW - margin * 2, 60, 6, 6, 'FD');
+      doc.setFontSize(9);
+      doc.setTextColor(120, 120, 120);
+      doc.text('REFERENCIA DE PAGO', margin + 14, y + 18);
+      doc.setFontSize(22);
+      doc.setFont('courier', 'bold');
+      doc.setTextColor(240, 90, 40);
+      doc.text(String(lastCreated.referencia_pago), margin + 14, y + 44);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(120, 120, 120);
+      doc.setFontSize(8);
+      doc.text('Incluye esta referencia en el concepto', pageW - margin - 14, y + 30, { align: 'right' });
+      doc.text('de tu transferencia bancaria.', pageW - margin - 14, y + 42, { align: 'right' });
+      y += 80;
+    }
+
+    // Detalle de la operación
+    doc.setTextColor(20, 20, 20);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(13);
+    doc.text('Detalle de la operación', margin, y);
+    y += 6;
+    doc.setDrawColor(240, 90, 40);
+    doc.setLineWidth(1.5);
+    doc.line(margin, y, margin + 160, y);
+    y += 16;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    doc.setTextColor(40, 40, 40);
+
+    const opSnap = lastCreated.operationSnapshot;
+    const benefSnap = lastCreated.beneficiarioSnapshot;
+    const q = lastCreated.quote;
+
+    const lineKV = (k: string, v: string) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(80, 80, 80);
+      doc.text(k, margin, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(20, 20, 20);
+      doc.text(v, margin + 180, y);
+      y += 18;
+    };
+
+    if (opSnap) {
+      lineKV('Servicio:', opSnap.requiere_factura ? 'Pago con factura' : 'Pago sin factura');
+      lineKV('Divisa destino:', opSnap.divisa);
+      lineKV('Monto al proveedor:', `$${formatMoney(opSnap.monto)} ${opSnap.divisa}`);
+      if (opSnap.requiere_factura && opSnap.rfc) {
+        lineKV('RFC:', opSnap.rfc);
+      }
+      if (opSnap.requiere_factura && opSnap.razon_social) {
+        lineKV('Razón social:', opSnap.razon_social);
+      }
+    }
+    if (q) {
+      lineKV('Tipo de cambio:', `$${q.tipo_cambio.toFixed(4)} MXN/${opSnap?.divisa || 'USD'}`);
+      lineKV('Comisión:', `$${formatMoney(q.monto_mxn_comision)} MXN`);
+      doc.setFillColor(255, 245, 235);
+      doc.rect(margin, y - 4, pageW - margin * 2, 28, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(240, 90, 40);
+      doc.setFontSize(13);
+      doc.text('TOTAL A PAGAR:', margin + 6, y + 14);
+      doc.text(`$${formatMoney(q.monto_mxn_total)} MXN`, pageW - margin - 6, y + 14, { align: 'right' });
+      y += 38;
+    }
+
+    // Beneficiario
+    if (benefSnap?.nombre) {
+      y += 6;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(13);
+      doc.setTextColor(20, 20, 20);
+      doc.text('Beneficiario final', margin, y);
+      y += 6;
+      doc.setDrawColor(240, 90, 40);
+      doc.line(margin, y, margin + 160, y);
+      y += 16;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(11);
+      lineKV('Nombre:', benefSnap.nombre);
+      if (benefSnap.nombre_chino) lineKV('Nombre (chino):', benefSnap.nombre_chino);
+      if (benefSnap.banco) lineKV('Banco:', benefSnap.banco);
+      if (benefSnap.cuenta) lineKV('Cuenta:', benefSnap.cuenta);
+      if (benefSnap.iban) lineKV('IBAN:', benefSnap.iban);
+      if (benefSnap.swift) lineKV('SWIFT/BIC:', benefSnap.swift);
+      if (benefSnap.aba) lineKV('ABA:', benefSnap.aba);
+    }
+
+    // Cuenta(s) destino del proveedor de pago
+    const provSnap = lastCreated.providerSnapshot;
+    if (provSnap && provSnap.bank_accounts.length > 0) {
+      // Espacio o nueva página
+      if (y > 620) { doc.addPage(); y = 50; }
+      y += 10;
+      doc.setFillColor(240, 90, 40);
+      doc.rect(margin, y, pageW - margin * 2, 26, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(12);
+      doc.setTextColor(255, 255, 255);
+      doc.text(`DEPOSITAR / TRANSFERIR A — ${provSnap.name}`, margin + 10, y + 17);
+      y += 36;
+
+      const all = provSnap.bank_accounts;
+      const mxn = all.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
+      const accounts = mxn.length > 0 ? mxn : all;
+
+      doc.setTextColor(20, 20, 20);
+      doc.setFontSize(11);
+      accounts.forEach((acc, idx) => {
+        if (y > 700) { doc.addPage(); y = 50; }
+        if (acc.bank) lineKV('Banco:', `${acc.bank}${acc.currency ? ` (${acc.currency})` : ''}`);
+        if (acc.holder) lineKV('Titular:', acc.holder);
+        if (acc.account) lineKV('Cuenta:', acc.account);
+        if (acc.clabe) lineKV('CLABE:', acc.clabe);
+        if (acc.reference) lineKV('Referencia adicional:', acc.reference);
+        if (idx < accounts.length - 1) {
+          doc.setDrawColor(220, 220, 220);
+          doc.line(margin, y, pageW - margin, y);
+          y += 10;
+        }
+      });
+
+      // Aviso final
+      if (y > 680) { doc.addPage(); y = 50; }
+      y += 10;
+      doc.setFillColor(255, 250, 230);
+      doc.setDrawColor(245, 158, 11);
+      doc.roundedRect(margin, y, pageW - margin * 2, 50, 4, 4, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(146, 64, 14);
+      doc.setFontSize(10);
+      doc.text('⚠ IMPORTANTE', margin + 10, y + 18);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text(
+        `Incluye la referencia ${lastCreated.referencia_pago || ''} en el concepto de tu transferencia.`,
+        margin + 10, y + 32
+      );
+      doc.text(
+        'Después de transferir, sube tu comprobante en "Últimos envíos" para procesar tu solicitud.',
+        margin + 10, y + 44
+      );
+    }
+
+    // Footer
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      const pageH = doc.internal.pageSize.getHeight();
+      doc.text(
+        `X-Pay Direct · ${new Date().toLocaleString('es-MX')} · Página ${p} de ${totalPages}`,
+        pageW / 2, pageH - 20, { align: 'center' }
+      );
+    }
+
+    doc.save(`XPay_${lastCreated.referencia_pago || 'solicitud'}.pdf`);
+  };
+
   const validateForm = (): string | null => {
     if (requiereFactura) {
       if (!form.rfc || !form.razon_social || !form.cp || !form.email) return t('entangled.messages.requiredFields');
@@ -854,6 +1053,33 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       const res = await axios.post(`${API_URL}/api/entangled/payment-requests`, payload, {
         headers: authHeader,
       });
+
+      // Snapshots ANTES de limpiar el form (para el PDF y el modal)
+      const provObj = providers.find((p) => p.id === selectedProviderId);
+      const providerSnapshot = provObj
+        ? {
+            name: provObj.name,
+            bank_accounts: Array.isArray(provObj.bank_accounts) ? provObj.bank_accounts : [],
+          }
+        : null;
+      const operationSnapshot = {
+        divisa: form.divisa_destino,
+        monto: Number(form.monto),
+        servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
+        requiere_factura: requiereFactura,
+        rfc: requiereFactura ? form.rfc : undefined,
+        razon_social: requiereFactura ? form.razon_social : undefined,
+      };
+      const beneficiarioSnapshot = {
+        nombre: supplierForm.nombre_beneficiario,
+        nombre_chino: supplierForm.nombre_chino,
+        cuenta: supplierForm.numero_cuenta,
+        iban: supplierForm.iban,
+        banco: supplierForm.banco_nombre,
+        swift: supplierForm.swift_bic,
+        aba: supplierForm.aba_routing,
+      };
+
       setDialogOpen(false);
       setForm({
         rfc: '',
@@ -877,7 +1103,10 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         request: res.data?.request,
         instrucciones_pago: res.data?.instrucciones_pago,
         referencia_pago: res.data?.referencia_pago || res.data?.request?.referencia_pago,
-        quote: res.data?.quote,
+        quote: res.data?.quote || quote,
+        providerSnapshot,
+        operationSnapshot,
+        beneficiarioSnapshot,
       });
       setInstructionsOpen(true);
       const isPending =
@@ -2303,11 +2532,22 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                   {lastCreated.referencia_pago}
                 </Typography>
               </Box>
-              <Typography variant="caption" sx={{ color: '#666', fontSize: '0.7rem', maxWidth: 180, textAlign: 'right' }}>
-                Incluye esta referencia en tu transferencia bancaria
-              </Typography>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => {
+                    try { navigator.clipboard.writeText(String(lastCreated.referencia_pago)); } catch {}
+                    setSnack({ open: true, severity: 'success', message: 'Referencia copiada' });
+                  }}
+                  sx={{ borderColor: ORANGE, color: ORANGE, fontWeight: 700, '&:hover': { borderColor: ORANGE, bgcolor: 'rgba(255,102,0,0.08)' } }}
+                >
+                  Copiar
+                </Button>
+              </Stack>
             </Box>
           )}
+
           {lastCreated?.quote && (
             <Card sx={{ mb: 2, bgcolor: 'rgba(255,102,0,0.08)', border: `1px solid rgba(255,102,0,0.45)` }}>
               <CardContent>
@@ -2317,37 +2557,67 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                 <Typography variant="h5" sx={{ color: '#ffffff' }}>
                   ${formatMoney(lastCreated.quote.monto_mxn_total)} MXN
                 </Typography>
+                {lastCreated.operationSnapshot && (
+                  <Typography variant="caption" sx={{ color: '#bbb', display: 'block', mt: 0.5 }}>
+                    Equivalente a ${formatMoney(lastCreated.operationSnapshot.monto)} {lastCreated.operationSnapshot.divisa} al tipo de cambio ${lastCreated.quote.tipo_cambio.toFixed(4)} MXN/{lastCreated.operationSnapshot.divisa}
+                  </Typography>
+                )}
               </CardContent>
             </Card>
           )}
-          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#ffffff' }}>
-            {t('entangled.wizard.instructionsHelp', 'Realiza la transferencia con los siguientes datos y luego sube el comprobante en "Mis solicitudes":')}
-          </Typography>
-          {lastCreated?.instrucciones_pago ? (
-            <Box
-              component="pre"
-              sx={{
-                bgcolor: '#0a0a0a',
-                p: 2,
-                borderRadius: 1,
-                fontSize: 13,
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-                maxHeight: 360,
-                overflow: 'auto',
-                color: '#888888',
-                border: '1px solid #333333',
-              }}
-            >
-              {JSON.stringify(lastCreated.instrucciones_pago, null, 2)}
-            </Box>
-          ) : (
-            <Alert severity="info" sx={{ bgcolor: 'rgba(59,130,246,0.15)', border: '1px solid rgba(59,130,246,0.45)', color: '#bfdbfe' }}>
-              <Typography sx={{ color: '#93c5fd', fontWeight: 600 }}>ℹ️ {t('entangled.wizard.noInstructions', 'Aún no recibimos las instrucciones del motor. Te las haremos llegar pronto.')}</Typography>
-            </Alert>
-          )}
+
+          {/* Cuenta(s) bancaria(s) destino del proveedor de pago */}
+          {lastCreated?.providerSnapshot && lastCreated.providerSnapshot.bank_accounts.length > 0 && (() => {
+            const all = lastCreated.providerSnapshot.bank_accounts;
+            const mxn = all.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
+            const accounts = mxn.length > 0 ? mxn : all;
+            return (
+              <Card sx={{ mb: 2, bgcolor: '#0a0a0a', border: `1px solid ${ORANGE}` }}>
+                <CardContent>
+                  <Typography variant="subtitle2" sx={{ color: ORANGE, fontWeight: 800, mb: 1, letterSpacing: 0.4 }}>
+                    💳 DEPOSITAR / TRANSFERIR A — {lastCreated.providerSnapshot.name}
+                  </Typography>
+                  {accounts.map((acc, i) => (
+                    <Box key={i} sx={{ mb: i < accounts.length - 1 ? 1.5 : 0, pb: i < accounts.length - 1 ? 1.5 : 0, borderBottom: i < accounts.length - 1 ? '1px dashed #333' : 'none' }}>
+                      {acc.bank && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Banco: <strong style={{ color: '#fff' }}>{acc.bank}</strong>{acc.currency ? <span style={{ color: '#888' }}> ({acc.currency})</span> : null}</Typography>}
+                      {acc.holder && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Titular: <strong style={{ color: '#fff' }}>{acc.holder}</strong></Typography>}
+                      {acc.account && (
+                        <Stack direction="row" spacing={0.8} alignItems="center">
+                          <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Cuenta: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{acc.account}</strong></Typography>
+                          <Button size="small" onClick={() => { try { navigator.clipboard.writeText(String(acc.account)); } catch {} }} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
+                        </Stack>
+                      )}
+                      {acc.clabe && (
+                        <Stack direction="row" spacing={0.8} alignItems="center">
+                          <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>CLABE: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{acc.clabe}</strong></Typography>
+                          <Button size="small" onClick={() => { try { navigator.clipboard.writeText(String(acc.clabe)); } catch {} }} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
+                        </Stack>
+                      )}
+                      {acc.reference && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Referencia adicional: <strong style={{ color: '#fff' }}>{acc.reference}</strong></Typography>}
+                    </Box>
+                  ))}
+                  <Alert severity="warning" sx={{ mt: 1.5, bgcolor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', color: '#fcd34d' }}>
+                    Incluye la referencia <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{lastCreated.referencia_pago}</strong> en el concepto de tu transferencia.
+                  </Alert>
+                </CardContent>
+              </Card>
+            );
+          })()}
+
+          <Alert severity="info" sx={{ bgcolor: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.45)', color: '#bfdbfe' }}>
+            <Typography sx={{ color: '#93c5fd', fontWeight: 600 }}>
+              ℹ️ Una vez realizada la transferencia, sube tu comprobante desde "Últimos envíos" para procesar tu solicitud con ENTANGLED.
+            </Typography>
+          </Alert>
         </DialogContent>
         <DialogActions sx={{ bgcolor: '#070709', borderTop: '1px solid #333333', p: 2 }}>
+          <Button
+            onClick={() => generateInstructionsPDF()}
+            variant="outlined"
+            sx={{ borderColor: ORANGE, color: ORANGE, fontWeight: 700, px: 3, '&:hover': { borderColor: ORANGE, bgcolor: 'rgba(255,102,0,0.08)' } }}
+          >
+            📄 Descargar PDF
+          </Button>
           <Button onClick={() => setInstructionsOpen(false)} variant="contained" sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 700, px: 3, '&:hover': { bgcolor: '#E54A1F' } }}>
             {t('common.close', 'Cerrar')}
           </Button>
