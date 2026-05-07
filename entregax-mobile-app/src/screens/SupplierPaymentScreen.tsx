@@ -182,6 +182,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [lastRequestId, setLastRequestId] = useState<number | null>(null);
   const [lastReferencia, setLastReferencia] = useState<string | null>(null);
+  const [lastEmpresas, setLastEmpresas] = useState<Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>>([]);
+  const [lastTransaccionId, setLastTransaccionId] = useState<string | null>(null);
 
   // Comprobante v2: archivo elegido en wizard antes de submit
   const [comprobanteAsset, setComprobanteAsset] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
@@ -508,6 +510,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         const rid = data?.request?.id || data?.request_id || null;
         setLastRequestId(rid ? Number(rid) : null);
         setLastReferencia(data?.referencia_pago || (rid ? `XP${String(rid).padStart(6, '0')}` : null));
+        setLastEmpresas(Array.isArray(data?.empresas_asignadas) ? data.empresas_asignadas : []);
+        setLastTransaccionId(data?.entangled_transaccion_id || data?.request?.entangled_transaccion_id || null);
         setSuccessModalVisible(true);
         setMonto(''); setConceptos('');
         setBenefName(''); setBenefNameZh(''); setBenefAddress('');
@@ -561,7 +565,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
   const statusColor = (s: string) => {
     if (['completado', 'emitida', 'enviado', 'pagado'].includes(s)) return ORANGE;
-    if (['en_proceso', 'pendiente'].includes(s)) return '#f59e0b';
+    if (['en_proceso', 'pendiente', 'esperando_comprobante'].includes(s)) return '#f59e0b';
     if (['rechazado', 'error_envio', 'error'].includes(s)) return '#dc2626';
     if (['cancelado'].includes(s)) return '#6B7280';
     return '#64748b';
@@ -823,7 +827,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         ) : (
           requests.map((r, idx) => {
             const deadline = parseApiDate(r.payment_deadline_at) || getPaymentDeadline(r.created_at);
-            const isActive = ['pendiente', 'en_proceso', 'error_envio'].includes(String(r.estatus_global || '').toLowerCase());
+            const isActive = ['pendiente', 'en_proceso', 'error_envio', 'esperando_comprobante'].includes(String(r.estatus_global || '').toLowerCase());
             const sc = statusColor(r.estatus_global);
             return (
               <View key={r.id} style={[styles.requestItem, idx === requests.length - 1 && { borderBottomWidth: 0 }]}>
@@ -1499,6 +1503,68 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <Text style={styles.successRefLabel}>Número de referencia de pago</Text>
                 <Text style={styles.successRefCode}>{lastReferencia}</Text>
               </View>
+            )}
+            {lastEmpresas.length > 0 && (
+              <ScrollView style={{ maxHeight: 260, alignSelf: 'stretch', marginTop: 6, marginBottom: 6 }}>
+                <View style={{ borderWidth: 1, borderColor: ORANGE, borderRadius: 10, padding: 10, backgroundColor: 'rgba(255,102,0,0.06)' }}>
+                  <Text style={{ color: ORANGE, fontWeight: '900', fontSize: 12, letterSpacing: 1, marginBottom: 8 }}>
+                    💳 DEPOSITAR / TRANSFERIR A
+                  </Text>
+                  {lastEmpresas.map((emp, i) => {
+                    const cb: any = emp.cuenta_bancaria || {};
+                    const banco = cb.banco || cb.bank || '';
+                    const titular = cb.titular || cb.holder || emp.empresa || '';
+                    const cuenta = cb.cuenta || cb.account || cb.numero_cuenta || '';
+                    const clabe = cb.clabe || cb.CLABE || '';
+                    const sucursal = cb.sucursal || cb.branch || '';
+                    return (
+                      <View key={i} style={{ marginBottom: i < lastEmpresas.length - 1 ? 8 : 0, paddingBottom: i < lastEmpresas.length - 1 ? 8 : 0, borderBottomWidth: i < lastEmpresas.length - 1 ? 1 : 0, borderBottomColor: '#333', borderStyle: 'dashed' as any }}>
+                        {!!emp.clave_prodserv && (
+                          <Text style={{ color: TEXT_MUTED, fontSize: 11, marginBottom: 2 }}>
+                            SAT <Text style={{ color: TEXT, fontWeight: '700' }}>{emp.clave_prodserv}</Text>
+                            {emp.monto != null ? <Text> · {Number(emp.monto).toLocaleString()} {emp.divisa || ''}</Text> : null}
+                          </Text>
+                        )}
+                        {!!banco && <Text style={{ color: TEXT, fontSize: 12 }}>Banco: <Text style={{ fontWeight: '800' }}>{banco}</Text></Text>}
+                        {!!titular && <Text style={{ color: TEXT, fontSize: 12 }}>Titular: <Text style={{ fontWeight: '800' }}>{titular}</Text></Text>}
+                        {!!cuenta && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text style={{ color: TEXT, fontSize: 12 }}>Cuenta: <Text style={{ fontWeight: '800' }}>{cuenta}</Text></Text>
+                            <TouchableOpacity onPress={() => { Clipboard.setStringAsync(String(cuenta)); }}>
+                              <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700' }}>Copiar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                        {!!clabe && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Text style={{ color: TEXT, fontSize: 12 }}>CLABE: <Text style={{ fontWeight: '800' }}>{clabe}</Text></Text>
+                            <TouchableOpacity onPress={() => { Clipboard.setStringAsync(String(clabe)); }}>
+                              <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700' }}>Copiar</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
+                        {!!sucursal && <Text style={{ color: TEXT, fontSize: 12 }}>Sucursal: <Text style={{ fontWeight: '800' }}>{sucursal}</Text></Text>}
+                      </View>
+                    );
+                  })}
+                  <View style={{ marginTop: 8, padding: 8, borderRadius: 6, backgroundColor: 'rgba(245,158,11,0.1)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.4)' }}>
+                    <Text style={{ color: '#fcd34d', fontSize: 11, fontWeight: '600' }}>
+                      ⚠ Incluye la referencia <Text style={{ fontWeight: '900' }}>{lastReferencia}</Text> en el concepto de tu transferencia.
+                    </Text>
+                  </View>
+                </View>
+              </ScrollView>
+            )}
+            {lastRequestId != null && (
+              <TouchableOpacity
+                style={[styles.successBtn, { backgroundColor: ORANGE, marginBottom: 8 }]}
+                onPress={() => {
+                  setSuccessModalVisible(false);
+                  uploadComprobante(lastRequestId);
+                }}
+              >
+                <Text style={[styles.successBtnText, { color: '#fff' }]}>📎 Subir comprobante ahora</Text>
+              </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.successBtn} onPress={() => setSuccessModalVisible(false)}>
               <Text style={styles.successBtnText}>{t('common.ok', 'Aceptar')}</Text>
