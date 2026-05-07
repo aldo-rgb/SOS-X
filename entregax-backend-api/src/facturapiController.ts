@@ -1,15 +1,20 @@
 // facturapiController.ts — Integración con Facturapi.io para DESCARGA
 // de facturas recibidas (CFDIs). Facturama queda dedicado a la EMISIÓN.
 //
-// API de Facturapi (Buzón / Recibidas):
+// API de Facturapi v2 (público y documentado):
 //   Base: https://www.facturapi.io/v2
 //   Auth: Basic <base64(secret_key:)>  (nota el ':' final, password vacío)
-//   GET  /received                       - Listar
-//   GET  /received/{id}                  - Detalle
-//   GET  /received/{id}/xml              - Descargar XML
-//   GET  /received/{id}/pdf              - Descargar PDF
 //
-// Multi-emisor: cada fiscal_emitter tiene su propia API key.
+//   GET  /invoices?issuer_type=receiving   - Listar facturas recibidas (oficial)
+//   GET  /invoices/{id}/xml                - Descargar XML
+//   GET  /invoices/{id}/pdf                - Descargar PDF
+//
+// Notas:
+//   - El endpoint legacy `/received` no existe en la API pública v2.
+//   - Para que `issuer_type=receiving` devuelva facturas, la organización debe
+//     tener activada la "Bandeja de Recibidas" (Buzón Fiscal) en facturapi.io
+//     y haber autorizado la descarga desde el SAT con e.firma.
+//   - Multi-emisor: cada fiscal_emitter tiene su propia API key.
 
 import { Request, Response } from 'express';
 import { pool } from './db';
@@ -110,13 +115,21 @@ export const testFacturapiConnection = async (req: AuthRequest, res: Response): 
     if (!e.facturapi_api_key) {
       return res.status(400).json({ error: 'Facturapi no configurado para este emisor' });
     }
-    const r = await axios.get(`${FACTURAPI_BASE}/received`, {
+    const r = await axios.get(`${FACTURAPI_BASE}/organizations/me`, {
       ...getFacturapiAuth(e.facturapi_api_key),
-      params: { page: 1, limit: 1 },
       validateStatus: () => true,
     });
     if (r.status >= 200 && r.status < 300) {
-      return res.json({ success: true, status: r.status, sample_total: r.data?.total_results ?? r.data?.total ?? null });
+      return res.json({
+        success: true,
+        status: r.status,
+        organization: {
+          id: r.data?.id,
+          legal_name: r.data?.legal?.legal_name,
+          tax_id: r.data?.legal?.tax_id,
+          is_production_ready: r.data?.is_production_ready,
+        },
+      });
     }
     return res.status(r.status).json({
       success: false,
@@ -147,20 +160,22 @@ export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Pr
   const auth = getFacturapiAuth(e.facturapi_api_key);
 
   try {
-    // Facturapi soporta paginado: page=1..N, limit hasta 50
-    const limit = 50;
+    // Endpoint OFICIAL de Facturapi v2:
+    //   GET /invoices?issuer_type=receiving  → facturas donde tu org es el receptor
+    // Paginado: page=1..N, limit hasta 100.
+    const limit = 100;
     let page = 1;
     let totalPages = 1;
     let allItems: any[] = [];
     const triedParams: any[] = [];
 
     do {
-      const params: any = { page, limit };
+      const params: any = { page, limit, issuer_type: 'receiving' };
       if (from) params['date[gt]'] = `${from}T00:00:00`;
       if (to)   params['date[lt]'] = `${to}T23:59:59`;
       triedParams.push({ ...params });
 
-      const r = await axios.get(`${FACTURAPI_BASE}/received`, {
+      const r = await axios.get(`${FACTURAPI_BASE}/invoices`, {
         ...auth,
         params,
         validateStatus: () => true,
@@ -169,28 +184,32 @@ export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Pr
       if (r.status === 401 || r.status === 403) {
         return res.status(401).json({
           error: 'Credenciales Facturapi rechazadas',
-          detail: r.data?.message || 'Verifica la API key y el ambiente.',
+          detail: r.data?.message || 'Verifica la API key y el ambiente (LIVE/TEST).',
           status: r.status,
+          tried_url: `${FACTURAPI_BASE}/invoices`,
+          tried_params: params,
         });
       }
       if (r.status === 404) {
         return res.status(404).json({
-          error: 'Tu cuenta de Facturapi no tiene habilitada la "Bandeja de Recibidas"',
+          error: 'Facturapi devolvió 404 al consultar facturas recibidas',
           detail: r.data?.message || 'Resource not found',
+          tried_url: `${FACTURAPI_BASE}/invoices`,
+          tried_params: params,
           how_to_fix: [
-            '1. Ingresa a https://app.facturapi.io',
-            '2. Ve a la sección "Recibidas" o "Buzón Fiscal" del menú lateral',
-            '3. Activa el módulo siguiendo el asistente (te pedirá tu e.firma o CSF para autorizar la descarga desde el SAT)',
-            '4. Espera ~30 minutos a que Facturapi haga la primera sincronización con el SAT',
-            '5. Vuelve a intentar la sincronización aquí',
-          ].join('\n'),
-          docs: 'https://docs.facturapi.io/api/#tag/Recibidas',
+            'Verifica que la API key sea LIVE (sk_live_...) si tu dashboard está en Live, o TEST (sk_test_...) si está en Test.',
+            'Confirma que la organización tenga el módulo "Bandeja de Recibidas" / "Buzón Fiscal" activado en https://app.facturapi.io',
+            'Si el módulo no está activado, sigue el asistente con tu e.firma para autorizar la descarga desde el SAT',
+          ].join(' • '),
         });
       }
       if (r.status < 200 || r.status >= 300) {
         return res.status(r.status).json({
           error: 'Facturapi respondió con error',
           detail: r.data?.message || r.data,
+          status: r.status,
+          tried_url: `${FACTURAPI_BASE}/invoices`,
+          tried_params: params,
         });
       }
 
@@ -199,7 +218,7 @@ export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Pr
       allItems.push(...items);
       totalPages = data.total_pages ?? data.totalPages ?? (items.length < limit ? page : page + 1);
       page += 1;
-      if (page > 50) break; // safeguard máx 2500 facturas por sync
+      if (page > 50) break; // safeguard máx 5000 facturas por sync
     } while (page <= totalPages);
 
     let inserted = 0;
@@ -216,23 +235,26 @@ export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Pr
       );
       if (dup.rows.length) { skipped++; continue; }
 
-      const issuer = cfdi.issuer || {};
-      const receiver = cfdi.receiver || {};
-      const emisorRfc    = issuer.tax_id || issuer.rfc || cfdi.issuer_rfc || null;
-      const emisorNombre = issuer.legal_name || issuer.name || cfdi.issuer_name || null;
+      // Para facturas RECIBIDAS, el customer es TU org (receptor) y necesitamos
+      // el emisor desde otros campos. Facturapi v2 estándar no expone "issuer"
+      // como objeto separado en el modelo Invoice; intentamos varias claves.
+      const issuer   = cfdi.issuer || cfdi.emisor || {};
+      const customer = cfdi.customer || cfdi.receiver || cfdi.receptor || {};
+      const emisorRfc    = issuer.tax_id || issuer.rfc || cfdi.issuer_tax_id || cfdi.issuer_rfc || null;
+      const emisorNombre = issuer.legal_name || issuer.name || cfdi.issuer_legal_name || cfdi.issuer_name || null;
       const total        = parseFloat(cfdi.total ?? 0) || 0;
       const subtotal     = parseFloat(cfdi.subtotal ?? 0) || 0;
       const fechaEmision = cfdi.date || cfdi.created_at || null;
       const formaPago    = cfdi.payment_form || null;
       const metodoPago   = cfdi.payment_method || null;
-      const usoCfdi      = cfdi.use || receiver.use || null;
+      const usoCfdi      = cfdi.use || customer.use || null;
       const moneda       = cfdi.currency || 'MXN';
       const folio        = cfdi.folio_number ? String(cfdi.folio_number) : (cfdi.folio || null);
       const serie        = cfdi.series || null;
       const tipo         = cfdi.type || 'I';
       const facturapiId  = cfdi.id || null;
-      const pdfUrl       = facturapiId ? `${FACTURAPI_BASE}/received/${facturapiId}/pdf` : null;
-      const xmlUrl       = facturapiId ? `${FACTURAPI_BASE}/received/${facturapiId}/xml` : null;
+      const pdfUrl       = facturapiId ? `${FACTURAPI_BASE}/invoices/${facturapiId}/pdf` : null;
+      const xmlUrl       = facturapiId ? `${FACTURAPI_BASE}/invoices/${facturapiId}/xml` : null;
 
       await pool.query(
         `INSERT INTO accounting_received_invoices (
@@ -255,7 +277,7 @@ export const syncFacturapiReceived = async (req: AuthRequest, res: Response): Pr
         [
           emitterId, uuid, folio, serie,
           emisorRfc, emisorNombre,
-          e.rfc, receiver.legal_name || null,
+          e.rfc, customer.legal_name || null,
           tipo, usoCfdi, metodoPago, formaPago,
           moneda, subtotal, total, fechaEmision,
           pdfUrl, xmlUrl, facturapiId,
@@ -307,7 +329,7 @@ export const downloadFacturapiAttachment = async (req: AuthRequest, res: Respons
     const e = await loadEmitter(emitterId);
     if (!e || !e.facturapi_api_key) return res.status(400).json({ error: 'Facturapi no configurado' });
 
-    const r = await axios.get(`${FACTURAPI_BASE}/received/${facturapiId}/${type}`, {
+    const r = await axios.get(`${FACTURAPI_BASE}/invoices/${facturapiId}/${type}`, {
       ...getFacturapiAuth(e.facturapi_api_key),
       responseType: 'arraybuffer',
       validateStatus: () => true,
