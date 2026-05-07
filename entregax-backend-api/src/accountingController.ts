@@ -382,9 +382,9 @@ export const listAccountants = async (req: AuthRequest, res: Response): Promise<
             return res.status(403).json({ error: 'Sin permiso' });
         }
         const r = await pool.query(`
-            SELECT u.id, u.full_name, u.email, u.is_active, u.created_at,
+            SELECT u.id, u.full_name AS name, u.email, u.role, u.is_active, u.created_at,
                    COALESCE(json_agg(json_build_object(
-                     'emitter_id', p.fiscal_emitter_id,
+                     'fiscal_emitter_id', p.fiscal_emitter_id,
                      'alias', fe.alias,
                      'rfc', fe.rfc,
                      'can_view', p.can_view,

@@ -7889,6 +7889,22 @@ async function ensureRequiredColumns() {
       VALUES ('accounting_hub', 'Contabilidad', 'Contabilidad', 'receipt_long', 'Portal contable multi-empresa: facturas, productos, categorías', TRUE, 10)
       ON CONFLICT (panel_key) DO NOTHING
     `);
+    // Tabla de permisos de contadores por empresa fiscal
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS accountant_emitter_permissions (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        fiscal_emitter_id INTEGER NOT NULL REFERENCES fiscal_emitters(id) ON DELETE CASCADE,
+        can_view BOOLEAN NOT NULL DEFAULT TRUE,
+        can_emit_invoice BOOLEAN NOT NULL DEFAULT TRUE,
+        can_cancel_invoice BOOLEAN NOT NULL DEFAULT FALSE,
+        granted_by INTEGER REFERENCES users(id),
+        granted_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE (user_id, fiscal_emitter_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_aep_user ON accountant_emitter_permissions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_aep_emitter ON accountant_emitter_permissions(fiscal_emitter_id);
+    `);
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }
