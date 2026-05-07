@@ -7881,6 +7881,12 @@ async function ensureRequiredColumns() {
     if (cleanup.rowCount && cleanup.rowCount > 0) {
       console.log(`🧹 [STARTUP] CLABEs virtuales simuladas removidas: ${cleanup.rowCount}`);
     }
+    // Sembrar panel de Contabilidad en admin_panels si no existe
+    await pool.query(`
+      INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)
+      VALUES ('accounting_hub', 'Contabilidad', 'Contabilidad', 'receipt_long', 'Portal contable multi-empresa: facturas, productos, categorías', TRUE, 10)
+      ON CONFLICT (panel_key) DO NOTHING
+    `);
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }

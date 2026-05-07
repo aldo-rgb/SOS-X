@@ -558,10 +558,11 @@ function App() {
       return true;
     }
 
-    // Accounting: visible para roles financieros/directivos y accountant (se filtra por rol arriba)
+    // Accounting: accountant siempre tiene acceso; otros roles lo ven si tienen permiso de panel
     if (category === 'accounting') {
       const role = currentUser?.role || '';
-      return ['admin', 'director', 'finanzas', 'accountant', 'super_admin'].includes(role);
+      if (['super_admin', 'admin', 'director', 'finanzas', 'accountant'].includes(role)) return true;
+      return Object.keys(userPanelPermissions).some(key => key.startsWith('accounting_'));
     }
 
     const categoryPrefixes: Record<string, string[]> = {
@@ -569,6 +570,7 @@ function App() {
       'panelsOperations': ['ops_'],
       'panelsService': ['cs_'],
       'tesoreriaSucursal': ['tesoreria_', 'finanzas_'],
+      'accounting': ['accounting_'],
     };
     
     const prefixes = categoryPrefixes[category] || [];

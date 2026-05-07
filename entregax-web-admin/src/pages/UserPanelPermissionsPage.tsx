@@ -57,6 +57,7 @@ import {
   Build as BuildIcon,
   Inventory as InventoryIcon,
   Settings as SettingsIcon,
+  ReceiptLong as ReceiptLongIcon,
 } from '@mui/icons-material';
 import ModulePermissionsDialog from './ModulePermissionsDialog';
 
@@ -91,6 +92,7 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string; icon: Reac
   admin: { label: 'Administración', color: '#9C27B0', icon: <AdminIcon /> },
   operations: { label: 'Operaciones', color: '#2196F3', icon: <InventoryIcon /> },
   customer_service: { label: 'Servicio a Cliente', color: '#4CAF50', icon: <HeadsetMicIcon /> },
+  Contabilidad: { label: 'Contabilidad', color: '#E87722', icon: <ReceiptLongIcon /> },
 };
 
 const PANEL_ICONS: Record<string, React.ReactNode> = {
@@ -297,6 +299,8 @@ export default function UserPanelPermissionsPage() {
       'warehouse_ops': 'Bodega',
       'repartidor': 'Repartidor',
       'accountant': 'Contador',
+      'operaciones': 'Operaciones',
+      'monitoreo': 'Monitoreo',
     };
     return roleLabels[role] || role;
   };
