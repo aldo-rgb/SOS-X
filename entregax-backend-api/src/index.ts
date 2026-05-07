@@ -7901,10 +7901,10 @@ async function ensureRequiredColumns() {
         granted_by INTEGER REFERENCES users(id),
         granted_at TIMESTAMP DEFAULT NOW(),
         UNIQUE (user_id, fiscal_emitter_id)
-      );
-      CREATE INDEX IF NOT EXISTS idx_aep_user ON accountant_emitter_permissions(user_id);
-      CREATE INDEX IF NOT EXISTS idx_aep_emitter ON accountant_emitter_permissions(fiscal_emitter_id);
+      )
     `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_aep_user ON accountant_emitter_permissions(user_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_aep_emitter ON accountant_emitter_permissions(fiscal_emitter_id)`);
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }

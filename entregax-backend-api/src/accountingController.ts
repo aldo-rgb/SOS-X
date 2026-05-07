@@ -393,12 +393,12 @@ export const listAccountants = async (req: AuthRequest, res: Response): Promise<
                 granted_by INTEGER REFERENCES users(id),
                 granted_at TIMESTAMP DEFAULT NOW(),
                 UNIQUE (user_id, fiscal_emitter_id)
-            );
-            CREATE INDEX IF NOT EXISTS idx_aep_user ON accountant_emitter_permissions(user_id);
-            CREATE INDEX IF NOT EXISTS idx_aep_emitter ON accountant_emitter_permissions(fiscal_emitter_id);
+            )
         `);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_aep_user ON accountant_emitter_permissions(user_id)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_aep_emitter ON accountant_emitter_permissions(fiscal_emitter_id)`);
         const r = await pool.query(`
-            SELECT u.id, u.full_name AS name, u.email, u.role, u.is_active, u.created_at,
+            SELECT u.id, u.full_name AS name, u.email, u.role,
                    COALESCE(json_agg(json_build_object(
                      'fiscal_emitter_id', p.fiscal_emitter_id,
                      'alias', fe.alias,
