@@ -49,6 +49,10 @@ interface PackageItem {
   recipient_name: string;
   recipient_phone: string;
   loaded_at?: string;
+  client_number?: string;
+  reference_hint?: string;
+  box_number?: number | string;
+  total_boxes?: number | string;
 }
 
 interface FeedbackMessage {
@@ -375,6 +379,34 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const totalPackages = routeData 
     ? routeData.pendingToLoad + routeData.loadedToday 
     : 0;
+
+  const normalizePositiveInt = (value: any, fallback: number): number => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+  };
+
+  const getClientPackageInfo = (pkg: PackageItem) => {
+    const boxNumber = normalizePositiveInt(pkg.box_number, 1);
+    const totalBoxes = normalizePositiveInt(pkg.total_boxes, Math.max(boxNumber, 1));
+    const clientNumber = String(pkg.client_number || '').trim() || 'N/D';
+
+    const fromHint = String(pkg.reference_hint || '').match(/\d+/g)?.join('') || '';
+    const fromTrackingGroup = String(pkg.tracking_number || '').match(/(\d+)-\d+$/)?.[1] || '';
+    const fromTrackingAny = String(pkg.tracking_number || '').match(/\d+/g)?.join('') || '';
+
+    // Priorizar referencia explícita (shipping mark / reference_code).
+    // Evitar tomar valores de 1 dígito que suelen ser ruido.
+    const normalizedHint = fromHint.length >= 2 ? fromHint : '';
+    const normalizedTrackingGroup = fromTrackingGroup.length >= 2 ? fromTrackingGroup : '';
+    const normalizedTrackingAny = fromTrackingAny.length >= 2 ? fromTrackingAny : '';
+    const referenceDigits = normalizedHint || normalizedTrackingGroup || normalizedTrackingAny || 'N/D';
+
+    return {
+      clientNumber,
+      referenceDigits,
+      boxLabel: `${Math.min(boxNumber, totalBoxes)}/${totalBoxes} cajas`,
+    };
+  };
     
   const isLoadComplete = routeData 
     ? routeData.pendingToLoad === 0 && routeData.loadedToday > 0
@@ -768,13 +800,23 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                   <MaterialIcons name="inventory-2" size={24} color="#F05A28" />
                 </View>
                 <View style={styles.packageInfo}>
-                  <Text style={styles.packageTracking}>{item.tracking_number}</Text>
-                  <Text style={styles.packageAddress} numberOfLines={1}>
-                    {item.delivery_address}
-                  </Text>
-                  <Text style={styles.packageRecipient}>
-                    👤 {item.recipient_name}
-                  </Text>
+                  {(() => {
+                    const packageInfo = getClientPackageInfo(item);
+                    return (
+                      <>
+                        <Text style={styles.packageTracking}>{item.tracking_number}</Text>
+                        <Text style={styles.packageRecipient}>
+                          🧾 Cliente: {packageInfo.clientNumber} · 🔢 Ref: {packageInfo.referenceDigits} · 📦 {packageInfo.boxLabel}
+                        </Text>
+                        <Text style={styles.packageAddress} numberOfLines={1}>
+                          {item.delivery_address}
+                        </Text>
+                        <Text style={styles.packageRecipient}>
+                          👤 {item.recipient_name}
+                        </Text>
+                      </>
+                    );
+                  })()}
                 </View>
                 <View style={styles.packageStatus}>
                   <MaterialIcons name="hourglass-empty" size={20} color="#FF9800" />
@@ -806,10 +848,20 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                       <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
                     </View>
                     <View style={styles.packageInfo}>
-                      <Text style={styles.packageTracking}>{item.tracking_number}</Text>
-                      <Text style={styles.packageAddress} numberOfLines={1}>
-                        {item.delivery_address}
-                      </Text>
+                      {(() => {
+                        const packageInfo = getClientPackageInfo(item);
+                        return (
+                          <>
+                            <Text style={styles.packageTracking}>{item.tracking_number}</Text>
+                            <Text style={styles.packageRecipient}>
+                              🧾 Cliente: {packageInfo.clientNumber} · 🔢 Ref: {packageInfo.referenceDigits} · 📦 {packageInfo.boxLabel}
+                            </Text>
+                            <Text style={styles.packageAddress} numberOfLines={1}>
+                              {item.delivery_address}
+                            </Text>
+                          </>
+                        );
+                      })()}
                     </View>
                   </View>
                 )}

@@ -362,6 +362,26 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     navigation.navigate(action.screen, { user, token, ...(action.params || {}) });
   };
 
+  const handleAssignedTodayPress = () => {
+    if (!inspectionDone && !isMonitoreo) {
+      Alert.alert(
+        'Inspección requerida',
+        'Primero debes realizar la inspección de tu vehículo para poder cargar tu unidad.'
+      );
+      return;
+    }
+
+    const loadAction = quickActions.find((action) => action.id === 'load');
+    if (!loadAction) return;
+
+    if (!loadAction.enabled) {
+      Alert.alert('Sin paquetes pendientes', 'No tienes paquetes pendientes por cargar en este momento.');
+      return;
+    }
+
+    void handleQuickActionPress(loadAction);
+  };
+
   const handleScanModalChoice = async (mode: 'scanner' | 'camera') => {
     if (!scanModal.action) return;
     const action = scanModal.action;
@@ -443,11 +463,15 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         {/* Stats Cards */}
         <View style={styles.statsContainer}>
           <View style={styles.statsRow}>
-            <View style={[styles.statCard, styles.statCardPrimary]}>
+            <TouchableOpacity
+              style={[styles.statCard, styles.statCardPrimary]}
+              activeOpacity={0.85}
+              onPress={handleAssignedTodayPress}
+            >
               <MaterialIcons name={isMonitoreo ? 'directions-boat' : 'inventory-2'} size={32} color="#fff" />
               <Text style={styles.statNumber}>{stats.totalAssigned}</Text>
               <Text style={styles.statLabel}>{isMonitoreo ? 'Contenedores Liberados' : 'Asignados Hoy'}</Text>
-            </View>
+            </TouchableOpacity>
             <View style={styles.statCard}>
               <MaterialIcons name="local-shipping" size={28} color="#2196F3" />
               <Text style={[styles.statNumber, { color: '#2196F3' }]}>{stats.loadedToday}</Text>

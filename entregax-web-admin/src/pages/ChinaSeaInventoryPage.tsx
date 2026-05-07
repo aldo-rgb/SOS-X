@@ -40,6 +40,8 @@ interface InvOrder {
     ordersn: string;
     shipping_mark: string | null;
     goods_name: string | null;
+    goods_num: number | null;
+    summary_boxes: number | null;
     weight: string | number | null;
     volume: string | number | null;
     status: string;
@@ -48,6 +50,7 @@ interface InvOrder {
     bl_number: string | null;
     reference_code: string | null;
     container_received_at: string | null;
+    order_received_at: string | null;
     missing_on_arrival: boolean;
     user_box_id: string | null;
     user_name: string | null;
@@ -60,7 +63,8 @@ interface Stats {
     total: number;
     received_china: number;
     in_transit: number;
-    received_mty: number;
+    received_cdmx: number;
+    received_cedis?: number;
     customs: number;
     delivered: number;
     missing: number;
@@ -81,7 +85,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
     in_transit: { label: 'En tránsito', color: ORANGE },
     customs_cleared: { label: 'Aduana liberada', color: '#7B1FA2' },
     customs_mx: { label: 'Aduana MX', color: '#7B1FA2' },
-    received_mty: { label: 'Recibido en MTY', color: '#2E7D32' },
+    received_cdmx: { label: 'Recibido en CDMX', color: '#2E7D32' },
     delivered: { label: 'Entregado', color: '#424242' },
 };
 
@@ -95,6 +99,7 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [containerFilter, setContainerFilter] = useState<string>('');
+    const [dayFilter, setDayFilter] = useState<string>('');
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
 
@@ -105,6 +110,7 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
             if (search.trim()) params.search = search.trim();
             if (statusFilter !== 'all') params.status = statusFilter;
             if (containerFilter.trim()) params.container = containerFilter.trim();
+            if (dayFilter) params.day = dayFilter;
 
             const res = await api.get('/admin/china-sea/inventory', { params });
             setOrders(res.data.orders || []);
@@ -114,7 +120,7 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
             const err = e as { response?: { data?: { error?: string } }; message?: string };
             setError(err.response?.data?.error || err.message || 'Error');
         } finally { setLoading(false); }
-    }, [page, pageSize, statusFilter, containerFilter, search]);
+    }, [page, pageSize, statusFilter, containerFilter, dayFilter, search]);
 
     useEffect(() => {
         const t = setTimeout(load, 350);
@@ -137,7 +143,11 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
                     <StatCard label="En China" value={stats.received_china} color="#1976D2" />
                     <StatCard label="En tránsito" value={stats.in_transit} color={ORANGE} />
                     <StatCard label="Aduana" value={stats.customs} color="#7B1FA2" />
-                    <StatCard label="Recibidos CEDIS" value={stats.received_mty} color="#2E7D32" />
+                                        <StatCard
+                                            label="Recibidos CEDIS"
+                                            value={Number(stats.received_cedis || 0) || Number(stats.received_cdmx || 0)}
+                                            color="#2E7D32"
+                                        />
                     <StatCard label="Entregados" value={stats.delivered} color="#424242" />
                     <StatCard label="Faltantes" value={stats.missing} color={RED} />
                 </Stack>
@@ -159,6 +169,15 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
                         onChange={(e) => { setContainerFilter(e.target.value); setPage(0); }}
                         sx={{ flex: 1 }}
                     />
+                    <TextField
+                        size="small"
+                        label="Día"
+                        type="date"
+                        value={dayFilter}
+                        onChange={(e) => { setDayFilter(e.target.value); setPage(0); }}
+                        InputLabelProps={{ shrink: true }}
+                        sx={{ minWidth: 170 }}
+                    />
                     <FormControl size="small" sx={{ minWidth: 220 }}>
                         <InputLabel>Estado</InputLabel>
                         <Select label="Estado" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}>
@@ -167,7 +186,7 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
                             <MenuItem value="in_transit">En tránsito</MenuItem>
                             <MenuItem value="customs_cleared">Aduana liberada</MenuItem>
                             <MenuItem value="customs_mx">Aduana MX</MenuItem>
-                            <MenuItem value="received_mty">Recibido en MTY</MenuItem>
+                            <MenuItem value="received_cdmx">Recibido en CDMX</MenuItem>
                             <MenuItem value="delivered">Entregado</MenuItem>
                             <MenuItem value="missing">Solo faltantes</MenuItem>
                         </Select>
@@ -190,7 +209,7 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Referencia / BL</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Contenedor</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Cliente</TableCell>
-                                    <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Mercancía</TableCell>
+                                    <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }} align="center">Cajas por log</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }} align="right">Peso (kg)</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }} align="right">CBM</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Estado</TableCell>
@@ -240,15 +259,17 @@ export default function ChinaSeaInventoryPage({ onBack }: Props) {
                                                 )}
                                                 <Typography variant="caption">{o.user_name || '—'}</Typography>
                                             </TableCell>
-                                            <TableCell>{o.goods_name || '—'}</TableCell>
+                                            <TableCell align="center" sx={{ fontWeight: 700 }}>
+                                                {Number(o.summary_boxes || o.goods_num || 0) || 0}
+                                            </TableCell>
                                             <TableCell align="right">{Number(o.weight || 0).toFixed(2)}</TableCell>
                                             <TableCell align="right">{Number(o.volume || 0).toFixed(3)}</TableCell>
                                             <TableCell>
                                                 <Chip label={meta.label} size="small" sx={{ bgcolor: meta.color, color: '#FFF', fontWeight: 600 }} />
                                             </TableCell>
                                             <TableCell>
-                                                {o.container_received_at
-                                                    ? new Date(o.container_received_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                {(o.order_received_at || o.container_received_at)
+                                                    ? new Date(o.order_received_at || o.container_received_at || '').toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
                                                     : '—'}
                                             </TableCell>
                                         </TableRow>

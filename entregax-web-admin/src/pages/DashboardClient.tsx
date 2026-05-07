@@ -612,6 +612,28 @@ export default function DashboardClient() {
   const [wantsFacturaPaqueteria, setWantsFacturaPaqueteria] = useState<boolean>(false);
   const [savedConstanciaUrl, setSavedConstanciaUrl] = useState<string | null>(null);
   const [savedConstanciaName, setSavedConstanciaName] = useState<string | null>(null);
+
+  const resolveCarrierIconUrl = (iconValue: string | undefined | null): string => {
+    const raw = String(iconValue || '').trim();
+    if (!raw) return '';
+
+    if (raw.startsWith('/uploads/')) return `${API_URL}${raw}`;
+    if (raw.startsWith('uploads/')) return `${API_URL}/${raw}`;
+
+    if (/^https?:\/\//i.test(raw)) {
+      try {
+        const parsed = new URL(raw);
+        if (parsed.pathname.startsWith('/uploads/')) {
+          return `${API_URL}${parsed.pathname}`;
+        }
+      } catch {
+        // noop
+      }
+      return raw;
+    }
+
+    return raw;
+  };
   
   // Load saved constancia when delivery modal opens
   useEffect(() => {
@@ -630,30 +652,39 @@ export default function DashboardClient() {
 
   // Reset applyToFullShipment and auto-select default address/carrier when modal opens
   useEffect(() => {
-    if (deliveryModalOpen) {
-      setApplyToFullShipment(true);
-      // Auto-seleccionar dirección default para este servicio si no hay una seleccionada
-      if (!selectedDeliveryAddress && deliveryAddresses.length > 0) {
-        const svcKeyMap: Record<string, string> = {
-          china_air: 'air', china_sea: 'maritime', usa_pobox: 'usa', dhl: 'dhl'
-        };
-        const svcKey = svcKeyMap[selectedServiceType] || '';
-        // Buscar dirección con este servicio asignado
-        const defaultAddr = deliveryAddresses.find(a => 
-          a.default_for_service?.split(',').map(s => s.trim()).includes(svcKey)
-        ) || deliveryAddresses.find(a => a.is_default) || deliveryAddresses[0];
-        if (defaultAddr) {
-          setSelectedDeliveryAddress(defaultAddr.id);
-          // Auto-seleccionar carrier de carrier_config
-          const carrierKey = defaultAddr.carrier_config?.[svcKey];
-          if (carrierKey) {
-            setSelectedCarrierService(carrierKey);
-          }
+    if (!deliveryModalOpen) return;
+
+    setApplyToFullShipment(true);
+    // Auto-seleccionar dirección default cuando abre el modal Y también
+    // cuando las direcciones llegan async después de abrirlo.
+    if (!selectedDeliveryAddress && deliveryAddresses.length > 0) {
+      const selectedPkgs = packages.filter(p => selectedPackageIds.includes(p.id));
+      const rawService = selectedPkgs[0]?.shipment_type || selectedPkgs[0]?.servicio || 'china_air';
+      const serviceMap: Record<string, string> = {
+        'AIR_CHN_MX': 'china_air', 'china_air': 'china_air', 'TDI_AEREO': 'china_air',
+        'SEA_CHN_MX': 'china_sea', 'china_sea': 'china_sea', 'maritime': 'china_sea', 'MAR_CHN_MX': 'china_sea', 'fcl': 'china_sea', 'FCL_CHN_MX': 'china_sea',
+        'POBOX_USA': 'usa_pobox', 'usa_pobox': 'usa_pobox', 'air': 'usa_pobox',
+        'NATIONAL': 'dhl', 'dhl': 'dhl', 'mx_cedis': 'dhl', 'AA_DHL': 'dhl', 'DHL_MTY': 'dhl',
+      };
+      const selectedSvcType = serviceMap[rawService] || 'china_air';
+
+      const svcKeyMap: Record<string, string> = {
+        china_air: 'air', china_sea: 'maritime', usa_pobox: 'usa', dhl: 'dhl'
+      };
+      const svcKey = svcKeyMap[selectedSvcType] || '';
+      const defaultAddr = deliveryAddresses.find(a =>
+        a.default_for_service?.split(',').map(s => s.trim()).includes(svcKey)
+      ) || deliveryAddresses.find(a => a.is_default) || deliveryAddresses[0];
+
+      if (defaultAddr) {
+        setSelectedDeliveryAddress(defaultAddr.id);
+        const carrierKey = defaultAddr.carrier_config?.[svcKey];
+        if (carrierKey) {
+          setSelectedCarrierService(carrierKey);
         }
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deliveryModalOpen]);
+  }, [deliveryModalOpen, deliveryAddresses, selectedDeliveryAddress, packages, selectedPackageIds]);
   
   // Determinar el tipo de servicio de los paquetes seleccionados
   // Helper: friendly carrier name from carrier code
@@ -861,10 +892,7 @@ export default function DashboardClient() {
       const data = await res.json();
       if (data.success && data.data) {
         const mapped = data.data.filter((c: any) => c.carrier_type !== 'collect').map((c: any) => {
-          let iconUrl = c.icon || '🚛';
-          const lm = iconUrl.match(/https?:\/\/localhost:\d+(\/uploads\/.*)/);
-          if (lm) iconUrl = `${API_URL}${lm[1]}`;
-          else if (iconUrl.startsWith('/uploads/')) iconUrl = `${API_URL}${iconUrl}`;
+          let iconUrl = resolveCarrierIconUrl(c.icon) || '🚛';
           return { id: c.carrier_key, name: c.name, icon: iconUrl };
         });
         setCarriersPerService(prev => ({ ...prev, [serviceType]: mapped }));
@@ -884,10 +912,7 @@ export default function DashboardClient() {
         if (data.success && data.data) {
           setCarrierServices(data.data.map((c: { carrier_key: string; name: string; description: string; price_label: string; subtext: string; icon: string; allows_collect: boolean; carrier_type: string }) => {
             // Fix icon URLs - prefix relative paths with API_URL
-            let iconUrl = c.icon || '🚛';
-            const localMatch = iconUrl.match(/https?:\/\/localhost:\d+(\/uploads\/.*)/);
-            if (localMatch) iconUrl = `${API_URL}${localMatch[1]}`;
-            else if (iconUrl.startsWith('/uploads/')) iconUrl = `${API_URL}${iconUrl}`;
+            let iconUrl = resolveCarrierIconUrl(c.icon) || '🚛';
             return {
             id: c.carrier_key,
             name: c.name,
@@ -8397,11 +8422,15 @@ export default function DashboardClient() {
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: isMobile ? 1 : 2 }}>
                               <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: isMobile ? 70 : 100, flexShrink: 0 }}>
-                                {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads')) ? (
+                                {service.icon && (service.icon.startsWith('http') || service.icon.startsWith('/uploads') || service.icon.startsWith('uploads/')) ? (
                                   <Box 
                                     component="img" 
                                     src={service.icon} 
-                                    alt={service.name} 
+                                    alt="" 
+                                    onError={(e) => {
+                                      const target = e.currentTarget as HTMLImageElement;
+                                      target.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+                                    }}
                                     sx={{ width: isMobile ? 60 : 100, height: isMobile ? 36 : 60, objectFit: 'contain' }}
                                   />
                                 ) : (
@@ -8517,8 +8546,17 @@ export default function DashboardClient() {
                                       '&:hover': { bgcolor: '#f5f5f5' },
                                     }}
                                   >
-                                    {cc.icon && (cc.icon.startsWith('http') || cc.icon.startsWith('/uploads')) ? (
-                                      <Box component="img" src={cc.icon} alt={cc.name} sx={{ width: 70, height: 40, objectFit: 'contain' }} />
+                                    {cc.icon && (cc.icon.startsWith('http') || cc.icon.startsWith('/uploads') || cc.icon.startsWith('uploads/')) ? (
+                                      <Box
+                                        component="img"
+                                        src={cc.icon}
+                                        alt=""
+                                        onError={(e) => {
+                                          const target = e.currentTarget as HTMLImageElement;
+                                          target.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==';
+                                        }}
+                                        sx={{ width: 70, height: 40, objectFit: 'contain' }}
+                                      />
                                     ) : (
                                       <Box sx={{ fontSize: '1.5rem' }}>{cc.icon}</Box>
                                     )}

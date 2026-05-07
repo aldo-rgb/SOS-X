@@ -10,6 +10,58 @@ interface AuthRequest extends Request {
   user?: { userId: number; role: string };
 }
 
+const normalizeBranchKey = (raw: string): string =>
+  String(raw || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^cedis[-_ ]?/, '')
+    .replace(/[^a-z0-9]/g, '');
+
+const resolveSeaReceptionStatusByUser = async (
+  userId: number | undefined,
+  client: { query: (text: string, params?: any[]) => Promise<any> } = pool
+): Promise<'received_cdmx' | 'received_mty'> => {
+  if (!userId) {
+    throw new Error('AUTH_REQUIRED');
+  }
+
+  const userBranchRes = await client.query(
+    `SELECT
+       u.branch_id,
+       b.code AS branch_code,
+       b.name AS branch_name,
+       COALESCE(to_jsonb(b)->>'city', '') AS branch_city,
+       COALESCE(to_jsonb(b)->>'state', '') AS branch_state
+     FROM users u
+     LEFT JOIN branches b ON b.id = u.branch_id
+     WHERE u.id = $1
+     LIMIT 1`,
+    [userId]
+  );
+
+  if (userBranchRes.rows.length === 0) {
+    throw new Error('USER_NOT_FOUND');
+  }
+
+  const row = userBranchRes.rows[0] || {};
+  const branchId = row.branch_id;
+  if (!branchId) {
+    throw new Error('BRANCH_NOT_ASSIGNED');
+  }
+
+  const key = normalizeBranchKey([
+    row.branch_code,
+    row.branch_name,
+    row.branch_city,
+    row.branch_state,
+  ].filter(Boolean).join(' '));
+
+  if (/(cdmx|mexicocity|ciudaddemexico)/.test(key)) return 'received_cdmx';
+  if (/(mty|monterrey)/.test(key)) return 'received_mty';
+
+  throw new Error('UNSUPPORTED_BRANCH');
+};
+
 // ============================================
 // 1. LISTAR CONTENEDORES PENDIENTES DE RECIBIR
 // GET /api/admin/china-sea/containers/in-transit
@@ -45,7 +97,7 @@ export const listInTransitContainers = async (_req: AuthRequest, res: Response):
         (
           SELECT COUNT(*) FROM maritime_orders mo
           WHERE mo.container_id = c.id
-            AND mo.status = 'received_mty'
+            AND mo.status IN ('received_mty', 'received_cdmx')
         ) AS received_orders,
         (
           SELECT COUNT(*) FROM maritime_orders mo
@@ -108,9 +160,24 @@ export const getContainerOrders = async (req: AuthRequest, res: Response): Promi
          mo.summary_volume,
          mo.received_boxes,
          COALESCE(mo.missing_on_arrival, FALSE) AS missing_on_arrival,
-         u.box_id AS user_box_id,
-         u.full_name AS user_name
+         COALESCE(
+           NULLIF(lc_order.box_id, ''),
+           NULLIF(lc.box_id, ''),
+           NULLIF(mo.bl_client_code, ''),
+           NULLIF(mo.shipping_mark, ''),
+           NULLIF(u.box_id, '')
+         ) AS user_box_id,
+         COALESCE(
+           NULLIF(lc_order.full_name, ''),
+           NULLIF(lc.full_name, ''),
+           NULLIF(mo.bl_client_name, ''),
+           NULLIF(u.full_name, '')
+         ) AS user_name
        FROM maritime_orders mo
+       LEFT JOIN containers c ON c.id = mo.container_id
+       LEFT JOIN legacy_clients lc_order
+         ON UPPER(lc_order.box_id) = UPPER(COALESCE(NULLIF(mo.bl_client_code, ''), NULLIF(mo.shipping_mark, '')))
+       LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
        LEFT JOIN users u ON u.id = mo.user_id
        WHERE mo.container_id = $1
        ORDER BY mo.ordersn ASC`,
@@ -143,6 +210,34 @@ export const scanContainerOrder = async (req: AuthRequest, res: Response): Promi
   }
 
   try {
+    // Compatibilidad: asegurar columna de recepción individual por LOG
+    await pool.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS received_at TIMESTAMP`);
+
+    let receivedStatus: 'received_cdmx' | 'received_mty';
+    try {
+      receivedStatus = await resolveSeaReceptionStatusByUser(userId);
+    } catch (e: any) {
+      const code = e?.message;
+      if (code === 'AUTH_REQUIRED') {
+        res.status(401).json({ error: 'Usuario no autenticado' });
+        return;
+      }
+      if (code === 'USER_NOT_FOUND') {
+        res.status(403).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+      if (code === 'BRANCH_NOT_ASSIGNED') {
+        res.status(403).json({ error: 'No tienes una sucursal asignada para registrar recepción marítima' });
+        return;
+      }
+      if (code === 'UNSUPPORTED_BRANCH') {
+        res.status(403).json({ error: 'Solo sucursales CDMX o MTY pueden registrar recepción marítima' });
+        return;
+      }
+      res.status(500).json({ error: 'No se pudo resolver la sucursal del usuario' });
+      return;
+    }
+
     // Si la referencia es una guía hija (LOG con sufijo de caja), normalizar al master.
     // Formatos aceptados:
     //   LOG26CNMX00082-0034   (con dash, 4 dígitos nuevo formato)
@@ -211,7 +306,7 @@ export const scanContainerOrder = async (req: AuthRequest, res: Response): Promi
 
     const order = orderRes.rows[0];
 
-    if (order.status === 'received_mty') {
+    if (order.status === 'received_mty' || order.status === 'received_cdmx') {
       res.json({
         ok: true,
         already_received: true,
@@ -222,26 +317,27 @@ export const scanContainerOrder = async (req: AuthRequest, res: Response): Promi
 
     await pool.query(
       `UPDATE maritime_orders
-          SET status = 'received_mty',
+          SET status = $2,
+              received_at = COALESCE(received_at, NOW()),
               missing_on_arrival = FALSE,
               updated_at = NOW()
         WHERE id = $1`,
-      [order.id]
+      [order.id, receivedStatus]
     );
 
     // Audit log (best-effort)
     try {
       await pool.query(
         `INSERT INTO maritime_tracking_logs (order_id, event_type, event_detail, created_by, created_at)
-         VALUES ($1, 'received_mty', $2, $3, NOW())`,
-        [order.id, `Escaneado en recepción contenedor #${containerId}`, userId || null]
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [order.id, receivedStatus, `Escaneado en recepción contenedor #${containerId}`, userId || null]
       );
     } catch (_) { /* tabla puede no existir o columnas distintas */ }
 
     res.json({
       ok: true,
       already_received: false,
-      order: { id: order.id, ordersn: order.ordersn, status: 'received_mty' },
+      order: { id: order.id, ordersn: order.ordersn, status: receivedStatus },
     });
   } catch (err) {
     console.error('scanContainerOrder error:', err);
@@ -267,6 +363,31 @@ export const finalizeContainerReception = async (req: AuthRequest, res: Response
 
   const client = await pool.connect();
   try {
+    let receivedStatus: 'received_cdmx' | 'received_mty';
+    try {
+      receivedStatus = await resolveSeaReceptionStatusByUser(userId, client);
+    } catch (e: any) {
+      const code = e?.message;
+      if (code === 'AUTH_REQUIRED') {
+        res.status(401).json({ error: 'Usuario no autenticado' });
+        return;
+      }
+      if (code === 'USER_NOT_FOUND') {
+        res.status(403).json({ error: 'Usuario no encontrado' });
+        return;
+      }
+      if (code === 'BRANCH_NOT_ASSIGNED') {
+        res.status(403).json({ error: 'No tienes una sucursal asignada para finalizar recepción marítima' });
+        return;
+      }
+      if (code === 'UNSUPPORTED_BRANCH') {
+        res.status(403).json({ error: 'Solo sucursales CDMX o MTY pueden finalizar recepción marítima' });
+        return;
+      }
+      res.status(500).json({ error: 'No se pudo resolver la sucursal del usuario' });
+      return;
+    }
+
     await client.query('BEGIN');
 
     const containerRes = await client.query(
@@ -287,7 +408,7 @@ export const finalizeContainerReception = async (req: AuthRequest, res: Response
     const totalsRes = await client.query(
       `SELECT
          COUNT(*)::int AS total,
-         COUNT(*) FILTER (WHERE status = 'received_mty')::int AS received
+         COUNT(*) FILTER (WHERE status IN ('received_mty', 'received_cdmx'))::int AS received
        FROM maritime_orders
        WHERE container_id = $1`,
       [containerId]
@@ -313,7 +434,7 @@ export const finalizeContainerReception = async (req: AuthRequest, res: Response
             SET missing_on_arrival = TRUE,
                 updated_at = NOW()
           WHERE container_id = $1
-            AND status <> 'received_mty'`,
+            AND status NOT IN ('received_mty', 'received_cdmx')`,
         [containerId]
       );
     }
@@ -327,10 +448,10 @@ export const finalizeContainerReception = async (req: AuthRequest, res: Response
             SET received_at = NOW(),
                 received_by = $2,
                 reception_notes = $3,
-                status = 'received_mty',
+                status = $4,
                 updated_at = NOW()
           WHERE id = $1`,
-        [containerId, userId || null, notes]
+        [containerId, userId || null, notes, receivedStatus]
       );
     } else {
       await client.query(
@@ -422,7 +543,7 @@ export const finalizeContainerReception = async (req: AuthRequest, res: Response
 
     res.json({
       ok: true,
-      new_status: missing === 0 ? 'received_mty' : 'received_partial',
+      new_status: missing === 0 ? receivedStatus : 'received_partial',
       total,
       received,
       missing,
@@ -586,12 +707,21 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
   const search = String(req.query.search || '').trim();
   const status = String(req.query.status || '').trim();
   const container = String(req.query.container || '').trim();
+  const day = String(req.query.day || '').trim();
   const limit = Math.min(parseInt(String(req.query.limit || '50'), 10) || 50, 500);
   const offset = parseInt(String(req.query.offset || '0'), 10) || 0;
 
   try {
+    await pool.query(`ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS received_at TIMESTAMP`);
+
     const where: string[] = [];
     const params: (string | number)[] = [];
+    // Normalización histórica: en marítimo, registros previos en received_mty
+    // corresponden a recepción en CDMX.
+    const resolvedStatusSql = `CASE
+      WHEN mo.status = 'received_mty' THEN 'received_cdmx'
+      ELSE mo.status
+    END`;
 
     if (search) {
       params.push(`%${search}%`);
@@ -599,9 +729,15 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
       where.push(`(
         mo.ordersn ILIKE $${i}
         OR mo.shipping_mark ILIKE $${i}
+        OR mo.bl_client_code ILIKE $${i}
+        OR mo.bl_client_name ILIKE $${i}
         OR mo.goods_name ILIKE $${i}
         OR u.box_id ILIKE $${i}
         OR u.full_name ILIKE $${i}
+        OR lc_order.box_id ILIKE $${i}
+        OR lc_order.full_name ILIKE $${i}
+        OR lc.box_id ILIKE $${i}
+        OR lc.full_name ILIKE $${i}
       )`);
     }
 
@@ -609,7 +745,7 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
       where.push(`COALESCE(mo.missing_on_arrival, FALSE) = TRUE`);
     } else if (status && status !== 'all') {
       params.push(status);
-      where.push(`mo.status = $${params.length}`);
+      where.push(`${resolvedStatusSql} = $${params.length}`);
     }
 
     if (container) {
@@ -622,12 +758,30 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
       )`);
     }
 
+    const receivedAtExpr = `COALESCE(mo.received_at, mlog.first_received_at, c.received_at)`;
+
+    if (day) {
+      params.push(day);
+      where.push(`DATE(${receivedAtExpr}) = $${params.length}::date`);
+    }
+
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
     const totalRes = await pool.query(
       `SELECT COUNT(*)::int AS total
          FROM maritime_orders mo
          LEFT JOIN containers c ON c.id = mo.container_id
+         LEFT JOIN legacy_clients lc_order
+           ON UPPER(lc_order.box_id) = UPPER(COALESCE(NULLIF(mo.bl_client_code, ''), NULLIF(mo.shipping_mark, '')))
+         LEFT JOIN LATERAL (
+           SELECT MIN(mtl.created_at) AS first_received_at
+           FROM maritime_tracking_logs mtl
+           WHERE mtl.order_id = mo.id
+             AND mtl.event_type IN ('received_cdmx', 'received_mty')
+         ) mlog ON TRUE
+         LEFT JOIN users ru ON ru.id = c.received_by
+         LEFT JOIN branches rb ON rb.id = ru.branch_id
+         LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
          LEFT JOIN users u ON u.id = mo.user_id
          ${whereSql}`,
       params
@@ -642,9 +796,11 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
          mo.ordersn,
          mo.shipping_mark,
          mo.goods_name,
+         mo.goods_num,
+         mo.summary_boxes,
          mo.weight,
          mo.volume,
-         mo.status,
+         ${resolvedStatusSql} AS status,
          mo.container_id,
          mo.created_at,
          mo.updated_at,
@@ -654,10 +810,33 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
          c.bl_number,
          c.reference_code,
          c.received_at AS container_received_at,
-         u.box_id AS user_box_id,
-         u.full_name AS user_name
+         ${receivedAtExpr} AS order_received_at,
+         COALESCE(
+           NULLIF(lc_order.box_id, ''),
+           NULLIF(lc.box_id, ''),
+           NULLIF(mo.bl_client_code, ''),
+           NULLIF(mo.shipping_mark, ''),
+           NULLIF(u.box_id, '')
+         ) AS user_box_id,
+         COALESCE(
+           NULLIF(lc_order.full_name, ''),
+           NULLIF(lc.full_name, ''),
+           NULLIF(mo.bl_client_name, ''),
+           NULLIF(u.full_name, '')
+         ) AS user_name
        FROM maritime_orders mo
        LEFT JOIN containers c ON c.id = mo.container_id
+       LEFT JOIN legacy_clients lc_order
+         ON UPPER(lc_order.box_id) = UPPER(COALESCE(NULLIF(mo.bl_client_code, ''), NULLIF(mo.shipping_mark, '')))
+       LEFT JOIN LATERAL (
+         SELECT MIN(mtl.created_at) AS first_received_at
+         FROM maritime_tracking_logs mtl
+         WHERE mtl.order_id = mo.id
+           AND mtl.event_type IN ('received_cdmx', 'received_mty')
+       ) mlog ON TRUE
+      LEFT JOIN users ru ON ru.id = c.received_by
+      LEFT JOIN branches rb ON rb.id = ru.branch_id
+       LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
        LEFT JOIN users u ON u.id = mo.user_id
        ${whereSql}
        ORDER BY mo.id DESC
@@ -668,13 +847,23 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
     const statsRes = await pool.query(
       `SELECT
          COUNT(*)::int AS total,
-         COUNT(*) FILTER (WHERE status = 'received_china')::int AS received_china,
-         COUNT(*) FILTER (WHERE status = 'in_transit')::int AS in_transit,
-         COUNT(*) FILTER (WHERE status = 'received_mty')::int AS received_mty,
-         COUNT(*) FILTER (WHERE status = 'customs_mx' OR status = 'customs_cleared')::int AS customs,
-         COUNT(*) FILTER (WHERE status = 'delivered')::int AS delivered,
+         COUNT(*) FILTER (WHERE resolved_status = 'received_china')::int AS received_china,
+         COUNT(*) FILTER (WHERE resolved_status = 'in_transit')::int AS in_transit,
+         COUNT(*) FILTER (WHERE resolved_status = 'received_cdmx')::int AS received_cdmx,
+         COUNT(*) FILTER (WHERE resolved_status = 'received_mty')::int AS received_mty,
+         COUNT(*) FILTER (WHERE resolved_status IN ('received_cdmx','received_mty'))::int AS received_cedis,
+         COUNT(*) FILTER (WHERE resolved_status = 'customs_mx' OR resolved_status = 'customs_cleared')::int AS customs,
+         COUNT(*) FILTER (WHERE resolved_status = 'delivered')::int AS delivered,
          COUNT(*) FILTER (WHERE COALESCE(missing_on_arrival, FALSE) = TRUE)::int AS missing
-       FROM maritime_orders`
+       FROM (
+         SELECT
+           mo.missing_on_arrival,
+           ${resolvedStatusSql} AS resolved_status
+         FROM maritime_orders mo
+         LEFT JOIN containers c ON c.id = mo.container_id
+         LEFT JOIN users ru ON ru.id = c.received_by
+         LEFT JOIN branches rb ON rb.id = ru.branch_id
+       ) x`
     );
 
     res.json({

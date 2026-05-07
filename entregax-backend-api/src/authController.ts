@@ -569,9 +569,10 @@ export const requireRole = (...allowedRoles: string[]) => {
         }
 
         res.status(403).json({ 
-            error: 'Acceso denegado',
+            error: `Acceso denegado (requiere: ${allowedRoles.join(', ')})`,
             message: `Se requiere uno de estos roles: ${allowedRoles.join(', ')}`,
-            tuRol: userRole
+            tuRol: userRole,
+            requiredRoles: allowedRoles,
         });
     };
 };
@@ -598,8 +599,12 @@ export const requireMinLevel = (minRole: string) => {
         }
 
         res.status(403).json({ 
-            error: 'Nivel de acceso insuficiente',
-            message: `Se requiere nivel ${minRole} o superior`
+            error: `Nivel de acceso insuficiente (requiere: ${minRole} o superior)`,
+            message: `Se requiere nivel ${minRole} o superior`,
+            requiredMinRole: minRole,
+            tuRol: normalizedUserRole,
+            tuNivel: userLevel,
+            nivelRequerido: requiredLevel,
         });
     };
 };

@@ -37,6 +37,30 @@ const DELIVERY_CITY_SQL = `COALESCE(to_jsonb(p)->>'delivery_city', to_jsonb(p)->
 const DELIVERY_ZIP_SQL = `COALESCE(to_jsonb(p)->>'delivery_zip', to_jsonb(p)->>'destination_zip')`;
 const RECIPIENT_NAME_SQL = `COALESCE(to_jsonb(p)->>'recipient_name', to_jsonb(p)->>'destination_contact')`;
 const RECIPIENT_PHONE_SQL = `COALESCE(to_jsonb(p)->>'recipient_phone', to_jsonb(p)->>'destination_phone')`;
+const CLIENT_NUMBER_SQL = `COALESCE(
+    NULLIF(TRIM(to_jsonb(p)->>'client_code'), ''),
+    NULLIF(TRIM(to_jsonb(p)->>'client_box_id'), ''),
+    NULLIF(TRIM(to_jsonb(p)->>'box_id'), ''),
+    NULLIF(TRIM(to_jsonb(p)->>'mailbox_number'), ''),
+    NULLIF(TRIM(to_jsonb(p)->>'mailbox'), ''),
+    NULLIF(TRIM(to_jsonb(u)->>'box_id'), '')
+)`;
+const REFERENCE_HINT_SQL = `COALESCE(
+    NULLIF(TRIM(to_jsonb(p)->>'shipping_mark'), ''),
+    NULLIF(TRIM(to_jsonb(p)->>'reference_code'), ''),
+    NULLIF(TRIM(to_jsonb(p)->>'reference'), ''),
+    NULLIF(TRIM(to_jsonb(p)->>'client_reference'), ''),
+    NULLIF(TRIM(to_jsonb(p)->>'bl_client_code'), ''),
+    NULLIF(TRIM(to_jsonb(m)->>'shipping_mark'), ''),
+    NULLIF(TRIM(to_jsonb(m)->>'reference_code'), ''),
+    NULLIF(TRIM(to_jsonb(m)->>'reference'), ''),
+    NULLIF(TRIM(to_jsonb(m)->>'client_reference'), ''),
+    NULLIF(TRIM(to_jsonb(m)->>'bl_client_code'), '')
+)`;
+const PACKAGE_GROUP_KEY_SQL = `COALESCE(
+    NULLIF(to_jsonb(p)->>'master_id', ''),
+    CONCAT('pkg-', p.id::text)
+)`;
 const NATIONAL_TRACKING_SQL = `COALESCE(
     to_jsonb(p)->>'national_tracking',
     to_jsonb(p)->>'skydropx_label_id',
@@ -512,9 +536,14 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${DELIVERY_CITY_SQL} as delivery_city,
                     ${DELIVERY_ZIP_SQL} as delivery_zip,
                     ${RECIPIENT_NAME_SQL} as recipient_name,
-                    ${RECIPIENT_PHONE_SQL} as recipient_phone
+                    ${RECIPIENT_PHONE_SQL} as recipient_phone,
+                    ${CLIENT_NUMBER_SQL} as client_number,
+                    ${REFERENCE_HINT_SQL} as reference_hint,
+                    ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
+                    COUNT(*) OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL}) as total_boxes
                 FROM packages p
                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${packageBranchSql} = $1
                   AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                   AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
@@ -544,8 +573,14 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${DELIVERY_CITY_SQL} as delivery_city,
                     ${DELIVERY_ZIP_SQL} as delivery_zip,
                     ${RECIPIENT_NAME_SQL} as recipient_name,
-                    ${RECIPIENT_PHONE_SQL} as recipient_phone
+                    ${RECIPIENT_PHONE_SQL} as recipient_phone,
+                    ${CLIENT_NUMBER_SQL} as client_number,
+                    ${REFERENCE_HINT_SQL} as reference_hint,
+                    ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
+                    COUNT(*) OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL}) as total_boxes
                 FROM packages p
+                LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                                LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                   AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                   AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
@@ -566,8 +601,14 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_PHONE_SQL} as recipient_phone,
                     ${LOADED_AT_SQL} as loaded_at,
                     ${NATIONAL_TRACKING_SQL} as national_tracking,
-                    ${NATIONAL_CARRIER_SQL} as national_carrier
+                    ${NATIONAL_CARRIER_SQL} as national_carrier,
+                    ${CLIENT_NUMBER_SQL} as client_number,
+                    ${REFERENCE_HINT_SQL} as reference_hint,
+                    ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
+                    COUNT(*) OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL}) as total_boxes
                 FROM packages p
+                LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                                LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                   AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
                   AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
@@ -586,8 +627,14 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                         ${RECIPIENT_PHONE_SQL} as recipient_phone,
                         ${LOADED_AT_SQL} as loaded_at,
                         ${NATIONAL_TRACKING_SQL} as national_tracking,
-                        ${NATIONAL_CARRIER_SQL} as national_carrier
+                        ${NATIONAL_CARRIER_SQL} as national_carrier,
+                        ${CLIENT_NUMBER_SQL} as client_number,
+                        ${REFERENCE_HINT_SQL} as reference_hint,
+                        ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
+                        COUNT(*) OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL}) as total_boxes
                     FROM packages p
+                    LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                                        LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                     WHERE ${packageBranchSql} = $1
                       AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
                       AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false

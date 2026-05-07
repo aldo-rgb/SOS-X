@@ -96,6 +96,9 @@ interface Props {
     mode?: 'LCL' | 'FCL';
 }
 
+const isReceivedInCedis = (status: string | null | undefined) =>
+    status === 'received_mty' || status === 'received_cdmx';
+
 const ORANGE = '#FF6B35';
 const BLACK = '#1A1A1A';
 const RED = '#E53935';
@@ -197,9 +200,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
     const openLabelsModal = () => {
         // Por defecto seleccionar solo órdenes PENDIENTES.
-        // Las ya recibidas en MTY deben aparecer deseleccionadas.
+        // Las ya recibidas en CEDIS deben aparecer deseleccionadas.
         const pendingIds = orders
-            .filter((o) => o.status !== 'received_mty')
+            .filter((o) => !isReceivedInCedis(o.status))
             .map((o) => o.id);
         setSelectedOrderIds(new Set(pendingIds));
         setReceivedByOrder({});
@@ -221,7 +224,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
     const toggleAllOrdersForLabel = () => {
         const pendingIds = orders
-            .filter((o) => o.status !== 'received_mty')
+            .filter((o) => !isReceivedInCedis(o.status))
             .map((o) => o.id);
 
         const allPendingSelected = pendingIds.length > 0 && pendingIds.every((id) => selectedOrderIds.has(id));
@@ -248,22 +251,29 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             boxNumber: number;
             totalBoxes: number;
             shippingMark: string;
+            referenceDigits: string;
             weight: string;
             volume: string;
         };
 
         const labels: Label[] = [];
+        const getReferenceDigits = (value: string | null | undefined) => {
+            const digits = String(value || '').match(/\d+/g)?.join('') || '';
+            return digits || '0000';
+        };
         ordersToPrint.forEach((o) => {
             const expected = Number(o.summary_boxes) || Number(o.goods_num) || 1;
             const receivedOverride = receivedByOrder[o.id];
             const boxes = receivedOverride !== undefined ? Math.min(receivedOverride, expected) : expected;
+            const shippingMark = o.shipping_mark || o.bl_client_code || o.user_box_id || '—';
             for (let i = 1; i <= boxes; i++) {
                 labels.push({
                     tracking: `${o.ordersn}-${String(i).padStart(4, '0')}`,
                     ordersn: o.ordersn,
                     boxNumber: i,
                     totalBoxes: expected,
-                    shippingMark: o.shipping_mark || o.bl_client_code || o.user_box_id || '—',
+                    shippingMark,
+                    referenceDigits: getReferenceDigits(shippingMark),
                     weight: o.weight ? `${Number(o.weight).toFixed(2)} kg` : '',
                     volume: o.volume ? `${Number(o.volume).toFixed(3)} CBM` : '',
                 });
@@ -285,7 +295,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         const renderHalf = (label: Label, idx: number, position: 'top' | 'bottom') => `
             <div class="half ${position}">
                 <div class="header">
-                    <div class="service">MARÍTIMO</div>
+                    <div class="service-block">
+                        <div class="service">MARÍTIMO</div>
+                        <div class="service-ref">${label.referenceDigits}</div>
+                    </div>
                     <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
                 </div>
                 <div class="tracking-code">${label.tracking}</div>
@@ -300,7 +313,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         const renderSingle4x2 = (label: Label, idx: number) => `
             <div class="page-4x2" style="page-break-after: ${idx === labels.length - 1 ? 'auto' : 'always'};">
                 <div class="row-top">
-                    <span class="svc">MARÍTIMO</span>
+                    <span class="svc">MARÍTIMO <span class="svc-ref">${label.referenceDigits}</span></span>
                     <span class="box-n">${label.boxNumber}/${label.totalBoxes}</span>
                 </div>
                 <div class="mark">${label.shippingMark}</div>
@@ -325,7 +338,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     overflow: hidden; box-sizing: border-box;
                 }
                 .row-top { display: flex; justify-content: space-between; align-items: center; }
-                .svc { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+                .svc { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; display: flex; align-items: baseline; gap: 6px; }
+                .svc-ref { font-size: 24px; font-weight: 900; color: #FF6B35; letter-spacing: 1px; line-height: 1; }
                 .box-n { font-size: 18px; font-weight: 900; }
                 .mark { text-align: center; font-size: 32px; color: #FF6B35; font-weight: 900; letter-spacing: 1px; line-height: 1; margin: 0.04in 0; }
                 .barcode-wrap { text-align: center; }
@@ -366,7 +380,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 .half.empty { background: transparent; }
                 .cut-line { display: none; }
                 .header { display: flex; justify-content: space-between; align-items: center; }
+                .service-block { display: flex; align-items: baseline; gap: 8px; }
                 .service { color: #000; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
+                .service-ref { color: #FF6B35; font-size: 30px; font-weight: 900; letter-spacing: 1px; line-height: 1; }
                 .date-badge { color: #000; font-size: 22px; font-weight: 900; }
                 .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
                 .barcode-section { text-align: center; }
@@ -640,7 +656,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
     const finalize = async (forcePartial = false) => {
         if (!selected) return;
-        // Calcular cajas faltantes en logs ya escaneados (received_mty pero con receivedVal < expected)
+        // Calcular cajas faltantes en logs ya escaneados (recibidos en CEDIS pero con receivedVal < expected)
         const partialBoxes = orders
             .filter((o) => receivedByOrder[o.id] !== undefined)
             .map((o) => {
@@ -650,7 +666,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             })
             .filter((p) => p.received_boxes < p.expected);
 
-        const fullyMissing = orders.filter((o) => o.status !== 'received_mty').length;
+        const fullyMissing = orders.filter((o) => !isReceivedInCedis(o.status)).length;
         const totalMissingBoxes = partialBoxes.reduce((s, p) => s + (p.expected - p.received_boxes), 0);
         const hasIncomplete = fullyMissing > 0 || totalMissingBoxes > 0;
 
@@ -691,7 +707,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         loadContainers();
     };
 
-    const receivedCount = orders.filter((o) => o.status === 'received_mty').length;
+    const receivedCount = orders.filter((o) => isReceivedInCedis(o.status)).length;
     const missingCount = orders.length - receivedCount;
 
     return (
@@ -929,7 +945,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     <Paper variant="outlined">
                         <List dense disablePadding>
                             {orders.map((o) => {
-                                const isReceived = o.status === 'received_mty';
+                                const isReceived = isReceivedInCedis(o.status);
                                 const wasMissing = o.missing_on_arrival === true;
                                 const expectedBoxes = Number(o.summary_boxes) || Number(o.goods_num) || 0;
                                 const scannedSet = scannedBoxesByOrder[o.id];
@@ -1074,7 +1090,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             if (received === undefined) return acc;
                             return acc + Math.max(0, expected - Math.min(received, expected));
                         }, 0);
-                        const fullyMissing = orders.filter((o) => o.status !== 'received_mty').length;
+                        const fullyMissing = orders.filter((o) => !isReceivedInCedis(o.status)).length;
                         if (totalMissingBoxes === 0 && fullyMissing === 0) return null;
                         return (
                             <Paper sx={{ p: 2, mt: 2, bgcolor: '#FFF8E1', border: `2px dashed ${ORANGE}` }}>
@@ -1207,7 +1223,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             <Button size="small" variant="outlined" onClick={toggleAllOrdersForLabel} sx={{ color: BLACK, borderColor: BLACK }}>
                                 {(() => {
                                     const pendingIds = orders
-                                        .filter((o) => o.status !== 'received_mty')
+                                        .filter((o) => !isReceivedInCedis(o.status))
                                         .map((o) => o.id);
                                     const allPendingSelected = pendingIds.length > 0 && pendingIds.every((id) => selectedOrderIds.has(id));
                                     return allPendingSelected ? 'Quitar todo' : 'Seleccionar pendientes';
@@ -1215,7 +1231,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             </Button>
                         </Stack>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                            Los logs ya recibidos en MTY aparecen deseleccionados por defecto.
+                            Los logs ya recibidos en CEDIS (CDMX/MTY) aparecen deseleccionados por defecto.
                         </Typography>
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                             💡 Si un log llegó incompleto, ajusta las cajas recibidas. Al dar <strong>Reportar faltantes</strong> se marcarán como retraso y se notificará a CEDIS CDMX y Administradores.
