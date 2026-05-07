@@ -161,9 +161,15 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                     </Box>
                     {/* Fila secundaria: 3 cards simétricos */}
                     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(3, 1fr)' }, gap: 2 }}>
-                        <MiniStatCard label="En China" value={stats.received_china} color={BLACK} />
-                        <MiniStatCard label="En tránsito" value={stats.in_transit} color={ORANGE} />
-                        <MiniStatCard label="Faltantes" value={stats.missing} color={RED} />
+                        <MiniStatCard label="En China" value={stats.received_china} color={BLACK}
+                            active={statusFilter === 'received_china'}
+                            onClick={() => { setStatusFilter(statusFilter === 'received_china' ? 'all' : 'received_china'); setPage(0); }} />
+                        <MiniStatCard label="En tránsito" value={stats.in_transit} color={ORANGE}
+                            active={statusFilter === 'in_transit'}
+                            onClick={() => { setStatusFilter(statusFilter === 'in_transit' ? 'all' : 'in_transit'); setPage(0); }} />
+                        <MiniStatCard label="Faltantes" value={stats.missing} color={RED}
+                            active={statusFilter === 'missing'}
+                            onClick={() => { setStatusFilter(statusFilter === 'missing' ? 'all' : 'missing'); setPage(0); }} />
                     </Box>
                 </Box>
             )}
@@ -305,24 +311,28 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
     );
 }
 
-function MiniStatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function MiniStatCard({ label, value, color, active, onClick }: { label: string; value: number; color: string; active?: boolean; onClick?: () => void }) {
     return (
         <Paper
             elevation={0}
+            onClick={onClick}
             sx={{
                 p: 2,
-                border: '1px solid #E0E0E0',
+                border: `1px solid ${active ? color : '#E0E0E0'}`,
                 borderRadius: 2,
-                bgcolor: '#FFFFFF',
+                bgcolor: active ? `${color}12` : '#FFFFFF',
                 position: 'relative',
                 overflow: 'hidden',
+                cursor: onClick ? 'pointer' : 'default',
+                transition: 'all 0.15s',
+                '&:hover': onClick ? { transform: 'translateY(-1px)', boxShadow: 3, bgcolor: `${color}18` } : {},
                 '&::before': {
                     content: '""',
                     position: 'absolute',
                     left: 0,
                     top: 0,
                     bottom: 0,
-                    width: 4,
+                    width: active ? 6 : 4,
                     bgcolor: color,
                 },
             }}
