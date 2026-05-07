@@ -1472,85 +1472,62 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           <Paper
             variant="outlined"
             sx={{
-              p: 1.5,
-              height: '100%',
+              p: { xs: 1.4, md: 1.8 },
               borderRadius: '12px',
-              border: '1px solid rgba(255,255,255,0.16)',
-              background: 'linear-gradient(165deg, rgba(255,255,255,0.05) 0%, rgba(15,16,20,0.9) 100%)',
+              border: '1px solid rgba(255,255,255,0.14)',
+              background: 'linear-gradient(165deg, rgba(255,255,255,0.04) 0%, rgba(17,20,28,0.92) 100%)',
               boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
+              height: '100%',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.95rem', mb: 1.1 }}>
-              Mis proveedores
-            </Typography>
-
-            {widgetSuppliersPreview.length === 0 ? (
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem', lineHeight: 1.4, mb: 1.2 }}>
-                Aún no tienes proveedores guardados. Crea tu primer beneficiario para reutilizarlo.
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.1, flexWrap: 'nowrap', overflow: 'hidden' }}>
+              <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.96rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Tasa de Cambio Promedio
               </Typography>
-            ) : (
-              <Box sx={{ mb: 1.2 }}>
-                {widgetSuppliersPreview.map((s) => (
-                  <Box
-                    key={s.id}
-                    sx={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      gap: 1,
-                      py: 0.55,
-                      borderBottom: '1px solid rgba(255,255,255,0.08)',
-                    }}
-                  >
-                    <Box sx={{ minWidth: 0 }}>
-                      <Typography sx={{ color: '#fff', fontSize: '0.76rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {s.alias || s.nombre_beneficiario}
-                      </Typography>
-                      <Typography sx={{ color: '#9ca3af', fontSize: '0.68rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {s.banco_nombre || 'Banco no definido'}
-                      </Typography>
-                    </Box>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexShrink: 0 }}>
-                      {s.is_favorite && <StarIcon sx={{ fontSize: 14, color: ORANGE }} />}
-                      <Chip
-                        size="small"
-                        label={s.divisa_default || 'USD'}
-                        sx={{
-                          height: 20,
-                          bgcolor: 'rgba(240,90,40,0.16)',
-                          color: ORANGE,
-                          fontSize: '0.62rem',
-                          fontWeight: 700,
-                        }}
-                      />
-                    </Box>
-                  </Box>
-                ))}
-              </Box>
-            )}
-
-            <Box sx={{ mt: 'auto', display: 'flex', justifyContent: 'center' }}>
-              <Button
-                variant="outlined"
-                startIcon={<ContactsIcon />}
-                onClick={() => setSuppliersDialogOpen(true)}
+              <TextField
+                select
+                size="small"
+                value={rateWidgetCurrency}
+                onChange={(e) => setRateWidgetCurrency((e.target.value as 'USD' | 'RMB') || 'RMB')}
                 sx={{
-                  borderColor: 'rgba(255,102,0,0.5)',
-                  color: ORANGE,
-                  fontWeight: 800,
-                  textTransform: 'none',
-                  borderRadius: '10px',
-                  px: 3,
-                  '&:hover': {
-                    bgcolor: 'rgba(255,102,0,0.08)',
-                    borderColor: ORANGE,
-                  },
+                  minWidth: 110, flexShrink: 0,
+                  '& .MuiInputBase-root': { bgcolor: '#171a20', color: '#fff', borderRadius: '9px', fontWeight: 700 },
+                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.16)' },
                 }}
               >
-                Gestionar proveedores
-              </Button>
+                <MenuItem value="RMB">🇨🇳 CNY</MenuItem>
+                <MenuItem value="USD">🇺🇸 USD</MenuItem>
+              </TextField>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.2, mb: 0.8 }}>
+              <Typography sx={{ color: '#fff', fontSize: '1.35rem', fontWeight: 900, lineHeight: 1 }}>
+                {rateWidgetCurrent != null ? rateWidgetCurrent.toFixed(4) : '—'}
+              </Typography>
+              <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem', fontWeight: 700 }}>
+                MXN/{rateWidgetCurrency === 'RMB' ? 'CNY' : 'USD'}
+              </Typography>
+              {rateWidgetDelta != null && (
+                <Typography sx={{ color: rateWidgetDelta >= 0 ? '#4ade80' : '#f87171', fontSize: '0.76rem', fontWeight: 800 }}>
+                  {rateWidgetDelta >= 0 ? '▲' : '▼'} {Math.abs(rateWidgetDelta).toFixed(3)}%
+                </Typography>
+              )}
+            </Box>
+            <Box sx={{ flex: 1, minHeight: 120, borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', bgcolor: 'rgba(7,9,13,0.7)', px: 0.8, py: 0.7 }}>
+              <svg width="100%" height="100%" viewBox="0 0 620 170" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="xpay-rate-line" x1="0" x2="1" y1="0" y2="0">
+                    <stop offset="0%" stopColor="#f97316" />
+                    <stop offset="100%" stopColor="#fb923c" />
+                  </linearGradient>
+                </defs>
+                <path d={rateWidgetPath} fill="none" stroke="url(#xpay-rate-line)" strokeWidth="2.6" strokeLinecap="round" />
+              </svg>
+            </Box>
+            <Box sx={{ mt: 0.8, display: 'flex', justifyContent: 'space-between', color: '#9ca3af', fontSize: '0.7rem' }}>
+              <Typography sx={{ fontSize: '0.7rem' }}>Inicio: {formatTimeLabel(rateWidgetStartTs)}</Typography>
+              <Typography sx={{ fontSize: '0.7rem' }}>Actual: {formatTimeLabel(rateWidgetEndTs)}</Typography>
             </Box>
           </Paper>
         </Box>
@@ -1720,67 +1697,90 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             </TableContainer>
           </Paper>
         </Box>
-        {/* Chart: 1/3 del ancho — alineado bajo Mis Proveedores */}
+        {/* Mis proveedores: 1/3 del ancho — alineado bajo Tasa de Cambio */}
         <Box sx={{ flex: '1 1 0', minWidth: { xs: '100%', md: 0 } }}>
           <Paper
             variant="outlined"
             sx={{
-              p: { xs: 1.4, md: 1.8 },
-              borderRadius: '12px',
-              border: '1px solid rgba(255,255,255,0.14)',
-              background: 'linear-gradient(165deg, rgba(255,255,255,0.04) 0%, rgba(17,20,28,0.92) 100%)',
-              boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
+              p: 1.5,
               height: '100%',
+              borderRadius: '12px',
+              border: '1px solid rgba(255,255,255,0.16)',
+              background: 'linear-gradient(165deg, rgba(255,255,255,0.05) 0%, rgba(15,16,20,0.9) 100%)',
+              boxShadow: '0 10px 26px rgba(0,0,0,0.35)',
               display: 'flex',
               flexDirection: 'column',
             }}
           >
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1, mb: 1.1, flexWrap: 'nowrap', overflow: 'hidden' }}>
-              <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.96rem', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Tasa de Cambio Promedio
+            <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.95rem', mb: 1.1 }}>
+              Mis proveedores
+            </Typography>
+
+            {widgetSuppliersPreview.length === 0 ? (
+              <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem', lineHeight: 1.4, mb: 1.2 }}>
+                Aún no tienes proveedores guardados. Crea tu primer beneficiario para reutilizarlo.
               </Typography>
-              <TextField
-                select
-                size="small"
-                value={rateWidgetCurrency}
-                onChange={(e) => setRateWidgetCurrency((e.target.value as 'USD' | 'RMB') || 'RMB')}
+            ) : (
+              <Box sx={{ mb: 1.2 }}>
+                {widgetSuppliersPreview.map((s) => (
+                  <Box
+                    key={s.id}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1,
+                      py: 0.55,
+                      borderBottom: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography sx={{ color: '#fff', fontSize: '0.76rem', fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {s.alias || s.nombre_beneficiario}
+                      </Typography>
+                      <Typography sx={{ color: '#9ca3af', fontSize: '0.68rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {s.banco_nombre || 'Banco no definido'}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexShrink: 0 }}>
+                      {s.is_favorite && <StarIcon sx={{ fontSize: 14, color: ORANGE }} />}
+                      <Chip
+                        size="small"
+                        label={s.divisa_default || 'USD'}
+                        sx={{
+                          height: 20,
+                          bgcolor: 'rgba(240,90,40,0.16)',
+                          color: ORANGE,
+                          fontSize: '0.62rem',
+                          fontWeight: 700,
+                        }}
+                      />
+                    </Box>
+                  </Box>
+                ))}
+              </Box>
+            )}
+
+            <Box sx={{ mt: 'auto', display: 'flex', justifyContent: 'center' }}>
+              <Button
+                variant="outlined"
+                startIcon={<ContactsIcon />}
+                onClick={() => setSuppliersDialogOpen(true)}
                 sx={{
-                  minWidth: 110, flexShrink: 0,
-                  '& .MuiInputBase-root': { bgcolor: '#171a20', color: '#fff', borderRadius: '9px', fontWeight: 700 },
-                  '& .MuiOutlinedInput-notchedOutline': { borderColor: 'rgba(255,255,255,0.16)' },
+                  borderColor: 'rgba(255,102,0,0.5)',
+                  color: ORANGE,
+                  fontWeight: 800,
+                  textTransform: 'none',
+                  borderRadius: '10px',
+                  px: 3,
+                  '&:hover': {
+                    bgcolor: 'rgba(255,102,0,0.08)',
+                    borderColor: ORANGE,
+                  },
                 }}
               >
-                <MenuItem value="RMB">🇨🇳 CNY</MenuItem>
-                <MenuItem value="USD">🇺🇸 USD</MenuItem>
-              </TextField>
-            </Box>
-            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.2, mb: 0.8 }}>
-              <Typography sx={{ color: '#fff', fontSize: '1.35rem', fontWeight: 900, lineHeight: 1 }}>
-                {rateWidgetCurrent != null ? rateWidgetCurrent.toFixed(4) : '—'}
-              </Typography>
-              <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem', fontWeight: 700 }}>
-                MXN/{rateWidgetCurrency === 'RMB' ? 'CNY' : 'USD'}
-              </Typography>
-              {rateWidgetDelta != null && (
-                <Typography sx={{ color: rateWidgetDelta >= 0 ? '#4ade80' : '#f87171', fontSize: '0.76rem', fontWeight: 800 }}>
-                  {rateWidgetDelta >= 0 ? '▲' : '▼'} {Math.abs(rateWidgetDelta).toFixed(3)}%
-                </Typography>
-              )}
-            </Box>
-            <Box sx={{ flex: 1, minHeight: 120, borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', bgcolor: 'rgba(7,9,13,0.7)', px: 0.8, py: 0.7 }}>
-              <svg width="100%" height="100%" viewBox="0 0 620 170" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="xpay-rate-line" x1="0" x2="1" y1="0" y2="0">
-                    <stop offset="0%" stopColor="#f97316" />
-                    <stop offset="100%" stopColor="#fb923c" />
-                  </linearGradient>
-                </defs>
-                <path d={rateWidgetPath} fill="none" stroke="url(#xpay-rate-line)" strokeWidth="2.6" strokeLinecap="round" />
-              </svg>
-            </Box>
-            <Box sx={{ mt: 0.8, display: 'flex', justifyContent: 'space-between', color: '#9ca3af', fontSize: '0.7rem' }}>
-              <Typography sx={{ fontSize: '0.7rem' }}>Inicio: {formatTimeLabel(rateWidgetStartTs)}</Typography>
-              <Typography sx={{ fontSize: '0.7rem' }}>Actual: {formatTimeLabel(rateWidgetEndTs)}</Typography>
+                Gestionar proveedores
+              </Button>
             </Box>
           </Paper>
         </Box>
