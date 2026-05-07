@@ -1481,20 +1481,42 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                     sx={{ width: 180 }}
                     variant="filled"
                   />
-                  <TextField
-                    label="Costo operación (fijo)"
-                    value={Number(editingEntProvider.costo_operacion_usd || 0) > 0 ? `$${Number(editingEntProvider.costo_operacion_usd).toFixed(2)} ${(editingEntProvider as any).costo_operacion_moneda || 'USD'}` : 'No disponible'}
-                    InputProps={{ readOnly: true }}
-                    sx={{ width: 220 }}
-                    variant="filled"
-                  />
-                  <TextField
-                    label="Costo operación (%)"
-                    value={Number((editingEntProvider as any).costo_operacion_porcentaje || 0) > 0 ? `${Number((editingEntProvider as any).costo_operacion_porcentaje).toFixed(2)}%` : 'No disponible'}
-                    InputProps={{ readOnly: true }}
-                    sx={{ width: 200 }}
-                    variant="filled"
-                  />
+                  {Number(editingEntProvider.costo_operacion_usd || 0) > 0 && (
+                    <TextField
+                      label="Costo op. fijo USD"
+                      value={`$${Number(editingEntProvider.costo_operacion_usd).toFixed(2)} USD`}
+                      InputProps={{ readOnly: true }}
+                      sx={{ width: 200 }}
+                      variant="filled"
+                    />
+                  )}
+                  {Number((editingEntProvider as any).costo_operacion_porcentaje || 0) > 0 && (
+                    <TextField
+                      label="Costo op. % USD"
+                      value={`${Number((editingEntProvider as any).costo_operacion_porcentaje).toFixed(2)}%`}
+                      InputProps={{ readOnly: true }}
+                      sx={{ width: 180 }}
+                      variant="filled"
+                    />
+                  )}
+                  {Number((editingEntProvider as any).costo_operacion_rmb || 0) > 0 && (
+                    <TextField
+                      label="Costo op. fijo RMB"
+                      value={`¥${Number((editingEntProvider as any).costo_operacion_rmb).toFixed(2)} RMB`}
+                      InputProps={{ readOnly: true }}
+                      sx={{ width: 200 }}
+                      variant="filled"
+                    />
+                  )}
+                  {Number((editingEntProvider as any).costo_operacion_porcentaje_rmb || 0) > 0 && (
+                    <TextField
+                      label="Costo op. % RMB"
+                      value={`${Number((editingEntProvider as any).costo_operacion_porcentaje_rmb).toFixed(2)}%`}
+                      InputProps={{ readOnly: true }}
+                      sx={{ width: 180 }}
+                      variant="filled"
+                    />
+                  )}
                 </Box>
                 <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mt: 2 }}>
                   <TextField

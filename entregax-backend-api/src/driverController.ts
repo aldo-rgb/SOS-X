@@ -309,7 +309,12 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                 ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
                 ${DELIVERY_STATUS_SQL} as delivery_status,
                 ${LOADED_AT_SQL} as loaded_at,
-                COALESCE(LOWER(to_jsonb(p)->>'payment_status'), LOWER(to_jsonb(m)->>'payment_status'), 'paid') as payment_status,
+                -- Si el MASTER está pagado, las hijas heredan 'paid' (aunque su propio
+                -- payment_status haya quedado en 'pending' por desincronización).
+                CASE
+                    WHEN LOWER(COALESCE(to_jsonb(m)->>'payment_status','')) = 'paid' THEN 'paid'
+                    ELSE COALESCE(LOWER(to_jsonb(p)->>'payment_status'), 'pending')
+                END as payment_status,
                 COALESCE(to_jsonb(p)->>'national_label_url', to_jsonb(m)->>'national_label_url') as national_label_url,
                 COALESCE(to_jsonb(p)->>'national_tracking', to_jsonb(m)->>'national_tracking') as national_tracking,
                 COALESCE(to_jsonb(p)->>'skydropx_label_id', to_jsonb(m)->>'skydropx_label_id') as skydropx_label_id,
@@ -430,6 +435,19 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
             `UPDATE packages SET ${setParts.join(', ')} WHERE id = $1`,
             values
         );
+
+        // 5.b PROPAGAR AL MASTER: si este paquete es hijo, marcar el master como
+        // out_for_delivery también para que el cliente lo vea "En Ruta" en la app.
+        if (pkg.master_id) {
+            try {
+                await pool.query(
+                    `UPDATE packages SET ${statusColumn} = '${outForDeliveryStatus}', updated_at = NOW() WHERE id = $1`,
+                    [pkg.master_id]
+                );
+            } catch (propErr) {
+                console.warn('No se pudo propagar out_for_delivery al master:', propErr);
+            }
+        }
 
         // 6. REGISTRAR EN HISTORIAL DE PAQUETE
         try {
@@ -552,6 +570,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 FROM packages p
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                   AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                  AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                 ORDER BY p.updated_at ASC, p.created_at ASC
             `, [driverId])
             : driverBranchId
@@ -571,6 +590,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     FROM packages p
                     WHERE ${packageBranchSql} = $1
                       AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                      AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                     ORDER BY p.updated_at ASC, p.created_at ASC
                 `, [driverBranchId])
                 : { rows: [] as any[] };
@@ -582,8 +602,18 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                             WHERE to_jsonb(p)->>'assigned_driver_id' = $1::text
                                 AND COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') IN ('delivered', 'sent')
                                 AND DATE(p.updated_at) = CURRENT_DATE
+                                AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                     `, [driverId])
-                    : { rows: [{ delivered_today: '0' }] };
+                    : driverBranchId
+                        ? await pool.query(`
+                                SELECT COUNT(*) as delivered_today
+                                FROM packages p
+                                WHERE ${packageBranchSql} = $1
+                                    AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent')
+                                    AND DATE(p.updated_at) = CURRENT_DATE
+                                    AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                        `, [driverBranchId])
+                        : { rows: [{ delivered_today: '0' }] };
 
                 const deliveredToday = parseInt(deliveredTodayRes.rows[0]?.delivered_today) || 0;
                 const pendingToLoad = pendingRes.rows.length;
@@ -785,6 +815,7 @@ export const getPackagesToReturn = async (req: Request, res: Response): Promise<
                 FROM packages p
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                     AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                    AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                 ORDER BY p.updated_at ASC, p.created_at ASC
             `, [driverId])
             : driverBranchId
@@ -799,6 +830,7 @@ export const getPackagesToReturn = async (req: Request, res: Response): Promise<
                     FROM packages p
                     WHERE ${packageBranchSql} = $1
                         AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
+                        AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                     ORDER BY p.updated_at ASC, p.created_at ASC
                 `, [driverBranchId])
                 : { rows: [] as any[] };
@@ -928,6 +960,13 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
             setParts.push('delivered_at = NOW()');
         }
 
+        // Asegurar que el driver_id quede asignado al paquete entregado
+        const hasAssignedDriverColumnConfirm = await hasPackageColumn('assigned_driver_id');
+        if (hasAssignedDriverColumnConfirm) {
+            values.push(driverId);
+            setParts.push(`assigned_driver_id = COALESCE(assigned_driver_id, $${values.length})`);
+        }
+
         if (hasDeliverySignatureColumn && signatureBase64) {
             values.push(signatureBase64);
             setParts.push(`delivery_signature = $${values.length}`);
@@ -952,6 +991,37 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
             `UPDATE packages SET ${setParts.join(', ')} WHERE id = $1`,
             values
         );
+
+        // 4.b PROPAGAR AL MASTER: si todas las hijas están entregadas, marcar el master también.
+        try {
+            const masterRes = await pool.query(
+                `SELECT (to_jsonb(p)->>'master_id')::int as master_id FROM packages p WHERE p.id = $1`,
+                [pkg.id]
+            );
+            const masterId = masterRes.rows[0]?.master_id;
+            if (masterId) {
+                const childRes = await pool.query(
+                    `SELECT 
+                        COUNT(*) as total,
+                        SUM(CASE WHEN COALESCE(${statusColumn}::text, '') IN ('delivered', 'sent') THEN 1 ELSE 0 END) as done
+                     FROM packages p 
+                     WHERE (to_jsonb(p)->>'master_id')::int = $1`,
+                    [masterId]
+                );
+                const total = Number(childRes.rows[0]?.total || 0);
+                const done = Number(childRes.rows[0]?.done || 0);
+                // Regla: master se marca entregado en cuanto AL MENOS 1 hija esté entregada.
+                // Los detalles individuales conservan su propio status.
+                if (total > 0 && done >= 1) {
+                    await pool.query(
+                        `UPDATE packages SET ${statusColumn} = '${finalStatus}', updated_at = NOW() WHERE id = $1`,
+                        [masterId]
+                    );
+                }
+            }
+        } catch (propErr) {
+            console.warn('No se pudo propagar entrega al master:', propErr);
+        }
 
         // 5. REGISTRAR EN HISTORIAL
         try {
@@ -987,12 +1057,14 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
 };
 
 /**
- * Confirmar entrega múltiple (Paquete Express)
- * Recibe array de {internalGuide, carrierGuide} y actualiza packages con ambas guías
+ * Confirmar entrega múltiple (multi-piece o Paquete Express)
+ * Recibe array de {internalGuide, carrierGuide} y actualiza packages.
+ * Para entrega local marca como 'delivered'; para carrier externo como 'sent'.
  */
 export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<any> => {
-    const { packages, photoBase64, notes } = req.body;
+    const { packages, photoBase64, signatureBase64, recipientName, notes } = req.body;
     const driverId = getAuthUserId(req);
+    const recipientNameTrimmed = String(recipientName || '').trim();
 
     if (!packages || !Array.isArray(packages) || packages.length === 0) {
         return res.status(400).json({ error: '❌ Se requiere al menos un paquete.' });
@@ -1006,11 +1078,14 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
         const confirmed = [];
         const errors = [];
         const statusColumn = await getPackageStatusColumn();
-        const finalStatus = await getSentWriteStatus();
+        const sentStatus = await getSentWriteStatus();
         const hasDeliveredAtColumn = await hasPackageColumn('delivered_at');
         const hasDeliveryPhotoColumn = await hasPackageColumn('delivery_photo');
+        const hasDeliverySignatureColumn = await hasPackageColumn('delivery_signature');
+        const hasDeliveryRecipientNameColumn = await hasPackageColumn('delivery_recipient_name');
         const hasDeliveryNotesColumn = await hasPackageColumn('delivery_notes');
         const hasNationalTrackingColumn = await hasPackageColumn('national_tracking');
+        const hasAssignedDriverColumnBulk = await hasPackageColumn('assigned_driver_id');
 
         for (const pkg of packages) {
             const { internalGuide, carrierGuide } = pkg;
@@ -1021,11 +1096,24 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
             }
 
             try {
-                console.log(`📦 [BULK] Procesando: internal="${internalGuide}" carrier="${carrierGuide}"`);
-                // Buscar paquete por guía interna
+                console.log(`📦 [BULK] Procesando: internal="${internalGuide}" carrier="${carrierGuide || 'N/A'}"`);
+                // Buscar paquete por guía interna (incluyendo carrier para decidir status)
                 const pkgRes = await pool.query(`
-                    SELECT p.id, ${statusColumn} as status
+                    SELECT 
+                        p.id, 
+                        ${statusColumn} as status,
+                        COALESCE(
+                            to_jsonb(p)->>'national_carrier',
+                            to_jsonb(p)->>'carrier',
+                            to_jsonb(m)->>'national_carrier',
+                            to_jsonb(m)->>'carrier'
+                        ) as national_carrier,
+                        COALESCE(
+                            to_jsonb(p)->>'national_tracking',
+                            to_jsonb(m)->>'national_tracking'
+                        ) as national_tracking
                     FROM packages p
+                    LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
                     WHERE ${TRACKING_MATCH_SQL}
                     LIMIT 1
                 `, [internalGuide]);
@@ -1036,8 +1124,14 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                     continue;
                 }
 
-                const packageId = pkgRes.rows[0].id;
-                console.log(`✅ [BULK] Paquete encontrado: ID=${packageId} status=${pkgRes.rows[0].status} → '${finalStatus}'`);
+                const row = pkgRes.rows[0];
+                const packageId = row.id;
+                const carrierLower = String(row.national_carrier || '').toLowerCase();
+                const isLocalDelivery = carrierLower.includes('entregax') || carrierLower.includes('local') || carrierLower.includes('pick up') || carrierLower.includes('pickup');
+                // Si tiene guía nacional externa → 'sent'; entrega directa al cliente → 'delivered'
+                const finalStatus = (!isLocalDelivery && (row.national_tracking || carrierGuide)) ? sentStatus : 'delivered';
+
+                console.log(`✅ [BULK] Paquete ID=${packageId} carrier="${row.national_carrier || 'local'}" status=${row.status} → '${finalStatus}'`);
                 
                 // Construir UPDATE dinámicamente
                 const setParts: string[] = [`${statusColumn} = '${finalStatus}'`, 'updated_at = NOW()'];
@@ -1053,9 +1147,25 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                     setParts.push('delivered_at = NOW()');
                 }
 
+                // Asegurar que el driver_id quede asignado al paquete entregado
+                if (hasAssignedDriverColumnBulk) {
+                    values.push(driverId);
+                    setParts.push(`assigned_driver_id = COALESCE(assigned_driver_id, $${values.length})`);
+                }
+
                 if (hasDeliveryPhotoColumn && photoBase64) {
                     values.push(photoBase64);
                     setParts.push(`delivery_photo = $${values.length}`);
+                }
+
+                if (hasDeliverySignatureColumn && signatureBase64) {
+                    values.push(signatureBase64);
+                    setParts.push(`delivery_signature = $${values.length}`);
+                }
+
+                if (hasDeliveryRecipientNameColumn && recipientNameTrimmed) {
+                    values.push(recipientNameTrimmed);
+                    setParts.push(`delivery_recipient_name = $${values.length}`);
                 }
 
                 if (hasDeliveryNotesColumn && notes) {
@@ -1069,12 +1179,44 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                     values
                 );
 
+                // Propagar al MASTER si todas las hijas ya están entregadas
+                try {
+                    const mres = await pool.query(
+                        `SELECT (to_jsonb(p)->>'master_id')::int as master_id FROM packages p WHERE p.id = $1`,
+                        [packageId]
+                    );
+                    const masterId = mres.rows[0]?.master_id;
+                    if (masterId) {
+                        const cres = await pool.query(
+                            `SELECT 
+                                COUNT(*) as total,
+                                SUM(CASE WHEN COALESCE(${statusColumn}::text, '') IN ('delivered', 'sent') THEN 1 ELSE 0 END) as done
+                             FROM packages p WHERE (to_jsonb(p)->>'master_id')::int = $1`,
+                            [masterId]
+                        );
+                        const total = Number(cres.rows[0]?.total || 0);
+                        const done = Number(cres.rows[0]?.done || 0);
+                        // Regla: master entregado en cuanto AL MENOS 1 hija esté entregada.
+                        if (total > 0 && done >= 1) {
+                            await pool.query(
+                                `UPDATE packages SET ${statusColumn} = '${finalStatus}', updated_at = NOW() WHERE id = $1`,
+                                [masterId]
+                            );
+                        }
+                    }
+                } catch (propErr) {
+                    console.warn('[BULK] No se pudo propagar al master:', propErr);
+                }
+
                 // Registrar en historial
                 try {
+                    const histNote = finalStatus === 'delivered'
+                        ? `Entregado a: ${recipientNameTrimmed || 'sin nombre'}. ${notes || ''}`
+                        : `Enviado con guía ${carrierGuide || row.national_tracking || 'desconocida'}. ${notes || ''}`;
                     await pool.query(`
                         INSERT INTO package_history (package_id, status, notes, created_by, created_at)
                         VALUES ($1, $2, $3, $4, NOW())
-                    `, [packageId, finalStatus, `Enviado con guía ${carrierGuide || 'desconocida'}. ${notes || ''}`, driverId]);
+                    `, [packageId, finalStatus, histNote, driverId]);
                 } catch (historyError) {
                     console.warn('No se pudo registrar package_history:', historyError);
                 }
@@ -1095,7 +1237,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
 
         res.json({
             success: true,
-            message: `✅ ${confirmed.length} paquete(s) entregado(s)`,
+            message: `✅ ${confirmed.length} paquete(s) procesado(s)`,
             confirmed,
             errors: errors.length > 0 ? errors : undefined
         });
@@ -1297,7 +1439,7 @@ export const checkCarrierGuideAvailable = async (req: Request, res: Response): P
         if (!hasNT) return res.json({ available: true });
 
         // Comparación tolerante (sin guiones, mayúsculas)
-        const normGuide = guide.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        const normGuide = String(guide).toUpperCase().replace(/[^A-Z0-9]/g, '');
         const r = await pool.query(`
             SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number, ${DELIVERY_STATUS_SQL} as status,
                    to_jsonb(p)->>'national_tracking' as national_tracking

@@ -891,7 +891,7 @@ export const getUnassignedPackages = async (_req: Request, res: Response): Promi
                     OR p.service_type = 'air'
                     OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%')
                 )
-                AND p.status NOT IN ('delivered', 'cancelled')
+                AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
             ORDER BY arrival_date ASC
         `;
         const result = await pool.query(query);

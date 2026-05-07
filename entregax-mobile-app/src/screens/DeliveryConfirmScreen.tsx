@@ -73,6 +73,14 @@ const normalizeScanCode = (rawCode: string): string => {
     code = fromTrackPath[1];
   }
 
+  // Algunos lectores QR (con layout no inglés) reemplazan ":" por "Ñ" y "/" por "-",
+  // dejando algo como: "httpsÑ--app.entregax.com-track-US'2597331374'0002"
+  // Detectar segmento "track-" o "track/" y tomar lo que viene después.
+  const fromTrackDash = code.match(/track[\/\-_:]+([A-Za-z0-9'\-_]+)/i);
+  if (fromTrackDash?.[1]) {
+    code = fromTrackDash[1];
+  }
+
   const fromQuery = code.match(/[?&](?:track|tracking|barcode|code)=([^&#\s]+)/i);
   if (fromQuery?.[1]) {
     code = fromQuery[1];
@@ -151,14 +159,18 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const [carrierGuideVerified, setCarrierGuideVerified] = useState(false);
   const [showCarrierGuideCamera, setShowCarrierGuideCamera] = useState(false);
   const [isCarrierGuideScanning, setIsCarrierGuideScanning] = useState(false);
+
+  // Lote de cajas adicionales que se entregan con la MISMA firma/foto/nombre (entrega local)
+  const [batchPackages, setBatchPackages] = useState<PackageInfo[]>([]);
   
-  // Para entrega múltiple (Paquete Express)
+  // Para entrega múltiple (cualquier paquetería con guía de carrier)
   const [isBulkDelivery, setIsBulkDelivery] = useState(false);
   const [scannedPackages, setScannedPackages] = useState<Array<{packageId: string, internalGuide: string, carrierGuide: string}>>([]);
   const [currentScanStep, setCurrentScanStep] = useState<'internal' | 'carrier'>('internal');
   const [tempInternalGuide, setTempInternalGuide] = useState('');
   const [tempMasterTracking, setTempMasterTracking] = useState('');
   const [tempCarrierGuide, setTempCarrierGuide] = useState('');
+  const [bulkCarrierName, setBulkCarrierName] = useState<string>('Paquete Express');
   const [deliveryTypeAsked, setDeliveryTypeAsked] = useState(false);
   
   const [permission, requestPermission] = useCameraPermissions();
@@ -212,23 +224,30 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                        (packageInfo as any).has_children === true ||
                        ((packageInfo as any).total_pieces && (packageInfo as any).total_pieces > 1);
     
-    const isCarrierService = (packageInfo as any).requires_carrier_scan === true ||
-                            (packageInfo as any).national_carrier !== null;
+    const carrierRaw = ((packageInfo as any).national_carrier || '').toString().toLowerCase();
+    // EntregaX / local / pickup NO requieren doble escaneo (es entrega propia)
+    const isOwnDelivery = /entregax|local|pick ?up|propio/.test(carrierRaw);
+
+    const isCarrierService = !isOwnDelivery && (
+      (packageInfo as any).requires_carrier_scan === true ||
+      ((packageInfo as any).national_carrier !== null && (packageInfo as any).national_carrier !== '')
+    );
     
-    // Si detectamos que es multi-caja o Paquete Express, cambiar automáticamente a bulk
+    // Si detectamos que es multi-caja o tiene carrier nacional EXTERNO, cambiar a bulk
     if (hasChildren || isCarrierService) {
-      // Guardar el paquete ya escaneado como la guía interna del primer paquete
       const scannedGuide = packageInfo.tracking_number || '';
+      const carrierName = ((packageInfo as any).national_carrier || 'Paquetería').toString().trim() || 'Paquetería';
+      setBulkCarrierName(carrierName);
       setTempInternalGuide(scannedGuide);
       setTempMasterTracking(((packageInfo as any).national_tracking || '').toString().toUpperCase());
-      setCurrentScanStep('carrier'); // Pasar directamente a escanear guía de Paquete Express
+      setCurrentScanStep('carrier');
       setIsBulkDelivery(true);
       setCurrentStep('scan');
       showFeedback({
         type: 'success',
         message: hasChildren 
-          ? `Guía multi-caja (${scannedGuide}) detectada. Escanea guía de Paquete Express.`
-          : `Paquete Express detectado. Escanea guía ${scannedGuide === '' ? 'de Paquete Express' : 'del carrier'}.`,
+          ? `Guía multi-caja (${scannedGuide}) detectada. Escanea guía de ${carrierName}.`
+          : `${carrierName} detectado. Escanea guía del carrier.`,
       });
     }
   }, [packageInfo, isBulkDelivery]);
@@ -287,11 +306,12 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           }
 
           const pkg = res.data.package;
-          if (!pkg.has_children && (!pkg.national_carrier || !pkg.national_carrier.toLowerCase().includes('paquete'))) {
+          // Aceptar cualquier paquete con guía de carrier nacional o multi-caja
+          if (!pkg.has_children && !pkg.national_carrier && !pkg.national_tracking) {
             Vibration.vibrate([0, 200, 100, 200]);
             showFeedback({
               type: 'error',
-              message: `❌ Esta guía (${data}) no es Paquete Express. La guía debe ser de Paquete Express.`,
+              message: `❌ Esta guía (${data}) no tiene paquetería nacional asignada.`,
             });
             return;
           }
@@ -306,13 +326,15 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             return;
           }
 
+          const carrierName = (pkg.national_carrier || bulkCarrierName || 'Paquetería').toString().trim() || 'Paquetería';
+          setBulkCarrierName(carrierName);
           setTempInternalGuide(data);
           setTempMasterTracking((pkg.national_tracking || '').toString().toUpperCase());
           setCurrentScanStep('carrier');
           Vibration.vibrate(50);
           showFeedback({
             type: 'success',
-            message: `✅ Guía interna ${data} validada. Escanea guía de Paquete Express.`,
+            message: `✅ Guía interna ${data} validada. Escanea guía de ${carrierName}.`,
           });
           setManualCode('');
         } else {
@@ -366,6 +388,32 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
               message: `❌ Escaneaste la guía MASTER (${data}). Debes escanear la guía HIJA de cada caja.`,
             });
             return;
+          }
+
+          // Si tenemos master de referencia, la HIJA debe comenzar con ese prefijo
+          // Esto evita aceptar guías de OTRAS paqueterías (UPS, DHL, FedEx, etc.) que no son Paquete Express
+          if (masterUpper && !dataUpper.startsWith(masterUpper)) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: `❌ La guía escaneada (${data}) no pertenece a Paquete Express o no corresponde al master ${tempMasterTracking}. Verifica que estés escaneando la etiqueta correcta.`,
+            });
+            return;
+          }
+
+          // Validación de formato Paquete Express cuando NO hay master de referencia:
+          // PQTX usa patrón alfanumérico mixto (letras+dígitos+letras+dígitos), ej: MTY01WE0A18456001
+          // Rechaza patrones de otras paqueterías como "US25973313740001" (2 letras + solo dígitos)
+          if (!masterUpper) {
+            const isPqtxFormat = /^[A-Z]{2,}\d+[A-Z]+/.test(dataUpper);
+            if (!isPqtxFormat) {
+              Vibration.vibrate([0, 200, 100, 200]);
+              showFeedback({
+                type: 'error',
+                message: `❌ La guía (${data}) no parece ser de Paquete Express. Verifica que estés escaneando la etiqueta correcta.`,
+              });
+              return;
+            }
           }
 
           // Verificar que la guía del carrier sea diferente de otras ya escaneadas
@@ -454,22 +502,55 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       });
       
       if (res.data.success && res.data.package) {
-        // Marcar paquete como cargado (out_for_delivery) en el backend
-        try {
-          await api.post(`/api/driver/scan-load`, { barcode: data }, {
-            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          });
-        } catch (loadError: any) {
-          console.warn('⚠️ No se pudo marcar como cargado:', loadError.response?.data?.error);
-          // Continuar de todas formas, no es bloqueante
-        }
+        const newPkg = res.data.package;
 
-        Vibration.vibrate(100);
-        setPackageInfo(res.data.package);
-        setRecipientName(res.data.package.recipient_name || '');
-        setCarrierGuideCode('');
-        setCarrierGuideVerified(false);
-        setCurrentStep('signature');
+        // Si ya tenemos un paquete cargado y NO requiere carrier scan,
+        // estamos agregando una caja adicional al lote (misma firma/foto/nombre).
+        if (packageInfo && !packageInfo.requires_carrier_scan && !newPkg.requires_carrier_scan) {
+          // Evitar duplicados (mismo tracking que el principal o que ya está en el batch)
+          const allTrackings = [packageInfo.tracking_number, ...batchPackages.map(p => p.tracking_number)];
+          if (allTrackings.includes(newPkg.tracking_number)) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({
+              type: 'error',
+              message: `❌ La caja ${newPkg.tracking_number} ya está en este lote.`,
+            });
+          } else {
+            // Marcar como cargado y agregar al batch
+            try {
+              await api.post(`/api/driver/scan-load`, { barcode: data }, {
+                headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+              });
+            } catch (loadError: any) {
+              console.warn('⚠️ No se pudo marcar como cargado:', loadError.response?.data?.error);
+            }
+            Vibration.vibrate(100);
+            setBatchPackages(prev => [...prev, newPkg]);
+            showFeedback({
+              type: 'success',
+              message: `✅ Caja ${newPkg.tracking_number} agregada al lote.`,
+            });
+            setManualCode('');
+            // Volver a la firma para continuar el flujo
+            setCurrentStep('signature');
+          }
+        } else {
+          // Marcar paquete como cargado (out_for_delivery) en el backend
+          try {
+            await api.post(`/api/driver/scan-load`, { barcode: data }, {
+              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+            });
+          } catch (loadError: any) {
+            console.warn('⚠️ No se pudo marcar como cargado:', loadError.response?.data?.error);
+          }
+
+          Vibration.vibrate(100);
+          setPackageInfo(newPkg);
+          setRecipientName(newPkg.recipient_name || '');
+          setCarrierGuideCode('');
+          setCarrierGuideVerified(false);
+          setCurrentStep('signature');
+        }
       }
     } catch (error: any) {
       Vibration.vibrate([0, 200, 100, 200]);
@@ -484,7 +565,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         setLastScannedCode('');
       }, source === 'camera' ? 1500 : 500);
     }
-  }, [scannerActive, isScanning, lastScannedCode, token, isBulkDelivery, currentScanStep, tempInternalGuide, tempMasterTracking, scannedPackages]);
+  }, [scannerActive, isScanning, lastScannedCode, token, isBulkDelivery, currentScanStep, tempInternalGuide, tempMasterTracking, scannedPackages, packageInfo, batchPackages]);
 
   const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
     await processScanCode(result.data, 'camera');
@@ -498,13 +579,14 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   };
 
   // Auto-submit cuando el input se llena por scanner QR (escribe rápido y se detiene).
-  // Espera 250ms de inactividad y mínimo 4 chars.
+  // Espera 1200ms de inactividad y mínimo 12 chars para evitar enviar guías truncadas.
+  // Los lectores externos suelen agregar Enter al final, esto sólo es respaldo.
   useEffect(() => {
-    if (!manualCode || manualCode.length < 4) return;
+    if (!manualCode || manualCode.length < 12) return;
     if (isScanning) return;
     const t = setTimeout(() => {
       handleManualSubmit();
-    }, 250);
+    }, 1200);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [manualCode]);
@@ -668,6 +750,8 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             carrierGuide: pkg.carrierGuide,
           })),
           photoBase64: photo,
+          signatureBase64: signature,
+          recipientName: recipientName.trim(),
           notes: notes,
         }, {
           headers: token ? { Authorization: `Bearer ${token}` } : undefined,
@@ -730,19 +814,68 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
     setLoading(true);
     try {
-      const res = await api.post('/api/driver/confirm-delivery', {
-        barcode: packageInfo.tracking_number,
-        signatureBase64: signature,
-        photoBase64: photo,
-        recipientName: requiresCarrierScan ? '' : trimmedRecipientName,
-        notes: notes,
-      }, {
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-      });
+      // Procesar paquete principal + cualquier caja del lote (todas con la misma firma/foto/nombre)
+      const allPackages = [packageInfo, ...batchPackages];
+      const deliveredOk: string[] = [];
+      const deliveredErr: string[] = [];
 
-      if (res.data.success) {
+      for (const pkg of allPackages) {
+        try {
+          const res = await api.post('/api/driver/confirm-delivery', {
+            barcode: pkg.tracking_number,
+            signatureBase64: signature,
+            photoBase64: photo,
+            recipientName: requiresCarrierScan ? '' : trimmedRecipientName,
+            notes: notes,
+          }, {
+            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          });
+          if (res.data?.success) {
+            deliveredOk.push(pkg.tracking_number);
+          } else {
+            deliveredErr.push(`${pkg.tracking_number}: respuesta inesperada`);
+          }
+        } catch (e: any) {
+          deliveredErr.push(`${pkg.tracking_number}: ${e.response?.data?.error || e.message || 'error'}`);
+        }
+      }
+
+      if (deliveredOk.length > 0) {
         Vibration.vibrate(100);
-        navigation.goBack();
+        const summary = deliveredErr.length === 0
+          ? `${deliveredOk.length} paquete(s) entregado(s) correctamente:\n${deliveredOk.join('\n')}`
+          : `Entregados: ${deliveredOk.length}\nErrores: ${deliveredErr.length}\n\n${deliveredErr.join('\n')}`;
+        Alert.alert(
+          '✅ Entrega confirmada',
+          `${summary}\n\n¿Deseas entregar otro paquete?`,
+          [
+            {
+              text: 'Terminar',
+              style: 'cancel',
+              onPress: () => navigation.goBack(),
+            },
+            {
+              text: 'Entregar otro',
+              onPress: () => {
+                // Resetear estado para escanear el siguiente paquete
+                setPackageInfo(null);
+                setBatchPackages([]);
+                setSignature('');
+                setPhoto('');
+                setRecipientName('');
+                setNotes('');
+                setCarrierGuideCode('');
+                setCarrierGuideVerified(false);
+                setManualCode('');
+                setLastScannedCode('');
+                setCurrentStep('scan');
+              },
+            },
+          ],
+          { cancelable: false }
+        );
+      } else {
+        Alert.alert('Error', `No se pudo confirmar ninguna entrega:\n${deliveredErr.join('\n')}`);
       }
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.error || 'No se pudo confirmar la entrega');
@@ -874,7 +1007,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
     const instruction = currentScanStep === 'internal' 
       ? `Escanea Guía Interna (Caja ${scannedPackages.length + 1})`
-      : `Escanea Guía Paquete Express (Caja ${scannedPackages.length + 1})`;
+      : `Escanea Guía ${bulkCarrierName} (Caja ${scannedPackages.length + 1})`;
 
     return (
       <View style={styles.stepContent}>
@@ -993,6 +1126,57 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           👤 {packageInfo?.recipient_name}
         </Text>
       </View>
+
+      {/* Lote de cajas adicionales (entrega local) */}
+      {!packageInfo?.requires_carrier_scan && batchPackages.length > 0 && (
+        <View style={[styles.packageInfoBox, { backgroundColor: '#FFF6F0', borderColor: '#F05A28', borderWidth: 1 }]}>
+          <Text style={[styles.packageInfoTracking, { fontSize: 13, marginBottom: 6 }]}>
+            📦 Cajas adicionales ({batchPackages.length})
+          </Text>
+          {batchPackages.map((p, idx) => (
+            <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 2 }}>
+              <Text style={{ fontSize: 12, color: '#444', flex: 1 }} numberOfLines={1}>
+                {idx + 2}. {p.tracking_number}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setBatchPackages(prev => prev.filter((_, i) => i !== idx))}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <MaterialIcons name="close" size={18} color="#C1272D" />
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
+
+      {/* Botón para agregar otra caja al mismo lote (solo entrega local) */}
+      {!packageInfo?.requires_carrier_scan && (
+        <TouchableOpacity
+          style={{
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: '#fff',
+            borderWidth: 1.5,
+            borderColor: '#F05A28',
+            borderStyle: 'dashed',
+            borderRadius: 8,
+            paddingVertical: 10,
+            marginBottom: 12,
+            gap: 6,
+          }}
+          onPress={() => {
+            setManualCode('');
+            setLastScannedCode('');
+            setCurrentStep('scan');
+          }}
+        >
+          <MaterialIcons name="add-box" size={20} color="#F05A28" />
+          <Text style={{ color: '#F05A28', fontWeight: '700' }}>
+            + Agregar otra caja al mismo recibo
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Área de firma */}
       <View style={styles.signatureContainer}>

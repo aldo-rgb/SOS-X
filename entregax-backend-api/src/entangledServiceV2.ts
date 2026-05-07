@@ -324,13 +324,29 @@ export interface EntangledTipoCambioRemote {
   ultima_actualizacion?: string | null;
 }
 
+export interface EntangledCostoOperacionPorDivisa {
+  porcentaje?: number | null;
+  monto_fijo?: number | null;
+  updated_at?: string | null;
+}
+
 export interface EntangledProveedorRemote {
   id: string; // UUID externo
   nombre: string;
   descripcion?: string | null;
   activo?: boolean;
   total_empresas_activas?: number;
-  costo_operacion?: { porcentaje?: number | null; monto_fijo?: number | null; moneda?: string | null } | null;
+  // Formato nuevo: { USD: { porcentaje, monto_fijo }, RMB: { ... } }
+  // Formato legacy: { porcentaje, monto_fijo, moneda }
+  costo_operacion?:
+    | {
+        USD?: EntangledCostoOperacionPorDivisa | null;
+        RMB?: EntangledCostoOperacionPorDivisa | null;
+        porcentaje?: number | null;
+        monto_fijo?: number | null;
+        moneda?: string | null;
+      }
+    | null;
   // Antes era number|null, ahora es objeto. Aceptamos ambos por compat.
   tipos_cambio?: {
     USD?: number | EntangledTipoCambioRemote | null;

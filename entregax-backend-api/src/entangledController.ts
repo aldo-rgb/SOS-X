@@ -1225,7 +1225,8 @@ export const listProviders = async (_req: Request, res: Response): Promise<any> 
         (tipo_cambio_usd   + COALESCE(override_tipo_cambio_usd, 0))   AS effective_tipo_cambio_usd,
         (tipo_cambio_rmb   + COALESCE(override_tipo_cambio_rmb, 0))   AS effective_tipo_cambio_rmb,
         (porcentaje_compra + COALESCE(override_porcentaje_compra, 0)) AS effective_porcentaje_compra,
-        (COALESCE(costo_operacion_usd, 0) + COALESCE(override_costo_operacion_usd, 0)) AS effective_costo_operacion_usd
+        (COALESCE(costo_operacion_usd, 0) + COALESCE(override_costo_operacion_usd, 0)) AS effective_costo_operacion_usd,
+        (COALESCE(costo_operacion_rmb, 0) + COALESCE(override_costo_operacion_rmb, 0)) AS effective_costo_operacion_rmb
        FROM entangled_providers ORDER BY is_default DESC, sort_order ASC, id ASC`
     );
     return res.json(r.rows);

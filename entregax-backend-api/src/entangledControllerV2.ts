@@ -818,9 +818,19 @@ export const syncProveedoresFromRemote = async (req: Request, res: Response): Pr
     const remoteRmb = extractTC(p.tipos_cambio?.RMB);
     const provTcUsd = remoteUsd != null ? remoteUsd : tcUsd;
     const provTcRmb = remoteRmb != null ? remoteRmb : tcRmb;
-    const costoOpFijo = p.costo_operacion?.monto_fijo != null ? Number(p.costo_operacion.monto_fijo) : 0;
-    const costoOpPct = p.costo_operacion?.porcentaje != null ? Number(p.costo_operacion.porcentaje) : 0;
-    const costoOpMoneda = (p.costo_operacion?.moneda || 'USD').toString().slice(0, 8);
+    // Costo de operación: el API ahora lo expone por divisa { USD: {...}, RMB: {...} }.
+    // Compat con formato legacy plano { porcentaje, monto_fijo, moneda }.
+    const co: any = p.costo_operacion || {};
+    const coUsd: any = co.USD || (String(co.moneda || 'USD').toUpperCase() === 'USD' ? co : null) || {};
+    const coRmb: any = co.RMB || (String(co.moneda || '').toUpperCase() === 'RMB' ? co : null) || {};
+    const costoOpFijoUsd = coUsd.monto_fijo != null ? Number(coUsd.monto_fijo) : 0;
+    const costoOpPctUsd = coUsd.porcentaje != null ? Number(coUsd.porcentaje) : 0;
+    const costoOpFijoRmb = coRmb.monto_fijo != null ? Number(coRmb.monto_fijo) : 0;
+    const costoOpPctRmb = coRmb.porcentaje != null ? Number(coRmb.porcentaje) : 0;
+    // Para compat con campos heredados (1 sola moneda)
+    const costoOpFijo = costoOpFijoUsd;
+    const costoOpPct = costoOpPctUsd;
+    const costoOpMoneda = (co.moneda || 'USD').toString().slice(0, 8);
     // Mínimos: tomamos los del servicio "con factura"; si no hay, los del primero.
     const tarifaRef = (p.tarifas || []).find((x: any) => x.servicio_codigo === 'pago_con_factura') || (p.tarifas || [])[0];
     const minUsd = tarifaRef?.monto_minimo?.USD != null ? Number(tarifaRef.monto_minimo.USD) : 0;
@@ -842,6 +852,8 @@ export const syncProveedoresFromRemote = async (req: Request, res: Response): Pr
                 costo_operacion_moneda = $12,
                 min_operacion_usd = $13,
                 min_operacion_rmb = $14,
+                costo_operacion_rmb = $15,
+                costo_operacion_porcentaje_rmb = $16,
                 last_synced_at = NOW(),
                 updated_at = NOW()
           WHERE external_id = $4
@@ -861,6 +873,8 @@ export const syncProveedoresFromRemote = async (req: Request, res: Response): Pr
           costoOpMoneda,
           minUsd,
           minRmb,
+          costoOpFijoRmb,
+          costoOpPctRmb,
         ]
       );
       summary.updated++;
@@ -878,9 +892,11 @@ export const syncProveedoresFromRemote = async (req: Request, res: Response): Pr
             total_empresas_activas, remote_activo,
             costo_operacion_usd, costo_operacion_porcentaje, costo_operacion_moneda,
             min_operacion_usd, min_operacion_rmb,
+            costo_operacion_rmb, costo_operacion_porcentaje_rmb,
             is_active, is_default, sort_order, last_synced_at, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5::jsonb, $7, $8, $9, $10, $11,
                  $12, $13, $14, $15, $16,
+                 $17, $18,
                  $11, $6, 0, NOW(), NOW(), NOW())
          RETURNING id, name, external_id, is_default, total_empresas_activas`,
         [
@@ -900,6 +916,8 @@ export const syncProveedoresFromRemote = async (req: Request, res: Response): Pr
           costoOpMoneda,
           minUsd,
           minRmb,
+          costoOpFijoRmb,
+          costoOpPctRmb,
         ]
       );
       summary.inserted++;

@@ -421,7 +421,7 @@ import {
   getAdvisorRanking,
   getRevenueReport,
   getWarrantyStats,
-  searchClients
+  searchClients as searchClientsWarranty
 } from './warrantyController';
 import {
   getAdvisorDashboard,
@@ -761,6 +761,7 @@ import {
   createBranchPayment,
   testConfirmPayment,
   handleOpenpayPaymentCallback,
+  verifyOpenpayCharge,
   handleOpenpayPaymentWebhook,
   handlePayPalPaymentCallback
 } from './multiServicePaymentController';
@@ -2977,6 +2978,7 @@ app.post('/api/payments/openpay/charge-saved-card', authenticateToken, chargeSav
 
 // --- CALLBACKS Y WEBHOOKS DE PAGOS (sin auth, son redirecciones de pasarelas) ---
 app.get('/api/payments/openpay/callback', handleOpenpayPaymentCallback);
+app.post('/api/payments/openpay/verify', authenticateToken, verifyOpenpayCharge);
 app.post('/api/payments/openpay/webhook', handleOpenpayPaymentWebhook);
 app.get('/api/payments/paypal/callback', handlePayPalPaymentCallback);
 
@@ -3831,7 +3833,7 @@ app.get('/api/gex/ranking', authenticateToken, getAdvisorRanking);
 app.get('/api/gex/revenue-report', authenticateToken, getRevenueReport);
 
 // Búsqueda de clientes para select
-app.get('/api/gex/clients', authenticateToken, searchClients);
+app.get('/api/gex/clients', authenticateToken, searchClientsWarranty);
 
 // Toggle auto-GEX preference
 app.get('/api/gex/auto-config', authenticateToken, async (req: AuthRequest, res: Response) => {

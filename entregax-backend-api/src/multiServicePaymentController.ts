@@ -702,6 +702,17 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
           [!!invoiceRequired, String(paymentReference), userId]
         );
       }
+      // Sincronizar también openpay_webhook_logs para que el dashboard refleje 'tarjeta'
+      const refForLog = String(paymentReference || '').trim();
+      if (refForLog) {
+        await pool.query(
+          `UPDATE openpay_webhook_logs
+             SET payment_method = 'card', tipo_pago = 'tarjeta'
+           WHERE transaction_id = $1
+             AND estatus_procesamiento = 'pending_payment'`,
+          [refForLog]
+        );
+      }
     } catch (preUpdErr: any) {
       console.warn('⚠️ No se pudo pre-actualizar método PO Box (OpenPay):', preUpdErr?.message || preUpdErr);
     }
@@ -801,6 +812,24 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
     console.log(`✅ OpenPay cargo creado: ${openpayResponse.data.id} - $${total} ${currency || 'MXN'}`);
     console.log(`🔗 Payment URL: ${paymentUrl}`);
 
+    // Guardar charge_id de OpenPay en la orden para poder verificarlo después.
+    try {
+      const openpayChargeId = openpayResponse.data.id;
+      if (paymentOrderId) {
+        await pool.query(
+          `UPDATE pobox_payments SET external_transaction_id = $1, external_order_id = $2 WHERE id = $3 AND user_id = $4`,
+          [openpayChargeId, paymentRef, Number(paymentOrderId), userId]
+        );
+      } else if (paymentReference) {
+        await pool.query(
+          `UPDATE pobox_payments SET external_transaction_id = $1, external_order_id = $2 WHERE payment_reference = $3 AND user_id = $4`,
+          [openpayChargeId, paymentRef, String(paymentReference), userId]
+        );
+      }
+    } catch (saveErr: any) {
+      console.warn('⚠️ No se pudo guardar external_transaction_id OpenPay:', saveErr?.message);
+    }
+
     res.json({
       success: true,
       paymentId: openpayResponse.data.id,
@@ -869,6 +898,17 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
                requiere_factura = $1
            WHERE payment_reference = $2 AND user_id = $3`,
           [!!invoiceRequired, String(paymentReference), userId]
+        );
+      }
+      // Sincronizar también openpay_webhook_logs (dashboard cobranza) si existía como 'cash'.
+      const refForLog = String(paymentReference || '').trim();
+      if (refForLog) {
+        await pool.query(
+          `UPDATE openpay_webhook_logs
+             SET payment_method = 'paypal', tipo_pago = 'paypal'
+           WHERE transaction_id = $1
+             AND estatus_procesamiento = 'pending_payment'`,
+          [refForLog]
         );
       }
     } catch (preUpdErr: any) {
@@ -1333,6 +1373,108 @@ export const handleOpenpayPaymentCallback = async (req: Request, res: Response):
       return res.redirect(candidate);
     }
     res.redirect(fallbackError);
+  }
+};
+
+// ============================================
+// VERIFICAR ESTADO DE CARGO OPENPAY (poll desde la app móvil)
+// La app llama esto al cerrar el WebView para no depender del redirect.
+// POST /api/payments/openpay/verify { paymentReference?, paymentOrderId? }
+// ============================================
+export const verifyOpenpayCharge = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.userId;
+    const { paymentReference, paymentOrderId } = req.body;
+
+    if (!paymentReference && !paymentOrderId) {
+      return res.status(400).json({ success: false, error: 'paymentReference o paymentOrderId es requerido' });
+    }
+
+    // Obtener la orden con el charge_id de OpenPay
+    let orderRow;
+    if (paymentOrderId) {
+      const r = await pool.query(
+        `SELECT * FROM pobox_payments WHERE id = $1 AND user_id = $2`,
+        [Number(paymentOrderId), userId]
+      );
+      orderRow = r.rows[0];
+    } else {
+      const r = await pool.query(
+        `SELECT * FROM pobox_payments WHERE payment_reference = $1 AND user_id = $2`,
+        [String(paymentReference), userId]
+      );
+      orderRow = r.rows[0];
+    }
+
+    if (!orderRow) {
+      return res.status(404).json({ success: false, error: 'Orden no encontrada' });
+    }
+
+    // Si ya está marcada como completada, regresar el estado actual
+    if (orderRow.status === 'completed' || orderRow.status === 'paid') {
+      return res.json({ success: true, status: orderRow.status, alreadyProcessed: true });
+    }
+
+    const chargeId = orderRow.external_transaction_id;
+    if (!chargeId) {
+      return res.json({ success: false, status: orderRow.status, error: 'Esta orden no tiene cargo de OpenPay asociado' });
+    }
+
+    // Consultar OpenPay para verificar el estado real del cargo
+    const serviceType = await getServiceTypeFromPackages(orderRow.package_ids || []);
+    const credentials = await getOpenpayCredentials(serviceType);
+    const baseUrl = credentials.isSandbox ? OPENPAY_SANDBOX_URL : OPENPAY_PROD_URL;
+    const chargeUrl = `${baseUrl}/${credentials.merchantId}/charges/${chargeId}`;
+
+    const opRes = await axios.get(chargeUrl, {
+      auth: { username: credentials.privateKey, password: '' }
+    });
+
+    const chargeStatus = opRes.data?.status; // completed | in_progress | failed | charge_pending | cancelled
+    console.log(`🔍 verifyOpenpayCharge ${chargeId}: ${chargeStatus}`);
+
+    if (chargeStatus !== 'completed') {
+      return res.json({ success: false, status: chargeStatus, message: 'Pago aún no confirmado por OpenPay' });
+    }
+
+    // Marcar orden como completada y paquetes como pagados
+    const amount = parseFloat(orderRow.amount);
+    const pkgIds: number[] = Array.isArray(orderRow.package_ids) ? orderRow.package_ids : JSON.parse(orderRow.package_ids || '[]');
+    const requireInvoice = !!orderRow.requiere_factura;
+    const ref = orderRow.payment_reference;
+
+    await pool.query(
+      `UPDATE pobox_payments SET status = 'completed', paid_at = CURRENT_TIMESTAMP, payment_method = 'card' WHERE id = $1`,
+      [orderRow.id]
+    );
+
+    await pool.query(
+      `UPDATE packages SET payment_status = 'paid', monto_pagado = COALESCE(monto_pagado, 0) + $1, saldo_pendiente = 0,
+                            costing_paid = TRUE, client_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP, payment_reference = $2
+       WHERE (id = ANY($3) OR master_id = ANY($3)) AND user_id = $4`,
+      [amount, ref, pkgIds, userId]
+    );
+
+    // Actualizar webhook log
+    await pool.query(
+      `UPDATE openpay_webhook_logs
+         SET estatus_procesamiento = 'procesado', payment_method = 'card', tipo_pago = 'tarjeta', fecha_pago = CURRENT_TIMESTAMP
+       WHERE transaction_id = $1`,
+      [ref]
+    );
+
+    // Generar comisiones (no bloqueante)
+    generateCommissionsForPackages(pkgIds).catch(err => console.error('Comisiones (verify):', err));
+
+    return res.json({
+      success: true,
+      status: 'completed',
+      paymentReference: ref,
+      requiresInvoice: requireInvoice
+    });
+  } catch (error: any) {
+    console.error('❌ verifyOpenpayCharge:', error?.response?.data || error?.message);
+    return res.status(500).json({ success: false, error: error?.response?.data?.description || error?.message || 'Error verificando cargo' });
   }
 };
 

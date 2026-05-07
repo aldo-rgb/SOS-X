@@ -186,7 +186,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       const dhlLabels: Record<string, string> = {
         received_mty: '📦 Cedis MTY',
         in_transit: '🚚 En Tránsito',
-        out_for_delivery: '🚛 En Reparto',
+        out_for_delivery: '🚛 En ruta de entrega',
         delivered: '✅ Entregado',
       };
       return dhlLabels[status] || status;
@@ -202,6 +202,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       delivered: t('status.delivered'),
       pending: t('status.pending'),
       received_mty: '📦 Recibido en MTY',
+      out_for_delivery: '🚛 En ruta de entrega',
+      en_ruta_entrega: '🚛 En ruta de entrega',
     };
     return statusLabels[status] || status;
   };
@@ -1321,11 +1323,26 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 renderItem={({ item }) => (
                   <View style={styles.historyCard}>
                     <View style={styles.historyCardHeader}>
-                      <View style={styles.historyTrackingBadge}>
+                      <TouchableOpacity
+                        style={styles.historyTrackingBadge}
+                        onPress={() => {
+                          const guia = item.tracking_internal || item.tracking_provider;
+                          if (guia) {
+                            Clipboard.setString(String(guia));
+                            if (Platform.OS === 'android') {
+                              ToastAndroid.show('Guía copiada al portapapeles', ToastAndroid.SHORT);
+                            } else {
+                              Alert.alert('Copiado', `Guía ${guia} copiada al portapapeles`);
+                            }
+                          }
+                        }}
+                        activeOpacity={0.7}
+                      >
                         <Text style={styles.historyTrackingText}>
                           {item.tracking_internal || item.tracking_provider || 'Sin tracking'}
                         </Text>
-                      </View>
+                        <Ionicons name="copy-outline" size={13} color="#E87722" style={{ marginLeft: 5 }} />
+                      </TouchableOpacity>
                       <View style={styles.historyDeliveredBadge}>
                         <Ionicons name="checkmark-circle" size={14} color="#10B981" />
                         <Text style={styles.historyDeliveredText}>Entregado</Text>
@@ -2335,6 +2352,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   historyTrackingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: '#F3F4F6',
     paddingHorizontal: 8,
     paddingVertical: 4,

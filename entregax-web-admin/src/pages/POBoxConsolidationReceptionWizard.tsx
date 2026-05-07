@@ -77,6 +77,47 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
     const [scanInput, setScanInput] = useState('');
     const [scanFeedback, setScanFeedback] = useState<{ type: 'success' | 'error' | 'info'; msg: string } | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
+    const audioCtxRef = useRef<AudioContext | null>(null);
+
+    // Reproduce un beep usando Web Audio API (no requiere archivo)
+    const playBeep = (kind: 'success' | 'error' | 'info') => {
+        try {
+            if (!audioCtxRef.current) {
+                const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+                if (!Ctx) return;
+                audioCtxRef.current = new Ctx();
+            }
+            const ctx = audioCtxRef.current!;
+            if (ctx.state === 'suspended') ctx.resume().catch(() => {});
+            const playTone = (freq: number, start: number, duration: number, gain = 0.15) => {
+                const osc = ctx.createOscillator();
+                const g = ctx.createGain();
+                osc.type = kind === 'error' ? 'square' : 'sine';
+                osc.frequency.value = freq;
+                g.gain.setValueAtTime(0, ctx.currentTime + start);
+                g.gain.linearRampToValueAtTime(gain, ctx.currentTime + start + 0.01);
+                g.gain.linearRampToValueAtTime(0, ctx.currentTime + start + duration);
+                osc.connect(g);
+                g.connect(ctx.destination);
+                osc.start(ctx.currentTime + start);
+                osc.stop(ctx.currentTime + start + duration + 0.02);
+            };
+            if (kind === 'success') {
+                // Beep doble agudo ascendente
+                playTone(880, 0, 0.08);
+                playTone(1320, 0.09, 0.12);
+            } else if (kind === 'error') {
+                // Tono grave doble
+                playTone(220, 0, 0.18, 0.2);
+                playTone(180, 0.20, 0.22, 0.2);
+            } else {
+                // Info: un solo tono medio
+                playTone(660, 0, 0.1);
+            }
+        } catch {
+            // silencio
+        }
+    };
 
     // Step 2: confirm / result
     const [confirmPartialOpen, setConfirmPartialOpen] = useState(false);
@@ -146,21 +187,19 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
         const looksLikePlainTracking = /^[A-Za-z0-9][A-Za-z0-9\-_]*$/.test(tracking);
         if (!looksLikePlainTracking) {
             // El lector puede escanear el QR con URL completa O en layout de teclado distinto
-            // (ES convierte ':'->'Ñ' y '/'->''') dando cosas como "httpsÑ--app.entregax.com-track-US'UHNT5870"
-            // Primero buscar lo que viene después de "track" (el separador puede ser /, -, ', etc.)
-            const afterTrack = tracking.match(/track[^A-Za-z0-9]+([A-Za-z]{2})[^A-Za-z0-9]?([A-Za-z0-9\-]{4,})/i);
-            if (afterTrack) {
-                tracking = `${afterTrack[1]}-${afterTrack[2]}`.toUpperCase();
+            // (ES convierte ':'->'Ñ' y '/'->''') dando cosas como
+            //   "httpsÑ--app.entregax.com-track-US'2597331374'0001"
+            // Estrategia robusta: convertir CUALQUIER secuencia de caracteres no
+            // alfanuméricos a un solo guión y buscar el patrón "XX-DIGITOS[-DIGITOS]*".
+            const sanitized = tracking.replace(/[^A-Za-z0-9]+/g, '-').toUpperCase();
+            // Captura prefijo país (2 letras) + tracking + posibles sufijos numéricos
+            const m = sanitized.match(/(?:^|-)([A-Z]{2}-\d{4,}(?:-\d{1,4})*)(?:-|$)/);
+            if (m) {
+                tracking = m[1];
             } else {
-                // Fallback: buscar patrón XX-XXXX[-XXXX] (permitir múltiples segmentos para hijos)
-                const allMatches = tracking.match(/[A-Z]{2}[-_']?[A-Z0-9]{4,}(?:[-_']\d{1,4})?/gi) || [];
-                const candidate = allMatches.find((m) => !/TREGAX/i.test(m));
-                if (candidate) {
-                    tracking = candidate.replace(/[_']/g, '-').toUpperCase();
-                    if (!tracking.includes('-') && tracking.length > 2) {
-                        tracking = tracking.slice(0, 2) + '-' + tracking.slice(2);
-                    }
-                }
+                // Fallback: cualquier patrón XX-alfa/numérico
+                const m2 = sanitized.match(/(?:^|-)([A-Z]{2}-[A-Z0-9]{4,}(?:-[A-Z0-9]{1,4})*)(?:-|$)/);
+                if (m2 && !/TREGAX/i.test(m2[1])) tracking = m2[1];
             }
         } else {
             tracking = tracking.toUpperCase();
@@ -184,13 +223,16 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
         const matched = pkg || pkgFallback || pkgChildPadded;
         if (!matched) {
             setScanFeedback({ type: 'error', msg: `Guía "${tracking}" no pertenece a esta consolidación` });
+            playBeep('error');
         } else if (scannedIds.has(matched.id)) {
             setScanFeedback({ type: 'info', msg: `Ya escaneado: ${matched.tracking_internal}` });
+            playBeep('info');
         } else {
             const next = new Set(scannedIds);
             next.add(matched.id);
             setScannedIds(next);
             setScanFeedback({ type: 'success', msg: `✓ ${matched.tracking_internal}` });
+            playBeep('success');
         }
         setScanInput('');
     };

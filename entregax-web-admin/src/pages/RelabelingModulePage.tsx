@@ -664,7 +664,10 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         const cityLine = `${a.city || ''}${a.state ? ', ' + a.state : ''}`.trim();
         const colZip = `${a.neighborhood ? 'Col. ' + a.neighborhood + ' · ' : ''}C.P. ${a.zip || '—'}`;
         const tn = shipment.master.tracking;
-        const trackingQr = `https://app.entregax.com/track/${tn}`;
+        // Versión "compacta" sin guiones/comillas para barcode y QR — evita que el lector
+        // convierta '-' en otros caracteres por layout de teclado.
+        const tnCompact = String(tn || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const trackingQr = `https://app.entregax.com/track/${tnCompact}`;
         const today = new Date().toLocaleDateString('es-MX');
         const svc = getServiceInfo(tn);
 
@@ -717,7 +720,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
   </div>
 
   <div class="tracking-row">
-    <div class="tn">${tn}</div>
+    <div class="tn">${tnCompact}</div>
     <div class="date">${today}</div>
   </div>
 
@@ -759,7 +762,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
 <script>
   window.addEventListener('load', function() {
     try {
-      JsBarcode('#barcode', ${JSON.stringify(tn)}, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 });
+      JsBarcode('#barcode', ${JSON.stringify(tnCompact)}, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 });
     } catch(e) {}
     try {
       var qr = qrcode(0, 'M'); qr.addData(${JSON.stringify(trackingQr)}); qr.make();

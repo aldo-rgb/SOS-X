@@ -136,8 +136,6 @@ const DIVISAS = ['USD', 'RMB'];
 const DESTINATION_COUNTRIES = [
   { code: 'CN', label: 'China', flag: '🇨🇳' },
   { code: 'US', label: 'Estados Unidos', flag: '🇺🇸' },
-  { code: 'KR', label: 'Corea del Sur', flag: '🇰🇷' },
-  { code: 'JP', label: 'Japón', flag: '🇯🇵' },
 ];
 const COUNTRY_META: Record<string, { label: string; flag: string }> = {
   MX: { label: 'México', flag: '🇲🇽' },
@@ -1909,31 +1907,6 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                   />
                 </Grid>
                 <Grid size={{ xs: 12 }}>
-                  <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mb: 0.5 }}>
-                    📝 Clave(s) de producto/servicio SAT a facturar *
-                  </Typography>
-                  <TextField
-                    fullWidth required label="Clave SAT (clave_prodserv)" value={form.conceptos}
-                    onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
-                    placeholder="84111506, 90121800"
-                    helperText="Una o varias claves del catálogo SAT separadas por coma. Ej.: 84111506 (Servicios contables), 90121800 (Pago a proveedores)"
-                    sx={{
-                      '& .MuiOutlinedInput-root': {
-                        color: '#ffffff',
-                        backgroundColor: '#0a0a0a',
-                        '& fieldset': { borderColor: '#333333' },
-                        '&:hover fieldset': { borderColor: '#555555' },
-                        '&.Mui-focused fieldset': { borderColor: ORANGE },
-                      },
-                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
-                      '& .MuiInputLabel-root': { color: '#888888' },
-                      '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
-                      '& .MuiFormHelperText-root': { color: '#9ca3af' },
-                    }}
-                  />
-                </Grid>
-                <Grid size={{ xs: 12 }}>
                   <FormControlLabel
                     control={
                       <Checkbox
@@ -1949,6 +1922,33 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               </Grid>
             </Paper>
               )}
+
+              {/* Clave SAT — SIEMPRE visible (incluso con datos fiscales precargados) */}
+              <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
+                <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mb: 1 }}>
+                  📝 Clave(s) de producto/servicio SAT a facturar *
+                </Typography>
+                <TextField
+                  fullWidth required label="Clave SAT (clave_prodserv)" value={form.conceptos}
+                  onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
+                  placeholder="84111506, 90121800"
+                  helperText="Una o varias claves del catálogo SAT separadas por coma. Ej.: 84111506 (Servicios contables), 90121800 (Pago a proveedores)"
+                  sx={{
+                    '& .MuiOutlinedInput-root': {
+                      color: '#ffffff',
+                      backgroundColor: '#0a0a0a',
+                      '& fieldset': { borderColor: '#333333' },
+                      '&:hover fieldset': { borderColor: '#555555' },
+                      '&.Mui-focused fieldset': { borderColor: ORANGE },
+                    },
+                    '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
+                    '& .MuiInputLabel-root': { color: '#888888' },
+                    '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                    '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                    '& .MuiFormHelperText-root': { color: '#9ca3af' },
+                  }}
+                />
+              </Paper>
             </>
           )}
 

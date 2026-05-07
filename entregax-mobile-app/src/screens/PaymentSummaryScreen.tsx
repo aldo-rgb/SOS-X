@@ -724,71 +724,73 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 Guardar
               </Button>
             </View>
+
+            {/* Modal Selector de Régimen Fiscal (anidado para mostrarse sobre iOS) */}
+            <Modal visible={showRegimenPicker} animationType="slide" transparent presentationStyle="overFullScreen">
+              <View style={styles.pickerModalOverlay}>
+                <View style={styles.pickerModalContent}>
+                  <View style={styles.pickerModalHeader}>
+                    <Text style={styles.pickerModalTitle}>Selecciona Régimen Fiscal</Text>
+                    <IconButton icon="close" size={24} onPress={() => setShowRegimenPicker(false)} />
+                  </View>
+                  <FlatList
+                    data={regimenesFiscales}
+                    keyExtractor={(item) => item.clave}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={[
+                          styles.pickerItem,
+                          fiscalForm.regimen_fiscal === item.clave && styles.pickerItemSelected
+                        ]}
+                        onPress={() => {
+                          setFiscalForm({ ...fiscalForm, regimen_fiscal: item.clave });
+                          setShowRegimenPicker(false);
+                        }}
+                      >
+                        <Text style={styles.pickerItemCode}>{item.clave}</Text>
+                        <Text style={styles.pickerItemText}>{item.descripcion}</Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                </View>
+              </View>
+            </Modal>
+
+            {/* Modal Selector de Uso CFDI (anidado para mostrarse sobre iOS) */}
+            <Modal visible={showUsoCFDIPicker} animationType="slide" transparent presentationStyle="overFullScreen">
+              <View style={styles.pickerModalOverlay}>
+                <View style={styles.pickerModalContent}>
+                  <View style={styles.pickerModalHeader}>
+                    <Text style={styles.pickerModalTitle}>Selecciona Uso CFDI</Text>
+                    <IconButton icon="close" size={24} onPress={() => setShowUsoCFDIPicker(false)} />
+                  </View>
+                  <FlatList
+                    data={usosCFDI}
+                    keyExtractor={(item) => item.clave}
+                    renderItem={({ item }) => (
+                      <TouchableOpacity
+                        style={[
+                          styles.pickerItem,
+                          fiscalForm.uso_cfdi === item.clave && styles.pickerItemSelected
+                        ]}
+                        onPress={() => {
+                          setFiscalForm({ ...fiscalForm, uso_cfdi: item.clave });
+                          setShowUsoCFDIPicker(false);
+                        }}
+                      >
+                        <Text style={styles.pickerItemCode}>{item.clave}</Text>
+                        <Text style={styles.pickerItemText}>{item.descripcion}</Text>
+                      </TouchableOpacity>
+                    )}
+                  />
+                </View>
+              </View>
+            </Modal>
           </View>
         </View>
       </Modal>
 
-      {/* Modal Selector de Régimen Fiscal */}
-      <Modal visible={showRegimenPicker} animationType="slide" transparent>
-        <View style={styles.pickerModalOverlay}>
-          <View style={styles.pickerModalContent}>
-            <View style={styles.pickerModalHeader}>
-              <Text style={styles.pickerModalTitle}>Selecciona Régimen Fiscal</Text>
-              <IconButton icon="close" size={24} onPress={() => setShowRegimenPicker(false)} />
-            </View>
-            <FlatList
-              data={regimenesFiscales}
-              keyExtractor={(item) => item.clave}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.pickerItem,
-                    fiscalForm.regimen_fiscal === item.clave && styles.pickerItemSelected
-                  ]}
-                  onPress={() => {
-                    setFiscalForm({ ...fiscalForm, regimen_fiscal: item.clave });
-                    setShowRegimenPicker(false);
-                  }}
-                >
-                  <Text style={styles.pickerItemCode}>{item.clave}</Text>
-                  <Text style={styles.pickerItemText}>{item.descripcion}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </View>
-      </Modal>
-
-      {/* Modal Selector de Uso CFDI */}
-      <Modal visible={showUsoCFDIPicker} animationType="slide" transparent>
-        <View style={styles.pickerModalOverlay}>
-          <View style={styles.pickerModalContent}>
-            <View style={styles.pickerModalHeader}>
-              <Text style={styles.pickerModalTitle}>Selecciona Uso CFDI</Text>
-              <IconButton icon="close" size={24} onPress={() => setShowUsoCFDIPicker(false)} />
-            </View>
-            <FlatList
-              data={usosCFDI}
-              keyExtractor={(item) => item.clave}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[
-                    styles.pickerItem,
-                    fiscalForm.uso_cfdi === item.clave && styles.pickerItemSelected
-                  ]}
-                  onPress={() => {
-                    setFiscalForm({ ...fiscalForm, uso_cfdi: item.clave });
-                    setShowUsoCFDIPicker(false);
-                  }}
-                >
-                  <Text style={styles.pickerItemCode}>{item.clave}</Text>
-                  <Text style={styles.pickerItemText}>{item.descripcion}</Text>
-                </TouchableOpacity>
-              )}
-            />
-          </View>
-        </View>
-      </Modal>
+      {/* (Pickers movidos dentro del modal de Datos Fiscales para iOS) */}
 
       {/* Contenido Principal */}
       {!approvalUrl && !showCashInstructions && (

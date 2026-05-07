@@ -129,6 +129,20 @@ const generatePaymentReference = (prefix: string = 'PB'): string => {
 
 // Verificar si alguno de los paquetes ya está en una orden de pago pendiente
 const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: number): Promise<{ hasDuplicates: boolean; duplicates: { packageId: number; reference: string }[] }> => {
+    // 1) Auto-cancelar órdenes pendientes "huérfanas" (>30 min sin completarse) del usuario.
+    //    Esto evita que un intento abandonado bloquee nuevos pagos de los mismos paquetes.
+    try {
+        await pool.query(`
+            UPDATE pobox_payments
+            SET status = 'cancelled'
+            WHERE user_id = $1
+              AND status IN ('pending', 'pending_payment')
+              AND created_at < NOW() - INTERVAL '30 minutes'
+        `, [userId]);
+    } catch (cleanupErr) {
+        console.warn('⚠️ No se pudieron limpiar órdenes pendientes antiguas:', cleanupErr);
+    }
+
     const result = await pool.query(`
         SELECT pp.payment_reference, pkg_id::int as package_id
         FROM pobox_payments pp,

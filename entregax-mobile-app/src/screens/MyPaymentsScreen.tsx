@@ -827,7 +827,7 @@ const MyPaymentsScreen = () => {
     return false;
   };
 
-  const openGatewayUrl = async (url: string, returnUrl: string) => {
+  const openGatewayUrl = async (url: string, returnUrl: string, opts?: { paymentReference?: string; paymentOrderId?: number }) => {
     try {
       const result = await WebBrowser.openAuthSessionAsync(url, returnUrl, {
         dismissButtonStyle: 'close',
@@ -839,6 +839,26 @@ const MyPaymentsScreen = () => {
       // Fallback
       Linking.openURL(url);
     } finally {
+      // Verificar contra OpenPay aunque el redirect no haya disparado el callback
+      if (opts?.paymentReference || opts?.paymentOrderId) {
+        try {
+          const vRes = await fetch(`${API_URL}/api/payments/openpay/verify`, {
+            method: 'POST',
+            headers: authHeaders,
+            body: JSON.stringify({
+              paymentReference: opts.paymentReference,
+              paymentOrderId: opts.paymentOrderId,
+            }),
+          });
+          const vData = await vRes.json();
+          console.log('🔎 verifyOpenpayCharge:', vData);
+          if (vData?.success && vData?.status === 'completed') {
+            Alert.alert('✅', 'Pago confirmado');
+          }
+        } catch (vErr) {
+          console.warn('verify openpay error:', vErr);
+        }
+      }
       // Refrescar para detectar pago completado
       setTimeout(() => { fetchPaymentOrders(); fetchPayments(); }, 800);
       closeOnlinePay();
@@ -885,7 +905,7 @@ const MyPaymentsScreen = () => {
       const data = await res.json();
       if (data?.success) {
         if (data.requiresRedirection && data.paymentUrl) {
-          await openGatewayUrl(data.paymentUrl, returnUrl);
+          await openGatewayUrl(data.paymentUrl, returnUrl, { paymentReference: order.payment_reference, paymentOrderId: order.id });
         } else if (data.status === 'completed') {
           Alert.alert('✅', 'Pago procesado con tarjeta');
           closeOnlinePay(); fetchPaymentOrders(); fetchPayments();
@@ -945,7 +965,7 @@ const MyPaymentsScreen = () => {
       const data = await res.json();
       if (data?.success) {
         if (data.approvalUrl) {
-          await openGatewayUrl(data.approvalUrl, returnUrl);
+          await openGatewayUrl(data.approvalUrl, returnUrl, { paymentReference: order.payment_reference, paymentOrderId: order.id });
         } else {
           Alert.alert('📋', data.message || 'Solicitud registrada');
           closeOnlinePay();
