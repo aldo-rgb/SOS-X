@@ -381,6 +381,22 @@ export const listAccountants = async (req: AuthRequest, res: Response): Promise<
         if (!['admin', 'super_admin', 'director'].includes(role || '')) {
             return res.status(403).json({ error: 'Sin permiso' });
         }
+        // Ensure table exists (idempotent — safe to run every call)
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS accountant_emitter_permissions (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                fiscal_emitter_id INTEGER NOT NULL REFERENCES fiscal_emitters(id) ON DELETE CASCADE,
+                can_view BOOLEAN NOT NULL DEFAULT TRUE,
+                can_emit_invoice BOOLEAN NOT NULL DEFAULT TRUE,
+                can_cancel_invoice BOOLEAN NOT NULL DEFAULT FALSE,
+                granted_by INTEGER REFERENCES users(id),
+                granted_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE (user_id, fiscal_emitter_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_aep_user ON accountant_emitter_permissions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_aep_emitter ON accountant_emitter_permissions(fiscal_emitter_id);
+        `);
         const r = await pool.query(`
             SELECT u.id, u.full_name AS name, u.email, u.role, u.is_active, u.created_at,
                    COALESCE(json_agg(json_build_object(
