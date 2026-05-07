@@ -4475,13 +4475,13 @@ app.post('/api/admin/credit/update', authenticateToken, requireMinLevel(ROLES.DI
 app.get('/api/admin/credit/users', authenticateToken, requireMinLevel(ROLES.ADMIN), getCreditUsers);
 
 // Admin: Resumen financiero general
-app.get('/api/admin/finance/summary', authenticateToken, requireMinLevel(ROLES.ADMIN), getFinancialSummary);
+app.get('/api/admin/finance/summary', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getFinancialSummary);
 
 // Admin: Panel de Riesgo y Crédito B2B - Todos los clientes
-app.get('/api/admin/finance/clients', authenticateToken, requireMinLevel(ROLES.ADMIN), getClientsFinancialStatus);
+app.get('/api/admin/finance/clients', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getClientsFinancialStatus);
 
 // Admin: Actualizar línea de crédito de un cliente específico
-app.put('/api/admin/finance/clients/:clientId/credit', authenticateToken, requireMinLevel(ROLES.ADMIN), updateClientCredit);
+app.put('/api/admin/finance/clients/:clientId/credit', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateClientCredit);
 
 // ========== BILLETERA DIGITAL Y SISTEMA DE REFERIDOS ==========
 
@@ -4618,7 +4618,7 @@ app.get('/api/admin/payment-invoices', authenticateToken, requireMinLevel(ROLES.
 // DASHBOARD DE COBRANZA Y FLUJO DE EFECTIVO - MULTI-EMPRESA
 // Unifica ingresos de Caja Chica + SPEI (Openpay) por empresa
 // ============================================
-app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: Request, res: Response): Promise<any> => {
   try {
     const { date_from, date_to, empresa_id, service_type } = req.query;
     
@@ -6242,7 +6242,7 @@ app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, req
 // ============================================
 // OBTENER MOVIMIENTOS GUARDADOS DE ESTADO DE CUENTA
 // ============================================
-app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
+app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { empresa_id } = req.query;
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
@@ -6269,7 +6269,7 @@ app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(RO
 // GUARDAR MOVIMIENTOS DE ESTADO DE CUENTA BANCARIO
 // Persiste las líneas parseadas, deduplica por hash, devuelve solo las nuevas
 // ============================================
-app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const adminId = (req.user as any)?.userId || (req.user as any)?.id;
     const { entries, empresa_id, service_type, banco } = req.body;
@@ -6351,7 +6351,7 @@ function parseDateDDMMYYYY(dateStr: string): string {
   return dateStr;
 }
 
-app.post('/api/admin/finance/match-references', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/finance/match-references', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { references, empresa_id } = req.body;
     // references = [{ ref: 'EP-0108FC08', entries: [{ fecha, concepto, referencia, cargo, abono, saldo }] }]
@@ -6465,7 +6465,7 @@ app.post('/api/admin/finance/match-references', authenticateToken, requireMinLev
 // AUTORIZAR PAGOS DESDE ESTADO DE CUENTA BANCARIO
 // Marca órdenes como pagadas y acredita excedente como saldo a favor
 // ============================================
-app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
+app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const adminId = (req.user as any)?.userId || (req.user as any)?.id;
     const adminName = (req.user as any)?.full_name || req.user?.email || 'Admin';
@@ -6651,7 +6651,7 @@ app.post('/api/admin/finance/authorize-bank-payments', authenticateToken, requir
 });
 
 // Exportar datos a CSV para contabilidad
-app.get('/api/admin/finance/export', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: Request, res: Response): Promise<any> => {
+app.get('/api/admin/finance/export', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: Request, res: Response): Promise<any> => {
   try {
     const { date_from, date_to, format = 'csv' } = req.query;
     
@@ -7864,6 +7864,108 @@ async function ensureRequiredColumns() {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }
 }
+
+// ============================================================
+// SISTEMA DE PAGOS — Control global (Super Admin)
+// ============================================================
+
+// GET /api/system/payment-status — público (sin auth), devuelve estado de cada sistema de pago
+app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
+  try {
+    const r = await pool.query(
+      `SELECT config_key, config_value
+       FROM system_configurations
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled')
+         AND is_active = TRUE`
+    );
+    const byKey: Record<string, any> = {};
+    r.rows.forEach((row: any) => { byKey[row.config_key] = row.config_value; });
+
+    // xpay_enabled: controla botón X-Pay (x-pay.direct)
+    const xpayEnabled = byKey['xpay_enabled'] !== undefined
+      ? byKey['xpay_enabled']?.enabled !== false
+      : (byKey['payments_enabled']?.enabled !== false); // fallback al toggle global
+
+    // entregax_payments_enabled: controla botón Pagar de EntregaX
+    const entregaxPaymentsEnabled = byKey['entregax_payments_enabled'] !== undefined
+      ? byKey['entregax_payments_enabled']?.enabled !== false
+      : (byKey['payments_enabled']?.enabled !== false); // fallback al toggle global
+
+    // payments_enabled: legacy (ambos activos si ambos activos)
+    const paymentsEnabled = xpayEnabled && entregaxPaymentsEnabled;
+
+    res.json({
+      payments_enabled: paymentsEnabled,
+      xpay_enabled: xpayEnabled,
+      entregax_payments_enabled: entregaxPaymentsEnabled,
+    });
+  } catch (_e) {
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true });
+  }
+});
+
+// POST /api/admin/system/payment-toggle — solo Super Admin (toggle global legacy)
+app.post('/api/admin/system/payment-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    // Actualizar los tres: global, xpay y entregax
+    for (const key of ['payments_enabled', 'xpay_enabled', 'entregax_payments_enabled']) {
+      await pool.query(
+        `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+         VALUES ($1, $2::jsonb, 'Control global del sistema de pagos', TRUE)
+         ON CONFLICT (config_key) DO UPDATE
+           SET config_value = $2::jsonb, updated_at = NOW(), updated_by = $3`,
+        [key, JSON.stringify({ enabled: !!enabled }), userId]
+      );
+    }
+    console.log(`💳 [PAYMENT-SYSTEM] Global ${enabled ? '✅ Habilitado' : '🔴 Deshabilitado'} por user #${userId}`);
+    res.json({ success: true, payments_enabled: !!enabled, xpay_enabled: !!enabled, entregax_payments_enabled: !!enabled });
+  } catch (err: any) {
+    console.error('[PAYMENT-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar estado del sistema de pagos' });
+  }
+});
+
+// POST /api/admin/system/xpay-toggle — controla solo X-Pay (x-pay.direct)
+app.post('/api/admin/system/xpay-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('xpay_enabled', $1::jsonb, 'Control del sistema X-Pay (x-pay.direct)', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`🔑 [XPAY] ${enabled ? '✅ Habilitado' : '🔴 Deshabilitado'} por user #${userId}`);
+    res.json({ success: true, xpay_enabled: !!enabled });
+  } catch (err: any) {
+    console.error('[XPAY-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar estado de X-Pay' });
+  }
+});
+
+// POST /api/admin/system/entregax-payments-toggle — controla solo pagos EntregaX
+app.post('/api/admin/system/entregax-payments-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('entregax_payments_enabled', $1::jsonb, 'Control de pagos EntregaX (botón Pagar en app/web)', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`💳 [ENTREGAX-PAYMENTS] ${enabled ? '✅ Habilitado' : '🔴 Deshabilitado'} por user #${userId}`);
+    res.json({ success: true, entregax_payments_enabled: !!enabled });
+  } catch (err: any) {
+    console.error('[ENTREGAX-PAYMENTS-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar estado de pagos EntregaX' });
+  }
+});
 
 // Iniciar servidor (escuchar en todas las interfaces para acceso desde móvil)
 const httpServer = http.createServer(app);
