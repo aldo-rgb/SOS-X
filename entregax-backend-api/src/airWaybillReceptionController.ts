@@ -464,7 +464,7 @@ export const finalizeAwbReception = async (req: AuthRequest, res: Response): Pro
 // ============================================
 export const getAirInventory = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { search, status, awb, limit = '100', offset = '0' } = req.query;
+    const { search, status, awb, day, limit = '100', offset = '0' } = req.query;
     const limitNum = Math.min(parseInt(String(limit)) || 100, 500);
     const offsetNum = parseInt(String(offset)) || 0;
 
@@ -504,6 +504,14 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
         OR COALESCE(u.box_id, '') ILIKE $${i}
         OR COALESCE(u.email, '') ILIKE $${i}
       )`;
+    }
+
+    if (day && String(day).trim()) {
+      params.push(String(day).trim());
+      where += ` AND DATE(COALESCE(
+        CASE WHEN p.status::text LIKE 'received_%' AND p.status::text NOT IN ('received_china','received_china_air','received_china_sea','received_origin') THEN p.updated_at ELSE NULL END,
+        p.updated_at
+      )) = $${params.length}::date`;
     }
 
     const baseFrom = `

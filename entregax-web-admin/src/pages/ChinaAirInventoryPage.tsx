@@ -88,6 +88,7 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [awbFilter, setAwbFilter] = useState<string>('');
+    const [dayFilter, setDayFilter] = useState<string>('');
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
 
@@ -102,6 +103,7 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
             if (search.trim()) params.search = search.trim();
             if (statusFilter !== 'all') params.status = statusFilter;
             if (awbFilter.trim()) params.awb = awbFilter.trim();
+            if (dayFilter.trim()) params.day = dayFilter.trim();
 
             const res = await api.get('/admin/china-air/inventory', { params });
             setPackages(res.data.packages || []);
@@ -113,7 +115,7 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
         } finally {
             setLoading(false);
         }
-    }, [page, pageSize, statusFilter, awbFilter, search]);
+    }, [page, pageSize, statusFilter, awbFilter, search, dayFilter]);
 
     useEffect(() => {
         const t = setTimeout(load, 350);
@@ -182,6 +184,15 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                         value={awbFilter}
                         onChange={(e) => { setAwbFilter(e.target.value); setPage(0); }}
                         sx={{ flex: 1 }}
+                    />
+                    <TextField
+                        size="small"
+                        label="Día"
+                        type="date"
+                        value={dayFilter}
+                        onChange={(e) => { setDayFilter(e.target.value); setPage(0); }}
+                        InputLabelProps={{ shrink: true }}
+                        sx={{ minWidth: 160 }}
                     />
                     <FormControl size="small" sx={{ minWidth: 220 }}>
                         <InputLabel>Estado</InputLabel>
