@@ -79,6 +79,9 @@ export default function AccountingHubPage() {
   const [loading, setLoading] = useState(true);
   const [selectedEmitter, setSelectedEmitter] = useState<Emitter | null>(null);
   const [switchAnchor, setSwitchAnchor] = useState<HTMLElement | null>(null);
+  const [showCounterMgr, setShowCounterMgr] = useState(false);
+  const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; } })();
+  const isAdmin = ['super_admin', 'admin', 'director'].includes(currentRole);
 
   useEffect(() => {
     const load = async () => {
@@ -114,7 +117,21 @@ export default function AccountingHubPage() {
           <Typography variant="h6" color="text.secondary">
             ¿Qué entidad deseas gestionar hoy?
           </Typography>
+          {isAdmin && (
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<AddIcon />}
+              onClick={() => setShowCounterMgr(true)}
+              sx={{ mt: 2, borderColor: ORANGE, color: ORANGE, '&:hover': { bgcolor: '#fff5f0', borderColor: ORANGE } }}
+            >
+              Gestionar accesos de contadores
+            </Button>
+          )}
         </Box>
+        {isAdmin && showCounterMgr && (
+          <CounterAccessManager emitters={emitters} onClose={() => setShowCounterMgr(false)} />
+        )}
 
         {emitters.length === 0 ? (
           <Alert severity="warning" sx={{ mt: 3 }}>
@@ -1464,7 +1481,7 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
           <Card sx={{ borderLeft: `4px solid #0ea5e9` }}><CardContent sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Box>
               <Typography variant="caption" color="text.secondary">Facturapi</Typography>
-              <Typography variant="body2" fontWeight={600}>Sincronizar 30 días</Typography>
+              <Typography variant="body2" fontWeight={600}>Sincronizar</Typography>
             </Box>
             <IconButton onClick={handleSyncFacturapi} disabled={syncingFacturapi} title="Descargar CFDIs recibidos vía Facturapi" sx={{ bgcolor: '#0ea5e9', color: 'white', '&:hover': { bgcolor: BLACK } }}>
               {syncingFacturapi ? <CircularProgress size={18} sx={{ color: 'white' }} /> : <SyncIcon />}
@@ -1741,5 +1758,148 @@ function AccountsPayableTab({ emitter }: { emitter: Emitter }) {
         <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>{snackbar.message}</Alert>
       </Snackbar>
     </Box>
+  );
+}
+
+// ============ Gestión de accesos de contadores ============
+interface AccountantUser {
+  id: number;
+  name: string;
+  email: string;
+  role: string;
+  permissions: { fiscal_emitter_id: number; can_view: boolean; can_emit_invoice: boolean; can_cancel_invoice: boolean }[];
+}
+
+function CounterAccessManager({ emitters, onClose }: { emitters: Emitter[]; onClose: () => void }) {
+  const [accountants, setAccountants] = useState<AccountantUser[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
+    open: false, message: '', severity: 'success',
+  });
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await api.get('/accounting/accountants');
+      setAccountants(res.data.accountants || []);
+    } catch {
+      setSnackbar({ open: true, message: 'Error al cargar contadores', severity: 'error' });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const hasPermission = (accountant: AccountantUser, emitterId: number) =>
+    accountant.permissions.some((p) => p.fiscal_emitter_id === emitterId);
+
+  const toggle = async (accountant: AccountantUser, emitter: Emitter) => {
+    const key = `${accountant.id}-${emitter.id}`;
+    setSaving(key);
+    try {
+      if (hasPermission(accountant, emitter.id)) {
+        await api.delete(`/accounting/accountants/${accountant.id}/permissions/${emitter.id}`);
+        setAccountants((prev) => prev.map((a) =>
+          a.id === accountant.id
+            ? { ...a, permissions: a.permissions.filter((p) => p.fiscal_emitter_id !== emitter.id) }
+            : a
+        ));
+        setSnackbar({ open: true, message: `Acceso revocado a ${accountant.name}`, severity: 'success' });
+      } else {
+        await api.post(`/accounting/accountants/${accountant.id}/permissions`, {
+          fiscal_emitter_id: emitter.id,
+          can_view: true,
+          can_emit_invoice: true,
+          can_cancel_invoice: false,
+        });
+        setAccountants((prev) => prev.map((a) =>
+          a.id === accountant.id
+            ? { ...a, permissions: [...a.permissions, { fiscal_emitter_id: emitter.id, can_view: true, can_emit_invoice: true, can_cancel_invoice: false }] }
+            : a
+        ));
+        setSnackbar({ open: true, message: `Acceso otorgado a ${accountant.name}`, severity: 'success' });
+      }
+    } catch {
+      setSnackbar({ open: true, message: 'Error al actualizar permiso', severity: 'error' });
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  return (
+    <Paper sx={{ p: 3, mb: 4, border: `2px solid ${ORANGE}`, borderRadius: 3 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ReceiptLongIcon sx={{ color: ORANGE }} />
+          <Typography variant="h6" fontWeight="bold" sx={{ color: BLACK }}>
+            Accesos de Contadores
+          </Typography>
+        </Box>
+        <Button size="small" onClick={onClose} sx={{ color: 'text.secondary' }}>Cerrar</Button>
+      </Box>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+        Controla qué empresas puede ver y facturar cada contador.
+      </Typography>
+
+      {loading ? (
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+          <CircularProgress sx={{ color: ORANGE }} />
+        </Box>
+      ) : accountants.length === 0 ? (
+        <Alert severity="info">No hay usuarios con rol de contador registrados.</Alert>
+      ) : (
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {accountants.map((accountant) => (
+            <Paper key={accountant.id} variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5 }}>
+                <Avatar sx={{ width: 36, height: 36, bgcolor: BLACK, fontSize: 14 }}>
+                  {accountant.name.charAt(0).toUpperCase()}
+                </Avatar>
+                <Box>
+                  <Typography variant="body2" fontWeight="bold">{accountant.name}</Typography>
+                  <Typography variant="caption" color="text.secondary">{accountant.email}</Typography>
+                </Box>
+                <Chip label={accountant.role} size="small" sx={{ ml: 'auto', bgcolor: '#f5f5f5', fontSize: '0.7rem' }} />
+              </Box>
+              <Divider sx={{ mb: 1.5 }} />
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                {emitters.map((emitter) => {
+                  const active = hasPermission(accountant, emitter.id);
+                  const key = `${accountant.id}-${emitter.id}`;
+                  return (
+                    <Chip
+                      key={emitter.id}
+                      label={
+                        saving === key
+                          ? '...'
+                          : emitter.alias
+                      }
+                      onClick={() => { if (saving !== key) toggle(accountant, emitter); }}
+                      icon={active ? <CheckCircleIcon sx={{ fontSize: '16px !important', color: `${ORANGE} !important` }} /> : undefined}
+                      variant={active ? 'filled' : 'outlined'}
+                      sx={{
+                        cursor: 'pointer',
+                        bgcolor: active ? 'rgba(240,90,40,0.1)' : undefined,
+                        borderColor: active ? ORANGE : '#e5e7eb',
+                        color: active ? ORANGE : 'text.secondary',
+                        fontWeight: active ? 700 : 400,
+                        '&:hover': { borderColor: ORANGE, bgcolor: 'rgba(240,90,40,0.08)' },
+                      }}
+                    />
+                  );
+                })}
+              </Box>
+            </Paper>
+          ))}
+        </Box>
+      )}
+
+      <Snackbar open={snackbar.open} autoHideDuration={3000} onClose={() => setSnackbar({ ...snackbar, open: false })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+        <Alert severity={snackbar.severity} onClose={() => setSnackbar({ ...snackbar, open: false })}>{snackbar.message}</Alert>
+      </Snackbar>
+    </Paper>
   );
 }
