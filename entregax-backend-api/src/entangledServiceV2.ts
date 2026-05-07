@@ -123,11 +123,16 @@ export interface EntangledConceptoResultV2 {
 }
 
 // ---------------------------------------------------------------------------
-// POST /api/v1/solicitud-pago  (multipart/form-data)
+// POST /api/v1/solicitud-pago
+// Acepta dos modalidades:
+//   1) multipart/form-data — payload + comprobante (legacy)
+//   2) application/json    — sólo payload, ENTANGLED responde sincrónicamente
+//      con empresas_asignadas[].cuenta_bancaria. El comprobante se sube luego
+//      con uploadComprobanteToTransaccion().
 // ---------------------------------------------------------------------------
 export const sendSolicitudPago = async (
   payload: EntangledSolicitudPayloadV2,
-  comprobante: { buffer: Buffer; filename: string; mimetype: string }
+  comprobante?: { buffer: Buffer; filename: string; mimetype: string } | null
 ): Promise<EntangledSolicitudResponseV2> => {
   if (!ENTANGLED_API_KEY) {
     return {
@@ -135,26 +140,37 @@ export const sendSolicitudPago = async (
       error: 'ENTANGLED_API_KEY no configurada.',
     };
   }
-  if (!comprobante || !comprobante.buffer || comprobante.buffer.length === 0) {
-    return {
-      ok: false,
-      error: 'Falta el comprobante (archivo) para la solicitud de pago.',
-    };
-  }
+  const hasFile = !!(comprobante && comprobante.buffer && comprobante.buffer.length > 0);
   try {
-    const form = new FormData();
-    form.append('payload', JSON.stringify(payload), { contentType: 'application/json' });
-    form.append('comprobante', comprobante.buffer, {
-      filename: comprobante.filename || 'comprobante',
-      contentType: comprobante.mimetype || 'application/octet-stream',
-    });
+    // ENTANGLED espera el campo `monto` (no `monto_usd`). Enviamos ambos por
+    // compat hacia adelante por si el contrato cambia.
+    const payloadForEntangled: any = {
+      ...payload,
+      monto: (payload as any).monto != null ? (payload as any).monto : payload.monto_usd,
+    };
 
-    const res = await axios.post(buildUrl('/solicitud-pago'), form, {
-      timeout: ENTANGLED_TIMEOUT_MS,
-      headers: authHeaders(form.getHeaders()),
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
-    });
+    let res;
+    if (hasFile) {
+      const form = new FormData();
+      form.append('payload', JSON.stringify(payloadForEntangled), { contentType: 'application/json' });
+      form.append('comprobante', comprobante!.buffer, {
+        filename: comprobante!.filename || 'comprobante',
+        contentType: comprobante!.mimetype || 'application/octet-stream',
+      });
+      res = await axios.post(buildUrl('/solicitud-pago'), form, {
+        timeout: ENTANGLED_TIMEOUT_MS,
+        headers: authHeaders(form.getHeaders()),
+        maxBodyLength: Infinity,
+        maxContentLength: Infinity,
+      });
+    } else {
+      // Modalidad sin comprobante: ENTANGLED debe devolver empresas_asignadas
+      // de inmediato para que el cliente sepa a qué cuenta depositar.
+      res = await axios.post(buildUrl('/solicitud-pago'), payloadForEntangled, {
+        timeout: ENTANGLED_TIMEOUT_MS,
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+      });
+    }
 
     const data = res.data || {};
     const transaccionId =
@@ -185,6 +201,63 @@ export const sendSolicitudPago = async (
       ax.message ||
       'Error desconocido al contactar ENTANGLED';
     console.error('[ENTANGLED] sendSolicitudPago error:', message, ax.response?.status);
+    return { ok: false, error: message, raw: responseData };
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/solicitud-pago/:transaccion_id/comprobante  (multipart)
+// Adjunta el comprobante a una solicitud previamente creada (modo "sin
+// comprobante"). El path exacto es configurable vía variable de entorno
+// ENTANGLED_UPLOAD_PROOF_PATH (default: /solicitud-pago/:id/comprobante).
+// ---------------------------------------------------------------------------
+export const uploadComprobanteToTransaccion = async (
+  transaccionId: string,
+  comprobante: { buffer: Buffer; filename: string; mimetype: string }
+): Promise<{ ok: boolean; url_comprobante_cliente?: string; error?: string; raw?: any }> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  if (!transaccionId) return { ok: false, error: 'transaccion_id requerido' };
+  if (!comprobante || !comprobante.buffer || comprobante.buffer.length === 0) {
+    return { ok: false, error: 'Falta el comprobante (archivo).' };
+  }
+
+  const pathTpl =
+    process.env.ENTANGLED_UPLOAD_PROOF_PATH || '/solicitud-pago/:id/comprobante';
+  const path = pathTpl.replace(':id', encodeURIComponent(transaccionId));
+
+  try {
+    const form = new FormData();
+    form.append('comprobante', comprobante.buffer, {
+      filename: comprobante.filename || 'comprobante',
+      contentType: comprobante.mimetype || 'application/octet-stream',
+    });
+
+    const res = await axios.post(buildUrl(path), form, {
+      timeout: ENTANGLED_TIMEOUT_MS,
+      headers: authHeaders(form.getHeaders()),
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    const data = res.data || {};
+    return {
+      ok: true,
+      url_comprobante_cliente:
+        data.url_comprobante_cliente || data.url || undefined,
+      raw: data,
+    };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const responseData = ax.response?.data as any;
+    const message =
+      responseData?.error ||
+      responseData?.message ||
+      ax.message ||
+      'Error al subir comprobante a ENTANGLED';
+    console.error(
+      '[ENTANGLED] uploadComprobanteToTransaccion error:',
+      message,
+      ax.response?.status
+    );
     return { ok: false, error: message, raw: responseData };
   }
 };

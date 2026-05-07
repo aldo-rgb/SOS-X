@@ -340,6 +340,8 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     providerSnapshot?: { name: string; bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }> } | null;
     operationSnapshot?: { divisa: string; monto: number; servicio: string; requiere_factura: boolean; rfc?: string; razon_social?: string } | null;
     beneficiarioSnapshot?: { nombre: string; nombre_chino?: string; cuenta?: string; iban?: string; banco?: string; swift?: string; aba?: string } | null;
+    empresas_asignadas?: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>;
+    entangled_transaccion_id?: string;
   } | null>(null);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
 
@@ -850,10 +852,11 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       if (benefSnap.aba) lineKV('ABA:', benefSnap.aba);
     }
 
-    // Cuenta(s) destino del proveedor de pago
+    // Cuenta(s) destino — preferimos empresas_asignadas (ENTANGLED dinámico),
+    // y caemos en providerSnapshot como fallback legacy.
+    const empresas = lastCreated.empresas_asignadas || [];
     const provSnap = lastCreated.providerSnapshot;
-    if (provSnap && provSnap.bank_accounts.length > 0) {
-      // Espacio o nueva página
+    const renderAccountsHeader = (title: string) => {
       if (y > 620) { doc.addPage(); y = 50; }
       y += 10;
       doc.setFillColor(240, 90, 40);
@@ -861,15 +864,64 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
       doc.setTextColor(255, 255, 255);
-      doc.text(`DEPOSITAR / TRANSFERIR A — ${provSnap.name}`, margin + 10, y + 17);
+      doc.text(title, margin + 10, y + 17);
       y += 36;
+      doc.setTextColor(20, 20, 20);
+      doc.setFontSize(11);
+    };
+
+    if (empresas.length > 0) {
+      renderAccountsHeader('DEPOSITAR / TRANSFERIR A — Cuenta(s) asignada(s)');
+      empresas.forEach((emp, idx) => {
+        if (y > 700) { doc.addPage(); y = 50; }
+        const cb: any = emp.cuenta_bancaria || {};
+        if (emp.clave_prodserv) {
+          lineKV('Clave SAT:', `${emp.clave_prodserv}${emp.monto != null ? `  (Monto: ${formatMoney(emp.monto)} ${emp.divisa || ''})` : ''}`);
+        }
+        const banco = cb.banco || cb.bank;
+        const titular = cb.titular || cb.holder || emp.empresa;
+        const cuenta = cb.cuenta || cb.account || cb.numero_cuenta;
+        const clabe = cb.clabe || cb.CLABE;
+        const sucursal = cb.sucursal || cb.branch;
+        if (banco) lineKV('Banco:', String(banco));
+        if (titular) lineKV('Titular:', String(titular));
+        if (cuenta) lineKV('Cuenta:', String(cuenta));
+        if (clabe) lineKV('CLABE:', String(clabe));
+        if (sucursal) lineKV('Sucursal:', String(sucursal));
+        if (idx < empresas.length - 1) {
+          doc.setDrawColor(220, 220, 220);
+          doc.line(margin, y, pageW - margin, y);
+          y += 10;
+        }
+      });
+
+      // Aviso final
+      if (y > 680) { doc.addPage(); y = 50; }
+      y += 10;
+      doc.setFillColor(255, 250, 230);
+      doc.setDrawColor(245, 158, 11);
+      doc.roundedRect(margin, y, pageW - margin * 2, 50, 4, 4, 'FD');
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(146, 64, 14);
+      doc.setFontSize(10);
+      doc.text('IMPORTANTE', margin + 10, y + 18);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.text(
+        `Incluye la referencia ${lastCreated.referencia_pago || ''} en el concepto de tu transferencia.`,
+        margin + 10, y + 32
+      );
+      doc.text(
+        'Después de transferir, sube tu comprobante en "Últimos envíos" para procesar tu solicitud.',
+        margin + 10, y + 44
+      );
+    } else if (provSnap && provSnap.bank_accounts.length > 0) {
+      renderAccountsHeader(`DEPOSITAR / TRANSFERIR A — ${provSnap.name}`);
 
       const all = provSnap.bank_accounts;
       const mxn = all.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
       const accounts = mxn.length > 0 ? mxn : all;
 
-      doc.setTextColor(20, 20, 20);
-      doc.setFontSize(11);
       accounts.forEach((acc, idx) => {
         if (y > 700) { doc.addPage(); y = 50; }
         if (acc.bank) lineKV('Banco:', `${acc.bank}${acc.currency ? ` (${acc.currency})` : ''}`);
@@ -893,7 +945,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       doc.setFont('helvetica', 'bold');
       doc.setTextColor(146, 64, 14);
       doc.setFontSize(10);
-      doc.text('⚠ IMPORTANTE', margin + 10, y + 18);
+      doc.text('IMPORTANTE', margin + 10, y + 18);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
       doc.text(
@@ -1107,6 +1159,8 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         providerSnapshot,
         operationSnapshot,
         beneficiarioSnapshot,
+        empresas_asignadas: Array.isArray(res.data?.empresas_asignadas) ? res.data.empresas_asignadas : [],
+        entangled_transaccion_id: res.data?.entangled_transaccion_id || res.data?.request?.entangled_transaccion_id,
       });
       setInstructionsOpen(true);
       const isPending =
@@ -1607,15 +1661,38 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                         <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                           <Stack direction="row" spacing={0.4} justifyContent="center" alignItems="center">
                             {!r.op_comprobante_cliente_url ? (
-                              <Tooltip title={t('entangled.actions.uploadMyProof', 'Subir mi comprobante') as string}>
-                                <IconButton size="small" component="label" disabled={uploading} sx={{ color: ORANGE }}>
-                                  <ReceiptLongIcon fontSize="small" />
+                              <Tooltip title={t('entangled.actions.uploadMyProof', 'Subir comprobante de pago') as string}>
+                                <Button
+                                  size="small"
+                                  component="label"
+                                  disabled={uploading}
+                                  variant="contained"
+                                  startIcon={<ReceiptLongIcon sx={{ fontSize: 14 }} />}
+                                  sx={{
+                                    bgcolor: ORANGE,
+                                    color: '#fff',
+                                    textTransform: 'none',
+                                    fontSize: '0.7rem',
+                                    fontWeight: 700,
+                                    px: 1.2,
+                                    py: 0.4,
+                                    minWidth: 0,
+                                    boxShadow: '0 4px 12px rgba(255,138,0,0.35)',
+                                    '&:hover': { bgcolor: '#e07a00', boxShadow: '0 6px 16px rgba(255,138,0,0.5)' },
+                                    animation: 'xpay-pulse-orange 2s infinite',
+                                    '@keyframes xpay-pulse-orange': {
+                                      '0%, 100%': { boxShadow: '0 4px 12px rgba(255,138,0,0.35)' },
+                                      '50%': { boxShadow: '0 4px 18px rgba(255,138,0,0.7)' },
+                                    },
+                                  }}
+                                >
+                                  {t('entangled.actions.uploadProofShort', 'Subir')}
                                   <input hidden type="file" accept="image/*,application/pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadProofToRequest(r.id, f); e.target.value = ''; }} />
-                                </IconButton>
+                                </Button>
                               </Tooltip>
                             ) : (
-                              <Tooltip title={t('entangled.actions.viewMyProof') as string}>
-                                <IconButton size="small" component="a" href={r.op_comprobante_cliente_url} target="_blank" rel="noopener" sx={{ color: '#2e7d32' }}>
+                              <Tooltip title={t('entangled.actions.viewMyProof', 'Ver mi comprobante') as string}>
+                                <IconButton size="small" component="a" href={r.op_comprobante_cliente_url} target="_blank" rel="noopener" sx={{ color: '#2e7d32', border: '1px solid rgba(46,125,50,0.4)', borderRadius: 1 }}>
                                   <DescriptionIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>
@@ -2406,47 +2483,14 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Divisa destino: <strong style={{ color: '#fff' }}>{form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Monto al proveedor: <strong style={{ color: '#fff' }}>${formatMoney(form.monto)} {form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Proveedor de pago: <strong style={{ color: '#fff' }}>{providers.find((p) => p.id === selectedProviderId)?.name || '—'}</strong></Typography>
-              {(() => {
-                const prov = providers.find((p) => p.id === selectedProviderId);
-                const allAccounts = Array.isArray(prov?.bank_accounts) ? prov!.bank_accounts! : [];
-                if (allAccounts.length === 0) return null;
-                // El cliente paga en MXN al proveedor de pago.
-                const mxnAccounts = allAccounts.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
-                const accountsToShow = mxnAccounts.length > 0 ? mxnAccounts : allAccounts;
-                const copy = (text: string) => { try { navigator.clipboard.writeText(text); } catch {} };
-                return (
-                  <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: `1px solid ${ORANGE}`, borderRadius: 1.5 }}>
-                    <Typography sx={{ color: ORANGE, fontSize: '0.78rem', fontWeight: 700, mb: 0.6, letterSpacing: 0.4 }}>
-                      💳 DEPOSITAR / TRANSFERIR A:
-                    </Typography>
-                    {accountsToShow.map((acc, i) => (
-                      <Box key={i} sx={{ mb: i < accountsToShow.length - 1 ? 1 : 0, pb: i < accountsToShow.length - 1 ? 1 : 0, borderBottom: i < accountsToShow.length - 1 ? '1px dashed #333' : 'none' }}>
-                        {acc.bank && (
-                          <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>Banco: <strong style={{ color: '#fff' }}>{acc.bank}</strong>{acc.currency ? <span style={{ color: '#888' }}> ({acc.currency})</span> : null}</Typography>
-                        )}
-                        {acc.holder && (
-                          <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>Titular: <strong style={{ color: '#fff' }}>{acc.holder}</strong></Typography>
-                        )}
-                        {acc.account && (
-                          <Stack direction="row" spacing={0.8} alignItems="center">
-                            <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>Cuenta: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{acc.account}</strong></Typography>
-                            <Button size="small" onClick={() => copy(String(acc.account))} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
-                          </Stack>
-                        )}
-                        {acc.clabe && (
-                          <Stack direction="row" spacing={0.8} alignItems="center">
-                            <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>CLABE: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{acc.clabe}</strong></Typography>
-                            <Button size="small" onClick={() => copy(String(acc.clabe))} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
-                          </Stack>
-                        )}
-                        {acc.reference && (
-                          <Typography sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>Referencia: <strong style={{ color: '#fff' }}>{acc.reference}</strong></Typography>
-                        )}
-                      </Box>
-                    ))}
-                  </Box>
-                );
-              })()}
+              <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
+                <Typography sx={{ color: '#93c5fd', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>
+                  ℹ️ ASIGNACIÓN DE CUENTA BANCARIA
+                </Typography>
+                <Typography sx={{ color: '#bfdbfe', fontSize: '0.82rem', lineHeight: 1.4 }}>
+                  Al confirmar la solicitud, ENTANGLED asignará la(s) cuenta(s) bancaria(s) destino según las claves SAT seleccionadas. Las verás de inmediato en la pantalla de instrucciones de pago.
+                </Typography>
+              </Box>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Beneficiario: <strong style={{ color: '#fff' }}>{supplierForm.nombre_beneficiario || '—'}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Factura: <strong style={{ color: '#fff' }}>{requiereFactura ? 'Sí' : 'No'}</strong></Typography>
               {requiereFactura && (
@@ -2566,8 +2610,55 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             </Card>
           )}
 
-          {/* Cuenta(s) bancaria(s) destino del proveedor de pago */}
-          {lastCreated?.providerSnapshot && lastCreated.providerSnapshot.bank_accounts.length > 0 && (() => {
+          {/* Cuenta(s) bancaria(s) ASIGNADAS POR ENTANGLED (dinámicas según clave SAT) */}
+          {lastCreated?.empresas_asignadas && lastCreated.empresas_asignadas.length > 0 && (
+            <Card sx={{ mb: 2, bgcolor: '#0a0a0a', border: `1px solid ${ORANGE}` }}>
+              <CardContent>
+                <Typography variant="subtitle2" sx={{ color: ORANGE, fontWeight: 800, mb: 1, letterSpacing: 0.4 }}>
+                  💳 DEPOSITAR / TRANSFERIR A — Cuenta(s) asignada(s)
+                </Typography>
+                {lastCreated.empresas_asignadas.map((emp, i) => {
+                  const cb: any = emp.cuenta_bancaria || {};
+                  const banco = cb.banco || cb.bank || '';
+                  const titular = cb.titular || cb.holder || emp.empresa || '';
+                  const cuenta = cb.cuenta || cb.account || cb.numero_cuenta || '';
+                  const clabe = cb.clabe || cb.CLABE || '';
+                  const sucursal = cb.sucursal || cb.branch || '';
+                  return (
+                    <Box key={i} sx={{ mb: i < (lastCreated.empresas_asignadas?.length || 0) - 1 ? 1.5 : 0, pb: i < (lastCreated.empresas_asignadas?.length || 0) - 1 ? 1.5 : 0, borderBottom: i < (lastCreated.empresas_asignadas?.length || 0) - 1 ? '1px dashed #333' : 'none' }}>
+                      {emp.clave_prodserv && (
+                        <Typography sx={{ color: '#9ca3af', fontSize: '0.72rem', mb: 0.4, letterSpacing: 0.5 }}>
+                          Clave SAT: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{emp.clave_prodserv}</strong>
+                          {emp.monto != null && <span> · Monto: <strong style={{ color: '#fff' }}>${formatMoney(emp.monto)} {emp.divisa || ''}</strong></span>}
+                        </Typography>
+                      )}
+                      {banco && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Banco: <strong style={{ color: '#fff' }}>{banco}</strong></Typography>}
+                      {titular && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Titular: <strong style={{ color: '#fff' }}>{titular}</strong></Typography>}
+                      {cuenta && (
+                        <Stack direction="row" spacing={0.8} alignItems="center">
+                          <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Cuenta: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{cuenta}</strong></Typography>
+                          <Button size="small" onClick={() => { try { navigator.clipboard.writeText(String(cuenta)); } catch {} }} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
+                        </Stack>
+                      )}
+                      {clabe && (
+                        <Stack direction="row" spacing={0.8} alignItems="center">
+                          <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>CLABE: <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{clabe}</strong></Typography>
+                          <Button size="small" onClick={() => { try { navigator.clipboard.writeText(String(clabe)); } catch {} }} sx={{ minWidth: 0, py: 0, px: 0.8, fontSize: '0.7rem', color: ORANGE, textTransform: 'none' }}>Copiar</Button>
+                        </Stack>
+                      )}
+                      {sucursal && <Typography sx={{ color: '#d1d5db', fontSize: '0.92rem' }}>Sucursal: <strong style={{ color: '#fff' }}>{sucursal}</strong></Typography>}
+                    </Box>
+                  );
+                })}
+                <Alert severity="warning" sx={{ mt: 1.5, bgcolor: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.4)', color: '#fcd34d' }}>
+                  Incluye la referencia <strong style={{ color: '#fff', fontFamily: 'monospace' }}>{lastCreated.referencia_pago}</strong> en el concepto de tu transferencia.
+                </Alert>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Fallback legacy: cuenta(s) bancaria(s) del proveedor (si ENTANGLED no devolvió empresas_asignadas) */}
+          {(!lastCreated?.empresas_asignadas || lastCreated.empresas_asignadas.length === 0) && lastCreated?.providerSnapshot && lastCreated.providerSnapshot.bank_accounts.length > 0 && (() => {
             const all = lastCreated.providerSnapshot.bank_accounts;
             const mxn = all.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
             const accounts = mxn.length > 0 ? mxn : all;
