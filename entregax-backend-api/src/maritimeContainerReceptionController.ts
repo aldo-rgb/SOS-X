@@ -758,7 +758,7 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
       )`);
     }
 
-    const receivedAtExpr = `COALESCE(mo.received_at, mlog.first_received_at, c.received_at)`;
+    const receivedAtExpr = `COALESCE(mo.received_at, c.received_at)`;
 
     if (day) {
       params.push(day);
@@ -773,12 +773,6 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
          LEFT JOIN containers c ON c.id = mo.container_id
          LEFT JOIN legacy_clients lc_order
            ON UPPER(lc_order.box_id) = UPPER(COALESCE(NULLIF(mo.bl_client_code, ''), NULLIF(mo.shipping_mark, '')))
-         LEFT JOIN LATERAL (
-           SELECT MIN(mtl.created_at) AS first_received_at
-           FROM maritime_tracking_logs mtl
-           WHERE mtl.order_id = mo.id
-             AND mtl.event_type IN ('received_cdmx', 'received_mty')
-         ) mlog ON TRUE
          LEFT JOIN users ru ON ru.id = c.received_by
          LEFT JOIN branches rb ON rb.id = ru.branch_id
          LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
@@ -828,14 +822,8 @@ export const getSeaInventory = async (req: AuthRequest, res: Response): Promise<
        LEFT JOIN containers c ON c.id = mo.container_id
        LEFT JOIN legacy_clients lc_order
          ON UPPER(lc_order.box_id) = UPPER(COALESCE(NULLIF(mo.bl_client_code, ''), NULLIF(mo.shipping_mark, '')))
-       LEFT JOIN LATERAL (
-         SELECT MIN(mtl.created_at) AS first_received_at
-         FROM maritime_tracking_logs mtl
-         WHERE mtl.order_id = mo.id
-           AND mtl.event_type IN ('received_cdmx', 'received_mty')
-       ) mlog ON TRUE
-      LEFT JOIN users ru ON ru.id = c.received_by
-      LEFT JOIN branches rb ON rb.id = ru.branch_id
+       LEFT JOIN users ru ON ru.id = c.received_by
+       LEFT JOIN branches rb ON rb.id = ru.branch_id
        LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
        LEFT JOIN users u ON u.id = mo.user_id
        ${whereSql}
