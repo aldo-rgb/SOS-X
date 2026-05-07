@@ -1636,45 +1636,54 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                         </TableCell>
                         {/* Acciones */}
                         <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
-                          <Stack direction="row" spacing={0.4} justifyContent="center" alignItems="center">
-                            {!r.op_comprobante_cliente_url ? (
-                              <Tooltip title={t('entangled.actions.uploadMyProof', 'Subir comprobante de pago') as string}>
-                                <Button
-                                  size="small"
-                                  component="label"
-                                  disabled={uploading}
-                                  variant="contained"
-                                  startIcon={<ReceiptLongIcon sx={{ fontSize: 14 }} />}
-                                  sx={{
-                                    bgcolor: ORANGE,
-                                    color: '#fff',
-                                    textTransform: 'none',
-                                    fontSize: '0.7rem',
-                                    fontWeight: 700,
-                                    px: 1.2,
-                                    py: 0.4,
-                                    minWidth: 0,
-                                    boxShadow: '0 4px 12px rgba(255,138,0,0.35)',
-                                    '&:hover': { bgcolor: '#e07a00', boxShadow: '0 6px 16px rgba(255,138,0,0.5)' },
-                                    animation: 'xpay-pulse-orange 2s infinite',
-                                    '@keyframes xpay-pulse-orange': {
-                                      '0%, 100%': { boxShadow: '0 4px 12px rgba(255,138,0,0.35)' },
-                                      '50%': { boxShadow: '0 4px 18px rgba(255,138,0,0.7)' },
-                                    },
-                                  }}
-                                >
-                                  {t('entangled.actions.uploadProofShort', 'Subir')}
-                                  <input hidden type="file" accept="image/*,application/pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadProofToRequest(r.id, f); e.target.value = ''; }} />
-                                </Button>
-                              </Tooltip>
-                            ) : (
-                              <Tooltip title={t('entangled.actions.viewMyProof', 'Ver mi comprobante') as string}>
-                                <IconButton size="small" component="a" href={r.op_comprobante_cliente_url} target="_blank" rel="noopener" sx={{ color: '#2e7d32', border: '1px solid rgba(46,125,50,0.4)', borderRadius: 1 }}>
-                                  <DescriptionIcon fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                          </Stack>
+                          {(() => {
+                            const estatus = String(r.estatus_global || '').toLowerCase();
+                            const isTerminal = ['cancelado', 'rechazado', 'completado', 'pagado'].includes(estatus);
+                            const canUpload = !isTerminal && !r.op_comprobante_cliente_url;
+                            return (
+                              <Stack direction="row" spacing={0.4} justifyContent="center" alignItems="center">
+                                {canUpload ? (
+                                  <Tooltip title={t('entangled.actions.uploadMyProof', 'Subir comprobante de pago') as string}>
+                                    <Button
+                                      size="small"
+                                      component="label"
+                                      disabled={uploading}
+                                      variant="contained"
+                                      startIcon={<ReceiptLongIcon sx={{ fontSize: 14 }} />}
+                                      sx={{
+                                        bgcolor: ORANGE,
+                                        color: '#fff',
+                                        textTransform: 'none',
+                                        fontSize: '0.7rem',
+                                        fontWeight: 700,
+                                        px: 1.2,
+                                        py: 0.4,
+                                        minWidth: 0,
+                                        boxShadow: '0 4px 12px rgba(255,138,0,0.35)',
+                                        '&:hover': { bgcolor: '#e07a00', boxShadow: '0 6px 16px rgba(255,138,0,0.5)' },
+                                        animation: 'xpay-pulse-orange 2s infinite',
+                                        '@keyframes xpay-pulse-orange': {
+                                          '0%, 100%': { boxShadow: '0 4px 12px rgba(255,138,0,0.35)' },
+                                          '50%': { boxShadow: '0 4px 18px rgba(255,138,0,0.7)' },
+                                        },
+                                      }}
+                                    >
+                                      {t('entangled.actions.uploadProofShort', 'Subir')}
+                                      <input hidden type="file" accept="image/*,application/pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadProofToRequest(r.id, f); e.target.value = ''; }} />
+                                    </Button>
+                                  </Tooltip>
+                                ) : r.op_comprobante_cliente_url ? (
+                                  <Tooltip title={t('entangled.actions.viewMyProof', 'Ver mi comprobante') as string}>
+                                    <IconButton size="small" component="a" href={r.op_comprobante_cliente_url} target="_blank" rel="noopener" sx={{ color: '#2e7d32', border: '1px solid rgba(46,125,50,0.4)', borderRadius: 1 }}>
+                                      <DescriptionIcon fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                ) : (
+                                  <Typography sx={{ color: '#6b7280', fontSize: '0.7rem', fontStyle: 'italic' }}>—</Typography>
+                                )}
+                              </Stack>
+                            );
+                          })()}
                           {/* Chronometer or date */}
                           {r.comprobante_subido_at ? (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.22)', width: 'fit-content' }}>
