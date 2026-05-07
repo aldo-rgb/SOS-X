@@ -98,11 +98,13 @@ const MODULE_ICONS: Record<string, React.ReactNode> = {
   paquete_express: <ApiIcon />,
   // Módulos de PO Box USA (ops_usa_pobox)
   receive: <InventoryIcon />,
+  receive_consolidation: <InventoryIcon />,
   entry: <InventoryIcon />,
   exit: <LocalShippingIcon />,
   collect: <WalletIcon />,
   quote: <CalculateIcon />,
   repack: <InventoryIcon />,
+  assign_client: <VerifiedUserIcon />,
   // Módulos de Operaciones genéricos
   reception: <InventoryIcon />,
   outbound: <LocalShippingIcon />,

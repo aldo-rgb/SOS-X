@@ -5571,11 +5571,9 @@ export default function DashboardClient() {
                             }
                             size="small"
                             sx={{ 
-                              bgcolor: isPaidPackage(pkg)
-                                ? '#2E7D32'
-                                : pkg.national_carrier
-                                  ? (isEntregaXLocalCarrier ? ORANGE : '#1565C0')
-                                  : ORANGE, 
+                              bgcolor: pkg.national_carrier
+                                ? (isEntregaXLocalCarrier ? ORANGE : '#1565C0')
+                                : (isPaidPackage(pkg) ? '#2E7D32' : ORANGE), 
                               color: 'white',
                               fontSize: '0.65rem',
                               fontWeight: 'bold',
@@ -10551,7 +10549,7 @@ export default function DashboardClient() {
           gap: 1 
         }}>
           <SupportIcon />
-          🎫 {t('cd.support.title')}
+          {t('cd.support.title')}
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
           <Alert severity="info" sx={{ mb: 2 }}>
@@ -10628,7 +10626,7 @@ export default function DashboardClient() {
 
           {/* Sección de Imágenes */}
           <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-            📷 {t('cd.support.photos')}
+            {t('cd.support.photos')}
           </Typography>
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
             {t('cd.support.photosDesc')}

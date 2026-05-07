@@ -83,6 +83,7 @@ export default function POBoxInventoryPage({ onBack }: Props) {
 
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
+    const [dateFilter, setDateFilter] = useState<string>(''); // YYYY-MM-DD
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
 
@@ -131,6 +132,14 @@ export default function POBoxInventoryPage({ onBack }: Props) {
         const term = search.trim().toLowerCase();
         return packages.filter((p) => {
             if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+            if (dateFilter) {
+                const d = p.receivedAt ? new Date(p.receivedAt) : null;
+                if (!d || isNaN(d.getTime())) return false;
+                const y = d.getFullYear();
+                const m = String(d.getMonth() + 1).padStart(2, '0');
+                const day = String(d.getDate()).padStart(2, '0');
+                if (`${y}-${m}-${day}` !== dateFilter) return false;
+            }
             if (!term) return true;
             const hay = [
                 p.tracking,
@@ -141,7 +150,7 @@ export default function POBoxInventoryPage({ onBack }: Props) {
             ].filter(Boolean).join(' ').toLowerCase();
             return hay.includes(term);
         });
-    }, [packages, statusFilter, search]);
+    }, [packages, statusFilter, search, dateFilter]);
 
     const paged = filtered.slice(page * pageSize, page * pageSize + pageSize);
 
@@ -157,12 +166,12 @@ export default function POBoxInventoryPage({ onBack }: Props) {
             </Stack>
 
             <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
-                <StatCard label="Total" value={stats.total} color={BLACK} />
-                <StatCard label="Recibido HIDALGO" value={stats.received} color="#1976D2" />
-                <StatCard label="En tránsito" value={stats.in_transit} color={ORANGE} />
-                <StatCard label="Recibido CEDIS MTY" value={stats.received_mty} color="#2E7D32" />
-                <StatCard label="En Ruta" value={stats.ready_pickup} color="#0097A7" />
-                <StatCard label="Entregados" value={stats.delivered} color="#424242" />
+                <StatCard label="Total" value={stats.total} color={BLACK} active={statusFilter === 'all'} onClick={() => { setStatusFilter('all'); setPage(0); }} />
+                <StatCard label="Recibido HIDALGO" value={stats.received} color="#1976D2" active={statusFilter === 'received'} onClick={() => { setStatusFilter('received'); setPage(0); }} />
+                <StatCard label="En tránsito" value={stats.in_transit} color={ORANGE} active={statusFilter === 'in_transit'} onClick={() => { setStatusFilter('in_transit'); setPage(0); }} />
+                <StatCard label="Recibido CEDIS MTY" value={stats.received_mty} color="#2E7D32" active={statusFilter === 'received_mty'} onClick={() => { setStatusFilter('received_mty'); setPage(0); }} />
+                <StatCard label="En Ruta" value={stats.ready_pickup} color="#0097A7" active={statusFilter === 'ready_pickup'} onClick={() => { setStatusFilter('ready_pickup'); setPage(0); }} />
+                <StatCard label="Entregados" value={stats.delivered} color="#424242" active={statusFilter === 'delivered'} onClick={() => { setStatusFilter('delivered'); setPage(0); }} />
             </Stack>
 
             <Paper sx={{ p: 2, mb: 2 }}>
@@ -187,6 +196,23 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                             <MenuItem value="delivered">Entregado</MenuItem>
                         </Select>
                     </FormControl>
+                    <TextField
+                        size="small"
+                        type="date"
+                        label="Día recibido"
+                        InputLabelProps={{ shrink: true }}
+                        value={dateFilter}
+                        onChange={(e) => { setDateFilter(e.target.value); setPage(0); }}
+                        sx={{ minWidth: 180 }}
+                    />
+                    {dateFilter && (
+                        <Chip
+                            label={`Limpiar fecha`}
+                            onDelete={() => { setDateFilter(''); setPage(0); }}
+                            size="small"
+                            sx={{ alignSelf: 'center' }}
+                        />
+                    )}
                 </Stack>
             </Paper>
 
@@ -280,13 +306,32 @@ export default function POBoxInventoryPage({ onBack }: Props) {
     );
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({ label, value, color, active, onClick }: { label: string; value: number; color: string; active?: boolean; onClick?: () => void }) {
     return (
-        <Paper sx={{ p: 2, minWidth: 130, borderLeft: `4px solid ${color}`, flex: 1 }}>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>
+        <Paper
+            onClick={onClick}
+            sx={{
+                p: 2,
+                minWidth: 130,
+                borderLeft: `4px solid ${color}`,
+                flex: 1,
+                cursor: onClick ? 'pointer' : 'default',
+                userSelect: 'none',
+                transition: 'all 0.15s ease',
+                bgcolor: active ? color : '#FFF',
+                boxShadow: active ? 4 : 1,
+                transform: active ? 'translateY(-2px)' : 'none',
+                '&:hover': onClick ? {
+                    boxShadow: 4,
+                    transform: 'translateY(-2px)',
+                    bgcolor: active ? color : `${color}15`,
+                } : {},
+            }}
+        >
+            <Typography variant="caption" sx={{ display: 'block', textTransform: 'uppercase', fontWeight: 700, color: active ? '#FFF' : 'text.secondary' }}>
                 {label}
             </Typography>
-            <Typography variant="h5" sx={{ color, fontWeight: 700 }}>
+            <Typography variant="h5" sx={{ color: active ? '#FFF' : color, fontWeight: 700 }}>
                 {value.toLocaleString()}
             </Typography>
         </Paper>

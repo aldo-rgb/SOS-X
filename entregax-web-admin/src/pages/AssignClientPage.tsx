@@ -306,7 +306,7 @@ export default function AssignClientPage({ onBack }: Props) {
                                                 ) : '—'}
                                                 {p.legacyMatch && (
                                                     <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
-                                                        Legacy: {p.legacyMatch.name}
+                                                        Sin Usuario: {p.legacyMatch.name}
                                                     </Typography>
                                                 )}
                                             </TableCell>

@@ -95,6 +95,11 @@ interface ShipmentData {
             reference?: string;
             carrierConfig?: any;
         } | null;
+        deliveryDocuments?: {
+            factura?: { url: string; filename?: string | null; uploadedAt?: string | null } | null;
+            constancia?: { url: string; filename?: string | null; uploadedAt?: string | null } | null;
+            guiaExterna?: { url: string; filename?: string | null; uploadedAt?: string | null } | null;
+        } | null;
     };
     children: Array<{
         id: number;
@@ -1096,6 +1101,21 @@ ${body}
         window.open(guideUrl, '_blank');
     };
 
+    const getUploadedExternalGuideUrl = (): string | null => {
+        if (!shipment) return null;
+        const raw = String(shipment.master.deliveryDocuments?.guiaExterna?.url || '').trim();
+        if (!raw) return null;
+
+        if (/^https?:\/\//i.test(raw)) return raw;
+
+        const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
+        const baseEndsWithApi = /\/api$/.test(baseUrl);
+        const path = baseEndsWithApi && raw.startsWith('/api/') ? raw.slice(4) : raw;
+
+        if (path.startsWith('/')) return `${baseUrl}${path}`;
+        return `${baseUrl}/${path}`;
+    };
+
     // Construye URL de PDF para cualquier tracking PQTX (de hija o master)
     const buildPqtxLabelUrl = (tracking: string, opts?: { format4x6?: boolean }): string => {
         const baseUrl = (api.defaults.baseURL || '').replace(/\/$/, '');
@@ -1705,15 +1725,27 @@ ${body}
                                                 Esta paquetería aún no tiene guía nacional disponible para impresión.
                                             </Typography>
                                             <Box sx={{ flex: 1 }} />
-                                            <Button
-                                                fullWidth
-                                                variant="contained"
-                                                startIcon={<PrintIcon />}
-                                                disabled
-                                                sx={{ bgcolor: '#90A4AE', '&.Mui-disabled': { bgcolor: '#B0BEC5', color: '#ECEFF1' } }}
-                                            >
-                                                Guía no disponible
-                                            </Button>
+                                            {getUploadedExternalGuideUrl() ? (
+                                                <Button
+                                                    fullWidth
+                                                    variant="contained"
+                                                    startIcon={<PrintIcon />}
+                                                    onClick={() => window.open(getUploadedExternalGuideUrl() as string, '_blank')}
+                                                    sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
+                                                >
+                                                    Descargar guía subida por cliente
+                                                </Button>
+                                            ) : (
+                                                <Button
+                                                    fullWidth
+                                                    variant="contained"
+                                                    startIcon={<PrintIcon />}
+                                                    disabled
+                                                    sx={{ bgcolor: '#90A4AE', '&.Mui-disabled': { bgcolor: '#B0BEC5', color: '#ECEFF1' } }}
+                                                >
+                                                    Guía no disponible
+                                                </Button>
+                                            )}
                                         </>
                                     )}
                                     {pqtxMsg && (

@@ -1316,6 +1316,29 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const pkg = result.rows[0];
         let children: any[] = [];
 
+        // Documentos subidos por cliente en el flujo "por cobrar"
+        // (factura, constancia, guía externa). Si escanean una hija,
+        // tomamos los documentos del master.
+        const docsPackageId = pkg.master_id || pkg.id;
+        const docsResult = await pool.query(
+            `SELECT document_type, file_url, original_filename, created_at
+             FROM delivery_documents
+             WHERE package_id = $1
+             ORDER BY created_at DESC`,
+            [docsPackageId]
+        );
+
+        const latestDocByType: Record<string, { file_url: string; original_filename: string | null; created_at: string | null }> = {};
+        for (const row of docsResult.rows) {
+            if (!latestDocByType[row.document_type]) {
+                latestDocByType[row.document_type] = {
+                    file_url: row.file_url,
+                    original_filename: row.original_filename || null,
+                    created_at: row.created_at || null,
+                };
+            }
+        }
+
         if (pkg.is_master) {
             const childResult = await pool.query('SELECT * FROM packages WHERE master_id = $1 ORDER BY box_number', [pkg.id]);
             children = childResult.rows;
@@ -1620,6 +1643,29 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         reference: pkg.addr_reference,
                         carrierConfig: pkg.addr_carrier_config,
                     } : null,
+                    deliveryDocuments: {
+                        factura: latestDocByType.factura_embarque
+                            ? {
+                                url: latestDocByType.factura_embarque.file_url,
+                                filename: latestDocByType.factura_embarque.original_filename,
+                                uploadedAt: latestDocByType.factura_embarque.created_at,
+                            }
+                            : null,
+                        constancia: latestDocByType.constancia_fiscal
+                            ? {
+                                url: latestDocByType.constancia_fiscal.file_url,
+                                filename: latestDocByType.constancia_fiscal.original_filename,
+                                uploadedAt: latestDocByType.constancia_fiscal.created_at,
+                            }
+                            : null,
+                        guiaExterna: latestDocByType.guia_externa
+                            ? {
+                                url: latestDocByType.guia_externa.file_url,
+                                filename: latestDocByType.guia_externa.original_filename,
+                                uploadedAt: latestDocByType.guia_externa.created_at,
+                            }
+                            : null,
+                    },
                 },
                 children: children.map(c => ({ id: c.id, tracking: c.tracking_internal, boxNumber: c.box_number,
                     trackingCourier: c.tracking_provider, // Tracking del courier (Amazon, USPS, etc)

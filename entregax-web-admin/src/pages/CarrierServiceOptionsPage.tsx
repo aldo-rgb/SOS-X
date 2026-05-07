@@ -345,7 +345,11 @@ export default function CarrierServiceOptionsPage() {
                   </TableCell>
                   <TableCell>
                     {carrier.icon && (carrier.icon.startsWith('http') || carrier.icon.startsWith('/')) ? (
-                      <img src={carrier.icon} alt={carrier.name} style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 4 }} />
+                      <img
+                        src={carrier.icon.startsWith('/uploads/') ? `${API_URL}${carrier.icon}` : carrier.icon}
+                        alt={carrier.name}
+                        style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 4 }}
+                      />
                     ) : (
                       <Typography fontSize={24}>{carrier.icon}</Typography>
                     )}
@@ -471,7 +475,11 @@ export default function CarrierServiceOptionsPage() {
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Typography variant="caption" color="text.secondary">Icono</Typography>
                 {form.icon && (form.icon.startsWith('http') || form.icon.startsWith('/')) ? (
-                  <img src={form.icon} alt="icon" style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 4, border: '1px solid #e0e0e0' }} />
+                  <img
+                    src={form.icon.startsWith('/uploads/') ? `${API_URL}${form.icon}` : form.icon}
+                    alt="icon"
+                    style={{ width: 48, height: 48, objectFit: 'contain', borderRadius: 4, border: '1px solid #e0e0e0' }}
+                  />
                 ) : (
                   <Box sx={{ width: 48, height: 48, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid #e0e0e0', borderRadius: 1, fontSize: 24 }}>
                     {form.icon || '🚛'}

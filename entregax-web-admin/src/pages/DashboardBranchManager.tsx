@@ -38,6 +38,7 @@ import {
   PrintOutlined as PrintIcon,
   HeadsetMicOutlined as HeadsetIcon,
   VerifiedUserOutlined as VerifiedUserIcon,
+  GavelOutlined as GavelIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import DelayedPackagesPage from './DelayedPackagesPage';
@@ -103,10 +104,18 @@ export default function DashboardBranchManager() {
   const [userRole, setUserRole] = useState<string>('');
   const [pendingVerifications, setPendingVerifications] = useState<number>(0);
 
+  // Abandonos listos para proceso (firmados por cliente)
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const [abandonoCount, setAbandonoCount] = useState<number>(0);
+  const [abandonoItems, setAbandonoItems] = useState<any[]>([]);
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  const [abandonoOpen, setAbandonoOpen] = useState(false);
+
   useEffect(() => {
     loadData();
     loadDelayedCount();
     loadPendingVerifications();
+    loadAbandonosListos();
     const user = localStorage.getItem('user');
     if (user) {
       const parsed = JSON.parse(user);
@@ -116,6 +125,7 @@ export default function DashboardBranchManager() {
     const iv = setInterval(() => {
       loadDelayedCount();
       loadPendingVerifications();
+      loadAbandonosListos();
     }, 60000);
     return () => clearInterval(iv);
   }, []);
@@ -174,6 +184,18 @@ export default function DashboardBranchManager() {
     } catch (err) {
       // Silenciar: usuarios sin nivel DIRECTOR no tienen acceso
       console.debug('No se pudieron cargar verificaciones pendientes:', err);
+    }
+  };
+
+  const loadAbandonosListos = async () => {
+    try {
+      const res = await api.get('/cs/abandono/listos-proceso');
+      if (res.data?.success) {
+        setAbandonoCount(Number(res.data.count || 0));
+        setAbandonoItems(res.data.items || []);
+      }
+    } catch (err) {
+      console.debug('No se pudieron cargar abandonos listos:', err);
     }
   };
 
@@ -541,7 +563,7 @@ export default function DashboardBranchManager() {
       </Grid>
 
       {/* === Sección: Alertas (retrasos / parciales) === */}
-      {(showPoboxWidget || showAirWidget || showSeaWidget || (canSeePartialReceptions && partialReceptions.total > 0)) && (        <>
+      {(showPoboxWidget || showAirWidget || showSeaWidget || abandonoCount > 0 || (canSeePartialReceptions && partialReceptions.total > 0)) && (        <>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
             <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
             <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9rem', letterSpacing: 0.2, textTransform: 'uppercase' }}>
@@ -595,6 +617,20 @@ export default function DashboardBranchManager() {
                 />
               </Grid>
             )}
+
+            {/* Abandonos firmados listos para proceso */}
+            <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+              <KpiCard
+                icon={<GavelIcon sx={{ fontSize: 22 }} />}
+                label="Abandono"
+                value={abandonoCount}
+                sub={abandonoCount === 0 ? 'sin pendientes' : abandonoCount === 1 ? 'guía lista para proceso' : 'guías listas para proceso'}
+                tone={abandonoCount > 0 ? 'danger' : 'neutral'}
+                category="alert"
+                badge={abandonoCount > 0 ? abandonoCount : undefined}
+                onClick={() => setAbandonoOpen(true)}
+              />
+            </Grid>
 
             {canSeePartialReceptions && partialReceptions.total > 0 && (
               <Grid size={{ xs: 12, sm: 6, md: 3, lg: 4 }}>
@@ -782,8 +818,66 @@ export default function DashboardBranchManager() {
       )}
 
 
-      {/* Modal: Recepciones Parciales */}
+      {/* Modal: Abandonos Listos para Proceso */}
       <Dialog
+        open={abandonoOpen}
+        onClose={() => setAbandonoOpen(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2 } }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'linear-gradient(135deg, #991B1B 0%, #DC2626 100%)', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <GavelIcon />
+            <Typography variant="h6" fontWeight={700}>
+              Abandonos · {abandonoCount} listo{abandonoCount === 1 ? '' : 's'} para proceso
+            </Typography>
+          </Box>
+          <IconButton onClick={() => setAbandonoOpen(false)} sx={{ color: 'white' }}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 3 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Estas guías ya fueron firmadas por el cliente y están listas para que operaciones disponga físicamente de la mercancía.
+          </Alert>
+          {abandonoItems.length === 0 ? (
+            <Typography color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>
+              No hay guías firmadas pendientes de proceso.
+            </Typography>
+          ) : (
+            abandonoItems.map((it) => (
+              <Paper key={`abandono-${it.id}`} sx={{ p: 1.75, mb: 1, borderLeft: '4px solid #DC2626' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2 }}>
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Typography fontWeight={700} sx={{ color: '#0F172A' }}>
+                      {it.guia_tracking}
+                      <Chip
+                        size="small"
+                        label={it.servicio}
+                        sx={{ ml: 1, height: 20, fontSize: '0.7rem', bgcolor: '#FEE2E2', color: '#991B1B', fontWeight: 700 }}
+                      />
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#475569', mt: 0.25 }}>
+                      {it.cliente_nombre || 'Sin cliente'}
+                      {it.cliente_box ? ` · ${it.cliente_box}` : ''}
+                      {it.cliente_email ? ` · ${it.cliente_email}` : ''}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mt: 0.25 }}>
+                      {it.dias_en_almacen} días en almacén
+                      {it.firma_fecha ? ` · firmado ${new Date(it.firma_fecha).toLocaleDateString('es-MX')}` : ''}
+                      {it.saldo_pendiente ? ` · saldo condonado $${Number(it.saldo_pendiente).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : ''}
+                    </Typography>
+                  </Box>
+                  <Chip size="small" label="Firmado" sx={{ bgcolor: '#DC2626', color: '#fff', fontWeight: 700 }} />
+                </Box>
+              </Paper>
+            ))
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Recepciones Parciales */}      <Dialog
         open={partialOpen}
         onClose={() => setPartialOpen(false)}
         maxWidth="md"

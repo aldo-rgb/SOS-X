@@ -931,7 +931,9 @@ import {
   resolveDiscountRequest,
   // Cron helpers
   actualizarCarteraVencida,
-  sincronizarCartera
+  sincronizarCartera,
+  // Abandono
+  getAbandonosListosProceso
 } from './customerServiceController';
 import {
   getAllLegalDocuments,
@@ -7738,6 +7740,7 @@ app.get('/api/cs/guia/:servicio/:tracking/resumen', authenticateToken, getResume
 
 // Abandono y Firma Digital
 app.post('/api/cs/abandono/generar', authenticateToken, generarDocumentoAbandono);
+app.get('/api/cs/abandono/listos-proceso', authenticateToken, getAbandonosListosProceso);
 
 // Solicitudes de Descuento
 app.post('/api/cs/descuentos/solicitar', authenticateToken, createDiscountRequest);

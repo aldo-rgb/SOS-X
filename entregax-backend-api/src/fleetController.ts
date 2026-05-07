@@ -249,9 +249,17 @@ export const getVehicleDetail = async (req: Request, res: Response) => {
         };
       })
     );
-    
+
+    // Firmar URLs de fotos de la unidad (S3 privado)
+    const vehicleRow = { ...vehicleResult.rows[0] };
+    vehicleRow.photo_url = await signDocumentFileUrl(vehicleRow.photo_url);
+    vehicleRow.photo_front_url = await signDocumentFileUrl(vehicleRow.photo_front_url);
+    vehicleRow.photo_back_url = await signDocumentFileUrl(vehicleRow.photo_back_url);
+    vehicleRow.photo_left_url = await signDocumentFileUrl(vehicleRow.photo_left_url);
+    vehicleRow.photo_right_url = await signDocumentFileUrl(vehicleRow.photo_right_url);
+
     res.json({
-      vehicle: vehicleResult.rows[0],
+      vehicle: vehicleRow,
       documents: documentsWithSignedUrls,
       maintenance: maintenanceResult.rows,
       inspections: inspectionsResult.rows,

@@ -1775,7 +1775,7 @@ export default function FleetManagementPage() {
             <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
-                label="Número de Póliza/Folio"
+                label="Número / Folio"
                 value={newDocument.policy_number}
                 onChange={(e) => setNewDocument({ ...newDocument, policy_number: e.target.value })}
               />
@@ -1783,7 +1783,7 @@ export default function FleetManagementPage() {
             <Grid size={{ xs: 6 }}>
               <TextField
                 fullWidth
-                label="Fecha de Emisión"
+                label="Fecha de Emisión (opcional)"
                 type="date"
                 value={newDocument.issue_date}
                 onChange={(e) => setNewDocument({ ...newDocument, issue_date: e.target.value })}
@@ -1793,7 +1793,7 @@ export default function FleetManagementPage() {
             <Grid size={{ xs: 6 }}>
               <TextField
                 fullWidth
-                label="Fecha de Vencimiento"
+                label="Fecha de Vencimiento (opcional)"
                 type="date"
                 value={newDocument.expiration_date}
                 onChange={(e) => setNewDocument({ ...newDocument, expiration_date: e.target.value })}
@@ -1803,7 +1803,7 @@ export default function FleetManagementPage() {
             <Grid size={{ xs: 6 }}>
               <TextField
                 fullWidth
-                label="Costo"
+                label="Costo (opcional)"
                 type="number"
                 value={newDocument.cost}
                 onChange={(e) => setNewDocument({ ...newDocument, cost: parseFloat(e.target.value) })}

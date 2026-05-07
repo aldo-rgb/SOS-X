@@ -292,7 +292,7 @@ function App() {
       
       const token = localStorage.getItem('token');
       try {
-        const res = await fetch(`${API_URL}/notifications?limit=10`, {
+        const res = await fetch(`${API_URL}/notifications?limit=50`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         if (res.ok) {
@@ -912,13 +912,22 @@ function App() {
         transformOrigin={{ horizontal: 'right', vertical: 'top' }}
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
       >
-        <Box sx={{ p: 2, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Box sx={{ p: 2, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
           <Typography variant="subtitle1" fontWeight="bold">🔔 Notificaciones</Typography>
-          {unreadCount > 0 && (
-            <Typography variant="caption" sx={{ bgcolor: '#F05A28', color: 'white', px: 1, py: 0.25, borderRadius: 1 }}>
-              {unreadCount} nuevas
-            </Typography>
-          )}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            {unreadCount > 0 && (
+              <Typography variant="caption" sx={{ bgcolor: '#F05A28', color: 'white', px: 1, py: 0.25, borderRadius: 1 }}>
+                {unreadCount} nuevas
+              </Typography>
+            )}
+            {notifications.filter(n => n.id > 0).length > 0 && (
+              <Tooltip title="Archivar todas">
+                <Button size="small" variant="text" onClick={archiveAllNotifications} sx={{ minWidth: 'auto', color: '#F05A28', fontSize: '0.7rem', textTransform: 'none' }}>
+                  Archivar todas
+                </Button>
+              </Tooltip>
+            )}
+          </Box>
         </Box>
         {notifications.length === 0 ? (
           <Box sx={{ p: 3, textAlign: 'center' }}>

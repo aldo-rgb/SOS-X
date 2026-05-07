@@ -1449,3 +1449,43 @@ export const resolveDiscountRequest = async (req: Request, res: Response) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// =========================================
+// GET /api/cs/abandono/listos-proceso
+// Lista guías con abandono ya firmado por el cliente
+// (estatus_cobranza = 'abandono_aplicado' en cartera_vencida_logs)
+// Estas son las que operaciones puede procesar/disponer físicamente.
+// =========================================
+export const getAbandonosListosProceso = async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT
+        cvl.id,
+        cvl.guia_tracking,
+        cvl.servicio,
+        cvl.cliente_id,
+        cvl.dias_en_almacen,
+        cvl.saldo_pendiente,
+        cvl.firma_token,
+        cvl.firma_fecha,
+        u.full_name AS cliente_nombre,
+        u.email AS cliente_email,
+        u.phone AS cliente_telefono,
+        u.box_id AS cliente_box
+      FROM cartera_vencida_logs cvl
+      LEFT JOIN users u ON cvl.cliente_id = u.id
+      WHERE cvl.estatus_cobranza = 'abandono_aplicado'
+      ORDER BY cvl.firma_fecha DESC NULLS LAST, cvl.dias_en_almacen DESC
+      LIMIT 200
+    `);
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      items: result.rows,
+    });
+  } catch (error: any) {
+    console.error('Error getAbandonosListosProceso:', error);
+    res.status(500).json({ success: false, error: error.message, count: 0, items: [] });
+  }
+};
