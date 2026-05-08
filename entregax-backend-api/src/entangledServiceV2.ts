@@ -338,6 +338,75 @@ export const searchConceptos = async (
 };
 
 // ---------------------------------------------------------------------------
+// POST /api/v1/asignacion
+// Obtiene empresa + cuenta bancaria asignada para un concepto SAT + cliente.
+// La asignación es sticky: mismo (rfc, concepto) siempre devuelve la misma empresa.
+// ---------------------------------------------------------------------------
+export interface EntangledAsignacionPayload {
+  servicio: 'pago_con_factura' | 'pago_sin_factura';
+  concepto?: string;
+  cliente_final: {
+    rfc?: string;
+    razon_social: string;
+    regimen_fiscal?: string;
+    cp?: string;
+    uso_cfdi?: string;
+    email?: string;
+  };
+}
+
+export interface EntangledAsignacionResult {
+  ok: boolean;
+  asignacion?: string;
+  empresa?: { rfc: string; razon_social: string };
+  cuenta_bancaria?: {
+    banco?: string;
+    titular?: string;
+    cuenta?: string;
+    clabe?: string;
+    sucursal?: string;
+    moneda?: string;
+  };
+  facturacion?: {
+    clave_solicitada?: string;
+    clave_facturacion?: string;
+    concepto_facturacion?: string;
+    sustitucion?: boolean;
+  };
+  error?: string;
+  raw?: any;
+}
+
+export const callAsignacion = async (
+  payload: EntangledAsignacionPayload
+): Promise<EntangledAsignacionResult> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  try {
+    const res = await axios.post(buildUrl('/asignacion'), payload, {
+      timeout: ENTANGLED_TIMEOUT_MS,
+      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+    });
+    const d = res.data || {};
+    return {
+      ok: true,
+      asignacion: d.asignacion,
+      empresa: d.empresa,
+      cuenta_bancaria: d.cuenta_bancaria,
+      facturacion: d.facturacion,
+      raw: d,
+    };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const responseData = ax.response?.data as any;
+    return {
+      ok: false,
+      error: responseData?.error || ax.message || 'Error en asignación',
+      raw: responseData,
+    };
+  }
+};
+
+// ---------------------------------------------------------------------------
 // POST /api/admin/cliente-api/rotate
 // ---------------------------------------------------------------------------
 export const rotateApiKey = async (): Promise<{

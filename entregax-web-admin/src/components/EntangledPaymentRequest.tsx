@@ -375,6 +375,16 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   const [widgetAmountUsd, setWidgetAmountUsd] = useState('');
   const [showHowItWorks, setShowHowItWorks] = useState(false);
 
+  // ---- Asignación ENTANGLED: empresa + cuenta bancaria por clave SAT ----
+  type AsignacionResult = {
+    empresa?: { rfc: string; razon_social: string };
+    cuenta_bancaria?: { banco?: string; titular?: string; cuenta?: string; clabe?: string; sucursal?: string; moneda?: string };
+    facturacion?: { clave_facturacion?: string; concepto_facturacion?: string; sustitucion?: boolean };
+    loading: boolean;
+    error?: string;
+  };
+  const [asignacion, setAsignacion] = useState<AsignacionResult | null>(null);
+
   // ---- Validación de claves SAT contra catálogo ENTANGLED ----
   type ClaveValidation = { clave: string; ok: boolean; descripcion?: string; loading?: boolean };
   const [claveValidations, setClaveValidations] = useState<ClaveValidation[]>([]);
@@ -408,10 +418,36 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         }
       }
       setClaveValidations(out);
+
+      // Llamar /asignacion con la primera clave válida para obtener empresa + cuenta bancaria
+      const firstOk = out.find(v => v.ok);
+      if (firstOk) {
+        setAsignacion({ loading: true });
+        try {
+          const body: any = {
+            servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
+            cliente_final: {
+              razon_social: form.razon_social || 'Público en General',
+              ...(requiereFactura && form.rfc ? { rfc: form.rfc } : {}),
+              ...(form.regimen_fiscal ? { regimen_fiscal: form.regimen_fiscal } : {}),
+              ...(form.cp ? { cp: form.cp } : {}),
+              ...(form.uso_cfdi ? { uso_cfdi: form.uso_cfdi } : {}),
+              ...(form.email ? { email: form.email } : {}),
+            },
+          };
+          if (requiereFactura) body.concepto = firstOk.clave;
+          const ar = await axios.post(`${API_URL}/api/entangled/asignacion`, body, { headers: authHeader });
+          setAsignacion({ loading: false, empresa: ar.data.empresa, cuenta_bancaria: ar.data.cuenta_bancaria, facturacion: ar.data.facturacion });
+        } catch (e: any) {
+          setAsignacion({ loading: false, error: e?.response?.data?.error || 'Error en asignación' });
+        }
+      } else {
+        setAsignacion(null);
+      }
     }, 600);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.conceptos]);
+  }, [form.conceptos, form.rfc, form.razon_social, requiereFactura]);
   const [rateWidgetCurrency, setRateWidgetCurrency] = useState<'USD' | 'RMB'>('USD');
 
   const widgetEstimate = useMemo(() => {
@@ -2371,13 +2407,20 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                     <Typography sx={{ color: ORANGE, fontSize: 18, mr: 1 }}>🏢</Typography>
                     <Box sx={{ flex: 1 }}>
                       <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block' }}>
-                        Empresa que enviará el pago
+                        Empresa asignada por ENTANGLED
                       </Typography>
-                      <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>
-                        {providers.find(p => p.id === selectedProviderId)?.name
-                          || providers.find(p => p.is_default)?.name
-                          || '—'}
-                      </Typography>
+                      {asignacion?.loading ? (
+                        <Typography variant="body2" sx={{ color: '#9ca3af' }}>Consultando…</Typography>
+                      ) : asignacion?.empresa ? (
+                        <>
+                          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>{asignacion.empresa.razon_social}</Typography>
+                          <Typography variant="caption" sx={{ color: '#9ca3af', fontFamily: 'monospace' }}>{asignacion.empresa.rfc}</Typography>
+                        </>
+                      ) : (
+                        <Typography variant="body2" sx={{ color: '#9ca3af' }}>
+                          {asignacion?.error || (claveValidations.some(v => v.ok) ? 'Sin asignación' : 'Ingresa una clave SAT válida')}
+                        </Typography>
+                      )}
                     </Box>
                   </Box>
                 )}
@@ -2492,37 +2535,40 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Divisa destino: <strong style={{ color: '#fff' }}>{form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Monto al proveedor: <strong style={{ color: '#fff' }}>${formatMoney(form.monto)} {form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Proveedor de pago: <strong style={{ color: '#fff' }}>{providers.find((p) => p.id === selectedProviderId)?.name || '—'}</strong></Typography>
-              {(() => {
-                const prov = providers.find((p) => p.id === selectedProviderId);
-                const accounts = prov?.bank_accounts ?? [];
-                const relevant = accounts.filter((a) => !a.currency || a.currency.toUpperCase() === form.divisa_destino || a.currency.toUpperCase() === 'MXN');
-                const display = relevant.length > 0 ? relevant : accounts;
-                if (display.length === 0) return (
-                  <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
-                    <Typography sx={{ color: '#93c5fd', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>ℹ️ CUENTA BANCARIA DESTINO</Typography>
-                    <Typography sx={{ color: '#bfdbfe', fontSize: '0.82rem', lineHeight: 1.4 }}>
-                      La cuenta bancaria destino se asignará al confirmar según las claves SAT seleccionadas.
-                    </Typography>
-                  </Box>
-                );
+              {asignacion?.loading ? (
+                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid #333', borderRadius: 1.5 }}>
+                  <Typography sx={{ color: '#9ca3af', fontSize: '0.82rem' }}>Consultando asignación bancaria…</Typography>
+                </Box>
+              ) : asignacion?.cuenta_bancaria ? (() => {
+                const cb = asignacion.cuenta_bancaria!;
                 return (
                   <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(240,90,40,0.45)', borderRadius: 1.5 }}>
                     <Typography sx={{ color: '#f97316', fontSize: '0.78rem', fontWeight: 700, mb: 0.8, letterSpacing: 0.4 }}>
-                      🏦 CUENTA(S) BANCARIA(S) DESTINO
+                      🏦 CUENTA BANCARIA DESTINO
                     </Typography>
-                    {display.map((a, i) => (
-                      <Box key={i} sx={{ mb: i < display.length - 1 ? 1 : 0, pb: i < display.length - 1 ? 1 : 0, borderBottom: i < display.length - 1 ? '1px dashed #333' : 'none' }}>
-                        {a.bank && <Typography sx={{ color: '#fff', fontSize: '0.82rem', fontWeight: 600 }}>{a.bank}</Typography>}
-                        {a.holder && <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Titular: {a.holder}</Typography>}
-                        {a.clabe && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>CLABE: {a.clabe}</Typography>}
-                        {a.account && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>Cuenta: {a.account}</Typography>}
-                        {a.reference && <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Ref: {a.reference}</Typography>}
-                        {a.currency && <Typography sx={{ color: '#f97316', fontSize: '0.75rem', fontWeight: 600 }}>{a.currency}</Typography>}
-                      </Box>
-                    ))}
+                    {asignacion.empresa && (
+                      <Typography sx={{ color: '#fff', fontSize: '0.82rem', fontWeight: 600, mb: 0.5 }}>{asignacion.empresa.razon_social}</Typography>
+                    )}
+                    {cb.banco && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem' }}>Banco: <strong>{cb.banco}</strong>{cb.moneda ? ` (${cb.moneda})` : ''}</Typography>}
+                    {cb.titular && <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Titular: {cb.titular}</Typography>}
+                    {cb.clabe && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>CLABE: {cb.clabe}</Typography>}
+                    {cb.cuenta && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>Cuenta: {cb.cuenta}</Typography>}
+                    {cb.sucursal && <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Sucursal: {cb.sucursal}</Typography>}
+                    {asignacion.facturacion?.sustitucion && (
+                      <Typography sx={{ color: '#facc15', fontSize: '0.75rem', mt: 0.5 }}>
+                        ⚠️ Clave sustituida: {asignacion.facturacion.clave_solicitada} → {asignacion.facturacion.clave_facturacion}
+                      </Typography>
+                    )}
                   </Box>
                 );
-              })()}
+              })() : (
+                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
+                  <Typography sx={{ color: '#93c5fd', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>ℹ️ CUENTA BANCARIA DESTINO</Typography>
+                  <Typography sx={{ color: '#bfdbfe', fontSize: '0.82rem', lineHeight: 1.4 }}>
+                    {asignacion?.error || 'La cuenta bancaria se asignará al confirmar según la clave SAT seleccionada.'}
+                  </Typography>
+                </Box>
+              )}
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Beneficiario: <strong style={{ color: '#fff' }}>{supplierForm.nombre_beneficiario || '—'}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Factura: <strong style={{ color: '#fff' }}>{requiereFactura ? 'Sí' : 'No'}</strong></Typography>
               {requiereFactura && (

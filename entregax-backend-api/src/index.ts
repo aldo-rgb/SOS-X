@@ -274,6 +274,7 @@ import {
   createPaymentRequestV2 as createEntangledRequestV2,
   getExchangeRate as getEntangledExchangeRate,
   searchConceptosProxy as searchEntangledConceptos,
+  asignacionProxy as entangledAsignacion,
   getServiceConfigAdmin as getEntangledServiceConfigAdmin,
   updateServiceConfig as updateEntangledServiceConfig,
   getMyServiceConfig as getMyEntangledServiceConfig,
@@ -3426,6 +3427,7 @@ app.delete('/api/admin/entangled/user-service-pricing/:userId/:servicio', authen
 // Proxies a la API de ENTANGLED
 app.get('/api/entangled/exchange-rate', authenticateToken, getEntangledExchangeRate);
 app.get('/api/entangled/conceptos/search', authenticateToken, searchEntangledConceptos);
+app.post('/api/entangled/asignacion', authenticateToken, entangledAsignacion);
 // Rotación de API key (admin)
 app.post('/api/admin/entangled/rotate-api-key', authenticateToken, requireMinLevel(ROLES.DIRECTOR), rotateEntangledApiKey);
 app.post('/api/admin/entangled/providers/sync', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncEntangledProveedoresFromRemote);

@@ -32,6 +32,7 @@ import {
   EntangledDivisa,
   EntangledSolicitudPayloadV2,
   listProveedoresRemote,
+  callAsignacion,
 } from './entangledServiceV2';
 
 const SERVICIOS_VALIDOS: EntangledServicio[] = ['pago_con_factura', 'pago_sin_factura'];
@@ -602,6 +603,25 @@ export const getExchangeRate = async (req: Request, res: Response): Promise<any>
     tipo_cambio: r.tipo_cambio,
     vigencia: r.vigencia,
   });
+};
+
+// ===========================================================================
+// POST /api/entangled/asignacion
+// Obtiene empresa + cuenta bancaria asignada para un concepto SAT + cliente.
+// ===========================================================================
+export const asignacionProxy = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  const { servicio, concepto, cliente_final } = req.body || {};
+  if (!servicio || !cliente_final?.razon_social) {
+    return res.status(400).json({ error: 'servicio y cliente_final.razon_social son requeridos' });
+  }
+  if (servicio === 'pago_con_factura' && !concepto) {
+    return res.status(400).json({ error: 'concepto es requerido para pago_con_factura' });
+  }
+  const result = await callAsignacion({ servicio, concepto, cliente_final });
+  if (!result.ok) return res.status(502).json({ error: result.error, raw: result.raw });
+  return res.json(result);
 };
 
 // ===========================================================================
