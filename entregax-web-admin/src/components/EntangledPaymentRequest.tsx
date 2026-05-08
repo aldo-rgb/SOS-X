@@ -297,6 +297,12 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   const [editingFiscalData, setEditingFiscalData] = useState(false);
   const [editingSupplierData, setEditingSupplierData] = useState(false);
   const [pricing, setPricing] = useState<{ tipo_cambio_usd: number; tipo_cambio_rmb: number; porcentaje_compra: number; costo_operacion_usd: number } | null>(null);
+  // Comisiones XPAY → Cliente final (% que XPAY le cobra al cliente, configurable
+  // por admin en EntangledServiceConfigCard, con override por usuario opcional).
+  const [clientCommissionCfg, setClientCommissionCfg] = useState<{
+    pago_con_factura: { comision_porcentaje: number; es_override: boolean };
+    pago_sin_factura: { comision_porcentaje: number; es_override: boolean };
+  } | null>(null);
   type EntProviderPub = {
     id: number;
     name: string;
@@ -1297,7 +1303,24 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   }, [selectedProviderId, providers]);
 
-  // Recalcular quote cuando cambia monto o divisa
+  // Cargar comisiones XPAY → Cliente final (con override por usuario aplicado).
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await axios.get(`${API_URL}/api/entangled/service-config`, { headers: authHeader });
+        if (!cancelled) setClientCommissionCfg(r.data);
+      } catch (err) {
+        console.warn('[ENTANGLED] no pude cargar service-config, usaré % de proveedor', err);
+        if (!cancelled) setClientCommissionCfg(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, authHeader]);
+
+  // Recalcular quote cuando cambia monto, divisa, proveedor o requiereFactura.
+  // El % cobrado al cliente sale de XPAY → Cliente final (no del proveedor).
   useEffect(() => {
     const m = Number(form.monto);
     if (!pricing || !m || m <= 0) {
@@ -1306,22 +1329,30 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
     const tc = form.divisa_destino === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd;
     const base = m * tc;
-    const comision = base * (pricing.porcentaje_compra / 100);
-    // Usar costo de operación del pricing (ya incluye override si existe)
+    // Tasa para el cliente: configuración XPAY → Cliente final (con/sin factura).
+    // Si el endpoint no respondió, caemos al % del proveedor para no romper la UI.
+    const clientPct = clientCommissionCfg
+      ? Number(
+          requiereFactura
+            ? clientCommissionCfg.pago_con_factura.comision_porcentaje
+            : clientCommissionCfg.pago_sin_factura.comision_porcentaje
+        )
+      : pricing.porcentaje_compra;
+    const comision = base * (clientPct / 100);
+    // Costo de operación del pricing (ya incluye override si existe)
     const costoOpUsd = pricing.costo_operacion_usd;
     const costoOpMxn = costoOpUsd * tc;
     const total = base + comision + costoOpMxn;
-    console.log('[ENTANGLED] Quote calculation:', { pricing, costoOpUsd, costoOpMxn, total });
     setQuote({
       tipo_cambio: tc,
-      porcentaje_compra: pricing.porcentaje_compra,
+      porcentaje_compra: clientPct,
       costo_operacion_usd: costoOpUsd,
       monto_mxn_base: Number(base.toFixed(2)),
       monto_mxn_comision: Number(comision.toFixed(2)),
       monto_mxn_costo_op: Number(costoOpMxn.toFixed(2)),
       monto_mxn_total: Number(total.toFixed(2)),
     });
-  }, [form.monto, form.divisa_destino, pricing, selectedProviderId, providers]);
+  }, [form.monto, form.divisa_destino, pricing, selectedProviderId, providers, requiereFactura, clientCommissionCfg]);
 
   const handleSubmit = async () => {
     const err = validateForm();
