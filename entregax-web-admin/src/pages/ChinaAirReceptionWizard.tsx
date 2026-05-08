@@ -299,8 +299,6 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
                 return;
             }
             const today = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
-            const awbInfo = `AWB ${selected.awb_number}${selected.carrier ? ` · ${selected.carrier}` : ''}${selected.flight_number ? ` · Vuelo ${selected.flight_number}` : ''}`;
-            const route = `${selected.origin_airport || '?'} → ${selected.destination_airport || '?'}`;
             const escape = (s: string) => String(s || '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c] as string));
             const labelsHtml = labels
                 .map((l, i) => {
@@ -315,8 +313,6 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
     <div class="logo">Entrega<span>X</span></div>
     <div class="badge">✈ AÉREO CHINA</div>
   </div>
-  <div class="awb-line">${escape(awbInfo)}</div>
-  <div class="route">${escape(route)}</div>
   <div class="tracking-row">
     <div class="tn">${escape(tn)}</div>
     <div class="date">${today}</div>
@@ -349,9 +345,7 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
   .brand .logo { font-size: 22px; font-weight: 900; color: #F05A28; letter-spacing: 1px; font-family: 'Arial Black', sans-serif; }
   .brand .logo span { color: #111; }
   .brand .badge { background: #F05A28; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
-  .awb-line { font-size: 10px; color: #444; font-weight: 700; }
-  .route { font-size: 18px; font-weight: 900; color: #111; margin: 2px 0 6px; }
-  .tracking-row { display: flex; justify-content: space-between; align-items: center; }
+  .tracking-row { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
   .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 14px; font-weight: 900; }
   .tracking-row .date { font-size: 10px; color: #555; }
   .barcode-box { text-align: center; margin: 6px 0; }
