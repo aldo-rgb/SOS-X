@@ -215,7 +215,7 @@ export const sendSolicitudPago = async (
 // ---------------------------------------------------------------------------
 export const uploadComprobanteToTransaccion = async (
   transaccionId: string,
-  comprobante: { buffer: Buffer; filename: string; mimetype: string }
+  comprobante: { buffer: Buffer; filename: string; mimetype: string; url?: string | null }
 ): Promise<{ ok: boolean; url_comprobante_cliente?: string; error?: string; raw?: any }> => {
   if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
   if (!transaccionId) return { ok: false, error: 'transaccion_id requerido' };
@@ -233,6 +233,13 @@ export const uploadComprobanteToTransaccion = async (
       filename: comprobante.filename || 'comprobante',
       contentType: comprobante.mimetype || 'application/octet-stream',
     });
+    // Mandamos también la URL de NUESTRO S3 como respaldo. Si el storage de
+    // ENTANGLED rechaza el archivo binario ("No se pudo subir el comprobante a
+    // almacenamiento") pueden descargarlo directamente desde esta URL.
+    if (comprobante.url) {
+      form.append('url_comprobante_cliente', comprobante.url);
+      form.append('comprobante_url', comprobante.url);
+    }
 
     const res = await axios.post(buildUrl(path), form, {
       timeout: ENTANGLED_TIMEOUT_MS,
@@ -244,7 +251,7 @@ export const uploadComprobanteToTransaccion = async (
     return {
       ok: true,
       url_comprobante_cliente:
-        data.url_comprobante_cliente || data.url || undefined,
+        data.url_comprobante_cliente || data.url || comprobante.url || undefined,
       raw: data,
     };
   } catch (err) {

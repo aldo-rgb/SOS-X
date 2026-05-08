@@ -419,7 +419,8 @@ export async function sendPendingRequestToEntangled(
   requestId: number,
   fileBuffer: Buffer,
   fileName: string,
-  fileMime: string
+  fileMime: string,
+  fileUrl?: string | null
 ): Promise<{ ok: boolean; status: number; payload: any }> {
   // 1) Cargar solicitud local
   const r = await pool.query(
@@ -452,6 +453,7 @@ export async function sendPendingRequestToEntangled(
         buffer: fileBuffer,
         filename: fileName || `comprobante-${requestId}`,
         mimetype: fileMime || 'application/octet-stream',
+        url: fileUrl || reqRow.op_comprobante_cliente_url || null,
       }
     );
     if (!up.ok) {
@@ -628,6 +630,7 @@ export async function sendPendingRequestToEntangled(
     buffer: fileBuffer,
     filename: fileName || `comprobante-${requestId}`,
     mimetype: fileMime || 'application/octet-stream',
+    url: fileUrl || reqRow.op_comprobante_cliente_url || null,
   });
   if (!phase2.ok) {
     // Persistimos transaccion_id igual: al menos la solicitud ya existe en
