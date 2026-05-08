@@ -382,6 +382,12 @@ export const searchConceptos = async (
 export interface EntangledAsignacionPayload {
   servicio: 'pago_con_factura' | 'pago_sin_factura';
   concepto?: string;
+  // Datos requeridos por ENTANGLED v1 /asignacion: monto + divisa + tipo de
+  // cambio que XPAY le cobra al cliente + % de comisión XPAY → Cliente final.
+  monto_destino?: number;
+  divisa_destino?: string;
+  tc_cliente_final?: number;
+  comision_cliente_final_porcentaje?: number;
   cliente_final: {
     rfc?: string;
     razon_social: string;

@@ -502,8 +502,24 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           return;
         }
       }
+      // ENTANGLED /asignacion exige los datos completos del cobro al cliente.
+      const montoNum = Number(form.monto);
+      if (!montoNum || montoNum <= 0) {
+        setAddConceptoError('Captura primero el monto a enviar (paso "Moneda y monto") antes de agregar la clave SAT.');
+        setAddingConcepto(false);
+        return;
+      }
+      if (!quote) {
+        setAddConceptoError('No hay cotización disponible. Verifica que un proveedor esté seleccionado y vuelve al paso "Moneda y monto".');
+        setAddingConcepto(false);
+        return;
+      }
       const body: any = {
         servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
+        monto_destino: montoNum,
+        divisa_destino: form.divisa_destino,
+        tc_cliente_final: quote.tipo_cambio,
+        comision_cliente_final_porcentaje: quote.porcentaje_compra,
         cliente_final: requiereFactura
           ? {
               rfc: String(form.rfc).trim().toUpperCase(),

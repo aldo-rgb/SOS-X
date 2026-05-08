@@ -631,14 +631,47 @@ export const getExchangeRate = async (req: Request, res: Response): Promise<any>
 export const asignacionProxy = async (req: Request, res: Response): Promise<any> => {
   const userId = getAuthUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
-  const { servicio, concepto, cliente_final } = req.body || {};
+  const {
+    servicio,
+    concepto,
+    cliente_final,
+    monto_destino,
+    divisa_destino,
+    tc_cliente_final,
+    comision_cliente_final_porcentaje,
+  } = req.body || {};
   if (!servicio || !cliente_final?.razon_social) {
     return res.status(400).json({ error: 'servicio y cliente_final.razon_social son requeridos' });
   }
   if (servicio === 'pago_con_factura' && !concepto) {
     return res.status(400).json({ error: 'concepto es requerido para pago_con_factura' });
   }
-  const result = await callAsignacion({ servicio, concepto, cliente_final });
+  // ENTANGLED /asignacion exige el desglose completo del cobro al cliente
+  // (monto, divisa, TC y % de comisión) además de la clave + datos fiscales.
+  const montoNum = Number(monto_destino);
+  if (!Number.isFinite(montoNum) || montoNum <= 0) {
+    return res.status(400).json({ error: 'monto_destino es requerido y debe ser un número mayor a 0' });
+  }
+  if (!divisa_destino || typeof divisa_destino !== 'string') {
+    return res.status(400).json({ error: 'divisa_destino es requerida (USD/RMB/MXN)' });
+  }
+  const tcNum = Number(tc_cliente_final);
+  if (!Number.isFinite(tcNum) || tcNum <= 0) {
+    return res.status(400).json({ error: 'tc_cliente_final es requerido y debe ser un número mayor a 0' });
+  }
+  const comisionNum = Number(comision_cliente_final_porcentaje);
+  if (!Number.isFinite(comisionNum) || comisionNum < 0) {
+    return res.status(400).json({ error: 'comision_cliente_final_porcentaje es requerida (porcentaje XPAY → cliente final)' });
+  }
+  const result = await callAsignacion({
+    servicio,
+    concepto,
+    cliente_final,
+    monto_destino: montoNum,
+    divisa_destino,
+    tc_cliente_final: tcNum,
+    comision_cliente_final_porcentaje: comisionNum,
+  });
   if (!result.ok) {
     // Si ENTANGLED devolvió un 4xx (validación / clave no encontrada), reenviar como 4xx
     // para que el frontend muestre el mensaje real al usuario. 5xx → 502 con mensaje genérico.
