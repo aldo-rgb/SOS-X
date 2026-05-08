@@ -426,14 +426,22 @@ export const callAsignacion = async (
 ): Promise<EntangledAsignacionResult> => {
   if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
   const url = buildUrl('/asignacion');
+  // ENTANGLED espera el campo como `divisa`, no `divisa_destino`. Construimos
+  // el body normalizado (uppercase + nombre correcto) para evitar 400s tipo
+  // "divisa inválida. Permitidas: USD, RMB, MXN.".
+  const upstreamBody: any = { ...payload };
+  if (payload.divisa_destino) {
+    upstreamBody.divisa = String(payload.divisa_destino).toUpperCase();
+    delete upstreamBody.divisa_destino;
+  }
   // Reintentos en errores transitorios (502/503/504/timeout): 3 intentos con backoff 500ms/1s/2s
   const RETRYABLE_STATUSES = new Set([502, 503, 504]);
   const delays = [500, 1000, 2000];
   let lastError: { error: string; raw?: any; status?: number | undefined } | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      console.log(`[ENTANGLED] POST ${url} attempt=${attempt + 1} payload=${JSON.stringify(payload).slice(0, 300)}`);
-      const res = await axios.post(url, payload, {
+      console.log(`[ENTANGLED] POST ${url} attempt=${attempt + 1} payload=${JSON.stringify(upstreamBody).slice(0, 300)}`);
+      const res = await axios.post(url, upstreamBody, {
         timeout: ENTANGLED_TIMEOUT_MS,
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       });
