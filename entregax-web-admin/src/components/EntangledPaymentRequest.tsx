@@ -477,10 +477,19 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeToken]);
 
+  // Al fallar el agregar, limpiamos el input + cerramos el dropdown para que
+  // el mensaje de error no quede tapado por la lista de sugerencias.
+  const showAddConceptoError = (msg: string) => {
+    setAddConceptoError(msg);
+    setConceptoSearchInput('');
+    setConceptoOptions([]);
+    setConceptoSearchError(null);
+  };
+
   // Llama /asignacion para una clave y la añade si la empresa es compatible con la primera
   const tryAddConcepto = async (opt: ConceptoOption) => {
     if (selectedConceptos.some(c => c.clave_prodserv === opt.clave_prodserv)) {
-      setAddConceptoError('Esta clave ya está agregada.');
+      showAddConceptoError('Esta clave ya está agregada.');
       return;
     }
     setAddingConcepto(true);
@@ -497,7 +506,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         if (!form.uso_cfdi) missing.push('Uso CFDI');
         if (!form.email) missing.push('Email');
         if (missing.length > 0) {
-          setAddConceptoError(`Para asignar empresa con factura, completa primero estos datos fiscales: ${missing.join(', ')}.`);
+          showAddConceptoError(`Para asignar empresa con factura, completa primero estos datos fiscales: ${missing.join(', ')}.`);
           setAddingConcepto(false);
           return;
         }
@@ -505,12 +514,12 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       // ENTANGLED /asignacion exige los datos completos del cobro al cliente.
       const montoNum = Number(form.monto);
       if (!montoNum || montoNum <= 0) {
-        setAddConceptoError('Captura primero el monto a enviar (paso "Moneda y monto") antes de agregar la clave SAT.');
+        showAddConceptoError('Captura primero el monto a enviar (paso "Moneda y monto") antes de agregar la clave SAT.');
         setAddingConcepto(false);
         return;
       }
       if (!quote) {
-        setAddConceptoError('No hay cotización disponible. Verifica que un proveedor esté seleccionado y vuelve al paso "Moneda y monto".');
+        showAddConceptoError('No hay cotización disponible. Verifica que un proveedor esté seleccionado y vuelve al paso "Moneda y monto".');
         setAddingConcepto(false);
         return;
       }
@@ -547,12 +556,12 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       }
       const newEmpresa = r.data?.empresa;
       if (!newEmpresa?.rfc) {
-        setAddConceptoError('No se pudo determinar la empresa para esta clave.');
+        showAddConceptoError('No se pudo determinar la empresa para esta clave.');
         return;
       }
       // Validar misma empresa que las claves ya seleccionadas
       if (lockedEmpresa && lockedEmpresa.rfc !== newEmpresa.rfc) {
-        setAddConceptoError(
+        showAddConceptoError(
           `Esta clave pertenece a "${newEmpresa.razon_social}" (${newEmpresa.rfc}), pero los productos ya seleccionados son de "${lockedEmpresa.razon_social}". Solo puedes agregar productos de la misma empresa.`
         );
         return;
@@ -572,15 +581,15 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       const upstreamStatus = e?.response?.data?.upstream_status;
       const upstreamMsg = e?.response?.data?.error;
       if (status === 502 || status === 503 || status === 504) {
-        setAddConceptoError(
+        showAddConceptoError(
           upstreamMsg
             ? `El servicio de asignación respondió con error: ${upstreamMsg}. Intenta de nuevo en unos segundos.`
             : 'El servicio de asignación no está disponible momentáneamente. Intenta de nuevo en unos segundos.'
         );
-      } else if (status === 400 || status === 404 || (typeof upstreamStatus === 'number' && upstreamStatus >= 400 && upstreamStatus < 500)) {
-        setAddConceptoError(upstreamMsg || 'La clave SAT no está disponible para asignación. Verifica e intenta con otra.');
+      } else if (status === 400 || status === 404 || status === 409 || (typeof upstreamStatus === 'number' && upstreamStatus >= 400 && upstreamStatus < 500)) {
+        showAddConceptoError(upstreamMsg || 'La clave SAT no está disponible para asignación. Verifica e intenta con otra.');
       } else {
-        setAddConceptoError(upstreamMsg || 'No se pudo agregar la clave. Verifica e intenta de nuevo.');
+        showAddConceptoError(upstreamMsg || 'No se pudo agregar la clave. Verifica e intenta de nuevo.');
       }
     } finally {
       setAddingConcepto(false);
