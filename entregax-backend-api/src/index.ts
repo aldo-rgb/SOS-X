@@ -3531,8 +3531,7 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
         id,
         req.file.buffer,
         safeFilename,
-        req.file.mimetype,
-        url
+        req.file.mimetype
       );
       return res.status(result.status).json({
         ok: result.ok,
