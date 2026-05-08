@@ -385,6 +385,42 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   };
   const [asignacion, setAsignacion] = useState<AsignacionResult | null>(null);
 
+  // ---- Búsqueda live de conceptos SAT (autocomplete) ----
+  type ConceptoOption = { clave_prodserv: string; descripcion: string };
+  const [conceptoOptions, setConceptoOptions] = useState<ConceptoOption[]>([]);
+  const [conceptoSearching, setConceptoSearching] = useState(false);
+
+  // Token activo = último segmento después de la última coma
+  const activeToken = (form.conceptos || '').split(',').pop()?.trim() ?? '';
+
+  useEffect(() => {
+    // Solo busca si el token parece texto (no código numérico puro de 8 dígitos)
+    if (!activeToken || /^\d{8}$/.test(activeToken)) { setConceptoOptions([]); return; }
+    const handle = setTimeout(async () => {
+      setConceptoSearching(true);
+      try {
+        const r = await axios.get(`${API_URL}/api/entangled/conceptos/search`, {
+          params: { q: activeToken, limit: 10 },
+          headers: authHeader,
+        });
+        const list: ConceptoOption[] = Array.isArray(r.data?.results)
+          ? r.data.results.map((x: any) => ({ clave_prodserv: String(x.clave_prodserv), descripcion: String(x.descripcion || '') }))
+          : [];
+        setConceptoOptions(list);
+      } catch { setConceptoOptions([]); }
+      finally { setConceptoSearching(false); }
+    }, 400);
+    return () => clearTimeout(handle);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeToken]);
+
+  const pickConceptoOption = (opt: ConceptoOption) => {
+    const parts = (form.conceptos || '').split(',');
+    parts[parts.length - 1] = opt.clave_prodserv;
+    setForm({ ...form, conceptos: parts.join(', ') });
+    setConceptoOptions([]);
+  };
+
   // ---- Validación de claves SAT contra catálogo ENTANGLED ----
   type ClaveValidation = { clave: string; ok: boolean; descripcion?: string; loading?: boolean };
   const [claveValidations, setClaveValidations] = useState<ClaveValidation[]>([]);
@@ -2339,26 +2375,59 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                 <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mb: 1 }}>
                   📝 Clave(s) de producto/servicio SAT a facturar *
                 </Typography>
-                <TextField
-                  fullWidth required label="Clave SAT (clave_prodserv)" value={form.conceptos}
-                  onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
-                  placeholder="84111506, 90121800"
-                  helperText="Una o varias claves del catálogo SAT separadas por coma. Ej.: 84111506 (Servicios contables), 90121800 (Pago a proveedores)"
-                  sx={{
-                    '& .MuiOutlinedInput-root': {
-                      color: '#ffffff',
-                      backgroundColor: '#0a0a0a',
-                      '& fieldset': { borderColor: '#333333' },
-                      '&:hover fieldset': { borderColor: '#555555' },
-                      '&.Mui-focused fieldset': { borderColor: ORANGE },
-                    },
-                    '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
-                    '& .MuiInputLabel-root': { color: '#888888' },
-                    '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
-                    '& .MuiOutlinedInput-input': { color: '#ffffff' },
-                    '& .MuiFormHelperText-root': { color: '#9ca3af' },
-                  }}
-                />
+                <Box sx={{ position: 'relative' }}>
+                  <TextField
+                    fullWidth required label="Busca por concepto o ingresa clave SAT" value={form.conceptos}
+                    onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
+                    placeholder="Ej.: puertas, 84111506, 90121800"
+                    helperText="Escribe el nombre del concepto o la clave numérica SAT. Separa varias claves con coma."
+                    sx={{
+                      '& .MuiOutlinedInput-root': {
+                        color: '#ffffff',
+                        backgroundColor: '#0a0a0a',
+                        '& fieldset': { borderColor: '#333333' },
+                        '&:hover fieldset': { borderColor: '#555555' },
+                        '&.Mui-focused fieldset': { borderColor: ORANGE },
+                      },
+                      '& .MuiInputBase-input::placeholder': { color: '#666666', opacity: 0.7 },
+                      '& .MuiInputLabel-root': { color: '#888888' },
+                      '& .MuiInputLabel-root.Mui-focused': { color: ORANGE },
+                      '& .MuiOutlinedInput-input': { color: '#ffffff' },
+                      '& .MuiFormHelperText-root': { color: '#9ca3af' },
+                    }}
+                  />
+                  {/* Dropdown de sugerencias */}
+                  {(conceptoSearching || conceptoOptions.length > 0) && (
+                    <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 280, overflowY: 'auto', mt: 0.5 }}>
+                      {conceptoSearching && (
+                        <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <CircularProgress size={14} sx={{ color: ORANGE }} />
+                          <Typography variant="caption" sx={{ color: '#9ca3af' }}>Buscando en catálogo SAT…</Typography>
+                        </Box>
+                      )}
+                      {!conceptoSearching && conceptoOptions.map((opt) => (
+                        <Box
+                          key={opt.clave_prodserv}
+                          onClick={() => pickConceptoOption(opt)}
+                          sx={{ px: 2, py: 1.2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid #333',
+                            '&:hover': { bgcolor: 'rgba(240,90,40,0.12)' } }}
+                        >
+                          <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE, fontSize: '0.8rem', minWidth: 80 }}>
+                            {opt.clave_prodserv}
+                          </Typography>
+                          <Typography variant="caption" sx={{ color: '#d1d5db', lineHeight: 1.3 }}>
+                            {opt.descripcion}
+                          </Typography>
+                        </Box>
+                      ))}
+                      {!conceptoSearching && conceptoOptions.length === 0 && activeToken && (
+                        <Box sx={{ p: 1.5 }}>
+                          <Typography variant="caption" sx={{ color: '#6b7280' }}>Sin resultados para "{activeToken}"</Typography>
+                        </Box>
+                      )}
+                    </Paper>
+                  )}
+                </Box>
 
                 {/* Validación inline contra catálogo SAT ENTANGLED */}
                 {claveValidations.length > 0 && (
