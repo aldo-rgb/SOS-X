@@ -990,13 +990,15 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       } : null);
 
       await generateInstructionsPDF({
-        request_id: row.id,
+        request: row,
+        instrucciones_pago: null,
         referencia_pago: row.referencia_pago || `XP-${row.id}`,
         operationSnapshot,
         beneficiarioSnapshot: snap?.beneficiarioSnapshot || null,
         providerSnapshot: snap?.providerSnapshot || null,
         empresas_asignadas: empresasFromRow,
         quote,
+        entangled_transaccion_id: row.entangled_transaccion_id ?? null,
       });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
