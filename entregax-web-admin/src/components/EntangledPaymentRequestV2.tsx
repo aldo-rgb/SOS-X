@@ -245,7 +245,7 @@ export default function EntangledPaymentRequestV2() {
             XPay — Pago a proveedores internacionales
           </Typography>
           <Typography variant="caption" color="text.secondary">
-            Powered by ENTANGLED · Triangulación con factura SAT opcional
+            Triangulación internacional · Factura SAT opcional
           </Typography>
 
           <Divider sx={{ my: 2 }} />
@@ -360,7 +360,7 @@ export default function EntangledPaymentRequestV2() {
             <Alert severity="info" sx={{ mt: 2 }}>
               Total estimado: <b>{formatMoney(totalEstimado)} {divisa}</b>{' '}
               (monto + comisión XPAY {utilidadEstimadaPct}%). El TC y la comisión final
-              que cobra ENTANGLED se confirmarán al recibir la respuesta.
+              se confirmarán al recibir la respuesta del proveedor.
             </Alert>
           )}
 

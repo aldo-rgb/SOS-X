@@ -93,8 +93,8 @@ export default function EntangledServiceConfigCard() {
           <Box>
             <Typography variant="h6" fontWeight={700}>Comisiones XPAY → Cliente final</Typography>
             <Typography variant="caption" color="text.secondary">
-              Porcentaje que XPAY le cobra al cliente final por cada servicio de ENTANGLED.
-              La utilidad real será (% XPAY − % cobrado por ENTANGLED).
+              Porcentaje que XPAY le cobra al cliente final por cada servicio.
+              La utilidad real será (% XPAY − % de costo).
             </Typography>
           </Box>
           {cfg?.updated_at && (

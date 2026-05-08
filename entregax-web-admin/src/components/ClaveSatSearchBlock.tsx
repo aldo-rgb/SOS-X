@@ -160,10 +160,10 @@ export default function ClaveSatSearchBlock({ providerName, providerExternalId, 
 
       {results.length > 0 && apiSupportsAssignment === false && (
         <Alert severity="warning" sx={{ mt: 1.5 }}>
-          <b>⚠️ El API de ENTANGLED aún no expone la asignación clave SAT → empresa.</b> Cuando agreguen
-          los campos <code>empresa_asignada</code> y <code>disponible</code> en la respuesta de{' '}
-          <code>/conceptos/search?proveedor_id=...</code>, esta columna se llenará automáticamente y las
-          claves no soportadas se marcarán como <b>No disponible</b>.
+          <b>⚠️ El catálogo aún no expone la asignación clave SAT → empresa.</b> Cuando los
+          campos <code>empresa_asignada</code> y <code>disponible</code> estén disponibles en la
+          respuesta del proveedor, esta columna se llenará automáticamente y las claves no
+          soportadas se marcarán como <b>No disponible</b>.
         </Alert>
       )}
 
@@ -196,7 +196,7 @@ export default function ClaveSatSearchBlock({ providerName, providerExternalId, 
             </TableBody>
           </Table>
           <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'text.secondary' }}>
-            {results.length} resultado{results.length === 1 ? '' : 's'} · fuente: API ENTANGLED /conceptos/search
+            {results.length} resultado{results.length === 1 ? '' : 's'} · catálogo SAT
             {providerExternalId && <> · filtrado por proveedor_id</>}
           </Typography>
         </Box>

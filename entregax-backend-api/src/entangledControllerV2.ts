@@ -516,14 +516,58 @@ export async function sendPendingRequestToEntangled(
         }
       })();
 
+  // tc_cliente_final es obligatorio para ENTANGLED. Para solicitudes creadas
+  // antes de que la columna existiera (o en las que la persistencia falló),
+  // intentamos recuperarlo del instructions_snapshot.quote.tipo_cambio que el
+  // frontend ya guarda al crear la solicitud. Si lo recuperamos, lo persistimos
+  // para que reuploads futuros lo encuentren en columna.
+  let tcClienteFinal: number | undefined;
+  if (reqRow.tc_cliente_final != null) {
+    tcClienteFinal = Number(reqRow.tc_cliente_final);
+  } else {
+    const snap = reqRow.instructions_snapshot && typeof reqRow.instructions_snapshot === 'object'
+      ? reqRow.instructions_snapshot
+      : null;
+    const fromSnapshot = Number(snap?.quote?.tipo_cambio);
+    if (Number.isFinite(fromSnapshot) && fromSnapshot > 0) {
+      tcClienteFinal = fromSnapshot;
+      try {
+        await pool.query(
+          `UPDATE entangled_payment_requests
+              SET tc_cliente_final = $1, updated_at = NOW()
+            WHERE id = $2`,
+          [tcClienteFinal, requestId]
+        );
+      } catch (e) {
+        console.warn('[ENTANGLED] no pude persistir tc_cliente_final recuperado:', e);
+      }
+    }
+  }
+  if (!Number.isFinite(tcClienteFinal as number) || (tcClienteFinal as number) <= 0) {
+    await pool.query(
+      `UPDATE entangled_payment_requests
+          SET estatus_global = 'error_envio',
+              error_message = $1,
+              updated_at = NOW()
+        WHERE id = $2`,
+      ['Falta tc_cliente_final para enviar a ENTANGLED', requestId]
+    );
+    return {
+      ok: false,
+      status: 400,
+      payload: {
+        error: 'Falta el tipo de cambio (tc_cliente_final) usado al crear la solicitud. Vuelva a crear la solicitud para regenerar la cotización.',
+        request_id: requestId,
+      },
+    };
+  }
+
   const payload: EntangledSolicitudPayloadV2 = {
     servicio,
     comision_cliente_final_porcentaje: Number(
       reqRow.comision_cliente_final_porcentaje || 0
     ),
-    tc_cliente_final: reqRow.tc_cliente_final != null
-      ? Number(reqRow.tc_cliente_final)
-      : undefined,
+    tc_cliente_final: tcClienteFinal,
     monto_usd: Number(reqRow.op_monto),
     divisa: reqRow.op_divisa_destino as EntangledDivisa,
     cliente_final:

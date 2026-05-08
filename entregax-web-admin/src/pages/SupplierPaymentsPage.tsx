@@ -796,7 +796,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
           '& .Mui-selected': { color: `${ORANGE} !important` },
           '& .MuiTabs-indicator': { backgroundColor: ORANGE, height: 2, boxShadow: `0 0 8px ${ORANGE}` },
         }}>
-          <Tab value={3} icon={<HubIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="ENTANGLED" />
+          <Tab value={3} icon={<HubIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Triangulación" />
           <Tab value={0} icon={<PaymentsIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Solicitudes" />
           <Tab value={2} icon={<BusinessIcon sx={{ fontSize: 18 }} />} iconPosition="start" label="Proveedores" />
         </Tabs>

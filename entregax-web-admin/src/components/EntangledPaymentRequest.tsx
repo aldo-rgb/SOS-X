@@ -923,7 +923,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   // Subida del comprobante desde el modal — muestra status/errores in-place.
   const performUploadFromModal = async () => {
     if (!uploadModal.requestId || !uploadModal.file) return;
-    setUploadModal(s => ({ ...s, state: 'uploading', message: 'Subiendo y enviando a ENTANGLED…' }));
+    setUploadModal(s => ({ ...s, state: 'uploading', message: 'Subiendo y procesando solicitud…' }));
     setUploading(true);
     try {
       const fd = new FormData();
@@ -938,7 +938,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         ...s,
         state: 'success',
         message: sentToEntangled
-          ? 'Comprobante recibido. Solicitud enviada a ENTANGLED.'
+          ? 'Comprobante recibido. Solicitud en proceso.'
           : 'Comprobante subido correctamente.',
       }));
       loadRequests();
@@ -1638,7 +1638,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             : isPending
               ? t(
                   'entangled.messages.successAwaitingProof',
-                  'Solicitud creada. Sube tu comprobante de pago desde "Últimos envíos" para enviarla a ENTANGLED.'
+                  'Solicitud creada. Sube tu comprobante de pago desde "Últimos envíos" para procesarla.'
                 )
               : t('entangled.messages.success'),
       });
@@ -3365,7 +3365,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
 
           <Alert severity="info" sx={{ bgcolor: 'rgba(59,130,246,0.12)', border: '1px solid rgba(59,130,246,0.45)', color: '#bfdbfe' }}>
             <Typography sx={{ color: '#93c5fd', fontWeight: 600 }}>
-              ℹ️ Una vez realizada la transferencia, sube tu comprobante desde "Últimos envíos" para procesar tu solicitud con ENTANGLED.
+              ℹ️ Una vez realizada la transferencia, sube tu comprobante desde "Últimos envíos" para procesar tu solicitud.
             </Typography>
           </Alert>
         </DialogContent>
@@ -3518,16 +3518,26 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         onClose={closeUploadModal}
         maxWidth="sm"
         fullWidth
+        PaperProps={{
+          sx: {
+            bgcolor: '#0a0a0a',
+            color: '#fff',
+            border: `1.5px solid ${ORANGE}`,
+            boxShadow: `0 0 0 1px ${ORANGE}33, 0 20px 50px rgba(0,0,0,0.6)`,
+            borderRadius: 2,
+            backgroundImage: 'none',
+          },
+        }}
       >
-        <DialogTitle sx={{ bgcolor: '#0a0a0a', color: '#fff' }}>
+        <DialogTitle sx={{ bgcolor: '#0a0a0a', color: '#fff', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
           Subir comprobante
           {uploadModal.referencia && (
-            <Typography variant="caption" sx={{ display: 'block', opacity: 0.7, fontFamily: 'monospace' }}>
+            <Typography variant="caption" sx={{ display: 'block', opacity: 0.7, fontFamily: 'monospace', color: '#d1d5db' }}>
               {uploadModal.referencia}
             </Typography>
           )}
         </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
+        <DialogContent sx={{ pt: 3, bgcolor: '#0a0a0a', color: '#fff' }}>
           <Stack spacing={2}>
             {uploadModal.state !== 'success' && (
               <Box
@@ -3538,16 +3548,18 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                   p: 3,
                   textAlign: 'center',
                   cursor: uploadModal.state === 'uploading' ? 'not-allowed' : 'pointer',
-                  bgcolor: '#fff8f5',
-                  '&:hover': { bgcolor: uploadModal.state === 'uploading' ? '#fff8f5' : '#fff0e8' },
+                  bgcolor: 'rgba(255,102,0,0.06)',
+                  '&:hover': {
+                    bgcolor: uploadModal.state === 'uploading' ? 'rgba(255,102,0,0.06)' : 'rgba(255,102,0,0.12)',
+                  },
                   opacity: uploadModal.state === 'uploading' ? 0.6 : 1,
                 }}
               >
                 <ReceiptLongIcon sx={{ fontSize: 40, color: ORANGE, mb: 1 }} />
-                <Typography variant="body2" fontWeight={700}>
+                <Typography variant="body2" fontWeight={700} sx={{ color: '#fff' }}>
                   {uploadModal.file ? uploadModal.file.name : 'Haz clic o arrastra el archivo del comprobante'}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#9ca3af' }}>
                   Imagen (JPG/PNG) o PDF. Tamaño máximo recomendado: 10 MB.
                 </Typography>
                 <input
@@ -3567,31 +3579,61 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             {uploadModal.state === 'uploading' && (
               <Alert
                 severity="info"
-                icon={<CircularProgress size={18} />}
-                sx={{ alignItems: 'center' }}
+                icon={<CircularProgress size={18} sx={{ color: '#60a5fa' }} />}
+                sx={{
+                  alignItems: 'center',
+                  bgcolor: 'rgba(59,130,246,0.12)',
+                  color: '#bfdbfe',
+                  border: '1px solid rgba(59,130,246,0.35)',
+                  '& .MuiAlert-icon': { color: '#60a5fa' },
+                }}
               >
                 {uploadModal.message || 'Subiendo…'}
               </Alert>
             )}
             {uploadModal.state === 'success' && (
-              <Alert severity="success">{uploadModal.message}</Alert>
+              <Alert
+                severity="success"
+                sx={{
+                  bgcolor: 'rgba(16,185,129,0.12)',
+                  color: '#a7f3d0',
+                  border: '1px solid rgba(16,185,129,0.35)',
+                  '& .MuiAlert-icon': { color: '#34d399' },
+                }}
+              >
+                {uploadModal.message}
+              </Alert>
             )}
             {uploadModal.state === 'error' && (
               <Alert
                 severity="error"
                 action={
-                  <Button color="inherit" size="small" onClick={() => setUploadModal(s => ({ ...s, state: 'idle', message: '' }))}>
+                  <Button
+                    size="small"
+                    onClick={() => setUploadModal(s => ({ ...s, state: 'idle', message: '' }))}
+                    sx={{ color: ORANGE, fontWeight: 700 }}
+                  >
                     Reintentar
                   </Button>
                 }
+                sx={{
+                  bgcolor: 'rgba(248,113,113,0.12)',
+                  color: '#fecaca',
+                  border: '1px solid rgba(248,113,113,0.4)',
+                  '& .MuiAlert-icon': { color: '#fca5a5' },
+                }}
               >
                 {uploadModal.message}
               </Alert>
             )}
           </Stack>
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={closeUploadModal} disabled={uploadModal.state === 'uploading'}>
+        <DialogActions sx={{ px: 3, pb: 2, bgcolor: '#0a0a0a', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <Button
+            onClick={closeUploadModal}
+            disabled={uploadModal.state === 'uploading'}
+            sx={{ color: '#d1d5db', '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' } }}
+          >
             {uploadModal.state === 'success' ? 'Cerrar' : 'Cancelar'}
           </Button>
           {uploadModal.state !== 'success' && (
@@ -3599,7 +3641,13 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               variant="contained"
               onClick={performUploadFromModal}
               disabled={!uploadModal.file || uploadModal.state === 'uploading'}
-              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#e07a00' } }}
+              sx={{
+                bgcolor: ORANGE,
+                color: '#fff',
+                fontWeight: 700,
+                '&:hover': { bgcolor: '#e07a00' },
+                '&.Mui-disabled': { bgcolor: 'rgba(255,102,0,0.3)', color: 'rgba(255,255,255,0.5)' },
+              }}
             >
               {uploadModal.state === 'uploading' ? 'Subiendo…' : 'Subir comprobante'}
             </Button>

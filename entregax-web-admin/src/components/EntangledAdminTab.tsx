@@ -82,9 +82,9 @@ export default function EntangledAdminTab() {
       <Paper sx={{ borderRadius: 3, overflow: 'hidden' }}>
       <Box sx={{ p: 2, bgcolor: 'grey.100', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Box>
-          <Typography fontWeight="bold">🔗 {t('entangled.title', 'Pago a Proveedores (ENTANGLED)')}</Typography>
+          <Typography fontWeight="bold">🔗 {t('entangled.title', 'Pago a Proveedores')}</Typography>
           <Typography variant="caption" color="text.secondary">
-            {t('entangled.subtitle', 'Triangulación de pagos con motor externo')}
+            {t('entangled.subtitle', 'Triangulación de pagos internacional')}
           </Typography>
         </Box>
         <Button startIcon={<RefreshIcon />} onClick={load} variant="outlined" size="small">
@@ -110,7 +110,7 @@ export default function EntangledAdminTab() {
                 <TableCell>Global</TableCell>
                 <TableCell>Factura</TableCell>
                 <TableCell>Proveedor</TableCell>
-                <TableCell>Tx ENTANGLED</TableCell>
+                <TableCell>ID transacción</TableCell>
                 <TableCell>Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -212,7 +212,7 @@ export default function EntangledAdminTab() {
               {rows.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
-                    <Typography color="text.secondary">Sin solicitudes ENTANGLED</Typography>
+                    <Typography color="text.secondary">Sin solicitudes registradas</Typography>
                   </TableCell>
                 </TableRow>
               )}

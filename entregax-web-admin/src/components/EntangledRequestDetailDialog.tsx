@@ -153,7 +153,7 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
                   </Typography>
                 </Box>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">% Cobrada ENTANGLED</Typography>
+                  <Typography variant="caption" color="text.secondary">% Costo proveedor</Typography>
                   <Typography fontWeight={700} fontSize={18}>
                     {pctCobrada != null ? `${pctCobrada.toFixed(2)}%` : '—'}
                   </Typography>
@@ -184,7 +184,7 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
               </Stack>
               {pctCliente == null || pctCobrada == null ? (
                 <Typography variant="body2" color="text.secondary">
-                  Aún no se ha recibido la confirmación de ENTANGLED con la comisión cobrada y/o TC aplicado.
+                  Aún no se ha recibido la confirmación del proveedor con la comisión cobrada y/o TC aplicado.
                 </Typography>
               ) : (
                 <Stack direction="row" spacing={4} flexWrap="wrap">
@@ -219,7 +219,7 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
               <Chip label={`Factura: ${row.estatus_factura || '—'}`} color={statusColor(row.estatus_factura)} variant="outlined" />
               <Chip label={`Proveedor: ${row.estatus_proveedor || '—'}`} color={statusColor(row.estatus_proveedor)} variant="outlined" />
               {row.entangled_transaccion_id && (
-                <Chip label={`tx: ${row.entangled_transaccion_id.slice(0, 18)}…`} variant="outlined" />
+                <Chip label={`ID transacción: ${row.entangled_transaccion_id.slice(0, 18)}…`} variant="outlined" />
               )}
             </Stack>
           </Grid>
@@ -228,7 +228,7 @@ export default function EntangledRequestDetailDialog({ open, onClose, row }: Pro
           {empresas != null && (
             <Grid size={{ xs: 12 }}>
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Typography variant="overline" color="text.secondary">Empresas asignadas (ENTANGLED)</Typography>
+                <Typography variant="overline" color="text.secondary">Empresas asignadas</Typography>
                 <Box component="pre" sx={{ m: 0, mt: 1, fontSize: 12, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                   {JSON.stringify(empresas, null, 2)}
                 </Box>
