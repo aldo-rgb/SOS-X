@@ -1303,6 +1303,15 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       return;
     }
     setSubmitting(true);
+    // Snapshot inmutable de las claves seleccionadas y su asignación,
+    // para garantizar que los datos lleguen al modal aunque selectedConceptos
+    // se limpie por la cadena de useEffect después del submit.
+    const conceptosSnapshot = selectedConceptos.map(c => ({
+      clave_prodserv: c.clave_prodserv,
+      descripcion: c.descripcion,
+      empresa: c.empresa,
+      cuenta_bancaria: c.cuenta_bancaria,
+    }));
     try {
       // Si pidió guardar perfil fiscal
       if (requiereFactura && saveFiscalProfile) {
@@ -1424,16 +1433,16 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       setSaveSupplierForLater(true);
       // empresas_asignadas: con el nuevo flujo, ENTANGLED no responde con esto
       // hasta que se sube el comprobante. Mientras tanto usamos los datos
-      // recolectados de /asignacion (almacenados en selectedConceptos).
+      // recolectados de /asignacion capturados en conceptosSnapshot.
       let empresasAsignadas: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: unknown }> = [];
       if (Array.isArray(res.data?.empresas_asignadas) && res.data.empresas_asignadas.length > 0) {
         empresasAsignadas = res.data.empresas_asignadas;
-      } else if (selectedConceptos.length > 0) {
+      } else if (conceptosSnapshot.length > 0) {
         // Misma empresa para todas las claves (lo garantiza el bloqueo de empresa)
         empresasAsignadas = [{
-          clave_prodserv: selectedConceptos.map(c => c.clave_prodserv).join(', '),
-          empresa: selectedConceptos[0].empresa.razon_social,
-          cuenta_bancaria: selectedConceptos[0].cuenta_bancaria,
+          clave_prodserv: conceptosSnapshot.map(c => c.clave_prodserv).join(', '),
+          empresa: conceptosSnapshot[0].empresa.razon_social,
+          cuenta_bancaria: conceptosSnapshot[0].cuenta_bancaria,
         }];
       }
 
