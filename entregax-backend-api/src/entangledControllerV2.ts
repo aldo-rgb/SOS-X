@@ -340,19 +340,31 @@ export const createPaymentRequestV2 = async (
   try {
     const ext = (file!.originalname?.split('.').pop() || 'pdf').toLowerCase();
     const key = `entangled/comprobantes/${requestId}_${Date.now()}.${ext}`;
-    const { uploadToS3, isS3Configured } = await import('./s3Service');
+    const { uploadToS3, isS3Configured, getSignedUrlForKey } = await import('./s3Service');
     if (isS3Configured()) {
-      comprobanteUrl = await uploadToS3(file!.buffer, key, file!.mimetype);
+      // El bucket es privado; guardamos la URL pública en DB pero a ENTANGLED
+      // le damos una URL firmada con 7 días de validez para que pueda
+      // descargar el archivo sin AccessDenied.
+      const publicUrl = await uploadToS3(file!.buffer, key, file!.mimetype);
+      const signedUrl = await getSignedUrlForKey(key, 7 * 24 * 60 * 60);
+      await pool.query(
+        `UPDATE entangled_payment_requests
+            SET op_comprobante_cliente_url = $1, comprobante_subido_at = NOW(), updated_at = NOW()
+          WHERE id = $2`,
+        [publicUrl, requestId]
+      );
+      comprobanteUrl = signedUrl;
+      payload.comprobante_cliente_url = signedUrl;
     } else {
       comprobanteUrl = `data:${file!.mimetype};base64,${file!.buffer.toString('base64')}`;
+      await pool.query(
+        `UPDATE entangled_payment_requests
+            SET op_comprobante_cliente_url = $1, comprobante_subido_at = NOW(), updated_at = NOW()
+          WHERE id = $2`,
+        [comprobanteUrl, requestId]
+      );
+      payload.comprobante_cliente_url = comprobanteUrl;
     }
-    await pool.query(
-      `UPDATE entangled_payment_requests
-          SET op_comprobante_cliente_url = $1, comprobante_subido_at = NOW(), updated_at = NOW()
-        WHERE id = $2`,
-      [comprobanteUrl, requestId]
-    );
-    payload.comprobante_cliente_url = comprobanteUrl;
   } catch (e) {
     console.error('[ENTANGLED v2] Error subiendo comprobante a S3:', e);
     // Seguimos intentando ENTANGLED; si su contrato exige URL fallará abajo.
@@ -606,8 +618,20 @@ export async function sendPendingRequestToEntangled(
   // /upload-proof-file en index.ts antes de invocarnos). ENTANGLED exige que
   // POST /solicitud-pago incluya el archivo (multipart) o el link
   // (comprobante_cliente_url) en el JSON; vamos por la opción JSON+URL.
+  // Como el bucket es privado, generamos una URL firmada con 7 días de
+  // validez para que ENTANGLED pueda descargar el archivo sin AccessDenied.
   if (reqRow.op_comprobante_cliente_url) {
-    payload.comprobante_cliente_url = String(reqRow.op_comprobante_cliente_url);
+    let urlForEntangled = String(reqRow.op_comprobante_cliente_url);
+    try {
+      const { extractKeyFromUrl, getSignedUrlForKey } = await import('./s3Service');
+      const key = extractKeyFromUrl(urlForEntangled);
+      if (key) {
+        urlForEntangled = await getSignedUrlForKey(key, 7 * 24 * 60 * 60);
+      }
+    } catch (e) {
+      console.warn('[ENTANGLED] no pude firmar la URL del comprobante:', e);
+    }
+    payload.comprobante_cliente_url = urlForEntangled;
   }
 
   if (!isEntangledConfigured()) {
