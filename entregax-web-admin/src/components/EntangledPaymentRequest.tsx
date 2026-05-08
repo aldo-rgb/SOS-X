@@ -1298,6 +1298,21 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       setEditingFiscalData(false);
       setEditingSupplierData(false);
       setSaveSupplierForLater(true);
+      // empresas_asignadas: con el nuevo flujo, ENTANGLED no responde con esto
+      // hasta que se sube el comprobante. Mientras tanto usamos los datos
+      // recolectados de /asignacion (almacenados en selectedConceptos).
+      let empresasAsignadas: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: unknown }> = [];
+      if (Array.isArray(res.data?.empresas_asignadas) && res.data.empresas_asignadas.length > 0) {
+        empresasAsignadas = res.data.empresas_asignadas;
+      } else if (selectedConceptos.length > 0) {
+        // Misma empresa para todas las claves (lo garantiza el bloqueo de empresa)
+        empresasAsignadas = [{
+          clave_prodserv: selectedConceptos.map(c => c.clave_prodserv).join(', '),
+          empresa: selectedConceptos[0].empresa.razon_social,
+          cuenta_bancaria: selectedConceptos[0].cuenta_bancaria,
+        }];
+      }
+
       // Mostrar instrucciones de pago
       setLastCreated({
         request: res.data?.request,
@@ -1307,7 +1322,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         providerSnapshot,
         operationSnapshot,
         beneficiarioSnapshot,
-        empresas_asignadas: Array.isArray(res.data?.empresas_asignadas) ? res.data.empresas_asignadas : [],
+        empresas_asignadas: empresasAsignadas,
         entangled_transaccion_id: res.data?.entangled_transaccion_id || res.data?.request?.entangled_transaccion_id,
       });
       setInstructionsOpen(true);
