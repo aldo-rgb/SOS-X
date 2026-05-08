@@ -35,9 +35,11 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DescriptionIcon from '@mui/icons-material/Description';
-import CodeIcon from '@mui/icons-material/Code';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
+import DownloadIcon from '@mui/icons-material/Download';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import DataObjectIcon from '@mui/icons-material/DataObject';
 import ContactsIcon from '@mui/icons-material/Contacts';
 import DeleteIcon from '@mui/icons-material/Delete';
 import StarIcon from '@mui/icons-material/Star';
@@ -202,14 +204,28 @@ const formatElapsed = (fromIso: string, toNow: Date): string => {
   const normalized = fromIso.includes('T') ? fromIso : fromIso.replace(' ', 'T');
   const hasZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(normalized);
   const from = new Date(hasZone ? normalized : `${normalized}Z`);
-  const secs = Math.floor((toNow.getTime() - from.getTime()) / 1000);
-  const d = Math.floor(secs / 86400);
-  const h = Math.floor((secs % 86400) / 3600);
-  const m = Math.floor((secs % 3600) / 60);
-  const s = secs % 60;
-  if (d > 0) return `${d}d ${h}h ${m}m`;
-  if (h > 0) return `${h}h ${m}m ${s}s`;
-  return `${m}m ${s}s`;
+  const days = Math.floor((toNow.getTime() - from.getTime()) / 86400000);
+  if (days <= 0) return 'Hoy';
+  if (days === 1) return 'Hace 1 día';
+  return `Hace ${days} días`;
+};
+
+// Hora/fecha exacta a la que se cancela una solicitud sin comprobante.
+// El usuario sólo ve "Se cancela 09/05 a las 11:33 PM" — sin segundos.
+const formatCancellationAt = (deadlineIso: string | null | undefined): string | null => {
+  if (!deadlineIso) return null;
+  const normalized = deadlineIso.includes('T') ? deadlineIso : deadlineIso.replace(' ', 'T');
+  const hasZone = /([zZ]|[+-]\d{2}:?\d{2})$/.test(normalized);
+  const d = new Date(hasZone ? normalized : `${normalized}Z`);
+  if (Number.isNaN(d.getTime())) return null;
+  return new Intl.DateTimeFormat('es-MX', {
+    day: '2-digit',
+    month: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: XPAY_TIMEZONE,
+  }).format(d);
 };
 
 // Soft fintech-style status badge — translucent fill + thin border
@@ -225,31 +241,106 @@ const STATUS_PALETTE: Record<string, { bg: string; bd: string; fg: string }> = {
 };
 const StatusBadge: React.FC<{ status: string; label: string; variant?: 'solid' | 'outline' }> = ({ status, label, variant = 'solid' }) => {
   const palette = STATUS_PALETTE[status] || { bg: 'rgba(156,163,175,0.08)', bd: 'rgba(156,163,175,0.3)', fg: '#9ca3af' };
+  const isLive = status === 'en_proceso' || status === 'enviado';
   return (
     <Box
       component="span"
       sx={{
         display: 'inline-flex',
         alignItems: 'center',
-        gap: 0.7,
-        bgcolor: variant === 'solid' ? palette.bg : 'transparent',
+        gap: 0.6,
+        background: variant === 'solid'
+          ? `linear-gradient(135deg, ${palette.bg}, transparent 90%)`
+          : 'transparent',
         border: `1px solid ${palette.bd}`,
         color: palette.fg,
-        fontSize: '0.72rem',
-        fontWeight: 600,
-        letterSpacing: '0.02em',
-        px: 1.2,
-        py: 0.4,
+        fontSize: '0.6rem',
+        fontWeight: 700,
+        letterSpacing: '0.08em',
+        px: 0.9,
+        py: 0.3,
         borderRadius: '999px',
-        textTransform: 'capitalize',
+        textTransform: 'uppercase',
         whiteSpace: 'nowrap',
+        lineHeight: 1.2,
       }}
     >
-      <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: palette.fg }} />
+      <Box
+        component="span"
+        sx={{
+          width: 5,
+          height: 5,
+          borderRadius: '50%',
+          bgcolor: palette.fg,
+          boxShadow: `0 0 6px ${palette.fg}`,
+          animation: isLive ? 'xpay-pulse-dot 1.6s ease-in-out infinite' : 'none',
+          '@keyframes xpay-pulse-dot': {
+            '0%, 100%': { opacity: 1, transform: 'scale(1)' },
+            '50%': { opacity: 0.55, transform: 'scale(0.8)' },
+          },
+        }}
+      />
       {label.replace(/_/g, ' ')}
     </Box>
   );
 };
+
+// Botón estilo tarjeta para descargar un documento (factura PDF/XML, comprobante).
+// Glassmorphism dark, hover orange border, download arrow naranja.
+const DocCard: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  loading?: boolean;
+}> = ({ icon, label, onClick, loading = false }) => (
+  <Tooltip title={`Descargar ${label}`}>
+    <Box
+      component="button"
+      type="button"
+      onClick={loading ? undefined : onClick}
+      disabled={loading}
+      sx={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 0.7,
+        minWidth: 138,
+        maxWidth: 200,
+        px: 1,
+        py: 0.5,
+        borderRadius: 1.2,
+        bgcolor: 'rgba(255,255,255,0.04)',
+        backdropFilter: 'blur(8px)',
+        border: '1px solid rgba(255,255,255,0.08)',
+        cursor: loading ? 'wait' : 'pointer',
+        transition: 'all 0.15s ease',
+        textAlign: 'left',
+        '&:hover': loading ? {} : {
+          borderColor: 'rgba(255,102,0,0.55)',
+          bgcolor: 'rgba(255,102,0,0.06)',
+          '& .doc-card-arrow': { transform: 'translateY(2px)' },
+        },
+      }}
+    >
+      <Box sx={{ display: 'flex', alignItems: 'center', color: '#cbd5e1' }}>{icon}</Box>
+      <Typography sx={{
+        fontSize: '0.68rem',
+        fontWeight: 600,
+        color: '#d1d5db',
+        flex: 1,
+        textTransform: 'none',
+        letterSpacing: 0,
+        whiteSpace: 'nowrap',
+      }}>
+        {label}
+      </Typography>
+      {loading ? (
+        <CircularProgress size={12} sx={{ color: '#FF6600' }} />
+      ) : (
+        <DownloadIcon className="doc-card-arrow" sx={{ fontSize: 14, color: '#FF6600', transition: 'transform 0.15s ease' }} />
+      )}
+    </Box>
+  </Tooltip>
+);
 
 interface Props {
   /** Cuando true, oculta el header del componente (útil si se mete dentro de otra página). */
@@ -1095,17 +1186,6 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         || 'No se pudo generar el PDF de la solicitud.';
       setSnack({ open: true, severity: 'error', message: msg });
     }
-  };
-
-  // Helper: deadline de cancelación (24h después de creada la solicitud).
-  // Devuelve el countdown formateado o null si ya pasó.
-  const formatCancelCountdown = (createdAt: string, deadlineAt?: string | null): string | null => {
-    const deadline = deadlineAt ? new Date(deadlineAt) : new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000);
-    const ms = deadline.getTime() - now.getTime();
-    if (ms <= 0) return null;
-    const h = Math.floor(ms / 3600000);
-    const m = Math.floor((ms % 3600000) / 60000);
-    return `Se cancela en ${h}h ${m}m`;
   };
 
   // Helper: cargar imagen como dataURL para embeber en PDF
@@ -2099,9 +2179,9 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               <Table size="small">
                 <TableHead>
                   <TableRow sx={{ bgcolor: '#08080a' }}>
-                    {['#', 'Razón Social', 'Monto a Enviar', 'Divisa Destino', 'Estatus', 'Factura', 'Pago a Proveedor', 'Acciones'].map((col, i) => (
-                      <TableCell key={col} align={i === 7 ? 'center' : i === 2 ? 'right' : 'left'}
-                        sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.68rem', letterSpacing: '0.07em', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap' }}>
+                    {['#', 'Monto', 'Destino / Divisa', 'Estatus', 'Documento Fiscal', 'Comprobante de Pago', 'Acciones'].map((col, i) => (
+                      <TableCell key={col} align={i === 6 ? 'center' : i === 1 ? 'right' : 'left'}
+                        sx={{ color: '#6b7280', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.62rem', letterSpacing: '0.09em', borderBottom: `1px solid ${BORDER}`, whiteSpace: 'nowrap', py: 1.2 }}>
                         {col}
                       </TableCell>
                     ))}
@@ -2110,13 +2190,13 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                 <TableBody>
                   {loading && requests.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} align="center" sx={{ bgcolor: '#1a1a1a' }}>
+                      <TableCell colSpan={7} align="center" sx={{ bgcolor: '#1a1a1a' }}>
                         <CircularProgress size={20} sx={{ color: ORANGE }} />
                       </TableCell>
                     </TableRow>
                   ) : requests.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} align="center" sx={{ bgcolor: '#1a1a1a', py: 3 }}>
+                      <TableCell colSpan={7} align="center" sx={{ bgcolor: '#1a1a1a', py: 3 }}>
                         <Typography variant="body2" sx={{ color: '#666666' }}>
                           {t('entangled.messages.empty')}
                         </Typography>
@@ -2128,95 +2208,97 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       const destinationCode = resolveDestinationCountryCode(r as EntangledRequest & Record<string, unknown>, widgetDestinationCountry);
                       const destination = COUNTRY_META[destinationCode] || COUNTRY_META.US;
                       return (
-                      <TableRow key={r.id} hover sx={{ bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.025)' }, '& td': { borderBottom: `1px solid ${BORDER}` } }}>
-                        {/* Referencia */}
+                      <TableRow key={r.id} hover sx={{ bgcolor: 'transparent', '&:hover': { bgcolor: 'rgba(255,255,255,0.025)' }, '& td': { borderBottom: `1px solid ${BORDER}`, py: 1.4 } }}>
+                        {/* Referencia — tooltip con razón social + transaccion_id */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1, py: 0.3, borderRadius: 1, border: `1px solid ${ORANGE}55`, bgcolor: `${ORANGE}12` }}>
-                            <Typography sx={{ color: ORANGE, fontWeight: 800, fontSize: '0.72rem', letterSpacing: '0.1em', fontFamily: 'monospace' }}>
-                              {r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`}
-                            </Typography>
-                          </Box>
+                          <Tooltip
+                            arrow
+                            placement="top-start"
+                            title={
+                              <Box sx={{ p: 0.4 }}>
+                                <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, color: '#fff' }}>
+                                  {r.cf_razon_social || '—'}
+                                </Typography>
+                                {r.entangled_transaccion_id && (
+                                  <Typography sx={{ fontSize: '0.62rem', color: '#cbd5e1', fontFamily: 'monospace', mt: 0.3 }}>
+                                    ID ENTANGLED: {r.entangled_transaccion_id}
+                                  </Typography>
+                                )}
+                              </Box>
+                            }
+                          >
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', px: 1, py: 0.3, borderRadius: 1, border: `1px solid ${ORANGE}55`, bgcolor: `${ORANGE}12`, cursor: 'help' }}>
+                              <Typography sx={{ color: ORANGE, fontWeight: 800, fontSize: '0.72rem', letterSpacing: '0.1em', fontFamily: 'monospace' }}>
+                                {r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`}
+                              </Typography>
+                            </Box>
+                          </Tooltip>
                         </TableCell>
-                        {/* Razón Social */}
-                        <TableCell sx={{ minWidth: 160 }}>
-                          <Typography sx={{ color: '#e5e7eb', fontWeight: 700, fontSize: '0.8rem', lineHeight: 1.2 }}>
-                            {r.cf_razon_social}
-                          </Typography>
-                          {r.entangled_transaccion_id && (
-                            <Typography sx={{ color: '#6b7280', fontSize: '0.68rem', fontFamily: 'monospace' }}>
-                              {r.entangled_transaccion_id}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        {/* Monto */}
+                        {/* Monto — sólo el número naranja, protagonista */}
                         <TableCell align="right" sx={{ whiteSpace: 'nowrap' }}>
-                          <Typography sx={{ color: ORANGE, fontWeight: 700, fontSize: '0.85rem' }}>
-                            ${formatMoney(r.op_monto)}
-                          </Typography>
-                          {String(r.estatus_global || '').toLowerCase() === 'cancelado' && cancellationFee > 0 && (
-                            <Typography sx={{ color: '#fdba74', fontSize: '0.68rem' }}>Fee: ${formatMoney(cancellationFee)} USD</Typography>
-                          )}
+                          <Stack spacing={0.2} alignItems="flex-end">
+                            <Typography sx={{ color: ORANGE, fontWeight: 800, fontSize: '1.05rem', lineHeight: 1.1, letterSpacing: '-0.01em' }}>
+                              ${formatMoney(r.op_monto)}
+                            </Typography>
+                            {String(r.estatus_global || '').toLowerCase() === 'cancelado' && cancellationFee > 0 && (
+                              <Typography sx={{ color: '#fdba74', fontSize: '0.62rem' }}>Fee ${formatMoney(cancellationFee)} USD</Typography>
+                            )}
+                          </Stack>
                         </TableCell>
-                        {/* Divisa Destino */}
-                        <TableCell>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <Typography sx={{ fontSize: '0.9rem' }}>{destination.flag}</Typography>
-                            <Typography sx={{ color: '#e5e7eb', fontWeight: 700, fontSize: '0.8rem' }}>{r.op_divisa_destino || '—'}</Typography>
+                        {/* Destino / Divisa — bandera + sigla en plata */}
+                        <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.7, px: 0.9, py: 0.4, borderRadius: 1.2, bgcolor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)' }}>
+                            <Typography sx={{ fontSize: '0.95rem', lineHeight: 1 }}>{destination.flag}</Typography>
+                            <Typography sx={{ color: '#cbd5e1', fontWeight: 700, fontSize: '0.7rem', letterSpacing: '0.06em' }}>
+                              {r.op_divisa_destino || '—'}
+                            </Typography>
                           </Box>
                         </TableCell>
                         {/* Estatus */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           <StatusBadge status={r.estatus_global} label={t(`entangled.status.${r.estatus_global}`, r.estatus_global)} />
                         </TableCell>
-                        {/* Factura */}
+                        {/* Documento Fiscal — Factura PDF + XML */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          <StatusBadge status={r.estatus_factura} label={t(`entangled.status.${r.estatus_factura}`, r.estatus_factura)} variant="outline" />
-                          {r.entangled_transaccion_id && r.cf_rfc && (
-                            <>
-                              <Tooltip title={t('entangled.actions.downloadFacturaPdf', 'Descargar Factura (PDF)') as string}>
-                                <span>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => downloadEntangledDoc(r.id, 'factura_pdf')}
-                                    disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_pdf'}
-                                    sx={{ ml: 0.4, p: 0.2 }}
-                                  >
-                                    <DescriptionIcon sx={{ fontSize: 14, color: '#9ca3af' }} />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                              <Tooltip title={t('entangled.actions.downloadFacturaXml', 'Descargar Factura (XML)') as string}>
-                                <span>
-                                  <IconButton
-                                    size="small"
-                                    onClick={() => downloadEntangledDoc(r.id, 'factura_xml')}
-                                    disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_xml'}
-                                    sx={{ ml: 0.2, p: 0.2 }}
-                                  >
-                                    <CodeIcon sx={{ fontSize: 14, color: '#60a5fa' }} />
-                                  </IconButton>
-                                </span>
-                              </Tooltip>
-                            </>
-                          )}
+                          <Stack spacing={0.6} alignItems="flex-start">
+                            <StatusBadge status={r.estatus_factura} label={t(`entangled.status.${r.estatus_factura}`, r.estatus_factura)} variant="outline" />
+                            {r.entangled_transaccion_id && r.cf_rfc ? (
+                              <Stack spacing={0.4} sx={{ width: 'fit-content' }}>
+                                <DocCard
+                                  icon={<PictureAsPdfIcon sx={{ fontSize: 16 }} />}
+                                  label="Factura PDF"
+                                  loading={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_pdf'}
+                                  onClick={() => downloadEntangledDoc(r.id, 'factura_pdf')}
+                                />
+                                <DocCard
+                                  icon={<DataObjectIcon sx={{ fontSize: 16 }} />}
+                                  label="Factura XML"
+                                  loading={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_xml'}
+                                  onClick={() => downloadEntangledDoc(r.id, 'factura_xml')}
+                                />
+                              </Stack>
+                            ) : (
+                              !r.cf_rfc && (
+                                <Typography sx={{ color: '#6b7280', fontSize: '0.65rem', fontStyle: 'italic' }}>
+                                  Sin factura
+                                </Typography>
+                              )
+                            )}
+                          </Stack>
                         </TableCell>
-                        {/* Pago a Proveedor */}
+                        {/* Comprobante de Pago al proveedor */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
-                          <StatusBadge status={r.estatus_proveedor} label={t(`entangled.status.${r.estatus_proveedor}`, r.estatus_proveedor)} variant="outline" />
-                          {r.entangled_transaccion_id && (
-                            <Tooltip title={t('entangled.actions.downloadProveedorProof', 'Descargar comprobante de pago al proveedor') as string}>
-                              <span>
-                                <IconButton
-                                  size="small"
-                                  onClick={() => downloadEntangledDoc(r.id, 'comprobante_proveedor')}
-                                  disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'comprobante_proveedor'}
-                                  sx={{ ml: 0.4, p: 0.2 }}
-                                >
-                                  <ReceiptLongIcon sx={{ fontSize: 14, color: '#4ade80' }} />
-                                </IconButton>
-                              </span>
-                            </Tooltip>
-                          )}
+                          <Stack spacing={0.6} alignItems="flex-start">
+                            <StatusBadge status={r.estatus_proveedor} label={t(`entangled.status.${r.estatus_proveedor}`, r.estatus_proveedor)} variant="outline" />
+                            {r.entangled_transaccion_id && (
+                              <DocCard
+                                icon={<ReceiptLongIcon sx={{ fontSize: 16, color: '#4ade80' }} />}
+                                label="Comprobante"
+                                loading={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'comprobante_proveedor'}
+                                onClick={() => downloadEntangledDoc(r.id, 'comprobante_proveedor')}
+                              />
+                            )}
+                          </Stack>
                         </TableCell>
                         {/* Acciones */}
                         <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
@@ -2318,44 +2400,46 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                               </Stack>
                             );
                           })()}
-                          {/* Chronometer / countdown / fecha */}
+                          {/* Chronometer (días) / fecha de cancelación / fecha de creación */}
                           {(() => {
                             const estatus = String(r.estatus_global || '').toLowerCase();
                             const isTerminal = ['cancelado', 'rechazado', 'completado', 'pagado'].includes(estatus);
                             const isErroredSend = ['error_envio', 'error'].includes(estatus);
-                            // Comprobante subido OK: chronometer verde sólo si NO falló el envío.
+                            // Comprobante subido OK: chip verde con días transcurridos.
                             if (r.comprobante_subido_at && !isErroredSend) {
                               return (
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.22)', width: 'fit-content' }}>
-                                  <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#4ade80', display: 'inline-block', animation: 'xpay-dot 1.4s infinite' }} />
-                                  <Typography sx={{ color: '#4ade80', fontSize: '0.65rem', fontWeight: 800, fontFamily: 'monospace' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.7, px: 0.9, py: 0.3, borderRadius: 1, bgcolor: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.22)', width: 'fit-content' }}>
+                                  <Box component="span" sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: '#4ade80', boxShadow: '0 0 6px #4ade80', display: 'inline-block' }} />
+                                  <Typography sx={{ color: '#4ade80', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.04em' }}>
                                     {formatElapsed(r.comprobante_subido_at, now)}
                                   </Typography>
                                 </Box>
                               );
                             }
-                            // Pendiente / error_envio: countdown 24h o "No enviado".
-                            const cd = formatCancelCountdown(r.created_at, r.payment_deadline_at);
-                            if (cd && !isTerminal) {
+                            // Pendiente / error_envio: fecha exacta de cancelación + flag "No enviado".
+                            const cancelAt = formatCancellationAt(r.payment_deadline_at);
+                            if (cancelAt && !isTerminal) {
                               return (
-                                <Stack spacing={0.4} alignItems="flex-start" sx={{ mt: 0.5 }}>
+                                <Stack spacing={0.4} alignItems="flex-start" sx={{ mt: 0.7 }}>
                                   {isErroredSend && (
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.32)' }}>
-                                      <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#ef4444', display: 'inline-block' }} />
-                                      <Typography sx={{ color: '#ef4444', fontSize: '0.65rem', fontWeight: 800 }}>No enviado · reintenta</Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 0.9, py: 0.3, borderRadius: 1, bgcolor: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.32)' }}>
+                                      <Box component="span" sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: '#ef4444', boxShadow: '0 0 6px #ef4444', display: 'inline-block' }} />
+                                      <Typography sx={{ color: '#ef4444', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.05em', textTransform: 'uppercase' }}>No enviado · reintenta</Typography>
                                     </Box>
                                   )}
                                   <Tooltip title="Si no subes el comprobante antes de esta hora, la solicitud se cancela automáticamente">
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.32)' }}>
-                                      <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#f59e0b', display: 'inline-block' }} />
-                                      <Typography sx={{ color: '#f59e0b', fontSize: '0.65rem', fontWeight: 800, fontFamily: 'monospace' }}>{cd}</Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 0.9, py: 0.3, borderRadius: 1, bgcolor: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.32)' }}>
+                                      <Box component="span" sx={{ width: 5, height: 5, borderRadius: '50%', bgcolor: '#f59e0b', boxShadow: '0 0 6px #f59e0b', display: 'inline-block' }} />
+                                      <Typography sx={{ color: '#f59e0b', fontSize: '0.62rem', fontWeight: 700, letterSpacing: '0.04em' }}>
+                                        Se cancela {cancelAt}
+                                      </Typography>
                                     </Box>
                                   </Tooltip>
                                 </Stack>
                               );
                             }
                             return (
-                              <Typography sx={{ color: '#6b7280', fontSize: '0.65rem', mt: 0.3 }}>
+                              <Typography sx={{ color: '#6b7280', fontSize: '0.62rem', mt: 0.5, letterSpacing: '0.04em' }}>
                                 {new Date(r.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' })}
                               </Typography>
                             );
