@@ -3482,6 +3482,24 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
     if (!owner.rows.length) return res.status(404).json({ error: 'Solicitud no encontrada' });
     if (owner.rows[0].user_id !== userId) return res.status(403).json({ error: 'Sin acceso' });
 
+    // Backfill de tc_cliente_final para solicitudes antiguas: si el frontend
+    // envía un TC en el body y la columna está vacía, lo persistimos antes de
+    // reenviar a ENTANGLED. COALESCE evita pisar un TC ya guardado.
+    const tcFromBody = Number((req.body as any)?.tc_cliente_final);
+    if (Number.isFinite(tcFromBody) && tcFromBody > 0) {
+      try {
+        await dbPool.query(
+          `UPDATE entangled_payment_requests
+              SET tc_cliente_final = COALESCE(tc_cliente_final, $1),
+                  updated_at = NOW()
+            WHERE id = $2`,
+          [tcFromBody, id]
+        );
+      } catch (e) {
+        console.warn('[ENTANGLED] backfill tc_cliente_final:', e);
+      }
+    }
+
     // 1) Persistir el comprobante (sube a S3 si está configurado)
     const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
     const key = `entangled/comprobantes/${id}_${Date.now()}.${ext}`;

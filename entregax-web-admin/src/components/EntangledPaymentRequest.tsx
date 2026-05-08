@@ -928,6 +928,19 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     try {
       const fd = new FormData();
       fd.append('comprobante', uploadModal.file);
+      // Fallback de tc_cliente_final para solicitudes antiguas (creadas antes de
+      // que se persistiera el TC del cliente). Mandamos el TC actual del pricing
+      // y el backend solo lo usa si la columna está vacía (COALESCE).
+      const row = requests.find(r => r.id === uploadModal.requestId);
+      if (row && pricing) {
+        const divisa = String(row.op_divisa_destino || '').toUpperCase();
+        const fallbackTc = divisa === 'RMB'
+          ? Number(pricing.tipo_cambio_rmb)
+          : Number(pricing.tipo_cambio_usd);
+        if (Number.isFinite(fallbackTc) && fallbackTc > 0) {
+          fd.append('tc_cliente_final', String(fallbackTc));
+        }
+      }
       const res = await axios.post(
         `${API_URL}/api/entangled/payment-requests/${uploadModal.requestId}/upload-proof-file`,
         fd,
