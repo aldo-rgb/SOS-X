@@ -4,7 +4,7 @@ import {
   Button, Chip, CircularProgress, Alert, Tabs, Tab, Table, TableHead, TableRow, TableCell,
   TableBody, IconButton, TextField, InputAdornment, Menu, MenuItem, Divider, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions, FormControl, InputLabel, Select,
-  FormControlLabel, Switch, Stack, Snackbar,
+  FormControlLabel, Switch, Stack, Snackbar, Stepper, Step, StepLabel, Autocomplete,
 } from '@mui/material';
 import ApartmentIcon from '@mui/icons-material/Apartment';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
@@ -345,6 +345,7 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<'all' | 'valid' | 'canceled'>('all');
   const [search, setSearch] = useState('');
+  const [newOpen, setNewOpen] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -380,6 +381,20 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
         <Chip label="Todas" size="small" onClick={() => setStatusFilter('all')} color={statusFilter === 'all' ? 'default' : undefined} sx={{ bgcolor: statusFilter === 'all' ? BLACK : undefined, color: statusFilter === 'all' ? 'white' : undefined }} />
         <Chip label="Vigentes" size="small" onClick={() => setStatusFilter('valid')} sx={{ bgcolor: statusFilter === 'valid' ? ORANGE : undefined, color: statusFilter === 'valid' ? 'white' : undefined }} />
         <Chip label="Canceladas" size="small" onClick={() => setStatusFilter('canceled')} sx={{ bgcolor: statusFilter === 'canceled' ? RED : undefined, color: statusFilter === 'canceled' ? 'white' : undefined }} />
+        <Tooltip title={emitter.perms.can_emit_invoice ? 'Crear factura desde cero' : 'Sin permiso para emitir en esta empresa'}>
+          <span>
+            <Button
+              startIcon={<AddIcon />}
+              variant="contained"
+              size="small"
+              disabled={!emitter.perms.can_emit_invoice}
+              onClick={() => setNewOpen(true)}
+              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK }, textTransform: 'none', ml: 1 }}
+            >
+              Nueva Factura
+            </Button>
+          </span>
+        </Tooltip>
       </Box>
 
       {loading ? (
@@ -452,7 +467,520 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
           </TableBody>
         </Table>
       )}
+      <NewInvoiceDialog open={newOpen} emitter={emitter} onClose={() => setNewOpen(false)} onCreated={load} />
     </Box>
+  );
+}
+
+// ============ Catálogos SAT (subset usable) ============
+const USO_CFDI_OPTIONS: { code: string; label: string }[] = [
+  { code: 'G01', label: 'G01 - Adquisición de mercancías' },
+  { code: 'G02', label: 'G02 - Devoluciones, descuentos o bonificaciones' },
+  { code: 'G03', label: 'G03 - Gastos en general' },
+  { code: 'I01', label: 'I01 - Construcciones' },
+  { code: 'I02', label: 'I02 - Mobiliario y equipo de oficina' },
+  { code: 'I04', label: 'I04 - Equipo de cómputo y accesorios' },
+  { code: 'I06', label: 'I06 - Comunicaciones telefónicas' },
+  { code: 'I08', label: 'I08 - Otra maquinaria y equipo' },
+  { code: 'D01', label: 'D01 - Honorarios médicos, dentales y hospitalarios' },
+  { code: 'P01', label: 'P01 - Por definir' },
+  { code: 'S01', label: 'S01 - Sin efectos fiscales' },
+  { code: 'CP01', label: 'CP01 - Pagos' },
+];
+
+const REGIMEN_FISCAL_OPTIONS: { code: string; label: string }[] = [
+  { code: '601', label: '601 - General de Ley Personas Morales' },
+  { code: '603', label: '603 - Personas Morales con Fines no Lucrativos' },
+  { code: '605', label: '605 - Sueldos y Salarios e Ingresos Asimilados a Salarios' },
+  { code: '606', label: '606 - Arrendamiento' },
+  { code: '608', label: '608 - Demás ingresos' },
+  { code: '610', label: '610 - Residentes en el Extranjero sin Establecimiento Permanente en México' },
+  { code: '611', label: '611 - Ingresos por Dividendos (socios y accionistas)' },
+  { code: '612', label: '612 - Personas Físicas con Actividades Empresariales y Profesionales' },
+  { code: '614', label: '614 - Ingresos por intereses' },
+  { code: '615', label: '615 - Régimen de los ingresos por obtención de premios' },
+  { code: '616', label: '616 - Sin obligaciones fiscales' },
+  { code: '621', label: '621 - Incorporación Fiscal' },
+  { code: '622', label: '622 - Actividades Agrícolas, Ganaderas, Silvícolas y Pesqueras' },
+  { code: '625', label: '625 - Régimen de las Actividades Empresariales con ingresos a través de Plataformas Tecnológicas' },
+  { code: '626', label: '626 - Régimen Simplificado de Confianza' },
+];
+
+const PAYMENT_FORM_OPTIONS: { code: string; label: string }[] = [
+  { code: '01', label: '01 - Efectivo' },
+  { code: '02', label: '02 - Cheque nominativo' },
+  { code: '03', label: '03 - Transferencia electrónica de fondos' },
+  { code: '04', label: '04 - Tarjeta de crédito' },
+  { code: '05', label: '05 - Monedero electrónico' },
+  { code: '28', label: '28 - Tarjeta de débito' },
+  { code: '99', label: '99 - Por definir' },
+];
+
+const UNIT_OPTIONS: { code: string; label: string }[] = [
+  { code: 'E48', label: 'E48 - Unidad de servicio' },
+  { code: 'H87', label: 'H87 - Pieza' },
+  { code: 'KGM', label: 'KGM - Kilogramo' },
+  { code: 'LTR', label: 'LTR - Litro' },
+  { code: 'MTR', label: 'MTR - Metro' },
+  { code: 'XBX', label: 'XBX - Caja' },
+  { code: 'ACT', label: 'ACT - Actividad' },
+  { code: 'HUR', label: 'HUR - Hora' },
+];
+
+const IVA_RATE_OPTIONS = [
+  { value: 0, label: '0%' },
+  { value: 0.08, label: '8% (frontera)' },
+  { value: 0.16, label: '16%' },
+];
+const IVA_RETENTION_OPTIONS = [
+  { value: 0, label: 'Sin retención' },
+  { value: 0.10666667, label: 'IVA 10.6667% (2/3)' },
+  { value: 0.04, label: 'IVA 4%' },
+];
+const ISR_RETENTION_OPTIONS = [
+  { value: 0, label: 'Sin retención' },
+  { value: 0.10, label: 'ISR 10%' },
+  { value: 0.0125, label: 'ISR 1.25%' },
+];
+
+type ManualItem = {
+  uid: string;
+  product_id?: number | null;
+  description: string;
+  quantity: number;
+  unit_price: number;
+  sat_clave_prod_serv: string;
+  sat_clave_unidad: string;
+  no_identificacion?: string;
+  iva_rate: number;
+  iva_retention_rate: number;
+  isr_retention_rate: number;
+  discount: number;
+};
+
+function newEmptyItem(): ManualItem {
+  return {
+    uid: Math.random().toString(36).slice(2),
+    product_id: null,
+    description: '',
+    quantity: 1,
+    unit_price: 0,
+    sat_clave_prod_serv: '',
+    sat_clave_unidad: 'E48',
+    no_identificacion: '',
+    iva_rate: 0.16,
+    iva_retention_rate: 0,
+    isr_retention_rate: 0,
+    discount: 0,
+  };
+}
+
+function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
+  open: boolean; emitter: Emitter; onClose: () => void; onCreated: () => void;
+}) {
+  const [step, setStep] = useState(0);
+
+  // Receptor
+  const [clientQuery, setClientQuery] = useState('');
+  const [clientOptions, setClientOptions] = useState<any[]>([]);
+  const [selectedClient, setSelectedClient] = useState<any | null>(null);
+  const [receptor, setReceptor] = useState({
+    rfc: '', razon_social: '', regimen_fiscal: '616', cp: '', uso_cfdi: 'G03', email: '', user_id: null as number | null,
+  });
+
+  // Conceptos
+  const [items, setItems] = useState<ManualItem[]>([newEmptyItem()]);
+  const [products, setProducts] = useState<any[]>([]);
+
+  // Pago
+  const [paymentForm, setPaymentForm] = useState('03');
+  const [paymentMethod, setPaymentMethod] = useState<'PUE' | 'PPD'>('PUE');
+  const [currency, setCurrency] = useState('MXN');
+  const [serie, setSerie] = useState('');
+  const [folio, setFolio] = useState('');
+
+  const [submitting, setSubmitting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Reset al abrir
+  useEffect(() => {
+    if (!open) return;
+    setStep(0);
+    setClientQuery(''); setClientOptions([]); setSelectedClient(null);
+    setReceptor({ rfc: '', razon_social: '', regimen_fiscal: '616', cp: '', uso_cfdi: 'G03', email: '', user_id: null });
+    setItems([newEmptyItem()]);
+    setPaymentForm('03'); setPaymentMethod('PUE'); setCurrency('MXN');
+    setSerie(''); setFolio(''); setErr(null);
+    // Cargar catálogo de productos
+    (async () => {
+      try {
+        const r = await api.get(`/accounting/${emitter.id}/products`, { params: { limit: 200 } });
+        setProducts(r.data.products || []);
+      } catch { setProducts([]); }
+    })();
+  }, [open, emitter.id]);
+
+  // Búsqueda de clientes (debounced)
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.get(`/accounting/${emitter.id}/fiscal-clients`, { params: { search: clientQuery } });
+        setClientOptions(r.data.clients || []);
+      } catch { setClientOptions([]); }
+    }, 250);
+    return () => clearTimeout(t);
+  }, [clientQuery, emitter.id, open]);
+
+  const applyClient = (c: any | null) => {
+    setSelectedClient(c);
+    if (c) {
+      setReceptor({
+        rfc: c.rfc || '',
+        razon_social: c.razon_social || c.full_name || '',
+        regimen_fiscal: c.regimen_fiscal || '616',
+        cp: c.cp || '',
+        uso_cfdi: c.uso_cfdi || 'G03',
+        email: c.email || '',
+        user_id: c.id || null,
+      });
+    }
+  };
+
+  const setItem = (uid: string, patch: Partial<ManualItem>) => {
+    setItems((prev) => prev.map((it) => (it.uid === uid ? { ...it, ...patch } : it)));
+  };
+  const addItem = () => setItems((prev) => [...prev, newEmptyItem()]);
+  const removeItem = (uid: string) => setItems((prev) => prev.length > 1 ? prev.filter((it) => it.uid !== uid) : prev);
+  const applyProduct = (uid: string, p: any | null) => {
+    if (!p) { setItem(uid, { product_id: null }); return; }
+    setItem(uid, {
+      product_id: p.id,
+      description: p.description || '',
+      unit_price: parseFloat(p.unit_price) || 0,
+      sat_clave_prod_serv: p.sat_clave_prod_serv || '',
+      sat_clave_unidad: p.sat_clave_unidad || 'E48',
+      no_identificacion: p.sku || '',
+      iva_rate: typeof p.tax_rate === 'string' ? parseFloat(p.tax_rate) : (p.tax_rate ?? 0.16),
+    });
+  };
+
+  // Totales
+  const totals = items.reduce((acc, it) => {
+    const sub = Math.max(0, (Number(it.quantity) || 0) * (Number(it.unit_price) || 0) - (Number(it.discount) || 0));
+    const iva = sub * (Number(it.iva_rate) || 0);
+    const ivaRet = sub * (Number(it.iva_retention_rate) || 0);
+    const isrRet = sub * (Number(it.isr_retention_rate) || 0);
+    acc.subtotal += sub;
+    acc.iva += iva;
+    acc.retenciones += ivaRet + isrRet;
+    return acc;
+  }, { subtotal: 0, iva: 0, retenciones: 0 });
+  const total = totals.subtotal + totals.iva - totals.retenciones;
+
+  // Validaciones para avanzar de paso
+  const receptorValid =
+    /^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/i.test(receptor.rfc.trim()) &&
+    !!receptor.razon_social.trim() &&
+    !!receptor.regimen_fiscal &&
+    /^\d{5}$/.test(receptor.cp.trim()) &&
+    !!receptor.uso_cfdi;
+  const itemsValid = items.length > 0 && items.every((it) =>
+    !!it.description.trim() && !!it.sat_clave_prod_serv.trim() && Number(it.quantity) > 0 && Number(it.unit_price) >= 0
+  );
+
+  const submit = async () => {
+    setErr(null);
+    setSubmitting(true);
+    try {
+      const payload = {
+        receptor: {
+          rfc: receptor.rfc.toUpperCase().trim(),
+          razon_social: receptor.razon_social.trim(),
+          regimen_fiscal: receptor.regimen_fiscal,
+          cp: receptor.cp.trim(),
+          uso_cfdi: receptor.uso_cfdi,
+          email: receptor.email.trim() || undefined,
+          user_id: receptor.user_id,
+        },
+        items: items.map((it) => ({
+          description: it.description.trim(),
+          quantity: Number(it.quantity),
+          unit_price: Number(it.unit_price),
+          sat_clave_prod_serv: it.sat_clave_prod_serv.trim(),
+          sat_clave_unidad: it.sat_clave_unidad || 'E48',
+          no_identificacion: it.no_identificacion?.trim() || undefined,
+          discount: Number(it.discount) || 0,
+          iva_rate: Number(it.iva_rate) || 0,
+          iva_retention_rate: Number(it.iva_retention_rate) || 0,
+          isr_retention_rate: Number(it.isr_retention_rate) || 0,
+        })),
+        payment_form: paymentForm,
+        payment_method: paymentMethod,
+        currency,
+        serie: serie.trim() || undefined,
+        folio: folio.trim() ? Number(folio) : undefined,
+      };
+      const r = await api.post(`/accounting/${emitter.id}/invoices/manual`, payload);
+      if (r.data?.success) {
+        onCreated();
+        onClose();
+      }
+    } catch (e: any) {
+      setErr(e?.response?.data?.message || e?.response?.data?.error || e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="lg" fullWidth>
+      <DialogTitle sx={{ bgcolor: BLACK, color: 'white' }}>
+        Nueva Factura — {emitter.alias || emitter.business_name}
+        <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>{emitter.rfc}</Typography>
+      </DialogTitle>
+      <DialogContent sx={{ pt: 3 }}>
+        <Stepper activeStep={step} sx={{ mb: 3 }}>
+          <Step><StepLabel>Receptor</StepLabel></Step>
+          <Step><StepLabel>Conceptos y pago</StepLabel></Step>
+        </Stepper>
+
+        {step === 0 && (
+          <Stack spacing={2}>
+            <Autocomplete
+              options={clientOptions}
+              value={selectedClient}
+              onChange={(_, v) => applyClient(v)}
+              onInputChange={(_, v) => setClientQuery(v)}
+              getOptionLabel={(o) => `${o.razon_social || o.full_name || ''} (${o.rfc})`}
+              isOptionEqualToValue={(a, b) => a.id === b.id}
+              renderInput={(p) => <TextField {...p} size="small" label="Buscar cliente existente (RFC, razón social, email)" />}
+              noOptionsText="Sin resultados — escribe los datos manualmente abajo"
+            />
+            <Divider><Chip label="Datos fiscales del receptor" size="small" /></Divider>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField fullWidth size="small" label="RFC *" value={receptor.rfc}
+                  onChange={(e) => setReceptor({ ...receptor, rfc: e.target.value.toUpperCase() })}
+                  inputProps={{ style: { fontFamily: 'monospace' }, maxLength: 13 }}
+                />
+              </Grid>
+              <Grid size={{ xs: 12, md: 8 }}>
+                <TextField fullWidth size="small" label="Razón social *" value={receptor.razon_social}
+                  onChange={(e) => setReceptor({ ...receptor, razon_social: e.target.value })} />
+              </Grid>
+              <Grid size={{ xs: 12, md: 6 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Régimen fiscal *</InputLabel>
+                  <Select label="Régimen fiscal *" value={receptor.regimen_fiscal}
+                    onChange={(e) => setReceptor({ ...receptor, regimen_fiscal: String(e.target.value) })}>
+                    {REGIMEN_FISCAL_OPTIONS.map((o) => <MenuItem key={o.code} value={o.code}>{o.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, md: 3 }}>
+                <TextField fullWidth size="small" label="CP receptor *" value={receptor.cp}
+                  onChange={(e) => setReceptor({ ...receptor, cp: e.target.value.replace(/\D/g, '').slice(0, 5) })} />
+              </Grid>
+              <Grid size={{ xs: 12, md: 3 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Uso CFDI *</InputLabel>
+                  <Select label="Uso CFDI *" value={receptor.uso_cfdi}
+                    onChange={(e) => setReceptor({ ...receptor, uso_cfdi: String(e.target.value) })}>
+                    {USO_CFDI_OPTIONS.map((o) => <MenuItem key={o.code} value={o.code}>{o.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12 }}>
+                <TextField fullWidth size="small" label="Email (opcional, para envío del CFDI)" value={receptor.email}
+                  onChange={(e) => setReceptor({ ...receptor, email: e.target.value })} />
+              </Grid>
+            </Grid>
+          </Stack>
+        )}
+
+        {step === 1 && (
+          <Stack spacing={2}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>Conceptos</Typography>
+            {items.map((it, idx) => (
+              <Paper key={it.uid} variant="outlined" sx={{ p: 2 }}>
+                <Stack spacing={1.5}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 700 }}>Concepto #{idx + 1}</Typography>
+                    <Box sx={{ flex: 1 }} />
+                    <IconButton size="small" disabled={items.length <= 1} onClick={() => removeItem(it.uid)}>
+                      <DeleteIcon fontSize="small" sx={{ color: items.length <= 1 ? 'grey.400' : RED }} />
+                    </IconButton>
+                  </Box>
+                  <Autocomplete
+                    options={products}
+                    value={products.find((p) => p.id === it.product_id) || null}
+                    onChange={(_, v) => applyProduct(it.uid, v)}
+                    getOptionLabel={(o) => `${o.sku ? `[${o.sku}] ` : ''}${o.description} — ${fmt(parseFloat(o.unit_price) || 0)}`}
+                    isOptionEqualToValue={(a, b) => a.id === b.id}
+                    renderInput={(p) => <TextField {...p} size="small" label="Buscar en inventario (opcional)" />}
+                    noOptionsText="Sin productos — captura manualmente abajo"
+                  />
+                  <Grid container spacing={1.5}>
+                    <Grid size={{ xs: 12, md: 6 }}>
+                      <TextField fullWidth size="small" label="Descripción *" value={it.description}
+                        onChange={(e) => setItem(it.uid, { description: e.target.value })} />
+                    </Grid>
+                    <Grid size={{ xs: 6, md: 3 }}>
+                      <TextField fullWidth size="small" label="Clave SAT prod/serv *" value={it.sat_clave_prod_serv}
+                        onChange={(e) => setItem(it.uid, { sat_clave_prod_serv: e.target.value })}
+                        inputProps={{ style: { fontFamily: 'monospace' }, maxLength: 8 }} />
+                    </Grid>
+                    <Grid size={{ xs: 6, md: 3 }}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Unidad</InputLabel>
+                        <Select label="Unidad" value={it.sat_clave_unidad}
+                          onChange={(e) => setItem(it.uid, { sat_clave_unidad: String(e.target.value) })}>
+                          {UNIT_OPTIONS.map((u) => <MenuItem key={u.code} value={u.code}>{u.label}</MenuItem>)}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid size={{ xs: 4, md: 2 }}>
+                      <TextField fullWidth size="small" type="number" label="Cantidad *" value={it.quantity}
+                        onChange={(e) => setItem(it.uid, { quantity: Number(e.target.value) })}
+                        inputProps={{ min: 0, step: '0.01' }} />
+                    </Grid>
+                    <Grid size={{ xs: 4, md: 2 }}>
+                      <TextField fullWidth size="small" type="number" label="Precio unitario *" value={it.unit_price}
+                        onChange={(e) => setItem(it.uid, { unit_price: Number(e.target.value) })}
+                        inputProps={{ min: 0, step: '0.01' }} />
+                    </Grid>
+                    <Grid size={{ xs: 4, md: 2 }}>
+                      <TextField fullWidth size="small" type="number" label="Descuento" value={it.discount}
+                        onChange={(e) => setItem(it.uid, { discount: Number(e.target.value) })}
+                        inputProps={{ min: 0, step: '0.01' }} />
+                    </Grid>
+                    <Grid size={{ xs: 12, md: 2 }}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>IVA</InputLabel>
+                        <Select label="IVA" value={it.iva_rate}
+                          onChange={(e) => setItem(it.uid, { iva_rate: Number(e.target.value) })}>
+                          {IVA_RATE_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid size={{ xs: 6, md: 2 }}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Ret. IVA</InputLabel>
+                        <Select label="Ret. IVA" value={it.iva_retention_rate}
+                          onChange={(e) => setItem(it.uid, { iva_retention_rate: Number(e.target.value) })}>
+                          {IVA_RETENTION_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                    <Grid size={{ xs: 6, md: 2 }}>
+                      <FormControl fullWidth size="small">
+                        <InputLabel>Ret. ISR</InputLabel>
+                        <Select label="Ret. ISR" value={it.isr_retention_rate}
+                          onChange={(e) => setItem(it.uid, { isr_retention_rate: Number(e.target.value) })}>
+                          {ISR_RETENTION_OPTIONS.map((o) => <MenuItem key={o.value} value={o.value}>{o.label}</MenuItem>)}
+                        </Select>
+                      </FormControl>
+                    </Grid>
+                  </Grid>
+                  <Box sx={{ display: 'flex', justifyContent: 'flex-end', fontSize: '0.85rem', color: 'text.secondary' }}>
+                    Importe: <b style={{ marginLeft: 6 }}>
+                      {fmt(Math.max(0, (Number(it.quantity) || 0) * (Number(it.unit_price) || 0) - (Number(it.discount) || 0)))}
+                    </b>
+                  </Box>
+                </Stack>
+              </Paper>
+            ))}
+            <Box>
+              <Button startIcon={<AddIcon />} onClick={addItem} sx={{ textTransform: 'none', color: ORANGE }}>
+                Agregar concepto
+              </Button>
+            </Box>
+
+            <Divider><Chip label="Datos de pago" size="small" /></Divider>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Forma de pago</InputLabel>
+                  <Select label="Forma de pago" value={paymentForm} onChange={(e) => setPaymentForm(String(e.target.value))}>
+                    {PAYMENT_FORM_OPTIONS.map((o) => <MenuItem key={o.code} value={o.code}>{o.label}</MenuItem>)}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 6, md: 2 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Método</InputLabel>
+                  <Select label="Método" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as 'PUE' | 'PPD')}>
+                    <MenuItem value="PUE">PUE (Pago en una exhibición)</MenuItem>
+                    <MenuItem value="PPD">PPD (Pago en parcialidades)</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 6, md: 2 }}>
+                <FormControl fullWidth size="small">
+                  <InputLabel>Moneda</InputLabel>
+                  <Select label="Moneda" value={currency} onChange={(e) => setCurrency(String(e.target.value))}>
+                    <MenuItem value="MXN">MXN</MenuItem>
+                    <MenuItem value="USD">USD</MenuItem>
+                    <MenuItem value="EUR">EUR</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 6, md: 2 }}>
+                <TextField fullWidth size="small" label="Serie" value={serie}
+                  onChange={(e) => setSerie(e.target.value.toUpperCase())} inputProps={{ maxLength: 10 }} />
+              </Grid>
+              <Grid size={{ xs: 6, md: 2 }}>
+                <TextField fullWidth size="small" type="number" label="Folio" value={folio}
+                  onChange={(e) => setFolio(e.target.value)} />
+              </Grid>
+            </Grid>
+
+            <Paper variant="outlined" sx={{ p: 2, bgcolor: '#fafafa' }}>
+              <Stack spacing={0.5}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>Subtotal</span><b>{fmt(totals.subtotal)}</b>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span>IVA</span><b>{fmt(totals.iva)}</b>
+                </Box>
+                {totals.retenciones > 0 && (
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', color: RED }}>
+                    <span>Retenciones</span><b>−{fmt(totals.retenciones)}</b>
+                  </Box>
+                )}
+                <Divider />
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem' }}>
+                  <b>Total</b><b style={{ color: ORANGE }}>{fmt(total)}</b>
+                </Box>
+              </Stack>
+            </Paper>
+          </Stack>
+        )}
+
+        {err && <Alert severity="error" sx={{ mt: 2 }}>{err}</Alert>}
+      </DialogContent>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onClose} disabled={submitting}>Cancelar</Button>
+        {step === 1 && <Button onClick={() => setStep(0)} disabled={submitting}>Atrás</Button>}
+        {step === 0 && (
+          <Button variant="contained"
+            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK } }}
+            disabled={!receptorValid}
+            onClick={() => setStep(1)}>
+            Siguiente
+          </Button>
+        )}
+        {step === 1 && (
+          <Button variant="contained"
+            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK } }}
+            disabled={!itemsValid || submitting}
+            onClick={submit}>
+            {submitting ? 'Timbrando…' : `Emitir CFDI · ${fmt(total)}`}
+          </Button>
+        )}
+      </DialogActions>
+    </Dialog>
   );
 }
 

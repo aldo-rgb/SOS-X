@@ -372,6 +372,203 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
 };
 
 /**
+ * GET /api/accounting/:emitterId/fiscal-clients?search=...
+ * Busca clientes con datos fiscales (rfc + razón social) en la tabla `users`
+ * para autocompletar el receptor en el modal de "Nueva Factura".
+ */
+export const searchFiscalClients = async (req: AuthRequest, res: Response): Promise<any> => {
+    try {
+        const userId = req.user?.userId || (req.user as any)?.id;
+        const role = req.user?.role;
+        const emitterId = parseInt(String(req.params.emitterId), 10);
+        if (!emitterId) return res.status(400).json({ error: 'emitterId inválido' });
+
+        const access = await checkEmitterAccess(userId!, role, emitterId);
+        if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
+
+        const search = String(req.query.search || '').trim();
+        const params: any[] = [];
+        let where = `WHERE u.rfc IS NOT NULL AND LENGTH(TRIM(u.rfc)) >= 12`;
+        if (search) {
+            params.push(`%${search}%`);
+            where += ` AND (u.rfc ILIKE $${params.length} OR u.razon_social ILIKE $${params.length} OR u.full_name ILIKE $${params.length} OR u.email ILIKE $${params.length})`;
+        }
+
+        const r = await pool.query(`
+            SELECT u.id, u.full_name, u.email,
+                   UPPER(TRIM(u.rfc)) AS rfc,
+                   COALESCE(u.razon_social, u.full_name) AS razon_social,
+                   u.regimen_fiscal,
+                   COALESCE(u.cfdi_zip, u.zip_code) AS cp,
+                   u.uso_cfdi
+              FROM users u
+             ${where}
+             ORDER BY u.razon_social ASC NULLS LAST, u.full_name ASC
+             LIMIT 25
+        `, params);
+
+        return res.json({ success: true, clients: r.rows });
+    } catch (e: any) {
+        console.error('searchFiscalClients:', e);
+        res.status(500).json({ error: 'Error buscando clientes fiscales', message: e.message });
+    }
+};
+
+/**
+ * Calcula el total de impuestos (traslados y retenciones) de un concepto.
+ * Cada item devuelve { subtotal, taxes[], totalTaxes, totalRetentions, total }.
+ */
+function buildItemTaxBreakdown(it: {
+    quantity: number; unit_price: number; discount?: number;
+    iva_rate?: number; ieps_rate?: number;
+    iva_retention_rate?: number; isr_retention_rate?: number;
+}) {
+    const qty = Number(it.quantity) || 0;
+    const price = Number(it.unit_price) || 0;
+    const discount = Number(it.discount) || 0;
+    const subtotalRaw = qty * price;
+    const subtotal = +(subtotalRaw - discount).toFixed(2);
+
+    const taxes: Array<{ type: 'IVA' | 'IEPS' | 'ISR'; rate: number; withholding?: boolean }> = [];
+    if (it.iva_rate != null && Number(it.iva_rate) > 0) {
+        taxes.push({ type: 'IVA', rate: Number(it.iva_rate) });
+    }
+    if (it.ieps_rate != null && Number(it.ieps_rate) > 0) {
+        taxes.push({ type: 'IEPS', rate: Number(it.ieps_rate) });
+    }
+    if (it.iva_retention_rate != null && Number(it.iva_retention_rate) > 0) {
+        taxes.push({ type: 'IVA', rate: Number(it.iva_retention_rate), withholding: true });
+    }
+    if (it.isr_retention_rate != null && Number(it.isr_retention_rate) > 0) {
+        taxes.push({ type: 'ISR', rate: Number(it.isr_retention_rate), withholding: true });
+    }
+    return { subtotal, taxes };
+}
+
+/**
+ * POST /api/accounting/:emitterId/invoices/manual
+ * Crea y timbra un CFDI desde cero (sin requerir un pago previo en pobox_payments).
+ * Body:
+ *   {
+ *     receptor: { rfc, razon_social, regimen_fiscal, cp, uso_cfdi, email?, user_id? },
+ *     items: [{ description, quantity, unit_price, sat_clave_prod_serv, sat_clave_unidad,
+ *               no_identificacion?, discount?, iva_rate?, ieps_rate?,
+ *               iva_retention_rate?, isr_retention_rate? }],
+ *     payment_form, payment_method, currency?, tipo_cambio?, serie?, folio?
+ *   }
+ */
+export const createManualInvoice = async (req: AuthRequest, res: Response): Promise<any> => {
+    const userId = req.user?.userId || (req.user as any)?.id;
+    const role = req.user?.role;
+    const emitterId = parseInt(String(req.params.emitterId), 10);
+    if (!emitterId) return res.status(400).json({ error: 'emitterId inválido' });
+
+    const access = await checkEmitterAccess(userId!, role, emitterId);
+    if (!access.ok || !access.perms?.can_emit_invoice) {
+        return res.status(403).json({ error: 'Sin permiso para emitir facturas en esta empresa' });
+    }
+
+    const body = req.body || {};
+    const receptor = body.receptor || {};
+    const items: any[] = Array.isArray(body.items) ? body.items : [];
+
+    // Validaciones mínimas
+    const receptorRfc = String(receptor.rfc || '').toUpperCase().trim();
+    if (!/^[A-ZÑ&]{3,4}\d{6}[A-Z\d]{3}$/.test(receptorRfc)) {
+        return res.status(400).json({ error: 'RFC del receptor inválido' });
+    }
+    const receptorNombre = String(receptor.razon_social || '').trim();
+    if (!receptorNombre) return res.status(400).json({ error: 'Razón social del receptor es requerida' });
+    const regimenFiscal = String(receptor.regimen_fiscal || '').trim();
+    if (!regimenFiscal) return res.status(400).json({ error: 'Régimen fiscal del receptor es requerido' });
+    const cpReceptor = String(receptor.cp || '').trim();
+    if (!/^\d{5}$/.test(cpReceptor)) return res.status(400).json({ error: 'Código postal del receptor inválido' });
+    const usoCfdi = String(receptor.uso_cfdi || (receptorRfc === 'XAXX010101000' ? 'S01' : 'G03')).trim();
+
+    if (items.length === 0) return res.status(400).json({ error: 'Agrega al menos un concepto' });
+    for (const [i, it] of items.entries()) {
+        if (!it.description) return res.status(400).json({ error: `Concepto #${i + 1}: descripción requerida` });
+        if (!it.sat_clave_prod_serv) return res.status(400).json({ error: `Concepto #${i + 1}: clave SAT prod/serv requerida` });
+        if (!(Number(it.quantity) > 0)) return res.status(400).json({ error: `Concepto #${i + 1}: cantidad debe ser mayor a 0` });
+        if (!(Number(it.unit_price) >= 0)) return res.status(400).json({ error: `Concepto #${i + 1}: precio inválido` });
+    }
+
+    const paymentForm = String(body.payment_form || '99').trim();
+    const paymentMethod = (body.payment_method === 'PPD' ? 'PPD' : 'PUE') as 'PUE' | 'PPD';
+    const currency = String(body.currency || 'MXN').toUpperCase();
+    const serie = body.serie ? String(body.serie) : undefined;
+    const folio = body.folio ? Number(body.folio) : undefined;
+
+    try {
+        const client = await FacturamaClient.fromEmitterId(emitterId);
+
+        const facturapiItems = items.map((it: any) => {
+            const { taxes } = buildItemTaxBreakdown(it);
+            return {
+                quantity: Number(it.quantity),
+                product: {
+                    description: String(it.description),
+                    product_key: String(it.sat_clave_prod_serv),
+                    unit_key: it.sat_clave_unidad ? String(it.sat_clave_unidad) : 'E48',
+                    price: Number(it.unit_price),
+                    taxes,
+                },
+            };
+        });
+
+        const cfdiPayload: any = {
+            customer: {
+                legal_name: receptorNombre,
+                tax_id: receptorRfc,
+                tax_system: regimenFiscal,
+                address: { zip: cpReceptor },
+            },
+            items: facturapiItems,
+            payment_form: paymentForm,
+            payment_method: paymentMethod,
+            use: usoCfdi,
+            currency,
+        };
+        if (receptor.email) cfdiPayload.customer.email = receptor.email;
+        if (typeof folio === 'number' && Number.isFinite(folio)) cfdiPayload.folio_number = folio;
+        if (serie) cfdiPayload.series = serie;
+        const invoice = await client.invoices.create(cfdiPayload);
+
+        // Persistir en facturas_emitidas
+        const linkedUserId = receptor.user_id ? Number(receptor.user_id) : null;
+        await pool.query(`
+            INSERT INTO facturas_emitidas
+                (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
+                 receptor_rfc, receptor_razon_social, subtotal, total, currency,
+                 payment_form, status, pdf_url, xml_url, created_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
+        `, [
+            linkedUserId, emitterId,
+            invoice.id, invoice.uuid, invoice.folio_number, invoice.series || null,
+            receptorRfc, receptorNombre,
+            invoice.subtotal, invoice.total, invoice.currency,
+            paymentForm, invoice.pdf_url, invoice.xml_url,
+        ]);
+
+        return res.json({
+            success: true,
+            invoice_id: invoice.id,
+            uuid: invoice.uuid,
+            folio: invoice.folio_number,
+            total: invoice.total,
+            pdf_url: invoice.pdf_url,
+            xml_url: invoice.xml_url,
+        });
+    } catch (e: any) {
+        const errMsg = e instanceof FacturamaError
+            ? (e.details?.Message || e.details?.message || e.message)
+            : e.message;
+        console.error('[createManualInvoice]', errMsg);
+        return res.status(500).json({ error: 'Error al emitir CFDI', message: errMsg });
+    }
+};
+
+/**
  * GET /api/accounting/accountants
  * (Admin) Lista accountants y sus permisos para gestión.
  */

@@ -972,6 +972,8 @@ import {
   listEmitterInvoices,
   listPendingStamp,
   emitManualCFDI,
+  searchFiscalClients,
+  createManualInvoice,
   listAccountants,
   grantAccountantPermission,
   revokeAccountantPermission,
@@ -3016,6 +3018,8 @@ app.get('/api/accounting/:emitterId/summary', authenticateToken, getEmitterSumma
 app.get('/api/accounting/:emitterId/invoices', authenticateToken, listEmitterInvoices);
 app.get('/api/accounting/:emitterId/pending-stamp', authenticateToken, listPendingStamp);
 app.post('/api/fiscal/invoice/manual', authenticateToken, emitManualCFDI);
+app.get('/api/accounting/:emitterId/fiscal-clients', authenticateToken, searchFiscalClients);
+app.post('/api/accounting/:emitterId/invoices/manual', authenticateToken, createManualInvoice);
 app.get('/api/accounting/accountants', authenticateToken, listAccountants);
 app.post('/api/accounting/accountants/:userId/permissions', authenticateToken, grantAccountantPermission);
 app.delete('/api/accounting/accountants/:userId/permissions/:emitterId', authenticateToken, revokeAccountantPermission);
