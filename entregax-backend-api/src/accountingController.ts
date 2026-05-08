@@ -399,8 +399,7 @@ export const searchFiscalClients = async (req: AuthRequest, res: Response): Prom
                    UPPER(TRIM(u.rfc)) AS rfc,
                    COALESCE(u.razon_social, u.full_name) AS razon_social,
                    u.regimen_fiscal,
-                   COALESCE(u.cfdi_zip, u.zip_code) AS cp,
-                   u.uso_cfdi
+                   COALESCE(u.cfdi_zip, u.zip_code) AS cp
               FROM users u
              ${where}
              ORDER BY u.razon_social ASC NULLS LAST, u.full_name ASC
@@ -502,6 +501,15 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
     try {
         const client = await FacturamaClient.fromEmitterId(emitterId);
 
+        // Validar que el emisor tenga datos fiscales completos antes de mandar
+        // a Facturama (mejor mensaje que "Bad Request" genérico).
+        if (!client.emitter.fiscal_regime) {
+            return res.status(400).json({ error: 'La empresa emisora no tiene régimen fiscal configurado. Edítala en la sección Empresas.' });
+        }
+        if (!client.emitter.zip_code) {
+            return res.status(400).json({ error: 'La empresa emisora no tiene CP de expedición configurado. Edítala en la sección Empresas.' });
+        }
+
         const facturapiItems = items.map((it: any) => {
             const { taxes } = buildItemTaxBreakdown(it);
             return {
@@ -560,11 +568,25 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
             xml_url: invoice.xml_url,
         });
     } catch (e: any) {
+        // Facturama suele devolver { Message, ModelState: { 'campo': ['detalle'] } }
+        const facturamaDetails = e instanceof FacturamaError ? e.details : null;
+        const flatModelState = facturamaDetails?.ModelState
+            ? Object.entries(facturamaDetails.ModelState as Record<string, string[]>)
+                .map(([k, v]) => `${k}: ${(v as string[]).join('; ')}`)
+                .join(' | ')
+            : '';
         const errMsg = e instanceof FacturamaError
-            ? (e.details?.Message || e.details?.message || e.message)
+            ? [
+                facturamaDetails?.Message || facturamaDetails?.message || e.message,
+                flatModelState,
+              ].filter(Boolean).join(' — ')
             : e.message;
-        console.error('[createManualInvoice]', errMsg);
-        return res.status(500).json({ error: 'Error al emitir CFDI', message: errMsg });
+        console.error('[createManualInvoice]', errMsg, facturamaDetails || '');
+        return res.status(500).json({
+            error: 'Error al emitir CFDI',
+            message: errMsg,
+            details: process.env.NODE_ENV !== 'production' ? facturamaDetails : undefined,
+        });
     }
 };
 

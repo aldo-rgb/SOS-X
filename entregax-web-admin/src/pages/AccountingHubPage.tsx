@@ -635,12 +635,13 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
   const applyClient = (c: any | null) => {
     setSelectedClient(c);
     if (c) {
+      const inferredUso = (c.rfc || '').toUpperCase() === 'XAXX010101000' ? 'S01' : 'G03';
       setReceptor({
         rfc: c.rfc || '',
         razon_social: c.razon_social || c.full_name || '',
         regimen_fiscal: c.regimen_fiscal || '616',
         cp: c.cp || '',
-        uso_cfdi: c.uso_cfdi || 'G03',
+        uso_cfdi: inferredUso,
         email: c.email || '',
         user_id: c.id || null,
       });
