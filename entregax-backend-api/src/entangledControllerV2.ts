@@ -770,34 +770,56 @@ export const syncRequestFromEntangled = async (req: Request, res: Response): Pro
     return res.status(502).json({ error: remote.error || 'Error consultando ENTANGLED' });
   }
 
-  // Normalizamos la respuesta — su contrato puede traer documentos y estatus
-  // en distintas anidaciones según el evento del que vienen los datos.
+  // Shape oficial de la respuesta (docs):
+  //   { estatus_factura, estatus_proveedor,
+  //     documentos: { factura_pdf, factura_xml, comprobante_cliente,
+  //                   comprobante_proveedor } }
+  // También soportamos variantes legacy (url_factura_pdf, detalles.estatus)
+  // por si el campo cambió entre versiones.
   const data = remote.data || {};
   const docs = data.documentos || data.docs || {};
   const detalles = data.detalles || {};
-  const facturaUrl = docs.url_factura_pdf || docs.factura_pdf || data.factura_url || null;
-  const facturaXmlUrl = docs.url_factura_xml || docs.factura_xml || data.factura_xml_url || null;
-  const comprobanteProvUrl = docs.url_comprobante_proveedor || docs.comprobante_proveedor || data.comprobante_proveedor_url || null;
-  const facturaEmitida = !!(facturaUrl || facturaXmlUrl);
-  const proveedorEstatus = String(detalles.estatus || data.estatus_proveedor || data.estatus || '').toLowerCase();
+  const facturaUrl = docs.factura_pdf || docs.url_factura_pdf || data.factura_url || null;
+  const facturaXmlUrl = docs.factura_xml || docs.url_factura_xml || data.factura_xml_url || null;
+  const comprobanteProvUrl = docs.comprobante_proveedor || docs.url_comprobante_proveedor || data.comprobante_proveedor_url || null;
+  const comprobanteClienteUrl = docs.comprobante_cliente || docs.url_comprobante_cliente || null;
+  const estatusFacturaRemote = String(data.estatus_factura || '').toLowerCase() || null;
+  const estatusProveedorRemote = String(data.estatus_proveedor || detalles.estatus || data.estatus || '').toLowerCase() || null;
   const servicio = row.servicio as EntangledServicio;
 
   const upd = await pool.query(
     `UPDATE entangled_payment_requests
         SET factura_url = COALESCE($1, factura_url),
-            estatus_factura = CASE WHEN $1 IS NOT NULL OR $7 = TRUE THEN 'emitida' ELSE estatus_factura END,
-            factura_emitida_at = CASE WHEN ($1 IS NOT NULL OR $7 = TRUE) AND factura_emitida_at IS NULL THEN NOW() ELSE factura_emitida_at END,
+            estatus_factura = CASE
+              WHEN $7::text IS NOT NULL AND $7::text <> '' THEN $7::text
+              WHEN $1 IS NOT NULL THEN 'emitida'
+              ELSE estatus_factura
+            END,
+            factura_emitida_at = CASE
+              WHEN factura_emitida_at IS NULL
+                   AND ($1 IS NOT NULL OR $7::text IN ('emitida','completado'))
+              THEN NOW()
+              ELSE factura_emitida_at
+            END,
             comprobante_proveedor_url = COALESCE($2, comprobante_proveedor_url),
-            estatus_proveedor = CASE WHEN $3 IN ('completado','rechazado','en_proceso') THEN $3 ELSE estatus_proveedor END,
-            proveedor_pagado_at = CASE WHEN $3 = 'completado' AND proveedor_pagado_at IS NULL THEN NOW() ELSE proveedor_pagado_at END,
+            url_comprobante_cliente = COALESCE($9, url_comprobante_cliente),
+            estatus_proveedor = CASE
+              WHEN $3::text IN ('completado','rechazado','en_proceso','pendiente') THEN $3::text
+              ELSE estatus_proveedor
+            END,
+            proveedor_pagado_at = CASE
+              WHEN $3::text = 'completado' AND proveedor_pagado_at IS NULL THEN NOW()
+              ELSE proveedor_pagado_at
+            END,
             raw_response = COALESCE(raw_response, '{}'::jsonb)
               || jsonb_build_object('factura_xml_url', $4::text)
               || jsonb_build_object('last_sync_at', NOW())
               || jsonb_build_object('last_sync_payload', $5::jsonb),
             estatus_global = CASE
-              WHEN ($6 = 'pago_sin_factura' AND $3 = 'completado') THEN 'completado'
-              WHEN ($6 = 'pago_con_factura' AND $3 = 'completado' AND ($1 IS NOT NULL OR estatus_factura = 'emitida' OR $7 = TRUE)) THEN 'completado'
-              WHEN $3 = 'rechazado' THEN 'rechazado'
+              WHEN ($6 = 'pago_sin_factura' AND $3::text = 'completado') THEN 'completado'
+              WHEN ($6 = 'pago_con_factura' AND $3::text = 'completado'
+                    AND ($1 IS NOT NULL OR estatus_factura = 'emitida' OR $7::text IN ('emitida','completado'))) THEN 'completado'
+              WHEN $3::text = 'rechazado' THEN 'rechazado'
               ELSE estatus_global
             END,
             last_webhook_at = NOW(),
@@ -807,12 +829,13 @@ export const syncRequestFromEntangled = async (req: Request, res: Response): Pro
     [
       facturaUrl,
       comprobanteProvUrl,
-      proveedorEstatus || null,
+      estatusProveedorRemote,
       facturaXmlUrl,
       JSON.stringify(data),
       servicio,
-      facturaEmitida,
+      estatusFacturaRemote,
       id,
+      comprobanteClienteUrl,
     ]
   );
 
@@ -1185,8 +1208,8 @@ export const webhookFacturaGeneradaV2 = async (
     }
     const requestId = found.rows[0].id;
     const docs = payload.documentos || {};
-    const facturaUrl = docs.url_factura_pdf || docs.factura_pdf || null;
-    const facturaXmlUrl = docs.url_factura_xml || docs.factura_xml || null;
+    const facturaUrl = docs.factura_pdf || docs.url_factura_pdf || null;
+    const facturaXmlUrl = docs.factura_xml || docs.url_factura_xml || null;
 
     await pool.query(
       `UPDATE entangled_payment_requests
@@ -1251,7 +1274,7 @@ export const webhookPagoProveedorV2 = async (
     const servicio = found.rows[0].servicio as EntangledServicio;
     const docs = payload.documentos || {};
     const detalles = payload.detalles || {};
-    const comprobanteUrl = docs.url_comprobante_proveedor || docs.comprobante_proveedor || null;
+    const comprobanteUrl = docs.comprobante_proveedor || docs.url_comprobante_proveedor || null;
     const moneda = detalles.moneda_enviada || null;
     const monto = detalles.monto_enviado != null ? Number(detalles.monto_enviado) : null;
     const cuenta = detalles.cuenta_destino || null;
