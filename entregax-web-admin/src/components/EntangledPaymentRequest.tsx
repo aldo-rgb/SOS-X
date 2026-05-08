@@ -391,9 +391,49 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   const [conceptoOptions, setConceptoOptions] = useState<ConceptoOption[]>([]);
   const [conceptoSearching, setConceptoSearching] = useState(false);
   const [conceptoSearchError, setConceptoSearchError] = useState<string | null>(null);
+  const [conceptoSearchInput, setConceptoSearchInput] = useState('');
 
-  // Token activo = último segmento después de la última coma
-  const activeToken = (form.conceptos || '').split(',').pop()?.trim() ?? '';
+  // ---- Conceptos seleccionados con su empresa asignada ----
+  type SelectedConcepto = {
+    clave_prodserv: string;
+    descripcion: string;
+    empresa: { rfc: string; razon_social: string };
+    cuenta_bancaria?: any;
+    facturacion?: any;
+  };
+  const [selectedConceptos, setSelectedConceptos] = useState<SelectedConcepto[]>([]);
+  const [addingConcepto, setAddingConcepto] = useState(false);
+  const [addConceptoError, setAddConceptoError] = useState<string | null>(null);
+
+  const lockedEmpresa = selectedConceptos[0]?.empresa || null;
+
+  // Sincroniza form.conceptos y asignacion cuando cambian las claves seleccionadas
+  useEffect(() => {
+    const claves = selectedConceptos.map(c => c.clave_prodserv).join(', ');
+    setForm(f => f.conceptos === claves ? f : { ...f, conceptos: claves });
+    if (selectedConceptos.length > 0) {
+      const first = selectedConceptos[0];
+      setAsignacion({
+        loading: false,
+        empresa: first.empresa,
+        cuenta_bancaria: first.cuenta_bancaria,
+        facturacion: first.facturacion,
+      });
+    } else {
+      setAsignacion(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConceptos]);
+
+  // Si cambian datos fiscales o tipo de servicio, limpiar selección
+  // (ENTANGLED puede asignar empresas distintas con diferentes RFC)
+  useEffect(() => {
+    if (selectedConceptos.length > 0) setSelectedConceptos([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.rfc, requiereFactura]);
+
+  // El token activo de búsqueda es el contenido del input
+  const activeToken = conceptoSearchInput.trim();
 
   useEffect(() => {
     // Solo busca si el token parece texto (no código numérico puro de 8 dígitos)
@@ -431,91 +471,78 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeToken]);
 
-  const pickConceptoOption = (opt: ConceptoOption) => {
-    const existing = (form.conceptos || '')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
-    // Replace the last token (current search query) with the selected clave
-    if (existing.length > 0) existing[existing.length - 1] = opt.clave_prodserv;
-    else existing.push(opt.clave_prodserv);
-    setForm({ ...form, conceptos: existing.join(', ') });
-    setConceptoOptions([]);
-  };
-
-  const addConceptoOption = (opt: ConceptoOption) => {
-    const existing = (form.conceptos || '')
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean);
-    if (!existing.includes(opt.clave_prodserv)) existing.push(opt.clave_prodserv);
-    setForm({ ...form, conceptos: existing.join(', ') });
-    setConceptoOptions([]);
-  };
-
-  // ---- Validación de claves SAT contra catálogo ENTANGLED ----
-  type ClaveValidation = { clave: string; ok: boolean; descripcion?: string; loading?: boolean };
-  const [claveValidations, setClaveValidations] = useState<ClaveValidation[]>([]);
-  useEffect(() => {
-    const claves = (form.conceptos || '')
-      .split(',')
-      .map(s => s.trim().split('|')[0].trim())
-      .filter(Boolean)
-      .filter(s => /^\d{6,10}$/.test(s));
-    if (claves.length === 0) {
-      setClaveValidations([]);
+  // Llama /asignacion para una clave y la añade si la empresa es compatible con la primera
+  const tryAddConcepto = async (opt: ConceptoOption) => {
+    if (selectedConceptos.some(c => c.clave_prodserv === opt.clave_prodserv)) {
+      setAddConceptoError('Esta clave ya está agregada.');
       return;
     }
-    setClaveValidations(claves.map(c => ({ clave: c, ok: false, loading: true })));
-    const handle = setTimeout(async () => {
-      const out: ClaveValidation[] = [];
-      for (const clave of claves) {
-        try {
-          const r = await axios.get(`${API_URL}/api/entangled/conceptos/search`, {
-            params: { q: clave, limit: 5 },
-            headers: authHeader,
-          });
-          const list = Array.isArray(r.data?.results) ? r.data.results : [];
-          const match = list.find((x: { clave_prodserv: string; descripcion?: string }) => String(x.clave_prodserv) === clave);
-          out.push(match
-            ? { clave, ok: true, descripcion: match.descripcion || '' }
-            : { clave, ok: false }
-          );
-        } catch {
-          out.push({ clave, ok: false });
-        }
+    setAddingConcepto(true);
+    setAddConceptoError(null);
+    try {
+      const body: any = {
+        servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
+        cliente_final: {
+          razon_social: form.razon_social || 'Público en General',
+          ...(requiereFactura && form.rfc ? { rfc: form.rfc } : {}),
+          ...(form.regimen_fiscal ? { regimen_fiscal: form.regimen_fiscal } : {}),
+          ...(form.cp ? { cp: form.cp } : {}),
+          ...(form.uso_cfdi ? { uso_cfdi: form.uso_cfdi } : {}),
+          ...(form.email ? { email: form.email } : {}),
+        },
+      };
+      if (requiereFactura) body.concepto = opt.clave_prodserv;
+      const r = await axios.post(`${API_URL}/api/entangled/asignacion`, body, { headers: authHeader });
+      const newEmpresa = r.data?.empresa;
+      if (!newEmpresa?.rfc) {
+        setAddConceptoError('No se pudo determinar la empresa para esta clave.');
+        return;
       }
-      setClaveValidations(out);
-
-      // Llamar /asignacion con la primera clave válida para obtener empresa + cuenta bancaria
-      const firstOk = out.find(v => v.ok);
-      if (firstOk) {
-        setAsignacion({ loading: true });
-        try {
-          const body: any = {
-            servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
-            cliente_final: {
-              razon_social: form.razon_social || 'Público en General',
-              ...(requiereFactura && form.rfc ? { rfc: form.rfc } : {}),
-              ...(form.regimen_fiscal ? { regimen_fiscal: form.regimen_fiscal } : {}),
-              ...(form.cp ? { cp: form.cp } : {}),
-              ...(form.uso_cfdi ? { uso_cfdi: form.uso_cfdi } : {}),
-              ...(form.email ? { email: form.email } : {}),
-            },
-          };
-          if (requiereFactura) body.concepto = firstOk.clave;
-          const ar = await axios.post(`${API_URL}/api/entangled/asignacion`, body, { headers: authHeader });
-          setAsignacion({ loading: false, empresa: ar.data.empresa, cuenta_bancaria: ar.data.cuenta_bancaria, facturacion: ar.data.facturacion });
-        } catch (e: any) {
-          setAsignacion({ loading: false, error: e?.response?.data?.error || 'Error en asignación' });
-        }
+      // Validar misma empresa que las claves ya seleccionadas
+      if (lockedEmpresa && lockedEmpresa.rfc !== newEmpresa.rfc) {
+        setAddConceptoError(
+          `Esta clave pertenece a "${newEmpresa.razon_social}" (${newEmpresa.rfc}), pero los productos ya seleccionados son de "${lockedEmpresa.razon_social}". Solo puedes agregar productos de la misma empresa.`
+        );
+        return;
+      }
+      setSelectedConceptos([...selectedConceptos, {
+        clave_prodserv: opt.clave_prodserv,
+        descripcion: opt.descripcion,
+        empresa: newEmpresa,
+        cuenta_bancaria: r.data?.cuenta_bancaria,
+        facturacion: r.data?.facturacion,
+      }]);
+      setConceptoSearchInput('');
+      setConceptoOptions([]);
+      setConceptoSearchError(null);
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (status === 502 || status === 503) {
+        setAddConceptoError('Servicio no disponible momentáneamente. Intenta de nuevo en unos segundos.');
       } else {
-        setAsignacion(null);
+        setAddConceptoError(e?.response?.data?.error || 'No se pudo agregar la clave. Verifica e intenta de nuevo.');
       }
-    }, 600);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.conceptos, form.rfc, form.razon_social, requiereFactura]);
+    } finally {
+      setAddingConcepto(false);
+    }
+  };
+
+  const removeSelectedConcepto = (clave: string) => {
+    setSelectedConceptos(selectedConceptos.filter(c => c.clave_prodserv !== clave));
+    setAddConceptoError(null);
+  };
+
+  const pickConceptoOption = (opt: ConceptoOption) => { void tryAddConcepto(opt); };
+  const addConceptoOption = (opt: ConceptoOption) => { void tryAddConcepto(opt); };
+
+  // claveValidations existe sólo para compat con código existente que la lee
+  // (validations vienen ya implícitas en selectedConceptos).
+  type ClaveValidation = { clave: string; ok: boolean; descripcion?: string; loading?: boolean };
+  const claveValidations: ClaveValidation[] = selectedConceptos.map(c => ({
+    clave: c.clave_prodserv,
+    ok: true,
+    descripcion: c.descripcion,
+  }));
   const [rateWidgetCurrency, setRateWidgetCurrency] = useState<'USD' | 'RMB'>('USD');
 
   const widgetEstimate = useMemo(() => {
@@ -2409,10 +2436,20 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                 </Typography>
                 <Box sx={{ position: 'relative' }}>
                   <TextField
-                    fullWidth required label="Productos SAT a facturar" value={form.conceptos}
-                    onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
-                    placeholder="Ej.: puertas, madera, 84111506"
-                    helperText="Escriba una o más claves SAT o el tipo de producto que desea comprar. Puede seleccionar varios productos del catálogo."
+                    fullWidth label="Buscar producto o ingresar clave SAT" value={conceptoSearchInput}
+                    onChange={(e) => setConceptoSearchInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      const v = conceptoSearchInput.trim();
+                      if (e.key === 'Enter' && /^\d{8}$/.test(v)) {
+                        e.preventDefault();
+                        void tryAddConcepto({ clave_prodserv: v, descripcion: '' });
+                      }
+                    }}
+                    disabled={addingConcepto}
+                    placeholder={lockedEmpresa ? `Buscar otro producto de ${lockedEmpresa.razon_social}…` : 'Ej.: puertas, madera, 84111506'}
+                    helperText={lockedEmpresa
+                      ? `Solo puedes agregar productos de "${lockedEmpresa.razon_social}". Para cambiar de empresa, elimina las claves seleccionadas.`
+                      : 'Escriba el nombre del producto o la clave SAT y selecciónelo del listado. Puede agregar varios productos.'}
                     sx={{
                       '& .MuiOutlinedInput-root': {
                         color: '#ffffff',
@@ -2473,39 +2510,55 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                   )}
                 </Box>
 
-                {/* Validación inline contra catálogo SAT ENTANGLED */}
-                {claveValidations.length > 0 && (
+                {/* Spinner mientras se agrega una clave */}
+                {addingConcepto && (
+                  <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <CircularProgress size={14} sx={{ color: ORANGE }} />
+                    <Typography variant="caption" sx={{ color: '#9ca3af' }}>Verificando empresa asignada…</Typography>
+                  </Box>
+                )}
+
+                {/* Error al intentar agregar */}
+                {addConceptoError && !addingConcepto && (
+                  <Alert severity="warning" sx={{ mt: 1.5, bgcolor: 'rgba(239, 68, 68, 0.10)', color: '#fecaca', border: '1px solid #ef4444', '& .MuiAlert-icon': { color: '#ef4444' } }}
+                    onClose={() => setAddConceptoError(null)}>
+                    {addConceptoError}
+                  </Alert>
+                )}
+
+                {/* Lista de claves seleccionadas — chips con descripción y botón de eliminar */}
+                {selectedConceptos.length > 0 && (
                   <Box sx={{ mt: 1.5 }}>
-                    {claveValidations.map((v, i) => (
-                      <Box
-                        key={`${v.clave}-${i}`}
+                    <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block', mb: 0.5 }}>
+                      {selectedConceptos.length === 1 ? '1 producto agregado' : `${selectedConceptos.length} productos agregados`}
+                    </Typography>
+                    {selectedConceptos.map((c) => (
+                      <Box key={c.clave_prodserv}
                         sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          py: 0.6,
-                          px: 1,
-                          mb: 0.5,
+                          display: 'flex', alignItems: 'center', gap: 1, py: 0.8, px: 1.2, mb: 0.5,
                           borderRadius: 1,
-                          bgcolor: v.loading ? 'rgba(245, 158, 11, 0.15)' : v.ok ? 'rgba(16, 185, 129, 0.15)' : 'rgba(239, 68, 68, 0.15)',
-                          border: `1px solid ${v.loading ? '#f59e0b' : v.ok ? '#10b981' : '#ef4444'}`,
+                          bgcolor: 'rgba(16, 185, 129, 0.12)',
+                          border: '1px solid #10b981',
                         }}
                       >
-                        <Typography sx={{ fontWeight: 700, mr: 1, color: v.loading ? '#f59e0b' : v.ok ? '#10b981' : '#ef4444' }}>
-                          {v.loading ? '⏳' : v.ok ? '✓' : '✗'}
-                        </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#fff', mr: 1 }}>
-                          {v.clave}
+                        <Typography sx={{ color: '#10b981', fontWeight: 700 }}>✓</Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 700, color: '#fff', fontFamily: 'monospace' }}>
+                          {c.clave_prodserv}
                         </Typography>
                         <Typography variant="caption" sx={{ color: '#d1d5db', flex: 1 }}>
-                          {v.loading ? 'Validando...' : v.ok ? (v.descripcion || 'Disponible en catálogo') : 'No encontrada en catálogo SAT'}
+                          {c.descripcion || '—'}
                         </Typography>
+                        <IconButton size="small" onClick={() => removeSelectedConcepto(c.clave_prodserv)}
+                          sx={{ color: '#9ca3af', '&:hover': { color: '#ef4444', bgcolor: 'rgba(239,68,68,0.15)' } }}>
+                          <DeleteIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
                       </Box>
                     ))}
                   </Box>
                 )}
 
-                {/* Empresa proveedora que recibirá el pago */}
-                {claveValidations.length > 0 && claveValidations.every(v => v.ok) && (
+                {/* Empresa que recibirá el pago — sólo cuando hay al menos una clave */}
+                {lockedEmpresa && (
                   <Box
                     sx={{
                       mt: 1.5,
@@ -2520,20 +2573,10 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                     <Typography sx={{ color: ORANGE, fontSize: 18, mr: 1 }}>🏢</Typography>
                     <Box sx={{ flex: 1 }}>
                       <Typography variant="caption" sx={{ color: '#9ca3af', display: 'block' }}>
-                        Empresa asignada por ENTANGLED
+                        Empresa que enviará el pago
                       </Typography>
-                      {asignacion?.loading ? (
-                        <Typography variant="body2" sx={{ color: '#9ca3af' }}>Consultando…</Typography>
-                      ) : asignacion?.empresa ? (
-                        <>
-                          <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>{asignacion.empresa.razon_social}</Typography>
-                          <Typography variant="caption" sx={{ color: '#9ca3af', fontFamily: 'monospace' }}>{asignacion.empresa.rfc}</Typography>
-                        </>
-                      ) : (
-                        <Typography variant="body2" sx={{ color: '#9ca3af' }}>
-                          {asignacion?.error || (claveValidations.some(v => v.ok) ? 'Sin asignación' : 'Ingresa una clave SAT válida')}
-                        </Typography>
-                      )}
+                      <Typography variant="body2" sx={{ color: '#fff', fontWeight: 700 }}>{lockedEmpresa.razon_social}</Typography>
+                      <Typography variant="caption" sx={{ color: '#9ca3af', fontFamily: 'monospace' }}>{lockedEmpresa.rfc}</Typography>
                     </Box>
                   </Box>
                 )}
