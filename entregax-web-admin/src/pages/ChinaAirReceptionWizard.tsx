@@ -37,8 +37,10 @@ import {
     Refresh as RefreshIcon,
     Warning as WarningIcon,
     Flight as FlightIcon,
+    Print as PrintIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
+import { printLabelsZPL, type LabelData } from '../utils/zplPrint';
 
 interface Awb {
     id: number;
@@ -248,6 +250,140 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
         loadAwbs();
     };
 
+    // Impresión masiva de etiquetas para todos los paquetes del AWB.
+    // Intenta primero ZPL contra Zebra Browser Print (etiquetas 4x6).
+    // Si no hay impresora Zebra disponible, abre una ventana con todas las
+    // etiquetas en HTML listas para imprimir desde el navegador.
+    const [printingLabels, setPrintingLabels] = useState(false);
+    const handlePrintAllLabels = async () => {
+        if (!selected || packages.length === 0) return;
+        setPrintingLabels(true);
+        try {
+            const labels: LabelData[] = packages.map((p) => ({
+                tracking: p.tracking_internal,
+                clientBoxId: p.user_box_id || undefined,
+                weight: p.weight ? Number(p.weight).toFixed(2) : undefined,
+                description: p.description || undefined,
+                receivedAt: selected.flight_date || undefined,
+            }));
+
+            // 1) Intenta ZPL contra Zebra Browser Print
+            const zplOk = await printLabelsZPL(labels);
+            if (zplOk) {
+                setScanFeedback({
+                    type: 'success',
+                    msg: `${labels.length} etiqueta(s) enviadas a la impresora Zebra.`,
+                });
+                return;
+            }
+
+            // 2) Fallback: ventana imprimible con todas las etiquetas 4x6 (una por página)
+            const printWindow = window.open('', '_blank', 'width=480,height=720');
+            if (!printWindow) {
+                setScanFeedback({ type: 'error', msg: 'Permite ventanas emergentes para imprimir.' });
+                return;
+            }
+            const today = new Date().toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+            const awbInfo = `AWB ${selected.awb_number}${selected.carrier ? ` · ${selected.carrier}` : ''}${selected.flight_number ? ` · Vuelo ${selected.flight_number}` : ''}`;
+            const route = `${selected.origin_airport || '?'} → ${selected.destination_airport || '?'}`;
+            const escape = (s: string) => String(s || '').replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' }[c] as string));
+            const labelsHtml = labels
+                .map((l, i) => {
+                    const tn = String(l.tracking || '').toUpperCase();
+                    const tnCompact = tn.replace(/[^A-Za-z0-9]/g, '');
+                    const trackingQr = `https://app.entregax.com/track/${tnCompact}`;
+                    const desc = l.description ? escape(l.description) : '';
+                    const weight = l.weight ? `${l.weight} kg` : '—';
+                    const clientBox = l.clientBoxId ? escape(l.clientBoxId) : '—';
+                    return `
+<div class="label" data-idx="${i}">
+  <div class="brand">
+    <div class="logo">Entrega<span>X</span></div>
+    <div class="badge">✈ AÉREO CHINA</div>
+  </div>
+  <div class="awb-line">${escape(awbInfo)}</div>
+  <div class="route">${escape(route)}</div>
+  <div class="tracking-row">
+    <div class="tn">${escape(tn)}</div>
+    <div class="date">${today}</div>
+  </div>
+  <div class="barcode-box"><svg class="barcode" data-tn="${tnCompact}"></svg></div>
+  <div class="boxid">${clientBox}</div>
+  <div class="boxid-lbl">PO BOX</div>
+  <div class="meta">
+    <div class="cell"><div class="lbl">PESO</div><div class="val">${escape(weight)}</div></div>
+    <div class="cell"><div class="lbl">DESCRIPCIÓN</div><div class="val small">${desc || '—'}</div></div>
+  </div>
+  <div class="footer">
+    <div class="qr-box"><div class="qrcode" data-url="${escape(trackingQr)}"></div></div>
+    <div class="counter">${i + 1} / ${labels.length}</div>
+  </div>
+</div>`;
+                })
+                .join('');
+
+            const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>Etiquetas AWB ${escape(selected.awb_number)}</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<style>
+  @page { size: 4in 6in; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 11px; }
+  .label { width: 4in; height: 6in; padding: 0.18in; display: flex; flex-direction: column; page-break-after: always; }
+  .label:last-child { page-break-after: auto; }
+  .brand { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #F05A28; padding-bottom: 6px; margin-bottom: 6px; }
+  .brand .logo { font-size: 22px; font-weight: 900; color: #F05A28; letter-spacing: 1px; font-family: 'Arial Black', sans-serif; }
+  .brand .logo span { color: #111; }
+  .brand .badge { background: #F05A28; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
+  .awb-line { font-size: 10px; color: #444; font-weight: 700; }
+  .route { font-size: 18px; font-weight: 900; color: #111; margin: 2px 0 6px; }
+  .tracking-row { display: flex; justify-content: space-between; align-items: center; }
+  .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 14px; font-weight: 900; }
+  .tracking-row .date { font-size: 10px; color: #555; }
+  .barcode-box { text-align: center; margin: 6px 0; }
+  .barcode-box svg { max-height: 60px; width: 100%; }
+  .boxid-lbl { font-size: 9px; color: #666; font-weight: 800; letter-spacing: 2px; text-align: center; margin-top: 2px; }
+  .boxid { text-align: center; font-family: 'Arial Black', sans-serif; font-size: 64px; font-weight: 900; color: #111; letter-spacing: 4px; line-height: 1; margin-top: 8px; }
+  .meta { display: grid; grid-template-columns: 1fr 2fr; gap: 4px; margin: 8px 0; }
+  .meta .cell { border: 1px solid #ddd; padding: 4px 6px; }
+  .meta .cell .lbl { font-size: 8px; color: #666; font-weight: 800; letter-spacing: 1px; }
+  .meta .cell .val { font-size: 14px; font-weight: 800; color: #111; }
+  .meta .cell .val.small { font-size: 11px; font-weight: 700; }
+  .footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 6px; border-top: 1px dashed #999; }
+  .footer .qr-box img { width: 80px !important; height: 80px !important; }
+  .footer .counter { font-family: 'Arial Black', sans-serif; font-size: 14px; color: #444; font-weight: 900; }
+</style></head><body>
+${labelsHtml}
+<script>
+  window.addEventListener('load', function() {
+    document.querySelectorAll('svg.barcode').forEach(function(svg){
+      try { JsBarcode(svg, svg.getAttribute('data-tn'), { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}
+    });
+    document.querySelectorAll('.qrcode').forEach(function(div){
+      try {
+        var qr = qrcode(0, 'M'); qr.addData(div.getAttribute('data-url')); qr.make();
+        div.innerHTML = qr.createImgTag(2);
+      } catch(e) {}
+    });
+    setTimeout(function(){ window.print(); }, 500);
+  });
+</script>
+</body></html>`;
+            printWindow.document.write(html);
+            printWindow.document.close();
+            setScanFeedback({
+                type: 'info',
+                msg: `${labels.length} etiqueta(s) preparadas — usa el diálogo de impresión.`,
+            });
+        } catch (e) {
+            const err = e as { message?: string };
+            setScanFeedback({ type: 'error', msg: err.message || 'Error imprimiendo etiquetas' });
+        } finally {
+            setPrintingLabels(false);
+        }
+    };
+
     const receivedCount = packages.filter((p) => isReceivedMx(p.status)).length;
     const missingCount = packages.length - receivedCount;
 
@@ -398,15 +534,38 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
             {step === 1 && selected && (
                 <Box>
                     <Paper sx={{ p: 2, mb: 2, bgcolor: '#FFF5F0', border: `2px solid ${ORANGE}` }}>
-                        <Typography variant="subtitle2" color="text.secondary">
-                            AWB {selected.awb_number}
-                            {selected.carrier && ` · ${selected.carrier}`}
-                            {selected.flight_number && ` · Vuelo ${selected.flight_number}`}
-                        </Typography>
-                        <Typography variant="h6" sx={{ color: BLACK, fontWeight: 700 }}>
-                            {selected.origin_airport || '?'} → {selected.destination_airport || '?'}
-                            {selected.gross_weight_kg && ` · ${Number(selected.gross_weight_kg).toFixed(2)} kg`}
-                        </Typography>
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 2 }}>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="subtitle2" color="text.secondary">
+                                    AWB {selected.awb_number}
+                                    {selected.carrier && ` · ${selected.carrier}`}
+                                    {selected.flight_number && ` · Vuelo ${selected.flight_number}`}
+                                </Typography>
+                                <Typography variant="h6" sx={{ color: BLACK, fontWeight: 700 }}>
+                                    {selected.origin_airport || '?'} → {selected.destination_airport || '?'}
+                                    {selected.gross_weight_kg && ` · ${Number(selected.gross_weight_kg).toFixed(2)} kg`}
+                                </Typography>
+                            </Box>
+                            <Button
+                                variant="contained"
+                                startIcon={printingLabels ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : <PrintIcon />}
+                                onClick={handlePrintAllLabels}
+                                disabled={printingLabels || packages.length === 0}
+                                sx={{
+                                    bgcolor: BLACK,
+                                    color: '#FFF',
+                                    fontWeight: 700,
+                                    textTransform: 'none',
+                                    px: 1.6,
+                                    py: 0.7,
+                                    whiteSpace: 'nowrap',
+                                    boxShadow: '0 4px 12px rgba(0,0,0,0.25)',
+                                    '&:hover': { bgcolor: '#000' },
+                                }}
+                            >
+                                {printingLabels ? 'Imprimiendo…' : `Imprimir etiquetas (${packages.length})`}
+                            </Button>
+                        </Box>
                         <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
                             <Chip label={`Total: ${packages.length}`} size="small" sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700 }} />
                             <Chip
