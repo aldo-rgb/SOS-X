@@ -278,8 +278,8 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
                 tracking: p.tracking_internal,
                 clientBoxId: p.user_box_id || undefined,
                 weight: p.weight ? Number(p.weight).toFixed(2) : undefined,
-                description: p.description || undefined,
                 receivedAt: selected.flight_date || undefined,
+                // Sin description: la etiqueta de AÉREO no la lleva.
             }));
 
             // 1) Intenta ZPL contra Zebra Browser Print
@@ -307,7 +307,6 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
                     const tn = String(l.tracking || '').toUpperCase();
                     const tnCompact = tn.replace(/[^A-Za-z0-9]/g, '');
                     const trackingQr = `https://app.entregax.com/track/${tnCompact}`;
-                    const desc = l.description ? escape(l.description) : '';
                     const weight = l.weight ? `${l.weight} kg` : '—';
                     const clientBox = l.clientBoxId ? escape(l.clientBoxId) : '—';
                     return `
@@ -324,10 +323,9 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
   </div>
   <div class="barcode-box"><svg class="barcode" data-tn="${tnCompact}"></svg></div>
   <div class="boxid">${clientBox}</div>
-  <div class="boxid-lbl">PO BOX</div>
+  <div class="boxid-lbl">AÉREO</div>
   <div class="meta">
     <div class="cell"><div class="lbl">PESO</div><div class="val">${escape(weight)}</div></div>
-    <div class="cell"><div class="lbl">DESCRIPCIÓN</div><div class="val small">${desc || '—'}</div></div>
   </div>
   <div class="footer">
     <div class="qr-box"><div class="qrcode" data-url="${escape(trackingQr)}"></div></div>
@@ -360,11 +358,10 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
   .barcode-box svg { max-height: 60px; width: 100%; }
   .boxid-lbl { font-size: 9px; color: #666; font-weight: 800; letter-spacing: 2px; text-align: center; margin-top: 2px; }
   .boxid { text-align: center; font-family: 'Arial Black', sans-serif; font-size: 64px; font-weight: 900; color: #111; letter-spacing: 4px; line-height: 1; margin-top: 8px; }
-  .meta { display: grid; grid-template-columns: 1fr 2fr; gap: 4px; margin: 8px 0; }
-  .meta .cell { border: 1px solid #ddd; padding: 4px 6px; }
+  .meta { display: flex; gap: 4px; margin: 8px 0; }
+  .meta .cell { flex: 1; border: 1px solid #ddd; padding: 4px 8px; text-align: center; }
   .meta .cell .lbl { font-size: 8px; color: #666; font-weight: 800; letter-spacing: 1px; }
-  .meta .cell .val { font-size: 14px; font-weight: 800; color: #111; }
-  .meta .cell .val.small { font-size: 11px; font-weight: 700; }
+  .meta .cell .val { font-size: 16px; font-weight: 800; color: #111; }
   .footer { display: flex; justify-content: space-between; align-items: center; margin-top: auto; padding-top: 6px; border-top: 1px dashed #999; }
   .footer .qr-box img { width: 80px !important; height: 80px !important; }
   .footer .counter { font-family: 'Arial Black', sans-serif; font-size: 14px; color: #444; font-weight: 900; }
