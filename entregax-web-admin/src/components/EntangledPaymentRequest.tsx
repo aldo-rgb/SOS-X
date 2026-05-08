@@ -2083,7 +2083,10 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                           {(() => {
                             const estatus = String(r.estatus_global || '').toLowerCase();
                             const isTerminal = ['cancelado', 'rechazado', 'completado', 'pagado'].includes(estatus);
-                            const canUpload = !isTerminal && !r.op_comprobante_cliente_url;
+                            // Permitir re-upload aunque ya haya comprobante si la solicitud quedó
+                            // en error_envio (envío a ENTANGLED falló) o sigue pendiente.
+                            const isRetryable = ['error_envio', 'error', 'pendiente'].includes(estatus);
+                            const canUpload = !isTerminal && (!r.op_comprobante_cliente_url || isRetryable);
                             return (
                               <Stack direction="row" spacing={0.4} justifyContent="center" alignItems="center">
                                 {canUpload ? (
@@ -2146,27 +2149,39 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                             );
                           })()}
                           {/* Chronometer / countdown / fecha */}
-                          {r.comprobante_subido_at ? (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.22)', width: 'fit-content' }}>
-                              <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#4ade80', display: 'inline-block', animation: 'xpay-dot 1.4s infinite' }} />
-                              <Typography sx={{ color: '#4ade80', fontSize: '0.65rem', fontWeight: 800, fontFamily: 'monospace' }}>
-                                {formatElapsed(r.comprobante_subido_at, now)}
-                              </Typography>
-                            </Box>
-                          ) : (() => {
-                            const cd = formatCancelCountdown(r.created_at, r.payment_deadline_at);
+                          {(() => {
                             const estatus = String(r.estatus_global || '').toLowerCase();
                             const isTerminal = ['cancelado', 'rechazado', 'completado', 'pagado'].includes(estatus);
+                            const isErroredSend = ['error_envio', 'error'].includes(estatus);
+                            // Comprobante subido OK: chronometer verde sólo si NO falló el envío.
+                            if (r.comprobante_subido_at && !isErroredSend) {
+                              return (
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.22)', width: 'fit-content' }}>
+                                  <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#4ade80', display: 'inline-block', animation: 'xpay-dot 1.4s infinite' }} />
+                                  <Typography sx={{ color: '#4ade80', fontSize: '0.65rem', fontWeight: 800, fontFamily: 'monospace' }}>
+                                    {formatElapsed(r.comprobante_subido_at, now)}
+                                  </Typography>
+                                </Box>
+                              );
+                            }
+                            // Pendiente / error_envio: countdown 24h o "No enviado".
+                            const cd = formatCancelCountdown(r.created_at, r.payment_deadline_at);
                             if (cd && !isTerminal) {
                               return (
-                                <Tooltip title="Si no subes el comprobante antes de esta hora, la solicitud se cancela automáticamente">
-                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.32)', width: 'fit-content' }}>
-                                    <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#f59e0b', display: 'inline-block' }} />
-                                    <Typography sx={{ color: '#f59e0b', fontSize: '0.65rem', fontWeight: 800, fontFamily: 'monospace' }}>
-                                      {cd}
-                                    </Typography>
-                                  </Box>
-                                </Tooltip>
+                                <Stack spacing={0.4} alignItems="flex-start" sx={{ mt: 0.5 }}>
+                                  {isErroredSend && (
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(239,68,68,0.10)', border: '1px solid rgba(239,68,68,0.32)' }}>
+                                      <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#ef4444', display: 'inline-block' }} />
+                                      <Typography sx={{ color: '#ef4444', fontSize: '0.65rem', fontWeight: 800 }}>No enviado · reintenta</Typography>
+                                    </Box>
+                                  )}
+                                  <Tooltip title="Si no subes el comprobante antes de esta hora, la solicitud se cancela automáticamente">
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.32)' }}>
+                                      <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#f59e0b', display: 'inline-block' }} />
+                                      <Typography sx={{ color: '#f59e0b', fontSize: '0.65rem', fontWeight: 800, fontFamily: 'monospace' }}>{cd}</Typography>
+                                    </Box>
+                                  </Tooltip>
+                                </Stack>
                               );
                             }
                             return (
