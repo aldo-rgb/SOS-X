@@ -85,6 +85,9 @@ export interface EntangledSolicitudPayloadV2 {
   // Metadatos opcionales sólo informativos para ENTANGLED
   referencia_xpay?: string | undefined;
   notas?: string | undefined;
+  // Cuando seguimos el contrato JSON (sin multipart) ENTANGLED espera el
+  // link público al PDF/imagen del comprobante en este campo.
+  comprobante_cliente_url?: string | undefined;
 }
 
 export interface EntangledEmpresaAsignadaV2 {
