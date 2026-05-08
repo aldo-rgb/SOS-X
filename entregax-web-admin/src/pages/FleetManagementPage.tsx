@@ -307,6 +307,8 @@ export default function FleetManagementPage() {
   const isSuperAdmin = currentUserRole === 'super_admin';
   // Edición de vehículos: sólo admin y super_admin
   const canEditVehicle = ['super_admin', 'admin'].includes(currentUserRole);
+  // Costos visibles sólo para admin / super_admin / director
+  const canViewCost = ['super_admin', 'admin', 'director'].includes(currentUserRole);
   // Roles que pueden ver el detalle (👁) de la unidad pero NO editar/eliminar
   const canViewVehicle = isSuperAdmin
     || currentUserRole === 'branch_manager'
@@ -601,9 +603,14 @@ export default function FleetManagementPage() {
         const m = String(url).split('?')[0].match(/\.([a-zA-Z0-9]{2,5})$/);
         return m ? m[1].toLowerCase() : fallback;
       };
+      // Vamos a través del proxy del backend para evitar problemas de CORS
+      // contra el bucket de S3 al descargar fotos / documentos.
       const fetchAsBlob = async (url: string): Promise<Blob | null> => {
         try {
-          const r = await fetch(url, { mode: 'cors' });
+          const proxied = `${API_URL}/api/admin/fleet/file-proxy?url=${encodeURIComponent(url)}`;
+          const r = await fetch(proxied, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+          });
           if (!r.ok) return null;
           return await r.blob();
         } catch {
@@ -780,16 +787,18 @@ export default function FleetManagementPage() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid size={{ xs: 6, md: 2 }}>
-            <Card>
-              <CardContent sx={{ textAlign: 'center', py: 2 }}>
-                <Typography variant="h5" fontWeight={700}>
-                  {dashboard ? formatCurrency(dashboard.monthly_expenses.maintenance) : <Skeleton width={80} sx={{ mx: 'auto' }} />}
-                </Typography>
-                <Typography variant="body2" color="text.secondary">Gastos Mes</Typography>
-              </CardContent>
-            </Card>
-          </Grid>
+          {canViewCost && (
+            <Grid size={{ xs: 6, md: 2 }}>
+              <Card>
+                <CardContent sx={{ textAlign: 'center', py: 2 }}>
+                  <Typography variant="h5" fontWeight={700}>
+                    {dashboard ? formatCurrency(dashboard.monthly_expenses.maintenance) : <Skeleton width={80} sx={{ mx: 'auto' }} />}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">Gastos Mes</Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          )}
         </Grid>
 
       {/* Tabs */}
@@ -1192,7 +1201,7 @@ export default function FleetManagementPage() {
                 {selectedVehicle?.brand} {selectedVehicle?.model} {selectedVehicle?.year} | {selectedVehicle?.license_plates}
               </Typography>
             </Box>
-            {vehicleDetailData && (
+            {vehicleDetailData && canViewCost && (
               <Tooltip title="Descarga las 4 fotos + todos los documentos legales en un .zip">
                 <span>
                   <Button
@@ -1234,15 +1243,17 @@ export default function FleetManagementPage() {
                     </CardContent>
                   </Card>
                 </Grid>
-                <Grid size={{ xs: 6, md: 3 }}>
-                  <Card variant="outlined">
-                    <CardContent>
-                      <MoneyIcon color="error" />
-                      <Typography variant="h5">{formatCurrency(vehicleDetailData.expenses.maintenance)}</Typography>
-                      <Typography variant="caption">Gasto Total Mantenimiento</Typography>
-                    </CardContent>
-                  </Card>
-                </Grid>
+                {canViewCost && (
+                  <Grid size={{ xs: 6, md: 3 }}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <MoneyIcon color="error" />
+                        <Typography variant="h5">{formatCurrency(vehicleDetailData.expenses.maintenance)}</Typography>
+                        <Typography variant="caption">Gasto Total Mantenimiento</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                )}
                 <Grid size={{ xs: 6, md: 3 }}>
                   <Card variant="outlined">
                     <CardContent>
@@ -1531,7 +1542,7 @@ export default function FleetManagementPage() {
                         <TableCell>Proveedor</TableCell>
                         <TableCell>Número</TableCell>
                         <TableCell>Vencimiento</TableCell>
-                        <TableCell align="right">Costo</TableCell>
+                        {canViewCost && <TableCell align="right">Costo</TableCell>}
                         <TableCell>Estado</TableCell>
                         <TableCell align="center">Archivo</TableCell>
                         <TableCell align="center">Acciones</TableCell>
@@ -1550,7 +1561,7 @@ export default function FleetManagementPage() {
                             <TableCell>{doc.provider_name || '—'}</TableCell>
                             <TableCell>{doc.policy_number || '—'}</TableCell>
                             <TableCell>{hasExpiration ? formatDate(doc.expiration_date) : 'Sin Vigencia'}</TableCell>
-                            <TableCell align="right">{formatCurrency(doc.cost || 0)}</TableCell>
+                            {canViewCost && <TableCell align="right">{formatCurrency(doc.cost || 0)}</TableCell>}
                             <TableCell>
                               {!hasExpiration ? (
                                 <Chip label="Sin Vigencia" color="info" size="small" />
@@ -1615,7 +1626,7 @@ export default function FleetManagementPage() {
                         <TableCell>Tipo</TableCell>
                         <TableCell>Descripción</TableCell>
                         <TableCell align="right">Kilometraje</TableCell>
-                        <TableCell align="right">Costo</TableCell>
+                        {canViewCost && <TableCell align="right">Costo</TableCell>}
                         <TableCell>Taller</TableCell>
                         <TableCell>Próx. Servicio</TableCell>
                       </TableRow>
@@ -1633,7 +1644,7 @@ export default function FleetManagementPage() {
                           </TableCell>
                           <TableCell>{m.description}</TableCell>
                           <TableCell align="right">{m.mileage_at_service?.toLocaleString()} km</TableCell>
-                          <TableCell align="right">{formatCurrency(m.cost || 0)}</TableCell>
+                          {canViewCost && <TableCell align="right">{formatCurrency(m.cost || 0)}</TableCell>}
                           <TableCell>{m.workshop_name || '—'}</TableCell>
                           <TableCell>
                             {m.next_service_mileage ? `${m.next_service_mileage.toLocaleString()} km` : '—'}

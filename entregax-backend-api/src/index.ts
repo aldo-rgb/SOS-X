@@ -892,7 +892,8 @@ import {
   getFleetDashboard,
   getAvailableDrivers,
   checkExpiringDocuments,
-  checkUpcomingMaintenance
+  checkUpcomingMaintenance,
+  proxyVehicleFile
 } from './fleetController';
 import {
   // API Pública (app móvil)
@@ -7100,6 +7101,10 @@ app.put('/api/admin/fleet/alerts/:id/resolve', authenticateToken, requireMinLeve
 // Dashboard y reportes
 app.get('/api/admin/fleet/dashboard', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getFleetDashboard);
 app.get('/api/admin/fleet/drivers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAvailableDrivers);
+
+// Proxy de archivos S3 (evita CORS al armar el .zip de descarga en el navegador).
+// Restringido por rol dentro del handler (admin / super_admin / director).
+app.get('/api/admin/fleet/file-proxy', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), proxyVehicleFile);
 
 // Rutas para choferes (mobile app)
 app.get('/api/fleet/available-vehicles', authenticateToken, getAvailableVehicles);

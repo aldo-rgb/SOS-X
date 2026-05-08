@@ -1,6 +1,8 @@
 import { Request, Response } from 'express';
+import { Readable } from 'stream';
+import { GetObjectCommand } from '@aws-sdk/client-s3';
 import { pool } from './db';
-import { getSignedUrlForKey, extractKeyFromUrl } from './s3Service';
+import { getSignedUrlForKey, extractKeyFromUrl, s3Client, BUCKET_NAME } from './s3Service';
 
 const signDocumentFileUrl = async (fileUrl: string | null | undefined): Promise<string | null> => {
   if (!fileUrl) return null;
@@ -18,6 +20,28 @@ const getAuthUserId = (req: Request): number | null => {
   const rawId = (req as any).user?.userId ?? (req as any).user?.id;
   const id = Number(rawId);
   return Number.isFinite(id) && id > 0 ? id : null;
+};
+
+// Restricción por sucursal para Flotilla:
+// - super_admin y sistemamty@entregax.com ven todas las unidades
+// - el resto sólo ve las unidades de su sucursal asignada (branch_id)
+// - usuarios sin sucursal asignada y sin acceso global no ven ninguna
+type FleetBranchScope =
+  | { allBranches: true; branchId: null }
+  | { allBranches: false; branchId: number | null };
+
+const resolveFleetBranchScope = async (req: Request): Promise<FleetBranchScope> => {
+  const email = ((req as any).user?.email || '').toLowerCase();
+  const role = ((req as any).user?.role || '').toLowerCase();
+  if (role === 'super_admin' || email === 'sistemamty@entregax.com') {
+    return { allBranches: true, branchId: null };
+  }
+  const userId = getAuthUserId(req);
+  if (!userId) return { allBranches: false, branchId: null };
+  const r = await pool.query('SELECT branch_id FROM users WHERE id = $1', [userId]);
+  const raw = r.rows[0]?.branch_id;
+  const branchId = raw == null ? null : Number(raw);
+  return { allBranches: false, branchId: Number.isFinite(branchId as number) ? (branchId as number) : null };
 };
 
 // ==================== VEHÍCULOS ====================
@@ -49,10 +73,18 @@ interface VehicleRow {
 export const getVehicles = async (req: Request, res: Response) => {
   try {
     const { status, type } = req.query;
-    
+
+    // Filtro por sucursal: super_admin y sistemamty@entregax.com ven todas
+    // las unidades; el resto sólo ve las de su sucursal asignada.
+    const scope = await resolveFleetBranchScope(req);
+    if (!scope.allBranches && !scope.branchId) {
+      res.json([]);
+      return;
+    }
+
     // Consulta principal simplificada (sin subconsultas lentas)
     let query = `
-      SELECT 
+      SELECT
         v.*,
         u.full_name as driver_name,
         u.phone as driver_phone,
@@ -63,7 +95,7 @@ export const getVehicles = async (req: Request, res: Response) => {
       WHERE 1=1
     `;
     const params: any[] = [];
-    
+
     if (status) {
       params.push(status);
       query += ` AND v.status = $${params.length}`;
@@ -72,9 +104,14 @@ export const getVehicles = async (req: Request, res: Response) => {
       params.push(type);
       query += ` AND v.vehicle_type = $${params.length}`;
     }
-    
+
+    if (!scope.allBranches && scope.branchId) {
+      params.push(scope.branchId);
+      query += ` AND v.branch_id = $${params.length}`;
+    }
+
     query += ' ORDER BY v.economic_number ASC';
-    
+
     const result = await pool.query(query, params);
     
     // Si no hay vehículos, retornar rápido
@@ -167,7 +204,7 @@ export const getVehicles = async (req: Request, res: Response) => {
 export const getVehicleDetail = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    
+
     // Datos del vehículo
     const vehicleResult = await pool.query(`
       SELECT v.*, u.full_name as driver_name, u.phone as driver_phone, u.email as driver_email
@@ -175,9 +212,19 @@ export const getVehicleDetail = async (req: Request, res: Response) => {
       LEFT JOIN users u ON v.assigned_driver_id = u.id
       WHERE v.id = $1
     `, [id]);
-    
+
     if (vehicleResult.rows.length === 0) {
       return res.status(404).json({ error: 'Vehículo no encontrado' });
+    }
+
+    // Bloqueo por sucursal: super_admin y sistemamty@entregax.com pueden ver
+    // cualquier unidad; el resto sólo las de su propia sucursal.
+    const scope = await resolveFleetBranchScope(req);
+    if (!scope.allBranches) {
+      const vehicleBranchId = vehicleResult.rows[0].branch_id == null ? null : Number(vehicleResult.rows[0].branch_id);
+      if (!scope.branchId || vehicleBranchId !== scope.branchId) {
+        return res.status(403).json({ error: 'No tienes acceso a esta unidad' });
+      }
     }
     
     // Documentos
@@ -959,17 +1006,30 @@ export const checkTodayInspection = async (req: Request, res: Response) => {
 export const getFleetAlerts = async (req: Request, res: Response) => {
   try {
     const { resolved } = req.query;
-    
+
+    const scope = await resolveFleetBranchScope(req);
+    if (!scope.allBranches && !scope.branchId) {
+      res.json([]);
+      return;
+    }
+
+    const params: any[] = [resolved === 'true'];
+    let branchFilter = '';
+    if (!scope.allBranches && scope.branchId) {
+      params.push(scope.branchId);
+      branchFilter = ` AND v.branch_id = $${params.length}`;
+    }
+
     const result = await pool.query(`
       SELECT fa.*, v.economic_number, v.brand, v.model
       FROM fleet_alerts fa
       JOIN vehicles v ON fa.vehicle_id = v.id
-      WHERE fa.is_resolved = $1
-      ORDER BY 
+      WHERE fa.is_resolved = $1${branchFilter}
+      ORDER BY
         CASE fa.alert_level WHEN 'critical' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END,
         fa.due_date ASC NULLS LAST
-    `, [resolved === 'true']);
-    
+    `, params);
+
     res.json(result.rows);
   } catch (error) {
     console.error('Error obteniendo alertas:', error);
@@ -1003,62 +1063,95 @@ export const resolveAlert = async (req: Request, res: Response) => {
 // Dashboard de flotilla
 export const getFleetDashboard = async (req: Request, res: Response) => {
   try {
-    // Una sola consulta combinada para todo el dashboard
+    const scope = await resolveFleetBranchScope(req);
+    if (!scope.allBranches && !scope.branchId) {
+      res.json({
+        vehicles: { active: 0, in_shop: 0, out_of_service: 0, total: 0 },
+        expiring_documents: [],
+        expired_documents: [],
+        need_service: [],
+        alerts: { critical: 0, warning: 0, total: 0 },
+        today_inspections: { total: 0, with_damage: 0, dirty_cabin: 0, pending_review: 0 },
+        monthly_expenses: { maintenance: 0 }
+      });
+      return;
+    }
+
+    const branchId = scope.allBranches ? null : scope.branchId;
+    const dashParams: any[] = branchId ? [branchId] : [];
+    const branchFilterVehicles = branchId ? ` WHERE branch_id = $1` : '';
+    const branchFilterAlerts = branchId
+      ? ` AND v.branch_id = $1`
+      : '';
+    const branchFilterInspections = branchId
+      ? ` AND v.branch_id = $1`
+      : '';
+    const branchFilterMaint = branchId
+      ? ` AND v.branch_id = $1`
+      : '';
+
     const result = await pool.query(`
       WITH vehicle_stats AS (
-        SELECT 
+        SELECT
           COUNT(*) FILTER (WHERE status = 'active') as active,
           COUNT(*) FILTER (WHERE status = 'in_shop') as in_shop,
           COUNT(*) FILTER (WHERE status = 'out_of_service') as out_of_service,
           COUNT(*) as total
-        FROM vehicles
+        FROM vehicles${branchFilterVehicles}
       ),
       alerts_stats AS (
-        SELECT 
+        SELECT
           COUNT(*) FILTER (WHERE alert_level = 'critical') as critical,
           COUNT(*) FILTER (WHERE alert_level = 'warning') as warning,
           COUNT(*) as total
-        FROM fleet_alerts WHERE is_resolved = FALSE
+        FROM fleet_alerts fa
+        JOIN vehicles v ON fa.vehicle_id = v.id
+        WHERE fa.is_resolved = FALSE${branchFilterAlerts}
       ),
       inspections_stats AS (
-        SELECT 
+        SELECT
           COUNT(*) as total,
           COUNT(*) FILTER (WHERE has_new_damage = TRUE) as with_damage,
           COUNT(*) FILTER (WHERE is_cabin_clean = FALSE) as dirty_cabin,
           COUNT(*) FILTER (WHERE manager_review_status = 'pending') as pending_review
-        FROM daily_vehicle_inspections
-        WHERE DATE(inspection_date) = CURRENT_DATE
+        FROM daily_vehicle_inspections dvi
+        JOIN vehicles v ON dvi.vehicle_id = v.id
+        WHERE DATE(inspection_date) = CURRENT_DATE${branchFilterInspections}
       ),
       monthly_costs AS (
-        SELECT COALESCE(SUM(cost), 0) as maintenance_cost
-        FROM vehicle_maintenance
-        WHERE DATE_TRUNC('month', service_date) = DATE_TRUNC('month', CURRENT_DATE)
+        SELECT COALESCE(SUM(vm.cost), 0) as maintenance_cost
+        FROM vehicle_maintenance vm
+        JOIN vehicles v ON vm.vehicle_id = v.id
+        WHERE DATE_TRUNC('month', service_date) = DATE_TRUNC('month', CURRENT_DATE)${branchFilterMaint}
       )
-      SELECT 
+      SELECT
         (SELECT row_to_json(vehicle_stats) FROM vehicle_stats) as vehicles,
         (SELECT row_to_json(alerts_stats) FROM alerts_stats) as alerts,
         (SELECT row_to_json(inspections_stats) FROM inspections_stats) as today_inspections,
         (SELECT row_to_json(monthly_costs) FROM monthly_costs) as monthly_costs
-    `);
+    `, dashParams);
 
     const data = result.rows[0];
-    
+
+    const docsBranchFilter = branchId ? ` AND v.branch_id = $2` : '';
+    const docsParams = branchId ? [branchId] : [];
+
     // Documentos en paralelo (más rápido que secuencial)
     const [expiringDocs, expiredDocs] = await Promise.all([
       pool.query(`
         SELECT vd.document_type, vd.expiration_date, v.economic_number
         FROM vehicle_documents vd
         JOIN vehicles v ON vd.vehicle_id = v.id
-        WHERE vd.expiration_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+        WHERE vd.expiration_date BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'${docsBranchFilter.replace('$2', '$1')}
         ORDER BY vd.expiration_date ASC LIMIT 10
-      `),
+      `, docsParams),
       pool.query(`
         SELECT vd.document_type, vd.expiration_date, v.economic_number
         FROM vehicle_documents vd
         JOIN vehicles v ON vd.vehicle_id = v.id
-        WHERE vd.expiration_date < CURRENT_DATE
+        WHERE vd.expiration_date < CURRENT_DATE${docsBranchFilter.replace('$2', '$1')}
         ORDER BY vd.expiration_date ASC LIMIT 10
-      `)
+      `, docsParams)
     ]);
     
     res.json({
@@ -1096,11 +1189,59 @@ export const getAvailableDrivers = async (req: Request, res: Response) => {
       WHERE role IN ('repartidor', 'monitoreo', 'warehouse_ops', 'branch_manager')
       ORDER BY full_name
     `);
-    
+
     res.json(result.rows);
   } catch (error) {
     console.error('Error obteniendo conductores:', error);
     res.status(500).json({ error: 'Error al obtener conductores' });
+  }
+};
+
+// Proxy de archivos S3 para evitar problemas de CORS al descargar
+// fotos / documentos del vehículo desde el navegador.
+// - Sólo para roles con acceso a costos: super_admin, admin, director.
+// - Acepta `url` (firmada) o `key` directa, valida que pertenezca al bucket.
+export const proxyVehicleFile = async (req: Request, res: Response) => {
+  try {
+    const role = ((req as any).user?.role || '').toLowerCase();
+    if (!['super_admin', 'admin', 'director'].includes(role)) {
+      res.status(403).json({ error: 'Sin permiso para descargar archivos de flotilla' });
+      return;
+    }
+
+    const rawUrl = String(req.query.url || '');
+    const rawKey = String(req.query.key || '');
+    let key: string | null = null;
+    if (rawKey) {
+      key = rawKey;
+    } else if (rawUrl) {
+      key = extractKeyFromUrl(rawUrl);
+    }
+    if (!key) {
+      res.status(400).json({ error: 'Parámetro url o key requerido' });
+      return;
+    }
+
+    const cmd = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key });
+    const result = await s3Client.send(cmd);
+
+    res.setHeader('Content-Type', result.ContentType || 'application/octet-stream');
+    if (result.ContentLength != null) {
+      res.setHeader('Content-Length', String(result.ContentLength));
+    }
+    res.setHeader('Cache-Control', 'private, max-age=300');
+
+    const body = result.Body as Readable | undefined;
+    if (!body) {
+      res.status(502).json({ error: 'Respuesta vacía de S3' });
+      return;
+    }
+    body.pipe(res);
+  } catch (error: any) {
+    console.error('Error proxy fleet file:', error?.message || error);
+    if (!res.headersSent) {
+      res.status(502).json({ error: 'No se pudo obtener el archivo' });
+    }
   }
 };
 
