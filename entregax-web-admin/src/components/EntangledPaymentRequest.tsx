@@ -903,8 +903,9 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
    *  - FOOTER: línea fina + nota de cifrado AES-256 + paginación.
    *  - PALETA: Negro #0A0A0A, Naranja #F05A28, grises #6B7280/#E5E7EB, blanco hueso.
    */
-  const generateInstructionsPDF = async () => {
-    if (!lastCreated) return;
+  const generateInstructionsPDF = async (override?: typeof lastCreated) => {
+    const data = override || lastCreated;
+    if (!data) return;
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
     const pageW = doc.internal.pageSize.getWidth();
     const pageH = doc.internal.pageSize.getHeight();
@@ -1000,7 +1001,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     doc.setFont('courier', 'bold');
     doc.setFontSize(28);
     doc.setTextColor(...C_ORANGE);
-    doc.text(String(lastCreated.referencia_pago || ''), margin + 18, y + 56);
+    doc.text(String(data.referencia_pago || ''), margin + 18, y + 56);
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
@@ -1016,7 +1017,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     doc.setDrawColor(...C_BORDER);
     doc.setLineWidth(0.5);
     doc.rect(qrX, qrY, qrSize, qrSize, 'FD');
-    const refStr = String(lastCreated.referencia_pago || 'XPAY');
+    const refStr = String(data.referencia_pago || 'XPAY');
     let seed = 0;
     for (let i = 0; i < refStr.length; i++) seed = (seed * 31 + refStr.charCodeAt(i)) | 0;
     const cells = 9;
@@ -1047,9 +1048,9 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     y += refH + 24;
 
     // ─────── Helpers de paneles modulares ───────
-    const opSnap = lastCreated.operationSnapshot;
-    const benefSnap = lastCreated.beneficiarioSnapshot;
-    const q = lastCreated.quote;
+    const opSnap = data.operationSnapshot;
+    const benefSnap = data.beneficiarioSnapshot;
+    const q = data.quote;
 
     const ensureSpace = (needed: number) => {
       if (y + needed > pageH - 70) { doc.addPage(); y = margin; }
@@ -1139,8 +1140,8 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
 
     // ─────── PANEL: DEPOSITAR / TRANSFERIR A ───────
-    const empresas = lastCreated.empresas_asignadas || [];
-    const provSnap = lastCreated.providerSnapshot;
+    const empresas = data.empresas_asignadas || [];
+    const provSnap = data.providerSnapshot;
 
     if (empresas.length > 0) {
       renderPanel('Depositar / Transferir a', () => {
@@ -1204,7 +1205,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     doc.setFontSize(8.5);
     doc.setTextColor(120, 53, 15);
     doc.text(
-      `Incluye la referencia ${lastCreated.referencia_pago || ''} en el concepto de tu transferencia.`,
+      `Incluye la referencia ${data.referencia_pago || ''} en el concepto de tu transferencia.`,
       margin + 14, y + 33
     );
     doc.text(
@@ -2363,20 +2364,74 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
             {quote && (
               <Card sx={{ mt: 2, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}` }}>
                 <CardContent>
-                  <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1 }}>
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1.5 }}>
                     {t('entangled.wizard.quote', 'Cotización')}
                   </Typography>
-                  <Stack spacing={0.5}>
+
+                  {/* Encabezado: monto a enviar + TC */}
+                  <Stack spacing={0.5} sx={{ mb: 1.5 }}>
                     <Typography variant="body2" sx={{ color: '#ffffff' }}>
-                      {t('entangled.wizard.amountSent', 'Monto a enviar al proveedor')}: <strong>{formatMoney(form.monto)} {form.divisa_destino}</strong>
+                      {t('entangled.wizard.amountSent', 'Monto a enviar al proveedor')}: <strong>${formatMoney(form.monto)} {form.divisa_destino}</strong>
                     </Typography>
                     <Typography variant="body2" sx={{ color: '#ffffff' }}>
                       {t('entangled.wizard.fxRate', 'Tipo de cambio')}: <strong>${quote.tipo_cambio.toFixed(4)} MXN / {form.divisa_destino}</strong>
                     </Typography>
-                    <Typography variant="body2" sx={{ color: '#ffffff' }}>
-                      {t('entangled.wizard.totalToPay', 'Total a pagar')}: <strong style={{ color: ORANGE }}>${formatMoney(quote.monto_mxn_total)} MXN</strong>
-                    </Typography>
                   </Stack>
+
+                  {/* Desglose detallado */}
+                  <Box sx={{ borderTop: '1px solid rgba(255,255,255,0.08)', pt: 1.2 }}>
+                    <Typography variant="caption" sx={{ color: '#9ca3af', textTransform: 'uppercase', letterSpacing: 0.5, fontWeight: 700, fontSize: '0.65rem', display: 'block', mb: 0.8 }}>
+                      Desglose de cobranza
+                    </Typography>
+                    <Stack spacing={0.6}>
+                      {/* Subtotal en MXN */}
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>
+                          Subtotal ({formatMoney(form.monto)} {form.divisa_destino} × ${quote.tipo_cambio.toFixed(4)})
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: '#fff', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                          ${formatMoney(quote.monto_mxn_base)} MXN
+                        </Typography>
+                      </Box>
+                      {/* Comisión XPAY (porcentaje) */}
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="body2" sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>
+                          Comisión XPAY ({quote.porcentaje_compra.toFixed(2)}%)
+                        </Typography>
+                        <Typography variant="body2" sx={{ color: '#fff', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                          ${formatMoney(quote.monto_mxn_comision)} MXN
+                        </Typography>
+                      </Box>
+                      {/* Costo de operación */}
+                      {quote.monto_mxn_costo_op > 0 && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <Typography variant="body2" sx={{ color: '#d1d5db', fontSize: '0.85rem' }}>
+                            Costo de operación (${quote.costo_operacion_usd.toFixed(2)} USD × ${quote.tipo_cambio.toFixed(4)})
+                          </Typography>
+                          <Typography variant="body2" sx={{ color: '#fff', fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                            ${formatMoney(quote.monto_mxn_costo_op)} MXN
+                          </Typography>
+                        </Box>
+                      )}
+                    </Stack>
+                  </Box>
+
+                  {/* Total destacado */}
+                  <Box sx={{
+                    mt: 1.5,
+                    pt: 1.2,
+                    borderTop: `1px solid ${ORANGE}`,
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}>
+                    <Typography variant="body2" sx={{ color: ORANGE, fontWeight: 800, textTransform: 'uppercase', letterSpacing: 0.5, fontSize: '0.8rem' }}>
+                      {t('entangled.wizard.totalToPay', 'Total a pagar')}
+                    </Typography>
+                    <Typography variant="h6" sx={{ color: ORANGE, fontWeight: 900, fontFamily: 'monospace' }}>
+                      ${formatMoney(quote.monto_mxn_total)} MXN
+                    </Typography>
+                  </Box>
                 </CardContent>
               </Card>
             )}
