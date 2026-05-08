@@ -310,28 +310,16 @@ export const createPaymentRequestV2 = async (
     });
   }
 
-  // SIN comprobante → no se envía a ENTANGLED todavía. La solicitud queda en
-  // 'esperando_comprobante' y se enviará cuando el cliente suba el comprobante.
-  if (!hasFile) {
-    await pool.query(
-      `UPDATE entangled_payment_requests
-          SET estatus_global = 'esperando_comprobante',
-              updated_at = NOW()
-        WHERE id = $1`,
-      [requestId]
-    );
-    return res.status(201).json({
-      message: 'Solicitud creada. Sube el comprobante de pago para enviarla a ENTANGLED.',
-      request_id: requestId,
-      referencia_pago: referenciaPago,
-      status: 'esperando_comprobante',
-      requires_proof_upload: true,
-    });
-  }
-
-  // 2.a) FASE 1 — POST /solicitud-pago SIN comprobante (JSON-only).
+  // 2.a) FASE 1 — POST /solicitud-pago SIN comprobante (JSON-only) SIEMPRE.
   //      ENTANGLED responde sincrónicamente con transaccion_id +
   //      empresas_asignadas[].cuenta_bancaria (cuentas dinámicas por SAT).
+  //      Antes salteábamos esta llamada cuando el cliente no traía comprobante,
+  //      lo que forzaba al /upload-proof-file posterior a usar el endpoint
+  //      legacy multipart (payload + comprobante en una sola llamada) que del
+  //      lado de ENTANGLED responde "No se pudo subir el comprobante a
+  //      almacenamiento". Ejecutando Fase 1 acá garantizamos que el upload
+  //      siempre tome el camino moderno: POST /solicitud-pago/:id/comprobante
+  //      con sólo el archivo.
   const remote = await sendSolicitudPago(payload, null);
 
   if (!remote.ok || !remote.transaccion_id) {
@@ -608,11 +596,12 @@ export async function sendPendingRequestToEntangled(
     };
   }
 
-  const remote = await sendSolicitudPago(payload, {
-    buffer: fileBuffer,
-    filename: fileName || `comprobante-${requestId}`,
-    mimetype: fileMime || 'application/octet-stream',
-  });
+  // FASE 1 — POST JSON-only para obtener transaccion_id. Antes mandábamos el
+  // multipart legacy (payload + comprobante) en una sola llamada, pero ese
+  // endpoint del lado de ENTANGLED responde "No se pudo subir el comprobante a
+  // almacenamiento" para cargas reales. Hacemos el flujo moderno: primero
+  // creamos la solicitud, luego subimos el archivo en una segunda llamada.
+  const remote = await sendSolicitudPago(payload, null);
 
   if (!remote.ok || !remote.transaccion_id) {
     await pool.query(
@@ -629,6 +618,47 @@ export async function sendPendingRequestToEntangled(
       status: 502,
       payload: {
         error: remote.error || 'ENTANGLED no devolvió un transaccion_id.',
+        request_id: requestId,
+      },
+    };
+  }
+
+  // FASE 2 — adjuntamos el comprobante a la transacción recién creada.
+  const phase2 = await uploadComprobanteToTransaccion(remote.transaccion_id, {
+    buffer: fileBuffer,
+    filename: fileName || `comprobante-${requestId}`,
+    mimetype: fileMime || 'application/octet-stream',
+  });
+  if (!phase2.ok) {
+    // Persistimos transaccion_id igual: al menos la solicitud ya existe en
+    // ENTANGLED. El cliente podrá reintentar el comprobante sin recrear la
+    // solicitud (ya tomará el CAMINO PRINCIPAL en la próxima subida).
+    await pool.query(
+      `UPDATE entangled_payment_requests
+          SET entangled_transaccion_id = $1,
+              estatus_global = 'error_envio',
+              error_message = $2,
+              comision_cobrada_porcentaje = $3,
+              tc_aplicado_usd = $4,
+              empresas_asignadas = $5::jsonb,
+              raw_response = $6::jsonb,
+              updated_at = NOW()
+        WHERE id = $7`,
+      [
+        remote.transaccion_id,
+        phase2.error || 'Error subiendo comprobante a ENTANGLED',
+        remote.comision_cobrada_porcentaje ?? null,
+        remote.tc_aplicado_usd ?? null,
+        JSON.stringify(remote.empresas_asignadas || []),
+        JSON.stringify(remote.raw || {}),
+        requestId,
+      ]
+    );
+    return {
+      ok: false,
+      status: 502,
+      payload: {
+        error: phase2.error || 'No se pudo enviar el comprobante a ENTANGLED.',
         request_id: requestId,
       },
     };
@@ -652,7 +682,7 @@ export async function sendPendingRequestToEntangled(
       remote.comision_cobrada_porcentaje ?? null,
       remote.tc_aplicado_usd ?? null,
       JSON.stringify(remote.empresas_asignadas || []),
-      remote.url_comprobante_cliente || null,
+      phase2.url_comprobante_cliente || null,
       JSON.stringify(remote.raw || {}),
       requestId,
     ]
