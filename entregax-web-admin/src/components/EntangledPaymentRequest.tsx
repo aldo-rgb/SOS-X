@@ -415,9 +415,24 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   }, [activeToken]);
 
   const pickConceptoOption = (opt: ConceptoOption) => {
-    const parts = (form.conceptos || '').split(',');
-    parts[parts.length - 1] = opt.clave_prodserv;
-    setForm({ ...form, conceptos: parts.join(', ') });
+    const existing = (form.conceptos || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    // Replace the last token (current search query) with the selected clave
+    if (existing.length > 0) existing[existing.length - 1] = opt.clave_prodserv;
+    else existing.push(opt.clave_prodserv);
+    setForm({ ...form, conceptos: existing.join(', ') });
+    setConceptoOptions([]);
+  };
+
+  const addConceptoOption = (opt: ConceptoOption) => {
+    const existing = (form.conceptos || '')
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+    if (!existing.includes(opt.clave_prodserv)) existing.push(opt.clave_prodserv);
+    setForm({ ...form, conceptos: existing.join(', ') });
     setConceptoOptions([]);
   };
 
@@ -2373,14 +2388,14 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               {/* Clave SAT — SIEMPRE visible (incluso con datos fiscales precargados) */}
               <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#1a1a1a', border: '1px solid #333333', borderRadius: 1 }}>
                 <Typography variant="caption" sx={{ color: ORANGE, fontWeight: 700, display: 'block', mb: 1 }}>
-                  📝 Clave(s) de producto/servicio SAT a facturar *
+                  📝 Productos SAT a facturar *
                 </Typography>
                 <Box sx={{ position: 'relative' }}>
                   <TextField
-                    fullWidth required label="Busca por concepto o ingresa clave SAT" value={form.conceptos}
+                    fullWidth required label="Productos SAT a facturar" value={form.conceptos}
                     onChange={(e) => setForm({ ...form, conceptos: e.target.value })}
-                    placeholder="Ej.: puertas, 84111506, 90121800"
-                    helperText="Escribe el nombre del concepto o la clave numérica SAT. Separa varias claves con coma."
+                    placeholder="Ej.: puertas, madera, 84111506"
+                    helperText="Escriba una o más claves SAT o el tipo de producto que desea comprar. Puede seleccionar varios productos del catálogo."
                     sx={{
                       '& .MuiOutlinedInput-root': {
                         color: '#ffffff',
@@ -2408,16 +2423,23 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       {!conceptoSearching && conceptoOptions.map((opt) => (
                         <Box
                           key={opt.clave_prodserv}
-                          onClick={() => pickConceptoOption(opt)}
-                          sx={{ px: 2, py: 1.2, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid #333',
-                            '&:hover': { bgcolor: 'rgba(240,90,40,0.12)' } }}
+                          sx={{ px: 2, py: 1, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: '1px solid #222',
+                            '&:hover': { bgcolor: 'rgba(240,90,40,0.10)' } }}
                         >
-                          <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE, fontSize: '0.8rem', minWidth: 80 }}>
-                            {opt.clave_prodserv}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: '#d1d5db', lineHeight: 1.3 }}>
-                            {opt.descripcion}
-                          </Typography>
+                          <Box onClick={() => pickConceptoOption(opt)} sx={{ flex: 1, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                            <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE, fontSize: '0.8rem', minWidth: 80 }}>
+                              {opt.clave_prodserv}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: '#d1d5db', lineHeight: 1.3 }}>
+                              {opt.descripcion}
+                            </Typography>
+                          </Box>
+                          <Tooltip title="Agregar a la lista">
+                            <IconButton size="small" onClick={() => addConceptoOption(opt)}
+                              sx={{ color: ORANGE, '&:hover': { bgcolor: 'rgba(240,90,40,0.2)' } }}>
+                              <AddIcon sx={{ fontSize: 16 }} />
+                            </IconButton>
+                          </Tooltip>
                         </Box>
                       ))}
                       {!conceptoSearching && conceptoOptions.length === 0 && activeToken && (
