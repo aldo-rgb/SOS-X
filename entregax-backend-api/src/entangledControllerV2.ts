@@ -145,6 +145,9 @@ export const createPaymentRequestV2 = async (
 
   const clienteFinal: any = parseJson(body.cliente_final, {});
   const conceptos: any[] = parseJson(body.conceptos, []);
+  // Snapshot de la UI (provider + beneficiario + operation + quote) para
+  // poder regenerar el PDF de instrucciones idéntico al original.
+  const instructionsSnapshot: any = parseJson(body.instructions_snapshot, null);
 
   if (servicio === 'pago_con_factura') {
     const required = ['rfc', 'razon_social', 'regimen_fiscal', 'cp', 'uso_cfdi', 'email'];
@@ -187,10 +190,11 @@ export const createPaymentRequestV2 = async (
   const referenciaPago = `XP${String(Math.floor(100000 + Math.random() * 900000)).padStart(6, '0')}`;
   let requestId: number;
   try {
-    // Migración idempotente: agregar columna tc_cliente_final si no existe
+    // Migración idempotente: columnas adicionales (tc + snapshot UI)
     await pool.query(
       `ALTER TABLE entangled_payment_requests
-         ADD COLUMN IF NOT EXISTS tc_cliente_final NUMERIC(14,6)`
+         ADD COLUMN IF NOT EXISTS tc_cliente_final NUMERIC(14,6),
+         ADD COLUMN IF NOT EXISTS instructions_snapshot JSONB`
     ).catch(() => {});
     const ins = await pool.query(
       `INSERT INTO entangled_payment_requests (
@@ -200,6 +204,7 @@ export const createPaymentRequestV2 = async (
          cf_rfc, cf_razon_social, cf_regimen_fiscal, cf_cp, cf_uso_cfdi, cf_email,
          op_monto, op_divisa_destino, op_conceptos,
          comision_cliente_final_porcentaje, tc_cliente_final,
+         instructions_snapshot,
          estatus_global, estatus_factura, estatus_proveedor
        ) VALUES (
          $1, $2,
@@ -208,7 +213,8 @@ export const createPaymentRequestV2 = async (
          $6, $7, $8, $9, $10, $11,
          $12, $13, $14::jsonb,
          $15, $16,
-         'pendiente', $17, 'pendiente'
+         $17::jsonb,
+         'pendiente', $18, 'pendiente'
        ) RETURNING id`,
       [
         userId,
@@ -227,6 +233,7 @@ export const createPaymentRequestV2 = async (
         JSON.stringify(servicio === 'pago_con_factura' ? conceptos : []),
         commission.porcentaje,
         tcClienteFinal,
+        instructionsSnapshot ? JSON.stringify(instructionsSnapshot) : null,
         servicio === 'pago_con_factura' ? 'pendiente' : 'no_aplica',
       ]
     );

@@ -955,39 +955,48 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
 
   // Descarga del PDF de instrucciones para una solicitud ya existente —
   // recupera el detalle del backend y lo pasa al generador del comprobante.
+  // Usa instructions_snapshot persistido (idéntico al original) si existe;
+  // si no, reconstruye lo que pueda con los campos sueltos del row.
   const handleDownloadInstructionsPdfForRequest = async (requestId: number) => {
     try {
       const r = await axios.get(`${API_URL}/api/entangled/payment-requests/${requestId}`, { headers: authHeader });
       const row = r.data || {};
+      const snap = row.instructions_snapshot && typeof row.instructions_snapshot === 'object'
+        ? row.instructions_snapshot
+        : null;
       const monto = Number(row.op_monto) || 0;
       const tc = Number(row.tc_cliente_final) || 0;
       const pct = Number(row.comision_cliente_final_porcentaje) || 0;
       const base = monto * tc;
       const comision = base * (pct / 100);
       const empresasFromRow = Array.isArray(row.empresas_asignadas) ? row.empresas_asignadas : [];
+
+      const operationSnapshot = snap?.operationSnapshot || {
+        divisa: String(row.op_divisa_destino || 'USD'),
+        monto,
+        servicio: String(row.servicio || ''),
+        requiere_factura: !!row.requiere_factura,
+        rfc: row.cf_rfc || undefined,
+        razon_social: row.cf_razon_social || undefined,
+      };
+      const quote = snap?.quote || (tc > 0 ? {
+        tipo_cambio: tc,
+        porcentaje_compra: pct,
+        costo_operacion_usd: 0,
+        monto_mxn_base: base,
+        monto_mxn_comision: comision,
+        monto_mxn_costo_op: 0,
+        monto_mxn_total: base + comision,
+      } : null);
+
       await generateInstructionsPDF({
         request_id: row.id,
         referencia_pago: row.referencia_pago || `XP-${row.id}`,
-        operationSnapshot: {
-          divisa: String(row.op_divisa_destino || 'USD'),
-          monto,
-          servicio: String(row.servicio || ''),
-          requiere_factura: !!row.requiere_factura,
-          rfc: row.cf_rfc || undefined,
-          razon_social: row.cf_razon_social || undefined,
-        },
-        beneficiarioSnapshot: null,
-        providerSnapshot: null,
+        operationSnapshot,
+        beneficiarioSnapshot: snap?.beneficiarioSnapshot || null,
+        providerSnapshot: snap?.providerSnapshot || null,
         empresas_asignadas: empresasFromRow,
-        quote: tc > 0 ? {
-          tipo_cambio: tc,
-          porcentaje_compra: pct,
-          costo_operacion_usd: 0,
-          monto_mxn_base: base,
-          monto_mxn_comision: comision,
-          monto_mxn_costo_op: 0,
-          monto_mxn_total: base + comision,
-        } : null,
+        quote,
       });
     } catch (err: unknown) {
       const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
@@ -1531,11 +1540,8 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       });
       fd.append('notas', notas);
 
-      const res = await axios.post(`${API_URL}/api/entangled/payment-requests`, fd, {
-        headers: { ...authHeader, 'Content-Type': 'multipart/form-data' },
-      });
-
-      // Snapshots ANTES de limpiar el form (para el PDF y el modal)
+      // Snapshots — se calculan ANTES del POST y se persisten en backend para
+      // que la regeneración del PDF de instrucciones quede idéntica al original.
       const provObj = providers.find((p) => p.id === selectedProviderId);
       const providerSnapshot = provObj
         ? {
@@ -1560,6 +1566,16 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         swift: supplierForm.swift_bic,
         aba: supplierForm.aba_routing,
       };
+      fd.append('instructions_snapshot', JSON.stringify({
+        providerSnapshot,
+        operationSnapshot,
+        beneficiarioSnapshot,
+        quote,
+      }));
+
+      const res = await axios.post(`${API_URL}/api/entangled/payment-requests`, fd, {
+        headers: { ...authHeader, 'Content-Type': 'multipart/form-data' },
+      });
 
       setDialogOpen(false);
       setForm({
