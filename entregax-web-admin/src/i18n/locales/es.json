@@ -31,7 +31,10 @@
       "viewInvoice": "Descargar factura",
       "viewProof": "Descargar comprobante de pago",
       "viewMyProof": "Ver mi comprobante",
-      "uploadMyProof": "Subir mi comprobante"
+      "uploadMyProof": "Subir mi comprobante",
+      "downloadFacturaPdf": "Descargar Factura (PDF)",
+      "downloadFacturaXml": "Descargar Factura (XML)",
+      "downloadProveedorProof": "Descargar comprobante de pago al proveedor"
     },
     "wizard": {
       "invoice": "Factura",

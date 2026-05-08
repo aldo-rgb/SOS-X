@@ -35,6 +35,7 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import DescriptionIcon from '@mui/icons-material/Description';
+import CodeIcon from '@mui/icons-material/Code';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ContactsIcon from '@mui/icons-material/Contacts';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -104,6 +105,7 @@ interface EntangledRequest {
   estatus_factura: string;
   estatus_proveedor: string;
   factura_url: string | null;
+  factura_xml_url?: string | null;
   factura_emitida_at: string | null;
   comprobante_proveedor_url: string | null;
   proveedor_pagado_at: string | null;
@@ -2095,18 +2097,29 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           <StatusBadge status={r.estatus_factura} label={t(`entangled.status.${r.estatus_factura}`, r.estatus_factura)} variant="outline" />
                           {r.factura_url && (
-                            <IconButton size="small" component="a" href={r.factura_url} target="_blank" rel="noopener" sx={{ ml: 0.4, p: 0.2 }}>
-                              <DescriptionIcon sx={{ fontSize: 14, color: '#9ca3af' }} />
-                            </IconButton>
+                            <Tooltip title={t('entangled.actions.downloadFacturaPdf', 'Descargar Factura (PDF)') as string}>
+                              <IconButton size="small" component="a" href={r.factura_url} target="_blank" rel="noopener" sx={{ ml: 0.4, p: 0.2 }}>
+                                <DescriptionIcon sx={{ fontSize: 14, color: '#9ca3af' }} />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                          {r.factura_xml_url && (
+                            <Tooltip title={t('entangled.actions.downloadFacturaXml', 'Descargar Factura (XML)') as string}>
+                              <IconButton size="small" component="a" href={r.factura_xml_url} target="_blank" rel="noopener" sx={{ ml: 0.2, p: 0.2 }}>
+                                <CodeIcon sx={{ fontSize: 14, color: '#60a5fa' }} />
+                              </IconButton>
+                            </Tooltip>
                           )}
                         </TableCell>
                         {/* Pago a Proveedor */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           <StatusBadge status={r.estatus_proveedor} label={t(`entangled.status.${r.estatus_proveedor}`, r.estatus_proveedor)} variant="outline" />
                           {r.comprobante_proveedor_url && (
-                            <IconButton size="small" component="a" href={r.comprobante_proveedor_url} target="_blank" rel="noopener" sx={{ ml: 0.4, p: 0.2 }}>
-                              <ReceiptLongIcon sx={{ fontSize: 14, color: '#4ade80' }} />
-                            </IconButton>
+                            <Tooltip title={t('entangled.actions.downloadProveedorProof', 'Descargar comprobante de pago al proveedor') as string}>
+                              <IconButton size="small" component="a" href={r.comprobante_proveedor_url} target="_blank" rel="noopener" sx={{ ml: 0.4, p: 0.2 }}>
+                                <ReceiptLongIcon sx={{ fontSize: 14, color: '#4ade80' }} />
+                              </IconButton>
+                            </Tooltip>
                           )}
                         </TableCell>
                         {/* Acciones */}

@@ -28,6 +28,7 @@ const signRowFileUrls = async <T extends Record<string, any>>(row: T): Promise<T
   if (next.op_comprobante_cliente_url) next.op_comprobante_cliente_url = await signS3UrlIfPossible(next.op_comprobante_cliente_url);
   if (next.comprobante_proveedor_url) next.comprobante_proveedor_url = await signS3UrlIfPossible(next.comprobante_proveedor_url);
   if (next.factura_url) next.factura_url = await signS3UrlIfPossible(next.factura_url);
+  if (next.factura_xml_url) next.factura_xml_url = await signS3UrlIfPossible(next.factura_xml_url);
   return next as T;
 };
 import {
@@ -515,6 +516,7 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
               op_monto, op_divisa_destino,
               estatus_global, estatus_factura, estatus_proveedor,
               factura_url, factura_emitida_at,
+              (raw_response->>'factura_xml_url') AS factura_xml_url,
               comprobante_proveedor_url, proveedor_pagado_at,
               op_comprobante_cliente_url,
               comprobante_subido_at,
@@ -560,6 +562,10 @@ export const getPaymentRequestDetail = async (req: Request, res: Response): Prom
     const row = r.rows[0];
     if (!isAdmin && row.user_id !== userId) {
       return res.status(403).json({ error: 'Sin acceso a esta solicitud' });
+    }
+    // Expone factura_xml_url al top-level (vive dentro de raw_response).
+    if (row.raw_response && typeof row.raw_response === 'object' && row.raw_response.factura_xml_url) {
+      row.factura_xml_url = row.raw_response.factura_xml_url;
     }
     const signed = await signRowFileUrls(row);
     return res.json(signed);
