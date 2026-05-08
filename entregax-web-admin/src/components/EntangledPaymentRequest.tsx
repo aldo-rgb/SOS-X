@@ -33,6 +33,7 @@ import {
   Typography,
   InputAdornment,
 } from '@mui/material';
+import AddIcon from '@mui/icons-material/Add';
 import DescriptionIcon from '@mui/icons-material/Description';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ContactsIcon from '@mui/icons-material/Contacts';
