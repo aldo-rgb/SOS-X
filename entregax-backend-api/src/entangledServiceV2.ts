@@ -268,32 +268,70 @@ export const uploadComprobanteToTransaccion = async (
 };
 
 // ---------------------------------------------------------------------------
-// GET /api/v1/solicitud-pago/:transaccion_id — pull del estado actual.
+// GET <path>/:transaccion_id — pull del estado actual.
 // Útil para reconciliar cuando un webhook se pierde y nuestro estado local
-// quedó atrás del de ENTANGLED.
+// quedó atrás del de ENTANGLED. El path exacto varía entre versiones del
+// API; probamos varios candidatos comunes hasta encontrar uno que responda.
+// Configurable vía ENTANGLED_GET_STATUS_PATH (con `:id` como placeholder).
 // ---------------------------------------------------------------------------
 export const getSolicitudStatus = async (
   transaccionId: string
-): Promise<{ ok: boolean; data?: any; error?: string }> => {
+): Promise<{ ok: boolean; data?: any; error?: string; triedUrls?: string[] }> => {
   if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
   if (!transaccionId) return { ok: false, error: 'transaccion_id requerido' };
-  try {
-    const res = await axios.get(
-      buildUrl(`/solicitud-pago/${encodeURIComponent(transaccionId)}`),
-      { timeout: ENTANGLED_TIMEOUT_MS, headers: authHeaders() }
-    );
-    return { ok: true, data: res.data || {} };
-  } catch (err) {
-    const ax = err as AxiosError;
-    const responseData = ax.response?.data as any;
-    const message =
-      responseData?.error ||
-      responseData?.message ||
-      ax.message ||
-      'Error consultando solicitud en ENTANGLED';
-    console.error('[ENTANGLED] getSolicitudStatus error:', message, ax.response?.status);
-    return { ok: false, error: message };
+
+  const id = encodeURIComponent(transaccionId);
+  const customPath = process.env.ENTANGLED_GET_STATUS_PATH;
+  const candidates: string[] = customPath
+    ? [customPath.replace(':id', id)]
+    : [
+        `/solicitud-pago/${id}`,
+        `/solicitudes-pago/${id}`,
+        `/solicitud-pago/${id}/estado`,
+        `/solicitud-pago/estado/${id}`,
+        `/transacciones/${id}`,
+      ];
+
+  const triedUrls: string[] = [];
+  let lastError = 'Endpoint de estado no encontrado en ENTANGLED';
+  let lastStatus: number | undefined;
+
+  for (const path of candidates) {
+    const url = buildUrl(path);
+    triedUrls.push(url);
+    try {
+      const res = await axios.get(url, {
+        timeout: ENTANGLED_TIMEOUT_MS,
+        headers: authHeaders(),
+      });
+      return { ok: true, data: res.data || {}, triedUrls };
+    } catch (err) {
+      const ax = err as AxiosError;
+      lastStatus = ax.response?.status;
+      const responseData = ax.response?.data as any;
+      lastError =
+        responseData?.error ||
+        responseData?.message ||
+        ax.message ||
+        'Error consultando solicitud en ENTANGLED';
+      console.warn(
+        '[ENTANGLED] getSolicitudStatus probó',
+        url,
+        '→',
+        lastStatus,
+        lastError
+      );
+      // Sólo seguimos probando si fue 404. Cualquier otro error (auth, 5xx)
+      // es la respuesta real; abortamos.
+      if (lastStatus !== 404) break;
+    }
   }
+
+  return {
+    ok: false,
+    error: `${lastError}${lastStatus ? ` (HTTP ${lastStatus})` : ''}. Probé: ${triedUrls.join(', ')}`,
+    triedUrls,
+  };
 };
 
 // ---------------------------------------------------------------------------
