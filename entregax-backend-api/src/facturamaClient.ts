@@ -113,10 +113,37 @@ function buildHttp(emitter: FacturamaEmitter): AxiosInstance {
 }
 
 function throwFromResponse(prefix: string, r: { status: number; data: any }): never {
-    const msg = r.data?.Message || r.data?.message || r.data?.error || JSON.stringify(r.data);
+    let raw = r.data;
+    // Si el body vino como Buffer (responseType arraybuffer) o string, intentar parsear JSON.
+    if (Buffer.isBuffer(raw)) {
+        try { raw = JSON.parse(raw.toString('utf8')); } catch { raw = raw.toString('utf8'); }
+    } else if (typeof raw === 'string' && raw.length) {
+        try { raw = JSON.parse(raw); } catch { /* dejar como string */ }
+    }
+
+    const candidate =
+        raw?.Message ||
+        raw?.message ||
+        raw?.error ||
+        raw?.ErrorMessage ||
+        raw?.error_description ||
+        (typeof raw === 'string' ? raw : '') ||
+        '';
+
+    // ModelState (errores de validación de Facturama) → "Campo: detalle | …"
+    let modelStateMsg = '';
+    if (raw?.ModelState && typeof raw.ModelState === 'object') {
+        modelStateMsg = Object.entries(raw.ModelState)
+            .map(([k, v]) => `${k}: ${(Array.isArray(v) ? v : [v]).join('; ')}`)
+            .join(' | ');
+    }
+
+    const httpHint = `HTTP ${r.status}${r.status === 401 ? ' (credenciales Facturama inválidas)' : r.status === 404 ? ' (endpoint no encontrado)' : ''}`;
+    const msg = [candidate, modelStateMsg].filter(Boolean).join(' — ') || httpHint;
+
     throw new FacturamaError(`${prefix}: ${msg}`, {
         status: r.status,
-        details: r.data
+        details: raw,
     });
 }
 
