@@ -418,29 +418,42 @@ export const callAsignacion = async (
   payload: EntangledAsignacionPayload
 ): Promise<EntangledAsignacionResult> => {
   if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
-  try {
-    const res = await axios.post(buildUrl('/asignacion'), payload, {
-      timeout: ENTANGLED_TIMEOUT_MS,
-      headers: { ...authHeaders(), 'Content-Type': 'application/json' },
-    });
-    const d = res.data || {};
-    return {
-      ok: true,
-      asignacion: d.asignacion,
-      empresa: d.empresa,
-      cuenta_bancaria: d.cuenta_bancaria,
-      facturacion: d.facturacion,
-      raw: d,
-    };
-  } catch (err) {
-    const ax = err as AxiosError;
-    const responseData = ax.response?.data as any;
-    return {
-      ok: false,
-      error: responseData?.error || ax.message || 'Error en asignación',
-      raw: responseData,
-    };
+  const url = buildUrl('/asignacion');
+  // Reintentos en errores transitorios (502/503/504/timeout): 3 intentos con backoff 500ms/1s/2s
+  const RETRYABLE_STATUSES = new Set([502, 503, 504]);
+  const delays = [500, 1000, 2000];
+  let lastError: { error: string; raw?: any; status?: number | undefined } | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      console.log(`[ENTANGLED] POST ${url} attempt=${attempt + 1} payload=${JSON.stringify(payload).slice(0, 300)}`);
+      const res = await axios.post(url, payload, {
+        timeout: ENTANGLED_TIMEOUT_MS,
+        headers: { ...authHeaders(), 'Content-Type': 'application/json' },
+      });
+      const d = res.data || {};
+      console.log(`[ENTANGLED] /asignacion ok empresa=${d?.empresa?.rfc || '—'}`);
+      return {
+        ok: true,
+        asignacion: d.asignacion,
+        empresa: d.empresa,
+        cuenta_bancaria: d.cuenta_bancaria,
+        facturacion: d.facturacion,
+        raw: d,
+      };
+    } catch (err) {
+      const ax = err as AxiosError;
+      const status = ax.response?.status;
+      const responseData = ax.response?.data as any;
+      const errMsg = responseData?.error || ax.message || 'Error en asignación';
+      lastError = { error: errMsg, raw: responseData, status };
+      const isTimeout = ax.code === 'ECONNABORTED' || ax.code === 'ETIMEDOUT';
+      const retry = attempt < 2 && (isTimeout || (typeof status === 'number' && RETRYABLE_STATUSES.has(status)));
+      console.warn(`[ENTANGLED] /asignacion fail attempt=${attempt + 1} status=${status || ax.code} retry=${retry} body=${JSON.stringify(responseData).slice(0, 300)}`);
+      if (!retry) break;
+      await new Promise(r => setTimeout(r, delays[attempt]));
+    }
   }
+  return { ok: false, error: lastError?.error || 'Error en asignación', raw: lastError?.raw };
 };
 
 // ---------------------------------------------------------------------------

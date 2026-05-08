@@ -492,7 +492,19 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         },
       };
       if (requiereFactura) body.concepto = opt.clave_prodserv;
-      const r = await axios.post(`${API_URL}/api/entangled/asignacion`, body, { headers: authHeader });
+      // Reintenta una vez si el primer intento falla con 502/503/504 (transitorios)
+      let r;
+      try {
+        r = await axios.post(`${API_URL}/api/entangled/asignacion`, body, { headers: authHeader });
+      } catch (firstErr) {
+        const s = axios.isAxiosError(firstErr) ? firstErr.response?.status : undefined;
+        if (s === 502 || s === 503 || s === 504) {
+          await new Promise(res => setTimeout(res, 1500));
+          r = await axios.post(`${API_URL}/api/entangled/asignacion`, body, { headers: authHeader });
+        } else {
+          throw firstErr;
+        }
+      }
       const newEmpresa = r.data?.empresa;
       if (!newEmpresa?.rfc) {
         setAddConceptoError('No se pudo determinar la empresa para esta clave.');
@@ -518,7 +530,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     } catch (e: any) {
       const status = e?.response?.status;
       if (status === 502 || status === 503) {
-        setAddConceptoError('Servicio no disponible para esta comercializadora');
+        setAddConceptoError('Servicio no disponible');
       } else {
         setAddConceptoError(e?.response?.data?.error || 'No se pudo agregar la clave. Verifica e intenta de nuevo.');
       }
