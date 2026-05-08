@@ -170,6 +170,8 @@ export default function FiscalPage() {
   const [facturamaConfig, setFacturamaConfig] = useState<any>(null);
   const [savingFacturama, setSavingFacturama] = useState(false);
   const [syncingFacturama, setSyncingFacturama] = useState(false);
+  const [testingFacturama, setTestingFacturama] = useState(false);
+  const [facturamaTestResult, setFacturamaTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
   // Modal Facturapi (descarga CFDIs recibidos)
   const [openFacturapiModal, setOpenFacturapiModal] = useState(false);
   const [selectedEmpresaFacturapi, setSelectedEmpresaFacturapi] = useState<any>(null);
@@ -560,6 +562,7 @@ export default function FiscalPage() {
   const handleOpenFacturamaModal = async (emitter: any) => {
     setSelectedEmpresaFacturama(emitter);
     setFacturamaConfig(null);
+    setFacturamaTestResult(null);
     setFacturamaForm({
       facturama_username: '',
       facturama_password: '',
@@ -583,6 +586,32 @@ export default function FiscalPage() {
         facturama_portal_email: r.data.facturama_portal_email || '',
       }));
     } catch { /* sin config previa */ }
+  };
+
+  const handleTestFacturamaConnection = async () => {
+    if (!selectedEmpresaFacturama) return;
+    setFacturamaTestResult(null);
+    setTestingFacturama(true);
+    try {
+      const r = await axios.post(
+        `${API_URL}/admin/facturama/test/${selectedEmpresaFacturama.id}`,
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      const env = r.data?.environment ? ` (${r.data.environment})` : '';
+      const ep = r.data?.endpoint ? ` · ${r.data.endpoint}` : '';
+      setFacturamaTestResult({ ok: true, msg: `Conexión válida${env}${ep}` });
+    } catch (error: any) {
+      const data = error.response?.data || {};
+      const status = data.status ? ` (HTTP ${data.status})` : '';
+      const env = data.environment ? ` [${data.environment}]` : '';
+      setFacturamaTestResult({
+        ok: false,
+        msg: `${data.error || error.message || 'Error de conexión'}${status}${env}`,
+      });
+    } finally {
+      setTestingFacturama(false);
+    }
   };
 
   const handleSaveFacturamaConfig = async () => {
@@ -1858,15 +1887,33 @@ export default function FiscalPage() {
             </>
           )}
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          {facturamaConfig?.facturama_configured && (
-            <Button
-              onClick={handleSyncFacturama}
-              disabled={syncingFacturama}
-              startIcon={syncingFacturama ? <CircularProgress size={16} /> : <SyncIcon />}
+        <DialogActions sx={{ px: 3, pb: 2, flexWrap: 'wrap', gap: 1 }}>
+          {facturamaTestResult && (
+            <Alert
+              severity={facturamaTestResult.ok ? 'success' : 'error'}
+              sx={{ width: '100%', mb: 1 }}
+              onClose={() => setFacturamaTestResult(null)}
             >
-              Sincronizar últimos 30 días
-            </Button>
+              {facturamaTestResult.msg}
+            </Alert>
+          )}
+          {facturamaConfig?.facturama_configured && (
+            <>
+              <Button
+                onClick={handleTestFacturamaConnection}
+                disabled={testingFacturama}
+                startIcon={testingFacturama ? <CircularProgress size={16} /> : <CheckCircleIcon />}
+              >
+                Probar conexión
+              </Button>
+              <Button
+                onClick={handleSyncFacturama}
+                disabled={syncingFacturama}
+                startIcon={syncingFacturama ? <CircularProgress size={16} /> : <SyncIcon />}
+              >
+                Sincronizar últimos 30 días
+              </Button>
+            </>
           )}
           <Box sx={{ flex: 1 }} />
           <Button onClick={() => setOpenFacturamaModal(false)}>Cancelar</Button>
@@ -1965,7 +2012,7 @@ export default function FiscalPage() {
                 disabled={syncingFacturapi}
                 startIcon={syncingFacturapi ? <CircularProgress size={16} /> : <SyncIcon />}
               >
-                Sincronizar 30 días
+                Sincronizar
               </Button>
             </>
           )}
