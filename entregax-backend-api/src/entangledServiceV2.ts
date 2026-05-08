@@ -301,24 +301,24 @@ export const getTipoCambio = async (
 // ---------------------------------------------------------------------------
 // GET /api/v1/conceptos/search?q=...&limit=...
 // ---------------------------------------------------------------------------
-export const searchConceptos = async (
+// Helper: una sola llamada al endpoint de ENTANGLED
+const callConceptosSearch = async (
   q: string,
-  limit = 10,
+  limit: number,
   proveedorId?: string
-): Promise<{ ok: boolean; results?: EntangledConceptoResultV2[]; error?: string }> => {
-  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
-  if (!q || q.trim().length < 2) return { ok: true, results: [] };
+): Promise<{ ok: boolean; results: EntangledConceptoResultV2[]; raw?: any; error?: string }> => {
   try {
     const params: Record<string, any> = { q, limit };
     if (proveedorId) params.proveedor_id = proveedorId;
-    const res = await axios.get(buildUrl('/conceptos/search'), {
+    const url = buildUrl('/conceptos/search');
+    console.log(`[ENTANGLED] GET ${url} params=${JSON.stringify(params)}`);
+    const res = await axios.get(url, {
       timeout: ENTANGLED_TIMEOUT_MS,
       headers: authHeaders(),
       params,
     });
     const data = res.data || {};
-    // Schema real del API: { total, conceptos: [{ clave_prodserv, descripcion }] }.
-    // Mantenemos fallbacks a results/array por compat.
+    console.log(`[ENTANGLED] /conceptos/search resp keys=${Object.keys(data).join(',')} sample=${JSON.stringify(data).slice(0, 300)}`);
     const results: EntangledConceptoResultV2[] = Array.isArray(data.conceptos)
       ? data.conceptos
       : Array.isArray(data.results)
@@ -326,15 +326,52 @@ export const searchConceptos = async (
         : Array.isArray(data)
           ? data
           : [];
-    return { ok: true, results };
+    return { ok: true, results, raw: data };
   } catch (err) {
     const ax = err as AxiosError;
     const responseData = ax.response?.data as any;
-    return {
-      ok: false,
-      error: responseData?.error || ax.message || 'Error buscando conceptos',
-    };
+    console.warn(`[ENTANGLED] /conceptos/search ERROR q="${q}" status=${ax.response?.status} body=${JSON.stringify(responseData).slice(0, 300)}`);
+    return { ok: false, results: [], error: responseData?.error || ax.message || 'Error buscando conceptos' };
   }
+};
+
+export const searchConceptos = async (
+  q: string,
+  limit = 10,
+  proveedorId?: string
+): Promise<{ ok: boolean; results?: EntangledConceptoResultV2[]; error?: string }> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  const trimmed = (q || '').trim();
+  if (trimmed.length < 2) return { ok: true, results: [] };
+
+  // 1) Intento directo con la query completa
+  const first = await callConceptosSearch(trimmed, limit, proveedorId);
+  if (!first.ok) return { ok: false, error: first.error || 'Error buscando conceptos' };
+  if (first.results.length > 0) return { ok: true, results: first.results };
+
+  // 2) Si no hay resultados y la query tiene varias palabras, probar con cada palabra
+  // (ENTANGLED a veces no hace fuzzy matching sobre frases completas)
+  const tokens = trimmed.split(/\s+/).filter(t => t.length >= 3);
+  if (tokens.length > 1) {
+    const seen = new Set<string>();
+    const merged: EntangledConceptoResultV2[] = [];
+    for (const token of tokens) {
+      const r = await callConceptosSearch(token, limit, proveedorId);
+      if (r.ok) {
+        for (const item of r.results) {
+          if (!seen.has(item.clave_prodserv)) {
+            seen.add(item.clave_prodserv);
+            merged.push(item);
+            if (merged.length >= limit) break;
+          }
+        }
+      }
+      if (merged.length >= limit) break;
+    }
+    return { ok: true, results: merged };
+  }
+
+  return { ok: true, results: [] };
 };
 
 // ---------------------------------------------------------------------------
