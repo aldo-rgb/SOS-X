@@ -2492,14 +2492,37 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Divisa destino: <strong style={{ color: '#fff' }}>{form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Monto al proveedor: <strong style={{ color: '#fff' }}>${formatMoney(form.monto)} {form.divisa_destino}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Proveedor de pago: <strong style={{ color: '#fff' }}>{providers.find((p) => p.id === selectedProviderId)?.name || '—'}</strong></Typography>
-              <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
-                <Typography sx={{ color: '#93c5fd', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>
-                  ℹ️ ASIGNACIÓN DE CUENTA BANCARIA
-                </Typography>
-                <Typography sx={{ color: '#bfdbfe', fontSize: '0.82rem', lineHeight: 1.4 }}>
-                  Al confirmar la solicitud, ENTANGLED asignará la(s) cuenta(s) bancaria(s) destino según las claves SAT seleccionadas. Las verás de inmediato en la pantalla de instrucciones de pago.
-                </Typography>
-              </Box>
+              {(() => {
+                const prov = providers.find((p) => p.id === selectedProviderId);
+                const accounts = prov?.bank_accounts ?? [];
+                const relevant = accounts.filter((a) => !a.currency || a.currency.toUpperCase() === form.divisa_destino || a.currency.toUpperCase() === 'MXN');
+                const display = relevant.length > 0 ? relevant : accounts;
+                if (display.length === 0) return (
+                  <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
+                    <Typography sx={{ color: '#93c5fd', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>ℹ️ CUENTA BANCARIA DESTINO</Typography>
+                    <Typography sx={{ color: '#bfdbfe', fontSize: '0.82rem', lineHeight: 1.4 }}>
+                      La cuenta bancaria destino se asignará al confirmar según las claves SAT seleccionadas.
+                    </Typography>
+                  </Box>
+                );
+                return (
+                  <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(240,90,40,0.45)', borderRadius: 1.5 }}>
+                    <Typography sx={{ color: '#f97316', fontSize: '0.78rem', fontWeight: 700, mb: 0.8, letterSpacing: 0.4 }}>
+                      🏦 CUENTA(S) BANCARIA(S) DESTINO
+                    </Typography>
+                    {display.map((a, i) => (
+                      <Box key={i} sx={{ mb: i < display.length - 1 ? 1 : 0, pb: i < display.length - 1 ? 1 : 0, borderBottom: i < display.length - 1 ? '1px dashed #333' : 'none' }}>
+                        {a.bank && <Typography sx={{ color: '#fff', fontSize: '0.82rem', fontWeight: 600 }}>{a.bank}</Typography>}
+                        {a.holder && <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Titular: {a.holder}</Typography>}
+                        {a.clabe && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>CLABE: {a.clabe}</Typography>}
+                        {a.account && <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>Cuenta: {a.account}</Typography>}
+                        {a.reference && <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Ref: {a.reference}</Typography>}
+                        {a.currency && <Typography sx={{ color: '#f97316', fontSize: '0.75rem', fontWeight: 600 }}>{a.currency}</Typography>}
+                      </Box>
+                    ))}
+                  </Box>
+                );
+              })()}
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Beneficiario: <strong style={{ color: '#fff' }}>{supplierForm.nombre_beneficiario || '—'}</strong></Typography>
               <Typography sx={{ color: '#d1d5db', fontSize: '0.9rem' }}>Factura: <strong style={{ color: '#fff' }}>{requiereFactura ? 'Sí' : 'No'}</strong></Typography>
               {requiereFactura && (
