@@ -875,6 +875,26 @@ function ReceivedInvoicesTab({ emitter }: { emitter: Emitter }) {
     load();
   };
 
+  const [importingId, setImportingId] = useState<number | null>(null);
+  const importToInventory = async (row: any) => {
+    if (row.tipo_comprobante !== 'I') {
+      alert('Sólo se puede importar inventario de CFDI tipo Ingreso (I).');
+      return;
+    }
+    if (!confirm(`¿Importar al inventario los conceptos de la factura ${row.serie || ''}${row.folio || row.id}? Se crearán/sumarán productos según el XML.`)) return;
+    setImportingId(row.id);
+    try {
+      const res = await api.post(`/accounting/${emitter.id}/received-invoices/${row.id}/import-inventory`);
+      const { imported_items, skipped_items, total_items } = res.data || {};
+      alert(`Importación completada: ${imported_items}/${total_items} conceptos al inventario${skipped_items ? ` (${skipped_items} omitidos)` : ''}.`);
+      load();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || e?.response?.data?.message || 'Error al importar al inventario');
+    } finally {
+      setImportingId(null);
+    }
+  };
+
   const openDetail = async (id: number) => {
     const res = await api.get(`/accounting/${emitter.id}/received-invoices/${id}`);
     setDetail({ ...res.data.invoice, items: res.data.items });
@@ -925,11 +945,23 @@ function ReceivedInvoicesTab({ emitter }: { emitter: Emitter }) {
                   <TableCell>
                     <Chip label={r.tipo_comprobante || '—'} size="small" variant="outlined" />
                   </TableCell>
-                  <TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     {r.inventory_imported ? (
                       <Chip icon={<CheckCircleIcon />} label="Importado" size="small" sx={{ bgcolor: ORANGE, color: 'white' }} />
+                    ) : r.tipo_comprobante !== 'I' ? (
+                      <Tooltip title="Sólo se puede importar inventario desde CFDI tipo Ingreso (I)">
+                        <Chip label="No aplica" size="small" variant="outlined" />
+                      </Tooltip>
                     ) : (
-                      <Chip label="No importado" size="small" variant="outlined" />
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={importingId === r.id}
+                        onClick={() => importToInventory(r)}
+                        sx={{ textTransform: 'none', borderColor: ORANGE, color: ORANGE, '&:hover': { borderColor: BLACK, color: BLACK } }}
+                      >
+                        {importingId === r.id ? 'Importando…' : 'Importar a inventario'}
+                      </Button>
                     )}
                   </TableCell>
                   <TableCell align="center" onClick={(e) => e.stopPropagation()}>
@@ -949,12 +981,12 @@ function ReceivedInvoicesTab({ emitter }: { emitter: Emitter }) {
 
 function UploadXmlDialog({ open, emitterId, onClose, onUploaded }: any) {
   const [file, setFile] = useState<File | null>(null);
-  const [importInv, setImportInv] = useState(true);
+  const [importInv, setImportInv] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { if (open) { setFile(null); setErr(null); setImportInv(true); } }, [open]);
+  useEffect(() => { if (open) { setFile(null); setErr(null); setImportInv(false); } }, [open]);
 
   const upload = async () => {
     if (!file) return;

@@ -987,6 +987,7 @@ import {
   listReceivedInvoices,
   getReceivedInvoiceDetail,
   uploadReceivedInvoice,
+  importReceivedInvoiceToInventory,
   deleteReceivedInvoice,
   listBankMovements,
   syncBankMovements,
@@ -3036,6 +3037,7 @@ app.post('/api/accounting/:emitterId/products/:productId/stock', authenticateTok
 app.get('/api/accounting/:emitterId/received-invoices', authenticateToken, listReceivedInvoices);
 app.get('/api/accounting/:emitterId/received-invoices/:invoiceId', authenticateToken, getReceivedInvoiceDetail);
 app.post('/api/accounting/:emitterId/received-invoices/upload', authenticateToken, uploadReceivedInvoice);
+app.post('/api/accounting/:emitterId/received-invoices/:invoiceId/import-inventory', authenticateToken, importReceivedInvoiceToInventory);
 app.delete('/api/accounting/:emitterId/received-invoices/:invoiceId', authenticateToken, deleteReceivedInvoice);
 
 // Movimientos bancarios (Belvo) por empresa

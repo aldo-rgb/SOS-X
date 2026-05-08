@@ -977,6 +977,144 @@ export const uploadReceivedInvoice = async (req: AuthRequest, res: Response): Pr
     }
 };
 
+/**
+ * POST /api/accounting/:emitterId/received-invoices/:invoiceId/import
+ * Importa al inventario los conceptos de una factura recibida ya cargada
+ * pero todavía no importada. Sólo aplica a CFDI tipo Ingreso ('I').
+ */
+export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Response): Promise<any> => {
+    try {
+        const userId = req.user?.userId || (req.user as any)?.id;
+        const role = req.user?.role;
+        const emitterId = parseInt(String(req.params.emitterId), 10);
+        const invoiceId = parseInt(String(req.params.invoiceId), 10);
+        if (!emitterId || !invoiceId) return res.status(400).json({ error: 'Parámetros inválidos' });
+
+        const access = await checkEmitterAccess(userId!, role, emitterId);
+        if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
+
+        const invRes = await pool.query(
+            `SELECT id, uuid_sat, tipo_comprobante, moneda, inventory_imported
+               FROM accounting_received_invoices
+              WHERE id=$1 AND fiscal_emitter_id=$2`,
+            [invoiceId, emitterId]
+        );
+        const invoice = invRes.rows[0];
+        if (!invoice) return res.status(404).json({ error: 'Factura no encontrada' });
+        if (invoice.tipo_comprobante !== 'I') {
+            return res.status(400).json({ error: 'Sólo se puede importar inventario de CFDI tipo Ingreso (I)' });
+        }
+        if (invoice.inventory_imported) {
+            return res.status(409).json({ error: 'Esta factura ya fue importada al inventario' });
+        }
+
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            const itemsRes = await client.query(
+                `SELECT id, sat_clave_prod_serv, sat_clave_unidad, no_identificacion,
+                        description, quantity, unit_price, matched_product_id, imported_to_inventory
+                   FROM accounting_received_invoice_items
+                  WHERE received_invoice_id=$1
+                  ORDER BY id ASC`,
+                [invoiceId]
+            );
+
+            let importedCount = 0;
+            let skippedCount = 0;
+
+            for (const it of itemsRes.rows) {
+                if (it.imported_to_inventory) { skippedCount++; continue; }
+
+                let productId: number | null = it.matched_product_id;
+
+                // Si no hay match previo, intentar localizarlo otra vez (por si ya existe el producto)
+                if (!productId && it.sat_clave_prod_serv) {
+                    const mr = await client.query(
+                        `SELECT id FROM accounting_products
+                          WHERE fiscal_emitter_id=$1 AND sat_clave_prod_serv=$2 AND is_active=TRUE
+                          ORDER BY (CASE WHEN description ILIKE $3 THEN 0 ELSE 1 END)
+                          LIMIT 1`,
+                        [emitterId, it.sat_clave_prod_serv, `%${String(it.description || '').substring(0, 30)}%`]
+                    );
+                    if (mr.rows[0]) productId = mr.rows[0].id;
+                }
+
+                // Si sigue sin existir, crearlo a partir del concepto del XML
+                if (!productId && it.sat_clave_prod_serv && it.description) {
+                    const np = await client.query(
+                        `INSERT INTO accounting_products
+                            (fiscal_emitter_id, sku, description, sat_clave_prod_serv, sat_clave_unidad,
+                             unit_price, currency, tax_rate, stock_qty, created_by, notes)
+                         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                         RETURNING id`,
+                        [
+                            emitterId,
+                            it.no_identificacion || null,
+                            String(it.description).substring(0, 255),
+                            it.sat_clave_prod_serv,
+                            it.sat_clave_unidad || 'H87',
+                            it.unit_price,
+                            invoice.moneda || 'MXN',
+                            0.16,
+                            0,
+                            userId,
+                            `Auto-creado al importar CFDI ${invoice.uuid_sat}`,
+                        ]
+                    );
+                    productId = np.rows[0].id;
+                }
+
+                if (!productId) { skippedCount++; continue; }
+
+                await client.query(
+                    `UPDATE accounting_products
+                        SET stock_qty = stock_qty + $1, updated_at=CURRENT_TIMESTAMP
+                      WHERE id=$2`,
+                    [it.quantity, productId]
+                );
+                await client.query(
+                    `INSERT INTO accounting_product_movements
+                        (product_id, movement_type, quantity, unit_cost, reason, reference_type, reference_id, created_by)
+                     VALUES ($1,'invoice_in',$2,$3,$4,'received_invoice',$5,$6)`,
+                    [productId, it.quantity, it.unit_price, `CFDI ${invoice.uuid_sat}`, invoiceId, userId]
+                );
+                await client.query(
+                    `UPDATE accounting_received_invoice_items
+                        SET matched_product_id=$1, imported_to_inventory=TRUE
+                      WHERE id=$2`,
+                    [productId, it.id]
+                );
+                importedCount++;
+            }
+
+            await client.query(
+                `UPDATE accounting_received_invoices
+                    SET inventory_imported=TRUE, inventory_imported_at=CURRENT_TIMESTAMP
+                  WHERE id=$1`,
+                [invoiceId]
+            );
+
+            await client.query('COMMIT');
+            return res.json({
+                success: true,
+                imported_items: importedCount,
+                skipped_items: skippedCount,
+                total_items: itemsRes.rows.length,
+            });
+        } catch (err) {
+            await client.query('ROLLBACK');
+            throw err;
+        } finally {
+            client.release();
+        }
+    } catch (e: any) {
+        console.error('importReceivedInvoiceToInventory:', e);
+        res.status(500).json({ error: 'Error importando al inventario', message: e.message });
+    }
+};
+
 export const deleteReceivedInvoice = async (req: AuthRequest, res: Response): Promise<any> => {
     try {
         const userId = req.user?.userId || (req.user as any)?.id;
