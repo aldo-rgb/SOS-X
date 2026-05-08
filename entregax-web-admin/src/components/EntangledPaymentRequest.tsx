@@ -480,16 +480,34 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     setAddingConcepto(true);
     setAddConceptoError(null);
     try {
+      // ENTANGLED /asignacion exige TODOS los campos de cliente_final cuando es pago_con_factura.
+      // Si algún dato fiscal falta, validamos antes de pegarle al servicio para no recibir 400.
+      if (requiereFactura) {
+        const missing: string[] = [];
+        if (!form.rfc) missing.push('RFC');
+        if (!form.razon_social) missing.push('Razón social');
+        if (!form.regimen_fiscal) missing.push('Régimen fiscal');
+        if (!form.cp) missing.push('C.P. fiscal');
+        if (!form.uso_cfdi) missing.push('Uso CFDI');
+        if (!form.email) missing.push('Email');
+        if (missing.length > 0) {
+          setAddConceptoError(`Para asignar empresa con factura, completa primero estos datos fiscales: ${missing.join(', ')}.`);
+          setAddingConcepto(false);
+          return;
+        }
+      }
       const body: any = {
         servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
-        cliente_final: {
-          razon_social: form.razon_social || 'Público en General',
-          ...(requiereFactura && form.rfc ? { rfc: form.rfc } : {}),
-          ...(form.regimen_fiscal ? { regimen_fiscal: form.regimen_fiscal } : {}),
-          ...(form.cp ? { cp: form.cp } : {}),
-          ...(form.uso_cfdi ? { uso_cfdi: form.uso_cfdi } : {}),
-          ...(form.email ? { email: form.email } : {}),
-        },
+        cliente_final: requiereFactura
+          ? {
+              rfc: String(form.rfc).trim().toUpperCase(),
+              razon_social: String(form.razon_social).trim(),
+              regimen_fiscal: String(form.regimen_fiscal).trim(),
+              cp: String(form.cp).trim(),
+              uso_cfdi: String(form.uso_cfdi).trim(),
+              email: String(form.email).trim(),
+            }
+          : { razon_social: form.razon_social || 'Público en General' },
       };
       if (requiereFactura) body.concepto = opt.clave_prodserv;
       // Reintenta una vez si el primer intento falla con 502/503/504 (transitorios)
