@@ -1250,14 +1250,14 @@ export default function FleetManagementPage() {
                                     component="img"
                                     src={url}
                                     alt={label}
-                                    sx={{ width: '100%', height: 220, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
+                                    sx={{ width: '100%', height: 320, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
                                   />
                                 </Box>
                               ) : (
                                 <Box
                                   sx={{
                                     width: '100%',
-                                    height: 220,
+                                    height: 320,
                                     borderRadius: 1,
                                     border: '1px dashed #bbb',
                                     bgcolor: '#fafafa',
