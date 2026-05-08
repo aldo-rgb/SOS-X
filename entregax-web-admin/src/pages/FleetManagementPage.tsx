@@ -61,6 +61,7 @@ import {
   // PhotoCamera as CameraIcon, // No se usa actualmente
   Assignment as InspectionIcon,
   Timeline as TimelineIcon,
+  Close as CloseIcon,
   // LocalGasStation as FuelIcon, // No se usa actualmente
 } from '@mui/icons-material';
 
@@ -282,6 +283,9 @@ export default function FleetManagementPage() {
     invoice_photo_url: ''
   });
 
+  // Lightbox para ver fotos del vehículo en modal (no abrir nueva pestaña)
+  const [photoLightbox, setPhotoLightbox] = useState<{ url: string; label: string } | null>(null);
+
   const [selectedDriverId, setSelectedDriverId] = useState<number | null>(null);
   const [assignBranchOpen, setAssignBranchOpen] = useState(false);
   const [selectedBranchId, setSelectedBranchId] = useState<number | ''>('');
@@ -474,13 +478,28 @@ export default function FleetManagementPage() {
   // Crear o actualizar documento
   const handleCreateDocument = async () => {
     if (!selectedVehicle) return;
+    // Sanitiza el payload: campos opcionales vacíos van como null para que la BD no falle
+    const blankToNull = (v: string | undefined | null) => (v && String(v).trim().length > 0 ? v : null);
+    const numOrNull = (v: number | string | undefined | null) => {
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : null;
+    };
+    const payload = {
+      document_type: newDocument.document_type,
+      provider_name: blankToNull(newDocument.provider_name),
+      policy_number: blankToNull(newDocument.policy_number),
+      issue_date: blankToNull(newDocument.issue_date),
+      expiration_date: blankToNull(newDocument.expiration_date),
+      cost: numOrNull(newDocument.cost),
+      file_url: blankToNull(newDocument.file_url),
+    };
     try {
       if (editingDocId) {
-        await axios.put(`${API_URL}/api/admin/fleet/documents/${editingDocId}`, newDocument, {
+        await axios.put(`${API_URL}/api/admin/fleet/documents/${editingDocId}`, payload, {
           headers: { Authorization: `Bearer ${getToken()}` }
         });
       } else {
-        await axios.post(`${API_URL}/api/admin/fleet/vehicles/${selectedVehicle.id}/documents`, newDocument, {
+        await axios.post(`${API_URL}/api/admin/fleet/vehicles/${selectedVehicle.id}/documents`, payload, {
           headers: { Authorization: `Bearer ${getToken()}` }
         });
       }
@@ -1240,11 +1259,9 @@ export default function FleetManagementPage() {
                             <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
                               {url ? (
                                 <Box
-                                  component="a"
-                                  href={url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  sx={{ display: 'block', textDecoration: 'none', width: '100%' }}
+                                  onClick={() => setPhotoLightbox({ url, label })}
+                                  sx={{ display: 'block', cursor: 'pointer', width: '100%', position: 'relative',
+                                    '&:hover .xpay-zoom-icon': { opacity: 1 } }}
                                 >
                                   <Box
                                     component="img"
@@ -1252,6 +1269,12 @@ export default function FleetManagementPage() {
                                     alt={label}
                                     sx={{ width: '100%', height: 320, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
                                   />
+                                  <Box className="xpay-zoom-icon" sx={{
+                                    position: 'absolute', top: 8, right: 8, bgcolor: 'rgba(0,0,0,0.55)',
+                                    color: '#fff', borderRadius: '50%', width: 32, height: 32,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 16, opacity: 0, transition: 'opacity 0.2s',
+                                  }}>🔍</Box>
                                 </Box>
                               ) : (
                                 <Box
@@ -1734,7 +1757,16 @@ export default function FleetManagementPage() {
                 <Select
                   value={newDocument.document_type}
                   label="Tipo de Documento"
-                  onChange={(e) => setNewDocument({ ...newDocument, document_type: e.target.value })}
+                  onChange={(e) => {
+                    const newType = e.target.value;
+                    // Para "Tenencia": vencimiento automático al 31 de diciembre del año en curso
+                    let expirationDate = newDocument.expiration_date;
+                    if (newType === 'Tenencia') {
+                      const yyyy = new Date().getFullYear();
+                      expirationDate = `${yyyy}-12-31`;
+                    }
+                    setNewDocument({ ...newDocument, document_type: newType, expiration_date: expirationDate });
+                  }}
                 >
                   {(() => {
                     const allTypes = [
@@ -1763,57 +1795,97 @@ export default function FleetManagementPage() {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 6 }}>
-              <TextField
-                fullWidth
-                label="Proveedor"
-                value={newDocument.provider_name}
-                onChange={(e) => setNewDocument({ ...newDocument, provider_name: e.target.value })}
-                placeholder="Ej: Quálitas, GNP"
-              />
-            </Grid>
+            {/* Reglas por tipo de documento:
+                - Tarjeta Circulación: vencimiento + archivo (obligatorio)
+                - Factura: proveedor + folio + emisión + costo + archivo (sin vencimiento)
+                - Tenencia: costo + vencimiento auto Dec-31 + archivo (obligatorio)
+                - Constancia: sólo archivo (obligatorio)
+                - Verificación: folio + emisión + vencimiento + costo + archivo (obligatorio, sin proveedor, sin "opcional")
+                - Permiso SCT: emisión + vencimiento + costo + archivo (obligatorio, sin proveedor ni folio)
+                - Resto (Seguro, Otro): todos los campos
+            */}
+            {(() => {
+              const t = newDocument.document_type;
+              const isTarjeta = t === 'Tarjeta Circulación';
+              const isFactura = t === 'Factura';
+              const isTenencia = t === 'Tenencia';
+              const isConstancia = t === 'Constancia';
+              const isVerificacion = t === 'Verificación';
+              const isPermisoSCT = t === 'Permiso SCT';
+              // Visibilidad de cada campo
+              const showProveedor = !isTarjeta && !isTenencia && !isConstancia && !isVerificacion && !isPermisoSCT;
+              const showFolio = !isTarjeta && !isTenencia && !isConstancia && !isPermisoSCT;
+              const showEmision = !isTarjeta && !isTenencia && !isConstancia;
+              const showVencimiento = !isFactura && !isConstancia;
+              const showCosto = !isTarjeta && !isConstancia;
+              // Para Verificación, labels sin "(opcional)"
+              const lbl = (base: string) => (isVerificacion ? base : `${base} (opcional)`);
+              return (
+                <>
+                  {showProveedor && (
+                    <Grid size={{ xs: 6 }}>
+                      <TextField
+                        fullWidth
+                        label="Proveedor"
+                        value={newDocument.provider_name}
+                        onChange={(e) => setNewDocument({ ...newDocument, provider_name: e.target.value })}
+                        placeholder="Ej: Quálitas, GNP"
+                      />
+                    </Grid>
+                  )}
+                  {showFolio && (
+                    <Grid size={{ xs: 12 }}>
+                      <TextField
+                        fullWidth
+                        label="Número / Folio"
+                        value={newDocument.policy_number}
+                        onChange={(e) => setNewDocument({ ...newDocument, policy_number: e.target.value })}
+                      />
+                    </Grid>
+                  )}
+                  {showEmision && (
+                    <Grid size={{ xs: showVencimiento ? 6 : 12 }}>
+                      <TextField
+                        fullWidth
+                        label={lbl('Fecha de Emisión')}
+                        type="date"
+                        value={newDocument.issue_date}
+                        onChange={(e) => setNewDocument({ ...newDocument, issue_date: e.target.value })}
+                        InputLabelProps={{ shrink: true }}
+                      />
+                    </Grid>
+                  )}
+                  {showVencimiento && (
+                    <Grid size={{ xs: showEmision ? 6 : 12 }}>
+                      <TextField
+                        fullWidth
+                        label={isTenencia ? 'Vencimiento (auto: 31 dic)' : lbl('Fecha de Vencimiento')}
+                        type="date"
+                        value={newDocument.expiration_date}
+                        onChange={(e) => setNewDocument({ ...newDocument, expiration_date: e.target.value })}
+                        InputLabelProps={{ shrink: true }}
+                      />
+                    </Grid>
+                  )}
+                  {showCosto && (
+                    <Grid size={{ xs: 6 }}>
+                      <TextField
+                        fullWidth
+                        label={lbl('Costo')}
+                        type="number"
+                        value={newDocument.cost}
+                        onChange={(e) => setNewDocument({ ...newDocument, cost: parseFloat(e.target.value) })}
+                        InputProps={{ startAdornment: '$' }}
+                      />
+                    </Grid>
+                  )}
+                </>
+              );
+            })()}
             <Grid size={{ xs: 12 }}>
-              <TextField
-                fullWidth
-                label="Número / Folio"
-                value={newDocument.policy_number}
-                onChange={(e) => setNewDocument({ ...newDocument, policy_number: e.target.value })}
-              />
-            </Grid>
-            <Grid size={{ xs: 6 }}>
-              <TextField
-                fullWidth
-                label="Fecha de Emisión (opcional)"
-                type="date"
-                value={newDocument.issue_date}
-                onChange={(e) => setNewDocument({ ...newDocument, issue_date: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid size={{ xs: 6 }}>
-              <TextField
-                fullWidth
-                label="Fecha de Vencimiento (opcional)"
-                type="date"
-                value={newDocument.expiration_date}
-                onChange={(e) => setNewDocument({ ...newDocument, expiration_date: e.target.value })}
-                InputLabelProps={{ shrink: true }}
-              />
-            </Grid>
-            <Grid size={{ xs: 6 }}>
-              <TextField
-                fullWidth
-                label="Costo (opcional)"
-                type="number"
-                value={newDocument.cost}
-                onChange={(e) => setNewDocument({ ...newDocument, cost: parseFloat(e.target.value) })}
-                InputProps={{ startAdornment: '$' }}
-              />
-            </Grid>
-            <Grid size={{ xs: 12 }}>
-              <Box sx={{ border: '1px dashed', borderColor: 'divider', borderRadius: 1, p: 2 }}>
+              <Box sx={{ border: '1px dashed', borderColor: ['Tarjeta Circulación', 'Tenencia', 'Constancia', 'Verificación', 'Permiso SCT'].includes(newDocument.document_type) && !newDocument.file_url ? 'warning.main' : 'divider', borderRadius: 1, p: 2 }}>
                 <Typography variant="body2" fontWeight={600} gutterBottom>
-                  📎 Archivo del Documento (PDF o Imagen)
+                  📎 Archivo del Documento (PDF o Imagen){['Tarjeta Circulación', 'Tenencia', 'Constancia', 'Verificación', 'Permiso SCT'].includes(newDocument.document_type) && ' *'}
                 </Typography>
                 <Button
                   variant="outlined"
@@ -1877,7 +1949,13 @@ export default function FleetManagementPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => { setAddDocOpen(false); setEditingDocId(null); }}>Cancelar</Button>
-          <Button variant="contained" onClick={handleCreateDocument}>Guardar</Button>
+          <Button
+            variant="contained"
+            onClick={handleCreateDocument}
+            disabled={['Tarjeta Circulación', 'Tenencia', 'Constancia', 'Verificación', 'Permiso SCT'].includes(newDocument.document_type) && !newDocument.file_url}
+          >
+            Guardar
+          </Button>
         </DialogActions>
       </Dialog>
 
@@ -2160,6 +2238,38 @@ export default function FleetManagementPage() {
             {deletingVehicle ? 'Eliminando...' : 'Eliminar'}
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* Lightbox: foto del vehículo en grande */}
+      <Dialog
+        open={!!photoLightbox}
+        onClose={() => setPhotoLightbox(null)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{ sx: { bgcolor: 'rgba(0,0,0,0.92)', boxShadow: 'none' } }}
+      >
+        <DialogContent sx={{ p: 0, position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '70vh' }}>
+          <IconButton
+            onClick={() => setPhotoLightbox(null)}
+            sx={{ position: 'absolute', top: 12, right: 12, bgcolor: 'rgba(255,255,255,0.12)', color: '#fff',
+              '&:hover': { bgcolor: 'rgba(255,255,255,0.25)' }, zIndex: 2 }}
+          >
+            <CloseIcon />
+          </IconButton>
+          {photoLightbox && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+              <Box
+                component="img"
+                src={photoLightbox.url}
+                alt={photoLightbox.label}
+                sx={{ maxWidth: '100%', maxHeight: '85vh', objectFit: 'contain', borderRadius: 1 }}
+              />
+              <Typography sx={{ color: '#fff', mt: 1.5, fontSize: '0.95rem', letterSpacing: 0.4 }}>
+                {photoLightbox.label}
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
       </Dialog>
     </Box>
   );
