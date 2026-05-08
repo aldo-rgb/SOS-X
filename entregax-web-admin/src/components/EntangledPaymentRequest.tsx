@@ -1248,7 +1248,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       );
     }
 
-    doc.save(`XPay_${lastCreated.referencia_pago || 'solicitud'}.pdf`);
+    doc.save(`XPay_${data.referencia_pago || 'solicitud'}.pdf`);
   };
 
   const validateForm = (): string | null => {
