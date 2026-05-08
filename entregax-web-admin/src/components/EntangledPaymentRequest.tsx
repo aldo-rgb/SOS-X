@@ -878,240 +878,364 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   };
 
-  // Genera un PDF con la confirmación + instrucciones de pago + cuenta destino
-  const generateInstructionsPDF = () => {
+  // Helper: cargar imagen como dataURL para embeber en PDF
+  const loadImageAsDataUrl = (url: string): Promise<string | null> =>
+    fetch(url)
+      .then(r => (r.ok ? r.blob() : Promise.reject(new Error('no asset'))))
+      .then(blob => new Promise<string>((res, rej) => {
+        const fr = new FileReader();
+        fr.onloadend = () => res(fr.result as string);
+        fr.onerror = rej;
+        fr.readAsDataURL(blob);
+      }))
+      .catch(() => null);
+
+  /**
+   * Comprobante "Instrucciones de Pago" — diseño corporativo premium estilo Fintech.
+   *
+   * Decisiones de diseño:
+   *  - HEADER: cinta negra con logo X-PAY embebido + sello "SEGURO·CIFRADO·NIVEL BANCARIO".
+   *  - REFERENCIA: card con borde naranja + tipografía monoespaciada bold + QR placeholder.
+   *  - PANELES: cajas blancas con título naranja superior, filas label/value en grid 2-col,
+   *    separadores finos, datos sensibles en monoespaciada (CLABE, cuenta, RFC).
+   *  - TOTAL: barra negra con monto naranja XL para máxima visibilidad.
+   *  - WATERMARK: "X-PAY" rotado 30° en gris muy tenue.
+   *  - FOOTER: línea fina + nota de cifrado AES-256 + paginación.
+   *  - PALETA: Negro #0A0A0A, Naranja #F05A28, grises #6B7280/#E5E7EB, blanco hueso.
+   */
+  const generateInstructionsPDF = async () => {
     if (!lastCreated) return;
     const doc = new jsPDF({ unit: 'pt', format: 'letter' });
     const pageW = doc.internal.pageSize.getWidth();
-    const margin = 40;
-    let y = 50;
+    const pageH = doc.internal.pageSize.getHeight();
+    const margin = 48;
+    const innerW = pageW - margin * 2;
 
-    // Header: barra naranja + título
-    doc.setFillColor(240, 90, 40);
-    doc.rect(0, 0, pageW, 70, 'F');
-    doc.setTextColor(255, 255, 255);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(20);
-    doc.text('X-PAY · Instrucciones de Pago', margin, 38);
-    doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Confirmación de solicitud de triangulación internacional', margin, 56);
+    // Paleta corporativa
+    const C_BLACK: [number, number, number] = [10, 10, 10];
+    const C_ORANGE: [number, number, number] = [240, 90, 40];
+    const C_TEXT: [number, number, number] = [17, 24, 39];
+    const C_MUTED: [number, number, number] = [107, 114, 128];
+    const C_BORDER: [number, number, number] = [229, 231, 235];
 
-    y = 100;
-    doc.setTextColor(20, 20, 20);
+    // Watermark X-PAY rotado
+    const drawWatermark = () => {
+      doc.saveGraphicsState();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      doc.setGState((doc as any).GState({ opacity: 0.04 }));
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(140);
+      doc.setTextColor(...C_BLACK);
+      doc.text('X-PAY', pageW / 2, pageH / 2 + 30, { align: 'center', angle: 30 });
+      doc.restoreGraphicsState();
+    };
 
-    // Referencia destacada
-    if (lastCreated.referencia_pago) {
-      doc.setFillColor(255, 245, 235);
-      doc.setDrawColor(240, 90, 40);
-      doc.roundedRect(margin, y, pageW - margin * 2, 60, 6, 6, 'FD');
-      doc.setFontSize(9);
-      doc.setTextColor(120, 120, 120);
-      doc.text('REFERENCIA DE PAGO', margin + 14, y + 18);
+    // ─────── HEADER (cinta negra con logo + trust seal) ───────
+    const headerH = 90;
+    doc.setFillColor(...C_BLACK);
+    doc.rect(0, 0, pageW, headerH, 'F');
+    doc.setFillColor(...C_ORANGE);
+    doc.rect(0, headerH, pageW, 3, 'F');
+
+    const logoData = await loadImageAsDataUrl('/logo-completo-xpay-t.png');
+    if (logoData) {
+      try {
+        doc.addImage(logoData, 'PNG', margin, 20, 130, 50, undefined, 'FAST');
+      } catch {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(22);
+        doc.setTextColor(255, 255, 255);
+        doc.text('X-PAY', margin, 50);
+      }
+    } else {
+      doc.setFont('helvetica', 'bold');
       doc.setFontSize(22);
-      doc.setFont('courier', 'bold');
-      doc.setTextColor(240, 90, 40);
-      doc.text(String(lastCreated.referencia_pago), margin + 14, y + 44);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(120, 120, 120);
-      doc.setFontSize(8);
-      doc.text('Incluye esta referencia en el concepto', pageW - margin - 14, y + 30, { align: 'right' });
-      doc.text('de tu transferencia bancaria.', pageW - margin - 14, y + 42, { align: 'right' });
-      y += 80;
+      doc.setTextColor(255, 255, 255);
+      doc.text('X-PAY', margin, 50);
     }
 
-    // Detalle de la operación
-    doc.setTextColor(20, 20, 20);
+    // Subtítulo a la derecha del logo
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(180, 180, 180);
+    doc.text('INSTRUCCIONES DE PAGO', margin + 145, 42);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(13);
-    doc.text('Detalle de la operación', margin, y);
-    y += 6;
-    doc.setDrawColor(240, 90, 40);
-    doc.setLineWidth(1.5);
-    doc.line(margin, y, margin + 160, y);
-    y += 16;
+    doc.setFontSize(11);
+    doc.setTextColor(255, 255, 255);
+    doc.text('Confirmación de solicitud de triangulación internacional', margin + 145, 58);
+
+    // Trust seal (top-right)
+    const trust = 'SEGURO  ·  CIFRADO  ·  NIVEL BANCARIO';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(255, 255, 255);
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(0.6);
+    const trustW = doc.getTextWidth(trust) + 16;
+    doc.roundedRect(pageW - margin - trustW, 28, trustW, 16, 8, 8, 'D');
+    doc.text(trust, pageW - margin - trustW / 2, 39, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(180, 180, 180);
+    doc.text(`Emitido: ${new Date().toLocaleString('es-MX')}`, pageW - margin, 60, { align: 'right' });
+
+    drawWatermark();
+
+    let y = headerH + 24;
+
+    // ─────── REFERENCIA DE PAGO (card con QR) ───────
+    const refH = 92;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(...C_ORANGE);
+    doc.setLineWidth(1.2);
+    doc.roundedRect(margin, y, innerW, refH, 8, 8, 'FD');
+    doc.setFillColor(...C_ORANGE);
+    doc.rect(margin, y, 5, refH, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(...C_MUTED);
+    doc.text('REFERENCIA DE PAGO', margin + 18, y + 22);
+
+    doc.setFont('courier', 'bold');
+    doc.setFontSize(28);
+    doc.setTextColor(...C_ORANGE);
+    doc.text(String(lastCreated.referencia_pago || ''), margin + 18, y + 56);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(11);
-    doc.setTextColor(40, 40, 40);
+    doc.setFontSize(8);
+    doc.setTextColor(...C_MUTED);
+    doc.text('Incluye esta referencia en el concepto de tu', margin + 18, y + 72);
+    doc.text('transferencia para conciliar tu pago automáticamente.', margin + 18, y + 82);
 
+    // QR placeholder — patrón determinístico desde la referencia
+    const qrSize = 60;
+    const qrX = margin + innerW - qrSize - 16;
+    const qrY = y + (refH - qrSize) / 2;
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(...C_BORDER);
+    doc.setLineWidth(0.5);
+    doc.rect(qrX, qrY, qrSize, qrSize, 'FD');
+    const refStr = String(lastCreated.referencia_pago || 'XPAY');
+    let seed = 0;
+    for (let i = 0; i < refStr.length; i++) seed = (seed * 31 + refStr.charCodeAt(i)) | 0;
+    const cells = 9;
+    const cellSize = qrSize / cells;
+    doc.setFillColor(...C_BLACK);
+    for (let r = 0; r < cells; r++) {
+      for (let c = 0; c < cells; c++) {
+        const inFinderTL = r < 3 && c < 3;
+        const inFinderTR = r < 3 && c >= cells - 3;
+        const inFinderBL = r >= cells - 3 && c < 3;
+        if (inFinderTL || inFinderTR || inFinderBL) {
+          const onBorder =
+            (inFinderTL && (r === 0 || r === 2 || c === 0 || c === 2)) ||
+            (inFinderTR && (r === 0 || r === 2 || c === cells - 1 || c === cells - 3)) ||
+            (inFinderBL && (r === cells - 1 || r === cells - 3 || c === 0 || c === 2));
+          const isCenter =
+            (inFinderTL && r === 1 && c === 1) ||
+            (inFinderTR && r === 1 && c === cells - 2) ||
+            (inFinderBL && r === cells - 2 && c === 1);
+          if (onBorder || isCenter) doc.rect(qrX + c * cellSize, qrY + r * cellSize, cellSize, cellSize, 'F');
+          continue;
+        }
+        seed = (seed * 1103515245 + 12345) | 0;
+        if ((seed & 1) === 1) doc.rect(qrX + c * cellSize, qrY + r * cellSize, cellSize, cellSize, 'F');
+      }
+    }
+
+    y += refH + 24;
+
+    // ─────── Helpers de paneles modulares ───────
     const opSnap = lastCreated.operationSnapshot;
     const benefSnap = lastCreated.beneficiarioSnapshot;
     const q = lastCreated.quote;
 
-    const lineKV = (k: string, v: string) => {
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(80, 80, 80);
-      doc.text(k, margin, y);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(20, 20, 20);
-      doc.text(v, margin + 180, y);
-      y += 18;
+    const ensureSpace = (needed: number) => {
+      if (y + needed > pageH - 70) { doc.addPage(); y = margin; }
     };
 
-    if (opSnap) {
-      lineKV('Servicio:', opSnap.requiere_factura ? 'Pago con factura' : 'Pago sin factura');
-      lineKV('Divisa destino:', opSnap.divisa);
-      lineKV('Monto al proveedor:', `$${formatMoney(opSnap.monto)} ${opSnap.divisa}`);
-      if (opSnap.requiere_factura && opSnap.rfc) {
-        lineKV('RFC:', opSnap.rfc);
-      }
-      if (opSnap.requiere_factura && opSnap.razon_social) {
-        lineKV('Razón social:', opSnap.razon_social);
-      }
-    }
-    if (q) {
-      lineKV('Tipo de cambio:', `$${q.tipo_cambio.toFixed(4)} MXN/${opSnap?.divisa || 'USD'}`);
-      lineKV('Comisión:', `$${formatMoney(q.monto_mxn_comision)} MXN`);
-      doc.setFillColor(255, 245, 235);
-      doc.rect(margin, y - 4, pageW - margin * 2, 28, 'F');
+    // Panel header (small label naranja sobre línea naranja)
+    const panelStart = (title: string) => {
+      ensureSpace(40);
       doc.setFont('helvetica', 'bold');
-      doc.setTextColor(240, 90, 40);
-      doc.setFontSize(13);
-      doc.text('TOTAL A PAGAR:', margin + 6, y + 14);
-      doc.text(`$${formatMoney(q.monto_mxn_total)} MXN`, pageW - margin - 6, y + 14, { align: 'right' });
-      y += 38;
-    }
-
-    // Beneficiario
-    if (benefSnap?.nombre) {
-      y += 6;
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(13);
-      doc.setTextColor(20, 20, 20);
-      doc.text('Beneficiario final', margin, y);
-      y += 6;
-      doc.setDrawColor(240, 90, 40);
-      doc.line(margin, y, margin + 160, y);
+      doc.setFontSize(8);
+      doc.setTextColor(...C_ORANGE);
+      doc.text(title.toUpperCase(), margin, y);
+      doc.setDrawColor(...C_ORANGE);
+      doc.setLineWidth(1.2);
+      doc.line(margin, y + 4, margin + 40, y + 4);
       y += 16;
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(11);
-      lineKV('Nombre:', benefSnap.nombre);
-      if (benefSnap.nombre_chino) lineKV('Nombre (chino):', benefSnap.nombre_chino);
-      if (benefSnap.banco) lineKV('Banco:', benefSnap.banco);
-      if (benefSnap.cuenta) lineKV('Cuenta:', benefSnap.cuenta);
-      if (benefSnap.iban) lineKV('IBAN:', benefSnap.iban);
-      if (benefSnap.swift) lineKV('SWIFT/BIC:', benefSnap.swift);
-      if (benefSnap.aba) lineKV('ABA:', benefSnap.aba);
-    }
-
-    // Cuenta(s) destino — preferimos empresas_asignadas (ENTANGLED dinámico),
-    // y caemos en providerSnapshot como fallback legacy.
-    const empresas = lastCreated.empresas_asignadas || [];
-    const provSnap = lastCreated.providerSnapshot;
-    const renderAccountsHeader = (title: string) => {
-      if (y > 620) { doc.addPage(); y = 50; }
-      y += 10;
-      doc.setFillColor(240, 90, 40);
-      doc.rect(margin, y, pageW - margin * 2, 26, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
-      doc.setTextColor(255, 255, 255);
-      doc.text(title, margin + 10, y + 17);
-      y += 36;
-      doc.setTextColor(20, 20, 20);
-      doc.setFontSize(11);
     };
 
-    if (empresas.length > 0) {
-      renderAccountsHeader('DEPOSITAR / TRANSFERIR A — Cuenta(s) asignada(s)');
-      empresas.forEach((emp, idx) => {
-        if (y > 700) { doc.addPage(); y = 50; }
-        const cb: any = emp.cuenta_bancaria || {};
-        if (emp.clave_prodserv) {
-          lineKV('Clave SAT:', `${emp.clave_prodserv}${emp.monto != null ? `  (Monto: ${formatMoney(emp.monto)} ${emp.divisa || ''})` : ''}`);
-        }
-        const banco = cb.banco || cb.bank;
-        const titular = cb.titular || cb.holder || emp.empresa;
-        const cuenta = cb.cuenta || cb.account || cb.numero_cuenta;
-        const clabe = cb.clabe || cb.CLABE;
-        const sucursal = cb.sucursal || cb.branch;
-        if (banco) lineKV('Banco:', String(banco));
-        if (titular) lineKV('Titular:', String(titular));
-        if (cuenta) lineKV('Cuenta:', String(cuenta));
-        if (clabe) lineKV('CLABE:', String(clabe));
-        if (sucursal) lineKV('Sucursal:', String(sucursal));
-        if (idx < empresas.length - 1) {
-          doc.setDrawColor(220, 220, 220);
-          doc.line(margin, y, pageW - margin, y);
-          y += 10;
-        }
-      });
-
-      // Aviso final
-      if (y > 680) { doc.addPage(); y = 50; }
-      y += 10;
-      doc.setFillColor(255, 250, 230);
-      doc.setDrawColor(245, 158, 11);
-      doc.roundedRect(margin, y, pageW - margin * 2, 50, 4, 4, 'FD');
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(146, 64, 14);
-      doc.setFontSize(10);
-      doc.text('IMPORTANTE', margin + 10, y + 18);
+    // Fila label/value
+    const panelRow = (label: string, value: string, opts: { mono?: boolean; emphasize?: boolean } = {}) => {
+      ensureSpace(22);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9);
-      doc.text(
-        `Incluye la referencia ${lastCreated.referencia_pago || ''} en el concepto de tu transferencia.`,
-        margin + 10, y + 32
-      );
-      doc.text(
-        'Después de transferir, sube tu comprobante en "Últimos envíos" para procesar tu solicitud.',
-        margin + 10, y + 44
-      );
-    } else if (provSnap && provSnap.bank_accounts.length > 0) {
-      renderAccountsHeader(`DEPOSITAR / TRANSFERIR A — ${provSnap.name}`);
+      doc.setTextColor(...C_MUTED);
+      doc.text(label, margin + 12, y);
+      doc.setFont(opts.mono ? 'courier' : 'helvetica', opts.emphasize ? 'bold' : 'normal');
+      doc.setFontSize(opts.emphasize ? 11 : 10);
+      doc.setTextColor(...C_TEXT);
+      const wrapped = doc.splitTextToSize(value, innerW - 200);
+      doc.text(wrapped, margin + 200, y);
+      y += Math.max(20, wrapped.length * 13);
+      doc.setDrawColor(...C_BORDER);
+      doc.setLineWidth(0.4);
+      doc.line(margin + 12, y - 6, margin + innerW - 12, y - 6);
+    };
 
-      const all = provSnap.bank_accounts;
-      const mxn = all.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
-      const accounts = mxn.length > 0 ? mxn : all;
+    // Panel completo con borde fino
+    const renderPanel = (title: string, fillRows: () => void) => {
+      panelStart(title);
+      const startY = y - 6;
+      fillRows();
+      const endY = y;
+      doc.setDrawColor(...C_BORDER);
+      doc.setLineWidth(0.6);
+      doc.roundedRect(margin, startY, innerW, endY - startY + 4, 4, 4, 'D');
+      y = endY + 14;
+    };
 
-      accounts.forEach((acc, idx) => {
-        if (y > 700) { doc.addPage(); y = 50; }
-        if (acc.bank) lineKV('Banco:', `${acc.bank}${acc.currency ? ` (${acc.currency})` : ''}`);
-        if (acc.holder) lineKV('Titular:', acc.holder);
-        if (acc.account) lineKV('Cuenta:', acc.account);
-        if (acc.clabe) lineKV('CLABE:', acc.clabe);
-        if (acc.reference) lineKV('Referencia adicional:', acc.reference);
-        if (idx < accounts.length - 1) {
-          doc.setDrawColor(220, 220, 220);
-          doc.line(margin, y, pageW - margin, y);
-          y += 10;
-        }
-      });
+    // ─────── PANEL: DETALLE DE LA OPERACIÓN ───────
+    renderPanel('Detalle de la operación', () => {
+      if (opSnap) {
+        panelRow('Servicio', opSnap.requiere_factura ? 'Pago con factura' : 'Pago sin factura');
+        panelRow('Divisa destino', opSnap.divisa);
+        panelRow('Monto al proveedor', `$${formatMoney(opSnap.monto)} ${opSnap.divisa}`);
+        if (opSnap.requiere_factura && opSnap.razon_social) panelRow('Razón social', opSnap.razon_social);
+        if (opSnap.requiere_factura && opSnap.rfc) panelRow('RFC', opSnap.rfc, { mono: true });
+      }
+      if (q) {
+        panelRow('Tipo de cambio', `$${q.tipo_cambio.toFixed(4)} MXN / ${opSnap?.divisa || 'USD'}`);
+        panelRow('Comisión', `$${formatMoney(q.monto_mxn_comision)} MXN`);
+      }
+    });
 
-      // Aviso final
-      if (y > 680) { doc.addPage(); y = 50; }
-      y += 10;
-      doc.setFillColor(255, 250, 230);
-      doc.setDrawColor(245, 158, 11);
-      doc.roundedRect(margin, y, pageW - margin * 2, 50, 4, 4, 'FD');
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(146, 64, 14);
-      doc.setFontSize(10);
-      doc.text('IMPORTANTE', margin + 10, y + 18);
+    // ─────── BARRA DE TOTAL (negro + monto naranja) ───────
+    if (q) {
+      ensureSpace(54);
+      doc.setFillColor(...C_BLACK);
+      doc.roundedRect(margin, y, innerW, 46, 4, 4, 'F');
+      doc.setFillColor(...C_ORANGE);
+      doc.rect(margin, y, 4, 46, 'F');
+
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
-      doc.text(
-        `Incluye la referencia ${lastCreated.referencia_pago || ''} en el concepto de tu transferencia.`,
-        margin + 10, y + 32
-      );
-      doc.text(
-        'Después de transferir, sube tu comprobante en "Últimos envíos" para procesar tu solicitud.',
-        margin + 10, y + 44
-      );
-    }
+      doc.setFontSize(8);
+      doc.setTextColor(180, 180, 180);
+      doc.text('TOTAL A PAGAR', margin + 18, y + 16);
 
-    // Footer
-    const totalPages = doc.getNumberOfPages();
-    for (let p = 1; p <= totalPages; p++) {
-      doc.setPage(p);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(20);
+      doc.setTextColor(...C_ORANGE);
+      doc.text(`$${formatMoney(q.monto_mxn_total)} MXN`, pageW - margin - 18, y + 30, { align: 'right' });
+
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       doc.setTextColor(150, 150, 150);
-      const pageH = doc.internal.pageSize.getHeight();
+      doc.text('Importe a transferir desde la cuenta del cliente.', margin + 18, y + 32);
+      y += 60;
+    }
+
+    // ─────── PANEL: DEPOSITAR / TRANSFERIR A ───────
+    const empresas = lastCreated.empresas_asignadas || [];
+    const provSnap = lastCreated.providerSnapshot;
+
+    if (empresas.length > 0) {
+      renderPanel('Depositar / Transferir a', () => {
+        empresas.forEach((emp, idx) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const cb: any = emp.cuenta_bancaria || {};
+          const banco = cb.banco || cb.bank;
+          const titular = cb.titular || cb.holder || emp.empresa;
+          const cuenta = cb.cuenta || cb.account || cb.numero_cuenta;
+          const clabe = cb.clabe || cb.CLABE;
+          const sucursal = cb.sucursal || cb.branch;
+          const moneda = cb.moneda || cb.currency;
+          if (titular) panelRow('Empresa receptora', String(titular), { emphasize: true });
+          if (banco) panelRow('Banco', `${banco}${moneda ? `  (${moneda})` : ''}`);
+          if (clabe) panelRow('CLABE', String(clabe), { mono: true });
+          if (cuenta) panelRow('Cuenta', String(cuenta), { mono: true });
+          if (sucursal) panelRow('Sucursal', String(sucursal));
+          if (emp.clave_prodserv) panelRow('Clave(s) SAT', String(emp.clave_prodserv), { mono: true });
+          if (idx < empresas.length - 1) y += 6;
+        });
+      });
+    } else if (provSnap && provSnap.bank_accounts.length > 0) {
+      const all = provSnap.bank_accounts;
+      const mxn = all.filter((a) => String(a.currency || '').toUpperCase() === 'MXN');
+      const accounts = mxn.length > 0 ? mxn : all;
+      renderPanel(`Depositar / Transferir a — ${provSnap.name}`, () => {
+        accounts.forEach((acc) => {
+          if (acc.holder) panelRow('Titular', acc.holder, { emphasize: true });
+          if (acc.bank) panelRow('Banco', `${acc.bank}${acc.currency ? `  (${acc.currency})` : ''}`);
+          if (acc.clabe) panelRow('CLABE', acc.clabe, { mono: true });
+          if (acc.account) panelRow('Cuenta', acc.account, { mono: true });
+          if (acc.reference) panelRow('Referencia adicional', acc.reference);
+        });
+      });
+    }
+
+    // ─────── PANEL: BENEFICIARIO FINAL ───────
+    if (benefSnap?.nombre) {
+      renderPanel('Beneficiario final', () => {
+        panelRow('Nombre', benefSnap.nombre, { emphasize: true });
+        if (benefSnap.nombre_chino) panelRow('Nombre (chino)', benefSnap.nombre_chino);
+        if (benefSnap.banco) panelRow('Banco', benefSnap.banco);
+        if (benefSnap.cuenta) panelRow('Cuenta', benefSnap.cuenta, { mono: true });
+        if (benefSnap.iban) panelRow('IBAN', benefSnap.iban, { mono: true });
+        if (benefSnap.swift) panelRow('SWIFT/BIC', benefSnap.swift, { mono: true });
+        if (benefSnap.aba) panelRow('ABA', benefSnap.aba, { mono: true });
+      });
+    }
+
+    // ─────── AVISO IMPORTANTE ───────
+    ensureSpace(70);
+    doc.setFillColor(255, 250, 230);
+    doc.setDrawColor(245, 158, 11);
+    doc.setLineWidth(0.6);
+    doc.roundedRect(margin, y, innerW, 56, 4, 4, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(146, 64, 14);
+    doc.text('IMPORTANTE', margin + 14, y + 18);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(120, 53, 15);
+    doc.text(
+      `Incluye la referencia ${lastCreated.referencia_pago || ''} en el concepto de tu transferencia.`,
+      margin + 14, y + 33
+    );
+    doc.text(
+      'Una vez realizado el depósito, sube tu comprobante desde "Últimos envíos" para procesar tu solicitud.',
+      margin + 14, y + 46
+    );
+    y += 70;
+
+    // ─────── FOOTER (en cada página) ───────
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(...C_BORDER);
+      doc.setLineWidth(0.4);
+      doc.line(margin, pageH - 48, pageW - margin, pageH - 48);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7);
+      doc.setTextColor(...C_BLACK);
+      doc.text('X-PAY DIRECT', margin, pageH - 32);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(...C_MUTED);
+      doc.text('Operación protegida por cifrado bancario AES-256', margin, pageH - 22);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      doc.setTextColor(...C_MUTED);
       doc.text(
-        `X-Pay Direct · ${new Date().toLocaleString('es-MX')} · Página ${p} de ${totalPages}`,
-        pageW / 2, pageH - 20, { align: 'center' }
+        `${new Date().toLocaleString('es-MX')}  ·  Página ${p} de ${totalPages}`,
+        pageW - margin, pageH - 22, { align: 'right' }
       );
     }
 
