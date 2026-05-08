@@ -989,60 +989,65 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     };
 
     // ─────── HEADER (cinta negra con logo + trust seal) ───────
-    const headerH = 90;
+    // Cargar logos una sola vez (header y card de referencia)
+    const [logoData, logoSquareData] = await Promise.all([
+      loadImageAsDataUrl('/logo-completo-xpay-t.png'),
+      loadImageAsDataUrl('/logo-xpay-square.png'),
+    ]);
+
+    const headerH = 70;
     doc.setFillColor(...C_BLACK);
     doc.rect(0, 0, pageW, headerH, 'F');
     doc.setFillColor(...C_ORANGE);
     doc.rect(0, headerH, pageW, 3, 'F');
 
-    const logoData = await loadImageAsDataUrl('/logo-completo-xpay-t.png');
     if (logoData) {
       try {
-        doc.addImage(logoData, 'PNG', margin, 20, 130, 50, undefined, 'FAST');
+        doc.addImage(logoData, 'PNG', margin, 16, 110, 38, undefined, 'FAST');
       } catch {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(22);
+        doc.setFontSize(20);
         doc.setTextColor(255, 255, 255);
-        doc.text('X-PAY', margin, 50);
+        doc.text('X-PAY', margin, 40);
       }
     } else {
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(22);
+      doc.setFontSize(20);
       doc.setTextColor(255, 255, 255);
-      doc.text('X-PAY', margin, 50);
+      doc.text('X-PAY', margin, 40);
     }
 
     // Subtítulo a la derecha del logo
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(180, 180, 180);
-    doc.text('INSTRUCCIONES DE PAGO', margin + 145, 42);
+    doc.text('INSTRUCCIONES DE PAGO', margin + 130, 32);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
+    doc.setFontSize(10);
     doc.setTextColor(255, 255, 255);
-    doc.text('Confirmación de solicitud de triangulación internacional', margin + 145, 58);
+    doc.text('Confirmación de solicitud de triangulación internacional', margin + 130, 47);
 
     // Trust seal (top-right)
     const trust = 'SEGURO  ·  CIFRADO  ·  NIVEL BANCARIO';
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7);
+    doc.setFontSize(6.5);
     doc.setTextColor(255, 255, 255);
     doc.setDrawColor(255, 255, 255);
-    doc.setLineWidth(0.6);
-    const trustW = doc.getTextWidth(trust) + 16;
-    doc.roundedRect(pageW - margin - trustW, 28, trustW, 16, 8, 8, 'D');
-    doc.text(trust, pageW - margin - trustW / 2, 39, { align: 'center' });
+    doc.setLineWidth(0.5);
+    const trustW = doc.getTextWidth(trust) + 14;
+    doc.roundedRect(pageW - margin - trustW, 18, trustW, 14, 7, 7, 'D');
+    doc.text(trust, pageW - margin - trustW / 2, 28, { align: 'center' });
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
+    doc.setFontSize(6.5);
     doc.setTextColor(180, 180, 180);
-    doc.text(`Emitido: ${new Date().toLocaleString('es-MX')}`, pageW - margin, 60, { align: 'right' });
+    doc.text(`Emitido: ${new Date().toLocaleString('es-MX')}`, pageW - margin, 48, { align: 'right' });
 
     drawWatermark();
 
-    let y = headerH + 24;
+    let y = headerH + 16;
 
-    // ─────── REFERENCIA DE PAGO (card con QR) ───────
-    const refH = 92;
+    // ─────── REFERENCIA DE PAGO (card con logo XPAY a la derecha) ───────
+    const refH = 76;
     doc.setFillColor(255, 255, 255);
     doc.setDrawColor(...C_ORANGE);
     doc.setLineWidth(1.2);
@@ -1051,58 +1056,42 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     doc.rect(margin, y, 5, refH, 'F');
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(...C_MUTED);
-    doc.text('REFERENCIA DE PAGO', margin + 18, y + 22);
+    doc.text('REFERENCIA DE PAGO', margin + 18, y + 18);
 
     doc.setFont('courier', 'bold');
-    doc.setFontSize(28);
+    doc.setFontSize(24);
     doc.setTextColor(...C_ORANGE);
-    doc.text(String(data.referencia_pago || ''), margin + 18, y + 56);
+    doc.text(String(data.referencia_pago || ''), margin + 18, y + 46);
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(...C_MUTED);
-    doc.text('Incluye esta referencia en el concepto de tu', margin + 18, y + 72);
-    doc.text('transferencia para conciliar tu pago automáticamente.', margin + 18, y + 82);
+    doc.text('Incluye esta referencia en el concepto de tu', margin + 18, y + 60);
+    doc.text('transferencia para conciliar tu pago automáticamente.', margin + 18, y + 70);
 
-    // QR placeholder — patrón determinístico desde la referencia
-    const qrSize = 60;
-    const qrX = margin + innerW - qrSize - 16;
-    const qrY = y + (refH - qrSize) / 2;
-    doc.setFillColor(255, 255, 255);
-    doc.setDrawColor(...C_BORDER);
-    doc.setLineWidth(0.5);
-    doc.rect(qrX, qrY, qrSize, qrSize, 'FD');
-    const refStr = String(data.referencia_pago || 'XPAY');
-    let seed = 0;
-    for (let i = 0; i < refStr.length; i++) seed = (seed * 31 + refStr.charCodeAt(i)) | 0;
-    const cells = 9;
-    const cellSize = qrSize / cells;
-    doc.setFillColor(...C_BLACK);
-    for (let r = 0; r < cells; r++) {
-      for (let c = 0; c < cells; c++) {
-        const inFinderTL = r < 3 && c < 3;
-        const inFinderTR = r < 3 && c >= cells - 3;
-        const inFinderBL = r >= cells - 3 && c < 3;
-        if (inFinderTL || inFinderTR || inFinderBL) {
-          const onBorder =
-            (inFinderTL && (r === 0 || r === 2 || c === 0 || c === 2)) ||
-            (inFinderTR && (r === 0 || r === 2 || c === cells - 1 || c === cells - 3)) ||
-            (inFinderBL && (r === cells - 1 || r === cells - 3 || c === 0 || c === 2));
-          const isCenter =
-            (inFinderTL && r === 1 && c === 1) ||
-            (inFinderTR && r === 1 && c === cells - 2) ||
-            (inFinderBL && r === cells - 2 && c === 1);
-          if (onBorder || isCenter) doc.rect(qrX + c * cellSize, qrY + r * cellSize, cellSize, cellSize, 'F');
-          continue;
-        }
-        seed = (seed * 1103515245 + 12345) | 0;
-        if ((seed & 1) === 1) doc.rect(qrX + c * cellSize, qrY + r * cellSize, cellSize, cellSize, 'F');
+    // Logo XPAY (cuadrado) en lugar del QR placeholder
+    const logoSize = 56;
+    const logoX = margin + innerW - logoSize - 14;
+    const logoY = y + (refH - logoSize) / 2;
+    if (logoSquareData) {
+      try {
+        doc.addImage(logoSquareData, 'PNG', logoX, logoY, logoSize, logoSize, undefined, 'FAST');
+      } catch {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(18);
+        doc.setTextColor(...C_ORANGE);
+        doc.text('X-PAY', logoX + logoSize / 2, logoY + logoSize / 2 + 6, { align: 'center' });
       }
+    } else {
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(...C_ORANGE);
+      doc.text('X-PAY', logoX + logoSize / 2, logoY + logoSize / 2 + 6, { align: 'center' });
     }
 
-    y += refH + 24;
+    y += refH + 14;
 
     // ─────── Helpers de paneles modulares ───────
     const opSnap = data.operationSnapshot;
@@ -1115,45 +1104,45 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
 
     // Panel header (small label naranja sobre línea naranja)
     const panelStart = (title: string) => {
-      ensureSpace(40);
+      ensureSpace(32);
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       doc.setTextColor(...C_ORANGE);
       doc.text(title.toUpperCase(), margin, y);
       doc.setDrawColor(...C_ORANGE);
       doc.setLineWidth(1.2);
-      doc.line(margin, y + 4, margin + 40, y + 4);
-      y += 16;
+      doc.line(margin, y + 3, margin + 36, y + 3);
+      y += 12;
     };
 
     // Fila label/value
     const panelRow = (label: string, value: string, opts: { mono?: boolean; emphasize?: boolean } = {}) => {
-      ensureSpace(22);
+      ensureSpace(18);
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9);
+      doc.setFontSize(8.5);
       doc.setTextColor(...C_MUTED);
-      doc.text(label, margin + 12, y);
+      doc.text(label, margin + 10, y);
       doc.setFont(opts.mono ? 'courier' : 'helvetica', opts.emphasize ? 'bold' : 'normal');
-      doc.setFontSize(opts.emphasize ? 11 : 10);
+      doc.setFontSize(opts.emphasize ? 10 : 9.5);
       doc.setTextColor(...C_TEXT);
       const wrapped = doc.splitTextToSize(value, innerW - 200);
       doc.text(wrapped, margin + 200, y);
-      y += Math.max(20, wrapped.length * 13);
+      y += Math.max(15, wrapped.length * 11);
       doc.setDrawColor(...C_BORDER);
-      doc.setLineWidth(0.4);
-      doc.line(margin + 12, y - 6, margin + innerW - 12, y - 6);
+      doc.setLineWidth(0.3);
+      doc.line(margin + 10, y - 4, margin + innerW - 10, y - 4);
     };
 
     // Panel completo con borde fino
     const renderPanel = (title: string, fillRows: () => void) => {
       panelStart(title);
-      const startY = y - 6;
+      const startY = y - 5;
       fillRows();
       const endY = y;
       doc.setDrawColor(...C_BORDER);
       doc.setLineWidth(0.6);
-      doc.roundedRect(margin, startY, innerW, endY - startY + 4, 4, 4, 'D');
-      y = endY + 14;
+      doc.roundedRect(margin, startY, innerW, endY - startY + 3, 4, 4, 'D');
+      y = endY + 8;
     };
 
     // ─────── PANEL: DETALLE DE LA OPERACIÓN ───────
@@ -1173,27 +1162,27 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
 
     // ─────── BARRA DE TOTAL (negro + monto naranja) ───────
     if (q) {
-      ensureSpace(54);
+      ensureSpace(44);
       doc.setFillColor(...C_BLACK);
-      doc.roundedRect(margin, y, innerW, 46, 4, 4, 'F');
+      doc.roundedRect(margin, y, innerW, 38, 4, 4, 'F');
       doc.setFillColor(...C_ORANGE);
-      doc.rect(margin, y, 4, 46, 'F');
+      doc.rect(margin, y, 4, 38, 'F');
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       doc.setTextColor(180, 180, 180);
-      doc.text('TOTAL A PAGAR', margin + 18, y + 16);
+      doc.text('TOTAL A PAGAR', margin + 16, y + 14);
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(20);
+      doc.setFontSize(18);
       doc.setTextColor(...C_ORANGE);
-      doc.text(`$${formatMoney(q.monto_mxn_total)} MXN`, pageW - margin - 18, y + 30, { align: 'right' });
+      doc.text(`$${formatMoney(q.monto_mxn_total)} MXN`, pageW - margin - 16, y + 26, { align: 'right' });
 
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
+      doc.setFontSize(7.5);
       doc.setTextColor(150, 150, 150);
-      doc.text('Importe a transferir desde la cuenta del cliente.', margin + 18, y + 32);
-      y += 60;
+      doc.text('Importe a transferir desde la cuenta del cliente.', margin + 16, y + 28);
+      y += 48;
     }
 
     // ─────── PANEL: DEPOSITAR / TRANSFERIR A ───────
@@ -1249,27 +1238,27 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
 
     // ─────── AVISO IMPORTANTE ───────
-    ensureSpace(70);
+    ensureSpace(56);
     doc.setFillColor(255, 250, 230);
     doc.setDrawColor(245, 158, 11);
-    doc.setLineWidth(0.6);
-    doc.roundedRect(margin, y, innerW, 56, 4, 4, 'FD');
+    doc.setLineWidth(0.5);
+    doc.roundedRect(margin, y, innerW, 44, 4, 4, 'FD');
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(8);
     doc.setTextColor(146, 64, 14);
-    doc.text('IMPORTANTE', margin + 14, y + 18);
+    doc.text('IMPORTANTE', margin + 12, y + 14);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.5);
+    doc.setFontSize(7.5);
     doc.setTextColor(120, 53, 15);
     doc.text(
       `Incluye la referencia ${data.referencia_pago || ''} en el concepto de tu transferencia.`,
-      margin + 14, y + 33
+      margin + 12, y + 26
     );
     doc.text(
       'Una vez realizado el depósito, sube tu comprobante desde "Últimos envíos" para procesar tu solicitud.',
-      margin + 14, y + 46
+      margin + 12, y + 37
     );
-    y += 70;
+    y += 50;
 
     // ─────── FOOTER (en cada página) ───────
     const totalPages = doc.getNumberOfPages();
