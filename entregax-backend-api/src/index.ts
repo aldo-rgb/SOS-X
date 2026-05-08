@@ -277,6 +277,7 @@ import {
   asignacionProxy as entangledAsignacion,
   syncRequestFromEntangled as entangledSyncRequest,
   proxyEntangledDocumento as entangledProxyDocumento,
+  cleanupTestRequests as entangledCleanupRequests,
   getServiceConfigAdmin as getEntangledServiceConfigAdmin,
   updateServiceConfig as updateEntangledServiceConfig,
   getMyServiceConfig as getMyEntangledServiceConfig,
@@ -3441,6 +3442,7 @@ app.get('/api/entangled/conceptos/search', authenticateToken, searchEntangledCon
 app.post('/api/entangled/asignacion', authenticateToken, entangledAsignacion);
 app.post('/api/entangled/payment-requests/:id/sync', authenticateToken, entangledSyncRequest);
 app.get('/api/entangled/payment-requests/:id/documento/:tipo', authenticateToken, entangledProxyDocumento);
+app.post('/api/entangled/payment-requests/cleanup', authenticateToken, entangledCleanupRequests);
 // Rotación de API key (admin)
 app.post('/api/admin/entangled/rotate-api-key', authenticateToken, requireMinLevel(ROLES.DIRECTOR), rotateEntangledApiKey);
 app.post('/api/admin/entangled/providers/sync', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncEntangledProveedoresFromRemote);

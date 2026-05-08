@@ -741,6 +741,56 @@ export const getExchangeRate = async (req: Request, res: Response): Promise<any>
 };
 
 // ===========================================================================
+// POST /api/entangled/payment-requests/cleanup
+// Borra las solicitudes propias del usuario que NO estén en flujo activo
+// ('en_proceso' o 'completado'). Útil para limpiar el historial después de
+// pruebas o solicitudes canceladas. Borra primero los logs de webhook FK.
+// ===========================================================================
+export const cleanupTestRequests = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+  const protectedStatuses = ['en_proceso', 'completado'];
+
+  try {
+    // 1) Reunir IDs a borrar (siempre del usuario autenticado).
+    const r = await pool.query(
+      `SELECT id FROM entangled_payment_requests
+        WHERE user_id = $1
+          AND LOWER(COALESCE(estatus_global, '')) <> ALL($2::text[])`,
+      [userId, protectedStatuses]
+    );
+    const ids = r.rows.map((row: { id: number }) => row.id);
+    if (ids.length === 0) {
+      return res.json({ ok: true, deleted: 0, message: 'No hay solicitudes para borrar.' });
+    }
+
+    // 2) Limpiar referencias en webhook logs (en caso de que exista FK ON
+    //    DELETE RESTRICT). No es estrictamente necesario si la FK es CASCADE
+    //    o no existe, pero es seguro hacerlo.
+    await pool.query(
+      `DELETE FROM entangled_webhook_logs WHERE request_id = ANY($1::int[])`,
+      [ids]
+    );
+
+    // 3) Borrar las solicitudes.
+    const del = await pool.query(
+      `DELETE FROM entangled_payment_requests WHERE id = ANY($1::int[])`,
+      [ids]
+    );
+
+    return res.json({
+      ok: true,
+      deleted: del.rowCount || ids.length,
+      ids,
+    });
+  } catch (err) {
+    console.error('[ENTANGLED] cleanupTestRequests:', err);
+    return res.status(500).json({ error: (err as Error).message || 'Error limpiando solicitudes' });
+  }
+};
+
+// ===========================================================================
 // GET /api/entangled/payment-requests/:id/documento/:tipo
 // Proxy autenticado contra ENTANGLED para descargar el documento binario.
 // tipo ∈ { factura_pdf, factura_xml, comprobante_proveedor, comprobante_cliente }

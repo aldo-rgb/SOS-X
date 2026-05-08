@@ -1047,6 +1047,39 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   };
 
+  // Limpieza de solicitudes propias en estados no-activos (todo lo que no
+  // sea 'en_proceso' o 'completado'). Útil para barrer pruebas. Confirma
+  // antes y reporta cuántas borró.
+  const [cleaningTests, setCleaningTests] = useState(false);
+  const handleCleanupTests = async () => {
+    const ok = window.confirm(
+      'Esto borrará TODAS tus solicitudes que no estén en proceso o completadas (incluye pendientes, canceladas, en error). ¿Continuar?'
+    );
+    if (!ok) return;
+    setCleaningTests(true);
+    try {
+      const res = await axios.post(
+        `${API_URL}/api/entangled/payment-requests/cleanup`,
+        {},
+        { headers: authHeader }
+      );
+      const count = Number(res.data?.deleted || 0);
+      setSnack({
+        open: true,
+        severity: 'success',
+        message: count > 0 ? `${count} solicitud(es) borradas.` : 'Nada que borrar — historial ya estaba limpio.',
+      });
+      await loadRequests();
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || (err as Error)?.message
+        || 'No se pudieron borrar las solicitudes';
+      setSnack({ open: true, severity: 'error', message: msg });
+    } finally {
+      setCleaningTests(false);
+    }
+  };
+
   // Sync manual contra ENTANGLED para una solicitud — útil cuando el webhook
   // de factura/pago se perdió y el estado local quedó atrás.
   const [syncingId, setSyncingId] = useState<number | null>(null);
@@ -2174,6 +2207,33 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
               <Typography sx={{ color: '#f3f4f6', fontWeight: 800, fontSize: '0.96rem' }}>
                 Últimos Envíos Realizados
               </Typography>
+              <Tooltip title="Borra todas las solicitudes que no estén en proceso o completadas">
+                <span>
+                  <Button
+                    size="small"
+                    onClick={handleCleanupTests}
+                    disabled={cleaningTests}
+                    sx={{
+                      color: '#fca5a5',
+                      borderColor: 'rgba(248,113,113,0.35)',
+                      bgcolor: 'rgba(248,113,113,0.06)',
+                      border: '1px solid rgba(248,113,113,0.35)',
+                      textTransform: 'none',
+                      fontSize: '0.68rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.04em',
+                      px: 1.2,
+                      py: 0.4,
+                      minWidth: 0,
+                      borderRadius: 1.2,
+                      '&:hover': { bgcolor: 'rgba(248,113,113,0.14)', borderColor: '#fca5a5' },
+                      '&.Mui-disabled': { opacity: 0.5, color: '#fca5a5' },
+                    }}
+                  >
+                    {cleaningTests ? 'Limpiando…' : 'Limpiar pruebas'}
+                  </Button>
+                </span>
+              </Tooltip>
             </Box>
             <TableContainer sx={{ flex: 1 }}>
               <Table size="small">
