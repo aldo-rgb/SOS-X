@@ -285,6 +285,8 @@ export default function FleetManagementPage() {
 
   // Lightbox para ver fotos del vehículo en modal (no abrir nueva pestaña)
   const [photoLightbox, setPhotoLightbox] = useState<{ url: string; label: string } | null>(null);
+  // Visor de archivos de documentos (PDF / imagen) en modal
+  const [documentViewer, setDocumentViewer] = useState<{ url: string; label: string } | null>(null);
 
   const [selectedDriverId, setSelectedDriverId] = useState<number | null>(null);
   const [assignBranchOpen, setAssignBranchOpen] = useState(false);
@@ -1330,12 +1332,23 @@ export default function FleetManagementPage() {
               {(() => {
                 const required = ['Tenencia', 'Tarjeta Circulación', 'Seguro', 'Factura', 'Constancia'];
                 const now = new Date();
+                // Documento sin fecha de vencimiento => "no caduca", se considera válido
+                const isValid = (d: VehicleDocument) => {
+                  if (!d.expiration_date) return true;
+                  const exp = new Date(d.expiration_date);
+                  return Number.isFinite(exp.getTime()) && exp >= now;
+                };
+                const isExpired = (d: VehicleDocument) => {
+                  if (!d.expiration_date) return false; // sin fecha = no caduca
+                  const exp = new Date(d.expiration_date);
+                  return Number.isFinite(exp.getTime()) && exp < now;
+                };
                 const status = required.map((reqType) => {
                   const matches = vehicleDetailData.documents.filter(
                     (d: VehicleDocument) => d.document_type === reqType
                   );
-                  const valid = matches.find((d: VehicleDocument) => new Date(d.expiration_date) >= now);
-                  const expired = matches.find((d: VehicleDocument) => new Date(d.expiration_date) < now);
+                  const valid = matches.find(isValid);
+                  const expired = matches.find(isExpired);
                   if (valid) return { type: reqType, state: 'ok' as const, doc: valid };
                   if (expired) return { type: reqType, state: 'expired' as const, doc: expired };
                   return { type: reqType, state: 'missing' as const, doc: null };
@@ -1422,17 +1435,22 @@ export default function FleetManagementPage() {
                     </TableHead>
                     <TableBody>
                       {vehicleDetailData.documents.map((doc: VehicleDocument) => {
-                        const isExpired = new Date(doc.expiration_date) < new Date();
-                        const isExpiringSoon = !isExpired && new Date(doc.expiration_date) < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+                        // Sin fecha => "no caduca" (vigente)
+                        const hasExpiration = !!doc.expiration_date;
+                        const expDate = hasExpiration ? new Date(doc.expiration_date) : null;
+                        const isExpired = !!(expDate && Number.isFinite(expDate.getTime()) && expDate < new Date());
+                        const isExpiringSoon = !!(expDate && Number.isFinite(expDate.getTime()) && !isExpired && expDate < new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
                         return (
                           <TableRow key={doc.id}>
                             <TableCell>{doc.document_type}</TableCell>
                             <TableCell>{doc.provider_name || '—'}</TableCell>
                             <TableCell>{doc.policy_number || '—'}</TableCell>
-                            <TableCell>{formatDate(doc.expiration_date)}</TableCell>
+                            <TableCell>{hasExpiration ? formatDate(doc.expiration_date) : 'Sin Vigencia'}</TableCell>
                             <TableCell align="right">{formatCurrency(doc.cost || 0)}</TableCell>
                             <TableCell>
-                              {isExpired ? (
+                              {!hasExpiration ? (
+                                <Chip label="Sin Vigencia" color="info" size="small" />
+                              ) : isExpired ? (
                                 <Chip label="VENCIDO" color="error" size="small" />
                               ) : isExpiringSoon ? (
                                 <Chip label="Por vencer" color="warning" size="small" />
@@ -1444,9 +1462,7 @@ export default function FleetManagementPage() {
                               {doc.file_url ? (
                                 <Button
                                   size="small"
-                                  href={doc.file_url}
-                                  target="_blank"
-                                  rel="noopener"
+                                  onClick={() => setDocumentViewer({ url: doc.file_url, label: doc.document_type })}
                                   startIcon={<DocumentIcon fontSize="small" />}
                                 >
                                   Ver
@@ -2269,6 +2285,59 @@ export default function FleetManagementPage() {
               </Typography>
             </Box>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Visor de archivos de documentos (PDF / imagen) */}
+      <Dialog
+        open={!!documentViewer}
+        onClose={() => setDocumentViewer(null)}
+        maxWidth="lg"
+        fullWidth
+        PaperProps={{ sx: { bgcolor: '#0a0a0a', boxShadow: 'none', height: '90vh' } }}
+      >
+        <DialogTitle sx={{ bgcolor: '#0a0a0a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid #333' }}>
+          <span>{documentViewer?.label || 'Documento'}</span>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              size="small"
+              href={documentViewer?.url || '#'}
+              target="_blank"
+              rel="noopener"
+              variant="outlined"
+              sx={{ color: '#fff', borderColor: '#666', '&:hover': { borderColor: '#fff' } }}
+            >
+              Abrir en pestaña
+            </Button>
+            <IconButton onClick={() => setDocumentViewer(null)} sx={{ color: '#fff' }}>
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, bgcolor: '#1a1a1a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {documentViewer && (() => {
+            const url = documentViewer.url;
+            const isImage = /\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(url);
+            if (isImage) {
+              return (
+                <Box
+                  component="img"
+                  src={url}
+                  alt={documentViewer.label}
+                  sx={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                />
+              );
+            }
+            // PDF u otros formatos: usar iframe
+            return (
+              <Box
+                component="iframe"
+                src={url}
+                title={documentViewer.label}
+                sx={{ width: '100%', height: '100%', border: 0, bgcolor: '#fff' }}
+              />
+            );
+          })()}
         </DialogContent>
       </Dialog>
     </Box>
