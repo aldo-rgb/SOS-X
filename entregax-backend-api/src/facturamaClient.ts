@@ -254,7 +254,20 @@ export class FacturamaClient {
         /** Crear y timbrar CFDI. Devuelve forma compatible con Facturapi. */
         create: async (payload: FacturapiLikePayload): Promise<FacturapiLikeInvoice> => {
             const body = buildFacturamaCfdiPayload(this.emitter, payload);
-            const r = await this.http.post('/api-lite/3/cfdis', body);
+            // Facturama tiene 3 versiones del API multiemisor (api-lite/3, /2, sin
+            // versión). Distintos planes habilitan distintas versiones; intentamos
+            // de la más nueva a la más vieja y nos quedamos con la primera que
+            // responda 2xx. 401/403/404 son señal típica de "tu plan no la incluye".
+            const VERSIONED_PATHS = ['/api-lite/3/cfdis', '/api-lite/2/cfdis', '/api-lite/cfdis'];
+            let r: { status: number; data: any } = { status: 0, data: null };
+            for (const path of VERSIONED_PATHS) {
+                r = await this.http.post(path, body);
+                if (r.status >= 200 && r.status < 300) break;
+                // Sólo seguimos al siguiente endpoint si la versión aparenta no
+                // estar habilitada en el plan; en otros errores (ej. validación
+                // SAT 400) no tiene sentido reintentar.
+                if (![401, 403, 404].includes(r.status)) break;
+            }
             if (r.status < 200 || r.status >= 300) throwFromResponse('Facturama create CFDI falló', r);
             const d = r.data;
             const uuid = d.Complemento?.TaxStamp?.Uuid || d.Uuid || '';
