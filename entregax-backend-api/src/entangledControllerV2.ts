@@ -639,7 +639,19 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
     return res.status(400).json({ error: 'concepto es requerido para pago_con_factura' });
   }
   const result = await callAsignacion({ servicio, concepto, cliente_final });
-  if (!result.ok) return res.status(502).json({ error: result.error, raw: result.raw });
+  if (!result.ok) {
+    // Si ENTANGLED devolvió un 4xx (validación / clave no encontrada), reenviar como 4xx
+    // para que el frontend muestre el mensaje real al usuario. 5xx → 502 con mensaje genérico.
+    const upstream = result.upstream_status;
+    if (typeof upstream === 'number' && upstream >= 400 && upstream < 500) {
+      return res.status(upstream).json({ error: result.error, raw: result.raw, upstream_status: upstream });
+    }
+    return res.status(502).json({
+      error: result.error || 'El servicio de asignación no respondió. Intenta de nuevo en unos segundos.',
+      raw: result.raw,
+      upstream_status: upstream,
+    });
+  }
   return res.json(result);
 };
 

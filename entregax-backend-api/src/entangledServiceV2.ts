@@ -411,6 +411,7 @@ export interface EntangledAsignacionResult {
     sustitucion?: boolean;
   };
   error?: string;
+  upstream_status?: number | undefined;
   raw?: any;
 }
 
@@ -453,7 +454,12 @@ export const callAsignacion = async (
       await new Promise(r => setTimeout(r, delays[attempt]));
     }
   }
-  return { ok: false, error: lastError?.error || 'Error en asignación', raw: lastError?.raw };
+  return {
+    ok: false,
+    error: lastError?.error || 'Error en asignación',
+    upstream_status: lastError?.status,
+    raw: lastError?.raw,
+  };
 };
 
 // ---------------------------------------------------------------------------

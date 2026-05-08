@@ -529,10 +529,18 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       setConceptoSearchError(null);
     } catch (e: any) {
       const status = e?.response?.status;
-      if (status === 502 || status === 503) {
-        setAddConceptoError('Servicio no disponible');
+      const upstreamStatus = e?.response?.data?.upstream_status;
+      const upstreamMsg = e?.response?.data?.error;
+      if (status === 502 || status === 503 || status === 504) {
+        setAddConceptoError(
+          upstreamMsg
+            ? `El servicio de asignación respondió con error: ${upstreamMsg}. Intenta de nuevo en unos segundos.`
+            : 'El servicio de asignación no está disponible momentáneamente. Intenta de nuevo en unos segundos.'
+        );
+      } else if (status === 400 || status === 404 || (typeof upstreamStatus === 'number' && upstreamStatus >= 400 && upstreamStatus < 500)) {
+        setAddConceptoError(upstreamMsg || 'La clave SAT no está disponible para asignación. Verifica e intenta con otra.');
       } else {
-        setAddConceptoError(e?.response?.data?.error || 'No se pudo agregar la clave. Verifica e intenta de nuevo.');
+        setAddConceptoError(upstreamMsg || 'No se pudo agregar la clave. Verifica e intenta de nuevo.');
       }
     } finally {
       setAddingConcepto(false);
