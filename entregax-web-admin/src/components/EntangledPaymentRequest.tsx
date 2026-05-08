@@ -379,7 +379,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   type AsignacionResult = {
     empresa?: { rfc: string; razon_social: string };
     cuenta_bancaria?: { banco?: string; titular?: string; cuenta?: string; clabe?: string; sucursal?: string; moneda?: string };
-    facturacion?: { clave_facturacion?: string; concepto_facturacion?: string; sustitucion?: boolean };
+    facturacion?: { clave_solicitada?: string; clave_facturacion?: string; concepto_facturacion?: string; sustitucion?: boolean };
     loading: boolean;
     error?: string;
   };
