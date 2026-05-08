@@ -24,6 +24,7 @@ import {
   sendSolicitudPago,
   uploadComprobanteToTransaccion,
   getTipoCambio,
+  getSolicitudStatus,
   searchConceptos,
   rotateApiKey,
   isEntangledConfigured,
@@ -734,6 +735,88 @@ export const getExchangeRate = async (req: Request, res: Response): Promise<any>
     tipo_cambio: r.tipo_cambio,
     vigencia: r.vigencia,
   });
+};
+
+// ===========================================================================
+// POST /api/entangled/payment-requests/:id/sync
+// Pull manual del estado actual desde ENTANGLED. Aplica los mismos updates
+// que harían los webhooks factura.generada y pago.proveedor.confirmado, pero
+// reactivamente cuando un webhook se perdió y el estado local quedó atrás.
+// ===========================================================================
+export const syncRequestFromEntangled = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+
+  const r = await pool.query(
+    `SELECT id, user_id, entangled_transaccion_id, servicio
+       FROM entangled_payment_requests WHERE id = $1`,
+    [id]
+  );
+  if (r.rows.length === 0) return res.status(404).json({ error: 'Solicitud no encontrada' });
+  const row = r.rows[0];
+  if (!isAdminRole(req) && row.user_id !== userId) {
+    return res.status(403).json({ error: 'Sin acceso a esta solicitud' });
+  }
+  if (!row.entangled_transaccion_id) {
+    return res.status(400).json({
+      error: 'La solicitud aún no se envió a ENTANGLED (no hay transaccion_id).',
+    });
+  }
+
+  const remote = await getSolicitudStatus(String(row.entangled_transaccion_id));
+  if (!remote.ok) {
+    return res.status(502).json({ error: remote.error || 'Error consultando ENTANGLED' });
+  }
+
+  // Normalizamos la respuesta — su contrato puede traer documentos y estatus
+  // en distintas anidaciones según el evento del que vienen los datos.
+  const data = remote.data || {};
+  const docs = data.documentos || data.docs || {};
+  const detalles = data.detalles || {};
+  const facturaUrl = docs.url_factura_pdf || docs.factura_pdf || data.factura_url || null;
+  const facturaXmlUrl = docs.url_factura_xml || docs.factura_xml || data.factura_xml_url || null;
+  const comprobanteProvUrl = docs.url_comprobante_proveedor || docs.comprobante_proveedor || data.comprobante_proveedor_url || null;
+  const facturaEmitida = !!(facturaUrl || facturaXmlUrl);
+  const proveedorEstatus = String(detalles.estatus || data.estatus_proveedor || data.estatus || '').toLowerCase();
+  const servicio = row.servicio as EntangledServicio;
+
+  const upd = await pool.query(
+    `UPDATE entangled_payment_requests
+        SET factura_url = COALESCE($1, factura_url),
+            estatus_factura = CASE WHEN $1 IS NOT NULL OR $7 = TRUE THEN 'emitida' ELSE estatus_factura END,
+            factura_emitida_at = CASE WHEN ($1 IS NOT NULL OR $7 = TRUE) AND factura_emitida_at IS NULL THEN NOW() ELSE factura_emitida_at END,
+            comprobante_proveedor_url = COALESCE($2, comprobante_proveedor_url),
+            estatus_proveedor = CASE WHEN $3 IN ('completado','rechazado','en_proceso') THEN $3 ELSE estatus_proveedor END,
+            proveedor_pagado_at = CASE WHEN $3 = 'completado' AND proveedor_pagado_at IS NULL THEN NOW() ELSE proveedor_pagado_at END,
+            raw_response = COALESCE(raw_response, '{}'::jsonb)
+              || jsonb_build_object('factura_xml_url', $4::text)
+              || jsonb_build_object('last_sync_at', NOW())
+              || jsonb_build_object('last_sync_payload', $5::jsonb),
+            estatus_global = CASE
+              WHEN ($6 = 'pago_sin_factura' AND $3 = 'completado') THEN 'completado'
+              WHEN ($6 = 'pago_con_factura' AND $3 = 'completado' AND ($1 IS NOT NULL OR estatus_factura = 'emitida' OR $7 = TRUE)) THEN 'completado'
+              WHEN $3 = 'rechazado' THEN 'rechazado'
+              ELSE estatus_global
+            END,
+            last_webhook_at = NOW(),
+            updated_at = NOW()
+      WHERE id = $8
+      RETURNING *`,
+    [
+      facturaUrl,
+      comprobanteProvUrl,
+      proveedorEstatus || null,
+      facturaXmlUrl,
+      JSON.stringify(data),
+      servicio,
+      facturaEmitida,
+      id,
+    ]
+  );
+
+  return res.json({ ok: true, request: upd.rows[0], remote: data });
 };
 
 // ===========================================================================

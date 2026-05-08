@@ -268,6 +268,35 @@ export const uploadComprobanteToTransaccion = async (
 };
 
 // ---------------------------------------------------------------------------
+// GET /api/v1/solicitud-pago/:transaccion_id — pull del estado actual.
+// Útil para reconciliar cuando un webhook se pierde y nuestro estado local
+// quedó atrás del de ENTANGLED.
+// ---------------------------------------------------------------------------
+export const getSolicitudStatus = async (
+  transaccionId: string
+): Promise<{ ok: boolean; data?: any; error?: string }> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  if (!transaccionId) return { ok: false, error: 'transaccion_id requerido' };
+  try {
+    const res = await axios.get(
+      buildUrl(`/solicitud-pago/${encodeURIComponent(transaccionId)}`),
+      { timeout: ENTANGLED_TIMEOUT_MS, headers: authHeaders() }
+    );
+    return { ok: true, data: res.data || {} };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const responseData = ax.response?.data as any;
+    const message =
+      responseData?.error ||
+      responseData?.message ||
+      ax.message ||
+      'Error consultando solicitud en ENTANGLED';
+    console.error('[ENTANGLED] getSolicitudStatus error:', message, ax.response?.status);
+    return { ok: false, error: message };
+  }
+};
+
+// ---------------------------------------------------------------------------
 // GET /api/v1/tipo-cambio
 // ---------------------------------------------------------------------------
 export const getTipoCambio = async (

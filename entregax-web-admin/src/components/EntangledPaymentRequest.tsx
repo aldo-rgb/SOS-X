@@ -36,6 +36,7 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import DescriptionIcon from '@mui/icons-material/Description';
 import CodeIcon from '@mui/icons-material/Code';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import ContactsIcon from '@mui/icons-material/Contacts';
 import DeleteIcon from '@mui/icons-material/Delete';
@@ -901,6 +902,29 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       loadSuppliers();
     } else {
       setSnack({ open: true, severity: 'error', message: t('entangled.messages.error') });
+    }
+  };
+
+  // Sync manual contra ENTANGLED para una solicitud — útil cuando el webhook
+  // de factura/pago se perdió y el estado local quedó atrás.
+  const [syncingId, setSyncingId] = useState<number | null>(null);
+  const handleSyncRequest = async (requestId: number) => {
+    setSyncingId(requestId);
+    try {
+      await axios.post(
+        `${API_URL}/api/entangled/payment-requests/${requestId}/sync`,
+        {},
+        { headers: authHeader }
+      );
+      await loadRequests();
+      setSnack({ open: true, severity: 'success', message: 'Estado actualizado desde ENTANGLED.' });
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || (err as Error)?.message
+        || 'No se pudo sincronizar con ENTANGLED';
+      setSnack({ open: true, severity: 'error', message: msg });
+    } finally {
+      setSyncingId(null);
     }
   };
 
@@ -2188,6 +2212,36 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                                   </Tooltip>
                                 ) : (
                                   <Typography sx={{ color: '#6b7280', fontSize: '0.7rem', fontStyle: 'italic' }}>—</Typography>
+                                )}
+                                {r.entangled_transaccion_id && !isTerminal && (
+                                  <Tooltip title={t('entangled.actions.syncFromEntangled', 'Refrescar estado desde ENTANGLED') as string}>
+                                    <IconButton
+                                      size="small"
+                                      onClick={() => handleSyncRequest(r.id)}
+                                      disabled={syncingId === r.id}
+                                      sx={{
+                                        color: '#fff',
+                                        bgcolor: 'rgba(96,165,250,0.10)',
+                                        border: '1px solid rgba(96,165,250,0.35)',
+                                        borderRadius: 1,
+                                        p: 0.5,
+                                        '&:hover': { bgcolor: 'rgba(96,165,250,0.22)', borderColor: '#60a5fa' },
+                                        '&.Mui-disabled': { opacity: 0.5 },
+                                      }}
+                                    >
+                                      <RefreshIcon
+                                        sx={{
+                                          fontSize: 14,
+                                          color: '#60a5fa',
+                                          animation: syncingId === r.id ? 'xpay-spin 1s linear infinite' : 'none',
+                                          '@keyframes xpay-spin': {
+                                            '0%': { transform: 'rotate(0deg)' },
+                                            '100%': { transform: 'rotate(360deg)' },
+                                          },
+                                        }}
+                                      />
+                                    </IconButton>
+                                  </Tooltip>
                                 )}
                               </Stack>
                             );
