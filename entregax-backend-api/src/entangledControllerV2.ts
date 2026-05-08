@@ -635,7 +635,38 @@ export const searchConceptosProxy = async (req: Request, res: Response): Promise
   const proveedorId = req.query.proveedor_id ? String(req.query.proveedor_id) : undefined;
   if (!q) return res.json({ results: [] });
   const r = await searchConceptos(q, limit, proveedorId);
-  if (!r.ok) return res.status(502).json({ error: r.error });
+  if (!r.ok) {
+    // Fallback local: historial de claves SAT usadas por el cliente.
+    // Evita propagar 502 al frontend cuando ENTANGLED está temporalmente caído
+    // o no configurado en entorno productivo.
+    try {
+      const qLike = `%${q.replace(/[%_]/g, '')}%`;
+      const hist = await pool.query(
+        `SELECT clave, COALESCE(descripcion, '') AS descripcion
+           FROM entangled_clave_sat_history
+          WHERE user_id = $1
+            AND (clave ILIKE $2 OR COALESCE(descripcion, '') ILIKE $2)
+          ORDER BY uses_count DESC, last_used_at DESC
+          LIMIT $3`,
+        [userId, qLike, limit]
+      );
+
+      return res.json({
+        results: hist.rows.map((x: any) => ({
+          clave_prodserv: String(x.clave),
+          descripcion: String(x.descripcion || ''),
+        })),
+        fallback: true,
+        warning: r.error || 'Catálogo SAT remoto no disponible',
+      });
+    } catch {
+      return res.json({
+        results: [],
+        fallback: true,
+        warning: r.error || 'Catálogo SAT remoto no disponible',
+      });
+    }
+  }
   return res.json({ results: r.results || [] });
 };
 
