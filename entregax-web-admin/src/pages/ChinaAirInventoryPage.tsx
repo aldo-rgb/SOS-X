@@ -286,7 +286,14 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                                             </TableCell>
                                             <TableCell>
                                                 {p.received_at
-                                                    ? new Date(p.received_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                    ? new Date(p.received_at).toLocaleString('es-MX', {
+                                                          day: '2-digit',
+                                                          month: 'short',
+                                                          year: 'numeric',
+                                                          hour: '2-digit',
+                                                          minute: '2-digit',
+                                                          hour12: true,
+                                                      })
                                                     : '—'}
                                             </TableCell>
                                         </TableRow>
