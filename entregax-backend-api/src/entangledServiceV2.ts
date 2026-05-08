@@ -76,6 +76,8 @@ export interface EntangledConceptoV2 {
 export interface EntangledSolicitudPayloadV2 {
   servicio: EntangledServicio;
   comision_cliente_final_porcentaje: number;
+  // TC que XPAY le cobra al cliente (ENTANGLED lo exige)
+  tc_cliente_final?: number | undefined;
   monto_usd: number;
   divisa: EntangledDivisa;
   cliente_final: EntangledClienteFinalV2;

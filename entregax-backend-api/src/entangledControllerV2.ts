@@ -126,6 +126,11 @@ export const createPaymentRequestV2 = async (
   if (!['USD', 'RMB'].includes(divisa)) {
     return res.status(400).json({ error: 'divisa debe ser USD o RMB' });
   }
+  // TC que XPAY le cobra al cliente — requerido por ENTANGLED
+  const tcClienteFinal = Number(body.tc_cliente_final);
+  if (!Number.isFinite(tcClienteFinal) || tcClienteFinal <= 0) {
+    return res.status(400).json({ error: 'tc_cliente_final es requerido y debe ser > 0' });
+  }
 
   // Parseo seguro de campos JSON enviados como string en multipart
   const parseJson = (v: any, fallback: any) => {
@@ -182,6 +187,11 @@ export const createPaymentRequestV2 = async (
   const referenciaPago = `XP${String(Math.floor(100000 + Math.random() * 900000)).padStart(6, '0')}`;
   let requestId: number;
   try {
+    // Migración idempotente: agregar columna tc_cliente_final si no existe
+    await pool.query(
+      `ALTER TABLE entangled_payment_requests
+         ADD COLUMN IF NOT EXISTS tc_cliente_final NUMERIC(14,6)`
+    ).catch(() => {});
     const ins = await pool.query(
       `INSERT INTO entangled_payment_requests (
          user_id, advisor_id,
@@ -189,7 +199,7 @@ export const createPaymentRequestV2 = async (
          referencia_pago,
          cf_rfc, cf_razon_social, cf_regimen_fiscal, cf_cp, cf_uso_cfdi, cf_email,
          op_monto, op_divisa_destino, op_conceptos,
-         comision_cliente_final_porcentaje,
+         comision_cliente_final_porcentaje, tc_cliente_final,
          estatus_global, estatus_factura, estatus_proveedor
        ) VALUES (
          $1, $2,
@@ -197,8 +207,8 @@ export const createPaymentRequestV2 = async (
          $5,
          $6, $7, $8, $9, $10, $11,
          $12, $13, $14::jsonb,
-         $15,
-         'pendiente', $16, 'pendiente'
+         $15, $16,
+         'pendiente', $17, 'pendiente'
        ) RETURNING id`,
       [
         userId,
@@ -216,6 +226,7 @@ export const createPaymentRequestV2 = async (
         divisa,
         JSON.stringify(servicio === 'pago_con_factura' ? conceptos : []),
         commission.porcentaje,
+        tcClienteFinal,
         servicio === 'pago_con_factura' ? 'pendiente' : 'no_aplica',
       ]
     );
@@ -251,6 +262,7 @@ export const createPaymentRequestV2 = async (
   const payload: EntangledSolicitudPayloadV2 = {
     servicio,
     comision_cliente_final_porcentaje: commission.porcentaje,
+    tc_cliente_final: tcClienteFinal,
     monto_usd: monto,
     divisa,
     cliente_final:
@@ -502,6 +514,9 @@ export async function sendPendingRequestToEntangled(
     comision_cliente_final_porcentaje: Number(
       reqRow.comision_cliente_final_porcentaje || 0
     ),
+    tc_cliente_final: reqRow.tc_cliente_final != null
+      ? Number(reqRow.tc_cliente_final)
+      : undefined,
     monto_usd: Number(reqRow.op_monto),
     divisa: reqRow.op_divisa_destino as EntangledDivisa,
     cliente_final:

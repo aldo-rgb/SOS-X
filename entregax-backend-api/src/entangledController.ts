@@ -8,6 +8,28 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool } from './db';
+import { getSignedUrlForKey, extractKeyFromUrl } from './s3Service';
+
+// Firma URLs de S3 (comprobantes/facturas) para que el navegador no reciba
+// AccessDenied al hacer GET directo. URLs de otros hosts se devuelven tal cual.
+const signS3UrlIfPossible = async (url: string | null | undefined): Promise<string | null> => {
+  if (!url) return null;
+  try {
+    const key = extractKeyFromUrl(url);
+    if (!key) return url;
+    return await getSignedUrlForKey(key, 3600);
+  } catch {
+    return url;
+  }
+};
+
+const signRowFileUrls = async <T extends Record<string, any>>(row: T): Promise<T> => {
+  const next: any = { ...row };
+  if (next.op_comprobante_cliente_url) next.op_comprobante_cliente_url = await signS3UrlIfPossible(next.op_comprobante_cliente_url);
+  if (next.comprobante_proveedor_url) next.comprobante_proveedor_url = await signS3UrlIfPossible(next.comprobante_proveedor_url);
+  if (next.factura_url) next.factura_url = await signS3UrlIfPossible(next.factura_url);
+  return next as T;
+};
 import {
   sendSolicitudPago,
   isEntangledConfigured,
@@ -512,7 +534,8 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
        LIMIT 200`,
       [userId]
     );
-    return res.json(r.rows);
+    const signed = await Promise.all(r.rows.map(signRowFileUrls));
+    return res.json(signed);
   } catch (err) {
     console.error('[ENTANGLED] getMyPaymentRequests:', err);
     return res.status(500).json({ error: 'Error al listar solicitudes' });
@@ -538,7 +561,8 @@ export const getPaymentRequestDetail = async (req: Request, res: Response): Prom
     if (!isAdmin && row.user_id !== userId) {
       return res.status(403).json({ error: 'Sin acceso a esta solicitud' });
     }
-    return res.json(row);
+    const signed = await signRowFileUrls(row);
+    return res.json(signed);
   } catch (err) {
     console.error('[ENTANGLED] getPaymentRequestDetail:', err);
     return res.status(500).json({ error: 'Error al obtener detalle' });

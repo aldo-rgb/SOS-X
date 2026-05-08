@@ -902,37 +902,109 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   };
 
-  // Subida diferida del comprobante a una solicitud existente.
-  // Usa el endpoint multipart `/upload-proof-file` que, además de guardar el
-  // archivo, dispara el envío a ENTANGLED si la solicitud aún estaba pendiente.
-  const handleUploadProofToRequest = async (requestId: number, file: File) => {
+  // Modal de subida de comprobante con estado en vivo (idle/uploading/success/error)
+  const [uploadModal, setUploadModal] = useState<{
+    open: boolean;
+    requestId: number | null;
+    referencia: string | null;
+    file: File | null;
+    state: 'idle' | 'uploading' | 'success' | 'error';
+    message: string;
+  }>({ open: false, requestId: null, referencia: null, file: null, state: 'idle', message: '' });
+
+  const openUploadModal = (requestId: number, referencia: string) => {
+    setUploadModal({ open: true, requestId, referencia, file: null, state: 'idle', message: '' });
+  };
+  const closeUploadModal = () => {
+    if (uploadModal.state === 'uploading') return; // no cerrar mientras sube
+    setUploadModal({ open: false, requestId: null, referencia: null, file: null, state: 'idle', message: '' });
+  };
+
+  // Subida del comprobante desde el modal — muestra status/errores in-place.
+  const performUploadFromModal = async () => {
+    if (!uploadModal.requestId || !uploadModal.file) return;
+    setUploadModal(s => ({ ...s, state: 'uploading', message: 'Subiendo y enviando a ENTANGLED…' }));
     setUploading(true);
     try {
       const fd = new FormData();
-      fd.append('comprobante', file);
+      fd.append('comprobante', uploadModal.file);
       const res = await axios.post(
-        `${API_URL}/api/entangled/payment-requests/${requestId}/upload-proof-file`,
+        `${API_URL}/api/entangled/payment-requests/${uploadModal.requestId}/upload-proof-file`,
         fd,
         { headers: { ...authHeader, 'Content-Type': 'multipart/form-data' } }
       );
       const sentToEntangled = !!res.data?.request?.entangled_transaccion_id;
-      setSnack({
-        open: true,
-        severity: 'success',
+      setUploadModal(s => ({
+        ...s,
+        state: 'success',
         message: sentToEntangled
-          ? t('entangled.messages.proofSentToEntangled', 'Comprobante recibido. Solicitud enviada a ENTANGLED.')
-          : t('entangled.messages.proofUploaded', 'Comprobante subido correctamente.'),
-      });
+          ? 'Comprobante recibido. Solicitud enviada a ENTANGLED.'
+          : 'Comprobante subido correctamente.',
+      }));
       loadRequests();
     } catch (err: unknown) {
-      setSnack({
-        open: true,
-        severity: 'error',
-        message: (err as { response?: { data?: { error?: string } } })?.response?.data?.error || t('entangled.messages.error'),
-      });
+      const msg = (err as { response?: { data?: { error?: string; message?: string } } })?.response?.data?.error
+        || (err as { response?: { data?: { message?: string } } })?.response?.data?.message
+        || (err as Error)?.message
+        || 'Error subiendo el comprobante';
+      setUploadModal(s => ({ ...s, state: 'error', message: msg }));
     } finally {
       setUploading(false);
     }
+  };
+
+  // Descarga del PDF de instrucciones para una solicitud ya existente —
+  // recupera el detalle del backend y lo pasa al generador del comprobante.
+  const handleDownloadInstructionsPdfForRequest = async (requestId: number) => {
+    try {
+      const r = await axios.get(`${API_URL}/api/entangled/payment-requests/${requestId}`, { headers: authHeader });
+      const row = r.data || {};
+      const monto = Number(row.op_monto) || 0;
+      const tc = Number(row.tc_cliente_final) || 0;
+      const pct = Number(row.comision_cliente_final_porcentaje) || 0;
+      const base = monto * tc;
+      const comision = base * (pct / 100);
+      const empresasFromRow = Array.isArray(row.empresas_asignadas) ? row.empresas_asignadas : [];
+      await generateInstructionsPDF({
+        request_id: row.id,
+        referencia_pago: row.referencia_pago || `XP-${row.id}`,
+        operationSnapshot: {
+          divisa: String(row.op_divisa_destino || 'USD'),
+          monto,
+          servicio: String(row.servicio || ''),
+          requiere_factura: !!row.requiere_factura,
+          rfc: row.cf_rfc || undefined,
+          razon_social: row.cf_razon_social || undefined,
+        },
+        beneficiarioSnapshot: null,
+        providerSnapshot: null,
+        empresas_asignadas: empresasFromRow,
+        quote: tc > 0 ? {
+          tipo_cambio: tc,
+          porcentaje_compra: pct,
+          costo_operacion_usd: 0,
+          monto_mxn_base: base,
+          monto_mxn_comision: comision,
+          monto_mxn_costo_op: 0,
+          monto_mxn_total: base + comision,
+        } : null,
+      });
+    } catch (err: unknown) {
+      const msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+        || 'No se pudo generar el PDF de la solicitud.';
+      setSnack({ open: true, severity: 'error', message: msg });
+    }
+  };
+
+  // Helper: deadline de cancelación (24h después de creada la solicitud).
+  // Devuelve el countdown formateado o null si ya pasó.
+  const formatCancelCountdown = (createdAt: string, deadlineAt?: string | null): string | null => {
+    const deadline = deadlineAt ? new Date(deadlineAt) : new Date(new Date(createdAt).getTime() + 24 * 60 * 60 * 1000);
+    const ms = deadline.getTime() - now.getTime();
+    if (ms <= 0) return null;
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return `Se cancela en ${h}h ${m}m`;
   };
 
   // Helper: cargar imagen como dataURL para embeber en PDF
@@ -1420,6 +1492,10 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       fd.append('servicio', requiereFactura ? 'pago_con_factura' : 'pago_sin_factura');
       fd.append('monto_usd', String(Number(form.monto)));
       fd.append('divisa', form.divisa_destino);
+      // Tipo de cambio que XPAY le cobra al cliente final (ENTANGLED lo exige)
+      if (quote?.tipo_cambio) {
+        fd.append('tc_cliente_final', String(quote.tipo_cambio));
+      }
       const conceptosArr = requiereFactura
         ? form.conceptos.split(',').map(s => s.trim()).filter(Boolean).map(c => ({ clave_prodserv: c }))
         : [];
@@ -2011,35 +2087,52 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                             return (
                               <Stack direction="row" spacing={0.4} justifyContent="center" alignItems="center">
                                 {canUpload ? (
-                                  <Tooltip title={t('entangled.actions.uploadMyProof', 'Subir comprobante de pago') as string}>
-                                    <Button
-                                      size="small"
-                                      component="label"
-                                      disabled={uploading}
-                                      variant="contained"
-                                      startIcon={<ReceiptLongIcon sx={{ fontSize: 14 }} />}
-                                      sx={{
-                                        bgcolor: ORANGE,
-                                        color: '#fff',
-                                        textTransform: 'none',
-                                        fontSize: '0.7rem',
-                                        fontWeight: 700,
-                                        px: 1.2,
-                                        py: 0.4,
-                                        minWidth: 0,
-                                        boxShadow: '0 4px 12px rgba(255,138,0,0.35)',
-                                        '&:hover': { bgcolor: '#e07a00', boxShadow: '0 6px 16px rgba(255,138,0,0.5)' },
-                                        animation: 'xpay-pulse-orange 2s infinite',
-                                        '@keyframes xpay-pulse-orange': {
-                                          '0%, 100%': { boxShadow: '0 4px 12px rgba(255,138,0,0.35)' },
-                                          '50%': { boxShadow: '0 4px 18px rgba(255,138,0,0.7)' },
-                                        },
-                                      }}
-                                    >
-                                      {t('entangled.actions.uploadProofShort', 'Subir')}
-                                      <input hidden type="file" accept="image/*,application/pdf" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleUploadProofToRequest(r.id, f); e.target.value = ''; }} />
-                                    </Button>
-                                  </Tooltip>
+                                  <>
+                                    <Tooltip title={t('entangled.actions.uploadMyProof', 'Subir comprobante de pago') as string}>
+                                      <Button
+                                        size="small"
+                                        disabled={uploading}
+                                        variant="contained"
+                                        startIcon={<ReceiptLongIcon sx={{ fontSize: 14 }} />}
+                                        onClick={() => openUploadModal(r.id, r.referencia_pago || `XP-${r.id}`)}
+                                        sx={{
+                                          bgcolor: ORANGE,
+                                          color: '#fff',
+                                          textTransform: 'none',
+                                          fontSize: '0.7rem',
+                                          fontWeight: 700,
+                                          px: 1.2,
+                                          py: 0.4,
+                                          minWidth: 0,
+                                          boxShadow: '0 4px 12px rgba(255,138,0,0.35)',
+                                          '&:hover': { bgcolor: '#e07a00', boxShadow: '0 6px 16px rgba(255,138,0,0.5)' },
+                                          animation: 'xpay-pulse-orange 2s infinite',
+                                          '@keyframes xpay-pulse-orange': {
+                                            '0%, 100%': { boxShadow: '0 4px 12px rgba(255,138,0,0.35)' },
+                                            '50%': { boxShadow: '0 4px 18px rgba(255,138,0,0.7)' },
+                                          },
+                                        }}
+                                      >
+                                        {t('entangled.actions.uploadProofShort', 'Subir')}
+                                      </Button>
+                                    </Tooltip>
+                                    <Tooltip title="Descargar PDF de instrucciones de pago">
+                                      <IconButton
+                                        size="small"
+                                        onClick={() => handleDownloadInstructionsPdfForRequest(r.id)}
+                                        sx={{
+                                          color: '#fff',
+                                          bgcolor: 'rgba(255,255,255,0.06)',
+                                          border: '1px solid rgba(255,255,255,0.18)',
+                                          borderRadius: 1,
+                                          p: 0.5,
+                                          '&:hover': { bgcolor: 'rgba(255,138,0,0.18)', borderColor: ORANGE },
+                                        }}
+                                      >
+                                        <DescriptionIcon sx={{ fontSize: 14 }} />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </>
                                 ) : r.op_comprobante_cliente_url ? (
                                   <Tooltip title={t('entangled.actions.viewMyProof', 'Ver mi comprobante') as string}>
                                     <IconButton size="small" component="a" href={r.op_comprobante_cliente_url} target="_blank" rel="noopener" sx={{ color: '#2e7d32', border: '1px solid rgba(46,125,50,0.4)', borderRadius: 1 }}>
@@ -2052,7 +2145,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                               </Stack>
                             );
                           })()}
-                          {/* Chronometer or date */}
+                          {/* Chronometer / countdown / fecha */}
                           {r.comprobante_subido_at ? (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(74,222,128,0.08)', border: '1px solid rgba(74,222,128,0.22)', width: 'fit-content' }}>
                               <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#4ade80', display: 'inline-block', animation: 'xpay-dot 1.4s infinite' }} />
@@ -2060,11 +2153,28 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                                 {formatElapsed(r.comprobante_subido_at, now)}
                               </Typography>
                             </Box>
-                          ) : (
-                            <Typography sx={{ color: '#6b7280', fontSize: '0.65rem', mt: 0.3 }}>
-                              {new Date(r.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' })}
-                            </Typography>
-                          )}
+                          ) : (() => {
+                            const cd = formatCancelCountdown(r.created_at, r.payment_deadline_at);
+                            const estatus = String(r.estatus_global || '').toLowerCase();
+                            const isTerminal = ['cancelado', 'rechazado', 'completado', 'pagado'].includes(estatus);
+                            if (cd && !isTerminal) {
+                              return (
+                                <Tooltip title="Si no subes el comprobante antes de esta hora, la solicitud se cancela automáticamente">
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5, px: 0.8, py: 0.3, borderRadius: 1, bgcolor: 'rgba(245,158,11,0.10)', border: '1px solid rgba(245,158,11,0.32)', width: 'fit-content' }}>
+                                    <Box component="span" sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: '#f59e0b', display: 'inline-block' }} />
+                                    <Typography sx={{ color: '#f59e0b', fontSize: '0.65rem', fontWeight: 800, fontFamily: 'monospace' }}>
+                                      {cd}
+                                    </Typography>
+                                  </Box>
+                                </Tooltip>
+                              );
+                            }
+                            return (
+                              <Typography sx={{ color: '#6b7280', fontSize: '0.65rem', mt: 0.3 }}>
+                                {new Date(r.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                              </Typography>
+                            );
+                          })()}
                         </TableCell>
                       </TableRow>
                     )})
@@ -3368,6 +3478,101 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           {snack.message}
         </Alert>
       </Snackbar>
+
+      {/* Modal de Subida de Comprobante con estado en vivo */}
+      <Dialog
+        open={uploadModal.open}
+        onClose={closeUploadModal}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#0a0a0a', color: '#fff' }}>
+          Subir comprobante
+          {uploadModal.referencia && (
+            <Typography variant="caption" sx={{ display: 'block', opacity: 0.7, fontFamily: 'monospace' }}>
+              {uploadModal.referencia}
+            </Typography>
+          )}
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Stack spacing={2}>
+            {uploadModal.state !== 'success' && (
+              <Box
+                component="label"
+                sx={{
+                  border: `2px dashed ${ORANGE}`,
+                  borderRadius: 2,
+                  p: 3,
+                  textAlign: 'center',
+                  cursor: uploadModal.state === 'uploading' ? 'not-allowed' : 'pointer',
+                  bgcolor: '#fff8f5',
+                  '&:hover': { bgcolor: uploadModal.state === 'uploading' ? '#fff8f5' : '#fff0e8' },
+                  opacity: uploadModal.state === 'uploading' ? 0.6 : 1,
+                }}
+              >
+                <ReceiptLongIcon sx={{ fontSize: 40, color: ORANGE, mb: 1 }} />
+                <Typography variant="body2" fontWeight={700}>
+                  {uploadModal.file ? uploadModal.file.name : 'Haz clic o arrastra el archivo del comprobante'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  Imagen (JPG/PNG) o PDF. Tamaño máximo recomendado: 10 MB.
+                </Typography>
+                <input
+                  hidden
+                  type="file"
+                  accept="image/*,application/pdf"
+                  disabled={uploadModal.state === 'uploading'}
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) setUploadModal(s => ({ ...s, file: f, state: 'idle', message: '' }));
+                    e.target.value = '';
+                  }}
+                />
+              </Box>
+            )}
+
+            {uploadModal.state === 'uploading' && (
+              <Alert
+                severity="info"
+                icon={<CircularProgress size={18} />}
+                sx={{ alignItems: 'center' }}
+              >
+                {uploadModal.message || 'Subiendo…'}
+              </Alert>
+            )}
+            {uploadModal.state === 'success' && (
+              <Alert severity="success">{uploadModal.message}</Alert>
+            )}
+            {uploadModal.state === 'error' && (
+              <Alert
+                severity="error"
+                action={
+                  <Button color="inherit" size="small" onClick={() => setUploadModal(s => ({ ...s, state: 'idle', message: '' }))}>
+                    Reintentar
+                  </Button>
+                }
+              >
+                {uploadModal.message}
+              </Alert>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={closeUploadModal} disabled={uploadModal.state === 'uploading'}>
+            {uploadModal.state === 'success' ? 'Cerrar' : 'Cancelar'}
+          </Button>
+          {uploadModal.state !== 'success' && (
+            <Button
+              variant="contained"
+              onClick={performUploadFromModal}
+              disabled={!uploadModal.file || uploadModal.state === 'uploading'}
+              sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#e07a00' } }}
+            >
+              {uploadModal.state === 'uploading' ? 'Subiendo…' : 'Subir comprobante'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
       </Box>{/* end p:4 */}
     </Box>
   );
