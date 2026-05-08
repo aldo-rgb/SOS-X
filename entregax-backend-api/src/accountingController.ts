@@ -202,6 +202,58 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
 };
 
 /**
+ * GET /api/accounting/:emitterId/invoices/:invoiceId/file?type=pdf|xml
+ * Proxy para descargar PDF/XML de Facturama sin exponer la URL directa
+ * (que pediría auth Basic en el navegador).
+ */
+export const downloadEmittedInvoiceFile = async (req: AuthRequest, res: Response): Promise<any> => {
+    try {
+        const userId = req.user?.userId || (req.user as any)?.id;
+        const role = req.user?.role;
+        const emitterId = parseInt(String(req.params.emitterId), 10);
+        const invoiceId = parseInt(String(req.params.invoiceId), 10);
+        const type = String(req.query.type || 'pdf').toLowerCase();
+        if (!emitterId || !invoiceId) return res.status(400).json({ error: 'Parámetros inválidos' });
+        if (type !== 'pdf' && type !== 'xml') return res.status(400).json({ error: 'type debe ser pdf o xml' });
+
+        const access = await checkEmitterAccess(userId!, role, emitterId);
+        if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
+
+        const r = await pool.query(
+            `SELECT id, facturama_id, uuid_sat
+               FROM facturas_emitidas
+              WHERE id = $1 AND fiscal_emitter_id = $2`,
+            [invoiceId, emitterId]
+        );
+        const invoice = r.rows[0];
+        if (!invoice) return res.status(404).json({ error: 'Factura no encontrada' });
+        if (!invoice.facturama_id) {
+            return res.status(400).json({ error: 'Esta factura no fue emitida por Facturama' });
+        }
+
+        const client = await FacturamaClient.fromEmitterId(emitterId);
+        const fileName = `${invoice.uuid_sat || invoice.facturama_id}.${type}`;
+        if (type === 'pdf') {
+            const buf = await client.invoices.downloadPdf(invoice.facturama_id);
+            res.setHeader('Content-Type', 'application/pdf');
+            res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
+            res.send(buf);
+        } else {
+            const xml = await client.invoices.downloadXml(invoice.facturama_id);
+            res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+            res.send(xml);
+        }
+    } catch (e: any) {
+        const msg = e instanceof FacturamaError
+            ? (e.details?.Message || e.details?.message || e.message)
+            : e.message;
+        console.error('downloadEmittedInvoiceFile:', msg);
+        res.status(500).json({ error: 'Error descargando archivo', message: msg });
+    }
+};
+
+/**
  * GET /api/accounting/:emitterId/pending-stamp
  * Lista pagos completados con requiere_factura=true pero sin facturar.
  */

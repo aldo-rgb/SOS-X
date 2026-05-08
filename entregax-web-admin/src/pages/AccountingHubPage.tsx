@@ -364,6 +364,28 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
 
   useEffect(() => { load(); }, [emitter.id, statusFilter]); // eslint-disable-line
 
+  const downloadInvoiceFile = async (row: any, type: 'pdf' | 'xml') => {
+    try {
+      const resp = await api.get(`/accounting/${emitter.id}/invoices/${row.id}/file`, {
+        params: { type },
+        responseType: 'blob',
+      });
+      const blob = new Blob([resp.data], {
+        type: type === 'pdf' ? 'application/pdf' : 'application/xml',
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${row.uuid_sat || row.facturama_id || row.id}.${type}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e: any) {
+      alert(e?.response?.data?.message || e?.response?.data?.error || 'Error descargando archivo');
+    }
+  };
+
   return (
     <Box>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2, flexWrap: 'wrap' }}>
@@ -434,19 +456,19 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                 </TableCell>
                 <TableCell>{fmtDate(r.created_at)}</TableCell>
                 <TableCell align="center">
-                  {r.pdf_url && (
-                    <Tooltip title="Descargar PDF">
-                      <IconButton size="small" onClick={() => window.open(r.pdf_url, '_blank')}>
-                        <PictureAsPdfIcon fontSize="small" sx={{ color: RED }} />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                  {r.xml_url && (
-                    <Tooltip title="Descargar XML">
-                      <IconButton size="small" onClick={() => window.open(r.xml_url, '_blank')}>
-                        <CodeIcon fontSize="small" sx={{ color: BLACK }} />
-                      </IconButton>
-                    </Tooltip>
+                  {r.facturama_id && (
+                    <>
+                      <Tooltip title="Descargar PDF">
+                        <IconButton size="small" onClick={() => downloadInvoiceFile(r, 'pdf')}>
+                          <PictureAsPdfIcon fontSize="small" sx={{ color: RED }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Descargar XML">
+                        <IconButton size="small" onClick={() => downloadInvoiceFile(r, 'xml')}>
+                          <CodeIcon fontSize="small" sx={{ color: BLACK }} />
+                        </IconButton>
+                      </Tooltip>
+                    </>
                   )}
                   <Tooltip title="Refrescar estatus SAT">
                     <IconButton size="small" onClick={async () => {

@@ -970,6 +970,7 @@ import {
   getMyEmitters,
   getEmitterSummary,
   listEmitterInvoices,
+  downloadEmittedInvoiceFile,
   listPendingStamp,
   emitManualCFDI,
   searchFiscalClients,
@@ -3016,6 +3017,7 @@ app.post('/api/pobox/payment/order/:id/revert-wallet', authenticateToken, revert
 app.get('/api/accounting/my-emitters', authenticateToken, getMyEmitters);
 app.get('/api/accounting/:emitterId/summary', authenticateToken, getEmitterSummary);
 app.get('/api/accounting/:emitterId/invoices', authenticateToken, listEmitterInvoices);
+app.get('/api/accounting/:emitterId/invoices/:invoiceId/file', authenticateToken, downloadEmittedInvoiceFile);
 app.get('/api/accounting/:emitterId/pending-stamp', authenticateToken, listPendingStamp);
 app.post('/api/fiscal/invoice/manual', authenticateToken, emitManualCFDI);
 app.get('/api/accounting/:emitterId/fiscal-clients', authenticateToken, searchFiscalClients);
