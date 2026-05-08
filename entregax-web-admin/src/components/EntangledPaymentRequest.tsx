@@ -390,15 +390,21 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   type ConceptoOption = { clave_prodserv: string; descripcion: string };
   const [conceptoOptions, setConceptoOptions] = useState<ConceptoOption[]>([]);
   const [conceptoSearching, setConceptoSearching] = useState(false);
+  const [conceptoSearchError, setConceptoSearchError] = useState<string | null>(null);
 
   // Token activo = último segmento después de la última coma
   const activeToken = (form.conceptos || '').split(',').pop()?.trim() ?? '';
 
   useEffect(() => {
     // Solo busca si el token parece texto (no código numérico puro de 8 dígitos)
-    if (!activeToken || /^\d{8}$/.test(activeToken)) { setConceptoOptions([]); return; }
+    if (!activeToken || /^\d{8}$/.test(activeToken)) {
+      setConceptoOptions([]);
+      setConceptoSearchError(null);
+      return;
+    }
     const handle = setTimeout(async () => {
       setConceptoSearching(true);
+      setConceptoSearchError(null);
       try {
         const r = await axios.get(`${API_URL}/api/entangled/conceptos/search`, {
           params: { q: activeToken, limit: 10 },
@@ -408,7 +414,15 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           ? r.data.results.map((x: any) => ({ clave_prodserv: String(x.clave_prodserv), descripcion: String(x.descripcion || '') }))
           : [];
         setConceptoOptions(list);
-      } catch { setConceptoOptions([]); }
+      } catch (e: any) {
+        setConceptoOptions([]);
+        const status = e?.response?.status;
+        if (status === 502 || status === 503) {
+          setConceptoSearchError('El catálogo SAT no está disponible momentáneamente. Intenta de nuevo en unos segundos.');
+        } else {
+          setConceptoSearchError(e?.response?.data?.error || 'No se pudo buscar el concepto');
+        }
+      }
       finally { setConceptoSearching(false); }
     }, 400);
     return () => clearTimeout(handle);
@@ -2412,13 +2426,23 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       '& .MuiFormHelperText-root': { color: '#9ca3af' },
                     }}
                   />
-                  {/* Dropdown de sugerencias */}
-                  {(conceptoSearching || conceptoOptions.length > 0) && (
+                  {/* Dropdown de sugerencias — visible cuando hay token de búsqueda no numérico */}
+                  {activeToken && !/^\d{8}$/.test(activeToken) && (conceptoSearching || conceptoOptions.length > 0 || conceptoSearchError) && (
                     <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 280, overflowY: 'auto', mt: 0.5 }}>
                       {conceptoSearching && (
                         <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                           <CircularProgress size={14} sx={{ color: ORANGE }} />
                           <Typography variant="caption" sx={{ color: '#9ca3af' }}>Buscando en catálogo SAT…</Typography>
+                        </Box>
+                      )}
+                      {!conceptoSearching && conceptoSearchError && (
+                        <Box sx={{ p: 1.5 }}>
+                          <Typography variant="caption" sx={{ color: '#ef4444' }}>⚠️ {conceptoSearchError}</Typography>
+                        </Box>
+                      )}
+                      {!conceptoSearching && !conceptoSearchError && conceptoOptions.length === 0 && (
+                        <Box sx={{ p: 1.5 }}>
+                          <Typography variant="caption" sx={{ color: '#6b7280' }}>Sin resultados para "{activeToken}"</Typography>
                         </Box>
                       )}
                       {!conceptoSearching && conceptoOptions.map((opt) => (
@@ -2443,11 +2467,6 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                           </Tooltip>
                         </Box>
                       ))}
-                      {!conceptoSearching && conceptoOptions.length === 0 && activeToken && (
-                        <Box sx={{ p: 1.5 }}>
-                          <Typography variant="caption" sx={{ color: '#6b7280' }}>Sin resultados para "{activeToken}"</Typography>
-                        </Box>
-                      )}
                     </Paper>
                   )}
                 </Box>
