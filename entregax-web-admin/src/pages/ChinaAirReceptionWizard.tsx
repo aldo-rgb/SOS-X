@@ -159,7 +159,13 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
 
     const handleScan = async (value: string) => {
         if (!selected) return;
-        let tracking = value.trim();
+        // Normalizamos separadores: la pistola lectora a veces convierte el `-`
+        // en `'`, `’`, `‘`, `,` o `_` según el layout del teclado. Mapeamos
+        // todos esos a `-` antes de extraer el tracking.
+        let tracking = value
+            .trim()
+            .replace(/[’‘'`,_]/g, '-')
+            .replace(/-{2,}/g, '-');
         if (!tracking) return;
 
         // 1) Si viene un código tipo AIR2609096hyXgs-001 (formato China Air),
@@ -167,6 +173,15 @@ export default function ChinaAirReceptionWizard({ onBack }: Props) {
         const airMatch = tracking.match(/AIR[A-Z0-9]+-?\d+/i);
         if (airMatch) {
             tracking = airMatch[0].toUpperCase();
+            // Si vino sin guion (la pistola se lo comió o el operador no lo
+            // tipeó), insertamos `-` justo antes del run final de dígitos —
+            // que es el child_no del paquete dentro del AWB.
+            if (!tracking.includes('-')) {
+                const splitMatch = tracking.match(/^(AIR.+?[A-Z])(\d+)$/i);
+                if (splitMatch) {
+                    tracking = `${splitMatch[1]}-${splitMatch[2]}`;
+                }
+            }
         } else {
             // 2) Limpieza para PO Box / CN / US (prefijo 2 letras)
             const afterTrack = tracking.match(/track[^A-Za-z0-9]+([A-Za-z]{2})[^A-Za-z0-9]?([A-Za-z0-9]{4,})/i);
