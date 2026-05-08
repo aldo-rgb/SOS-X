@@ -399,12 +399,14 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     // Solo busca si el token parece texto (no código numérico puro de 8 dígitos)
     if (!activeToken || /^\d{8}$/.test(activeToken)) {
       setConceptoOptions([]);
+      setConceptoSearching(false);
       setConceptoSearchError(null);
       return;
     }
+    // Mostrar "Buscando..." de inmediato mientras el usuario tipea
+    setConceptoSearching(true);
+    setConceptoSearchError(null);
     const handle = setTimeout(async () => {
-      setConceptoSearching(true);
-      setConceptoSearchError(null);
       try {
         const r = await axios.get(`${API_URL}/api/entangled/conceptos/search`, {
           params: { q: activeToken, limit: 10 },
@@ -2426,8 +2428,8 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                       '& .MuiFormHelperText-root': { color: '#9ca3af' },
                     }}
                   />
-                  {/* Dropdown de sugerencias — visible cuando hay token de búsqueda no numérico */}
-                  {activeToken && !/^\d{8}$/.test(activeToken) && (conceptoSearching || conceptoOptions.length > 0 || conceptoSearchError) && (
+                  {/* Dropdown de sugerencias — visible mientras el usuario escribe texto (no código de 8 dígitos) */}
+                  {activeToken && !/^\d{8}$/.test(activeToken) && (
                     <Paper sx={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 999, bgcolor: '#1a1a1a', border: `1px solid ${ORANGE}`, borderRadius: 1, maxHeight: 280, overflowY: 'auto', mt: 0.5 }}>
                       {conceptoSearching && (
                         <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
