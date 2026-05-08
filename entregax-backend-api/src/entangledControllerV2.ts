@@ -291,6 +291,25 @@ export const createPaymentRequestV2 = async (
     });
   }
 
+  // SIN comprobante → no se envía a ENTANGLED todavía. La solicitud queda en
+  // 'esperando_comprobante' y se enviará cuando el cliente suba el comprobante.
+  if (!hasFile) {
+    await pool.query(
+      `UPDATE entangled_payment_requests
+          SET estatus_global = 'esperando_comprobante',
+              updated_at = NOW()
+        WHERE id = $1`,
+      [requestId]
+    );
+    return res.status(201).json({
+      message: 'Solicitud creada. Sube el comprobante de pago para enviarla a ENTANGLED.',
+      request_id: requestId,
+      referencia_pago: referenciaPago,
+      status: 'esperando_comprobante',
+      requires_proof_upload: true,
+    });
+  }
+
   // 2.a) FASE 1 — POST /solicitud-pago SIN comprobante (JSON-only).
   //      ENTANGLED responde sincrónicamente con transaccion_id +
   //      empresas_asignadas[].cuenta_bancaria (cuentas dinámicas por SAT).

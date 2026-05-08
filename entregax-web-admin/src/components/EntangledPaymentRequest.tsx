@@ -518,7 +518,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     } catch (e: any) {
       const status = e?.response?.status;
       if (status === 502 || status === 503) {
-        setAddConceptoError('Servicio no disponible momentáneamente. Intenta de nuevo en unos segundos.');
+        setAddConceptoError('Servicio no disponible para esta comercializadora');
       } else {
         setAddConceptoError(e?.response?.data?.error || 'No se pudo agregar la clave. Verifica e intenta de nuevo.');
       }
@@ -1197,16 +1197,30 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         supplierId = Number(selectedSupplierId);
       }
 
-      const payload: Record<string, unknown> = {
-        requiere_factura: requiereFactura,
+      // Backend expects multipart/form-data (multer) — NO se envía a ENTANGLED aún,
+      // sólo se crea la solicitud en estado "pendiente" hasta que se suba el comprobante.
+      const fd = new FormData();
+      fd.append('servicio', requiereFactura ? 'pago_con_factura' : 'pago_sin_factura');
+      fd.append('monto_usd', String(Number(form.monto)));
+      fd.append('divisa', form.divisa_destino);
+      const conceptosArr = requiereFactura
+        ? form.conceptos.split(',').map(s => s.trim()).filter(Boolean).map(c => ({ clave_prodserv: c }))
+        : [];
+      fd.append('conceptos', JSON.stringify(conceptosArr));
+      const clienteFinal = requiereFactura
+        ? {
+            rfc: form.rfc.trim().toUpperCase(),
+            razon_social: form.razon_social.trim(),
+            regimen_fiscal: form.regimen_fiscal,
+            cp: form.cp.trim(),
+            uso_cfdi: form.uso_cfdi,
+            email: form.email.trim(),
+          }
+        : { razon_social: form.razon_social.trim() || supplierForm.nombre_beneficiario || 'Público en General' };
+      fd.append('cliente_final', JSON.stringify(clienteFinal));
+      // Metadatos extra (proveedor de envío + provider_id seleccionado) en notas
+      const notas = JSON.stringify({
         provider_id: selectedProviderId || null,
-        operacion: {
-          montos: Number(form.monto),
-          divisa_destino: form.divisa_destino,
-          conceptos: requiereFactura
-            ? form.conceptos.split(',').map((s) => s.trim()).filter(Boolean)
-            : [],
-        },
         proveedor_envio: {
           supplier_id: supplierId || null,
           nombre_beneficiario: supplierForm.nombre_beneficiario,
@@ -1221,20 +1235,11 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           motivo: supplierForm.motivo_default,
           foto_url: supplierForm.foto_url,
         },
-      };
-      if (requiereFactura) {
-        payload.cliente_final = {
-          rfc: form.rfc.trim().toUpperCase(),
-          razon_social: form.razon_social.trim(),
-          regimen_fiscal: form.regimen_fiscal,
-          cp: form.cp.trim(),
-          uso_cfdi: form.uso_cfdi,
-          email: form.email.trim(),
-        };
-      }
+      });
+      fd.append('notas', notas);
 
-      const res = await axios.post(`${API_URL}/api/entangled/payment-requests`, payload, {
-        headers: authHeader,
+      const res = await axios.post(`${API_URL}/api/entangled/payment-requests`, fd, {
+        headers: { ...authHeader, 'Content-Type': 'multipart/form-data' },
       });
 
       // Snapshots ANTES de limpiar el form (para el PDF y el modal)
