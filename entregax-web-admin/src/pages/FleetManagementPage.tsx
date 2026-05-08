@@ -305,6 +305,8 @@ export default function FleetManagementPage() {
     }
   })();
   const isSuperAdmin = currentUserRole === 'super_admin';
+  // Edición de vehículos: sólo admin y super_admin
+  const canEditVehicle = ['super_admin', 'admin'].includes(currentUserRole);
   // Roles que pueden ver el detalle (👁) de la unidad pero NO editar/eliminar
   const canViewVehicle = isSuperAdmin
     || currentUserRole === 'branch_manager'
@@ -583,6 +585,86 @@ export default function FleetManagementPage() {
   };
 
   // Resolver alerta
+  // Descarga TODOS los archivos del vehículo (4 fotos + N documentos legales) en un .zip
+  const [downloadingZip, setDownloadingZip] = useState(false);
+  const handleDownloadAllFiles = async () => {
+    if (!selectedVehicle || !vehicleDetailData) return;
+    setDownloadingZip(true);
+    try {
+      const JSZipMod = (await import('jszip')).default;
+      const zip = new JSZipMod();
+      const econ = selectedVehicle.economic_number || `vehicle-${selectedVehicle.id}`;
+
+      // Helpers
+      const slug = (s: string) => String(s || '').replace(/[^a-zA-Z0-9_-]+/g, '_').slice(0, 60);
+      const guessExt = (url: string, fallback = 'bin'): string => {
+        const m = String(url).split('?')[0].match(/\.([a-zA-Z0-9]{2,5})$/);
+        return m ? m[1].toLowerCase() : fallback;
+      };
+      const fetchAsBlob = async (url: string): Promise<Blob | null> => {
+        try {
+          const r = await fetch(url, { mode: 'cors' });
+          if (!r.ok) return null;
+          return await r.blob();
+        } catch {
+          return null;
+        }
+      };
+
+      const failed: string[] = [];
+
+      // 1) Fotos del vehículo (4 lados)
+      const photoSides: { side: string; url?: string }[] = [
+        { side: 'frente', url: vehicleDetailData?.vehicle?.photo_front_url },
+        { side: 'atras', url: vehicleDetailData?.vehicle?.photo_back_url },
+        { side: 'lado_izquierdo', url: vehicleDetailData?.vehicle?.photo_left_url },
+        { side: 'lado_derecho', url: vehicleDetailData?.vehicle?.photo_right_url },
+      ];
+      const fotosFolder = zip.folder('fotos');
+      for (const { side, url } of photoSides) {
+        if (!url || !fotosFolder) continue;
+        const blob = await fetchAsBlob(url);
+        if (blob) {
+          fotosFolder.file(`${side}.${guessExt(url, 'jpg')}`, blob);
+        } else {
+          failed.push(`Foto ${side}`);
+        }
+      }
+
+      // 2) Documentos legales
+      const docsFolder = zip.folder('documentos');
+      for (const doc of (vehicleDetailData.documents || []) as VehicleDocument[]) {
+        if (!doc.file_url || !docsFolder) continue;
+        const blob = await fetchAsBlob(doc.file_url);
+        if (blob) {
+          const name = `${slug(doc.document_type)}${doc.policy_number ? `_${slug(doc.policy_number)}` : ''}.${guessExt(doc.file_url, 'pdf')}`;
+          docsFolder.file(name, blob);
+        } else {
+          failed.push(doc.document_type);
+        }
+      }
+
+      if (failed.length > 0) {
+        zip.file('README.txt', `Estos archivos no se pudieron descargar (revisa permisos S3/CORS):\n- ${failed.join('\n- ')}\n`);
+      }
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      // Trigger descarga
+      const a = document.createElement('a');
+      const objUrl = URL.createObjectURL(blob);
+      a.href = objUrl;
+      a.download = `${slug(econ)}_documentos.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objUrl);
+    } catch (err) {
+      alert((err instanceof Error ? err.message : null) || 'Error al generar el archivo .zip');
+    } finally {
+      setDownloadingZip(false);
+    }
+  };
+
   const handleResolveAlert = async (alertId: number) => {
     try {
       await axios.put(`${API_URL}/api/admin/fleet/alerts/${alertId}/resolve`, {}, {
@@ -792,7 +874,7 @@ export default function FleetManagementPage() {
                   </TableCell>
                   <TableCell align="right">
                     <Typography fontWeight={500}>
-                      {vehicle.current_mileage?.toLocaleString()} km
+                      {vehicle.current_mileage?.toLocaleString()} {vehicle.vehicle_type === 'Montacargas' ? 'hrs' : 'km'}
                     </Typography>
                   </TableCell>
                   <TableCell>
@@ -861,26 +943,26 @@ export default function FleetManagementPage() {
                             <ViewIcon />
                           </IconButton>
                         </Tooltip>
+                        {canEditVehicle && (
+                          <Tooltip title="Editar">
+                            <IconButton size="small" color="primary" onClick={() => handleEditVehicle(vehicle)}>
+                              <EditIcon />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {isSuperAdmin && (
-                          <>
-                            <Tooltip title="Editar">
-                              <IconButton size="small" color="primary" onClick={() => handleEditVehicle(vehicle)}>
-                                <EditIcon />
-                              </IconButton>
-                            </Tooltip>
-                            <Tooltip title="Eliminar">
-                              <IconButton
-                                size="small"
-                                color="error"
-                                onClick={() => {
-                                  setVehicleToDelete(vehicle);
-                                  setDeleteVehicleOpen(true);
-                                }}
-                              >
-                                <DeleteIcon />
-                              </IconButton>
-                            </Tooltip>
-                          </>
+                          <Tooltip title="Eliminar">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => {
+                                setVehicleToDelete(vehicle);
+                                setDeleteVehicleOpen(true);
+                              }}
+                            >
+                              <DeleteIcon />
+                            </IconButton>
+                          </Tooltip>
                         )}
                       </>
                     ) : (
@@ -1104,12 +1186,27 @@ export default function FleetManagementPage() {
             <Avatar sx={{ bgcolor: selectedVehicle ? getHealthColor(selectedVehicle.health_status) : '#ccc', width: 56, height: 56 }}>
               {selectedVehicle && getVehicleIcon(selectedVehicle.vehicle_type)}
             </Avatar>
-            <Box>
+            <Box sx={{ flex: 1 }}>
               <Typography variant="h5">{selectedVehicle?.economic_number}</Typography>
               <Typography variant="body2" color="text.secondary">
                 {selectedVehicle?.brand} {selectedVehicle?.model} {selectedVehicle?.year} | {selectedVehicle?.license_plates}
               </Typography>
             </Box>
+            {vehicleDetailData && (
+              <Tooltip title="Descarga las 4 fotos + todos los documentos legales en un .zip">
+                <span>
+                  <Button
+                    variant="outlined"
+                    color="primary"
+                    onClick={handleDownloadAllFiles}
+                    disabled={downloadingZip}
+                    startIcon={downloadingZip ? <CircularProgress size={14} /> : <DocumentIcon />}
+                  >
+                    {downloadingZip ? 'Generando…' : 'Descargar documentos'}
+                  </Button>
+                </span>
+              </Tooltip>
+            )}
           </Box>
         </DialogTitle>
         <DialogContent dividers>
@@ -1125,8 +1222,15 @@ export default function FleetManagementPage() {
                   <Card variant="outlined">
                     <CardContent>
                       <SpeedIcon color="primary" />
-                      <Typography variant="h5">{vehicleDetailData.vehicle.current_mileage?.toLocaleString()}</Typography>
-                      <Typography variant="caption">Kilometraje</Typography>
+                      <Typography variant="h5">
+                        {vehicleDetailData.vehicle.current_mileage?.toLocaleString()}
+                        <Typography component="span" variant="caption" sx={{ ml: 0.5 }}>
+                          {vehicleDetailData.vehicle.vehicle_type === 'Montacargas' ? 'hrs' : 'km'}
+                        </Typography>
+                      </Typography>
+                      <Typography variant="caption">
+                        {vehicleDetailData.vehicle.vehicle_type === 'Montacargas' ? 'Horas de Uso' : 'Kilometraje'}
+                      </Typography>
                     </CardContent>
                   </Card>
                 </Grid>
@@ -1646,10 +1750,11 @@ export default function FleetManagementPage() {
             <Grid size={{ xs: 6 }}>
               <TextField
                 fullWidth
-                label="Kilometraje Actual"
+                label={newVehicle.vehicle_type === 'Montacargas' ? 'Horas de Uso (HRS)' : 'Kilometraje Actual'}
                 type="number"
                 value={newVehicle.current_mileage}
                 onChange={(e) => setNewVehicle({ ...newVehicle, current_mileage: parseInt(e.target.value) })}
+                InputProps={newVehicle.vehicle_type === 'Montacargas' ? { endAdornment: <Typography sx={{ color: 'text.secondary', ml: 1 }}>hrs</Typography> } : undefined}
               />
             </Grid>
             <Grid size={{ xs: 6 }}>
