@@ -25,6 +25,9 @@ import {
   uploadComprobanteToTransaccion,
   getTipoCambio,
   getSolicitudStatus,
+  getSolicitudDocumento,
+  ENTANGLED_DOCUMENTO_TIPOS,
+  EntangledDocumentoTipo,
   searchConceptos,
   rotateApiKey,
   isEntangledConfigured,
@@ -735,6 +738,58 @@ export const getExchangeRate = async (req: Request, res: Response): Promise<any>
     tipo_cambio: r.tipo_cambio,
     vigencia: r.vigencia,
   });
+};
+
+// ===========================================================================
+// GET /api/entangled/payment-requests/:id/documento/:tipo
+// Proxy autenticado contra ENTANGLED para descargar el documento binario.
+// tipo ∈ { factura_pdf, factura_xml, comprobante_proveedor, comprobante_cliente }
+// Devuelve el archivo tal cual viene de ENTANGLED, con el mismo Content-Type
+// y un Content-Disposition (attachment) usando el filename original.
+// ===========================================================================
+export const proxyEntangledDocumento = async (req: Request, res: Response): Promise<any> => {
+  const userId = getAuthUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  const id = Number(req.params.id);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+  const tipo = String(req.params.tipo || '') as EntangledDocumentoTipo;
+  if (!ENTANGLED_DOCUMENTO_TIPOS.includes(tipo)) {
+    return res.status(400).json({
+      error: `Tipo inválido. Use uno de: ${ENTANGLED_DOCUMENTO_TIPOS.join(', ')}`,
+    });
+  }
+
+  const r = await pool.query(
+    `SELECT id, user_id, entangled_transaccion_id, referencia_pago
+       FROM entangled_payment_requests WHERE id = $1`,
+    [id]
+  );
+  if (r.rows.length === 0) return res.status(404).json({ error: 'Solicitud no encontrada' });
+  const row = r.rows[0];
+  if (!isAdminRole(req) && row.user_id !== userId) {
+    return res.status(403).json({ error: 'Sin acceso a esta solicitud' });
+  }
+  if (!row.entangled_transaccion_id) {
+    return res.status(400).json({
+      error: 'La solicitud aún no se envió a ENTANGLED (no hay transaccion_id).',
+    });
+  }
+
+  const remote = await getSolicitudDocumento(String(row.entangled_transaccion_id), tipo);
+  if (!remote.ok || !remote.buffer) {
+    return res.status(remote.status && remote.status >= 400 && remote.status < 600 ? remote.status : 502).json({
+      error: remote.error || 'No se pudo descargar el documento de ENTANGLED',
+    });
+  }
+
+  const filename = remote.filename || `${row.referencia_pago || `XP${id}`}_${tipo}`;
+  res.setHeader('Content-Type', remote.contentType || 'application/octet-stream');
+  res.setHeader(
+    'Content-Disposition',
+    `attachment; filename="${filename.replace(/"/g, '')}"`
+  );
+  res.setHeader('Content-Length', String(remote.buffer.length));
+  return res.send(remote.buffer);
 };
 
 // ===========================================================================

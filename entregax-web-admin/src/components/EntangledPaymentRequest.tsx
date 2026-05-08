@@ -905,6 +905,57 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }
   };
 
+  // Descarga directa de un documento (factura PDF/XML, comprobante proveedor o
+  // comprobante cliente) tirándole al proxy backend que pega contra
+  // GET /api/v1/solicitud-pago/:id/documento/:tipo de ENTANGLED.
+  const [downloadingDoc, setDownloadingDoc] = useState<{ id: number; tipo: string } | null>(null);
+  const downloadEntangledDoc = async (
+    requestId: number,
+    tipo: 'factura_pdf' | 'factura_xml' | 'comprobante_proveedor' | 'comprobante_cliente'
+  ) => {
+    setDownloadingDoc({ id: requestId, tipo });
+    try {
+      const res = await axios.get(
+        `${API_URL}/api/entangled/payment-requests/${requestId}/documento/${tipo}`,
+        { headers: authHeader, responseType: 'blob' }
+      );
+      const blob = res.data as Blob;
+      const dispositionHeader = res.headers['content-disposition'] as string | undefined;
+      let filename = `XP${requestId}_${tipo}`;
+      if (dispositionHeader) {
+        const m = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(dispositionHeader);
+        if (m && m[1]) {
+          try { filename = decodeURIComponent(m[1]); } catch { filename = m[1]; }
+        }
+      }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    } catch (err: unknown) {
+      let msg = 'No se pudo descargar el documento';
+      const blob = (err as { response?: { data?: Blob } })?.response?.data;
+      if (blob && blob instanceof Blob) {
+        try {
+          const text = await blob.text();
+          const parsed = JSON.parse(text);
+          msg = parsed.error || parsed.message || msg;
+        } catch { /* keep default */ }
+      } else {
+        msg = (err as { response?: { data?: { error?: string } } })?.response?.data?.error
+          || (err as Error)?.message
+          || msg;
+      }
+      setSnack({ open: true, severity: 'error', message: msg });
+    } finally {
+      setDownloadingDoc(null);
+    }
+  };
+
   // Sync manual contra ENTANGLED para una solicitud — útil cuando el webhook
   // de factura/pago se perdió y el estado local quedó atrás.
   const [syncingId, setSyncingId] = useState<number | null>(null);
@@ -2120,29 +2171,50 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                         {/* Factura */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           <StatusBadge status={r.estatus_factura} label={t(`entangled.status.${r.estatus_factura}`, r.estatus_factura)} variant="outline" />
-                          {r.factura_url && (
-                            <Tooltip title={t('entangled.actions.downloadFacturaPdf', 'Descargar Factura (PDF)') as string}>
-                              <IconButton size="small" component="a" href={r.factura_url} target="_blank" rel="noopener" sx={{ ml: 0.4, p: 0.2 }}>
-                                <DescriptionIcon sx={{ fontSize: 14, color: '#9ca3af' }} />
-                              </IconButton>
-                            </Tooltip>
-                          )}
-                          {r.factura_xml_url && (
-                            <Tooltip title={t('entangled.actions.downloadFacturaXml', 'Descargar Factura (XML)') as string}>
-                              <IconButton size="small" component="a" href={r.factura_xml_url} target="_blank" rel="noopener" sx={{ ml: 0.2, p: 0.2 }}>
-                                <CodeIcon sx={{ fontSize: 14, color: '#60a5fa' }} />
-                              </IconButton>
-                            </Tooltip>
+                          {r.entangled_transaccion_id && r.cf_rfc && (
+                            <>
+                              <Tooltip title={t('entangled.actions.downloadFacturaPdf', 'Descargar Factura (PDF)') as string}>
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => downloadEntangledDoc(r.id, 'factura_pdf')}
+                                    disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_pdf'}
+                                    sx={{ ml: 0.4, p: 0.2 }}
+                                  >
+                                    <DescriptionIcon sx={{ fontSize: 14, color: '#9ca3af' }} />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                              <Tooltip title={t('entangled.actions.downloadFacturaXml', 'Descargar Factura (XML)') as string}>
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    onClick={() => downloadEntangledDoc(r.id, 'factura_xml')}
+                                    disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'factura_xml'}
+                                    sx={{ ml: 0.2, p: 0.2 }}
+                                  >
+                                    <CodeIcon sx={{ fontSize: 14, color: '#60a5fa' }} />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            </>
                           )}
                         </TableCell>
                         {/* Pago a Proveedor */}
                         <TableCell sx={{ whiteSpace: 'nowrap' }}>
                           <StatusBadge status={r.estatus_proveedor} label={t(`entangled.status.${r.estatus_proveedor}`, r.estatus_proveedor)} variant="outline" />
-                          {r.comprobante_proveedor_url && (
+                          {r.entangled_transaccion_id && (
                             <Tooltip title={t('entangled.actions.downloadProveedorProof', 'Descargar comprobante de pago al proveedor') as string}>
-                              <IconButton size="small" component="a" href={r.comprobante_proveedor_url} target="_blank" rel="noopener" sx={{ ml: 0.4, p: 0.2 }}>
-                                <ReceiptLongIcon sx={{ fontSize: 14, color: '#4ade80' }} />
-                              </IconButton>
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => downloadEntangledDoc(r.id, 'comprobante_proveedor')}
+                                  disabled={downloadingDoc?.id === r.id && downloadingDoc?.tipo === 'comprobante_proveedor'}
+                                  sx={{ ml: 0.4, p: 0.2 }}
+                                >
+                                  <ReceiptLongIcon sx={{ fontSize: 14, color: '#4ade80' }} />
+                                </IconButton>
+                              </span>
                             </Tooltip>
                           )}
                         </TableCell>

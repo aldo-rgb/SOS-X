@@ -335,6 +335,88 @@ export const getSolicitudStatus = async (
 };
 
 // ---------------------------------------------------------------------------
+// GET /api/v1/solicitud-pago/:id/documento/:tipo — descarga binaria directa.
+// tipo ∈ { factura_pdf, factura_xml, comprobante_proveedor, comprobante_cliente }
+// Devuelve { buffer, contentType, filename } para que el caller lo proxyee.
+// ---------------------------------------------------------------------------
+export type EntangledDocumentoTipo =
+  | 'factura_pdf'
+  | 'factura_xml'
+  | 'comprobante_proveedor'
+  | 'comprobante_cliente';
+
+export const ENTANGLED_DOCUMENTO_TIPOS: EntangledDocumentoTipo[] = [
+  'factura_pdf',
+  'factura_xml',
+  'comprobante_proveedor',
+  'comprobante_cliente',
+];
+
+export const getSolicitudDocumento = async (
+  transaccionId: string,
+  tipo: EntangledDocumentoTipo
+): Promise<{
+  ok: boolean;
+  buffer?: Buffer | undefined;
+  contentType?: string | undefined;
+  filename?: string | undefined;
+  status?: number | undefined;
+  error?: string | undefined;
+}> => {
+  if (!ENTANGLED_API_KEY) return { ok: false, error: 'ENTANGLED_API_KEY no configurada.' };
+  if (!transaccionId) return { ok: false, error: 'transaccion_id requerido' };
+  if (!ENTANGLED_DOCUMENTO_TIPOS.includes(tipo)) {
+    return { ok: false, error: 'tipo de documento inválido' };
+  }
+  const url = buildUrl(
+    `/solicitud-pago/${encodeURIComponent(transaccionId)}/documento/${encodeURIComponent(tipo)}`
+  );
+  try {
+    const res = await axios.get<ArrayBuffer>(url, {
+      timeout: ENTANGLED_TIMEOUT_MS,
+      headers: authHeaders(),
+      responseType: 'arraybuffer',
+      maxBodyLength: Infinity,
+      maxContentLength: Infinity,
+    });
+    const contentType = (res.headers['content-type'] as string) || 'application/octet-stream';
+    const disposition = (res.headers['content-disposition'] as string) || '';
+    let filename: string | undefined;
+    const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition);
+    if (match && match[1]) {
+      try {
+        filename = decodeURIComponent(match[1]);
+      } catch {
+        filename = match[1];
+      }
+    }
+    return {
+      ok: true,
+      buffer: Buffer.from(res.data),
+      contentType,
+      filename,
+      status: res.status,
+    };
+  } catch (err) {
+    const ax = err as AxiosError;
+    const status = ax.response?.status;
+    let message = ax.message || 'Error descargando documento de ENTANGLED';
+    // El body es arraybuffer; si vino JSON con error, parseamos.
+    if (ax.response?.data) {
+      try {
+        const buf = Buffer.from(ax.response.data as ArrayBuffer);
+        const parsed = JSON.parse(buf.toString('utf8'));
+        message = parsed.error || parsed.message || message;
+      } catch {
+        // No era JSON; nos quedamos con ax.message.
+      }
+    }
+    console.error('[ENTANGLED] getSolicitudDocumento', tipo, '→', status, message);
+    return { ok: false, status, error: message };
+  }
+};
+
+// ---------------------------------------------------------------------------
 // GET /api/v1/tipo-cambio
 // ---------------------------------------------------------------------------
 export const getTipoCambio = async (
