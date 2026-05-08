@@ -234,7 +234,6 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Tracking</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>AWB</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Cliente</TableCell>
-                                    <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Descripción</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }} align="right">Peso (kg)</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Estado</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Recibido CEDIS</TableCell>
@@ -243,7 +242,7 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                             <TableBody>
                                 {packages.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={7} sx={{ textAlign: 'center', py: 4 }}>
+                                        <TableCell colSpan={6} sx={{ textAlign: 'center', py: 4 }}>
                                             <Typography color="text.secondary">Sin resultados</Typography>
                                         </TableCell>
                                     </TableRow>
@@ -275,7 +274,6 @@ export default function ChinaAirInventoryPage({ onBack }: Props) {
                                                 )}
                                                 <Typography variant="caption">{p.user_name || '—'}</Typography>
                                             </TableCell>
-                                            <TableCell>{p.description || '—'}</TableCell>
                                             <TableCell align="right">{Number(p.weight || 0).toFixed(2)}</TableCell>
                                             <TableCell>
                                                 <Chip
