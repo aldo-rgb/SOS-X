@@ -3523,10 +3523,14 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
     //    transaccion_id), este es el momento de enviarla con el comprobante.
     if (!owner.rows[0].entangled_transaccion_id) {
       const { sendPendingRequestToEntangled } = await import('./entangledControllerV2');
+      // Saneamos el filename: ENTANGLED rechaza nombres con espacios, paréntesis
+      // o caracteres no-ASCII con "No se pudo subir el comprobante a
+      // almacenamiento". Usamos sólo [a-zA-Z0-9._-] y la extensión original.
+      const safeFilename = `comprobante_${id}_${Date.now()}.${ext}`;
       const result = await sendPendingRequestToEntangled(
         id,
         req.file.buffer,
-        req.file.originalname,
+        safeFilename,
         req.file.mimetype
       );
       return res.status(result.status).json({
