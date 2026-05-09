@@ -103,8 +103,12 @@ const normalizeScanCode = (rawCode: string): string => {
     code = fromQuery[1];
   }
 
+  // Las pistolas a veces convierten el `-` del barcode en `'`, `’`, `,` o
+  // `_` según el layout del teclado. Mapeamos todos esos a `-` antes de
+  // extraer el tracking, igual que en la web.
   code = code
-    .replace(/[_']/g, '-')
+    .replace(/[_'`,’‘]/g, '-')
+    .replace(/-{2,}/g, '-')
     .replace(/\s+/g, '')
     .toUpperCase();
 
@@ -113,6 +117,24 @@ const normalizeScanCode = (rawCode: string): string => {
     return canonicalTracking[0];
   }
 
+  // Servicios con prefijo de 3 letras y child_no posicional:
+  //   LOG: 2 dígitos al final  (ej. LOG26CNMX00077-01)
+  //   AIR: 3 dígitos al final  (ej. AIR2618261VYFJV-001)
+  //   DHL: variable; usamos el último run de letras como divisor.
+  const log3 = code.match(/^LOG([A-Z0-9]{4,}?)(\d{2})$/);
+  if (log3) {
+    return `LOG${log3[1]}-${log3[2]}`;
+  }
+  const air3 = code.match(/^AIR([A-Z0-9]{4,}?)(\d{3})$/);
+  if (air3) {
+    return `AIR${air3[1]}-${air3[2]}`;
+  }
+  const dhl3 = code.match(/^DHL([A-Z0-9]{4,}?)(\d{2,4})$/);
+  if (dhl3) {
+    return `DHL${dhl3[1]}-${dhl3[2]}`;
+  }
+
+  // Fallback histórico para PO Box / CN: prefijo de 2 letras + resto.
   const compactTracking = code.match(/[A-Z]{2,}[A-Z0-9]{4,}/);
   if (compactTracking?.[0]) {
     const compact = compactTracking[0];
