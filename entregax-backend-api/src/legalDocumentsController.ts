@@ -237,24 +237,72 @@ export async function getLegalDocumentByType(req: Request, res: Response) {
 /**
  * Actualiza un documento legal
  * PUT /api/legal-documents/:id
+ *
+ * Antes de sobrescribir, archiva la versión que estaba activa en
+ * legal_document_versions para no perder el histórico (requerimiento
+ * legal: cualquier cambio queda auditable y se puede restaurar).
  */
 export async function updateLegalDocument(req: Request, res: Response) {
+  const client = await pool.connect();
   try {
     const { id } = req.params;
     const { title, content } = req.body;
-    const userId = (req as any).user?.id || null;
-    
+    const userId = (req as any).user?.id || (req as any).user?.userId || null;
+
     if (!title || !content) {
       return res.status(400).json({
         success: false,
         error: 'Título y contenido son requeridos'
       });
     }
-    
-    // Incrementar versión al actualizar
-    const result = await pool.query(`
-      UPDATE legal_documents 
-      SET 
+
+    await client.query('BEGIN');
+
+    // 1) Leer el estado actual y archivarlo en versions ANTES de modificar.
+    const currentRes = await client.query(
+      `SELECT id, document_type, title, content, version, last_updated_by, updated_at
+       FROM legal_documents WHERE id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (currentRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Documento no encontrado' });
+    }
+    const current = currentRes.rows[0];
+
+    // No archivar si no hubo cambios reales (evita inflar versiones por
+    // guardar dos veces lo mismo).
+    const titleChanged = String(current.title) !== String(title);
+    const contentChanged = String(current.content) !== String(content);
+    if (!titleChanged && !contentChanged) {
+      await client.query('ROLLBACK');
+      return res.json({
+        success: true,
+        message: 'Sin cambios — el documento ya estaba al día.',
+        document: current,
+      });
+    }
+
+    await client.query(
+      `INSERT INTO legal_document_versions
+        (document_id, document_type, title, content, version, saved_by, saved_at, replaced_by_user_id, replaced_at)
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8, NOW())`,
+      [
+        current.id,
+        current.document_type,
+        current.title,
+        current.content,
+        current.version,
+        current.last_updated_by,
+        current.updated_at,
+        userId,
+      ]
+    );
+
+    // 2) Aplicar la actualización con la nueva versión incrementada.
+    const result = await client.query(`
+      UPDATE legal_documents
+      SET
         title = $1,
         content = $2,
         version = version + 1,
@@ -263,33 +311,118 @@ export async function updateLegalDocument(req: Request, res: Response) {
       WHERE id = $4
       RETURNING *
     `, [title, content, userId, id]);
-    
-    if (result.rows.length === 0) {
-      return res.status(404).json({
-        success: false,
-        error: 'Documento no encontrado'
-      });
-    }
-    
-    // Registrar en historial
-    await pool.query(`
+
+    // Registrar en audit_log si existe (no rompe si no existe).
+    await client.query(`
       INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
       VALUES ('UPDATE_LEGAL_DOCUMENT', 'legal_documents', $1, $2, $3)
     `, [id, userId, JSON.stringify({ title, version: result.rows[0].version })]).catch(() => {
-      // Si no existe audit_log, ignorar
+      // tabla no presente — el versions ya garantiza la trazabilidad real.
     });
-    
+
+    await client.query('COMMIT');
+
     res.json({
       success: true,
       message: 'Documento actualizado correctamente',
       document: result.rows[0]
     });
   } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
     console.error('Error actualizando documento legal:', error);
     res.status(500).json({
       success: false,
       error: 'Error al actualizar documento'
     });
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Restaura un documento legal a una versión previa.
+ * POST /api/legal-documents/:id/versions/:versionId/restore
+ *
+ * El estado actual se archiva (igual que en updateLegalDocument) antes
+ * de sobrescribir con el contenido de la versión seleccionada.
+ */
+export async function restoreLegalDocumentVersion(req: Request, res: Response) {
+  const client = await pool.connect();
+  try {
+    const { id, versionId } = req.params;
+    const userId = (req as any).user?.id || (req as any).user?.userId || null;
+
+    await client.query('BEGIN');
+
+    const versionRes = await client.query(
+      `SELECT id, document_id, title, content, version
+       FROM legal_document_versions
+       WHERE id = $1 AND document_id = $2`,
+      [versionId, id]
+    );
+    if (versionRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Versión no encontrada' });
+    }
+    const target = versionRes.rows[0];
+
+    const currentRes = await client.query(
+      `SELECT id, document_type, title, content, version, last_updated_by, updated_at
+       FROM legal_documents WHERE id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (currentRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Documento no encontrado' });
+    }
+    const current = currentRes.rows[0];
+
+    // Archivar el estado actual antes de restaurar.
+    await client.query(
+      `INSERT INTO legal_document_versions
+        (document_id, document_type, title, content, version, saved_by, saved_at, replaced_by_user_id, replaced_at)
+       VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7, NOW()), $8, NOW())`,
+      [
+        current.id,
+        current.document_type,
+        current.title,
+        current.content,
+        current.version,
+        current.last_updated_by,
+        current.updated_at,
+        userId,
+      ]
+    );
+
+    // Sobrescribir el documento con la versión objetivo (incrementando
+    // version para mantener orden cronológico — restaurar es un cambio).
+    const result = await client.query(
+      `UPDATE legal_documents
+       SET title = $1, content = $2, version = version + 1, last_updated_by = $3, updated_at = NOW()
+       WHERE id = $4
+       RETURNING *`,
+      [target.title, target.content, userId, id]
+    );
+
+    await client.query(`
+      INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
+      VALUES ('RESTORE_LEGAL_DOCUMENT', 'legal_documents', $1, $2, $3)
+    `, [id, userId, JSON.stringify({ restored_from_version: target.version, new_version: result.rows[0].version })])
+    .catch(() => {});
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: `Documento restaurado a la versión ${target.version}.`,
+      document: result.rows[0],
+    });
+  } catch (error) {
+    try { await client.query('ROLLBACK'); } catch {}
+    console.error('Error restaurando versión:', error);
+    res.status(500).json({ success: false, error: 'Error al restaurar versión' });
+  } finally {
+    client.release();
   }
 }
 
@@ -342,37 +475,49 @@ export async function createLegalDocument(req: Request, res: Response) {
 }
 
 /**
- * Obtiene el historial de versiones de un documento
+ * Obtiene el historial de versiones de un documento.
  * GET /api/legal-documents/:id/history
+ *
+ * Devuelve cada snapshot completo (title + content + version) junto con
+ * quién la editó originalmente y quién la reemplazó. La UI usa esto
+ * para mostrar timeline + permitir vista previa y restaurar.
  */
 export async function getLegalDocumentHistory(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    
-    const result = await pool.query(`
-      SELECT 
-        al.id,
-        al.action,
-        al.details,
-        al.created_at,
-        u.name as updated_by_name
-      FROM audit_log al
-      LEFT JOIN users u ON u.id = al.user_id
-      WHERE al.entity_type = 'legal_documents' 
-        AND al.entity_id = $1
-      ORDER BY al.created_at DESC
-      LIMIT 20
-    `, [id]);
-    
+
+    const result = await pool.query(
+      `SELECT
+         v.id,
+         v.document_id,
+         v.document_type,
+         v.title,
+         v.content,
+         v.version,
+         v.saved_by,
+         v.saved_at,
+         v.replaced_by_user_id,
+         v.replaced_at,
+         saver.full_name AS saved_by_name,
+         replacer.full_name AS replaced_by_name
+       FROM legal_document_versions v
+       LEFT JOIN users saver ON saver.id = v.saved_by
+       LEFT JOIN users replacer ON replacer.id = v.replaced_by_user_id
+       WHERE v.document_id = $1
+       ORDER BY v.version DESC, v.replaced_at DESC
+       LIMIT 50`,
+      [id]
+    );
+
     res.json({
       success: true,
-      history: result.rows
+      history: result.rows,
     });
   } catch (error) {
     console.error('Error obteniendo historial:', error);
     res.json({
       success: true,
-      history: []
+      history: [],
     });
   }
 }

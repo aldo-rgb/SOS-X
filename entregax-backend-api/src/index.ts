@@ -946,6 +946,7 @@ import {
   updateLegalDocument,
   createLegalDocument,
   getLegalDocumentHistory,
+  restoreLegalDocumentVersion,
   getPublicServiceContract,
   getPublicPrivacyNotice,
   getPublicAdvisorPrivacyNotice,
@@ -7841,9 +7842,10 @@ app.get('/api/legal-documents', authenticateToken, requireRole('super_admin', 'a
 // consultan desde el onboarding del cliente (Verificación de Identidad
 // paso 4) ANTES de tener token, así que no exigimos auth aquí.
 app.get('/api/legal-documents/:type', getLegalDocumentByType);
-app.post('/api/legal-documents', authenticateToken, requireRole('super_admin'), createLegalDocument);
-app.put('/api/legal-documents/:id', authenticateToken, requireRole('super_admin'), updateLegalDocument);
-app.get('/api/legal-documents/:id/history', authenticateToken, requireRole('super_admin'), getLegalDocumentHistory);
+app.post('/api/legal-documents', authenticateToken, requireRole('super_admin', 'abogado'), createLegalDocument);
+app.put('/api/legal-documents/:id', authenticateToken, requireRole('super_admin', 'abogado'), updateLegalDocument);
+app.get('/api/legal-documents/:id/history', authenticateToken, requireRole('super_admin', 'abogado'), getLegalDocumentHistory);
+app.post('/api/legal-documents/:id/versions/:versionId/restore', authenticateToken, requireRole('super_admin', 'abogado'), restoreLegalDocumentVersion);
 
 // Endpoints públicos para apps
 app.get('/api/public/legal/service-contract', getPublicServiceContract);
@@ -8108,6 +8110,28 @@ async function ensureRequiredColumns() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_aep_user ON accountant_emitter_permissions(user_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_aep_emitter ON accountant_emitter_permissions(fiscal_emitter_id)`);
+
+    // Versionado de documentos legales: cada vez que un super_admin/abogado
+    // edita un documento, archivamos la versión que estaba activa con todo
+    // su contenido. Permite ver el histórico y restaurar versiones previas
+    // — crítico para documentos con valor legal donde no podemos perder
+    // ningún cambio.
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS legal_document_versions (
+        id SERIAL PRIMARY KEY,
+        document_id INTEGER NOT NULL,
+        document_type VARCHAR(64) NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        saved_by INTEGER REFERENCES users(id),
+        saved_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        replaced_by_user_id INTEGER REFERENCES users(id),
+        replaced_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_version ON legal_document_versions(document_id, version DESC)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_saved_at ON legal_document_versions(document_id, saved_at DESC)`);
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }

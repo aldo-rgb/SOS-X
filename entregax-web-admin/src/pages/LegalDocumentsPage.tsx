@@ -22,6 +22,9 @@ import EditIcon from '@mui/icons-material/Edit';
 import DescriptionIcon from '@mui/icons-material/Description';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import HistoryIcon from '@mui/icons-material/History';
+import RestoreIcon from '@mui/icons-material/Restore';
+import { List, ListItem, ListItemText, IconButton, Tooltip } from '@mui/material';
 import axios from 'axios';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -73,6 +76,68 @@ export default function LegalDocumentsPage() {
   const [editTitle, setEditTitle] = useState('');
   const [editContent, setEditContent] = useState('');
   const [currentDoc, setCurrentDoc] = useState<LegalDocument | null>(null);
+
+  // Estados de versiones / historial
+  interface DocumentVersion {
+    id: number;
+    document_id: number;
+    document_type: string;
+    title: string;
+    content: string;
+    version: number;
+    saved_by: number | null;
+    saved_at: string;
+    replaced_by_user_id: number | null;
+    replaced_at: string;
+    saved_by_name: string | null;
+    replaced_by_name: string | null;
+  }
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyVersions, setHistoryVersions] = useState<DocumentVersion[]>([]);
+  const [versionPreview, setVersionPreview] = useState<DocumentVersion | null>(null);
+  const [restoring, setRestoring] = useState(false);
+
+  const openHistory = async () => {
+    if (!currentDoc) return;
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await axios.get(`${API_URL}/legal-documents/${currentDoc.id}/history`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data?.success) {
+        setHistoryVersions(response.data.history || []);
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al cargar historial');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const handleRestoreVersion = async (version: DocumentVersion) => {
+    if (!currentDoc) return;
+    if (!confirm(`¿Restaurar el documento a la versión ${version.version}? El estado actual quedará archivado en el historial.`)) return;
+    setRestoring(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(
+        `${API_URL}/legal-documents/${currentDoc.id}/versions/${version.id}/restore`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setSuccess(`Documento restaurado a la versión ${version.version}`);
+      setHistoryOpen(false);
+      setVersionPreview(null);
+      fetchDocuments();
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Error al restaurar versión');
+    } finally {
+      setRestoring(false);
+    }
+  };
 
   useEffect(() => {
     fetchDocuments();
@@ -283,6 +348,15 @@ export default function LegalDocumentsPage() {
                 <Box sx={{ display: 'flex', gap: 1 }}>
                   <Button
                     variant="outlined"
+                    startIcon={<HistoryIcon />}
+                    onClick={openHistory}
+                    size="small"
+                    sx={{ borderColor: '#6B7280', color: '#374151' }}
+                  >
+                    Versiones
+                  </Button>
+                  <Button
+                    variant="outlined"
                     startIcon={<VisibilityIcon />}
                     onClick={() => handlePreview(doc)}
                     size="small"
@@ -430,6 +504,122 @@ export default function LegalDocumentsPage() {
           <Button onClick={() => setPreviewOpen(false)}>
             Cerrar
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog de Historial de Versiones */}
+      <Dialog
+        open={historyOpen}
+        onClose={() => { setHistoryOpen(false); setVersionPreview(null); }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#111', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <HistoryIcon />
+          {versionPreview
+            ? `Versión ${versionPreview.version} — ${currentDoc?.title || ''}`
+            : `Historial de versiones — ${currentDoc?.title || ''}`}
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {historyLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : versionPreview ? (
+            <Box sx={{ p: 3 }}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', mb: 2 }}>
+                <Chip label={`v${versionPreview.version}`} size="small" sx={{ bgcolor: '#F05A28', color: 'white' }} />
+                <Typography variant="caption" color="text.secondary">
+                  Editado por <strong>{versionPreview.saved_by_name || 'Desconocido'}</strong> el {new Date(versionPreview.saved_at).toLocaleString('es-MX')}
+                </Typography>
+              </Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                Reemplazada por <strong>{versionPreview.replaced_by_name || 'Desconocido'}</strong> el {new Date(versionPreview.replaced_at).toLocaleString('es-MX')}
+              </Typography>
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                {versionPreview.title}
+              </Typography>
+              <Box sx={{ bgcolor: '#FAFAFA', p: 2, borderRadius: 1, maxHeight: 360, overflow: 'auto', border: '1px solid #E5E7EB' }}>
+                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', fontFamily: 'monospace', color: '#374151' }}>
+                  {versionPreview.content}
+                </Typography>
+              </Box>
+            </Box>
+          ) : historyVersions.length === 0 ? (
+            <Box sx={{ p: 4, textAlign: 'center', color: 'text.secondary' }}>
+              <Typography variant="body2">
+                Aún no hay versiones archivadas. Las versiones se generan automáticamente cada vez que alguien edita el documento.
+              </Typography>
+            </Box>
+          ) : (
+            <List sx={{ p: 0 }}>
+              {historyVersions.map((v) => (
+                <ListItem
+                  key={v.id}
+                  divider
+                  secondaryAction={
+                    <Box sx={{ display: 'flex', gap: 1 }}>
+                      <Tooltip title="Ver contenido">
+                        <IconButton size="small" onClick={() => setVersionPreview(v)}>
+                          <VisibilityIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Restaurar esta versión">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleRestoreVersion(v)}
+                          disabled={restoring}
+                          sx={{ color: '#F05A28' }}
+                        >
+                          <RestoreIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    </Box>
+                  }
+                >
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Chip label={`v${v.version}`} size="small" sx={{ bgcolor: '#F3F4F6' }} />
+                        <Typography variant="body2" fontWeight={600}>{v.title}</Typography>
+                      </Box>
+                    }
+                    secondary={
+                      <>
+                        <Typography variant="caption" color="text.secondary" component="span">
+                          Editado por <strong>{v.saved_by_name || '—'}</strong> el {new Date(v.saved_at).toLocaleString('es-MX')}
+                        </Typography>
+                        <br />
+                        <Typography variant="caption" color="text.secondary" component="span">
+                          Reemplazada el {new Date(v.replaced_at).toLocaleString('es-MX')}
+                          {v.replaced_by_name ? ` por ${v.replaced_by_name}` : ''}
+                        </Typography>
+                      </>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          {versionPreview ? (
+            <>
+              <Button onClick={() => setVersionPreview(null)}>Volver al listado</Button>
+              <Button
+                variant="contained"
+                startIcon={restoring ? <CircularProgress size={18} color="inherit" /> : <RestoreIcon />}
+                onClick={() => handleRestoreVersion(versionPreview)}
+                disabled={restoring}
+                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D94A20' } }}
+              >
+                Restaurar esta versión
+              </Button>
+            </>
+          ) : (
+            <Button onClick={() => setHistoryOpen(false)}>Cerrar</Button>
+          )}
         </DialogActions>
       </Dialog>
 
