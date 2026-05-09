@@ -503,6 +503,9 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
         OR COALESCE(u.full_name, '') ILIKE $${i}
         OR COALESCE(u.box_id, '') ILIKE $${i}
         OR COALESCE(u.email, '') ILIKE $${i}
+        OR COALESCE(lc.full_name, '') ILIKE $${i}
+        OR COALESCE(lc.box_id, '') ILIKE $${i}
+        OR COALESCE(p.box_id, '') ILIKE $${i}
       )`;
     }
 
@@ -517,6 +520,8 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
     const baseFrom = `
       FROM packages p
       LEFT JOIN users u ON u.id = p.user_id
+      LEFT JOIN legacy_clients lc ON p.user_id IS NULL
+                                  AND UPPER(COALESCE(p.box_id, '')) = UPPER(lc.box_id)
       LEFT JOIN china_receipts cr ON cr.id = p.china_receipt_id
     `;
 
@@ -547,15 +552,16 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
           END AS received_at,
           COALESCE(p.missing_on_arrival, FALSE) AS missing_on_arrival,
           u.id AS user_id,
-          u.full_name AS user_name,
-          u.box_id AS user_box_id,
-          u.email AS user_email
+          COALESCE(NULLIF(u.full_name, ''), NULLIF(lc.full_name, '')) AS user_name,
+          COALESCE(NULLIF(u.box_id, ''), NULLIF(lc.box_id, ''), NULLIF(p.box_id, '')) AS user_box_id,
+          COALESCE(NULLIF(u.email, ''), NULLIF(lc.email, '')) AS user_email,
+          lc.id AS legacy_client_id
         ${baseFrom}
         ${where}
         ORDER BY
           ${search && String(search).trim() !== ''
-            ? `NULLIF(regexp_replace(COALESCE(u.box_id, ''), '\\D', '', 'g'), '')::bigint ASC NULLS LAST,
-               u.box_id ASC NULLS LAST,
+            ? `NULLIF(regexp_replace(COALESCE(NULLIF(u.box_id, ''), NULLIF(lc.box_id, ''), NULLIF(p.box_id, ''), ''), '\\D', '', 'g'), '')::bigint ASC NULLS LAST,
+               COALESCE(NULLIF(u.box_id, ''), NULLIF(lc.box_id, ''), NULLIF(p.box_id, '')) ASC NULLS LAST,
                p.updated_at DESC NULLS LAST,`
             : ''}
           p.updated_at DESC NULLS LAST, p.created_at DESC
