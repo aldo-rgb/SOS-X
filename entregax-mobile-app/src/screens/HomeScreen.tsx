@@ -261,6 +261,15 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       const sumCost = sorted.reduce((s, k) => s + (Number((k as any).assigned_cost_mxn) || 0), 0);
       const allPaid = sorted.every(k => (k as any).client_paid === true);
       const repr = sorted[0];
+      // El status del master no puede ser simplemente el de sorted[0] —
+      // si la caja -001 ya se entregó pero las demás no, el master mentiría
+      // diciendo "Entregado". Solo es delivered si TODAS las hijas lo están;
+      // si no, tomamos el status de la primera hija aún en tránsito para
+      // que el cliente vea el estado real del envío.
+      const allDelivered = sorted.every(k => k.status === 'delivered');
+      const masterStatus = allDelivered
+        ? 'delivered'
+        : (sorted.find(k => k.status !== 'delivered')?.status || repr.status);
       const virtualMaster: Package = {
         ...repr,
         id: repr.id,
@@ -269,6 +278,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         weight: sumWeight || null,
         declared_value: sumDeclared || null,
         is_master: true,
+        status: masterStatus,
         total_boxes: sorted.length,
         ...(allPaid ? { client_paid: true } as any : {}),
         ...({

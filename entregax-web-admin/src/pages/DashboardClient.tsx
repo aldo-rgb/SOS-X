@@ -2679,9 +2679,19 @@ export default function DashboardClient() {
       const sumDeclared = sorted.reduce((s, k) => s + (Number(k.declared_value) || 0), 0);
       const sumMonto = sorted.reduce((s, k) => s + (Number(k.monto) || 0), 0);
       const allPaid = sorted.every(k => k.client_paid === true);
-      // Status / status_label: usamos el del primer hijo más reciente (todos
-      // del mismo embarque suelen estar en el mismo punto del flujo).
+      // Status del master agregado: NO podemos heredar el de sorted[0] tal cual,
+      // porque si la caja -001 ya está entregada pero el resto sigue en
+      // tránsito, el master mostraría "Entregado" mintiéndole al cliente.
+      // Solo marcamos delivered cuando TODAS las hijas lo están; si no,
+      // tomamos el status de la primera hija aún en tránsito.
       const repr = sorted[0];
+      const allDelivered = sorted.every(k => k.status === 'delivered');
+      const masterStatus = allDelivered
+        ? 'delivered'
+        : (sorted.find(k => k.status !== 'delivered')?.status || repr.status);
+      const masterStatusLabel = allDelivered
+        ? (repr.status_label || 'Entregado')
+        : (sorted.find(k => k.status !== 'delivered')?.status_label || repr.status_label);
       const virtualMaster: PackageTracking = {
         ...repr,
         // Sintético — id positivo no usado, usa el id del primer hijo como
@@ -2696,6 +2706,8 @@ export default function DashboardClient() {
         monto: sumMonto,
         client_paid: allPaid,
         is_master: true,
+        status: masterStatus,
+        status_label: masterStatusLabel,
         total_boxes: sorted.length,
         included_guides: sorted.map((k) => ({
           id: k.id,
