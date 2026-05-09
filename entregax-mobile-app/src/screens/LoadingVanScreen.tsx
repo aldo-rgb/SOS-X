@@ -203,6 +203,11 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const hasAskedModeRef = useRef(false);
   const manualInputRef = useRef<TextInput | null>(null);
   const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Detector de ritmo de tecleo: una pistola HID escribe a ~10ms/char,
+  // un humano teclea a >120ms/char. Mantenemos los últimos delays para
+  // decidir si fue scan o tecleo manual y NO auto-enviar al humano.
+  const lastInputTimeRef = useRef<number>(0);
+  const recentDelaysRef = useRef<number[]>([]);
 
   useEffect(() => {
     loadRouteData();
@@ -422,7 +427,27 @@ export default function LoadingVanScreen({ navigation, route }: any) {
 
   // Auto-submit: la mayoría de scanners USB/HID escriben rápido sin ENTER.
   // Si el código deja de cambiar por ~250ms y parece válido, lo enviamos solos.
+  // PERO sólo auto-enviamos si el ritmo de entrada es de pistola (chars
+  // separados <80ms entre sí). Cuando el operador teclea a mano, los
+  // delays son >120ms y no debemos atropellarlo enviando antes de tiempo.
   const handleScannerInputChange = (raw: string) => {
+    const now = Date.now();
+    const prev = lastInputTimeRef.current;
+    if (prev > 0) {
+      const delta = now - prev;
+      // Mantenemos sólo las últimas 4 deltas para no acumular historial viejo.
+      recentDelaysRef.current.push(delta);
+      if (recentDelaysRef.current.length > 4) {
+        recentDelaysRef.current.shift();
+      }
+    }
+    lastInputTimeRef.current = now;
+    // Si el campo se vacía (después de submit), reseteamos el detector.
+    if (raw.length === 0) {
+      recentDelaysRef.current = [];
+      lastInputTimeRef.current = 0;
+    }
+
     setManualCode(raw);
 
     if (autoSubmitTimer.current) {
@@ -434,11 +459,20 @@ export default function LoadingVanScreen({ navigation, route }: any) {
     // Solo auto-enviar si parece un tracking razonable (>=8 chars, alfanumérico)
     if (!normalized || normalized.length < 8) return;
 
+    // Heurística pistola vs teclado: necesitamos ≥3 deltas y promedio <80ms.
+    const deltas = recentDelaysRef.current;
+    const looksLikeScanner =
+      deltas.length >= 3 &&
+      deltas.reduce((s, d) => s + d, 0) / deltas.length < 80;
+    if (!looksLikeScanner) return;
+
     autoSubmitTimer.current = setTimeout(async () => {
       if (isScanning) return;
       const code = normalizeScanCode(raw);
       if (!code) return;
       setManualCode('');
+      recentDelaysRef.current = [];
+      lastInputTimeRef.current = 0;
       await processScanCode(code, 'scanner');
     }, 250);
   };
