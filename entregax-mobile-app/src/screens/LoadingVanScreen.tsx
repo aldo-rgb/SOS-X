@@ -125,11 +125,14 @@ const normalizeScanCode = (rawCode: string): string => {
     .replace(/\s+/g, '')
     .toUpperCase();
 
-  // Match canónico SOLO con prefijos de servicio conocidos. Antes el
-  // regex era `[A-Z]{2,}-[A-Z0-9]{2,}` y para entrada
+  // Match canónico SOLO con prefijos de servicio conocidos Y guión presente.
+  // Antes el regex era `[A-Z]{2,}-[A-Z0-9]{2,}` y para entrada
   // `AIR2610265SCHJM-040` agarraba `SCHJM-040` (5 letras seguidas + dash)
-  // truncando todo el master. Ahora anclamos al prefijo del servicio.
-  const canonicalTracking = code.match(/(?:AIR|LOG|DHL|AA|US|CN|MX)[A-Z0-9]+(?:-[A-Z0-9]+)*/);
+  // truncando todo el master. Después de anclar al prefijo, surgió OTRO
+  // problema: para input sin guión como `LOG26CNMX0007701` el regex
+  // matcheaba todo el string como "ya canónico" y se brincaba la lógica
+  // de inserción de guión más abajo. Por eso ahora exigimos `-` explícito.
+  const canonicalTracking = code.match(/(?:AIR|LOG|DHL|AA|US|CN|MX)[A-Z0-9]+-[A-Z0-9]+(?:-[A-Z0-9]+)*/);
   if (canonicalTracking?.[0]) {
     return canonicalTracking[0];
   }
