@@ -128,7 +128,7 @@ const generatePaymentReference = (prefix: string = 'PB'): string => {
 };
 
 // Verificar si alguno de los paquetes ya está en una orden de pago pendiente
-const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: number): Promise<{ hasDuplicates: boolean; duplicates: { packageId: number; reference: string }[] }> => {
+const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: number): Promise<{ hasDuplicates: boolean; duplicates: { packageId: number; reference: string; tracking?: string }[] }> => {
     // 1) Auto-cancelar órdenes pendientes "huérfanas" (>30 min sin completarse) del usuario.
     //    Esto evita que un intento abandonado bloquee nuevos pagos de los mismos paquetes.
     try {
@@ -143,16 +143,28 @@ const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: numb
         console.warn('⚠️ No se pudieron limpiar órdenes pendientes antiguas:', cleanupErr);
     }
 
+    // El match es por package_id exacto (id de la fila de la guía hija).
+    // Joineamos con packages/maritime_orders/dhl_shipments para devolver el
+    // tracking real al frontend y que el usuario pueda ver cuál paquete
+    // específicamente está bloqueado, no una lista de IDs internos.
     const result = await pool.query(`
-        SELECT pp.payment_reference, pkg_id::int as package_id
+        SELECT pp.payment_reference, pkg_id::int as package_id,
+               COALESCE(p.tracking_internal, mo.ordersn, dh.inbound_tracking) AS tracking
         FROM pobox_payments pp,
              jsonb_array_elements(pp.package_ids) AS pkg_id
+        LEFT JOIN packages p ON p.id = pkg_id::int
+        LEFT JOIN maritime_orders mo ON mo.id = pkg_id::int
+        LEFT JOIN dhl_shipments dh ON dh.id = pkg_id::int
         WHERE pp.user_id = $1
           AND pp.status IN ('pending', 'pending_payment')
           AND pkg_id::int = ANY($2)
     `, [userId, packageIds]);
-    
-    const duplicates = result.rows.map((r: any) => ({ packageId: r.package_id, reference: r.payment_reference }));
+
+    const duplicates = result.rows.map((r: any) => ({
+        packageId: r.package_id,
+        reference: r.payment_reference,
+        tracking: r.tracking || undefined,
+    }));
     return { hasDuplicates: duplicates.length > 0, duplicates };
 };
 
@@ -737,17 +749,49 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         const hasAir = packagesCheck.rows.some(p => p.service_type === 'AIR_CHN_MX');
         const serviceTypeForConfig = hasMaritime ? 'SEA_CHN_MX' : hasDhl ? 'AA_DHL' : hasAir ? 'AIR_CHN_MX' : 'POBOX_USA';
 
-        // Verificar que ningún paquete esté ya en una orden de pago pendiente
+        // Verificar duplicados: paquetes que YA están en otra orden pendiente.
+        // Antes esto rechazaba TODA la selección con 400 si algún paquete
+        // estaba duplicado. Ahora simplemente filtramos los duplicados de
+        // packageIds y procesamos los demás. El frontend recibe en la
+        // respuesta excluded_duplicates con tracking + referencia, así el
+        // usuario sabe qué se omitió y por qué.
         const dupCheck = await checkDuplicatePackagesInOrders(packageIds, userId);
+        const duplicateIds = new Set(dupCheck.duplicates.map(d => Number(d.packageId)));
+        const filteredPackageIds: number[] = (packageIds as number[]).filter(
+            (id) => !duplicateIds.has(Number(id))
+        );
 
-        // ✨ NUEVO: Verificar si ya existe un pago pendiente para estos mismos paquetes (match exacto)
-        const sortedPackageIds = [...packageIds].sort((a, b) => a - b);
+        if (filteredPackageIds.length === 0) {
+            const dupRefs = [...new Set(dupCheck.duplicates.map(d => d.reference))];
+            return res.status(400).json({
+                error: 'Todos los paquetes ya están en otra orden de pago',
+                message: `Todos los paquetes seleccionados ya están en órdenes pendientes (${dupRefs.join(', ')}). Cancela o paga esa orden primero.`,
+                duplicates: dupCheck.duplicates,
+            });
+        }
+
+        // Recalculamos totalAmount sumando solo los paquetes que quedan,
+        // para no cobrar de más por los que se filtraron.
+        const filteredRows = packagesCheck.rows.filter(
+            (r: any) => !duplicateIds.has(Number(r.id))
+        );
+        const recalculatedAmount = filteredRows.reduce(
+            (sum: number, r: any) => sum + Number(r.assigned_cost_mxn || 0),
+            0
+        );
+        const finalTotalAmount =
+            recalculatedAmount > 0 && duplicateIds.size > 0
+                ? recalculatedAmount
+                : Number(totalAmount);
+
+        // ✨ Verificar si ya existe un pago pendiente para EXACTAMENTE estos paquetes (post-filtrado)
+        const sortedPackageIds = [...filteredPackageIds].sort((a, b) => a - b);
         const existingPayment = await pool.query(`
-            SELECT 
-                pp.id, pp.payment_reference, pp.amount, pp.currency, 
+            SELECT
+                pp.id, pp.payment_reference, pp.amount, pp.currency,
                 pp.expires_at, pp.created_at, pp.status
             FROM pobox_payments pp
-            WHERE pp.user_id = $1 
+            WHERE pp.user_id = $1
               AND pp.status IN ('pending', 'pending_payment')
               AND pp.payment_method = 'cash'
               AND pp.package_ids::jsonb @> $2::jsonb
@@ -757,15 +801,8 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             LIMIT 1
         `, [userId, JSON.stringify(sortedPackageIds)]);
 
-        // Si hay duplicados pero NO hay match exacto, rechazar (evita órdenes con paquetes solapados)
-        if (dupCheck.hasDuplicates && existingPayment.rows.length === 0) {
-            const dupRefs = [...new Set(dupCheck.duplicates.map(d => d.reference))];
-            return res.status(400).json({ 
-                error: 'Paquetes ya en orden de pago',
-                message: `Algunos paquetes ya están en una orden de pago pendiente (${dupRefs.join(', ')}). Cancela o paga esa orden primero.`,
-                duplicates: dupCheck.duplicates
-            });
-        }
+        // (Antes acá rechazábamos toda la orden si había overlap; ahora ya
+        // filtramos esos package_ids más arriba y seguimos con los demás.)
 
         // Si ya existe un pago pendiente válido, devolver ese
         if (existingPayment.rows.length > 0) {
@@ -908,26 +945,28 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         }
 
         // Crear registro de pago (sin vencimiento para pagos en efectivo/sucursal)
+        // Usamos los paquetes filtrados (sin duplicados con otras órdenes
+        // pendientes) y el monto recalculado.
         const paymentResult = await pool.query(`
             INSERT INTO pobox_payments (
-                user_id, package_ids, amount, currency, payment_method, 
+                user_id, package_ids, amount, currency, payment_method,
                 payment_reference, status, created_at
-            ) VALUES ($1, $2, $3, $4, 'cash', $5, 'pending_payment', 
+            ) VALUES ($1, $2, $3, $4, 'cash', $5, 'pending_payment',
                       CURRENT_TIMESTAMP)
             RETURNING id
-        `, [userId, JSON.stringify(packageIds), totalAmount, currency, paymentRef]);
+        `, [userId, JSON.stringify(filteredPackageIds), finalTotalAmount, currency, paymentRef]);
 
         const payment = paymentResult.rows[0];
 
-        // Obtener lista de guías para mostrar
-        const trackings = packagesCheck.rows.map(p => p.tracking_internal).join(', ');
+        // Obtener lista de guías para mostrar (sólo las efectivamente cobradas)
+        const trackings = filteredRows.map((p: any) => p.tracking_internal).join(', ');
 
         // ✨ NUEVO: Crear registro en openpay_webhook_logs como "pending_payment" para el dashboard
         try {
             await pool.query(`
                 INSERT INTO openpay_webhook_logs (
                     transaction_id, empresa_id, user_id, monto_recibido, monto_neto,
-                    concepto, fecha_pago, estatus_procesamiento, service_type, 
+                    concepto, fecha_pago, estatus_procesamiento, service_type,
                     payment_method, payload_json, branch_id
                 ) VALUES (
                     $1, $2, $3, $4, $4,
@@ -935,15 +974,14 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                     'cash', $6, $7
                 )
             `, [
-                paymentRef, 
-                empresaId, 
-                userId, 
-                totalAmount,
-                `Pago en espera - ${packagesCheck.rows.length} paquete(s): ${trackings}`,
-                JSON.stringify({ 
-                    packageIds, 
+                paymentRef,
+                empresaId,
+                userId,
+                finalTotalAmount,
+                `Pago en espera - ${filteredRows.length} paquete(s): ${trackings}`,
+                JSON.stringify({
+                    packageIds: filteredPackageIds,
                     payment_id: payment.id,
-
                     trackings: trackings
                 }),
                 branchId || null,
@@ -954,7 +992,7 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             console.log('Nota: No se pudo crear log en dashboard', logError);
         }
 
-        console.log(`💵 PO Box Pago en efectivo creado: ${paymentRef} - $${totalAmount} ${currency}`);
+        console.log(`💵 PO Box Pago en efectivo creado: ${paymentRef} - $${finalTotalAmount} ${currency}`);
 
         // Información bancaria para transferencia SPEI
         const bankInfo = {
@@ -985,14 +1023,16 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             };
         }
 
-        res.json({ 
+        res.json({
             success: true,
             paymentId: payment.id,
             reference: paymentRef,
-            amount: totalAmount,
+            amount: finalTotalAmount,
             currency: currency,
-
             trackings: trackings,
+            // Si filtramos algunos paquetes por ya estar en otra orden,
+            // los reportamos para que el frontend pueda avisar al usuario.
+            excluded_duplicates: dupCheck.duplicates.length > 0 ? dupCheck.duplicates : undefined,
             bankInfo: bankInfo,
             branchInfo: {
                 nombre: branchInfo.name,
@@ -1001,8 +1041,8 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
                 horario: branchInfo.business_hours
             },
             instructions: {
-                transfer: `1. Realiza la transferencia SPEI por $${totalAmount.toFixed(2)} ${currency}\n2. Usa como concepto: ${paymentRef}\n3. Una vez recibido el pago, tus paquetes serán procesados`,
-                cash: `1. Acude a nuestra sucursal\n2. Proporciona tu referencia: ${paymentRef}\n3. Realiza el pago de $${totalAmount.toFixed(2)} ${currency}\n4. Conserva tu comprobante`
+                transfer: `1. Realiza la transferencia SPEI por $${finalTotalAmount.toFixed(2)} ${currency}\n2. Usa como concepto: ${paymentRef}\n3. Una vez recibido el pago, tus paquetes serán procesados`,
+                cash: `1. Acude a nuestra sucursal\n2. Proporciona tu referencia: ${paymentRef}\n3. Realiza el pago de $${finalTotalAmount.toFixed(2)} ${currency}\n4. Conserva tu comprobante`
             }
         });
 
