@@ -3069,8 +3069,23 @@ export default function DashboardClient() {
           // Deseleccionar todas las hijas
           return prev.filter(p => !airGroup.includes(p));
         }
-        // Seleccionar todas las que falten
-        return [...new Set([...prev, ...airGroup])];
+        // ⚠️ No mezclar AIR con otros servicios. Si ya había selección de otra
+        // categoría, descartamos esas y dejamos sólo las hijas AIR. Avisamos
+        // al usuario en un snackbar.
+        const newCat = getServiceCategory(pkg.servicio);
+        const cleaned = prev.filter(sid => {
+          const sp = packages.find(p => p.id === sid);
+          return getServiceCategory(sp?.servicio) === newCat;
+        });
+        const droppedCount = prev.length - cleaned.length;
+        if (droppedCount > 0) {
+          setSnackbar({
+            open: true,
+            message: `⚠️ Se quitaron ${droppedCount} guía(s) de otro tipo de servicio. Solo se pueden pagar guías AIR juntas.`,
+            severity: 'warning',
+          });
+        }
+        return [...new Set([...cleaned, ...airGroup])];
       });
       return;
     }
@@ -3108,7 +3123,19 @@ export default function DashboardClient() {
       }
     }
 
-    const selectableIds = selectablePackages.map(p => p.id);
+    // Para masters virtuales AIR, expandimos a TODAS las hijas reales antes
+    // de armar el set — si no, sólo agregaríamos el id del primer hijo y
+    // el dialog mostraría 1 guía de las 40.
+    const expandedIds = new Set<number>();
+    for (const p of selectablePackages) {
+      const airGroup = (p as PackageTracking & { _airGroupChildIds?: number[] })._airGroupChildIds;
+      if (airGroup && airGroup.length > 0) {
+        for (const cid of airGroup) expandedIds.add(cid);
+      } else {
+        expandedIds.add(p.id);
+      }
+    }
+    const selectableIds = Array.from(expandedIds);
     const allSelected = selectableIds.every(id => selectedPackageIds.includes(id));
 
     if (allSelected) {
