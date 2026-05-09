@@ -594,6 +594,40 @@ export const startFacturapiSyncCron = () => {
 };
 
 /**
+ * CRON JOB: Auto-checkout de empleados que no marcaron salida.
+ * Se ejecuta justo después de medianoche (00:01). Para cualquier
+ * attendance_log de días anteriores con check_in_time pero sin
+ * check_out_time, marcamos check_out a las 19:00 hrs (7 PM) de ese
+ * mismo día. El check_out_address queda con un marcador "AUTO:" para
+ * que en reportes se distinga del check-out manual del empleado.
+ */
+export const startAutoCheckoutCron = () => {
+  cron.schedule('1 0 * * *', async () => {
+    console.log('⏰ [CRON] Auto-checkout: cerrando jornadas sin salida registrada...');
+    try {
+      const result = await pool.query(`
+        UPDATE attendance_logs
+        SET
+          check_out_time = (date::timestamp + INTERVAL '19 hours'),
+          check_out_address = COALESCE(check_out_address, 'AUTO: Salida no registrada por el empleado')
+        WHERE date < CURRENT_DATE
+          AND check_in_time IS NOT NULL
+          AND check_out_time IS NULL
+        RETURNING id, user_id, date
+      `);
+      if (result.rowCount && result.rowCount > 0) {
+        console.log(`✅ [CRON] Auto-checkout aplicado a ${result.rowCount} jornada(s) (7 PM por defecto)`);
+      } else {
+        console.log('✅ [CRON] Auto-checkout: nada que cerrar');
+      }
+    } catch (error: any) {
+      console.error('❌ [CRON] Error en auto-checkout:', error.message);
+    }
+  });
+  console.log('📅 [CRON] Job de auto-checkout programado: 00:01 diario (cierra jornadas sin salida a las 19:00)');
+};
+
+/**
  * Inicializar todos los CRON jobs
  */
 export const initCronJobs = () => {
@@ -608,6 +642,7 @@ export const initCronJobs = () => {
   startCarteraVencidaCron();
   startMJCustomerSyncCron();
   startFacturapiSyncCron();
+  startAutoCheckoutCron();
 };
 
 export default initCronJobs;

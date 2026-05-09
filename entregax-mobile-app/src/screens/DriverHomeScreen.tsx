@@ -855,8 +855,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   attendanceLeft: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    marginRight: 8,
   },
   attendanceIconBox: {
     width: 44,
