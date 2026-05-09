@@ -77,9 +77,12 @@ export default function CorporateFooter() {
         <Grid container spacing={4} justifyContent="center">
           {/* Marca + descripción */}
           <Grid item xs={12} md={4} sx={{ textAlign: 'center' }}>
-            <Typography variant="h5" fontWeight={800} sx={{ letterSpacing: 0.5 }}>
-              Entrega<span style={{ color: ORANGE }}>X</span>
-            </Typography>
+            <Box
+              component="img"
+              src="/logo.png"
+              alt="EntregaX"
+              sx={{ height: { xs: 38, md: 44 }, width: 'auto', display: 'inline-block' }}
+            />
             <Typography variant="body2" sx={{ color: TEXT_LIGHT, mt: 1.5, lineHeight: 1.7, mx: 'auto', maxWidth: 360 }}>
               Tu suite logística inteligente. Aéreo y marítimo desde China, PO Box USA y entrega nacional con trazabilidad total.
             </Typography>
