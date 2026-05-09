@@ -3762,7 +3762,7 @@ app.get('/api/admin/users', authenticateToken, requireMinLevel(ROLES.ADMIN), asy
       ${includeBranch ? ', b.name as branch_name' : ''}
       FROM users u
       ${includeBranch ? 'LEFT JOIN branches b ON u.branch_id = b.id' : ''}
-      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'advisor', 'sub_advisor', 'operaciones', 'director', 'admin', 'super_admin')
+      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'advisor', 'sub_advisor', 'operaciones', 'director', 'admin', 'super_admin', 'abogado')
       ORDER BY u.full_name
     `;
     
@@ -7836,7 +7836,7 @@ app.post('/api/firma-abandono/:token', firmarDocumentoAbandono); // Público
 // DOCUMENTOS LEGALES - Super Admin
 // Gestión de contratos y avisos de privacidad
 // ============================================
-app.get('/api/legal-documents', authenticateToken, requireRole('super_admin'), getAllLegalDocuments);
+app.get('/api/legal-documents', authenticateToken, requireRole('super_admin', 'abogado'), getAllLegalDocuments);
 app.get('/api/legal-documents/:type', authenticateToken, getLegalDocumentByType);
 app.post('/api/legal-documents', authenticateToken, requireRole('super_admin'), createLegalDocument);
 app.put('/api/legal-documents/:id', authenticateToken, requireRole('super_admin'), updateLegalDocument);
@@ -7851,31 +7851,12 @@ app.get('/api/public/legal/advisor-privacy-notice', getPublicAdvisorPrivacyNotic
 app.get('/legal/privacy-policy', renderPublicPrivacyPoliciesPage);
 app.get('/privacy-policy', renderPublicPrivacyPoliciesPage);
 
-// Manejador de rutas no encontradas (404) - Devolver JSON en lugar de HTML
-app.use((_req: Request, res: Response) => {
-  res.status(404).json({ 
-    error: 'Endpoint no encontrado',
-    message: 'La ruta solicitada no existe en esta API'
-  });
-});
-
-// Manejador de errores global - Siempre devolver JSON
-app.use((err: Error, req: Request, res: Response, _next: any) => {
-  // CORS: responder 403 sin stack trace (no es un "error interno")
-  if (err && err.message === 'Not allowed by CORS') {
-    console.warn(`[CORS] Rechazado: origin=${req.headers.origin} path=${req.path}`);
-    return res.status(403).json({ error: 'Origen no permitido' });
-  }
-  console.error('Error no manejado:', err);
-  console.error('Error stack:', (err as any)?.stack);
-  console.error('Error path:', req.path, 'method:', req.method);
-  res.status(500).json({ 
-    error: 'Error interno del servidor',
-    message: err.message || 'Algo salió mal',
-    code: (err as any).code,
-    type: (err as any).type
-  });
-});
+// NOTA: el manejador 404 (catchall) y el error handler global se MOVIERON
+// al final del archivo (justo antes de httpServer.listen) para que las
+// rutas registradas después de este punto — como las del SISTEMA DE PAGOS
+// (xpay-toggle, entregax-payments-toggle, payment-status, etc.) — sean
+// alcanzables. Antes el catchall vivía aquí y devolvía 404 a cualquier
+// ruta declarada más abajo.
 
 // Iniciar CRON Jobs para automatización
 import { initCronJobs } from './cronJobs';
@@ -8229,6 +8210,38 @@ app.post('/api/admin/system/entregax-payments-toggle', authenticateToken, requir
     console.error('[ENTREGAX-PAYMENTS-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de pagos EntregaX' });
   }
+});
+
+// ============================================================
+// MIDDLEWARES FINALES — deben ir DESPUÉS de TODAS las rutas
+// (si se registran antes, el catchall 404 atrapa cualquier ruta
+// declarada más abajo y nunca llega al handler real).
+// ============================================================
+
+// Manejador de rutas no encontradas (404) - Devolver JSON en lugar de HTML
+app.use((_req: Request, res: Response) => {
+  res.status(404).json({
+    error: 'Endpoint no encontrado',
+    message: 'La ruta solicitada no existe en esta API'
+  });
+});
+
+// Manejador de errores global - Siempre devolver JSON
+app.use((err: Error, req: Request, res: Response, _next: any) => {
+  // CORS: responder 403 sin stack trace (no es un "error interno")
+  if (err && err.message === 'Not allowed by CORS') {
+    console.warn(`[CORS] Rechazado: origin=${req.headers.origin} path=${req.path}`);
+    return res.status(403).json({ error: 'Origen no permitido' });
+  }
+  console.error('Error no manejado:', err);
+  console.error('Error stack:', (err as any)?.stack);
+  console.error('Error path:', req.path, 'method:', req.method);
+  res.status(500).json({
+    error: 'Error interno del servidor',
+    message: err.message || 'Algo salió mal',
+    code: (err as any).code,
+    type: (err as any).type
+  });
 });
 
 // Iniciar servidor (escuchar en todas las interfaces para acceso desde móvil)
