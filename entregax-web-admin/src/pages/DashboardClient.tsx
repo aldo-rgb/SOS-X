@@ -2512,13 +2512,28 @@ export default function DashboardClient() {
         });
         
         // Filtrar solo paquetes que existan realmente en la base de datos
-        const validPackages = (response.data.packages || []).filter((pkg: PackageTracking) => 
-          pkg.tracking && 
-          pkg.tracking !== 'US-IBZ57499' && 
-          pkg.tracking !== 'US-H6QN3188' && 
+        const validPackages = (response.data.packages || []).filter((pkg: PackageTracking) =>
+          pkg.tracking &&
+          pkg.tracking !== 'US-IBZ57499' &&
+          pkg.tracking !== 'US-H6QN3188' &&
           pkg.tracking !== 'US-YVYC5519'
         );
-        setPackages(validPackages);
+        // CRITICAL: backend mezcla filas de tablas independientes (packages, maritime_orders,
+        // dhl_shipments, containers) cuyas secuencias de id pueden colisionar. Si el id
+        // numérico coincide entre tablas, getSelectedPackages() retornaba ambas filas y la
+        // selección de un master AIR arrastraba paquetes maritimos sin querer. Deduplicamos
+        // por id manteniendo la primera ocurrencia (filas de packages vienen primero).
+        const seenIds = new Set<number>();
+        const dedupedPackages = validPackages.filter((pkg: PackageTracking) => {
+          if (pkg.id == null) return true;
+          if (seenIds.has(pkg.id)) {
+            console.warn(`⚠️ Colisión de id ${pkg.id} entre tablas — descartando duplicado: ${pkg.tracking} (${pkg.shipment_type})`);
+            return false;
+          }
+          seenIds.add(pkg.id);
+          return true;
+        });
+        setPackages(dedupedPackages);
         setInvoices(response.data.invoices || []);
         if (response.data.tipo_cambio_por_servicio) {
           setTipoCambioPorServicio(response.data.tipo_cambio_por_servicio);
@@ -2712,6 +2727,10 @@ export default function DashboardClient() {
   }, [packages, serviceFilter, searchTerm, historyPackages, instructionFilter]);
 
   // Contadores por tipo de servicio (para badges en botones de filtro)
+  // Importante: para AIR contamos cada grupo de hermanas (mismo prefijo
+  // AIR<X>-NNN) como UN master, igual que se muestran agrupadas en el listado.
+  // Si no agrupamos aquí, el badge mostraba 611 (suma de cajas) cuando en
+  // realidad hay 26 masters/multis visibles.
   const serviceCounts = useMemo(() => {
     const counts = {
       china_air: 0,
@@ -2720,11 +2739,24 @@ export default function DashboardClient() {
       dhl: 0,
       total: packages.length
     };
-    
+
+    const airGroupPrefixes = new Set<string>();
+
     packages.forEach(pkg => {
       const type = pkg.shipment_type || pkg.servicio;
       if (type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX') {
-        counts.china_air++;
+        // Agrupar hijas AIR<prefix>-NNN bajo el mismo master virtual
+        const tracking = String(pkg.tracking || '').toUpperCase();
+        const childMatch = tracking.match(/^(AIR[A-Z0-9]+)-(\d{2,4})$/i);
+        if (childMatch && !pkg.is_master && (!pkg.included_guides || pkg.included_guides.length === 0)) {
+          const prefix = childMatch[1].toUpperCase();
+          if (!airGroupPrefixes.has(prefix)) {
+            airGroupPrefixes.add(prefix);
+            counts.china_air++;
+          }
+        } else {
+          counts.china_air++;
+        }
       } else if (type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl' || type === 'FCL_CHN_MX') {
         counts.china_sea++;
       } else if (type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type) {
@@ -2733,7 +2765,7 @@ export default function DashboardClient() {
         counts.dhl++;
       }
     });
-    
+
     return counts;
   }, [packages]);
 
@@ -5449,11 +5481,20 @@ export default function DashboardClient() {
               {/* Botones de acción flotantes para paquetes seleccionados */}
               {getSelectedPayablePackages().length > 0 && (
                 <>
+                  {/* Pagar SOLO si TODAS las guías seleccionadas ya tienen
+                      instrucciones de entrega. Si falta alguna, ocultamos el
+                      botón y forzamos al cliente a usar Asignar Instrucciones. */}
+                  {getSelectedPayablePackages().every(pkg =>
+                    pkg.has_delivery_instructions ||
+                    pkg.delivery_address_id ||
+                    pkg.assigned_address_id ||
+                    (pkg.destination_address && pkg.destination_address !== 'Pendiente de asignar' && pkg.destination_contact)
+                  ) && (
                   <Button
                     variant="contained"
                     size="small"
-                    sx={{ 
-                      bgcolor: ORANGE, 
+                    sx={{
+                      bgcolor: ORANGE,
                       minWidth: 'auto',
                       position: 'fixed',
                       bottom: isMobile ? 70 : 20,
@@ -5547,6 +5588,7 @@ export default function DashboardClient() {
                   >
                     {isMobile ? 'Pagar' : t('cd.packages.pay')}
                   </Button>
+                  )}
 
                   {/* BOTÓN TEMPORAL DE PRUEBA - Oculto (cambiar SHOW_TEST_BUTTON a true para mostrar) */}
                   {SHOW_TEST_BUTTON && !isMobile && (
@@ -5585,7 +5627,30 @@ export default function DashboardClient() {
                       color="primary"
                       size="small"
                       startIcon={<EditIcon sx={{ fontSize: isMobile ? 16 : 20 }} />}
-                      onClick={() => setDeliveryModalOpen(true)}
+                      onClick={() => {
+                        // 🔒 Mismo safeguard que en Pagar: nunca mezclar AIR + maritime
+                        // (ni con DHL/POBOX) en una asignación de instrucciones.
+                        const selected = getSelectedPackages();
+                        const counts: Record<string, number> = {};
+                        for (const p of selected) {
+                          const c = getServiceCategory(p.servicio);
+                          counts[c] = (counts[c] || 0) + 1;
+                        }
+                        const cats = Object.keys(counts);
+                        if (cats.length > 1) {
+                          const dominant = cats.sort((a, b) => (counts[b]! - counts[a]!))[0]!;
+                          const droppedCount = selected.length - (counts[dominant] || 0);
+                          const cleaned = selected.filter(p => getServiceCategory(p.servicio) === dominant);
+                          setSelectedPackageIds(cleaned.map(p => p.id));
+                          setSnackbar({
+                            open: true,
+                            message: `⚠️ Se quitaron ${droppedCount} guía(s) de otro servicio. Solo se pueden asignar instrucciones a guías ${dominant.toUpperCase()} juntas.`,
+                            severity: 'warning',
+                          });
+                          return;
+                        }
+                        setDeliveryModalOpen(true);
+                      }}
                       sx={{ 
                         position: 'fixed',
                         bottom: isMobile ? 130 : 90,
