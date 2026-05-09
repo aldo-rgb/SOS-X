@@ -187,6 +187,9 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const [scannerActive, setScannerActive] = useState(true);
   const [lastScannedCode, setLastScannedCode] = useState<string>('');
   const [showPackageList, setShowPackageList] = useState(false);
+  // Masters (AIR/LOG) que el chofer expandió para ver sus 62/40 hijas.
+  // Por defecto colapsados — solo se muestra una línea por embarque.
+  const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
   const [scanMode, setScanMode] = useState<ScanMode>(initialScanMode);
   const [manualCode, setManualCode] = useState('');
   
@@ -484,6 +487,69 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const normalizePositiveInt = (value: any, fallback: number): number => {
     const parsed = Number(value);
     return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : fallback;
+  };
+
+  // Agrupa los paquetes por master tracking (LOG26CNMX00077-0001 →
+  // master "LOG26CNMX00077"). Los servicios sin master (DHL / POBOX
+  // sueltos) se exhiben como grupos de 1 para mantener la lista uniforme.
+  // Cada grupo muestra cuántas hijas están cargadas vs pendientes, y al
+  // expandir muestra las hijas individuales con su check correspondiente.
+  type MasterGroup = {
+    masterKey: string;
+    isVirtualMaster: boolean;
+    pending: PackageItem[];
+    loaded: PackageItem[];
+    representative: PackageItem;
+  };
+  const extractMasterKey = (tracking: string): { master: string; isMulti: boolean } => {
+    const tn = String(tracking || '').toUpperCase();
+    // LOG/AIR/DHL con sufijo -NNNN
+    const m = tn.match(/^([A-Z]{2,3}[A-Z0-9]+)-\d{1,4}$/);
+    if (m) return { master: m[1] as string, isMulti: true };
+    return { master: tn, isMulti: false };
+  };
+  const groupPackagesByMaster = (
+    pending: PackageItem[],
+    loaded: PackageItem[],
+  ): MasterGroup[] => {
+    const map = new Map<string, MasterGroup>();
+    const ensure = (pkg: PackageItem): MasterGroup => {
+      const { master, isMulti } = extractMasterKey(pkg.tracking_number);
+      let g = map.get(master);
+      if (!g) {
+        g = {
+          masterKey: master,
+          isVirtualMaster: isMulti,
+          pending: [],
+          loaded: [],
+          representative: pkg,
+        };
+        map.set(master, g);
+      }
+      return g;
+    };
+    for (const p of pending) ensure(p).pending.push(p);
+    for (const p of loaded) ensure(p).loaded.push(p);
+    // Ordenar hijas por sufijo numérico para que -0001 venga antes que -0010.
+    for (const g of map.values()) {
+      const bySuffix = (a: PackageItem, b: PackageItem) => {
+        const na = Number(String(a.tracking_number).match(/-(\d+)$/)?.[1] || 0);
+        const nb = Number(String(b.tracking_number).match(/-(\d+)$/)?.[1] || 0);
+        return na - nb;
+      };
+      g.pending.sort(bySuffix);
+      g.loaded.sort(bySuffix);
+    }
+    // Mostrar primero los grupos con más pendientes.
+    return Array.from(map.values()).sort((a, b) => b.pending.length - a.pending.length);
+  };
+  const toggleMasterExpanded = (key: string) => {
+    setExpandedMasters(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
   const getClientPackageInfo = (pkg: PackageItem) => {
@@ -885,93 +951,133 @@ export default function LoadingVanScreen({ navigation, route }: any) {
             </TouchableOpacity>
           </View>
           
-          {/* Tabs */}
-          <View style={styles.tabContainer}>
-            <Text style={styles.tabTitle}>
-              Pendientes ({routeData?.pendingPackages.length || 0})
-            </Text>
-          </View>
-          
-          <FlatList
-            data={routeData?.pendingPackages || []}
-            keyExtractor={(item) => item.id.toString()}
-            renderItem={({ item }) => {
-              const svcIcon = getServiceIcon(item.tracking_number);
-              return (
-              <View style={styles.packageItem}>
-                <View style={styles.packageIcon}>
-                  <MaterialIcons name={svcIcon.name} size={24} color={svcIcon.color} />
+          {/* Lista agrupada por embarque master (LOG/AIR). DHL/PO Box
+              que no tienen master se muestran como grupos de 1. */}
+          {(() => {
+            const groups = groupPackagesByMaster(
+              routeData?.pendingPackages || [],
+              routeData?.loadedPackages || [],
+            );
+            const totalPending = routeData?.pendingPackages.length || 0;
+            const totalLoaded = routeData?.loadedPackages.length || 0;
+            return (
+              <>
+                <View style={styles.tabContainer}>
+                  <Text style={styles.tabTitle}>
+                    {groups.length} embarque(s) · {totalLoaded}/{totalPending + totalLoaded} cargados
+                  </Text>
                 </View>
-                <View style={styles.packageInfo}>
-                  {(() => {
-                    const packageInfo = getClientPackageInfo(item);
+                <FlatList
+                  data={groups}
+                  keyExtractor={(g) => g.masterKey}
+                  renderItem={({ item: group }) => {
+                    const svcIcon = getServiceIcon(group.representative.tracking_number);
+                    const total = group.pending.length + group.loaded.length;
+                    const allLoaded = group.pending.length === 0;
+                    const expanded = expandedMasters.has(group.masterKey);
+                    const headerInfo = getClientPackageInfo(group.representative);
+                    // Para grupos de 1 caja (DHL / POBOX) no mostramos el
+                    // botón de expandir — la fila ya es la guía individual.
+                    const isSingleton = total === 1 && !group.isVirtualMaster;
                     return (
-                      <>
-                        <Text style={styles.packageTracking}>{item.tracking_number}</Text>
-                        <Text style={styles.packageRecipient}>
-                          🧾 Cliente: {packageInfo.clientNumber} · 🔢 Ref: {packageInfo.referenceDigits} · 📦 {packageInfo.boxLabel}
-                        </Text>
-                        <Text style={styles.packageAddress} numberOfLines={1}>
-                          {item.delivery_address}
-                        </Text>
-                        <Text style={styles.packageRecipient}>
-                          👤 {item.recipient_name}
-                        </Text>
-                      </>
-                    );
-                  })()}
-                </View>
-                <View style={styles.packageStatus}>
-                  <MaterialIcons name="hourglass-empty" size={20} color="#FF9800" />
-                </View>
-              </View>
-              );
-            }}
-            ListEmptyComponent={
-              <View style={styles.emptyList}>
-                <MaterialIcons name="check-circle" size={48} color="#4CAF50" />
-                <Text style={styles.emptyText}>Todos los paquetes han sido cargados</Text>
-              </View>
-            }
-          />
-
-          {routeData && routeData.loadedPackages.length > 0 && (
-            <>
-              <View style={styles.tabContainer}>
-                <Text style={styles.tabTitle}>
-                  ✅ Cargados ({routeData.loadedPackages.length})
-                </Text>
-              </View>
-              <FlatList
-                data={routeData.loadedPackages}
-                keyExtractor={(item) => item.id.toString()}
-                style={{ maxHeight: 200 }}
-                renderItem={({ item }) => (
-                  <View style={[styles.packageItem, styles.packageLoaded]}>
-                    <View style={styles.packageIcon}>
-                      <MaterialIcons name="check-circle" size={24} color="#4CAF50" />
-                    </View>
-                    <View style={styles.packageInfo}>
-                      {(() => {
-                        const packageInfo = getClientPackageInfo(item);
-                        return (
-                          <>
-                            <Text style={styles.packageTracking}>{item.tracking_number}</Text>
+                      <View>
+                        <TouchableOpacity
+                          style={[styles.packageItem, allLoaded && styles.packageLoaded]}
+                          onPress={() => !isSingleton && toggleMasterExpanded(group.masterKey)}
+                          activeOpacity={isSingleton ? 1 : 0.7}
+                        >
+                          <View style={styles.packageIcon}>
+                            <MaterialIcons name={allLoaded ? 'check-circle' : svcIcon.name} size={24} color={allLoaded ? '#4CAF50' : svcIcon.color} />
+                          </View>
+                          <View style={styles.packageInfo}>
+                            <Text style={styles.packageTracking}>{group.masterKey}</Text>
                             <Text style={styles.packageRecipient}>
-                              🧾 Cliente: {packageInfo.clientNumber} · 🔢 Ref: {packageInfo.referenceDigits} · 📦 {packageInfo.boxLabel}
+                              🧾 Cliente: {headerInfo.clientNumber} · 🔢 Ref: {headerInfo.referenceDigits}
+                              {group.isVirtualMaster ? ` · 📦 ${group.loaded.length}/${total} cajas` : ''}
                             </Text>
-                            <Text style={styles.packageAddress} numberOfLines={1}>
-                              {item.delivery_address}
-                            </Text>
-                          </>
-                        );
-                      })()}
+                            {!!group.representative.delivery_address && (
+                              <Text style={styles.packageAddress} numberOfLines={1}>
+                                {group.representative.delivery_address}
+                              </Text>
+                            )}
+                            {!!group.representative.recipient_name && (
+                              <Text style={styles.packageRecipient}>👤 {group.representative.recipient_name}</Text>
+                            )}
+                          </View>
+                          <View style={styles.packageStatus}>
+                            {!isSingleton && (
+                              <MaterialIcons
+                                name={expanded ? 'expand-less' : 'expand-more'}
+                                size={28}
+                                color={allLoaded ? '#4CAF50' : '#FF9800'}
+                              />
+                            )}
+                            {isSingleton && (
+                              <MaterialIcons
+                                name={allLoaded ? 'check-circle' : 'hourglass-empty'}
+                                size={20}
+                                color={allLoaded ? '#4CAF50' : '#FF9800'}
+                              />
+                            )}
+                          </View>
+                        </TouchableOpacity>
+
+                        {/* Detalle expandible: hijas con check / pendiente */}
+                        {expanded && !isSingleton && (
+                          <View style={{ backgroundColor: '#fafafa', paddingVertical: 4 }}>
+                            {[...group.loaded, ...group.pending].map((child) => {
+                              const isLoaded = group.loaded.some((c) => c.id === child.id);
+                              const suffix = String(child.tracking_number).match(/-(\d+)$/)?.[1] || '';
+                              return (
+                                <View
+                                  key={child.id}
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    paddingVertical: 8,
+                                    paddingHorizontal: 24,
+                                    borderTopWidth: 1,
+                                    borderTopColor: '#eee',
+                                  }}
+                                >
+                                  <MaterialIcons
+                                    name={isLoaded ? 'check-circle' : 'radio-button-unchecked'}
+                                    size={20}
+                                    color={isLoaded ? '#4CAF50' : '#bbb'}
+                                    style={{ marginRight: 10 }}
+                                  />
+                                  <Text
+                                    style={{
+                                      flex: 1,
+                                      fontSize: 13,
+                                      color: isLoaded ? '#4CAF50' : '#333',
+                                      textDecorationLine: isLoaded ? 'line-through' : 'none',
+                                      fontWeight: isLoaded ? '500' : '600',
+                                    }}
+                                  >
+                                    {suffix ? `Caja #${suffix}` : child.tracking_number}
+                                  </Text>
+                                  <Text style={{ fontSize: 11, color: '#888' }}>
+                                    {child.tracking_number}
+                                  </Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <View style={styles.emptyList}>
+                      <MaterialIcons name="check-circle" size={48} color="#4CAF50" />
+                      <Text style={styles.emptyText}>Todos los paquetes han sido cargados</Text>
                     </View>
-                  </View>
-                )}
-              />
-            </>
-          )}
+                  }
+                />
+              </>
+            );
+          })()}
         </SafeAreaView>
       </Modal>
     </SafeAreaView>
