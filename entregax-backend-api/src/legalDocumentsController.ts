@@ -125,6 +125,38 @@ async function getActiveDocumentByType(documentType: string) {
   return result.rows[0] || null;
 }
 
+// Garantiza que la tabla de versiones existe. La hacemos lazy desde el
+// controller (no solo desde el startup) porque si la auto-migración del
+// startup falla por cualquier query anterior, la tabla nunca se creaba
+// y los snapshots se perdían. CREATE TABLE IF NOT EXISTS es idempotente
+// y barato — preferimos garantía a "performance".
+let __versionsTableEnsured = false;
+async function ensureLegalDocumentVersionsTable() {
+  if (__versionsTableEnsured) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS legal_document_versions (
+        id SERIAL PRIMARY KEY,
+        document_id INTEGER NOT NULL,
+        document_type VARCHAR(64) NOT NULL,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        saved_by INTEGER,
+        saved_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        replaced_by_user_id INTEGER,
+        replaced_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_version ON legal_document_versions(document_id, version DESC)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_saved_at ON legal_document_versions(document_id, saved_at DESC)`);
+    __versionsTableEnsured = true;
+  } catch (err: any) {
+    // No marcamos como ensured para reintentar la próxima vez.
+    console.error('[legal-docs] No se pudo asegurar legal_document_versions:', err.message);
+  }
+}
+
 async function ensureRequiredLegalDocuments() {
   for (const doc of REQUIRED_DOCUMENTS) {
     const exists = await pool.query(
@@ -243,6 +275,7 @@ export async function getLegalDocumentByType(req: Request, res: Response) {
  * legal: cualquier cambio queda auditable y se puede restaurar).
  */
 export async function updateLegalDocument(req: Request, res: Response) {
+  await ensureLegalDocumentVersionsTable();
   const client = await pool.connect();
   try {
     const { id } = req.params;
@@ -347,6 +380,7 @@ export async function updateLegalDocument(req: Request, res: Response) {
  * de sobrescribir con el contenido de la versión seleccionada.
  */
 export async function restoreLegalDocumentVersion(req: Request, res: Response) {
+  await ensureLegalDocumentVersionsTable();
   const client = await pool.connect();
   try {
     const { id, versionId } = req.params;
@@ -483,6 +517,7 @@ export async function createLegalDocument(req: Request, res: Response) {
  * para mostrar timeline + permitir vista previa y restaurar.
  */
 export async function getLegalDocumentHistory(req: Request, res: Response) {
+  await ensureLegalDocumentVersionsTable();
   try {
     const { id } = req.params;
 
