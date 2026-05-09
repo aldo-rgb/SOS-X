@@ -7837,7 +7837,10 @@ app.post('/api/firma-abandono/:token', firmarDocumentoAbandono); // Público
 // Gestión de contratos y avisos de privacidad
 // ============================================
 app.get('/api/legal-documents', authenticateToken, requireRole('super_admin', 'abogado'), getAllLegalDocuments);
-app.get('/api/legal-documents/:type', authenticateToken, getLegalDocumentByType);
+// Lectura pública: el contrato de servicios y los avisos de privacidad se
+// consultan desde el onboarding del cliente (Verificación de Identidad
+// paso 4) ANTES de tener token, así que no exigimos auth aquí.
+app.get('/api/legal-documents/:type', getLegalDocumentByType);
 app.post('/api/legal-documents', authenticateToken, requireRole('super_admin'), createLegalDocument);
 app.put('/api/legal-documents/:id', authenticateToken, requireRole('super_admin'), updateLegalDocument);
 app.get('/api/legal-documents/:id/history', authenticateToken, requireRole('super_admin'), getLegalDocumentHistory);

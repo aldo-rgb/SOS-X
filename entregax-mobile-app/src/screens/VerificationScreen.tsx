@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     View,
     Text,
@@ -38,7 +38,7 @@ const STEPS = [
     { id: 1, title: 'ID Oficial', icon: 'card-outline', instruction: 'Toma una foto del frente de tu ID' },
     { id: 2, title: 'INE Reverso', icon: 'card-outline', instruction: 'Toma una foto del reverso de tu ID' },
     { id: 3, title: 'Selfie', icon: 'camera-outline', instruction: 'Toma una selfie clara de tu rostro' },
-    { id: 4, title: 'Términos', icon: 'document-text-outline', instruction: 'Lee y acepta los términos y condiciones' },
+    { id: 4, title: 'Términos y Condiciones', icon: 'document-text-outline', instruction: 'Lea y acepte los términos de nuestro contrato de prestación de servicios' },
     { id: 5, title: 'Firma Digital', icon: 'create-outline', instruction: 'Dibuja tu firma en el recuadro' },
 ];
 
@@ -80,6 +80,35 @@ export default function VerificationScreen({ navigation, route }: Props) {
     const [verifying, setVerifying] = useState(false);
     const [termsAccepted, setTermsAccepted] = useState(false);
     const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
+    // Contrato de servicios: lo trae del backend (Documentos Legales →
+    // Contrato de Servicios Clientes) para que sea editable sin redeploy.
+    // Si la red falla, usamos el texto hardcoded como fallback.
+    const [serviceContract, setServiceContract] = useState<{ title: string; content: string; version: string | null } | null>(null);
+    const [contractLoading, setContractLoading] = useState(true);
+
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`${API_URL}/api/legal-documents/service_contract`);
+                if (!res.ok) throw new Error('not ok');
+                const data = await res.json();
+                if (!cancelled && data?.success && data.document?.content) {
+                    setServiceContract({
+                        title: data.document.title || 'Contrato de Prestación de Servicios',
+                        content: data.document.content,
+                        version: data.document.version || null,
+                    });
+                }
+            } catch {
+                // Silencioso: si no hay conexión usamos el texto local de
+                // TERMS_AND_CONDITIONS como respaldo.
+            } finally {
+                if (!cancelled) setContractLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, []);
     const [showCamera, setShowCamera] = useState(false);
     const [cameraStep, setCameraStep] = useState(1);
     const signatureRef = useRef<any>(null);
@@ -381,13 +410,30 @@ export default function VerificationScreen({ navigation, route }: Props) {
 
     const renderTermsAndConditions = () => (
         <View style={styles.termsContainer}>
-            <ScrollView 
-                style={styles.termsScroll} 
+            <ScrollView
+                style={styles.termsScroll}
                 nestedScrollEnabled={true}
                 onScroll={handleTermsScroll}
                 scrollEventThrottle={16}
             >
-                <Text style={styles.termsText}>{TERMS_AND_CONDITIONS}</Text>
+                {contractLoading ? (
+                    <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                        <ActivityIndicator size="small" color="#F05A28" />
+                        <Text style={{ marginTop: 8, color: '#666' }}>Cargando contrato…</Text>
+                    </View>
+                ) : (
+                    <>
+                        {serviceContract?.title ? (
+                            <Text style={[styles.termsText, { fontWeight: '700', marginBottom: 8, fontSize: 15 }]}>
+                                {serviceContract.title}
+                                {serviceContract.version ? `  (${serviceContract.version})` : ''}
+                            </Text>
+                        ) : null}
+                        <Text style={styles.termsText}>
+                            {serviceContract?.content || TERMS_AND_CONDITIONS}
+                        </Text>
+                    </>
+                )}
                 <View style={styles.scrollEndMarker}>
                     <Ionicons name="checkmark-circle" size={24} color="#22C55E" />
                     <Text style={styles.scrollEndText}>Fin del documento</Text>
