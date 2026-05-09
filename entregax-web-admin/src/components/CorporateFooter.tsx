@@ -72,18 +72,18 @@ export default function CorporateFooter() {
   const year = new Date().getFullYear();
 
   return (
-    <Box component="footer" sx={{ mt: 6, bgcolor: DARK, color: '#fff', borderTop: `4px solid ${ORANGE}` }}>
-      <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 } }}>
-        <Grid container spacing={4}>
+    <Box component="footer" sx={{ mt: 6, bgcolor: DARK, color: '#fff', borderTop: `4px solid ${ORANGE}`, textAlign: 'center' }}>
+      <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 }, mx: 'auto' }}>
+        <Grid container spacing={4} justifyContent="center">
           {/* Marca + descripción */}
-          <Grid item xs={12} md={4}>
+          <Grid item xs={12} md={4} sx={{ textAlign: 'center' }}>
             <Typography variant="h5" fontWeight={800} sx={{ letterSpacing: 0.5 }}>
               Entrega<span style={{ color: ORANGE }}>X</span>
             </Typography>
-            <Typography variant="body2" sx={{ color: TEXT_LIGHT, mt: 1.5, lineHeight: 1.7 }}>
+            <Typography variant="body2" sx={{ color: TEXT_LIGHT, mt: 1.5, lineHeight: 1.7, mx: 'auto', maxWidth: 360 }}>
               Tu suite logística inteligente. Aéreo y marítimo desde China, PO Box USA y entrega nacional con trazabilidad total.
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+            <Box sx={{ display: 'flex', gap: 1, mt: 2, justifyContent: 'center' }}>
               <IconButton
                 aria-label="Instagram"
                 size="small"
@@ -118,11 +118,11 @@ export default function CorporateFooter() {
           </Grid>
 
           {/* Servicios */}
-          <Grid item xs={6} md={2}>
+          <Grid item xs={6} md={2} sx={{ textAlign: 'center' }}>
             <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1.5, textTransform: 'uppercase', letterSpacing: 1 }}>
               Servicios
             </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, alignItems: 'center' }}>
               <Typography variant="body2" sx={{ color: TEXT_LIGHT }}>✈️ Aéreo China</Typography>
               <Typography variant="body2" sx={{ color: TEXT_LIGHT }}>🚢 Marítimo China</Typography>
               <Typography variant="body2" sx={{ color: TEXT_LIGHT }}>📦 PO Box USA</Typography>
@@ -131,11 +131,11 @@ export default function CorporateFooter() {
           </Grid>
 
           {/* Legal */}
-          <Grid item xs={6} md={3}>
+          <Grid item xs={6} md={3} sx={{ textAlign: 'center' }}>
             <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1.5, textTransform: 'uppercase', letterSpacing: 1 }}>
               Legal
             </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, alignItems: 'flex-start' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, alignItems: 'center' }}>
               <MuiLink
                 component="button"
                 onClick={() => openLegal('privacy_policy')}
@@ -154,11 +154,11 @@ export default function CorporateFooter() {
           </Grid>
 
           {/* Contacto */}
-          <Grid item xs={12} md={3}>
+          <Grid item xs={12} md={3} sx={{ textAlign: 'center' }}>
             <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1.5, textTransform: 'uppercase', letterSpacing: 1 }}>
               Contacto
             </Typography>
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, alignItems: 'center' }}>
               <MuiLink
                 href="tel:+528111002021"
                 sx={{ color: TEXT_LIGHT, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 1, '&:hover': { color: ORANGE } }}
@@ -179,9 +179,9 @@ export default function CorporateFooter() {
 
         <Divider sx={{ my: 3, borderColor: 'rgba(255,255,255,0.1)' }} />
 
-        <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, justifyContent: 'space-between', alignItems: { xs: 'flex-start', sm: 'center' }, gap: 1 }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
           <Typography variant="caption" sx={{ color: TEXT_MUTED }}>
-            © {year} Logística System Development S.A. de C.V. — Todos los derechos reservados.
+            © {year} EntregaX Paquetería — Todos los derechos reservados.
           </Typography>
           <Typography variant="caption" sx={{ color: TEXT_MUTED }}>
             AppSync Powered
