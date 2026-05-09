@@ -31,6 +31,9 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import SaveIcon from '@mui/icons-material/Save';
 import CategoryIcon from '@mui/icons-material/Category';
 import PercentIcon from '@mui/icons-material/Percent';
+import PaymentIcon from '@mui/icons-material/Payment';
+import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
@@ -67,6 +70,55 @@ export default function SettingsPage() {
 
     // Edición inline
     const [editValues, setEditValues] = useState<{ [key: number]: { percentage: number; leader_override: number } }>({});
+
+    // Toggles del sistema de pagos (solo super_admin)
+    const currentUser = (() => {
+        try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
+    })();
+    const isSuperAdmin = currentUser?.role === 'super_admin';
+    const { xpayEnabled, entregaxPaymentsEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
+    const [togglingXpay, setTogglingXpay] = useState(false);
+    const [togglingEntregax, setTogglingEntregax] = useState(false);
+    // Estado local optimista que se sincroniza con el hook al cargar.
+    const [localXpay, setLocalXpay] = useState<boolean | null>(null);
+    const [localEntregax, setLocalEntregax] = useState<boolean | null>(null);
+    useEffect(() => {
+        if (!paymentsStatusLoading) {
+            setLocalXpay(xpayEnabled);
+            setLocalEntregax(entregaxPaymentsEnabled);
+        }
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled]);
+
+    const handleToggleXpay = async (checked: boolean) => {
+        setTogglingXpay(true);
+        const prev = localXpay;
+        setLocalXpay(checked);
+        try {
+            await toggleXPay(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `X-Pay ${checked ? 'activado' : 'desactivado'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalXpay(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar X-Pay', severity: 'error' });
+        } finally {
+            setTogglingXpay(false);
+        }
+    };
+    const handleToggleEntregax = async (checked: boolean) => {
+        setTogglingEntregax(true);
+        const prev = localEntregax;
+        setLocalEntregax(checked);
+        try {
+            await toggleEntregaxPayments(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Pagos EntregaX ${checked ? 'activados' : 'desactivados'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalEntregax(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar Pagos EntregaX', severity: 'error' });
+        } finally {
+            setTogglingEntregax(false);
+        }
+    };
 
     const getAuthHeaders = () => {
         const token = localStorage.getItem('token');
@@ -205,6 +257,85 @@ export default function SettingsPage() {
                     </Typography>
                 </Box>
             </Box>
+
+            {/* Sistema de Pagos — solo super_admin */}
+            {isSuperAdmin && (
+                <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3, mb: 3 }}>
+                    <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                            <PaymentIcon sx={{ color: '#F05A28' }} />
+                            <Typography variant="h6" fontWeight={600}>
+                                Sistema de Pagos
+                            </Typography>
+                            <Chip label="Super Admin" size="small" color="warning" sx={{ ml: 1 }} />
+                        </Box>
+                        <Alert severity="warning" sx={{ mb: 3 }}>
+                            Estos toggles cierran o abren el flujo de cobro <strong>en producción</strong>. Apagarlos detiene
+                            inmediatamente cualquier intento de pago de los clientes desde web y app móvil.
+                        </Alert>
+
+                        <Stack spacing={2}>
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                        💳 X-Pay (x-pay.direct)
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Pasarela externa para tarjeta. Si está desactivada, el botón "X-Pay" no carga
+                                        en el dashboard del cliente.
+                                    </Typography>
+                                </Box>
+                                {paymentsStatusLoading || localXpay === null ? (
+                                    <CircularProgress size={20} />
+                                ) : (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={!!localXpay}
+                                                onChange={(e) => handleToggleXpay(e.target.checked)}
+                                                disabled={togglingXpay}
+                                                color="success"
+                                            />
+                                        }
+                                        label={togglingXpay ? '...' : (localXpay ? 'Activado' : 'Desactivado')}
+                                        labelPlacement="start"
+                                        sx={{ m: 0 }}
+                                    />
+                                )}
+                            </Paper>
+
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                        🏦 Pagos EntregaX (Sucursal / Transferencia)
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Flujo nativo de pago en sucursal y SPEI. Si está desactivado, el botón "Pagar"
+                                        en la lista de paquetes queda deshabilitado.
+                                    </Typography>
+                                </Box>
+                                {paymentsStatusLoading || localEntregax === null ? (
+                                    <CircularProgress size={20} />
+                                ) : (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={!!localEntregax}
+                                                onChange={(e) => handleToggleEntregax(e.target.checked)}
+                                                disabled={togglingEntregax}
+                                                color="success"
+                                            />
+                                        }
+                                        label={togglingEntregax ? '...' : (localEntregax ? 'Activado' : 'Desactivado')}
+                                        labelPlacement="start"
+                                        sx={{ m: 0 }}
+                                    />
+                                )}
+                            </Paper>
+                        </Stack>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Tipos de Servicio */}
             <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3 }}>
