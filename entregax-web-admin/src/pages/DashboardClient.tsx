@@ -5469,11 +5469,35 @@ export default function DashboardClient() {
                         setSnackbar({ open: true, message: 'Función de pagos temporalmente no disponible', severity: 'warning' });
                         return;
                       }
-                      const selectedPayable = getSelectedPayablePackages();
+                      let selectedPayable = getSelectedPayablePackages();
                       if (selectedPayable.length === 0) {
                         setSnackbar({ open: true, message: 'Esta guía ya está pagada o autorizada con crédito.', severity: 'info' });
                         return;
                       }
+
+                      // 🔒 Salvaguarda final: si por algún path la selección quedó
+                      // con paquetes de distinta categoría (AIR + maritime + ...),
+                      // forzamos la categoría dominante y limpiamos el resto.
+                      const counts: Record<string, number> = {};
+                      for (const p of selectedPayable) {
+                        const c = getServiceCategory(p.servicio);
+                        counts[c] = (counts[c] || 0) + 1;
+                      }
+                      const cats = Object.keys(counts);
+                      if (cats.length > 1) {
+                        const dominant = cats.sort((a, b) => (counts[b]! - counts[a]!))[0]!;
+                        const droppedCount = selectedPayable.length - (counts[dominant] || 0);
+                        selectedPayable = selectedPayable.filter(p => getServiceCategory(p.servicio) === dominant);
+                        const cleanedIds = selectedPayable.map(p => p.id);
+                        setSelectedPackageIds(cleanedIds);
+                        setSnackbar({
+                          open: true,
+                          message: `⚠️ Se quitaron ${droppedCount} guía(s) de otro servicio. Solo se pueden pagar guías ${dominant.toUpperCase()} juntas.`,
+                          severity: 'warning',
+                        });
+                        return; // exit so user revise selection before continuing
+                      }
+
                       const selectedPayableIds = selectedPayable.map(p => p.id);
 
                       // 🔒 Validar que ningún paquete esté ya en una orden de pago activa
