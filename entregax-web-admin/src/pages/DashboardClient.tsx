@@ -12238,11 +12238,11 @@ export default function DashboardClient() {
 
       {/* Carrusel de Servicios - Solo en tab Envíos */}
       {activeTab === 0 && (
-      <Box sx={{ mb: 3 }}>
-        <Typography variant="h6" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box sx={{ mb: 3, textAlign: 'center' }}>
+        <Typography variant="h6" fontWeight="bold" sx={{ mb: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
           {t('cd.servicesCarousel.title')}
         </Typography>
-        <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 1, scrollSnapType: 'x mandatory', '&::-webkit-scrollbar': { height: 6 }, '&::-webkit-scrollbar-thumb': { bgcolor: ORANGE, borderRadius: 3 } }}>
+        <Box sx={{ display: 'flex', gap: 2, overflowX: 'auto', pb: 1, scrollSnapType: 'x mandatory', justifyContent: { xs: 'flex-start', md: 'center' }, '&::-webkit-scrollbar': { height: 6 }, '&::-webkit-scrollbar-thumb': { bgcolor: ORANGE, borderRadius: 3 } }}>
           {SERVICE_CONFIG.map((service) => (
             <Card 
               key={service.type}
