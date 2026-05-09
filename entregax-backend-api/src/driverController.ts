@@ -462,10 +462,17 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         const hasLabel = hasExternalLabel || (isLocalDelivery && Boolean(pkg.assigned_address_id));
 
         if (!isPaid || !hasLabel) {
+            // Mensaje específico con qué falta exactamente (pago, etiqueta o ambos).
+            const missing: string[] = [];
+            if (!isPaid) missing.push('pago del cliente');
+            if (!hasLabel) missing.push(isLocalDelivery ? 'dirección de entrega asignada' : 'etiqueta de paquetería');
+            const summary = `${isPaid ? '✅' : '❌'} Pago · ${hasLabel ? '✅' : '❌'} Etiqueta`;
             return res.status(400).json({
-                error: '⚠️ Este paquete aún no está listo para reparto (debe estar pagado y etiquetado).',
+                error: `⚠️ Falta: ${missing.join(' y ')}. ${summary}.`,
                 paymentStatus: pkg.payment_status || 'pending',
+                isPaid,
                 hasLabel,
+                missing,
                 nationalCarrier: pkg.national_carrier || null,
                 isLocalDelivery,
                 barcode
@@ -504,11 +511,21 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         }
 
         // 4. VALIDAR QUE EL PAQUETE ESTÉ EN ESTADO CORRECTO PARA CARGAR
-        const validStatusesToLoad = ['received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse'];
+        const validStatusesToLoad = ['received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse'];
         if (!validStatusesToLoad.includes(pkg.delivery_status) && pkg.delivery_status !== 'out_for_delivery') {
-            return res.status(400).json({ 
-                error: `⚠️ Este paquete no puede cargarse. Estado actual: ${pkg.delivery_status}`,
+            // Incluir contexto completo: si llegó hasta aquí ya pasó las
+            // validaciones de pagado/etiquetado, así que el bloqueo es
+            // por estado del paquete (no por falta de pago/etiqueta).
+            // Aún así devolvemos paid/hasLabel para que el chofer vea
+            // que esos requisitos sí están cubiertos y entienda que el
+            // problema es otro (estado en bodega no apto para cargar).
+            return res.status(400).json({
+                error: `⚠️ Este paquete no puede cargarse aún. Estado en bodega: ${pkg.delivery_status}. ✅ Pago: pagado · ✅ Etiqueta: lista.`,
                 currentStatus: pkg.delivery_status,
+                paymentStatus: pkg.payment_status,
+                isPaid: true,
+                hasLabel: true,
+                hint: 'El paquete está pagado y etiquetado, pero su estado actual no permite cargarlo. Pide a almacén que lo libere (pase a "received" / "ready_pickup").',
                 barcode
             });
         }
