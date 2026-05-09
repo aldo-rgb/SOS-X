@@ -126,23 +126,45 @@ export const getAdvisorPrivacyNotice = async (_req: Request, res: Response): Pro
 
 // ============================================
 // ACEPTAR AVISO DE PRIVACIDAD (ASESORES)
+// Acepta firma digital (data URI base64 PNG) en req.body.signature.
+// La firma se guarda en signature_url para tener evidencia de la
+// aceptación con biometría manuscrita ligera.
 // ============================================
 export const acceptAdvisorPrivacyNotice = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
     const clientIP = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    const { signature } = req.body || {};
 
-    await pool.query(`
-      UPDATE users 
-      SET privacy_accepted_at = NOW(), 
-          privacy_accepted_ip = $1
-      WHERE id = $2
-    `, [clientIP, user.userId]);
+    // Asegurar columna privacy_signature_url (idempotente, una sola vez)
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_signature_url TEXT`).catch(() => {});
 
-    res.json({ 
-      success: true, 
+    if (signature) {
+      await pool.query(`
+        UPDATE users
+        SET privacy_accepted_at = NOW(),
+            privacy_accepted_ip = $1,
+            privacy_signature_url = $2
+        WHERE id = $3
+      `, [clientIP, signature, user.userId]);
+    } else {
+      // Compat: si no llega firma (clientes viejos), dejamos que el
+      // frontend nuevo siempre la mande. Por ahora aceptamos sin firma
+      // pero registramos warning en logs.
+      console.warn(`[ACCEPT-ADVISOR] usuario ${user.userId} aceptó SIN firma digital`);
+      await pool.query(`
+        UPDATE users
+        SET privacy_accepted_at = NOW(),
+            privacy_accepted_ip = $1
+        WHERE id = $2
+      `, [clientIP, user.userId]);
+    }
+
+    res.json({
+      success: true,
       message: 'Aviso de privacidad y términos de comisiones aceptados correctamente',
-      acceptedAt: new Date().toISOString()
+      acceptedAt: new Date().toISOString(),
+      hasSignature: !!signature,
     });
   } catch (error) {
     console.error('Error al aceptar aviso de privacidad (asesor):', error);

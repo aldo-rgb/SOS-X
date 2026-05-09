@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,12 +12,14 @@ import {
   Linking,
   Image,
   KeyboardAvoidingView,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import SignatureScreen from 'react-native-signature-canvas';
 import { api } from '../services/api';
 
 interface EmployeeOnboardingScreenProps {
@@ -38,6 +40,8 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [privacyAccepted, setPrivacyAccepted] = useState(false);
+  const [showSignatureModal, setShowSignatureModal] = useState(false);
+  const signatureRef = useRef<any>(null);
   
   // Obtener datos del usuario para saber si es repartidor
   const user = route?.params?.user;
@@ -181,54 +185,76 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
     );
   };
 
-  // Aceptar aviso de privacidad Y solicitar ubicación (o solo aceptar para asesores)
+  // Aceptar aviso de privacidad. Para asesores, abrimos el modal de firma
+  // primero; al confirmar la firma, el handleAcceptanceSignature() hace
+  // el POST con la firma. Para empleados regulares, mantenemos el flujo
+  // anterior (no requiere firma manuscrita).
   const handleAcceptPrivacy = async () => {
+    if (isAdvisor) {
+      // No hacemos network todavía — abrimos el pad de firma.
+      setShowSignatureModal(true);
+      return;
+    }
     setLoading(true);
     try {
-      if (isAdvisor) {
-        // Asesores NO requieren permiso de ubicación
-        await api.post('/api/hr/accept-advisor-privacy', {}, { 
-          headers: { Authorization: `Bearer ${token}` } 
-        });
-        setPrivacyAccepted(true);
-        // Los asesores solo necesitan aceptar el aviso, luego ir al home
-        Alert.alert(
-          '✅ Términos Aceptados',
-          'Has aceptado el aviso de privacidad y los términos de comisiones. Ya puedes comenzar a usar la plataforma.',
-          [{ 
-            text: 'Continuar', 
-            onPress: () => {
-              if (onComplete) {
-                onComplete();
-              } else if (navigation) {
-                if (user?.role === 'repartidor' || user?.role === 'monitoreo') {
-                  navigation.replace('DriverHome', { user, token: route?.params?.token });
-                } else {
-                  navigation.replace('EmployeeHome', { user, token: route?.params?.token });
-                }
-              }
-            }
-          }]
-        );
-      } else {
-        // Empleados regulares requieren permiso de ubicación
-        const locationGranted = await requestLocationPermission();
-        if (!locationGranted) {
-          setLoading(false);
-          return;
-        }
-        await api.post('/api/hr/accept-privacy', {}, { 
-          headers: { Authorization: `Bearer ${token}` } 
-        });
-        setPrivacyAccepted(true);
-        setStep(1);
+      const locationGranted = await requestLocationPermission();
+      if (!locationGranted) {
+        setLoading(false);
+        return;
       }
+      await api.post('/api/hr/accept-privacy', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setPrivacyAccepted(true);
+      setStep(1);
     } catch (error) {
       console.error('Error aceptando privacidad:', error);
       Alert.alert('Error', 'No se pudo registrar la aceptación. Intenta de nuevo.');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Callback del SignatureScreen — recibe el data URI base64 PNG.
+  const handleAdvisorSignatureOK = async (signature: string) => {
+    setShowSignatureModal(false);
+    if (!signature) {
+      Alert.alert('Firma requerida', 'Por favor dibuja tu firma para aceptar.');
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.post('/api/hr/accept-advisor-privacy', { signature }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setPrivacyAccepted(true);
+      Alert.alert(
+        '✅ Términos Aceptados',
+        'Tu firma quedó registrada con la aceptación del aviso de privacidad y los términos de comisiones. Ya puedes comenzar a usar la plataforma.',
+        [{
+          text: 'Continuar',
+          onPress: () => {
+            if (onComplete) {
+              onComplete();
+            } else if (navigation) {
+              if (user?.role === 'repartidor' || user?.role === 'monitoreo') {
+                navigation.replace('DriverHome', { user, token: route?.params?.token });
+              } else {
+                navigation.replace('EmployeeHome', { user, token: route?.params?.token });
+              }
+            }
+          }
+        }]
+      );
+    } catch (error) {
+      console.error('Error aceptando privacidad asesor:', error);
+      Alert.alert('Error', 'No se pudo registrar la aceptación. Intenta de nuevo.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  const handleAdvisorSignatureEmpty = () => {
+    Alert.alert('Firma vacía', 'Dibuja tu firma con el dedo en el recuadro.');
   };
 
   // Solicitar permisos de ubicación
@@ -479,12 +505,75 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
           </TouchableOpacity>
 
           <Text style={styles.legalNote}>
-            {isAdvisor 
+            {isAdvisor
               ? 'Al presionar "", confirmas que has leído y entendido el aviso de privacidad y los términos de comisiones, y autorizas a EntregaX a tratar tus datos personales para la gestión de tu actividad como asesor comercial.'
               : 'Al presionar "", confirmas que has leído y entendido el aviso de privacidad, y autorizas a EntregaX a tratar tus datos personales y rastrear tu ubicación durante tu jornada laboral.'
             }
           </Text>
         </ScrollView>
+
+        {/* Modal de firma manuscrita — solo asesor. La firma queda
+            como evidencia de aceptación junto con privacy_accepted_at. */}
+        <Modal
+          visible={showSignatureModal}
+          animationType="slide"
+          transparent={false}
+          onRequestClose={() => setShowSignatureModal(false)}
+        >
+          <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+            <View style={{ padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <TouchableOpacity onPress={() => setShowSignatureModal(false)} disabled={loading}>
+                <Ionicons name="close" size={28} color="#111" />
+              </TouchableOpacity>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: '#111' }}>Firma Digital</Text>
+              <View style={{ width: 28 }} />
+            </View>
+            <View style={{ paddingHorizontal: 18, paddingTop: 12, paddingBottom: 8 }}>
+              <Text style={{ fontSize: 14, color: '#444', lineHeight: 20 }}>
+                Dibuja tu firma con el dedo en el recuadro de abajo. Al confirmar, queda como evidencia de tu aceptación de los términos y el aviso de privacidad.
+              </Text>
+            </View>
+            <View style={{ flex: 1, marginHorizontal: 16, marginVertical: 8, borderWidth: 2, borderColor: '#C1272D', borderRadius: 12, overflow: 'hidden', backgroundColor: '#FAFAFA' }}>
+              <SignatureScreen
+                ref={signatureRef}
+                onOK={handleAdvisorSignatureOK}
+                onEmpty={handleAdvisorSignatureEmpty}
+                descriptionText=""
+                clearText="Limpiar"
+                confirmText="Aceptar y firmar"
+                webStyle={`.m-signature-pad--footer { display: none; } .m-signature-pad { box-shadow: none; border: none; } body,html { width: 100%; height: 100%; margin: 0; }`}
+                backgroundColor="#FFFFFF"
+                penColor="#0A2540"
+                minWidth={2}
+                maxWidth={4}
+                dotSize={3}
+              />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingVertical: 12 }}>
+              <TouchableOpacity
+                onPress={() => signatureRef.current?.clearSignature?.()}
+                disabled={loading}
+                style={{ flex: 1, paddingVertical: 14, borderRadius: 10, borderWidth: 1, borderColor: '#999', alignItems: 'center', backgroundColor: '#fff' }}
+              >
+                <Text style={{ color: '#333', fontWeight: '600' }}>Limpiar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => signatureRef.current?.readSignature?.()}
+                disabled={loading}
+                style={{ flex: 2, paddingVertical: 14, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: loading ? '#999' : '#C1272D', flexDirection: 'row', gap: 8 }}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={22} color="#fff" />
+                    <Text style={{ color: '#fff', fontWeight: '700' }}>Aceptar y firmar</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </SafeAreaView>
+        </Modal>
       </SafeAreaView>
     );
   }
