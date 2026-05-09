@@ -321,6 +321,54 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
             }
         } catch {}
 
+        // Recuperación del separador y del último dígito perdido por la pistola:
+        // las pistolas de mano a veces (a) leen el barcode AIR/LOG/DHL completo
+        // sin el guión separador y (b) en barcodes Code128/EAN se pierde el
+        // último 0 de la secuencia. Caso real: el cliente escanea
+        // "AIR2610265SCHJM040" pero al backend llega "AIR2610265SCHJM04".
+        // Si el barcode no trae guión, separamos master + dígitos al final y
+        // probamos varias variantes contra la DB en una sola query.
+        try {
+            const trk = String(barcode).trim().toUpperCase();
+            if (!trk.includes('-')) {
+                const m = trk.match(/^([A-Z]{2,3}[A-Z0-9]+?)(\d+)$/);
+                if (m) {
+                    const masterPrefix = m[1] as string;
+                    const suffix = m[2] as string;
+                    const num = parseInt(suffix, 10);
+                    // Orden de prioridad: primero la hipótesis "se perdió un 0
+                    // al final" (lo que más reporta la operación), luego las
+                    // variantes con padding estándar.
+                    const candidates = [
+                        `${masterPrefix}-${suffix}0`,
+                        `${masterPrefix}-${(suffix + '0').padStart(3, '0')}`,
+                        `${masterPrefix}-${(suffix + '0').padStart(4, '0')}`,
+                        `${masterPrefix}-${suffix}`,
+                        `${masterPrefix}-${String(num).padStart(3, '0')}`,
+                        `${masterPrefix}-${String(num).padStart(4, '0')}`,
+                    ];
+                    const uniq = [...new Set(candidates)];
+                    const probe = await pool.query(
+                        `SELECT tracking_internal FROM packages
+                         WHERE UPPER(tracking_internal) = ANY($1::text[])
+                         LIMIT 5`,
+                        [uniq.map(c => c.toUpperCase())]
+                    );
+                    if (probe.rows.length === 1) {
+                        barcode = probe.rows[0].tracking_internal;
+                    } else if (probe.rows.length > 1) {
+                        // Ambigüedad real (ej. existen tanto -004 como -040).
+                        // Mejor pedir confirmación que adivinar mal.
+                        return res.status(400).json({
+                            error: '⚠️ Código truncado / ambiguo. Vuelve a escanear o ingresa el código completo manualmente.',
+                            barcode,
+                            possibleMatches: probe.rows.map((r: any) => r.tracking_internal),
+                        });
+                    }
+                }
+            }
+        } catch {}
+
         // 1. BUSCAR EL PAQUETE POR TRACKING NUMBER O CÓDIGO DE BARRAS
         // Hacemos LEFT JOIN con master para que las hijas hereden payment/label del master.
         const pkgRes = await pool.query(`
