@@ -51,6 +51,34 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
   const { t } = useTranslation();
   const { user, token } = route.params;
   const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  // Privacy policy: lee del backend (legal_documents.privacy_policy) para
+  // que el aviso siempre coincida con la versión que el admin haya
+  // editado en /admin → Documentos Legales.
+  const [privacyModalOpen, setPrivacyModalOpen] = useState(false);
+  const [privacyDoc, setPrivacyDoc] = useState<{ title: string; content: string; version?: number; updated_at?: string } | null>(null);
+  const [privacyLoading, setPrivacyLoading] = useState(false);
+  const openPrivacyPolicy = async () => {
+    setPrivacyModalOpen(true);
+    if (privacyDoc) return; // ya cargado
+    setPrivacyLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/legal-documents/privacy_policy`);
+      if (!res.ok) throw new Error('not ok');
+      const data = await res.json();
+      if (data?.success && data.document) {
+        setPrivacyDoc({
+          title: data.document.title || 'Aviso de Privacidad',
+          content: data.document.content || '',
+          version: data.document.version,
+          updated_at: data.document.updated_at,
+        });
+      }
+    } catch {
+      setPrivacyDoc({ title: 'Aviso de Privacidad', content: 'No se pudo cargar el aviso. Verifica tu conexión e intenta de nuevo.' });
+    } finally {
+      setPrivacyLoading(false);
+    }
+  };
   const [ticketMessage, setTicketMessage] = useState('');
   const [ticketCategory, setTicketCategory] = useState('');
   const [ticketTracking, setTicketTracking] = useState('');
@@ -405,6 +433,20 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
               <Ionicons name="chevron-forward" size={24} color="#999" />
             </Surface>
           </TouchableOpacity>
+
+          {/* Opción 4: Aviso de Privacidad de la Empresa */}
+          <TouchableOpacity onPress={openPrivacyPolicy}>
+            <Surface style={styles.optionCard}>
+              <View style={[styles.optionIcon, { backgroundColor: '#E3F2FD' }]}>
+                <Ionicons name="shield-checkmark" size={32} color="#1976D2" />
+              </View>
+              <View style={styles.optionContent}>
+                <Text style={styles.optionTitle}>Aviso de Privacidad</Text>
+                <Text style={styles.optionDescription}>Consulta cómo tratamos tus datos personales</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#999" />
+            </Surface>
+          </TouchableOpacity>
         </View>
 
         {/* Info adicional */}
@@ -581,6 +623,46 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
             </View>
           </ScrollView>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Modal: Aviso de Privacidad de la Empresa */}
+      <Modal
+        visible={privacyModalOpen}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => setPrivacyModalOpen(false)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#fff' }}>
+          <View style={{ paddingTop: 50, paddingHorizontal: 16, paddingBottom: 14, backgroundColor: ORANGE, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TouchableOpacity onPress={() => setPrivacyModalOpen(false)} style={{ padding: 4 }}>
+              <Ionicons name="close" size={26} color="#fff" />
+            </TouchableOpacity>
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>Aviso de Privacidad</Text>
+              {privacyDoc?.version != null ? (
+                <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>
+                  Versión {privacyDoc.version}
+                  {privacyDoc.updated_at ? ` · ${new Date(privacyDoc.updated_at).toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}` : ''}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+          {privacyLoading && !privacyDoc ? (
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+              <Ionicons name="document-text" size={42} color="#ccc" />
+              <Text style={{ color: '#888', marginTop: 8 }}>Cargando aviso...</Text>
+            </View>
+          ) : (
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 18, paddingBottom: 40 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#111', marginBottom: 12 }}>
+                {privacyDoc?.title || 'Aviso de Privacidad'}
+              </Text>
+              <Text style={{ fontSize: 14, lineHeight: 22, color: '#333' }}>
+                {privacyDoc?.content || ''}
+              </Text>
+            </ScrollView>
+          )}
+        </View>
       </Modal>
     </View>
   );
