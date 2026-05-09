@@ -198,6 +198,7 @@
     "legalDocs": "法律文件",
     "serviceTypes": "服务类型",
     "fiscal": "公司",
+    "systemSettings": "系统设置",
     "supplierPayments": "供应商付款",
     "verifications": "身份验证",
     "inventory": "库存",
@@ -512,6 +513,7 @@
     "customer_service": "客户服务",
     "counter_staff": "柜台员工",
     "warehouse_ops": "仓库运营",
+    "abogado": "律师",
     "accountant": "会计",
     "monitoreo": "监控",
     "client": "客户"

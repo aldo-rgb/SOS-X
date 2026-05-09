@@ -262,6 +262,7 @@
     "legalDocs": "Documentos Legales",
     "serviceTypes": "Tipos de Servicio",
     "fiscal": "Empresas",
+    "systemSettings": "Ajustes del Sistema",
     "supplierPayments": "Pago Proveedores",
     "verifications": "Verificaciones",
     "inventory": "Inventario",
@@ -580,6 +581,7 @@
     "customer_service": "Servicio a Cliente",
     "counter_staff": "Personal de Mostrador",
     "warehouse_ops": "Operaciones",
+    "abogado": "Abogado",
     "accountant": "Contador",
     "monitoreo": "Monitoreo",
     "client": "Cliente"

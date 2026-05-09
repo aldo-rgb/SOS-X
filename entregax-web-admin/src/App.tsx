@@ -36,7 +36,8 @@ import DashboardIcon from '@mui/icons-material/Dashboard';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import CloseIcon from '@mui/icons-material/Close';
 import PeopleIcon from '@mui/icons-material/People';
-// StoreIcon, AssessmentIcon, SettingsIcon, InventoryIcon removidos - secciones eliminadas del sidebar
+// StoreIcon, AssessmentIcon, InventoryIcon removidos - secciones eliminadas del sidebar
+import SettingsIcon from '@mui/icons-material/Settings';
 import LogoutIcon from '@mui/icons-material/Logout';
 import LanguageIcon from '@mui/icons-material/Language';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
@@ -52,7 +53,7 @@ import PermissionsPage from './pages/PermissionsPage';
 // VerificationsPage removido - ahora se accede desde PanelsHubPage > Paneles Admin
 import FiscalPage from './pages/FiscalPage';
 // SupplierPaymentsPage removido - ahora se accede desde PanelsHubPage > Paneles Admin
-// SettingsPage removido - funcionalidad duplicada con CommissionsPage
+import SettingsPage from './pages/SettingsPage';
 // PricingPage removido - tarifas se manejarán por cada tipo de servicio desde Panel de Admin
 // WarrantiesPage removido - ahora se accede desde AdminHubPage > Paneles Administrativos
 // PanelsHubPage removido - ahora todo se accede desde el sidebar con submenús
@@ -213,8 +214,9 @@ const menuItemsConfig: Array<{
   { key: 'cajaChica', icon: <LocalAtmIcon /> }, // Caja CC (Control Cobros) - pagos de clientes
   { key: 'commissions', icon: <MonetizationOnIcon /> },
   { key: 'permissions', icon: <SecurityIcon /> },
-  { key: 'legalDocs', icon: <DescriptionIcon /> }, // Documentos Legales - solo super_admin
+  { key: 'legalDocs', icon: <DescriptionIcon /> }, // Documentos Legales - super_admin y abogado
   { key: 'fiscal', icon: <ReceiptLongIcon /> },
+  { key: 'systemSettings', icon: <SettingsIcon /> }, // Solo super_admin — toggles X-Pay/EntregaX y tipos de servicio
 ];
 
 interface User {
@@ -561,7 +563,7 @@ function App() {
     // Accounting: accountant siempre tiene acceso; otros roles lo ven si tienen permiso de panel
     if (category === 'accounting') {
       const role = currentUser?.role || '';
-      if (['super_admin', 'admin', 'director', 'finanzas', 'accountant'].includes(role)) return true;
+      if (['super_admin', 'admin', 'director', 'finanzas', 'accountant', 'abogado'].includes(role)) return true;
       return Object.keys(userPanelPermissions).some(key => key.startsWith('accounting_'));
     }
 
@@ -607,6 +609,11 @@ function App() {
       // accountant: solo Dashboard + Herramientas (donde solo verá Contabilidad)
       if (role === 'accountant') {
         return ['dashboard', 'panels'].includes(item.key);
+      }
+
+      // abogado: Dashboard + Herramientas + Documentos Legales
+      if (role === 'abogado') {
+        return ['dashboard', 'panels', 'legalDocs'].includes(item.key);
       }
       
       // advisor / sub_advisor: Solo dashboard (panel completo interno)
@@ -1477,6 +1484,7 @@ function App() {
       case 'permissions': return <PermissionsPage />; // Matriz de Permisos
       case 'legalDocs': return <LegalDocumentsPage />; // Documentos Legales (Contratos y Aviso Privacidad)
       case 'fiscal': return <FiscalPage />; // Facturación
+      case 'systemSettings': return <SettingsPage />; // Toggles X-Pay/EntregaX + tipos de servicio (super_admin)
       default: 
         return (
           <Box sx={{ py: 8, textAlign: 'center' }}>
