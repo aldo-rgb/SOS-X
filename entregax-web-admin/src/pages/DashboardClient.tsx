@@ -2595,9 +2595,10 @@ export default function DashboardClient() {
       )];
 
       filtered = allPackages.filter(pkg => {
+        const trackingStr = String(pkg.tracking || '').toLowerCase();
         const trackingCompact = compact(pkg.tracking);
         const matchesPrimary =
-          pkg.tracking.toLowerCase().includes(term) ||
+          trackingStr.includes(term) ||
           (pkg.descripcion || '').toLowerCase().includes(term) ||
           (termCompact.length > 0 && (
             trackingCompact.includes(termCompact) ||
@@ -2607,9 +2608,10 @@ export default function DashboardClient() {
         // Si es un master/repack, buscar también en las guías incluidas
         if (pkg.included_guides && pkg.included_guides.length > 0) {
           const matchesChild = pkg.included_guides.some(guide => {
+            const guideStr = String(guide.tracking || '').toLowerCase();
             const guideCompact = compact(guide.tracking);
             return (
-              guide.tracking.toLowerCase().includes(term) ||
+              guideStr.includes(term) ||
               (guide.description || '').toLowerCase().includes(term) ||
               (termCompact.length > 0 && (
                 guideCompact.includes(termCompact) ||
