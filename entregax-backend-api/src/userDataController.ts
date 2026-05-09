@@ -43,9 +43,20 @@ export const createAddress = async (req: Request, res: Response): Promise<void> 
             colony, city, state, zip_code, country, phone, reference
         } = req.body;
 
-        // Validaciones
-        if (!street || !exterior_number || !colony || !city || !state || !zip_code) {
-            res.status(400).json({ error: 'Campos requeridos incompletos' });
+        // Validaciones — reportar campos específicos faltantes
+        const isEmpty = (v: unknown) => v == null || String(v).trim() === '';
+        const missing: string[] = [];
+        if (isEmpty(street)) missing.push('Calle');
+        if (isEmpty(exterior_number)) missing.push('Número exterior');
+        if (isEmpty(colony)) missing.push('Colonia');
+        if (isEmpty(city)) missing.push('Ciudad');
+        if (isEmpty(state)) missing.push('Estado');
+        if (isEmpty(zip_code)) missing.push('Código Postal');
+        if (missing.length > 0) {
+            res.status(400).json({
+                error: `Faltan datos requeridos: ${missing.join(', ')}`,
+                missing_fields: missing,
+            });
             return;
         }
 

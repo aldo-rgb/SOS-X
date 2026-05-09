@@ -3572,13 +3572,32 @@ export default function DashboardClient() {
       return;
     }
 
+    // Validación local: reportar campos requeridos faltantes antes de pegarle al API.
+    const requiredLabels: Array<[string, string]> = [
+      [addressForm.street?.trim() || '', 'Calle'],
+      [addressForm.exterior_number?.trim() || '', 'Número exterior'],
+      [addressForm.colony?.trim() || '', 'Colonia'],
+      [addressForm.city?.trim() || '', 'Ciudad'],
+      [addressForm.state?.trim() || '', 'Estado'],
+      [addressForm.zip_code?.trim() || '', 'Código Postal'],
+    ];
+    const missing = requiredLabels.filter(([v]) => !v).map(([, label]) => label);
+    if (missing.length > 0) {
+      setSnackbar({
+        open: true,
+        message: `Faltan datos requeridos: ${missing.join(', ')}`,
+        severity: 'error',
+      });
+      return;
+    }
+
     setAddressSaving(true);
     try {
       // Combinar nombre y apellido como contact_name
       const contact_name = `${addressForm.first_name.trim()} ${addressForm.last_name.trim()}`;
       // Combinar código de país + teléfono
       const phone = addressForm.phone ? `${addressForm.country_code}${addressForm.phone.replace(/\D/g, '')}` : '';
-      
+
       const payload = {
         alias: addressForm.alias,
         contact_name,
@@ -3664,7 +3683,14 @@ export default function DashboardClient() {
       });
       loadDeliveryAddresses();
     } catch (error) {
-      setSnackbar({ open: true, message: t('cd.snackbar.addressSaveError'), severity: 'error' });
+      // Si el backend devuelve un mensaje específico (campos faltantes, etc.),
+      // lo mostramos. Si no, caemos al texto i18n genérico.
+      const apiMsg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setSnackbar({
+        open: true,
+        message: apiMsg || t('cd.snackbar.addressSaveError'),
+        severity: 'error',
+      });
     } finally {
       setAddressSaving(false);
     }
