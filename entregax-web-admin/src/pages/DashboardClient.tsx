@@ -2909,18 +2909,40 @@ export default function DashboardClient() {
   };
 
   // Toggle selección de paquete
+  // Categoriza un valor de servicio normalizado (tolera AIR_CHN_MX/china_air/aereo,
+  // SEA_CHN_MX/maritime/fcl, AA_DHL/dhl, POBOX_USA/usa, etc.). Devuelve uno de:
+  // 'air' | 'maritime' | 'dhl' | 'pobox' | 'other'.
+  const getServiceCategory = (servicio: string | undefined | null): 'air' | 'maritime' | 'dhl' | 'pobox' | 'other' => {
+    const s = String(servicio || '').toLowerCase();
+    if (!s) return 'other';
+    if (s.includes('sea') || s.includes('maritime') || s.includes('maritimo') || s === 'fcl') return 'maritime';
+    if (s.includes('dhl') || s === 'aa_dhl') return 'dhl';
+    if (s.includes('air') || s === 'aereo' || s === 'china_air') return 'air';
+    if (s.includes('pobox') || s.includes('po_box') || s === 'usa' || s === 'usa_pobox') return 'pobox';
+    return 'other';
+  };
+
   const togglePackageSelection = (id: number, pkg: PackageTracking) => {
     // Solo permitir seleccionar paquetes elegibles (no pagados, no entregados)
     if (!isPackagePayable(pkg)) {
       setSnackbar({ open: true, message: t('cd.snackbar.alreadyPaid'), severity: 'info' });
       return;
     }
-    
-    // Si ya hay paquetes seleccionados, validar que sean del mismo tipo de servicio
+
+    // Si ya hay paquetes seleccionados, validar que sean del mismo tipo de servicio.
+    // Comparamos por CATEGORÍA normalizada — no por string crudo — para que
+    // variantes (AIR_CHN_MX vs china_air, SEA_CHN_MX vs maritime) se agrupen
+    // correctamente y no se mezclen aéreas con marítimas en una misma orden.
     if (selectedPackageIds.length > 0 && !selectedPackageIds.includes(id)) {
       const currentSelected = packages.find(p => p.id === selectedPackageIds[0]);
-      if (currentSelected && currentSelected.servicio !== pkg.servicio) {
-        setSnackbar({ open: true, message: t('cd.snackbar.cannotMixServices'), severity: 'warning' });
+      const currentCat = getServiceCategory(currentSelected?.servicio);
+      const newCat = getServiceCategory(pkg.servicio);
+      if (currentSelected && currentCat !== newCat) {
+        setSnackbar({
+          open: true,
+          message: `⚠️ No puedes mezclar guías ${currentCat.toUpperCase()} con ${newCat.toUpperCase()}. Genera órdenes separadas por tipo de servicio.`,
+          severity: 'warning',
+        });
         return;
       }
 
@@ -2950,13 +2972,30 @@ export default function DashboardClient() {
       setSnackbar({ open: true, message: t('cd.snackbar.selectServiceFilter'), severity: 'warning' });
       return;
     }
-    
+
     const filtered = getFilteredPackages();
-    const selectablePackages = filtered.filter(isPackagePayable);
+    let selectablePackages = filtered.filter(isPackagePayable);
+
+    // Si ya hay paquetes seleccionados de otra categoría, NO mezclamos.
+    // Filtramos los del mismo tipo y avisamos cuántos quedaron fuera.
+    if (selectedPackageIds.length > 0) {
+      const currentSelected = packages.find(p => p.id === selectedPackageIds[0]);
+      const currentCat = getServiceCategory(currentSelected?.servicio);
+      const before = selectablePackages.length;
+      selectablePackages = selectablePackages.filter(p => getServiceCategory(p.servicio) === currentCat);
+      const skipped = before - selectablePackages.length;
+      if (skipped > 0) {
+        setSnackbar({
+          open: true,
+          message: `⚠️ Se omitieron ${skipped} guía(s) que no son del mismo tipo (${currentCat.toUpperCase()}). No mezclamos servicios en una misma orden.`,
+          severity: 'warning',
+        });
+      }
+    }
+
     const selectableIds = selectablePackages.map(p => p.id);
-    
     const allSelected = selectableIds.every(id => selectedPackageIds.includes(id));
-    
+
     if (allSelected) {
       setSelectedPackageIds(prev => prev.filter(id => !selectableIds.includes(id)));
     } else {
