@@ -363,10 +363,10 @@ export const getMyAddresses = async (req: Request, res: Response): Promise<void>
 
         const result = await pool.query(
             `SELECT id, alias, recipient_name as contact_name, street, exterior_number, interior_number,
-                    neighborhood as colony, city, state, zip_code, phone, reference, is_default, 
-                    default_for_service, carrier_config, created_at
-             FROM addresses 
-             WHERE user_id = $1 
+                    neighborhood as colony, city, state, zip_code, phone, reference, reception_hours,
+                    is_default, default_for_service, carrier_config, created_at
+             FROM addresses
+             WHERE user_id = $1
              ORDER BY is_default DESC, created_at DESC`,
             [userId]
         );

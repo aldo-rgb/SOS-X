@@ -690,25 +690,45 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             return res.status(400).json({ error: 'totalAmount es requerido y debe ser mayor a 0' });
         }
 
+        // Resolver el box_id del usuario para aceptar también paquetes legacy
+        // (con user_id NULL pero box_id que coincide). El dashboard del cliente
+        // ya incluye estos paquetes vía OR box_id = user.box_id, así que la
+        // verificación de pago tiene que reflejar la misma regla — si no, las
+        // selecciones múltiples que mezclan paquetes nuevos + legacy fallan
+        // con 400 "Algunos paquetes no existen o no pertenecen al usuario".
+        let userBoxId: string | null = null;
+        try {
+            const u = await pool.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
+            userBoxId = u.rows[0]?.box_id || null;
+        } catch { /* si falla seguimos con sólo user_id */ }
+
         // Verificar que los paquetes existen y pertenecen al usuario
-        // Primero buscar en packages, luego en maritime_orders
+        // (por user_id, o por box_id/shipping_mark si son legacy).
         const packagesCheck = await pool.query(
             `SELECT id, tracking_internal, status::text, service_type, assigned_cost_mxn, 'package' as source
-             FROM packages 
-             WHERE id = ANY($1) AND user_id = $2 
+             FROM packages
+             WHERE id = ANY($1)
+               AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(box_id, '')) = UPPER($3::text)))
             UNION ALL
             SELECT id, ordersn as tracking_internal, status::text, 'maritime' as service_type, assigned_cost_mxn, 'maritime' as source
              FROM maritime_orders
-             WHERE id = ANY($1) AND user_id = $2
+             WHERE id = ANY($1)
+               AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(shipping_mark, '')) = UPPER($3::text)))
             UNION ALL
             SELECT id, inbound_tracking as tracking_internal, status::text, 'AA_DHL' as service_type, total_cost_mxn as assigned_cost_mxn, 'dhl' as source
              FROM dhl_shipments
-             WHERE id = ANY($1) AND user_id = $2`,
-            [packageIds, userId]
+             WHERE id = ANY($1)
+               AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(box_id, '')) = UPPER($3::text)))`,
+            [packageIds, userId, userBoxId]
         );
 
         if (packagesCheck.rows.length !== packageIds.length) {
-            return res.status(400).json({ error: 'Algunos paquetes no existen o no pertenecen al usuario' });
+            const found = new Set(packagesCheck.rows.map(r => Number(r.id)));
+            const missing = (packageIds as number[]).filter(id => !found.has(Number(id)));
+            return res.status(400).json({
+                error: 'Algunos paquetes no existen o no pertenecen al usuario',
+                missing_ids: missing,
+            });
         }
 
         // Determine service type for company config lookup
