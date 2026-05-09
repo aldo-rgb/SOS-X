@@ -2582,6 +2582,11 @@ export default function DashboardClient() {
     // Filtro por búsqueda - también busca en guías incluidas (repack/consolidaciones)
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
+      // Normalización compacta (sin guiones/espacios) para tolerar que el
+      // cliente escriba "AIR2610265SCHJM040" y los hijos vivan como
+      // "AIR2610265scHjM-040". includesNormalized acepta ambas direcciones.
+      const compact = (s: string) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const termCompact = compact(searchTerm);
 
       // Si hay término de búsqueda, combinar paquetes activos + historial
       const allPackages = [...filtered, ...historyPackages.filter(hp =>
@@ -2590,16 +2595,28 @@ export default function DashboardClient() {
       )];
 
       filtered = allPackages.filter(pkg => {
-        // Buscar en tracking y descripción del paquete principal
-        const matchesPrimary = pkg.tracking.toLowerCase().includes(term) ||
-          (pkg.descripcion || '').toLowerCase().includes(term);
+        const trackingCompact = compact(pkg.tracking);
+        const matchesPrimary =
+          pkg.tracking.toLowerCase().includes(term) ||
+          (pkg.descripcion || '').toLowerCase().includes(term) ||
+          (termCompact.length > 0 && (
+            trackingCompact.includes(termCompact) ||
+            termCompact.includes(trackingCompact)
+          ));
 
         // Si es un master/repack, buscar también en las guías incluidas
         if (pkg.included_guides && pkg.included_guides.length > 0) {
-          const matchesChild = pkg.included_guides.some(guide =>
-            guide.tracking.toLowerCase().includes(term) ||
-            (guide.description || '').toLowerCase().includes(term)
-          );
+          const matchesChild = pkg.included_guides.some(guide => {
+            const guideCompact = compact(guide.tracking);
+            return (
+              guide.tracking.toLowerCase().includes(term) ||
+              (guide.description || '').toLowerCase().includes(term) ||
+              (termCompact.length > 0 && (
+                guideCompact.includes(termCompact) ||
+                termCompact.includes(guideCompact)
+              ))
+            );
+          });
           return matchesPrimary || matchesChild;
         }
 
@@ -5574,11 +5591,18 @@ export default function DashboardClient() {
                   (Number(pkg.total_boxes) || 0) > 1 ||
                   (!!pkg.is_master && (pkg.included_guides?.length || 0) > 1);
                 
-                // Verificar si la búsqueda coincide con una guía hija
-                const matchedChildGuide = searchTerm 
-                  ? pkg.included_guides?.find(guide => 
-                      guide.tracking.toLowerCase().includes(searchTerm.toLowerCase())
-                    )
+                // Verificar si la búsqueda coincide con una guía hija.
+                // Normalizamos ambos lados quitando guiones/separadores y
+                // pasando a lowercase, para que "AIR2610265SCHJM040" matchee
+                // "AIR2610265scHjM-040" sin importar el formato exacto.
+                const normalizeForMatch = (s: string) =>
+                  String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+                const matchedChildGuide = searchTerm
+                  ? pkg.included_guides?.find(guide => {
+                      const a = normalizeForMatch(guide.tracking);
+                      const b = normalizeForMatch(searchTerm);
+                      return a.includes(b) || b.includes(a);
+                    })
                   : undefined;
                 
                 return (
