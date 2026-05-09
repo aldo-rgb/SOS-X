@@ -692,12 +692,23 @@ const MaritimeApiPage: React.FC<Props> = ({ onBack }) => {
                           {translateChinese(order.goods_type)}
                         </Typography>
                       </TableCell>
-                      <TableCell align="center">{order.goods_num}</TableCell>
+                      <TableCell align="center">
+                        {/* Si la orden sigue como "Pendiente API" (sin sync real
+                            con China), no mostramos el goods_num=1 default —
+                            mejor un guion para no confundir al operador. */}
+                        {order.status === 'pending_api' && !order.last_tracking_status ? '-' : order.goods_num}
+                      </TableCell>
                       <TableCell align="right">
-                        <Typography fontSize="0.85rem">{order.weight} kg</Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {order.volume} m³
-                        </Typography>
+                        {order.status === 'pending_api' && !order.last_tracking_status ? (
+                          <Typography fontSize="0.85rem" color="text.secondary">-</Typography>
+                        ) : (
+                          <>
+                            <Typography fontSize="0.85rem">{order.weight} kg</Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {order.volume} m³
+                            </Typography>
+                          </>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Typography fontSize="0.8rem">
