@@ -152,10 +152,16 @@ export default function LegalDocumentsPage() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (response.data.success) {
-        setDocuments(response.data.documents);
-        // Establecer documento inicial
-        if (response.data.documents.length > 0) {
-          const doc = response.data.documents[0];
+        const docs: LegalDocument[] = response.data.documents;
+        setDocuments(docs);
+        if (docs.length > 0) {
+          // Preservar la pestaña activa si sigue existiendo. Antes
+          // siempre hacíamos setCurrentDoc(docs[0]) lo que tras un
+          // guardado regresaba la vista a la primera pestaña aunque
+          // el usuario estuviera editando otra (caso real: editar
+          // Asesores y volver a ver Empresa).
+          const idx = Math.min(Math.max(tabValue, 0), docs.length - 1);
+          const doc = docs[idx]!;
           setCurrentDoc(doc);
           setEditTitle(doc.title);
           setEditContent(doc.content);
@@ -187,22 +193,44 @@ export default function LegalDocumentsPage() {
 
   const handleSave = async () => {
     if (!currentDoc) return;
-    
+
     setSaving(true);
     setError(null);
     try {
       const token = localStorage.getItem('token');
-      await axios.put(
+      const response = await axios.put(
         `${API_URL}/legal-documents/${currentDoc.id}`,
         { title: editTitle, content: editContent },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      
-      setSuccess('Documento actualizado correctamente');
+
+      // Actualizar el documento en-place con lo que devolvió el backend
+      // — así nos quedamos en la misma pestaña y vemos la versión nueva
+      // sin re-fetch global. El re-fetch volvía la vista a documents[0]
+      // y daba la sensación de que el cambio no se había guardado.
+      const updated: LegalDocument | undefined = response.data?.document;
+      if (updated) {
+        setDocuments(prev => prev.map(d => (d.id === updated.id ? updated : d)));
+        setCurrentDoc(updated);
+        setEditTitle(updated.title);
+        setEditContent(updated.content);
+        const msg = response.data?.message || `Versión ${updated.version} guardada`;
+        setSuccess(msg);
+      } else {
+        setSuccess('Documento actualizado correctamente');
+      }
       setEditMode(false);
-      fetchDocuments();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al guardar documento');
+      // Mensaje explícito para los dos errores típicos:
+      const status = err?.response?.status;
+      const backendMsg = err?.response?.data?.error || err?.response?.data?.message;
+      if (status === 403) {
+        setError(backendMsg || 'No tienes permiso para editar este documento (se requiere super_admin o abogado).');
+      } else if (status === 401) {
+        setError('Tu sesión expiró. Vuelve a iniciar sesión.');
+      } else {
+        setError(backendMsg || `Error al guardar documento (${status || 'sin respuesta'}).`);
+      }
     } finally {
       setSaving(false);
     }
@@ -216,15 +244,15 @@ export default function LegalDocumentsPage() {
   const getDocumentLabel = (type: string) => {
     switch (type) {
       case 'privacy_policy':
-        return 'Política de Privacidad (Empresa)';
+        return 'Privacidad (Empresa)';
       case 'privacy_notice':
-        return 'Aviso de Privacidad  (Empleados)';
+        return 'Privacidad  (Empleados)';
       case 'advisor_privacy_notice':
-        return 'Aviso de Privacidad (Asesores)';
+        return 'Privacidad (Asesores)';
       case 'service_contract':
-        return 'Contrato de Servicios (Clientes)';
+        return 'Contrato de Servicios';
       case 'gex_warranty_policy':
-        return 'Garantía Extendida (GEX)';
+        return 'Garantía Extendida';
       default:
         return type;
     }
@@ -628,8 +656,26 @@ export default function LegalDocumentsPage() {
         open={!!success}
         autoHideDuration={4000}
         onClose={() => setSuccess(null)}
-        message={success}
-      />
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert severity="success" onClose={() => setSuccess(null)} sx={{ width: '100%' }}>
+          {success}
+        </Alert>
+      </Snackbar>
+
+      {/* Snackbar de error — top-center con alto z-index para que no se
+          quede oculto por la barra del navegador. El Alert dentro del
+          Box arriba a veces queda fuera del viewport tras un scroll. */}
+      <Snackbar
+        open={!!error}
+        autoHideDuration={6000}
+        onClose={() => setError(null)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert severity="error" onClose={() => setError(null)} sx={{ width: '100%' }}>
+          {error}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
