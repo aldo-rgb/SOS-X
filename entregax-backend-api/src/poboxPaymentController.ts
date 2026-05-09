@@ -734,9 +734,28 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             [packageIds, userId, userBoxId]
         );
 
-        if (packagesCheck.rows.length !== packageIds.length) {
-            const found = new Set(packagesCheck.rows.map(r => Number(r.id)));
-            const missing = (packageIds as number[]).filter(id => !found.has(Number(id)));
+        // 🔒 Las tablas packages, maritime_orders y dhl_shipments tienen
+        // secuencias de id INDEPENDIENTES, así que un mismo id numérico
+        // puede aparecer en >1 tabla simultáneamente (caso real: id 326
+        // existe en packages como hija AIR y en maritime_orders como una
+        // orden marítima sin relación). El UNION ALL devuelve ambas filas,
+        // y comparar `rows.length !== packageIds.length` rompía pagos
+        // legítimos con un 400 falso (47 filas devueltas vs 40 ids).
+        // Deduplicamos por id priorizando la tabla packages — que es la
+        // fuente que el frontend ya prefiere al armar la selección.
+        const sourcePriority: Record<string, number> = { package: 0, dhl: 1, maritime: 2 };
+        const dedupedById = new Map<number, any>();
+        for (const r of packagesCheck.rows) {
+            const id = Number(r.id);
+            const existing = dedupedById.get(id);
+            if (!existing || (sourcePriority[r.source] ?? 99) < (sourcePriority[existing.source] ?? 99)) {
+                dedupedById.set(id, r);
+            }
+        }
+        const checkedRows = Array.from(dedupedById.values());
+
+        if (dedupedById.size !== packageIds.length) {
+            const missing = (packageIds as number[]).filter(id => !dedupedById.has(Number(id)));
             return res.status(400).json({
                 error: 'Algunos paquetes no existen o no pertenecen al usuario',
                 missing_ids: missing,
@@ -749,7 +768,7 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         // arrastraba toda la orden al lado equivocado (caso real: 200 guías
         // AIR aparecían bajo "Marítimo China" en el dashboard de empresa).
         const serviceCounts: Record<string, number> = { maritime: 0, dhl: 0, air: 0, pobox: 0 };
-        for (const p of packagesCheck.rows) {
+        for (const p of checkedRows) {
             if (p.source === 'maritime' || p.service_type === 'maritime' || p.service_type === 'SEA_CHN_MX' || p.service_type === 'fcl') {
                 serviceCounts.maritime!++;
             } else if (p.source === 'dhl' || p.service_type === 'AA_DHL' || p.service_type === 'dhl') {
@@ -790,8 +809,10 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         }
 
         // Recalculamos totalAmount sumando solo los paquetes que quedan,
-        // para no cobrar de más por los que se filtraron.
-        const filteredRows = packagesCheck.rows.filter(
+        // para no cobrar de más por los que se filtraron. Usamos checkedRows
+        // (ya deduplicado por id) para no doble-contar costos de filas
+        // colisionadas entre tablas.
+        const filteredRows = checkedRows.filter(
             (r: any) => !duplicateIds.has(Number(r.id))
         );
         const recalculatedAmount = filteredRows.reduce(
@@ -829,7 +850,7 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             console.log(`♻️ Reutilizando pago existente: ${existingPay.payment_reference}`);
 
             // Obtener información de empresa y sucursal
-            const trackings = packagesCheck.rows.map(p => p.tracking_internal).join(', ');
+            const trackings = checkedRows.map(p => p.tracking_internal).join(', ');
             
             // Obtener info bancaria
             let companyInfo: any = null;
