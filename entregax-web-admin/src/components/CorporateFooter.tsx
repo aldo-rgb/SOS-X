@@ -10,7 +10,6 @@ import { useState } from 'react';
 import {
   Box,
   Container,
-  Grid,
   Typography,
   Link as MuiLink,
   IconButton,
@@ -74,9 +73,20 @@ export default function CorporateFooter() {
   return (
     <Box component="footer" sx={{ mt: 6, bgcolor: DARK, color: '#fff', borderTop: `4px solid ${ORANGE}`, textAlign: 'center' }}>
       <Container maxWidth="lg" sx={{ py: { xs: 4, md: 6 }, mx: 'auto' }}>
-        <Grid container spacing={4} justifyContent="center">
+        {/* Layout en 4 columnas con flex (no usamos MUI Grid porque la
+            v6 cambió el API y rompía el build con types). Las columnas
+            se apilan en mobile (xs) y se distribuyen horizontalmente
+            en desktop (md+). */}
+        <Box
+          sx={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            gap: { xs: 3, md: 4 },
+          }}
+        >
           {/* Marca + descripción */}
-          <Grid item xs={12} md={4} sx={{ textAlign: 'center' }}>
+          <Box sx={{ flex: { xs: '1 1 100%', md: '0 1 280px' }, textAlign: 'center' }}>
             <Box
               component="img"
               src="/logo.png"
@@ -118,10 +128,10 @@ export default function CorporateFooter() {
                 <MusicNoteIcon fontSize="small" />
               </IconButton>
             </Box>
-          </Grid>
+          </Box>
 
           {/* Servicios */}
-          <Grid item xs={6} md={2} sx={{ textAlign: 'center' }}>
+          <Box sx={{ flex: { xs: '1 1 45%', md: '0 1 160px' }, textAlign: 'center' }}>
             <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1.5, textTransform: 'uppercase', letterSpacing: 1 }}>
               Servicios
             </Typography>
@@ -131,10 +141,10 @@ export default function CorporateFooter() {
               <Typography variant="body2" sx={{ color: TEXT_LIGHT }}>📦 PO Box USA</Typography>
               <Typography variant="body2" sx={{ color: TEXT_LIGHT }}>🚚 DHL Monterrey</Typography>
             </Box>
-          </Grid>
+          </Box>
 
           {/* Legal */}
-          <Grid item xs={6} md={3} sx={{ textAlign: 'center' }}>
+          <Box sx={{ flex: { xs: '1 1 45%', md: '0 1 200px' }, textAlign: 'center' }}>
             <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1.5, textTransform: 'uppercase', letterSpacing: 1 }}>
               Legal
             </Typography>
@@ -154,10 +164,10 @@ export default function CorporateFooter() {
                 <DescriptionIcon sx={{ fontSize: 16 }} /> Contrato de Servicios
               </MuiLink>
             </Box>
-          </Grid>
+          </Box>
 
           {/* Contacto */}
-          <Grid item xs={12} md={3} sx={{ textAlign: 'center' }}>
+          <Box sx={{ flex: { xs: '1 1 100%', md: '0 1 220px' }, textAlign: 'center' }}>
             <Typography variant="subtitle2" fontWeight={700} sx={{ color: ORANGE, mb: 1.5, textTransform: 'uppercase', letterSpacing: 1 }}>
               Contacto
             </Typography>
@@ -177,8 +187,8 @@ export default function CorporateFooter() {
                 <span>contacto@entregax.com</span>
               </MuiLink>
             </Box>
-          </Grid>
-        </Grid>
+          </Box>
+        </Box>
 
         <Divider sx={{ my: 3, borderColor: 'rgba(255,255,255,0.1)' }} />
 
