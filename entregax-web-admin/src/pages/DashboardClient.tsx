@@ -2582,32 +2582,112 @@ export default function DashboardClient() {
     // Filtro por búsqueda - también busca en guías incluidas (repack/consolidaciones)
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
-      
+
       // Si hay término de búsqueda, combinar paquetes activos + historial
-      const allPackages = [...filtered, ...historyPackages.filter(hp => 
+      const allPackages = [...filtered, ...historyPackages.filter(hp =>
         // Evitar duplicados
         !filtered.some(p => p.id === hp.id)
       )];
-      
+
       filtered = allPackages.filter(pkg => {
         // Buscar en tracking y descripción del paquete principal
-        const matchesPrimary = pkg.tracking.toLowerCase().includes(term) || 
+        const matchesPrimary = pkg.tracking.toLowerCase().includes(term) ||
           (pkg.descripcion || '').toLowerCase().includes(term);
-        
+
         // Si es un master/repack, buscar también en las guías incluidas
         if (pkg.included_guides && pkg.included_guides.length > 0) {
-          const matchesChild = pkg.included_guides.some(guide => 
+          const matchesChild = pkg.included_guides.some(guide =>
             guide.tracking.toLowerCase().includes(term) ||
             (guide.description || '').toLowerCase().includes(term)
           );
           return matchesPrimary || matchesChild;
         }
-        
+
         return matchesPrimary;
       });
     }
-    
-    return filtered;
+
+    // Agrupación virtual de guías AIR hermanas (mismo prefijo "AIR<X>", distinto
+    // child_no -001/-002/...). El backend las trae como filas individuales,
+    // pero visualmente queremos mostrarlas como UN master "MULTI" con desglose
+    // de cajas, igual que el flujo marítimo. La agrupación es UI-only — no
+    // toca la DB; al seleccionar el master virtual seleccionamos todas las
+    // hijas para pagar/instrucciones.
+    const airGroups: Record<string, PackageTracking[]> = {};
+    const nonAir: PackageTracking[] = [];
+    for (const pkg of filtered) {
+      const tracking = String(pkg.tracking || '').toUpperCase();
+      // Sólo agrupar AIR sueltas (no las que ya son masters reales o forman parte de un repack).
+      const airChildMatch = tracking.match(/^(AIR[A-Z0-9]+)-(\d{2,4})$/i);
+      if (airChildMatch && !pkg.is_master && (!pkg.included_guides || pkg.included_guides.length === 0)) {
+        const prefix = airChildMatch[1].toUpperCase();
+        (airGroups[prefix] = airGroups[prefix] || []).push(pkg);
+      } else {
+        nonAir.push(pkg);
+      }
+    }
+
+    const grouped: PackageTracking[] = [...nonAir];
+    for (const [prefix, kids] of Object.entries(airGroups)) {
+      if (kids.length < 2) {
+        // No vale la pena agrupar 1 sola — la dejamos como antes
+        grouped.push(...kids);
+        continue;
+      }
+      // Ordenar hijas por número de caja (-001, -002, …)
+      const sorted = [...kids].sort((a, b) => {
+        const na = Number(String(a.tracking).match(/-(\d+)$/)?.[1] || 0);
+        const nb = Number(String(b.tracking).match(/-(\d+)$/)?.[1] || 0);
+        return na - nb;
+      });
+      const sumWeight = sorted.reduce((s, k) => s + (Number(k.weight) || 0), 0);
+      const sumCbm = sorted.reduce((s, k) => s + (Number(k.cbm) || 0), 0);
+      const sumDeclared = sorted.reduce((s, k) => s + (Number(k.declared_value) || 0), 0);
+      const sumMonto = sorted.reduce((s, k) => s + (Number(k.monto) || 0), 0);
+      const allPaid = sorted.every(k => k.client_paid === true);
+      // Status / status_label: usamos el del primer hijo más reciente (todos
+      // del mismo embarque suelen estar en el mismo punto del flujo).
+      const repr = sorted[0];
+      const virtualMaster: PackageTracking = {
+        ...repr,
+        // Sintético — id positivo no usado, usa el id del primer hijo como
+        // base pero marcamos _airGroup para que togglePackageSelection sepa
+        // expandirlo a todos los hijos al seleccionar.
+        id: repr.id,
+        tracking: prefix,
+        descripcion: repr.descripcion,
+        weight: sumWeight,
+        cbm: sumCbm,
+        declared_value: sumDeclared,
+        monto: sumMonto,
+        client_paid: allPaid,
+        is_master: true,
+        total_boxes: sorted.length,
+        included_guides: sorted.map((k) => ({
+          id: k.id,
+          tracking: k.tracking,
+          tracking_provider: k.tracking_provider,
+          description: k.descripcion || null,
+          weight: Number(k.weight) || null,
+          dimensions: k.dimensions || null,
+          cbm: Number(k.cbm) || null,
+          declared_value: Number(k.declared_value) || null,
+          status: k.status,
+        })) as PackageTracking['included_guides'],
+        // Marca interna para que togglePackageSelection seleccione TODAS las hijas
+        _airGroupChildIds: sorted.map((k) => k.id),
+      } as PackageTracking & { _airGroupChildIds: number[] };
+      grouped.push(virtualMaster);
+    }
+
+    // Ordenar el resultado final igual que antes (por estado y fecha)
+    grouped.sort((a, b) => {
+      if (a.status === 'ready_pickup' && b.status !== 'ready_pickup') return -1;
+      if (b.status === 'ready_pickup' && a.status !== 'ready_pickup') return 1;
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+
+    return grouped;
   }, [packages, serviceFilter, searchTerm, historyPackages, instructionFilter]);
 
   // Contadores por tipo de servicio (para badges en botones de filtro)
@@ -2960,7 +3040,23 @@ export default function DashboardClient() {
       }
     }
     
-    setSelectedPackageIds(prev => 
+    // Si es un master virtual de hermanas AIR, seleccionamos/deseleccionamos
+    // TODAS las hijas reales de una vez.
+    const airGroup = (pkg as PackageTracking & { _airGroupChildIds?: number[] })._airGroupChildIds;
+    if (airGroup && airGroup.length > 0) {
+      setSelectedPackageIds(prev => {
+        const allChildrenSelected = airGroup.every(cid => prev.includes(cid));
+        if (allChildrenSelected) {
+          // Deseleccionar todas las hijas
+          return prev.filter(p => !airGroup.includes(p));
+        }
+        // Seleccionar todas las que falten
+        return [...new Set([...prev, ...airGroup])];
+      });
+      return;
+    }
+
+    setSelectedPackageIds(prev =>
       prev.includes(id) ? prev.filter(p => p !== id) : [...prev, id]
     );
   };
