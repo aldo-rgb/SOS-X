@@ -25,6 +25,7 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { API_URL, Package } from '../services/api';
+import { usePaymentStatus } from '../hooks/usePaymentStatus';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
@@ -113,6 +114,7 @@ const TARIFAS_POBOX_USD: Record<number, number> = { 1: 39, 2: 79, 3: 750 };
 
 export default function PackageDetailScreen({ navigation, route }: Props) {
   const { package: pkg, user, token } = route.params;
+  const { gexEnabled } = usePaymentStatus();
   const [loading, setLoading] = useState(true);
   const [details, setDetails] = useState<PackageDetails | null>(null);
   const [childPackages, setChildPackages] = useState<ChildPackage[]>([]);
@@ -686,7 +688,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                   )}
                 </View>
               </View>
-              {!details.has_gex && ['received', 'processing'].includes(details.status) && (
+              {!details.has_gex && gexEnabled && ['received', 'processing'].includes(details.status) && (
                 <Button
                   mode="contained"
                   onPress={handleContractGEX}

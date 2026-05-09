@@ -98,7 +98,7 @@ type HomeScreenProps = {
 export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const { t } = useTranslation();
   const { user: initialUser, token } = route.params;
-  const { xpayEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
+  const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled } = usePaymentStatus();
   const [user, setUser] = useState(initialUser); // Estado local para actualizar usuario
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]); // 🔥 IDs seleccionados
@@ -820,13 +820,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // Marítimo: si está recibido en China (antes de zarpar) o si ya tiene GEX
     // Aéreo USA: si está en bodega o procesando
     // ✈️🇨🇳 China Air: si está en bodega China (received_origin)
-    const canContractGEX = item.has_gex || (isMaritime 
+    // gexEnabled: toggle global del super_admin. Si está apagado, ocultamos
+    // la opción de contratar (pero seguimos mostrando el badge "Activa"
+    // cuando el paquete ya tenía la garantía contratada antes).
+    const canContractGEX = item.has_gex || (gexEnabled && (isMaritime
       ? (item.status === 'received_china') // Marítimo: puede contratar antes de zarpar
       : isChinaAir
         ? (item.status === 'received_origin') // ✈️🇨🇳 China Air: puede contratar en bodega China
-        : (['received', 'processing'].includes(item.status) && 
+        : (['received', 'processing'].includes(item.status) &&
            item.consolidation_status !== 'in_transit' &&
-           item.consolidation_status !== 'shipped'));
+           item.consolidation_status !== 'shipped')));
 
     const handlePress = () => {
       // 🚢/✈️/🚚 Marítimo, China Air o DHL → navegar al detalle del embarque

@@ -26,6 +26,7 @@ import {
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { API_URL } from '../services/api';
+import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import { useTranslation } from 'react-i18next';
 
 const ORANGE = '#F05A28';
@@ -53,6 +54,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
 
   // GEX auto-config
+  const { gexEnabled } = usePaymentStatus();
   const [gexAutoEnabled, setGexAutoEnabled] = useState(false);
   const [gexAutoLoading, setGexAutoLoading] = useState(false);
   const [gexPolicyModalVisible, setGexPolicyModalVisible] = useState(false);
@@ -978,23 +980,28 @@ export default function MyProfileScreen({ navigation, route }: Props) {
 
             <Divider style={styles.divider} />
 
-            {/* GEX Automático */}
-            <View style={styles.menuItem}>
-              <Ionicons name="shield-outline" size={24} color={ORANGE} />
-              <View style={styles.menuItemContent}>
-                <Text style={styles.menuItemTitle}>🛡️ GEX Automático</Text>
-                <Text style={styles.menuItemSubtitle}>
-                  {gexAutoEnabled ? 'Garantía Extendida activa para cada embarque' : 'Contratar GEX automáticamente en cada embarque'}
-                </Text>
+            {/* GEX Automático — solo si el sistema GEX está activo a nivel
+                global (toggle del super_admin). Si ya estaba activo en la
+                cuenta del cliente, lo dejamos visible para que pueda
+                desactivarlo aunque GEX global esté apagado. */}
+            {(gexEnabled || gexAutoEnabled) && (
+              <View style={styles.menuItem}>
+                <Ionicons name="shield-outline" size={24} color={ORANGE} />
+                <View style={styles.menuItemContent}>
+                  <Text style={styles.menuItemTitle}>🛡️ GEX Automático</Text>
+                  <Text style={styles.menuItemSubtitle}>
+                    {gexAutoEnabled ? 'Garantía Extendida activa para cada embarque' : 'Contratar GEX automáticamente en cada embarque'}
+                  </Text>
+                </View>
+                <Switch
+                  value={gexAutoEnabled}
+                  disabled={gexAutoLoading || (!gexEnabled && !gexAutoEnabled)}
+                  onValueChange={handleToggleGexAuto}
+                  trackColor={{ false: '#ddd', true: ORANGE + '80' }}
+                  thumbColor={gexAutoEnabled ? ORANGE : '#f4f3f4'}
+                />
               </View>
-              <Switch
-                value={gexAutoEnabled}
-                disabled={gexAutoLoading}
-                onValueChange={handleToggleGexAuto}
-                trackColor={{ false: '#ddd', true: ORANGE + '80' }}
-                thumbColor={gexAutoEnabled ? ORANGE : '#f4f3f4'}
-              />
-            </View>
+            )}
 
             {/* PIN de Supervisor - Solo para roles autorizados */}
             {canHaveSupervisorPin && (

@@ -369,7 +369,7 @@ export default function DashboardClient() {
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const { xpayEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
+  const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled } = usePaymentStatus();
   const paymentsEnabled = xpayEnabled; // alias para el botón X-Pay; entregaxPaymentsEnabled disponible para el flujo nativo
 
   const SERVICE_CONFIG = useMemo<ServiceConfigItem[]>(() => [
@@ -750,6 +750,9 @@ export default function DashboardClient() {
 
   // Reglas de elegibilidad para contratar GEX por estado
   const canContractGex = (pkg: PackageTracking): boolean => {
+    // Si el super_admin apagó GEX a nivel sistema, ningún paquete es
+    // elegible — los chips "Contratar Aquí" simplemente no aparecen.
+    if (!gexEnabled) return false;
     if (pkg.client_paid || pkg.has_gex) return false;
 
     const isChinaAir = pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air';

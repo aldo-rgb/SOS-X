@@ -4,9 +4,10 @@ import { API_URL } from '../services/api';
 interface PaymentStatus {
   xpay_enabled: boolean;
   entregax_payments_enabled: boolean;
+  gex_enabled: boolean;
 }
 
-const FALLBACK: PaymentStatus = { xpay_enabled: true, entregax_payments_enabled: true };
+const FALLBACK: PaymentStatus = { xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true };
 let cached: PaymentStatus | null = null;
 let lastFetch: number | null = null;
 const CACHE_TTL_MS = 30_000;
@@ -30,6 +31,7 @@ export function usePaymentStatus() {
           cached = {
             xpay_enabled: data.xpay_enabled !== false,
             entregax_payments_enabled: data.entregax_payments_enabled !== false,
+            gex_enabled: data.gex_enabled !== false,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -44,5 +46,6 @@ export function usePaymentStatus() {
   return {
     xpayEnabled: status.xpay_enabled,
     entregaxPaymentsEnabled: status.entregax_payments_enabled,
+    gexEnabled: status.gex_enabled,
   };
 }
