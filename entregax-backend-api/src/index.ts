@@ -2107,7 +2107,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       ORDER BY
         CASE WHEN status::text = 'ready_pickup' THEN 0 ELSE 1 END,
         created_at DESC
-      LIMIT 500
+      LIMIT 999
     `, [userId, boxId]);
 
     // 3b. Obtener órdenes marítimas activas del cliente
@@ -7914,6 +7914,136 @@ async function ensureRequiredColumns() {
       CREATE INDEX IF NOT EXISTS idx_packages_pqtx_shipment_id ON packages(pqtx_shipment_id);
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
+
+    // ====================================================================
+    // 🤖 AUTO-INSTRUCCIONES DE ENTREGA
+    // Trigger que aplica la dirección default del cliente al instante en que
+    // un paquete entra al sistema con user_id + service_type. Las direcciones
+    // tienen `default_for_service` con valores como 'aereo', 'maritimo',
+    // 'po_box', 'mty' (separados por coma), y carrier_config con las
+    // paqueterías por servicio. El trigger sólo escribe assigned_address_id
+    // si está NULL — nunca pisa una asignación manual.
+    // ====================================================================
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION xpay_apply_default_address_pkg() RETURNS trigger AS $$
+      DECLARE
+        v_cat TEXT;
+        v_addr_id INT;
+      BEGIN
+        IF NEW.assigned_address_id IS NOT NULL OR NEW.user_id IS NULL THEN
+          RETURN NEW;
+        END IF;
+        v_cat := CASE
+          WHEN NEW.service_type IN ('AIR_CHN_MX','china_air','aereo','air') THEN 'aereo'
+          WHEN NEW.service_type IN ('SEA_CHN_MX','china_sea','maritime','maritimo','fcl') THEN 'maritimo'
+          WHEN NEW.service_type IN ('POBOX_USA','usa_pobox','po_box','pobox','usa') THEN 'po_box'
+          WHEN NEW.service_type IN ('AA_DHL','dhl','mty') THEN 'mty'
+          ELSE NULL
+        END;
+        IF v_cat IS NULL THEN RETURN NEW; END IF;
+        SELECT id INTO v_addr_id
+          FROM addresses
+          WHERE user_id = NEW.user_id
+            AND default_for_service IS NOT NULL
+            AND (
+              default_for_service ILIKE '%' || v_cat || '%'
+              OR default_for_service ILIKE '%all%'
+            )
+          ORDER BY is_default DESC, created_at DESC
+          LIMIT 1;
+        IF v_addr_id IS NOT NULL THEN
+          NEW.assigned_address_id := v_addr_id;
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS xpay_pkg_default_addr_trg ON packages;
+      CREATE TRIGGER xpay_pkg_default_addr_trg
+        BEFORE INSERT OR UPDATE OF user_id, service_type ON packages
+        FOR EACH ROW EXECUTE FUNCTION xpay_apply_default_address_pkg();
+
+      CREATE OR REPLACE FUNCTION xpay_apply_default_address_mar() RETURNS trigger AS $$
+      DECLARE
+        v_addr_id INT;
+        v_user_id INT;
+      BEGIN
+        IF NEW.delivery_address_id IS NOT NULL THEN RETURN NEW; END IF;
+        v_user_id := NEW.user_id;
+        IF v_user_id IS NULL AND NEW.shipping_mark IS NOT NULL THEN
+          SELECT id INTO v_user_id FROM users WHERE UPPER(box_id) = UPPER(NEW.shipping_mark) LIMIT 1;
+        END IF;
+        IF v_user_id IS NULL THEN RETURN NEW; END IF;
+        SELECT id INTO v_addr_id
+          FROM addresses
+          WHERE user_id = v_user_id
+            AND default_for_service IS NOT NULL
+            AND (default_for_service ILIKE '%maritimo%' OR default_for_service ILIKE '%all%')
+          ORDER BY is_default DESC, created_at DESC
+          LIMIT 1;
+        IF v_addr_id IS NOT NULL THEN
+          NEW.delivery_address_id := v_addr_id;
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS xpay_mar_default_addr_trg ON maritime_orders;
+      CREATE TRIGGER xpay_mar_default_addr_trg
+        BEFORE INSERT OR UPDATE OF user_id, shipping_mark ON maritime_orders
+        FOR EACH ROW EXECUTE FUNCTION xpay_apply_default_address_mar();
+    `);
+    console.log('✅ [STARTUP] Triggers de auto-instrucciones (packages + maritime_orders) creados');
+
+    // Backfill: aplica las auto-instrucciones a los paquetes/órdenes que
+    // ya estaban en el sistema sin dirección asignada y cuyo dueño tiene
+    // default_for_service configurado. Idempotente — sólo afecta las que
+    // tienen assigned_address_id NULL.
+    try {
+      const bp = await pool.query(`
+        UPDATE packages p
+          SET assigned_address_id = sub.addr_id
+        FROM (
+          SELECT p.id AS pkg_id, a.id AS addr_id
+          FROM packages p
+          JOIN addresses a ON a.user_id = p.user_id
+          WHERE p.assigned_address_id IS NULL
+            AND p.user_id IS NOT NULL
+            AND a.default_for_service IS NOT NULL
+            AND (
+              (p.service_type IN ('AIR_CHN_MX','china_air','aereo','air')
+                 AND a.default_for_service ILIKE '%aereo%')
+              OR (p.service_type IN ('SEA_CHN_MX','china_sea','maritime','maritimo','fcl')
+                 AND a.default_for_service ILIKE '%maritimo%')
+              OR (p.service_type IN ('POBOX_USA','usa_pobox','po_box','pobox','usa')
+                 AND a.default_for_service ILIKE '%po_box%')
+              OR (p.service_type IN ('AA_DHL','dhl','mty')
+                 AND a.default_for_service ILIKE '%mty%')
+              OR a.default_for_service ILIKE '%all%'
+            )
+          ORDER BY p.id, a.is_default DESC, a.created_at DESC
+        ) sub
+        WHERE p.id = sub.pkg_id;
+      `);
+      const bm = await pool.query(`
+        UPDATE maritime_orders mo
+          SET delivery_address_id = sub.addr_id
+        FROM (
+          SELECT mo.id AS mo_id, a.id AS addr_id
+          FROM maritime_orders mo
+          JOIN users u ON (u.id = mo.user_id OR UPPER(u.box_id) = UPPER(mo.shipping_mark))
+          JOIN addresses a ON a.user_id = u.id
+          WHERE mo.delivery_address_id IS NULL
+            AND a.default_for_service IS NOT NULL
+            AND (a.default_for_service ILIKE '%maritimo%' OR a.default_for_service ILIKE '%all%')
+          ORDER BY mo.id, a.is_default DESC, a.created_at DESC
+        ) sub
+        WHERE mo.id = sub.mo_id;
+      `);
+      console.log(`✅ [STARTUP] Backfill auto-instrucciones: ${bp.rowCount || 0} paquetes, ${bm.rowCount || 0} órdenes marítimas`);
+    } catch (e) {
+      console.warn('⚠️ [STARTUP] Backfill auto-instrucciones falló (puede correrse manualmente):', (e as Error).message);
+    }
 
     // Backfill: vincular packages.pqtx_shipment_id usando national_tracking → pqtx_shipments.tracking_number
     try {
