@@ -13,6 +13,7 @@ interface PaymentStatusCache {
   payments_enabled: boolean;
   xpay_enabled: boolean;
   entregax_payments_enabled: boolean;
+  gex_enabled: boolean;
 }
 
 let cached: PaymentStatusCache | null = null;
@@ -23,6 +24,7 @@ const FALLBACK: PaymentStatusCache = {
   payments_enabled: true,
   xpay_enabled: true,
   entregax_payments_enabled: true,
+  gex_enabled: true,
 };
 
 export function usePaymentStatus() {
@@ -47,6 +49,7 @@ export function usePaymentStatus() {
             payments_enabled: data.payments_enabled !== false,
             xpay_enabled: data.xpay_enabled !== false,
             entregax_payments_enabled: data.entregax_payments_enabled !== false,
+            gex_enabled: data.gex_enabled !== false,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -64,6 +67,7 @@ export function usePaymentStatus() {
     paymentsEnabled: status.payments_enabled,
     xpayEnabled: status.xpay_enabled,
     entregaxPaymentsEnabled: status.entregax_payments_enabled,
+    gexEnabled: status.gex_enabled,
     loading,
   };
 }
@@ -83,5 +87,11 @@ export async function toggleXPay(enabled: boolean): Promise<void> {
 /** Actualiza el estado de pagos EntregaX (solo Super Admin) */
 export async function toggleEntregaxPayments(enabled: boolean): Promise<void> {
   await api.post('/admin/system/entregax-payments-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Actualiza el estado de contratación de GEX (solo Super Admin) */
+export async function toggleGEX(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/gex-toggle', { enabled });
   invalidatePaymentStatusCache();
 }

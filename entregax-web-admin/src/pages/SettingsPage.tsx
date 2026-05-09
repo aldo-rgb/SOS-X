@@ -33,7 +33,7 @@ import CategoryIcon from '@mui/icons-material/Category';
 import PercentIcon from '@mui/icons-material/Percent';
 import PaymentIcon from '@mui/icons-material/Payment';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
@@ -76,18 +76,21 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
+    const [togglingGex, setTogglingGex] = useState(false);
     // Estado local optimista que se sincroniza con el hook al cargar.
     const [localXpay, setLocalXpay] = useState<boolean | null>(null);
     const [localEntregax, setLocalEntregax] = useState<boolean | null>(null);
+    const [localGex, setLocalGex] = useState<boolean | null>(null);
     useEffect(() => {
         if (!paymentsStatusLoading) {
             setLocalXpay(xpayEnabled);
             setLocalEntregax(entregaxPaymentsEnabled);
+            setLocalGex(gexEnabled);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -117,6 +120,21 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar Pagos EntregaX', severity: 'error' });
         } finally {
             setTogglingEntregax(false);
+        }
+    };
+    const handleToggleGex = async (checked: boolean) => {
+        setTogglingGex(true);
+        const prev = localGex;
+        setLocalGex(checked);
+        try {
+            await toggleGEX(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Garantía Extendida ${checked ? 'activada' : 'desactivada'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalGex(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar GEX', severity: 'error' });
+        } finally {
+            setTogglingGex(false);
         }
     };
 
@@ -327,6 +345,36 @@ export default function SettingsPage() {
                                             />
                                         }
                                         label={togglingEntregax ? '...' : (localEntregax ? 'Activado' : 'Desactivado')}
+                                        labelPlacement="start"
+                                        sx={{ m: 0 }}
+                                    />
+                                )}
+                            </Paper>
+
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                        🛡️ Garantía Extendida (GEX)
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Permite a los clientes contratar la Garantía Extendida de tiempo de entrega
+                                        (90 días) sobre sus paquetes. Si se desactiva, el botón "Contratar GEX"
+                                        deja de aparecer en la app móvil y en el portal web.
+                                    </Typography>
+                                </Box>
+                                {paymentsStatusLoading || localGex === null ? (
+                                    <CircularProgress size={20} />
+                                ) : (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={!!localGex}
+                                                onChange={(e) => handleToggleGex(e.target.checked)}
+                                                disabled={togglingGex}
+                                                color="success"
+                                            />
+                                        }
+                                        label={togglingGex ? '...' : (localGex ? 'Activado' : 'Desactivado')}
                                         labelPlacement="start"
                                         sx={{ m: 0 }}
                                     />

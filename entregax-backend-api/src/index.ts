@@ -8232,7 +8232,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -8248,6 +8248,12 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['entregax_payments_enabled']?.enabled !== false
       : (byKey['payments_enabled']?.enabled !== false); // fallback al toggle global
 
+    // gex_enabled: controla la contratación de Garantía Extendida (GEX).
+    // Por defecto TRUE — solo se desactiva si el super_admin lo apaga.
+    const gexEnabled = byKey['gex_enabled'] !== undefined
+      ? byKey['gex_enabled']?.enabled !== false
+      : true;
+
     // payments_enabled: legacy (ambos activos si ambos activos)
     const paymentsEnabled = xpayEnabled && entregaxPaymentsEnabled;
 
@@ -8255,9 +8261,10 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       payments_enabled: paymentsEnabled,
       xpay_enabled: xpayEnabled,
       entregax_payments_enabled: entregaxPaymentsEnabled,
+      gex_enabled: gexEnabled,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true });
   }
 });
 
@@ -8321,6 +8328,26 @@ app.post('/api/admin/system/entregax-payments-toggle', authenticateToken, requir
   } catch (err: any) {
     console.error('[ENTREGAX-PAYMENTS-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de pagos EntregaX' });
+  }
+});
+
+// POST /api/admin/system/gex-toggle — controla la contratación de Garantía Extendida (GEX)
+app.post('/api/admin/system/gex-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('gex_enabled', $1::jsonb, 'Control de contratación de Garantía Extendida (GEX)', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`🛡️ [GEX] ${enabled ? '✅ Habilitado' : '🔴 Deshabilitado'} por user #${userId}`);
+    res.json({ success: true, gex_enabled: !!enabled });
+  } catch (err: any) {
+    console.error('[GEX-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar estado de GEX' });
   }
 });
 
