@@ -743,11 +743,30 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             });
         }
 
-        // Determine service type for company config lookup
-        const hasMaritime = packagesCheck.rows.some(p => p.source === 'maritime' || p.service_type === 'maritime');
-        const hasDhl = packagesCheck.rows.some(p => p.source === 'dhl');
-        const hasAir = packagesCheck.rows.some(p => p.service_type === 'AIR_CHN_MX');
-        const serviceTypeForConfig = hasMaritime ? 'SEA_CHN_MX' : hasDhl ? 'AA_DHL' : hasAir ? 'AIR_CHN_MX' : 'POBOX_USA';
+        // Determinar el service_type por MAYORÍA dominante de la selección.
+        // Antes era "si CUALQUIER paquete es maritime → todo va a SEA_CHN_MX",
+        // así que una guía mal clasificada o un id colisionado entre tablas
+        // arrastraba toda la orden al lado equivocado (caso real: 200 guías
+        // AIR aparecían bajo "Marítimo China" en el dashboard de empresa).
+        const serviceCounts: Record<string, number> = { maritime: 0, dhl: 0, air: 0, pobox: 0 };
+        for (const p of packagesCheck.rows) {
+            if (p.source === 'maritime' || p.service_type === 'maritime' || p.service_type === 'SEA_CHN_MX' || p.service_type === 'fcl') {
+                serviceCounts.maritime!++;
+            } else if (p.source === 'dhl' || p.service_type === 'AA_DHL' || p.service_type === 'dhl') {
+                serviceCounts.dhl!++;
+            } else if (p.service_type === 'AIR_CHN_MX' || p.service_type === 'china_air' || p.service_type === 'aereo') {
+                serviceCounts.air!++;
+            } else {
+                serviceCounts.pobox!++;
+            }
+        }
+        const dominantService = Object.entries(serviceCounts).sort((a, b) => b[1] - a[1])[0]?.[0] || 'pobox';
+        const serviceTypeForConfig =
+            dominantService === 'maritime' ? 'SEA_CHN_MX' :
+            dominantService === 'dhl' ? 'AA_DHL' :
+            dominantService === 'air' ? 'AIR_CHN_MX' :
+            'POBOX_USA';
+        console.log(`💳 [PAY] service_type clasificación:`, serviceCounts, '→', serviceTypeForConfig);
 
         // Verificar duplicados: paquetes que YA están en otra orden pendiente.
         // Antes esto rechazaba TODA la selección con 400 si algún paquete
