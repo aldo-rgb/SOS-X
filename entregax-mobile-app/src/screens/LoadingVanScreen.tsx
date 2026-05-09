@@ -838,86 +838,107 @@ export default function LoadingVanScreen({ navigation, route }: any) {
       >
         <View style={styles.errorModalOverlay}>
           <View style={styles.errorModalCard}>
-            <View style={styles.errorModalHeader}>
-              <MaterialIcons
-                name={errorDetail?.type === 'warning' ? 'warning' : 'error'}
-                size={32}
-                color={errorDetail?.type === 'warning' ? '#FFA726' : '#F44336'}
-              />
-              <Text style={styles.errorModalTitle}>Detalle del rechazo</Text>
-              <TouchableOpacity onPress={() => setErrorDetail(null)}>
-                <MaterialIcons name="close" size={26} color="#666" />
+            {/* Header corporativo: barra de color + icono + cierre */}
+            <View style={styles.errorModalHeaderBar}>
+              <View style={styles.errorModalHeaderIconWrap}>
+                <MaterialIcons
+                  name={errorDetail?.type === 'warning' ? 'warning' : 'error-outline'}
+                  size={26}
+                  color="#fff"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.errorModalHeaderTitle}>No se puede cargar</Text>
+                <Text style={styles.errorModalHeaderSubtitle}>Detalle del rechazo</Text>
+              </View>
+              <TouchableOpacity onPress={() => setErrorDetail(null)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <MaterialIcons name="close" size={24} color="rgba(255,255,255,0.9)" />
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ paddingBottom: 12 }}>
-              <Text style={styles.errorModalLabel}>Motivo</Text>
-              <Text style={styles.errorModalValue}>{errorDetail?.message || '—'}</Text>
+            <ScrollView style={{ maxHeight: 460 }} contentContainerStyle={{ paddingHorizontal: 18, paddingTop: 16, paddingBottom: 12 }}>
+              {/* Motivo principal */}
+              {errorDetail?.message ? (
+                <View style={styles.errorModalReasonBox}>
+                  <Text style={styles.errorModalReasonText}>
+                    {String(errorDetail.message).replace(/[⚠️✅❌📦⛔ℹ️]/g, '').trim() || errorDetail.message}
+                  </Text>
+                </View>
+              ) : null}
 
+              {/* Pills de estado: pago, etiqueta, instrucciones */}
+              {(typeof errorDetail?.errorData?.isPaid === 'boolean' ||
+                typeof errorDetail?.errorData?.hasPrintedLabel === 'boolean' ||
+                typeof errorDetail?.errorData?.hasInstructions === 'boolean') ? (
+                <View style={styles.errorModalPillsRow}>
+                  {typeof errorDetail?.errorData?.isPaid === 'boolean' ? (
+                    <View style={[styles.errorModalPill, errorDetail.errorData.isPaid ? styles.errorModalPillOk : styles.errorModalPillFail]}>
+                      <MaterialIcons name={errorDetail.errorData.isPaid ? 'check-circle' : 'cancel'} size={18} color={errorDetail.errorData.isPaid ? '#2E7D32' : '#C62828'} />
+                      <Text style={[styles.errorModalPillText, { color: errorDetail.errorData.isPaid ? '#2E7D32' : '#C62828' }]}>Pago</Text>
+                    </View>
+                  ) : null}
+                  {typeof errorDetail?.errorData?.hasPrintedLabel === 'boolean' ? (
+                    <View style={[styles.errorModalPill, errorDetail.errorData.hasPrintedLabel ? styles.errorModalPillOk : styles.errorModalPillFail]}>
+                      <MaterialIcons name={errorDetail.errorData.hasPrintedLabel ? 'check-circle' : 'cancel'} size={18} color={errorDetail.errorData.hasPrintedLabel ? '#2E7D32' : '#C62828'} />
+                      <Text style={[styles.errorModalPillText, { color: errorDetail.errorData.hasPrintedLabel ? '#2E7D32' : '#C62828' }]}>Etiqueta</Text>
+                    </View>
+                  ) : null}
+                  {typeof errorDetail?.errorData?.hasInstructions === 'boolean' ? (
+                    <View style={[styles.errorModalPill, errorDetail.errorData.hasInstructions ? styles.errorModalPillOk : styles.errorModalPillFail]}>
+                      <MaterialIcons name={errorDetail.errorData.hasInstructions ? 'check-circle' : 'cancel'} size={18} color={errorDetail.errorData.hasInstructions ? '#2E7D32' : '#C62828'} />
+                      <Text style={[styles.errorModalPillText, { color: errorDetail.errorData.hasInstructions ? '#2E7D32' : '#C62828' }]}>Instrucciones</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ) : null}
+
+              {/* Código escaneado destacado */}
               {errorDetail?.scannedCode ? (
-                <>
-                  <Text style={styles.errorModalLabel}>Código escaneado</Text>
-                  <Text style={styles.errorModalValueMono}>{errorDetail.scannedCode}</Text>
-                </>
+                <View style={styles.errorModalDetailRow}>
+                  <Text style={styles.errorModalFieldLabel}>Código escaneado</Text>
+                  <View style={styles.errorModalCodeChip}>
+                    <MaterialIcons name="qr-code-2" size={16} color="#F05A28" />
+                    <Text style={styles.errorModalCodeChipText}>{errorDetail.scannedCode}</Text>
+                  </View>
+                </View>
               ) : null}
 
-              {typeof errorDetail?.httpStatus === 'number' ? (
-                <>
-                  <Text style={styles.errorModalLabel}>Código HTTP</Text>
-                  <Text style={styles.errorModalValueMono}>{String(errorDetail.httpStatus)}</Text>
-                </>
-              ) : null}
-
+              {/* Detalles secundarios (sólo si vienen del backend) */}
               {errorDetail?.errorData?.currentStatus ? (
-                <>
-                  <Text style={styles.errorModalLabel}>Estado actual del paquete</Text>
-                  <Text style={styles.errorModalValueMono}>{String(errorDetail.errorData.currentStatus)}</Text>
-                </>
-              ) : null}
-
-              {errorDetail?.errorData?.paymentStatus ? (
-                <>
-                  <Text style={styles.errorModalLabel}>Estado de pago</Text>
-                  <Text style={styles.errorModalValueMono}>{String(errorDetail.errorData.paymentStatus)}</Text>
-                </>
-              ) : null}
-
-              {typeof errorDetail?.errorData?.hasLabel === 'boolean' ? (
-                <>
-                  <Text style={styles.errorModalLabel}>¿Tiene etiqueta?</Text>
-                  <Text style={styles.errorModalValueMono}>{errorDetail.errorData.hasLabel ? 'Sí' : 'No'}</Text>
-                </>
+                <View style={styles.errorModalDetailRow}>
+                  <Text style={styles.errorModalFieldLabel}>Estado actual</Text>
+                  <Text style={styles.errorModalFieldValue}>{String(errorDetail.errorData.currentStatus)}</Text>
+                </View>
               ) : null}
 
               {errorDetail?.errorData?.assignedTo ? (
-                <>
-                  <Text style={styles.errorModalLabel}>Asignado a</Text>
-                  <Text style={styles.errorModalValue}>{String(errorDetail.errorData.assignedTo)}</Text>
-                </>
+                <View style={styles.errorModalDetailRow}>
+                  <Text style={styles.errorModalFieldLabel}>Asignado a</Text>
+                  <Text style={styles.errorModalFieldValue}>{String(errorDetail.errorData.assignedTo)}</Text>
+                </View>
               ) : null}
 
               {errorDetail?.errorData?.loadedAt ? (
-                <>
-                  <Text style={styles.errorModalLabel}>Cargado el</Text>
-                  <Text style={styles.errorModalValueMono}>{String(errorDetail.errorData.loadedAt)}</Text>
-                </>
+                <View style={styles.errorModalDetailRow}>
+                  <Text style={styles.errorModalFieldLabel}>Cargado el</Text>
+                  <Text style={styles.errorModalFieldValue}>{new Date(errorDetail.errorData.loadedAt).toLocaleString('es-MX')}</Text>
+                </View>
               ) : null}
 
-              <Text style={styles.errorModalLabel}>Respuesta completa</Text>
-              <View style={styles.errorModalRaw}>
-                <Text style={styles.errorModalRawText}>
-                  {errorDetail?.errorData
-                    ? JSON.stringify(errorDetail.errorData, null, 2)
-                    : 'Sin datos del servidor'}
-                </Text>
-              </View>
+              {/* Hint del backend (texto explicativo extra) */}
+              {errorDetail?.errorData?.hint ? (
+                <View style={styles.errorModalHintBox}>
+                  <MaterialIcons name="lightbulb" size={18} color="#F57C00" />
+                  <Text style={styles.errorModalHintText}>{String(errorDetail.errorData.hint)}</Text>
+                </View>
+              ) : null}
             </ScrollView>
 
             <TouchableOpacity
               style={styles.errorModalCloseBtn}
               onPress={() => setErrorDetail(null)}
             >
-              <Text style={styles.errorModalCloseText}>Cerrar</Text>
+              <Text style={styles.errorModalCloseText}>Entendido</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -1442,64 +1463,144 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 480,
     backgroundColor: '#fff',
-    borderRadius: 14,
-    padding: 18,
-    elevation: 8,
+    borderRadius: 16,
+    overflow: 'hidden',
+    elevation: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
   },
-  errorModalHeader: {
+  errorModalHeaderBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    gap: 10,
+    backgroundColor: '#F05A28',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+    gap: 12,
   },
-  errorModalTitle: {
-    flex: 1,
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#222',
-    marginLeft: 8,
+  errorModalHeaderIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  errorModalLabel: {
+  errorModalHeaderTitle: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 17,
+    letterSpacing: 0.2,
+  },
+  errorModalHeaderSubtitle: {
+    color: 'rgba(255,255,255,0.9)',
     fontSize: 12,
-    color: '#888',
-    fontWeight: '600',
-    marginTop: 12,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    marginTop: 2,
   },
-  errorModalValue: {
+  errorModalReasonBox: {
+    backgroundColor: '#FFF4EE',
+    borderLeftWidth: 4,
+    borderLeftColor: '#F05A28',
+    borderRadius: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 14,
+  },
+  errorModalReasonText: {
     fontSize: 15,
-    color: '#222',
-    marginTop: 4,
+    lineHeight: 21,
+    color: '#3A2418',
+    fontWeight: '500',
   },
-  errorModalValueMono: {
+  errorModalPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 12,
+  },
+  errorModalPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    gap: 5,
+  },
+  errorModalPillOk: {
+    backgroundColor: '#E8F5E9',
+    borderColor: '#A5D6A7',
+  },
+  errorModalPillFail: {
+    backgroundColor: '#FFEBEE',
+    borderColor: '#EF9A9A',
+  },
+  errorModalPillText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  errorModalDetailRow: {
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#F0F0F0',
+  },
+  errorModalFieldLabel: {
+    fontSize: 11,
+    color: '#999',
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginBottom: 4,
+  },
+  errorModalFieldValue: {
     fontSize: 14,
     color: '#222',
-    marginTop: 4,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontWeight: '500',
   },
-  errorModalRaw: {
-    marginTop: 6,
-    backgroundColor: '#f5f5f5',
+  errorModalCodeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: '#FFF4EE',
+    borderColor: '#F05A28',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 6,
+  },
+  errorModalCodeChipText: {
+    color: '#F05A28',
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    fontSize: 13,
+  },
+  errorModalHintBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    backgroundColor: '#FFF8E1',
     borderRadius: 8,
     padding: 10,
+    marginTop: 12,
   },
-  errorModalRawText: {
-    fontSize: 12,
-    color: '#444',
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+  errorModalHintText: {
+    flex: 1,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#5D4037',
   },
   errorModalCloseBtn: {
-    marginTop: 14,
     backgroundColor: '#F05A28',
-    borderRadius: 10,
-    paddingVertical: 12,
+    paddingVertical: 14,
     alignItems: 'center',
   },
   errorModalCloseText: {
     color: '#fff',
-    fontWeight: 'bold',
+    fontWeight: '700',
     fontSize: 16,
+    letterSpacing: 0.3,
   },
   
   // Bottom Actions
