@@ -882,12 +882,15 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         const isMaritime = labels.length > 0 && labels.every(l => /^LOG/i.test(l.tracking.split('-')[0] || ''));
 
         if (isMaritime) {
-            const renderHalf = (label: LabelData, idx: number, position: 'top' | 'bottom') => {
+            // Etiqueta marítima: una etiqueta por hoja 4 × 2 in (formato físico
+            // del adhesivo), con header MARÍTIMO + N/Total, tracking, barcode
+            // y la marca de cliente (S1, S2, ...) en grande naranja.
+            const pages: string[] = labels.map((label, idx) => {
                 const safeBcId = `bc_${idx}_${Math.random().toString(36).slice(2, 8)}`;
                 const cleanBarcode = label.tracking.replace(/[^A-Z0-9]/gi, '');
-                const volumeStr = label.dimensions || '';
+                const isLast = idx === labels.length - 1;
                 return `
-                <div class="half ${position}" data-bc="${safeBcId}" data-tracking="${cleanBarcode}">
+                <div class="label" data-bc="${safeBcId}" data-tracking="${cleanBarcode}" style="page-break-after: ${isLast ? 'auto' : 'always'};">
                     <div class="header">
                         <div class="service">MARÍTIMO</div>
                         <div class="date-badge">${label.boxNumber}/${label.totalBoxes}</div>
@@ -895,23 +898,8 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
                     <div class="tracking-code">${label.tracking}</div>
                     <div class="barcode-section"><svg id="${safeBcId}"></svg></div>
                     <div class="client-mark">${label.clientBoxId || '—'}</div>
-                    <div class="details">
-                        ${volumeStr ? `<span class="detail-item">📐 ${volumeStr}</span>` : ''}
-                    </div>
                 </div>`;
-            };
-
-            const pages: string[] = [];
-            for (let i = 0; i < labels.length; i += 2) {
-                const top = labels[i];
-                const bottom = labels[i + 1];
-                const isLast = i + 2 >= labels.length;
-                pages.push(`
-                    <div class="page" style="page-break-after: ${isLast ? 'auto' : 'always'};">
-                        ${renderHalf(top, i, 'top')}
-                        ${bottom ? renderHalf(bottom, i + 1, 'bottom') : '<div class="half bottom empty"></div>'}
-                    </div>`);
-            }
+            });
 
             const html = `<!DOCTYPE html><html><head>
 <meta charset="utf-8"/>
@@ -919,37 +907,31 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Arial', sans-serif; }
-    .page { width: 4in; height: 6in; margin: 0 auto; position: relative; overflow: hidden; }
-    .half {
-        position: absolute; left: 0; right: 0;
-        padding: 0.18in 0.18in 0.14in 0.18in;
+    .label {
+        width: 4in; height: 2in;
+        padding: 0.08in 0.14in;
         display: flex; flex-direction: column; justify-content: space-between;
         overflow: hidden;
     }
-    .half.top { top: 0; height: calc(3in + 1cm); }
-    .half.bottom { bottom: 0; height: calc(3in - 1cm); padding-top: 0.45in; }
-    .half.empty { background: transparent; }
     .header { display: flex; justify-content: space-between; align-items: center; }
-    .service { color: #000; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; }
-    .date-badge { color: #000; font-size: 22px; font-weight: 900; }
-    .tracking-code { text-align: center; font-size: 18px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 2px 0; }
+    .service { color: #000; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+    .date-badge { color: #000; font-size: 14px; font-weight: 900; }
+    .tracking-code { text-align: center; font-size: 12px; font-weight: bold; letter-spacing: 1px; font-family: 'Courier New', monospace; margin: 1px 0; }
     .barcode-section { text-align: center; }
-    .barcode-section svg { width: 92%; height: 50px; }
-    .client-mark { text-align: center; font-size: 38px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 2px 0; }
-    .details { text-align: center; font-size: 12px; font-weight: 600; display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
-    .detail-item { background: #f5f5f5; padding: 2px 8px; border-radius: 4px; }
-    @page { size: 4in 6in; margin: 0; }
-    @media print { body { margin: 0; padding: 0; } .page { page-break-inside: avoid; overflow: hidden; } }
+    .barcode-section svg { width: 96%; height: 40px; }
+    .client-mark { text-align: center; font-size: 24px; color: #FF6B35; font-weight: 900; letter-spacing: 2px; line-height: 1; margin: 1px 0; }
+    @page { size: 4in 2in; margin: 0; }
+    @media print { body { margin: 0; padding: 0; } .label { page-break-inside: avoid; overflow: hidden; } }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
 </head><body>
 ${pages.join('')}
 <script>
 window.addEventListener('load', function() {
-    document.querySelectorAll('.half[data-bc]').forEach(function(el) {
+    document.querySelectorAll('.label[data-bc]').forEach(function(el) {
         var id = el.getAttribute('data-bc');
         var tracking = el.getAttribute('data-tracking') || '';
-        try { JsBarcode('#' + id, tracking, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}
+        try { JsBarcode('#' + id, tracking, { format: 'CODE128', width: 2, height: 40, displayValue: false, margin: 0 }); } catch(e) {}
     });
     setTimeout(function() { window.print(); }, 600);
 });
