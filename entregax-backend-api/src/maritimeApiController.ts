@@ -1095,8 +1095,16 @@ export const getConsolidationOrders = async (req: Request, res: Response): Promi
         const { containerId, merchandiseType, hasPackingList, search } = req.query;
 
         let query = `
-            SELECT 
+            SELECT
                 mo.*,
+                -- Bultos / peso / volumen "efectivos": prefieren el SUMMARY
+                -- (subido manualmente al recibir la mercancía) por encima del
+                -- valor del API de China cuando el SUMMARY tiene un número
+                -- mayor. Antes el API a veces traía goods_num=1 aunque el BL
+                -- amparara docenas de cajas; el SUMMARY es la fuente real.
+                GREATEST(COALESCE(mo.summary_boxes, 0), COALESCE(mo.goods_num, 0)) AS effective_boxes,
+                GREATEST(COALESCE(mo.summary_weight, 0), COALESCE(mo.weight, 0)) AS effective_weight,
+                GREATEST(COALESCE(mo.summary_volume, 0), COALESCE(mo.volume, 0)) AS effective_volume,
                 u.full_name as client_name,
                 u.email as client_email,
                 u.box_id as client_box_id,

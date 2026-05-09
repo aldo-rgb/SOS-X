@@ -651,9 +651,31 @@ const MaritimeConsolidationsPage: React.FC = () => {
               .map(order => (
               <TableRow key={order.id} hover>
                 <TableCell>
-                  <Typography variant="body2" fontWeight="bold" color="primary">
-                    {order.ordersn}
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.7, flexWrap: 'wrap' }}>
+                    <Typography variant="body2" fontWeight="bold" color="primary">
+                      {order.ordersn}
+                    </Typography>
+                    {(() => {
+                      const boxes = Number(
+                        (order as any).effective_boxes ?? (order as any).summary_boxes ?? order.goods_num ?? 0
+                      );
+                      if (!boxes || boxes <= 0) return null;
+                      return (
+                        <Chip
+                          label={`${boxes} ${boxes === 1 ? 'caja' : 'cajas'}`}
+                          size="small"
+                          sx={{
+                            height: 18,
+                            fontSize: '0.65rem',
+                            fontWeight: 700,
+                            bgcolor: '#FF6B35',
+                            color: '#fff',
+                            '& .MuiChip-label': { px: 0.8 },
+                          }}
+                        />
+                      );
+                    })()}
+                  </Box>
                 </TableCell>
                 <TableCell>
                   {editingOrderId === order.id ? (

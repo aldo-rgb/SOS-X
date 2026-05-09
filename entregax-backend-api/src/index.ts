@@ -8045,6 +8045,36 @@ async function ensureRequiredColumns() {
       console.warn('⚠️ [STARTUP] Backfill auto-instrucciones falló (puede correrse manualmente):', (e as Error).message);
     }
 
+    // Backfill: maritime_orders.goods_num desde summary_boxes cuando el SUMMARY
+    // que el operador subió en bodega tiene un número de cajas mayor que lo que
+    // reportó el API de China. Sólo afecta filas donde goods_num quedó en 1
+    // (default vacío) o donde summary_boxes > goods_num. Idempotente.
+    try {
+      const moBackfill = await pool.query(`
+        UPDATE maritime_orders mo
+          SET goods_num = sub.boxes,
+              weight = COALESCE(NULLIF(sub.weight, 0), mo.weight),
+              volume = COALESCE(NULLIF(sub.volume, 0), mo.volume),
+              updated_at = NOW()
+        FROM (
+          SELECT id,
+                 GREATEST(COALESCE(summary_boxes, 0), COALESCE(goods_num, 0))::int AS boxes,
+                 GREATEST(COALESCE(summary_weight, 0), COALESCE(weight, 0))::numeric AS weight,
+                 GREATEST(COALESCE(summary_volume, 0), COALESCE(volume, 0))::numeric AS volume
+          FROM maritime_orders
+          WHERE COALESCE(summary_boxes, 0) > COALESCE(goods_num, 0)
+        ) sub
+        WHERE mo.id = sub.id
+          AND sub.boxes > 0
+          AND mo.goods_num IS DISTINCT FROM sub.boxes;
+      `);
+      if (moBackfill.rowCount && moBackfill.rowCount > 0) {
+        console.log(`📦 [STARTUP] maritime_orders.goods_num backfill desde SUMMARY: ${moBackfill.rowCount}`);
+      }
+    } catch (e: any) {
+      console.warn('[STARTUP] No se pudo backfillear goods_num desde summary_boxes:', e.message);
+    }
+
     // Backfill: vincular packages.pqtx_shipment_id usando national_tracking → pqtx_shipments.tracking_number
     try {
       const linked = await pool.query(`
