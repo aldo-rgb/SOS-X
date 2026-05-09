@@ -117,21 +117,35 @@ const normalizeScanCode = (rawCode: string): string => {
     return canonicalTracking[0];
   }
 
-  // Servicios con prefijo de 3 letras y child_no posicional:
-  //   LOG: 2 dígitos al final  (ej. LOG26CNMX00077-01)
-  //   AIR: 3 dígitos al final  (ej. AIR2618261VYFJV-001)
-  //   DHL: variable; usamos el último run de letras como divisor.
-  const log3 = code.match(/^LOG([A-Z0-9]{4,}?)(\d{2})$/);
-  if (log3) {
-    return `LOG${log3[1]}-${log3[2]}`;
+  // Servicios con prefijo de 3 letras (LOG / AIR / DHL).
+  // Importante: distinguir el MASTER (solo el código base) de un CHILD
+  // (master + dígitos del paquete específico) por longitud, para no romper
+  // un master "LOG26CNMX00077" partiéndolo como si llevara child.
+  //
+  //   Master LOG  ≈ "LOG" + 11 chars  → 14 total  (ej. LOG26CNMX00077)
+  //   Child LOG   = master + "-" + 2 ó 4 dígitos
+  //                 (ej. LOG26CNMX00077-01 ó LOG26CNMX00077-0001)
+  //   Master AIR  ≈ "AIR" + 12 chars  → 15 total  (ej. AIR2618261VYFJV)
+  //   Child AIR   = master + "-" + 3 dígitos     (ej. AIR2618261VYFJV-001)
+  if (code.startsWith('LOG')) {
+    // 18 chars totales = master(14) + 4 dígitos child
+    const log4 = code.match(/^(LOG[A-Z0-9]{11,})(\d{4})$/);
+    if (log4 && code.length >= 18) return `${log4[1]}-${log4[2]}`;
+    // 16 chars totales = master(14) + 2 dígitos child
+    const log2 = code.match(/^(LOG[A-Z0-9]{11,})(\d{2})$/);
+    if (log2 && code.length >= 16) return `${log2[1]}-${log2[2]}`;
+    return code; // master solo (≤ 15 chars): pass-through
   }
-  const air3 = code.match(/^AIR([A-Z0-9]{4,}?)(\d{3})$/);
-  if (air3) {
-    return `AIR${air3[1]}-${air3[2]}`;
+  if (code.startsWith('AIR')) {
+    // ≥ 17 chars = master(≥14) + 3 dígitos child
+    const air3 = code.match(/^(AIR[A-Z0-9]+?[A-Z])(\d{3})$/);
+    if (air3 && code.length >= 17) return `${air3[1]}-${air3[2]}`;
+    return code; // master solo: pass-through
   }
-  const dhl3 = code.match(/^DHL([A-Z0-9]{4,}?)(\d{2,4})$/);
-  if (dhl3) {
-    return `DHL${dhl3[1]}-${dhl3[2]}`;
+  if (code.startsWith('DHL')) {
+    const dhl = code.match(/^(DHL[A-Z0-9]+?[A-Z])(\d{2,4})$/);
+    if (dhl && code.length >= 14) return `${dhl[1]}-${dhl[2]}`;
+    return code;
   }
 
   // Fallback histórico para PO Box / CN: prefijo de 2 letras + resto.
