@@ -1802,6 +1802,45 @@ app.get('/api/users', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BR
 // Actualizar usuario (admin y superiores)
 app.put('/api/admin/users/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateUser);
 
+// Resetear verificación de identidad de un usuario (super_admin) — pone
+// la cuenta como "aún no aceptó términos / no verificada" para que el
+// usuario tenga que rehacer el flujo del onboarding (paso 4 incluido).
+// Útil cuando se usó la cuenta para pruebas o el cliente quiere
+// reiniciar el proceso. Acepta lookup por id o por email.
+app.post('/api/admin/users/reset-verification', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId, email } = req.body;
+    if (!userId && !email) {
+      return res.status(400).json({ error: 'Indica userId o email' });
+    }
+    const result = await pool.query(
+      `UPDATE users SET
+         verification_status = 'not_started',
+         is_verified = false,
+         ine_front_url = NULL,
+         ine_back_url = NULL,
+         selfie_url = NULL,
+         signature_url = NULL,
+         verification_submitted_at = NULL,
+         ai_verification_reason = NULL,
+         rejection_reason = NULL,
+         privacy_accepted_at = NULL,
+         privacy_accepted_ip = NULL
+       WHERE ${userId ? 'id = $1' : 'LOWER(email) = LOWER($1)'}
+       RETURNING id, email, full_name, role, verification_status, is_verified, privacy_accepted_at`,
+      [userId || email]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    console.log(`🔄 [RESET-VERIFICATION] Usuario #${result.rows[0].id} (${result.rows[0].email}) reseteado por user #${req.user?.userId}`);
+    return res.json({ success: true, user: result.rows[0] });
+  } catch (err: any) {
+    console.error('[RESET-VERIFICATION]', err.message);
+    return res.status(500).json({ error: 'Error al resetear verificación' });
+  }
+});
+
 // Cambiar contraseña de usuario (solo super_admin)
 app.put('/api/admin/users/:id/password', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response) => {
   try {
@@ -8145,6 +8184,44 @@ async function ensureRequiredColumns() {
   }
 }
 
+// One-shot: resetear verificación de la cuenta de pruebas
+// jesuscampos@entregax.com.mx para que rehaga el onboarding (incluye
+// re-aceptar T&C). Idempotente — guarda marcador en system_configurations
+// para no volver a correr en futuros boots. En su propia función
+// (separada de ensureRequiredColumns) para que no dependa de que el
+// resto de la auto-migración haya tenido éxito.
+async function runOneShotResetJesusCampos() {
+  try {
+    const marker = await pool.query(
+      `SELECT 1 FROM system_configurations WHERE config_key = 'reset_jesuscampos_2026_05_09' AND is_active = TRUE`
+    );
+    if (marker.rows.length > 0) return;
+    const r = await pool.query(
+      `UPDATE users SET
+         verification_status = 'not_started',
+         is_verified = false,
+         ine_front_url = NULL,
+         ine_back_url = NULL,
+         selfie_url = NULL,
+         signature_url = NULL,
+         verification_submitted_at = NULL,
+         ai_verification_reason = NULL,
+         rejection_reason = NULL
+       WHERE LOWER(email) = LOWER('jesuscampos@entregax.com.mx')
+       RETURNING id`
+    );
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('reset_jesuscampos_2026_05_09', $1::jsonb, 'One-shot reset onboarding cuenta pruebas', TRUE)
+       ON CONFLICT (config_key) DO UPDATE SET config_value = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify({ ran_at: new Date().toISOString(), affected: r.rowCount || 0 })]
+    );
+    console.log(`🔄 [STARTUP] Reset onboarding jesuscampos: ${r.rowCount} fila(s) actualizadas`);
+  } catch (e: any) {
+    console.warn('[STARTUP] reset jesuscampos falló:', e.message);
+  }
+}
+
 // ============================================================
 // SISTEMA DE PAGOS — Control global (Super Admin)
 // ============================================================
@@ -8300,6 +8377,10 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 
   // Asegurar columnas (idempotente) antes de cron jobs
   ensureRequiredColumns();
+
+  // One-shot: resetear cuenta de pruebas jesuscampos@entregax.com.mx
+  // (idempotente — guarda marcador en system_configurations).
+  runOneShotResetJesusCampos();
 
   // Iniciar tareas programadas
   initCronJobs();

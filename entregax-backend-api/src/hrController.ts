@@ -22,39 +22,97 @@ function getDistanceInMeters(lat1: number, lng1: number, lat2: number, lng2: num
 
 // ============================================
 // AVISO DE PRIVACIDAD
+// Ahora se sirve desde legal_documents (tipo "privacy_notice") para
+// que sea editable desde el panel de Documentos Legales sin redeploy.
+// Si la fila no existe (entorno fresco) usamos el fallback hardcoded.
 // ============================================
-export const getPrivacyNotice = async (_req: Request, res: Response): Promise<void> => {
-  const privacyNotice = {
-    title: "AVISO DE PRIVACIDAD INTEGRAL DE ENTREGAX",
-    company: "Logística System Development S.A. de C.V.",
-    address: "Revolución Sur 3866 B8, Torremolinos, Monterrey, Nuevo León, C.P. 64860",
-    lastUpdate: "16 de Febrero de 2026",
-    sections: [
-      {
-        title: "1. IDENTIDAD Y DOMICILIO DEL RESPONSABLE",
-        content: "Logística System Development S.A. de C.V. (en adelante \"EntregaX\"), con domicilio en Revolución Sur 3866 B8, Torremolinos, Monterrey, Nuevo León, C.P. 64860, es el responsable del uso y protección de sus datos personales."
-      },
-      {
-        title: "2. DATOS PERSONALES QUE RECABAMOS",
-        content: "De nuestros Empleados y Operadores: Nombre completo, domicilio, teléfono, estado civil, nombre del cónyuge, número de hijos, contacto de emergencia, tallas de uniforme, fotografías de identificación oficial (INE) y geolocalización en tiempo real (GPS) durante su jornada laboral."
-      },
-      {
-        title: "3. FINALIDADES DEL TRATAMIENTO",
-        content: "Alta en nuestro sistema de Recursos Humanos, control de asistencias (checador virtual), rastreo de ruta para seguridad de la flotilla y la carga, y contacto en caso de emergencia médica o vial."
-      },
-      {
-        title: "4. USO DE TECNOLOGÍAS DE RASTREO (GPS)",
-        content: "En nuestra aplicación móvil para Operadores y Choferes utilizamos tecnologías de rastreo (GPS) para monitorear la ubicación en tiempo real. Esta herramienta es de uso obligatorio durante la jornada laboral por políticas de seguridad de la carga y control de asistencia."
-      },
-      {
-        title: "5. DERECHOS ARCO",
-        content: "Usted tiene derecho a Acceso, Rectificación, Cancelación y Oposición de sus datos personales. Para ejercer estos derechos, envíe un correo a aldocampos@entregax.com"
-      }
-    ],
-    contactEmail: "aldocampos@entregax.com"
-  };
+const formatSpanishDate = (d: Date): string => {
+  const months = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+  return `${d.getDate()} de ${months[d.getMonth()]} de ${d.getFullYear()}`;
+};
 
-  res.json(privacyNotice);
+const PRIVACY_FALLBACK = {
+  title: "AVISO DE PRIVACIDAD INTEGRAL DE ENTREGAX",
+  company: "Logística System Development S.A. de C.V.",
+  address: "Revolución Sur 3866 B8, Torremolinos, Monterrey, Nuevo León, C.P. 64860",
+  lastUpdate: "16 de Febrero de 2026",
+  sections: [
+    { title: "1. IDENTIDAD Y DOMICILIO DEL RESPONSABLE", content: 'Logística System Development S.A. de C.V. (en adelante "EntregaX"), con domicilio en Revolución Sur 3866 B8, Torremolinos, Monterrey, Nuevo León, C.P. 64860, es el responsable del uso y protección de sus datos personales.' },
+    { title: "2. DATOS PERSONALES QUE RECABAMOS", content: "De nuestros Empleados y Operadores: Nombre completo, domicilio, teléfono, estado civil, nombre del cónyuge, número de hijos, contacto de emergencia, tallas de uniforme, fotografías de identificación oficial (INE) y geolocalización en tiempo real (GPS) durante su jornada laboral." },
+    { title: "3. FINALIDADES DEL TRATAMIENTO", content: "Alta en nuestro sistema de Recursos Humanos, control de asistencias (checador virtual), rastreo de ruta para seguridad de la flotilla y la carga, y contacto en caso de emergencia médica o vial." },
+    { title: "4. USO DE TECNOLOGÍAS DE RASTREO (GPS)", content: "En nuestra aplicación móvil para Operadores y Choferes utilizamos tecnologías de rastreo (GPS) para monitorear la ubicación en tiempo real. Esta herramienta es de uso obligatorio durante la jornada laboral por políticas de seguridad de la carga y control de asistencia." },
+    { title: "5. DERECHOS ARCO", content: "Usted tiene derecho a Acceso, Rectificación, Cancelación y Oposición de sus datos personales. Para ejercer estos derechos, envíe un correo a aldocampos@entregax.com" },
+  ],
+  contactEmail: "aldocampos@entregax.com",
+};
+
+const ADVISOR_FALLBACK = {
+  title: "AVISO DE PRIVACIDAD Y TÉRMINOS DE COMISIONES PARA ASESORES COMERCIALES",
+  company: "Logística System Development S.A. de C.V.",
+  address: "Revolución Sur 3866 B8, Torremolinos, Monterrey, Nuevo León, C.P. 64860",
+  lastUpdate: "25 de Marzo de 2026",
+  sections: [
+    { title: "1. IDENTIDAD Y DOMICILIO DEL RESPONSABLE", content: 'Logística System Development S.A. de C.V. (en adelante "EntregaX"), con domicilio en Revolución Sur 3866 B8, Torremolinos, Monterrey, Nuevo León, C.P. 64860, es el responsable del uso y protección de sus datos personales.' },
+    { title: "2. DATOS PERSONALES QUE RECABAMOS", content: "De nuestros Asesores Comerciales recabamos: Nombre completo, domicilio, teléfono, correo electrónico, datos bancarios para pago de comisiones, información fiscal (RFC y Constancia de Situación Fiscal) y fotografía de identificación oficial (INE)." },
+    { title: "3. DERECHOS ARCO", content: "Usted tiene derecho a Acceso, Rectificación, Cancelación y Oposición de sus datos personales. Para ejercer estos derechos, envíe un correo a aldocampos@entregax.com" },
+  ],
+  contactEmail: "aldocampos@entregax.com",
+};
+
+// Parser ligero: convierte el campo content (texto plano con secciones
+// numeradas estilo "1. TÍTULO\n\ncuerpo...\n\n2. TÍTULO\n\ncuerpo...")
+// en el array {title, content} que el frontend espera. Si no detecta
+// secciones, devuelve un solo bloque con todo el texto.
+function parseSectionsFromContent(text: string): Array<{ title: string; content: string }> {
+  const trimmed = String(text || '').trim();
+  if (!trimmed) return [];
+  // Detecta líneas como "1. ALGO" o "PRIMERA PARTE: ALGO" como inicios de sección.
+  const headerRegex = /^(?:\s*)(\d+\.\s+[^\n]+|[A-ZÁÉÍÓÚÑ][A-ZÁÉÍÓÚÑ0-9 ]{3,}:?\s*)$/gm;
+  const indices: Array<{ idx: number; title: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = headerRegex.exec(trimmed)) !== null) {
+    indices.push({ idx: m.index, title: m[0]!.trim() });
+  }
+  if (indices.length < 2) {
+    return [{ title: '', content: trimmed }];
+  }
+  const sections: Array<{ title: string; content: string }> = [];
+  for (let i = 0; i < indices.length; i++) {
+    const start = indices[i]!.idx + indices[i]!.title.length;
+    const end = i + 1 < indices.length ? indices[i + 1]!.idx : trimmed.length;
+    sections.push({ title: indices[i]!.title.replace(/:$/, ''), content: trimmed.slice(start, end).trim() });
+  }
+  return sections;
+}
+
+async function getEditableLegalDoc(documentType: string, fallback: typeof PRIVACY_FALLBACK) {
+  try {
+    const r = await pool.query(
+      `SELECT title, content, version, updated_at FROM legal_documents WHERE document_type = $1 AND is_active = TRUE LIMIT 1`,
+      [documentType]
+    );
+    if (r.rows.length === 0) return fallback;
+    const row = r.rows[0];
+    const sections = parseSectionsFromContent(row.content);
+    const updatedAt = row.updated_at ? new Date(row.updated_at) : new Date();
+    return {
+      title: row.title || fallback.title,
+      company: fallback.company,
+      address: fallback.address,
+      lastUpdate: formatSpanishDate(updatedAt),
+      version: row.version,
+      content: row.content, // bloque completo por si el cliente prefiere no usar sections
+      sections,
+      contactEmail: fallback.contactEmail,
+    };
+  } catch (e) {
+    return fallback;
+  }
+}
+
+export const getPrivacyNotice = async (_req: Request, res: Response): Promise<void> => {
+  const data = await getEditableLegalDoc('privacy_notice', PRIVACY_FALLBACK);
+  res.json(data);
 };
 
 // ============================================
@@ -62,49 +120,8 @@ export const getPrivacyNotice = async (_req: Request, res: Response): Promise<vo
 // (Sin requerimiento de ubicación/GPS)
 // ============================================
 export const getAdvisorPrivacyNotice = async (_req: Request, res: Response): Promise<void> => {
-  const advisorNotice = {
-    title: "AVISO DE PRIVACIDAD Y TÉRMINOS DE COMISIONES PARA ASESORES COMERCIALES",
-    company: "Logística System Development S.A. de C.V.",
-    address: "Revolución Sur 3866 B8, Torremolinos, Monterrey, Nuevo León, C.P. 64860",
-    lastUpdate: "25 de Marzo de 2026",
-    sections: [
-      {
-        title: "1. IDENTIDAD Y DOMICILIO DEL RESPONSABLE",
-        content: "Logística System Development S.A. de C.V. (en adelante \"EntregaX\"), con domicilio en Revolución Sur 3866 B8, Torremolinos, Monterrey, Nuevo León, C.P. 64860, es el responsable del uso y protección de sus datos personales."
-      },
-      {
-        title: "2. DATOS PERSONALES QUE RECABAMOS",
-        content: "De nuestros Asesores Comerciales recabamos: Nombre completo, domicilio, teléfono, correo electrónico, datos bancarios para pago de comisiones, información fiscal (RFC y Constancia de Situación Fiscal) y fotografía de identificación oficial (INE)."
-      },
-      {
-        title: "3. FINALIDADES DEL TRATAMIENTO",
-        content: "Alta en nuestro sistema como Asesor Comercial, gestión y seguimiento de clientes referidos, cálculo y pago de comisiones, emisión de comprobantes fiscales, comunicación sobre promociones y actualizaciones del programa de asesores, y contacto para asuntos relacionados con su actividad comercial."
-      },
-      {
-        title: "4. ESQUEMA DE COMISIONES",
-        content: "Como Asesor Comercial de EntregaX, usted recibirá comisiones por los envíos generados por los clientes que usted refiera a la plataforma. Las comisiones se calcularán con base en el volumen de envíos de sus clientes referidos, de acuerdo con las tablas de comisiones vigentes publicadas en el sistema. EntregaX se reserva el derecho de modificar los porcentajes y esquemas de comisiones, notificando previamente a los asesores a través del sistema."
-      },
-      {
-        title: "5. PROCESO DE PAGO DE COMISIONES",
-        content: "Las comisiones se gestionan a través de nuestro sistema digital. El proceso es el siguiente:\n\n• Sus comisiones se acumularán automáticamente en su monedero virtual dentro del sistema.\n• Para recibir el pago, usted deberá ingresar al sistema y solicitar el retiro de sus comisiones.\n• Las solicitudes de retiro deberán realizarse a más tardar los días JUEVES antes de la 1:00 PM (hora centro de México).\n• Los pagos de comisiones se procesarán los días VIERNES de cada semana.\n• Las solicitudes recibidas después del jueves a la 1:00 PM se procesarán en el ciclo de pago de la siguiente semana.\n• Los pagos se realizarán mediante transferencia bancaria a la cuenta registrada en su perfil."
-      },
-      {
-        title: "6. REQUISITOS FISCALES",
-        content: "Para el pago de comisiones, se le podrá requerir la emisión de factura (CFDI) correspondiente al monto de sus comisiones. Es responsabilidad del Asesor mantener actualizada su información fiscal en el sistema. EntregaX podrá solicitar su Constancia de Situación Fiscal vigente para efectos de cumplimiento con las obligaciones fiscales aplicables. El incumplimiento en la presentación de facturas podrá resultar en la retención del pago de comisiones hasta que se regularice la situación fiscal."
-      },
-      {
-        title: "7. CONFIDENCIALIDAD",
-        content: "El Asesor Comercial se compromete a mantener la confidencialidad de la información de clientes, tarifas, procesos internos y cualquier otra información a la que tenga acceso en el ejercicio de sus funciones. Esta obligación prevalece incluso después de terminada la relación comercial con EntregaX."
-      },
-      {
-        title: "8. DERECHOS ARCO",
-        content: "Usted tiene derecho a Acceso, Rectificación, Cancelación y Oposición de sus datos personales. Para ejercer estos derechos, envíe un correo a aldocampos@entregax.com"
-      }
-    ],
-    contactEmail: "aldocampos@entregax.com"
-  };
-
-  res.json(advisorNotice);
+  const data = await getEditableLegalDoc('advisor_privacy_notice', ADVISOR_FALLBACK);
+  res.json(data);
 };
 
 // ============================================
@@ -792,7 +809,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<void>
     }
 
     // Validar rol permitido para empleados
-    const allowedRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director'];
+    const allowedRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'abogado', 'operaciones', 'director'];
     if (!allowedRoles.includes(role)) {
       res.status(400).json({ error: 'Rol no válido para empleado' });
       return;
@@ -872,7 +889,7 @@ export const updateEmployee = async (req: Request, res: Response): Promise<void>
     } = req.body;
 
     // Validar rol permitido
-    const allowedRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director'];
+    const allowedRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'abogado', 'operaciones', 'director'];
     if (role && !allowedRoles.includes(role)) {
       res.status(400).json({ error: 'Rol no válido para empleado' });
       return;
@@ -918,7 +935,7 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<void>
       UPDATE users SET
         is_active = FALSE,
         deleted_at = NOW()
-      WHERE id = $1 AND role IN ('repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones')
+      WHERE id = $1 AND role IN ('repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'abogado')
       RETURNING id, full_name
     `, [id]);
 

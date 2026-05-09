@@ -411,26 +411,47 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.header}>
             <Ionicons name="shield-checkmark" size={64} color="#C1272D" />
-            <Text style={styles.title}>Aviso de Privacidad</Text>
+            <Text style={styles.title}>
+              {isAdvisor ? 'Términos y Condiciones' : 'Aviso de Privacidad'}
+            </Text>
             <Text style={styles.subtitle}>
-              Por favor lee y acepta el aviso de privacidad antes de continuar
+              {isAdvisor
+                ? 'Lee y acepta los términos y el aviso de privacidad para asesores antes de continuar'
+                : 'Por favor lee y acepta el aviso de privacidad antes de continuar'}
             </Text>
           </View>
 
           {privacyNotice ? (
             <View style={styles.privacyCard}>
               <Text style={styles.privacyTitle}>{privacyNotice.title}</Text>
-              <Text style={styles.privacyCompany}>{privacyNotice.company}</Text>
-              
-              {privacyNotice.sections?.map((section: any, index: number) => (
-                <View key={index} style={styles.privacySection}>
-                  <Text style={styles.sectionTitle}>{section.title}</Text>
-                  <Text style={styles.sectionContent}>{section.content}</Text>
+              {!!privacyNotice.company && (
+                <Text style={styles.privacyCompany}>{privacyNotice.company}</Text>
+              )}
+
+              {/* Si el backend devuelve secciones parseadas las usamos
+                  para conservar el formato visual; si no, mostramos el
+                  contenido completo como bloque. Esto permite que el
+                  admin escriba texto plano editable y se vea bien. */}
+              {Array.isArray(privacyNotice.sections) && privacyNotice.sections.length > 1 ? (
+                privacyNotice.sections.map((section: any, index: number) => (
+                  <View key={index} style={styles.privacySection}>
+                    {!!section.title && (
+                      <Text style={styles.sectionTitle}>{section.title}</Text>
+                    )}
+                    <Text style={styles.sectionContent}>{section.content}</Text>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.privacySection}>
+                  <Text style={styles.sectionContent}>
+                    {privacyNotice.content || privacyNotice.sections?.[0]?.content || ''}
+                  </Text>
                 </View>
-              ))}
-              
+              )}
+
               <Text style={styles.privacyDate}>
                 Última actualización: {privacyNotice.lastUpdate}
+                {privacyNotice.version ? `  (v${privacyNotice.version})` : ''}
               </Text>
             </View>
           ) : (
