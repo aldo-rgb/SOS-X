@@ -238,13 +238,19 @@ export default function ReturnScanScreen({ navigation, route }: any) {
       }
       return parts.join('-');
     };
+    // Forma compacta: sin guiones y mayúsculas. Permite que el chofer
+    // escanee "AIR2610265SCHJM040" y matchee la guía "AIR2610265scHjM-040"
+    // de su lista (la pistola a veces lee el barcode sin separador).
+    const compact = (t: string) => String(t || '').toUpperCase().replace(/-/g, '');
     const dataKey = stripSuffixZeros(data);
+    const dataCompact = compact(data);
 
     // Verificar si el paquete está en la lista
     const packageFound = packagesToReturn.find(
       p => p.tracking_number === data
         || stripSuffixZeros(p.tracking_number) === dataKey
-        || p.tracking_number.includes(data)
+        || compact(p.tracking_number) === dataCompact
+        || p.tracking_number.toUpperCase().includes(data.toUpperCase())
     );
     
     if (!packageFound) {
