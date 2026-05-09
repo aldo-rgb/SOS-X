@@ -436,7 +436,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             onPress={() => navigation.navigate('MyProfile', { user, token })}
           >
             <Image
-              source={require('../../assets/logo-negro.png')}
+              source={require('../../assets/x-logo-entregax.png')}
               style={styles.profileLogo}
               resizeMode="contain"
             />
