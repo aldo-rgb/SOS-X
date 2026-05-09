@@ -7838,10 +7838,18 @@ app.post('/api/firma-abandono/:token', firmarDocumentoAbandono); // Público
 // Gestión de contratos y avisos de privacidad
 // ============================================
 app.get('/api/legal-documents', authenticateToken, requireRole('super_admin', 'abogado'), getAllLegalDocuments);
-// Lectura pública: el contrato de servicios y los avisos de privacidad se
-// consultan desde el onboarding del cliente (Verificación de Identidad
-// paso 4) ANTES de tener token, así que no exigimos auth aquí.
-app.get('/api/legal-documents/:type', getLegalDocumentByType);
+// Lectura por tipo: solo `privacy_policy` (Empresa) y `service_contract`
+// (Clientes) son PÚBLICOS — los necesitamos antes de tener token (el
+// cliente lee la política en el sitio público y el contrato durante el
+// step 4 del onboarding ANTES de tener cuenta). Los demás
+// (advisor_privacy_notice, privacy_notice, gex_warranty_policy) son
+// internos y se consultan ya con sesión iniciada.
+const PUBLIC_LEGAL_TYPES = new Set(['privacy_policy', 'service_contract']);
+app.get('/api/legal-documents/:type', (req, res, next) => {
+  const type = String(req.params.type || '').toLowerCase();
+  if (PUBLIC_LEGAL_TYPES.has(type)) return next();
+  return authenticateToken(req as any, res, next);
+}, getLegalDocumentByType);
 app.post('/api/legal-documents', authenticateToken, requireRole('super_admin', 'abogado'), createLegalDocument);
 app.put('/api/legal-documents/:id', authenticateToken, requireRole('super_admin', 'abogado'), updateLegalDocument);
 app.get('/api/legal-documents/:id/history', authenticateToken, requireRole('super_admin', 'abogado'), getLegalDocumentHistory);
