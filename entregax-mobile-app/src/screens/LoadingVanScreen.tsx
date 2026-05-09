@@ -66,6 +66,20 @@ interface FeedbackMessage {
 
 type ScanMode = 'camera' | 'scanner';
 
+// Mapea el prefijo del tracking interno al icono + color del servicio.
+// LOG  → barco (marítimo, azul)
+// AIR  → avión (aéreo China, naranja)
+// DHL/AA → avión amarillo (DHL)
+// US   → camión (PO Box USA, verde)
+const getServiceIcon = (trackingNumber: string): { name: keyof typeof MaterialIcons.glyphMap; color: string } => {
+  const tn = String(trackingNumber || '').toUpperCase().trim();
+  if (tn.startsWith('LOG')) return { name: 'directions-boat', color: '#1976D2' };
+  if (tn.startsWith('AIR')) return { name: 'flight', color: '#F05A28' };
+  if (tn.startsWith('DHL') || tn.startsWith('AA')) return { name: 'flight', color: '#FFC107' };
+  if (tn.startsWith('US')) return { name: 'local-shipping', color: '#4CAF50' };
+  return { name: 'inventory-2', color: '#F05A28' };
+};
+
 const normalizeScanCode = (rawCode: string): string => {
   if (!rawCode) return '';
 
@@ -794,10 +808,12 @@ export default function LoadingVanScreen({ navigation, route }: any) {
           <FlatList
             data={routeData?.pendingPackages || []}
             keyExtractor={(item) => item.id.toString()}
-            renderItem={({ item }) => (
+            renderItem={({ item }) => {
+              const svcIcon = getServiceIcon(item.tracking_number);
+              return (
               <View style={styles.packageItem}>
                 <View style={styles.packageIcon}>
-                  <MaterialIcons name="inventory-2" size={24} color="#F05A28" />
+                  <MaterialIcons name={svcIcon.name} size={24} color={svcIcon.color} />
                 </View>
                 <View style={styles.packageInfo}>
                   {(() => {
@@ -822,7 +838,8 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                   <MaterialIcons name="hourglass-empty" size={20} color="#FF9800" />
                 </View>
               </View>
-            )}
+              );
+            }}
             ListEmptyComponent={
               <View style={styles.emptyList}>
                 <MaterialIcons name="check-circle" size={48} color="#4CAF50" />
