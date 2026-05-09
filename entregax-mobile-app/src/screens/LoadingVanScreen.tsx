@@ -87,13 +87,26 @@ const normalizeScanCode = (rawCode: string): string => {
     .replace(/[\r\n\t]/g, '')
     .trim();
 
+  // Las pistolas que lanzan el QR como pulsaciones de teclado interpretan
+  // los caracteres especiales con el layout configurado en el celular. En
+  // español, `:` se convierte en `Ñ` y `/` en `-`, así que un QR que contiene
+  // "https://app.entregax.com/track/AIR2610265SCHJM040" llega como
+  // "httpsÑ--app.entregax.com-track-AIR2610265SCHJM040". Sólo aplicamos
+  // este desmangle si el string parece URL — no podemos confundir un guión
+  // legítimo dentro de un tracking AIR con un slash.
+  if (/^https?Ñ|^http?Ñ/i.test(code) || code.toLowerCase().startsWith('httpsñ') || code.toLowerCase().startsWith('httpñ')) {
+    code = code.replace(/Ñ/g, ':').replace(/-/g, '/');
+  }
+
   try {
     code = decodeURIComponent(code);
   } catch {
     // ignore decode errors
   }
 
-  const fromTrackPath = code.match(/\/track\/([^/?#\s]+)/i);
+  // Tolera tanto `/track/<X>` (URL real) como `-track-<X>` (URL mangled por
+  // teclado español que no fue desmangleado arriba) para extraer el tracking.
+  const fromTrackPath = code.match(/[\/\-]track[\/\-]([A-Za-z0-9\-_]+)/i);
   if (fromTrackPath?.[1]) {
     code = fromTrackPath[1];
   }
@@ -112,7 +125,11 @@ const normalizeScanCode = (rawCode: string): string => {
     .replace(/\s+/g, '')
     .toUpperCase();
 
-  const canonicalTracking = code.match(/[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*/);
+  // Match canónico SOLO con prefijos de servicio conocidos. Antes el
+  // regex era `[A-Z]{2,}-[A-Z0-9]{2,}` y para entrada
+  // `AIR2610265SCHJM-040` agarraba `SCHJM-040` (5 letras seguidas + dash)
+  // truncando todo el master. Ahora anclamos al prefijo del servicio.
+  const canonicalTracking = code.match(/(?:AIR|LOG|DHL|AA|US|CN|MX)[A-Z0-9]+(?:-[A-Z0-9]+)*/);
   if (canonicalTracking?.[0]) {
     return canonicalTracking[0];
   }
