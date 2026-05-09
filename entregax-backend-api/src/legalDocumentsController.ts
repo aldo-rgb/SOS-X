@@ -345,15 +345,21 @@ export async function updateLegalDocument(req: Request, res: Response) {
       RETURNING *
     `, [title, content, userId, id]);
 
-    // Registrar en audit_log si existe (no rompe si no existe).
-    await client.query(`
+    await client.query('COMMIT');
+
+    // audit_log es OPCIONAL y va FUERA de la transacción a propósito:
+    // si la tabla no existe en este entorno, el INSERT lanza error y
+    // dentro de la tx Postgres aborta TODA la transacción haciendo que
+    // el COMMIT se comporte como ROLLBACK silencioso (causa del bug
+    // donde la versión subía a v2 en la respuesta pero al refrescar
+    // volvía a v1). Después del COMMIT ya el cambio está persistido,
+    // así que el audit_log es solo "best effort".
+    pool.query(`
       INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
       VALUES ('UPDATE_LEGAL_DOCUMENT', 'legal_documents', $1, $2, $3)
     `, [id, userId, JSON.stringify({ title, version: result.rows[0].version })]).catch(() => {
-      // tabla no presente — el versions ya garantiza la trazabilidad real.
+      // tabla no presente — el legal_document_versions ya garantiza la trazabilidad real.
     });
-
-    await client.query('COMMIT');
 
     res.json({
       success: true,
@@ -438,13 +444,14 @@ export async function restoreLegalDocumentVersion(req: Request, res: Response) {
       [target.title, target.content, userId, id]
     );
 
-    await client.query(`
+    await client.query('COMMIT');
+
+    // audit_log opcional FUERA de la tx (ver explicación en updateLegalDocument).
+    pool.query(`
       INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
       VALUES ('RESTORE_LEGAL_DOCUMENT', 'legal_documents', $1, $2, $3)
     `, [id, userId, JSON.stringify({ restored_from_version: target.version, new_version: result.rows[0].version })])
     .catch(() => {});
-
-    await client.query('COMMIT');
 
     res.json({
       success: true,
