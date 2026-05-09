@@ -119,6 +119,7 @@ import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 import ExternalProviderPage from './ExternalProviderPage';
 import OpenpaySavedCards from '../components/OpenpaySavedCards';
 import type { OpenpaySelection } from '../components/OpenpaySavedCards';
+import CorporateFooter from '../components/CorporateFooter';
 
 const ORANGE = '#F05A28';
 const GREEN = '#4CAF50';
@@ -13794,6 +13795,13 @@ export default function DashboardClient() {
           </BottomNavigation>
         </Paper>
       )}
+
+      {/* Footer corporativo: privacidad, contacto, redes sociales.
+          En mobile dejamos un margen extra abajo para que la BottomNavigation
+          no tape el último renglón del footer. */}
+      <Box sx={{ mt: { xs: 4, md: 0 }, mx: { xs: -1.5, md: -4 }, mb: isMobile ? -10 : -4, pb: isMobile ? 10 : 0 }}>
+        <CorporateFooter />
+      </Box>
     </Box>
   );
 }
