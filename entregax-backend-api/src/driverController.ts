@@ -364,6 +364,34 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                             barcode,
                             possibleMatches: probe.rows.map((r: any) => r.tracking_internal),
                         });
+                    } else {
+                        // Las variantes exactas no matchearon. Caso peor: la
+                        // pistola perdió 2+ dígitos finales. Buscamos por
+                        // prefijo: cualquier hija que empiece por
+                        // "<MASTER>-<digits parciales>". Si solo 1 hija
+                        // calza, la usamos. Si hay varias, devolvemos la
+                        // lista para que el operador confirme cuál.
+                        const likePartials = [
+                            `${masterPrefix}-${suffix}%`,
+                            `${masterPrefix}-${suffix.replace(/^0+/, '')}%`,
+                            `${masterPrefix}-0${suffix}%`,
+                            `${masterPrefix}-00${suffix}%`,
+                        ];
+                        const fuzzy = await pool.query(
+                            `SELECT tracking_internal FROM packages
+                             WHERE UPPER(tracking_internal) LIKE ANY($1::text[])
+                             LIMIT 6`,
+                            [likePartials.map(p => p.toUpperCase())]
+                        );
+                        if (fuzzy.rows.length === 1) {
+                            barcode = fuzzy.rows[0].tracking_internal;
+                        } else if (fuzzy.rows.length > 1) {
+                            return res.status(400).json({
+                                error: `⚠️ Código truncado: hay ${fuzzy.rows.length}${fuzzy.rows.length >= 6 ? '+' : ''} cajas de "${masterPrefix}" cuyo número empieza por "${suffix}". Escanea el QR o captura el código completo manualmente.`,
+                                barcode,
+                                possibleMatches: fuzzy.rows.map((r: any) => r.tracking_internal),
+                            });
+                        }
                     }
                 }
             }
