@@ -29,7 +29,6 @@ import EmailIcon from '@mui/icons-material/Email';
 import PhoneIcon from '@mui/icons-material/Phone';
 import ShieldIcon from '@mui/icons-material/Shield';
 import DescriptionIcon from '@mui/icons-material/Description';
-import LocationOnIcon from '@mui/icons-material/LocationOn';
 
 const ORANGE = '#F05A28';
 const DARK = '#111';
@@ -174,14 +173,6 @@ export default function CorporateFooter() {
                 <EmailIcon sx={{ fontSize: 18 }} />
                 <span>contacto@entregax.com</span>
               </MuiLink>
-              <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, color: TEXT_LIGHT }}>
-                <LocationOnIcon sx={{ fontSize: 18, mt: 0.25 }} />
-                <Typography variant="body2" sx={{ color: TEXT_LIGHT, lineHeight: 1.5 }}>
-                  Revolución Sur 3866 B8,<br />
-                  Torremolinos, Monterrey, N.L.<br />
-                  C.P. 64860
-                </Typography>
-              </Box>
             </Box>
           </Grid>
         </Grid>
@@ -193,7 +184,7 @@ export default function CorporateFooter() {
             © {year} Logística System Development S.A. de C.V. — Todos los derechos reservados.
           </Typography>
           <Typography variant="caption" sx={{ color: TEXT_MUTED }}>
-            Hecho con 🧡 en Monterrey, N.L.
+            AppSync Powered
           </Typography>
         </Box>
       </Container>
