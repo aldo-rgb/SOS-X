@@ -662,10 +662,12 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                      OR to_jsonb(m)->>'national_tracking' IS NOT NULL
                      OR to_jsonb(m)->>'skydropx_label_id' IS NOT NULL
                      OR to_jsonb(m)->>'dhl_awb' IS NOT NULL
-                     OR (
-                        LOWER(COALESCE(to_jsonb(p)->>'national_carrier', to_jsonb(p)->>'carrier', to_jsonb(m)->>'national_carrier', to_jsonb(m)->>'carrier', '')) ~ '(entregax|local|pick ?up)'
-                        AND COALESCE(to_jsonb(p)->>'assigned_address_id', to_jsonb(m)->>'assigned_address_id') IS NOT NULL
-                     )
+                     -- Antes había aquí un OR para entregas locales/EntregaX
+                     -- que aceptaba assigned_address_id como sustituto de
+                     -- la etiqueta. Lo removimos: aunque sea entrega local,
+                     -- exigimos etiqueta IMPRESA real para que la guía aparezca
+                     -- como "lista para cargar". Sin etiqueta no hay
+                     -- trazabilidad física en la caja.
                   )
                 ORDER BY p.updated_at ASC NULLS LAST, p.created_at ASC
             `, [driverBranchId])
