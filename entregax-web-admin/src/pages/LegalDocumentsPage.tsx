@@ -153,11 +153,13 @@ export default function LegalDocumentsPage() {
       case 'privacy_policy':
         return 'Política de Privacidad (Empresa)';
       case 'privacy_notice':
-        return 'Aviso de Privacidad (Empleados)';
+        return 'Aviso de Privacidad  (Empleados)';
       case 'advisor_privacy_notice':
         return 'Aviso de Privacidad (Asesores)';
       case 'service_contract':
         return 'Contrato de Servicios (Clientes)';
+      case 'gex_warranty_policy':
+        return 'Garantía Extendida (GEX)';
       default:
         return type;
     }
@@ -173,6 +175,8 @@ export default function LegalDocumentsPage() {
         return '🤝';
       case 'service_contract':
         return '📄';
+      case 'gex_warranty_policy':
+        return '🛡️';
       default:
         return '📋';
     }

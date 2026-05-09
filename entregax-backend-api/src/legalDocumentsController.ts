@@ -31,6 +31,61 @@ const REQUIRED_DOCUMENTS: Array<{ document_type: string; title: string; content:
     document_type: 'service_contract',
     title: 'CONTRATO DE SERVICIOS (CLIENTES)',
     content: 'Documento editable desde panel legal.'
+  },
+  {
+    document_type: 'gex_warranty_policy',
+    title: 'POLÍTICA DE GARANTÍA DE TIEMPO DE ENTREGA DE MERCANCÍA EN 90 DÍAS NATURALES',
+    content:
+      'En Logisti-k Systems Development S.A. de C.V. (en adelante "Grupo LSD") nos preocupamos por que nuestros clientes reciban sus cargas en tiempo, forma y en sus mejores condiciones, es por esto por lo que contamos con una forma de garantizar el tiempo de entrega de 90 (noventa) días naturales en el traslado de las mercancías (en adelante la "Garantía"). Lo anterior, en el entendido de que dicha garantía estará en todo momento sujeto a lo establecido en la presente política.\n\n' +
+      'PRIMERA PARTE: DEFINICIONES\n\n' +
+      'Para la interpretación de la presente política de garantía de traslado de mercancías, se deberá entender lo definido a continuación:\n\n' +
+      '• Accidente: acontecimiento fortuito, súbito e imprevisto.\n' +
+      '• Cliente: es la persona física y/o moral que ha solicitado a Grupo LSD llevar a cabo los servicios de traslado de mercancía(s) y ha optado voluntariamente contratar con la empresa Grupo LSD la garantía de tiempo de entrega de 90 (noventa) días naturales.\n' +
+      '• Deducible: es la cantidad o porcentaje que se establece en esta Política como participación del Cliente para que pueda ser sujeto de una Indemnización por parte de Grupo LSD.\n' +
+      '• Mercancía(s): se entiende como las mercancías y/o bienes contenidos en un solo vehículo o un mismo medio de transporte.\n' +
+      '• Evento: es la ocurrencia del riesgo protegido por la Garantía, durante el traslado de las mercancías. Se entenderá por un solo Evento, el hecho o serie de hechos ocurridos a consecuencia de retraso de más de 90 (noventa) días naturales.\n' +
+      '• Siniestro: retraso en el traslado de las mercancías por más de 90 (noventa) días naturales desde su envío siempre y cuando dicho retraso no se encuentre dentro de las excepciones de la Garantía.\n' +
+      '• Valor de la(s) Mercancía(s): es la cantidad máxima establecida en las facturas y/o cualquier otra documentación en poder del Cliente para acreditar su propiedad.\n\n' +
+      'SEGUNDA PARTE: CONDICIONES APLICABLES\n\n' +
+      '1.- Esta Garantía ampara, sin exceder del valor de la(s) mercancía(s), la entrega de las mercancías en un periodo no mayor a 90 (noventa) días naturales a consecuencia de los riesgos descritos en la presente política, siempre que éstos sean súbitos e imprevistos, que no se encuentren excluidos, que ocurran entre el origen y el destino especificado y durante el curso normal del traslado.\n\n' +
+      'Esta Política se ha creado con la finalidad de cubrir daños que ocurran y sean reclamados dentro del territorio nacional y conforme a los tribunales y la legislación de los Estados Unidos Mexicanos.\n\n' +
+      'COSTO: MXN $625.00 + el 5% del valor de la(s) mercancía(s) a garantizar.\n\n' +
+      'Ejemplo ilustrativo:\n' +
+      'Envío: 100kg / 1 CBM\n' +
+      'Valor: MXN $100,000 pesos\n' +
+      'Costo de garantía: MXN $5,625.00 pesos\n\n' +
+      'Requisitos para cotización:\n' +
+      '• Dimensiones - Alto x Ancho x Largo\n' +
+      '• Peso\n' +
+      '• Valor de la(s) Mercancía(s) Declaradas\n\n' +
+      'Nota: La mercancía se garantiza individualmente, puede garantizar solo la mercancía de alto riesgo.\n\n' +
+      'En caso de que sea procedente el Siniestro, el reembolso será por un total del valor de las mercancías, adicional a pagar un 5% extra de Deducible.\n\n' +
+      '2.- El único momento en el cual el Cliente podrá contratar la garantía es ANTES de realizar el tránsito y traslado de sus mercancías por Grupo LSD.\n\n' +
+      '3.- En caso de Evento amparado, el Cliente deberá enviar a Grupo LSD una relación detallada y exacta de las mercancías no entregadas en plazo y el importe de las mismas.\n\n' +
+      'El pago del Siniestro procedente se efectúa por transferencia o depósito a cuenta proporcionada por el Cliente en un lapso no mayor a 15 días hábiles después de tramitada la reclamación.\n\n' +
+      'TERCERA PARTE: EXCLUSIONES\n\n' +
+      'En ningún caso esta Póliza ampara las mercancías contra pérdidas, daños o gastos causados por:\n\n' +
+      '• Retrasos derivados de procedimientos administrativos en materia aduanera.\n' +
+      '• Violación por el Cliente a cualquier ley, disposición o reglamento expedidos por cualquier autoridad.\n' +
+      '• Apropiación en derecho de la mercancía por personas facultadas a tener su posesión.\n' +
+      '• Robo, fraude, dolo, mala fe, culpa grave, abuso de confianza cometido por el Cliente, sus funcionarios, empleados, socios o dependientes.\n' +
+      '• Naturaleza perecedera inherente a las mercancías, vicio propio, combustión espontánea, merma natural, evaporación, pérdida natural de peso o volumen.\n' +
+      '• Empleo de vehículos no aptos para el transporte o que resulten obsoletos, con fallas o defectos latentes.\n' +
+      '• Extravío, robo o faltantes detectados DESPUÉS de la entrega de la mercancía.\n' +
+      '• Faltantes descubiertos al efectuar inventarios.\n' +
+      '• Falta de identificación de la mercancía que impida su diferenciación y recuperación.\n' +
+      '• Falta de marcas o simbología internacional en el envase, empaque o embalaje.\n' +
+      '• Exceso de peso y/o dimensiones máximas de carga autorizadas.\n' +
+      '• Huelguistas, paros, disturbios de carácter obrero, motines o alborotos populares.\n' +
+      '• Vicios ocultos de la mercancía.\n' +
+      '• Expropiación, requisición, confiscación, incautación, nacionalización por acto de autoridad.\n' +
+      '• Hostilidades, actividades u operaciones bélicas, invasión, guerra civil, revolución, rebelión, motín, sedición, sabotaje, disturbios políticos.\n' +
+      '• Detonaciones con uso de dispositivos o armas de guerra que empleen fisión o fusión atómica, nuclear, radioactiva o armas biológicas.\n' +
+      '• Saqueos o robos durante o después de fenómenos meteorológicos, sísmicos o eventos catastróficos.\n' +
+      '• Dolo o mala fe del Cliente, sus beneficiarios o apoderados.\n\n' +
+      'NOTA IMPORTANTE\n\n' +
+      'En caso de siniestro a un porcentaje específico de la mercancía, se aplicará esta Política en proporción de lo siniestrado.\n\n' +
+      'La garantía NO aplica para faltantes de inventario y/o problemas consecuentes con el mal empaque de la misma.'
   }
 ];
 
@@ -105,6 +160,7 @@ export async function getAllLegalDocuments(req: Request, res: Response) {
           WHEN 'advisor_privacy_notice' THEN 2
           WHEN 'privacy_notice' THEN 3
           WHEN 'service_contract' THEN 4
+          WHEN 'gex_warranty_policy' THEN 5
           ELSE 99
         END,
         document_type

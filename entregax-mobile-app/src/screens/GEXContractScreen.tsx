@@ -175,6 +175,34 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
   const [acceptedPolicies, setAcceptedPolicies] = useState(false);
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
   const [signature, setSignature] = useState<string | null>(null);
+
+  // Política de Garantía Extendida — editable desde Documentos Legales
+  // (tab "Garantía Extendida (GEX)" en el panel admin). Si la red falla
+  // mostramos el texto hardcoded de respaldo.
+  const [gexPolicy, setGexPolicy] = useState<{ title: string; content: string; version: string | null } | null>(null);
+  const [policyLoading, setPolicyLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/legal-documents/gex_warranty_policy`);
+        if (!res.ok) throw new Error('not ok');
+        const data = await res.json();
+        if (!cancelled && data?.success && data.document?.content) {
+          setGexPolicy({
+            title: data.document.title || 'POLÍTICA DE GARANTÍA EXTENDIDA',
+            content: data.document.content,
+            version: data.document.version || null,
+          });
+        }
+      } catch {
+        // Silencioso: usamos los textos hardcoded de respaldo.
+      } finally {
+        if (!cancelled) setPolicyLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   
   // Opción de pago - siempre con el embarque
   const [paymentOption] = useState<'now' | 'withShipment'>('withShipment');
@@ -544,14 +572,34 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
 
       <Card style={styles.formCard} mode="elevated">
         <Card.Content>
-          <ScrollView 
-            style={styles.policiesScroll} 
+          <ScrollView
+            style={styles.policiesScroll}
             nestedScrollEnabled
             onScroll={handlePoliciesScroll}
             scrollEventThrottle={16}
           >
+            {/* Si tenemos contenido editable del backend, lo mostramos
+                en lugar del bloque hardcoded. El admin lo edita desde
+                Documentos Legales → Garantía Extendida (GEX). */}
+            {policyLoading ? (
+              <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={BRAND_ORANGE} />
+                <Text style={{ marginTop: 8, color: '#666' }}>Cargando política…</Text>
+              </View>
+            ) : gexPolicy?.content ? (
+              <>
+                <Text style={styles.policyTitle}>{gexPolicy.title}</Text>
+                {gexPolicy.version ? (
+                  <Text style={[styles.policyText, { fontStyle: 'italic', color: '#777', marginBottom: 8 }]}>
+                    Versión {gexPolicy.version}
+                  </Text>
+                ) : null}
+                <Text style={styles.policyText}>{gexPolicy.content}</Text>
+              </>
+            ) : (
+            <>
             <Text style={styles.policyTitle}>POLÍTICA DE GARANTÍA DE TIEMPO DE ENTREGA DE MERCANCÍA EN 90 DÍAS NATURALES</Text>
-            
+
             <Text style={styles.policyText}>
               En Logisti-k Systems Development S.A. de C.V. (en adelante "Grupo LSD") nos preocupamos por que nuestros clientes reciban sus cargas en tiempo, forma y en sus mejores condiciones, es por esto por lo que contamos una forma de garantizar el tiempo de entrega de 90 (noventa) días naturales en el traslado de las mercancías (en adelante la "Garantía"). Lo anterior, en el entendido que dicha garantía estará en todo momento sujeto a lo establecido en la presente política.
             </Text>
@@ -616,6 +664,8 @@ export default function GEXContractScreen({ navigation, route }: GEXContractScre
               En caso de siniestro a un porcentaje específico de la mercancía, se aplicará esta Política en proporción de lo siniestrado.{'\n\n'}
               La garantía NO aplica para faltantes de inventario y/o problemas consecuentes con el mal empaque de la misma.
             </Text>
+            </>
+            )}
           </ScrollView>
 
           {/* Indicador de scroll */}
