@@ -651,7 +651,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${packageBranchSql} = $1
                   AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
-                  AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
+                  AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
                   AND COALESCE(LOWER(to_jsonb(p)->>'payment_status'), LOWER(to_jsonb(m)->>'payment_status'), 'paid') = 'paid'
                   AND (
                         to_jsonb(p)->>'national_label_url' IS NOT NULL
@@ -690,7 +690,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                   AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
-                  AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
+                  AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
                 ORDER BY p.created_at ASC
             `, [driverId]);
 
