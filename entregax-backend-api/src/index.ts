@@ -2104,10 +2104,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           OR updated_at >= NOW() - INTERVAL '7 days'
         )
         AND (is_master = true OR master_id IS NULL)
-      ORDER BY 
+      ORDER BY
         CASE WHEN status::text = 'ready_pickup' THEN 0 ELSE 1 END,
         created_at DESC
-      LIMIT 200
+      LIMIT 500
     `, [userId, boxId]);
 
     // 3b. Obtener órdenes marítimas activas del cliente
@@ -2348,8 +2348,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     let childrenByMaster: Record<number, any[]> = {};
     if (masterIds.length > 0) {
       const childrenResult = await pool.query(`
-        SELECT 
-          id, master_id, tracking_internal, tracking_provider, 
+        SELECT
+          id, master_id, tracking_internal, tracking_provider, child_no,
           description, weight, pkg_length, pkg_width, pkg_height,
           single_cbm, declared_value,
           box_number, status::text as status,
@@ -2357,20 +2357,29 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           pobox_tarifa_nivel, registered_exchange_rate,
           national_shipping_cost, gex_total_cost,
           assigned_cost_mxn, monto_pagado, saldo_pendiente
-        FROM packages 
-        WHERE master_id = ANY($1) 
+        FROM packages
+        WHERE master_id = ANY($1)
         ORDER BY box_number, id
       `, [masterIds]);
-      
+
       childrenResult.rows.forEach((child: any) => {
         const masterId = child.master_id;
         if (masterId) {
           if (!childrenByMaster[masterId]) {
             childrenByMaster[masterId] = [];
           }
+          // Para hijos AIR, el "tracking" que ve el cliente en la etiqueta
+          // impresa es el child_no (AIR2610265SCHJM-040), no el
+          // tracking_internal interno (US-XXXX). Igual lógica que en el query
+          // del master para que la búsqueda local matchee.
+          const displayTracking = (child.child_no && String(child.child_no).startsWith('AIR'))
+            ? child.child_no
+            : child.tracking_internal;
           childrenByMaster[masterId].push({
             id: child.id,
-            tracking: child.tracking_internal,
+            tracking: displayTracking,
+            child_no: child.child_no || null,
+            tracking_internal: child.tracking_internal,
             tracking_provider: child.tracking_provider,
             description: child.description,
             weight: child.weight ? parseFloat(child.weight) : null,
@@ -2640,8 +2649,8 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
     let childrenByMaster: Record<number, any[]> = {};
     if (masterIds.length > 0) {
       const childrenResult = await pool.query(`
-        SELECT 
-          id, master_id, tracking_internal as tracking, tracking_provider, 
+        SELECT
+          id, master_id, tracking_internal, tracking_provider, child_no,
           description, weight, pkg_length, pkg_width, pkg_height,
           single_cbm, declared_value,
           box_number, status::text as status,
@@ -2649,20 +2658,27 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
           pobox_tarifa_nivel, registered_exchange_rate,
           national_shipping_cost, gex_total_cost,
           assigned_cost_mxn, monto_pagado, saldo_pendiente
-        FROM packages 
-        WHERE master_id = ANY($1) 
+        FROM packages
+        WHERE master_id = ANY($1)
         ORDER BY box_number, id
       `, [masterIds]);
-      
+
       childrenResult.rows.forEach((child: any) => {
         const masterId = child.master_id;
         if (masterId) {
           if (!childrenByMaster[masterId]) {
             childrenByMaster[masterId] = [];
           }
+          // Igual que en /api/dashboard/client: si el child_no tiene formato AIR,
+          // ese es el tracking que el cliente ve en su etiqueta — preferirlo.
+          const displayTracking = (child.child_no && String(child.child_no).startsWith('AIR'))
+            ? child.child_no
+            : child.tracking_internal;
           childrenByMaster[masterId].push({
             id: child.id,
-            tracking: child.tracking,
+            tracking: displayTracking,
+            child_no: child.child_no || null,
+            tracking_internal: child.tracking_internal,
             tracking_provider: child.tracking_provider,
             description: child.description,
             weight: child.weight ? parseFloat(child.weight) : null,
