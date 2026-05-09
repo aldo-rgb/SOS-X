@@ -455,23 +455,35 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
 
         const isPaid = String(pkg.payment_status || '').toLowerCase() === 'paid';
         const carrierLower = String(pkg.national_carrier || '').toLowerCase();
-        // EntregaX Local / Pickup no usa paquetería externa: no requiere etiqueta nacional.
         const isLocalDelivery = carrierLower.includes('entregax') || carrierLower.includes('local') || carrierLower.includes('pick up') || carrierLower.includes('pickup');
-        const hasExternalLabel = Boolean(pkg.national_label_url || pkg.national_tracking || pkg.skydropx_label_id || pkg.dhl_awb);
-        // Para entrega local basta tener dirección asignada o estar marcado para pickup.
-        const hasLabel = hasExternalLabel || (isLocalDelivery && Boolean(pkg.assigned_address_id));
+        // Etiqueta IMPRESA requerida siempre — no aceptamos como sustituto que
+        // la guía tenga dirección asignada (instrucciones de entrega), porque
+        // sin etiqueta física en la caja el chofer no sabe a dónde la va a
+        // dejar ni queda evidencia trazable. Esta regla aplica también para
+        // entregas locales/EntregaX: se les genera su manifest/etiqueta.
+        const hasPrintedLabel = Boolean(
+            pkg.national_label_url ||
+            pkg.national_tracking ||
+            pkg.skydropx_label_id ||
+            pkg.dhl_awb
+        );
+        const hasInstructions = Boolean(pkg.assigned_address_id);
 
-        if (!isPaid || !hasLabel) {
-            // Mensaje específico con qué falta exactamente (pago, etiqueta o ambos).
+        if (!isPaid || !hasPrintedLabel) {
             const missing: string[] = [];
             if (!isPaid) missing.push('pago del cliente');
-            if (!hasLabel) missing.push(isLocalDelivery ? 'dirección de entrega asignada' : 'etiqueta de paquetería');
-            const summary = `${isPaid ? '✅' : '❌'} Pago · ${hasLabel ? '✅' : '❌'} Etiqueta`;
+            if (!hasPrintedLabel) {
+                // Diferenciamos: tiene instrucciones pero falta etiqueta impresa
+                // vs. ni siquiera hay instrucciones todavía.
+                missing.push(hasInstructions ? 'etiqueta impresa (la guía tiene instrucciones pero aún no se imprimió la etiqueta)' : 'instrucciones de entrega y etiqueta');
+            }
+            const summary = `${isPaid ? '✅' : '❌'} Pago · ${hasPrintedLabel ? '✅' : '❌'} Etiqueta impresa · ${hasInstructions ? '✅' : '❌'} Instrucciones`;
             return res.status(400).json({
                 error: `⚠️ Falta: ${missing.join(' y ')}. ${summary}.`,
                 paymentStatus: pkg.payment_status || 'pending',
                 isPaid,
-                hasLabel,
+                hasPrintedLabel,
+                hasInstructions,
                 missing,
                 nationalCarrier: pkg.national_carrier || null,
                 isLocalDelivery,
