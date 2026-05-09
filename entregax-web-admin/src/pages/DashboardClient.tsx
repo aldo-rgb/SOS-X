@@ -2684,7 +2684,9 @@ export default function DashboardClient() {
     grouped.sort((a, b) => {
       if (a.status === 'ready_pickup' && b.status !== 'ready_pickup') return -1;
       if (b.status === 'ready_pickup' && a.status !== 'ready_pickup') return 1;
-      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return tb - ta;
     });
 
     return grouped;

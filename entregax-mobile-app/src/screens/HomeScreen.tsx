@@ -210,25 +210,93 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     return statusLabels[status] || status;
   };
 
-  // 🔍 Función para obtener paquetes filtrados por servicio e instrucciones
+  // 🔍 Función para obtener paquetes filtrados por servicio e instrucciones.
+  // Además agrupa visualmente las hijas AIR hermanas (mismo prefijo
+  // AIR<X>-NNN) bajo un master virtual "MULTI" — igual que el flujo
+  // marítimo y la web admin. La agrupación es UI-only.
   const getFilteredPackages = useCallback(() => {
-    return packages.filter(pkg => {
-      // 1. Filtro por tipo de servicio
+    const filtered = packages.filter(pkg => {
       if (serviceFilter !== null) {
         if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
         if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
         if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
         if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
       }
-      
-      // 2. Filtro por instrucciones (el más importante)
       if (instructionFilter !== null) {
         const hasInstructions = !!(pkg as any).delivery_address_id || !!(pkg as any).assigned_address_id;
         if (instructionFilter !== hasInstructions) return false;
       }
-      
       return true;
     });
+
+    // Agrupación AIR — sólo paquetes con tracking_internal AIR<X>-NNN que
+    // no sean masters reales. Construimos un master virtual por prefijo
+    // y embutimos las hijas en included_guides.
+    const airGroups: Record<string, Package[]> = {};
+    const nonAir: Package[] = [];
+    for (const pkg of filtered) {
+      const tn = String(pkg.tracking_internal || '').toUpperCase();
+      const m = tn.match(/^(AIR[A-Z0-9]+)-(\d{2,4})$/);
+      if (m && !pkg.is_master && !(pkg as any).included_guides?.length) {
+        const prefix = m[1];
+        (airGroups[prefix] = airGroups[prefix] || []).push(pkg);
+      } else {
+        nonAir.push(pkg);
+      }
+    }
+
+    const grouped: Package[] = [...nonAir];
+    for (const [prefix, kids] of Object.entries(airGroups)) {
+      if (kids.length < 2) {
+        grouped.push(...kids);
+        continue;
+      }
+      const sorted = [...kids].sort((a, b) => {
+        const na = Number(String(a.tracking_internal).match(/-(\d+)$/)?.[1] || 0);
+        const nb = Number(String(b.tracking_internal).match(/-(\d+)$/)?.[1] || 0);
+        return na - nb;
+      });
+      const sumWeight = sorted.reduce((s, k) => s + (Number(k.weight) || 0), 0);
+      const sumDeclared = sorted.reduce((s, k) => s + (Number(k.declared_value) || 0), 0);
+      const sumCost = sorted.reduce((s, k) => s + (Number((k as any).assigned_cost_mxn) || 0), 0);
+      const allPaid = sorted.every(k => (k as any).client_paid === true);
+      const repr = sorted[0];
+      const virtualMaster: Package = {
+        ...repr,
+        id: repr.id,
+        tracking_internal: prefix,
+        description: repr.description,
+        weight: sumWeight || null,
+        declared_value: sumDeclared || null,
+        is_master: true,
+        total_boxes: sorted.length,
+        ...(allPaid ? { client_paid: true } as any : {}),
+        ...({
+          assigned_cost_mxn: sumCost,
+          included_guides: sorted.map(k => ({
+            id: k.id,
+            tracking: k.tracking_internal,
+            description: k.description,
+            weight: k.weight ?? null,
+            dimensions: k.dimensions ?? null,
+            declared_value: k.declared_value ?? null,
+            status: k.status,
+          })),
+          _airGroupChildIds: sorted.map(k => k.id),
+        } as any),
+      };
+      grouped.push(virtualMaster);
+    }
+
+    grouped.sort((a, b) => {
+      if (a.status === 'ready_pickup' && b.status !== 'ready_pickup') return -1;
+      if (b.status === 'ready_pickup' && a.status !== 'ready_pickup') return 1;
+      const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return tb - ta;
+    });
+
+    return grouped;
   }, [packages, serviceFilter, instructionFilter]);
 
   // 📊 Función para contar paquetes por tipo de instrucciones
@@ -457,10 +525,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   // 🔥 Lógica de Selección (Toggle) - Solo si está verificado (o empleado onboarded)
   // No permite mezclar paquetes de diferentes tipos de envío
-  const toggleSelection = (id: number, shipmentType: string | undefined) => {
+  const toggleSelection = (id: number, shipmentType: string | undefined, airGroupChildIds?: number[]) => {
+    // Si es un master virtual de hermanas AIR, expandimos a todas las hijas:
+    // seleccionar/deseleccionar el master toggleea TODAS las hijas a la vez.
+    if (airGroupChildIds && airGroupChildIds.length > 0) {
+      const allSelected = airGroupChildIds.every(cid => selectedIds.includes(cid));
+      if (allSelected) {
+        setSelectedIds(selectedIds.filter(sid => !airGroupChildIds.includes(sid)));
+      } else {
+        setSelectedIds([...new Set([...selectedIds, ...airGroupChildIds])]);
+      }
+      return;
+    }
+
     // Los empleados que completaron onboarding pueden operar sin verificación de cliente
     const canOperate = isEmployee ? isEmployeeOnboarded : isUserVerified;
-    
+
     if (!canOperate) {
       if (needsEmployeeOnboarding) {
         Alert.alert(
@@ -848,7 +928,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       ]}
                       onPress={(e) => {
                         e.stopPropagation();
-                        toggleSelection(item.id, item.shipment_type);
+                        toggleSelection(item.id, item.shipment_type, (item as any)._airGroupChildIds);
                       }}
                       hitSlop={10}
                     >
