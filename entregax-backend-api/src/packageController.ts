@@ -4741,6 +4741,23 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
     }
 
     const masterTracking = generateTracking();
+    // ⚡ Caso especial — total=1: NO creamos master + 1 hija, solo creamos
+    // un paquete INDIVIDUAL directamente (is_master=false). Si lo
+    // creáramos como master, el paquete quedaría "atado" a la estructura
+    // multi-caja y no podría entrar al flujo de repack ni reasignarse a
+    // otro master más adelante. La hoja de captura del frontend recibe
+    // la misma forma {masterId, masterTracking, totalBoxes:1} y al tocar
+    // "Siguiente" en la captura llamará a addBulkBoxToMaster, que
+    // detecta is_master=false y actualiza esta misma fila en lugar de
+    // crear una hija.
+    const isSingleBox = total === 1;
+    const description = isSingleBox
+      ? 'Hidalgo TX - Recepción individual'
+      : 'Hidalgo TX - Recepción en serie';
+    const notesText = notes || (isSingleBox
+      ? 'Recepción individual - 1 caja'
+      : 'Recepción en serie - Master');
+
     await client.query('BEGIN');
     const r = await client.query(
       `INSERT INTO packages
@@ -4752,20 +4769,24 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
          pobox_service_cost, gex_insurance_cost, gex_fixed_cost, gex_total_cost, declared_value_mxn,
          registered_exchange_rate, pobox_cost_usd, national_shipping_cost, needs_instructions)
        VALUES ($1, $2, $3, $4, 0, NULL, $5,
-               'received', true, 0, $6, 'BODEGA',
+               'received', $7, $8, $6, 'BODEGA',
                'México', 'En Bodega', 'Pendiente de asignar',
                'POBOX_USA', 'usa_pobox', false,
                0, 0, 0,
                0, 0, 0, 0, 0,
                0, 0, 0, true)
-       RETURNING id, tracking_internal, total_boxes`,
+       RETURNING id, tracking_internal, total_boxes, is_master`,
       [
         user?.id || null,
         user?.box_id || null,
         masterTracking,
-        'Hidalgo TX - Recepción en serie',
-        notes || 'Recepción en serie - Master',
+        description,
+        notesText,
         total,
+        // is_master: false si es 1 caja (paquete individual), true si son varias
+        !isSingleBox,
+        // box_number: 1 cuando es individual, 0 cuando es master placeholder
+        isSingleBox ? 1 : 0,
       ]
     );
     await client.query('COMMIT');
@@ -4774,6 +4795,8 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
       masterId: r.rows[0].id,
       masterTracking: r.rows[0].tracking_internal,
       totalBoxes: r.rows[0].total_boxes,
+      isSingleBox,
+      isIndividual: r.rows[0].is_master === false,
       client: user ? { id: user.id, fullName: user.full_name, boxId: user.box_id } : null,
     });
   } catch (error: any) {
@@ -4808,15 +4831,99 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
     if (!w || w <= 0) return res.status(400).json({ error: 'weight requerido' });
     if (!l || !wd || !h) return res.status(400).json({ error: 'dimensiones requeridas' });
 
-    // Cargar master
+    // Cargar el "master" — puede ser un master real (is_master=true) o
+    // un paquete INDIVIDUAL placeholder (is_master=false con total_boxes=1)
+    // creado por startBulkMaster cuando el chofer captura solo 1 caja.
+    // Aceptamos ambos para que el frontend mantenga la misma llamada.
     const m = await client.query(
       `SELECT id, tracking_internal, total_boxes, user_id, box_id, service_type, warehouse_location, status,
-              destination_country, destination_city, destination_address, carrier
-       FROM packages WHERE id = $1 AND is_master = true`,
+              destination_country, destination_city, destination_address, carrier, is_master, weight
+       FROM packages WHERE id = $1`,
       [masterId]
     );
     if (m.rows.length === 0) return res.status(404).json({ error: 'Master no encontrado' });
     const master = m.rows[0];
+
+    // ⚡ Recepción individual (1 caja): en lugar de crear una hija,
+    // actualizamos el paquete placeholder con peso/dimensiones/courier
+    // y devolvemos la misma fila como "child". Esto garantiza que el
+    // paquete quede como individual normal (is_master=false) y entre
+    // sin restricciones a flujos de repack/reasignación.
+    if (master.is_master === false && Number(master.total_boxes) === 1) {
+      // Si ya tiene peso > 0, ya fue capturado — no permitir doble captura.
+      if (Number(master.weight) > 0) {
+        return res.status(400).json({ error: 'Esta caja ya fue capturada' });
+      }
+
+      let serviceMxnInd = 0;
+      let costUsdInd: number | null = null;
+      let ventaUsdInd: number | null = null;
+      let nivelInd: number | null = null;
+      let tcInd: number | null = null;
+      if ((master.service_type || 'POBOX_USA') === 'POBOX_USA') {
+        try {
+          const cr = await calculatePOBoxCost(client, [{ weight: w, length: l, width: wd, height: h }]);
+          serviceMxnInd = cr.poboxServiceCost || 0;
+          costUsdInd = cr.poboxCostUsd ?? null;
+          ventaUsdInd = cr.precioVentaUsd ?? null;
+          nivelInd = cr.nivelTarifa ?? null;
+          tcInd = cr.registeredExchangeRate || null;
+        } catch (calcErr) {
+          console.warn('[addBulkBoxToMaster individual] No se pudo calcular costo PO Box:', calcErr);
+        }
+      }
+      const ventaMxnInd = (ventaUsdInd || 0) * (tcInd || 0);
+
+      await client.query('BEGIN');
+      const upd = await client.query(
+        `UPDATE packages SET
+           tracking_provider = COALESCE($2, tracking_provider),
+           weight = $3,
+           pkg_length = $4,
+           pkg_width = $5,
+           pkg_height = $6,
+           pobox_service_cost = $7,
+           pobox_cost_usd = $8,
+           pobox_venta_usd = $9,
+           pobox_tarifa_nivel = $10,
+           registered_exchange_rate = $11,
+           pobox_provider_cost_mxn = $12,
+           pobox_provider_cost_usd = $13,
+           updated_at = NOW()
+         WHERE id = $1
+         RETURNING id, tracking_internal, weight, pkg_length, pkg_width, pkg_height`,
+        [
+          masterId,
+          trackingCourier || null,
+          w,
+          l, wd, h,
+          ventaMxnInd,
+          costUsdInd,
+          ventaUsdInd,
+          nivelInd,
+          tcInd,
+          serviceMxnInd,
+          costUsdInd,
+        ]
+      );
+      await client.query('COMMIT');
+      return res.status(201).json({
+        success: true,
+        isIndividual: true,
+        childId: upd.rows[0].id,
+        childTracking: upd.rows[0].tracking_internal,
+        boxNumber: 1,
+        expectedTotal: 1,
+        completed: true,
+        weight: upd.rows[0].weight,
+      });
+    }
+
+    // A partir de aquí, flujo MULTI-CAJA (master real con is_master=true).
+    // Ya descartamos arriba el caso individual (1 caja).
+    if (master.is_master !== true) {
+      return res.status(400).json({ error: 'El paquete no es un master multi-caja válido' });
+    }
 
     // Contar hijas actuales
     const c = await client.query(
