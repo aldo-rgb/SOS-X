@@ -456,15 +456,19 @@ export default function DashboardClient() {
   const [activeTab, setActiveTab] = useState(0);
   const [showExternalProviderPage, setShowExternalProviderPage] = useState(false);
 
-  // Estado de verificación del cliente - los paquetes solo se muestran si está verificado
+  // Estado de verificación del cliente - los paquetes solo se muestran
+  // si el cliente está APROBADO. Antes permitíamos pasar también con
+  // isVerified=true, pero hay cuentas migradas con isVerified=true y
+  // verificationStatus='pending_review' que estaban viendo guías sin
+  // haber completado la verificación. Ahora exigimos que el status
+  // sea explícitamente 'approved' o 'verified'.
   const isClientVerified = useMemo(() => {
     try {
       const raw = localStorage.getItem('user');
       if (!raw) return false;
       const parsed = JSON.parse(raw);
-      const verified = parsed.isVerified ?? parsed.is_verified ?? false;
-      const status = parsed.verificationStatus || parsed.verification_status || '';
-      return Boolean(verified) || status === 'approved' || status === 'verified';
+      const status = String(parsed.verificationStatus || parsed.verification_status || '').toLowerCase();
+      return status === 'approved' || status === 'verified';
     } catch {
       return false;
     }
@@ -2505,7 +2509,16 @@ export default function DashboardClient() {
       setPackages([]);
       setHistoryPackages([]);
       setInvoices([]);
-      
+
+      // Defensa en profundidad: si el cliente no está verificado no
+      // pedimos sus paquetes al backend (aunque la UI ya gatea la
+      // visualización). Así evitamos que las guías queden cargadas
+      // en memoria / console / Redux DevTools antes de aprobarse.
+      if (!isClientVerified) {
+        setLoading(false);
+        return;
+      }
+
       const response = await api.get('/dashboard/client');
       if (response.data) {
         setStats(response.data.stats);
