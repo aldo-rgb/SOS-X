@@ -1,5 +1,8 @@
 # Dockerfile para Railway con soporte para Puppeteer
-FROM node:20-slim
+# Node 22 (LTS desde Oct 2024) — el SDK de AWS v3 deja de soportar
+# Node 20 a partir de enero 2027, así que migramos hoy para evitar
+# warnings ruidosos y dejar listo el upgrade.
+FROM node:22-slim
 
 # Instalar dependencias del sistema para Puppeteer/Chrome
 RUN apt-get update && apt-get install -y \
