@@ -504,6 +504,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       fd.append('servicio', servicio);
       fd.append('monto_usd', String(parseFloat(monto)));
       fd.append('divisa', divisa);
+      // tc_cliente_final = tipo de cambio que XPAY cobra al cliente
+      // final (cotización congelada). El backend ENTANGLED lo exige
+      // para guardar la transacción — sin este campo regresa 400
+      // "tc_cliente_final es requerido y debe ser > 0".
+      if (quote?.tipo_cambio) {
+        fd.append('tc_cliente_final', String(quote.tipo_cambio));
+      }
       fd.append(
         'cliente_final',
         JSON.stringify(
