@@ -1926,15 +1926,26 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
     const boxId = user.box_id;
 
     // 🔒 Bloqueo de verificación — cliente solo ve sus paquetes/saldos
-    // cuando verification_status='approved'. Cuentas pendientes
-    // (incluyendo migradas con is_verified=true pero status pendiente)
-    // reciben respuesta vacía para que la UI no pueda colarlas.
+    // cuando AMBOS flags están alineados:
+    //   - is_verified = TRUE (lo lee la UI de perfil para el badge)
+    //   - verification_status ∈ {'verified','approved'}
+    // Si están desalineados (caso real: status='verified' pero
+    // is_verified=false porque la migración no actualizó ambas
+    // columnas) tratamos al cliente como pendiente. Mejor falso
+    // negativo que filtrar guías.
     const verificationStatus = String(user.verification_status || '').toLowerCase();
-    const isClientApproved = verificationStatus === 'approved' || verificationStatus === 'verified';
+    const statusApproved = verificationStatus === 'approved' || verificationStatus === 'verified';
+    const flagApproved = user.is_verified === true;
+    const isClientApproved = statusApproved && flagApproved;
+    console.log(
+      `🔒 [dashboard/client] user=${userId} is_verified=${user.is_verified} ` +
+      `verification_status="${user.verification_status}" → approved=${isClientApproved}`
+    );
     if (!isClientApproved) {
       return res.json({
         verificationGated: true,
         verificationStatus: user.verification_status || 'not_started',
+        isVerified: !!user.is_verified,
         stats: {
           en_transito: 0, en_bodega: 0, listos_recoger: 0, entregados_mes: 0,
           saldo_pendiente: 0, saldo_pobox: 0, saldo_aereo: 0,
