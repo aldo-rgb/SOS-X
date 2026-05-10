@@ -2866,6 +2866,142 @@ app.delete('/api/packages/:id', authenticateToken, requireRole('super_admin', 'b
 // PATCH batch image - asigna una foto a varios paquetes (recepción en serie)
 app.patch('/api/packages/batch-image', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), batchAttachImage);
 
+// ============================================================
+// SERVICIO A CLIENTE — Revertir Instrucciones de Entrega
+// ============================================================
+// Busca un paquete por tracking y devuelve sus instrucciones actuales
+// (dirección asignada, dirección destino, estado). Permite que el agente
+// de servicio a cliente revise antes de revertir.
+app.get('/api/cs/instructions/lookup', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), async (req: AuthRequest, res: Response) => {
+  try {
+    const tracking = String(req.query.tracking || '').trim();
+    if (!tracking) return res.status(400).json({ error: 'tracking es requerido' });
+    // Búsqueda flexible: tracking_internal o tracking_provider, con o sin guión.
+    const compact = tracking.replace(/-/g, '').toUpperCase();
+    const r = await pool.query(
+      `SELECT
+         p.id,
+         p.tracking_internal,
+         p.tracking_provider,
+         p.origin_carrier,
+         p.user_id,
+         p.box_id,
+         p.service_type,
+         p.status,
+         p.has_delivery_instructions,
+         p.delivery_address_id,
+         p.assigned_address_id,
+         p.destination_country,
+         p.destination_city,
+         p.destination_address,
+         p.destination_zip,
+         p.destination_phone,
+         p.destination_contact,
+         p.national_carrier,
+         p.national_tracking,
+         p.national_label_url,
+         u.full_name AS client_name,
+         u.email AS client_email,
+         a.alias AS address_alias,
+         a.address_line AS address_line,
+         a.city AS address_city,
+         a.state AS address_state,
+         a.zip AS address_zip
+       FROM packages p
+       LEFT JOIN users u ON u.id = p.user_id
+       LEFT JOIN addresses a ON a.id = p.assigned_address_id
+       WHERE UPPER(p.tracking_internal) = UPPER($1)
+          OR UPPER(p.tracking_provider) = UPPER($1)
+          OR REPLACE(UPPER(p.tracking_internal), '-', '') = $2
+          OR REPLACE(UPPER(p.tracking_provider), '-', '') = $2
+       LIMIT 5`,
+      [tracking, compact]
+    );
+    if (r.rows.length === 0) {
+      return res.status(404).json({ error: 'Paquete no encontrado' });
+    }
+    return res.json({ success: true, results: r.rows });
+  } catch (err: any) {
+    console.error('[CS-INSTRUCTIONS-LOOKUP]', err.message);
+    return res.status(500).json({ error: 'Error al buscar paquete' });
+  }
+});
+
+// Revierte las instrucciones de entrega de un paquete: limpia
+// assigned_address_id, delivery_address_id, has_delivery_instructions y
+// los campos de destino que el cliente había llenado. NO toca etiquetas
+// impresas (national_label_url/national_tracking) — si la guía ya tenía
+// etiqueta, devolvemos error para evitar inconsistencia con la paquetería.
+app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), async (req: AuthRequest, res: Response) => {
+  try {
+    const { packageId, reason } = req.body || {};
+    const id = parseInt(String(packageId), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'packageId inválido' });
+
+    const cur = await pool.query(
+      `SELECT id, tracking_internal, has_delivery_instructions, assigned_address_id,
+              delivery_address_id, destination_address, national_label_url,
+              national_tracking, status
+       FROM packages WHERE id = $1`,
+      [id]
+    );
+    if (cur.rows.length === 0) return res.status(404).json({ error: 'Paquete no encontrado' });
+    const pkg = cur.rows[0];
+
+    // Bloqueo de seguridad: si ya tiene etiqueta nacional impresa, el
+    // paquete está comprometido con la paquetería. Revertir aquí dejaría
+    // la etiqueta inconsistente y el chofer entregando a una dirección
+    // que ya no existe en el sistema.
+    if (pkg.national_label_url || pkg.national_tracking) {
+      return res.status(409).json({
+        error: 'No se puede revertir: la guía ya tiene etiqueta impresa. Cancela primero la etiqueta de paquetería.',
+        hasLabel: true,
+      });
+    }
+    if (['delivered', 'out_for_delivery', 'returned_to_warehouse'].includes(String(pkg.status))) {
+      return res.status(409).json({
+        error: `No se puede revertir: el paquete está en estado "${pkg.status}". Solo se puede revertir antes de salir a ruta.`,
+      });
+    }
+
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `UPDATE packages SET
+         assigned_address_id = NULL,
+         delivery_address_id = NULL,
+         has_delivery_instructions = FALSE,
+         destination_address = 'Pendiente de asignar',
+         destination_city = NULL,
+         destination_zip = NULL,
+         destination_phone = NULL,
+         destination_contact = NULL,
+         needs_instructions = TRUE,
+         updated_at = NOW()
+       WHERE id = $1`,
+      [id]
+    );
+
+    // Audit log best-effort (fuera de transacción para que no envenene si la tabla no existe)
+    pool.query(
+      `INSERT INTO audit_log (action, entity_type, entity_id, user_id, details)
+       VALUES ('REVERT_DELIVERY_INSTRUCTIONS', 'packages', $1, $2, $3)`,
+      [id, userId, JSON.stringify({
+        tracking: pkg.tracking_internal,
+        previous_assigned_address_id: pkg.assigned_address_id,
+        previous_delivery_address_id: pkg.delivery_address_id,
+        previous_destination_address: pkg.destination_address,
+        reason: String(reason || '').trim() || null,
+      })]
+    ).catch(() => {});
+
+    console.log(`🔄 [CS-INSTRUCTIONS-REVERT] pkg #${id} (${pkg.tracking_internal}) revertido por user #${userId}`);
+    return res.json({ success: true, packageId: id, tracking: pkg.tracking_internal });
+  } catch (err: any) {
+    console.error('[CS-INSTRUCTIONS-REVERT]', err.message);
+    return res.status(500).json({ error: 'Error al revertir instrucciones' });
+  }
+});
+
 // Recepción incremental en serie: crea master vacío y agrega hijas una por una
 app.post('/api/packages/bulk-master/start', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), startBulkMaster);
 app.post('/api/packages/bulk-master/:masterId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addBulkBoxToMaster);

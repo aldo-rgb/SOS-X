@@ -48,6 +48,8 @@ import PersonIcon from '@mui/icons-material/Person';
 import HistoryIcon from '@mui/icons-material/History';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import VerifiedIcon from '@mui/icons-material/Verified';
+import UndoIcon from '@mui/icons-material/Undo';
+import LocationOnIcon from '@mui/icons-material/LocationOn';
 import CloseIcon from '@mui/icons-material/Close';
 import InfoIcon from '@mui/icons-material/Info';
 import api from '../services/api';
@@ -195,6 +197,60 @@ export default function CarteraVencidaPage() {
   const [lostPackages, setLostPackages] = useState<any[]>([]);
   const [lostLoading, setLostLoading] = useState(false);
   const [lostSearch, setLostSearch] = useState('');
+
+  // Estado para tab "Revertir Instrucciones"
+  const [revertSearchTracking, setRevertSearchTracking] = useState('');
+  const [revertSearchLoading, setRevertSearchLoading] = useState(false);
+  const [revertResults, setRevertResults] = useState<any[]>([]);
+  const [revertSearchError, setRevertSearchError] = useState<string | null>(null);
+  const [revertConfirmPkg, setRevertConfirmPkg] = useState<any | null>(null);
+  const [revertReason, setRevertReason] = useState('');
+  const [revertingId, setRevertingId] = useState<number | null>(null);
+
+  const handleRevertSearch = async () => {
+    const tracking = revertSearchTracking.trim();
+    if (!tracking) {
+      setRevertSearchError('Ingresa un tracking para buscar');
+      return;
+    }
+    setRevertSearchLoading(true);
+    setRevertSearchError(null);
+    setRevertResults([]);
+    try {
+      const r = await api.get('/cs/instructions/lookup', { params: { tracking } });
+      setRevertResults(r.data?.results || []);
+    } catch (err: any) {
+      const status = err?.response?.status;
+      if (status === 404) {
+        setRevertSearchError('No se encontró ningún paquete con ese tracking.');
+      } else {
+        setRevertSearchError(err?.response?.data?.error || 'Error al buscar paquete');
+      }
+    } finally {
+      setRevertSearchLoading(false);
+    }
+  };
+
+  const handleConfirmRevert = async () => {
+    if (!revertConfirmPkg) return;
+    setRevertingId(revertConfirmPkg.id);
+    try {
+      await api.post('/cs/instructions/revert', {
+        packageId: revertConfirmPkg.id,
+        reason: revertReason.trim() || undefined,
+      });
+      setSnackbar({ open: true, message: '✅ Instrucciones revertidas. El cliente puede asignarlas de nuevo.', severity: 'success' });
+      setRevertConfirmPkg(null);
+      setRevertReason('');
+      // Refrescar resultados
+      handleRevertSearch();
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || 'Error al revertir instrucciones';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    } finally {
+      setRevertingId(null);
+    }
+  };
 
   // Cargar dashboard
   const loadDashboard = useCallback(async () => {
@@ -412,6 +468,7 @@ export default function CarteraVencidaPage() {
           <Tab icon={<SearchIcon />} label="Buscar Guías" />
           <Tab icon={<GavelIcon />} label="Abandono" />
           <Tab icon={<ReportProblemIcon />} label="Perdidas" />
+          <Tab icon={<UndoIcon />} label="Revertir Instrucciones" />
         </Tabs>
       </Paper>
 
@@ -923,6 +980,205 @@ export default function CarteraVencidaPage() {
           </Paper>
         </Box>
       )}
+
+      {/* Tab 4: Revertir Instrucciones de Entrega */}
+      {tab === 4 && (
+        <Box>
+          <Alert severity="info" sx={{ mb: 3 }} icon={<UndoIcon />}>
+            <Typography variant="body2" fontWeight={600}>Revertir Instrucciones de Entrega</Typography>
+            <Typography variant="body2">
+              Busca una guía por tracking, revisa qué instrucciones tiene asignadas y reviértelas
+              si el cliente necesita volver a capturarlas. No se puede revertir si la guía ya tiene
+              etiqueta de paquetería impresa o si el paquete ya está en ruta.
+            </Typography>
+          </Alert>
+
+          <Paper sx={{ p: 3, mb: 3 }}>
+            <Typography variant="subtitle2" fontWeight={600} sx={{ mb: 1 }}>
+              Buscar guía
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+              <TextField
+                fullWidth
+                size="small"
+                placeholder="Tracking interno o de origen (Ej. US-2288649189, AIR2610265…)"
+                value={revertSearchTracking}
+                onChange={(e) => setRevertSearchTracking(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleRevertSearch(); }}
+                InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
+                sx={{ flex: 1, minWidth: 280 }}
+                disabled={revertSearchLoading}
+              />
+              <Button
+                variant="contained"
+                onClick={handleRevertSearch}
+                disabled={revertSearchLoading}
+                startIcon={revertSearchLoading ? <CircularProgress size={16} /> : <SearchIcon />}
+                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D94A20' } }}
+              >
+                Buscar
+              </Button>
+            </Box>
+            {revertSearchError && (
+              <Alert severity="warning" sx={{ mt: 2 }}>{revertSearchError}</Alert>
+            )}
+          </Paper>
+
+          {revertResults.length > 0 && (
+            <Stack spacing={2}>
+              {revertResults.map((p) => {
+                const hasInstr = !!(p.has_delivery_instructions || p.assigned_address_id || p.delivery_address_id || (p.destination_address && p.destination_address !== 'Pendiente de asignar'));
+                const hasLabel = !!(p.national_label_url || p.national_tracking);
+                const blockedByStatus = ['delivered', 'out_for_delivery', 'returned_to_warehouse'].includes(String(p.status));
+                return (
+                  <Card key={p.id} variant="outlined" sx={{ borderColor: hasInstr ? '#F05A28' : '#E5E7EB' }}>
+                    <CardContent>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2 }}>
+                        <Box sx={{ flex: 1, minWidth: 280 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1 }}>
+                            <Typography variant="h6" fontWeight={700} sx={{ fontFamily: 'monospace' }}>
+                              {p.tracking_internal}
+                            </Typography>
+                            <Chip label={p.status} size="small" sx={{ bgcolor: '#F3F4F6' }} />
+                            {p.service_type && <Chip label={p.service_type} size="small" variant="outlined" />}
+                          </Box>
+                          {p.client_name && (
+                            <Typography variant="body2" sx={{ color: '#6B7280', mb: 0.5 }}>
+                              <PersonIcon sx={{ fontSize: 14, mr: 0.5, verticalAlign: 'middle' }} />
+                              {p.client_name}
+                              {p.client_email ? ` · ${p.client_email}` : ''}
+                              {p.box_id ? ` · ${p.box_id}` : ''}
+                            </Typography>
+                          )}
+                          {p.tracking_provider && (
+                            <Typography variant="caption" sx={{ color: '#6B7280' }}>
+                              Guía origen: <b>{p.tracking_provider}</b>
+                              {p.origin_carrier ? ` · Proveedor: ${p.origin_carrier}` : ''}
+                            </Typography>
+                          )}
+                        </Box>
+                        <Box>
+                          {hasInstr ? (
+                            <Chip label="✓ Con instrucciones" sx={{ bgcolor: '#FFF4EE', color: '#F05A28', fontWeight: 700 }} />
+                          ) : (
+                            <Chip label="Sin instrucciones" sx={{ bgcolor: '#F3F4F6', color: '#6B7280' }} />
+                          )}
+                        </Box>
+                      </Box>
+
+                      <Divider sx={{ my: 2 }} />
+
+                      {hasInstr ? (
+                        <Box sx={{ bgcolor: '#FAFAFA', p: 2, borderRadius: 1, border: '1px solid #E5E7EB' }}>
+                          <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1, color: '#374151' }}>
+                            <LocationOnIcon sx={{ fontSize: 18, mr: 0.5, verticalAlign: 'middle' }} />
+                            Dirección asignada
+                          </Typography>
+                          {p.address_alias && (
+                            <Typography variant="body2"><b>Alias:</b> {p.address_alias}</Typography>
+                          )}
+                          {p.address_line && (
+                            <Typography variant="body2">
+                              <b>Dirección:</b> {p.address_line}
+                              {p.address_city ? `, ${p.address_city}` : ''}
+                              {p.address_state ? `, ${p.address_state}` : ''}
+                              {p.address_zip ? ` ${p.address_zip}` : ''}
+                            </Typography>
+                          )}
+                          {!p.address_line && p.destination_address && (
+                            <Typography variant="body2">
+                              <b>Destino:</b> {p.destination_address}
+                              {p.destination_city ? `, ${p.destination_city}` : ''}
+                              {p.destination_zip ? ` ${p.destination_zip}` : ''}
+                            </Typography>
+                          )}
+                          {p.destination_contact && (
+                            <Typography variant="body2"><b>Contacto:</b> {p.destination_contact}</Typography>
+                          )}
+                          {p.destination_phone && (
+                            <Typography variant="body2"><b>Teléfono:</b> {p.destination_phone}</Typography>
+                          )}
+                          {p.national_carrier && (
+                            <Typography variant="body2" sx={{ mt: 1, color: '#6B7280' }}>
+                              Paquetería: <b>{p.national_carrier}</b>
+                              {p.national_tracking ? ` · Guía: ${p.national_tracking}` : ''}
+                            </Typography>
+                          )}
+                        </Box>
+                      ) : (
+                        <Alert severity="info" sx={{ bgcolor: '#F3F4F6', color: '#6B7280' }}>
+                          Esta guía aún no tiene instrucciones de entrega. No hay nada que revertir.
+                        </Alert>
+                      )}
+
+                      {hasLabel && (
+                        <Alert severity="warning" sx={{ mt: 2 }}>
+                          ⚠ La guía ya tiene etiqueta de paquetería impresa ({p.national_carrier || 'paquetería'}).
+                          No se puede revertir hasta cancelar la etiqueta.
+                        </Alert>
+                      )}
+                      {blockedByStatus && (
+                        <Alert severity="error" sx={{ mt: 2 }}>
+                          ⚠ El paquete está en estado <b>{p.status}</b>. Solo se puede revertir antes de salir a ruta.
+                        </Alert>
+                      )}
+
+                      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                        <Button
+                          variant="contained"
+                          color="warning"
+                          startIcon={<UndoIcon />}
+                          disabled={!hasInstr || hasLabel || blockedByStatus || revertingId === p.id}
+                          onClick={() => { setRevertConfirmPkg(p); setRevertReason(''); }}
+                        >
+                          {revertingId === p.id ? 'Revirtiendo...' : 'Revertir instrucciones'}
+                        </Button>
+                      </Box>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </Stack>
+          )}
+        </Box>
+      )}
+
+      {/* Dialog de confirmación: Revertir instrucciones */}
+      <Dialog open={!!revertConfirmPkg} onClose={() => setRevertConfirmPkg(null)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#FFF4EE', color: '#F05A28', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <UndoIcon /> Confirmar revertir instrucciones
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Typography variant="body2" sx={{ mb: 2 }}>
+            Vas a borrar las instrucciones de entrega de <b>{revertConfirmPkg?.tracking_internal}</b>.
+            El cliente verá la guía como "Pendiente de asignar" y deberá capturar dirección y paquetería de nuevo.
+          </Typography>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            La acción queda registrada en el log de auditoría con tu usuario.
+          </Alert>
+          <TextField
+            fullWidth
+            multiline
+            minRows={2}
+            label="Motivo (opcional)"
+            placeholder="Ej. Cliente capturó dirección equivocada, solicita cambio de paquetería, etc."
+            value={revertReason}
+            onChange={(e) => setRevertReason(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRevertConfirmPkg(null)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            startIcon={revertingId ? <CircularProgress size={16} color="inherit" /> : <UndoIcon />}
+            onClick={handleConfirmRevert}
+            disabled={!!revertingId}
+          >
+            Sí, revertir
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Dialog de Detalle de Guía */}
       <Dialog open={!!selectedGuia} onClose={() => { setSelectedGuia(null); setResumenGuia(null); }} maxWidth="md" fullWidth>
