@@ -449,6 +449,9 @@ export default function DashboardClient() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<ClientStats | null>(null);
   const [packages, setPackages] = useState<PackageTracking[]>([]);
+  // Si el backend marca al cliente como pendiente de verificación,
+  // forzamos el banner aunque localStorage piense que está aprobado.
+  const [serverVerificationGated, setServerVerificationGated] = useState(false);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [userName, setUserName] = useState('');
   const [boxId, setBoxId] = useState('');
@@ -457,12 +460,13 @@ export default function DashboardClient() {
   const [showExternalProviderPage, setShowExternalProviderPage] = useState(false);
 
   // Estado de verificación del cliente - los paquetes solo se muestran
-  // si el cliente está APROBADO. Antes permitíamos pasar también con
-  // isVerified=true, pero hay cuentas migradas con isVerified=true y
-  // verificationStatus='pending_review' que estaban viendo guías sin
-  // haber completado la verificación. Ahora exigimos que el status
-  // sea explícitamente 'approved' o 'verified'.
+  // si el cliente está APROBADO. Doble validación:
+  //   1. localStorage del usuario (status === 'approved' / 'verified')
+  //   2. La última respuesta de /api/dashboard/client (serverVerificationGated)
+  // El backend siempre gana: si marca verificationGated=true, no mostramos
+  // paquetes aunque el frontend tenga cache stale.
   const isClientVerified = useMemo(() => {
+    if (serverVerificationGated) return false;
     try {
       const raw = localStorage.getItem('user');
       if (!raw) return false;
@@ -472,7 +476,7 @@ export default function DashboardClient() {
     } catch {
       return false;
     }
-  }, []);
+  }, [serverVerificationGated]);
   const verificationStatusLabel = useMemo(() => {
     try {
       const raw = localStorage.getItem('user');
@@ -2510,16 +2514,25 @@ export default function DashboardClient() {
       setHistoryPackages([]);
       setInvoices([]);
 
-      // Defensa en profundidad: si el cliente no está verificado no
-      // pedimos sus paquetes al backend (aunque la UI ya gatea la
-      // visualización). Así evitamos que las guías queden cargadas
-      // en memoria / console / Redux DevTools antes de aprobarse.
-      if (!isClientVerified) {
+      const response = await api.get('/dashboard/client');
+      // Si el backend marca verificationGated, persistir el flag y
+      // sincronizar localStorage para que la UI lo refleje en el
+      // próximo render aunque el cache estuviera stale.
+      if (response.data?.verificationGated) {
+        setServerVerificationGated(true);
+        try {
+          const raw = localStorage.getItem('user');
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            parsed.verificationStatus = response.data.verificationStatus || 'pending';
+            parsed.isVerified = false;
+            localStorage.setItem('user', JSON.stringify(parsed));
+          }
+        } catch {}
         setLoading(false);
         return;
       }
-
-      const response = await api.get('/dashboard/client');
+      setServerVerificationGated(false);
       if (response.data) {
         setStats(response.data.stats);
         // Debug: ver qué paquetes llegan del backend

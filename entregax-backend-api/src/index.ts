@@ -1912,17 +1912,37 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
 
     // 1. Obtener datos del usuario
     const userQuery = await pool.query(`
-      SELECT id, full_name, email, box_id, phone, wallet_balance, 
-             used_credit, credit_limit, has_credit
+      SELECT id, full_name, email, box_id, phone, wallet_balance,
+             used_credit, credit_limit, has_credit,
+             is_verified, verification_status
       FROM users WHERE id = $1
     `, [userId]);
-    
+
     if (userQuery.rows.length === 0) {
       return res.status(404).json({ error: 'Usuario no encontrado' });
     }
-    
+
     const user = userQuery.rows[0];
     const boxId = user.box_id;
+
+    // 🔒 Bloqueo de verificación — cliente solo ve sus paquetes/saldos
+    // cuando verification_status='approved'. Cuentas pendientes
+    // (incluyendo migradas con is_verified=true pero status pendiente)
+    // reciben respuesta vacía para que la UI no pueda colarlas.
+    const verificationStatus = String(user.verification_status || '').toLowerCase();
+    const isClientApproved = verificationStatus === 'approved' || verificationStatus === 'verified';
+    if (!isClientApproved) {
+      return res.json({
+        verificationGated: true,
+        verificationStatus: user.verification_status || 'not_started',
+        stats: {
+          en_transito: 0, en_bodega: 0, listos_recoger: 0, entregados_mes: 0,
+          saldo_pendiente: 0, saldo_pobox: 0, saldo_aereo: 0,
+        },
+        packages: [],
+        invoices: [],
+      });
+    }
 
     // Buscar legacy_client_id del usuario (para contenedores FCL)
     let legacyClientId: number | null = null;
