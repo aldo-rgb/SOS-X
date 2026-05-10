@@ -1809,14 +1809,18 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 navigation.navigate('ServicesGuide', { user, token });
               }}
             >
-              <Ionicons 
-                name={selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') ? "swap-horizontal" : "arrow-forward"} 
-                size={16} 
-                color="white" 
-              />
+              {selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') ? (
+                <Ionicons name="swap-horizontal" size={16} color="white" />
+              ) : (
+                <Image
+                  source={require('../../assets/x-logo-entregax.png')}
+                  style={styles.requestShipmentLogo}
+                  resizeMode="contain"
+                />
+              )}
               <Text style={styles.requestShipmentText}>
-                {selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup') 
-                  ? 'Cambiar' 
+                {selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup')
+                  ? 'Cambiar'
                   : '¿Cómo enviar?'}
               </Text>
             </TouchableOpacity>
@@ -2935,22 +2939,28 @@ const styles = StyleSheet.create({
     height: 26,
     resizeMode: 'contain',
   },
+  // Botón "¿Cómo enviar?" — fondo negro corporativo, logo X de
+  // EntregaX en lugar de la flecha y texto blanco.
   requestShipmentButton: {
-    backgroundColor: ORANGE,
+    backgroundColor: '#111',
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 25,
-    gap: 5,
+    gap: 6,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 3,
   },
+  requestShipmentLogo: {
+    width: 16,
+    height: 16,
+  },
   requestShipmentText: {
-    color: 'white',
+    color: '#fff',
     fontWeight: 'bold',
     fontSize: 12,
   },
