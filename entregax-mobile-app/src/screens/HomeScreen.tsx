@@ -33,6 +33,7 @@ import { getMyPackagesApi, Package, getCarouselSlidesApi, API_URL } from '../ser
 import { getPackageCostBreakdown } from '../utils/packageCosts';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
 import OpportunityCarousel, { Opportunity } from '../components/OpportunityCarousel';
@@ -933,12 +934,19 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     ) : null}
                     <View style={styles.trackingRow}>
                       <Text style={styles.trackingNumber}>TRN: {item.tracking_internal}</Text>
-                      {/* 📦 Indicador de Multi-Guía */}
+                      {/* 📦 Indicador de Multi-Guía — gradiente
+                          corporativo naranja→rojo (los mismos colores
+                          de la X del logo). */}
                       {item.is_master && (item.total_boxes || 1) > 1 && (
-                        <View style={styles.multiPackageBadge}>
+                        <LinearGradient
+                          colors={['#F05A28', '#C1272D']}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 1 }}
+                          style={styles.multiPackageBadge}
+                        >
                           <Ionicons name="layers" size={12} color="#fff" />
                           <Text style={styles.multiPackageText}>{item.total_boxes}</Text>
-                        </View>
+                        </LinearGradient>
                       )}
                     </View>
                   </View>
@@ -1006,7 +1014,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     )}
                     {hasDeliveryInstructions && (
                       <View style={styles.iconOnlyBadge}>
-                        <Icon source="clipboard-check" size={14} color="#8B5CF6" />
+                        <Icon source="clipboard-check" size={14} color="#D97706" />
                       </View>
                     )}
                     {/* 🏷️ Etiqueta nacional impresa: si la guía ya pasó por
@@ -3095,7 +3103,8 @@ const styles = StyleSheet.create({
   multiPackageBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#9C27B0',
+    // backgroundColor lo provee LinearGradient (#F05A28 → #C1272D),
+    // los colores de la X del logo.
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 8,
