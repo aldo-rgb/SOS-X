@@ -2926,21 +2926,26 @@ const styles = StyleSheet.create({
     marginTop: 3,
     textAlign: 'center',
   },
+  // Fila de los 3 botones del header (X-Pay, Cotizar, ¿Cómo enviar?).
+  // Cada botón usa flex:1 para que los tres tengan el mismo ancho y
+  // alturas/paddings idénticos.
   headerButtonsRow: {
     flexDirection: 'row',
-    justifyContent: 'center',
+    alignItems: 'stretch',
+    paddingHorizontal: 16,
     gap: 8,
     marginTop: 10,
   },
   supplierPaymentButton: {
+    flex: 1,
+    height: 42,
     backgroundColor: '#000000',
     borderWidth: 1,
     borderColor: '#000000',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
     borderRadius: 25,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
@@ -2949,18 +2954,19 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   supplierPaymentLogo: {
-    width: 82,
-    height: 26,
+    width: 70,
+    height: 22,
     resizeMode: 'contain',
   },
-  // Botón "¿Cómo enviar?" — fondo negro corporativo, logo X de
-  // EntregaX en lugar de la flecha y texto blanco.
+  // Botón "Cotizar" / "¿Cómo enviar?" — mismo tamaño que X-Pay
   requestShipmentButton: {
+    flex: 1,
+    height: 42,
     backgroundColor: '#111',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
     borderRadius: 25,
     gap: 6,
     shadowColor: '#000',
