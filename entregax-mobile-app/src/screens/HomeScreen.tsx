@@ -1093,33 +1093,48 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   )}
                 </View>
 
-                {assignedCarrierName && (
-                  <Pressable
-                    onPress={() => {
-                      const tn = (item as any).national_tracking;
-                      if (tn) {
-                        Clipboard.setString(String(tn));
-                        if (Platform.OS === 'android') {
-                          ToastAndroid.show('Guía copiada al portapapeles', ToastAndroid.SHORT);
-                        } else {
-                          Alert.alert('Copiado', `Guía ${tn} copiada al portapapeles`);
+                {assignedCarrierName && (() => {
+                  // Para EntregaX Local (cualquier sucursal) usamos el logo
+                  // X corporativo en lugar del ícono genérico de camioneta —
+                  // es nuestra paquetería, no un courier externo.
+                  const rawCarrier = String((item as any).national_carrier || '').toLowerCase();
+                  const isEntregaXLocal = rawCarrier.includes('entregax') || rawCarrier.includes('local');
+                  return (
+                    <Pressable
+                      onPress={() => {
+                        const tn = (item as any).national_tracking;
+                        if (tn) {
+                          Clipboard.setString(String(tn));
+                          if (Platform.OS === 'android') {
+                            ToastAndroid.show('Guía copiada al portapapeles', ToastAndroid.SHORT);
+                          } else {
+                            Alert.alert('Copiado', `Guía ${tn} copiada al portapapeles`);
+                          }
                         }
-                      }
-                    }}
-                    style={({ pressed }) => [styles.assignedCarrierBadge, pressed && (item as any).national_tracking && { opacity: 0.6 }]}
-                  >
-                    <Icon source="truck-fast" size={12} color={ORANGE} />
-                    <Text style={styles.assignedCarrierText}>{assignedCarrierName}</Text>
-                    {!!(item as any).national_tracking && (
-                      <>
-                        <Text style={[styles.assignedCarrierText, { fontWeight: '700', marginLeft: 6 }]}>
-                          · {(item as any).national_tracking}
-                        </Text>
-                        <Icon source="content-copy" size={11} color={ORANGE} />
-                      </>
-                    )}
-                  </Pressable>
-                )}
+                      }}
+                      style={({ pressed }) => [styles.assignedCarrierBadge, pressed && (item as any).national_tracking && { opacity: 0.6 }]}
+                    >
+                      {isEntregaXLocal ? (
+                        <Image
+                          source={require('../../assets/x-logo-entregax.png')}
+                          style={{ width: 14, height: 14, marginRight: 2 }}
+                          resizeMode="contain"
+                        />
+                      ) : (
+                        <Icon source="truck-fast" size={12} color={ORANGE} />
+                      )}
+                      <Text style={styles.assignedCarrierText}>{assignedCarrierName}</Text>
+                      {!!(item as any).national_tracking && (
+                        <>
+                          <Text style={[styles.assignedCarrierText, { fontWeight: '700', marginLeft: 6 }]}>
+                            · {(item as any).national_tracking}
+                          </Text>
+                          <Icon source="content-copy" size={11} color={ORANGE} />
+                        </>
+                      )}
+                    </Pressable>
+                  );
+                })()}
 
                 {/* Información adicional - diseño simétrico */}
                 <View style={styles.infoRow}>
