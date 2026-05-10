@@ -1835,7 +1835,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Text style={styles.requestShipmentText}>
                 {selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup')
                   ? 'Cambiar'
-                  : '¿Cómo enviar?'}
+                  : 'Enviar'}
               </Text>
             </TouchableOpacity>
           </View>
