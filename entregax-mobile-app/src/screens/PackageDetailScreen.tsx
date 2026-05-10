@@ -463,11 +463,16 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                     </View>
                   )}
                 </View>
-                {/* Guía origen — el tracking del courier (UPS, FedEx, USPS,
-                    Amazon...) con el que el paquete llegó a nuestra bodega
-                    Hidalgo TX. Siempre lo mostramos: si no se capturó al
-                    recibir, dejamos un placeholder explícito para que el
-                    cliente sepa que el campo existe pero quedó vacío. */}
+                {/* Guía origen + Proveedor — el tracking del courier (UPS,
+                    FedEx, USPS, Amazon...) y opcionalmente el nombre del
+                    proveedor con el que el paquete llegó a nuestra bodega
+                    Hidalgo TX. Siempre los mostramos: si no se capturó al
+                    recibir, dejamos un placeholder explícito. */}
+                {!!(details as any).origin_carrier && (
+                  <Text style={styles.providerTracking}>
+                    Proveedor: <Text style={{ fontWeight: '700' }}>{(details as any).origin_carrier}</Text>
+                  </Text>
+                )}
                 <Text style={styles.providerTracking}>
                   Guía origen: <Text style={{ fontWeight: '700' }}>
                     {details.tracking_provider || '— No capturada en recepción'}

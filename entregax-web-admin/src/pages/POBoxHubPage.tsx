@@ -125,7 +125,26 @@ interface BoxItem {
     width: string;
     height: string;
     trackingCourier?: string;
+    originCarrier?: string;
 }
+
+// Lista de proveedores/couriers comunes que entregan en bodega Hidalgo TX.
+// El operador puede seleccionar uno del menú o escribir uno custom.
+const ORIGIN_CARRIERS = [
+    'Amazon',
+    'DHL',
+    'UPS',
+    'FedEx',
+    'USPS',
+    'Walmart',
+    'Best Buy',
+    'eBay',
+    'Newegg',
+    'Costco',
+    'Target',
+    'Home Depot',
+    'Otro',
+];
 
 interface PaqueteRegistrado {
     tracking: string;
@@ -296,7 +315,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     }, [bulkReceiveOpen]);
     const [bulkStep, setBulkStep] = useState(0); // 0 = Cliente y Cantidad, 1 = Cajas, 2 = Foto Final
     const [bulkBoxes, setBulkBoxes] = useState<BoxItem[]>([]);
-    const [bulkCurrentBox, setBulkCurrentBox] = useState({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
+    const [bulkCurrentBox, setBulkCurrentBox] = useState({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
     const [bulkBoxId, setBulkBoxId] = useState(''); // Número de casillero del cliente
     const [bulkExpectedBoxes, setBulkExpectedBoxes] = useState<string>(''); // Total esperado de cajas
     // 🔍 Lookup del cliente por casillero (users + legacy_clients)
@@ -599,6 +618,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                     width: parseFloat(box.width),
                     height: parseFloat(box.height),
                     trackingCourier: box.trackingCourier || undefined,
+                    originCarrier: box.originCarrier || undefined,
                 },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
@@ -643,11 +663,11 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkSubmitting(false);
         if (!label) return;
         setBulkBoxes(prev => [...prev, newBox]);
-        setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
+        setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
         setBulkBoxQuantity('1');
         setBulkError('');
-        // Imprimir la etiqueta de este bloque en un solo archivo
-        await printAllLabelsAtOnce([label]);
+        // Imprimir la etiqueta de este bloque en un solo archivo - SIN QR para recepción PO BOX
+        await printAllLabelsAtOnce([label], true);
         setSnackbar({ open: true, message: `🖨️ Etiqueta enviada a impresión — ${bulkBoxes.length + 1}${expected > 0 ? `/${expected}` : ''}`, severity: 'success' });
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
@@ -670,12 +690,12 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkSubmitting(false);
         if (!allOk) { setBulkMultiScanOpen(false); return; }
         setBulkBoxes(prev => [...prev, ...newBoxes]);
-        setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
+        setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
         setBulkBoxQuantity('1');
         setBulkMultiScanOpen(false);
         setBulkError('');
-        // Imprimir TODAS las etiquetas de este bloque en un solo archivo (multi-página)
-        if (batchLabels.length > 0) await printAllLabelsAtOnce(batchLabels);
+        // Imprimir TODAS las etiquetas de este bloque en un solo archivo (multi-página) - SIN QR para recepción PO BOX
+        if (batchLabels.length > 0) await printAllLabelsAtOnce(batchLabels, true);
         setSnackbar({ open: true, message: `🖨️ ${batchLabels.length} etiqueta(s) enviada(s) a impresión en un solo archivo`, severity: 'success' });
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
@@ -779,7 +799,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
 
     // Imprime TODAS las etiquetas acumuladas en UN solo trabajo de impresión (multipágina)
     // Más eficiente: el usuario presiona Imprimir UNA vez y salen todas las etiquetas seguidas.
-    const printAllLabelsAtOnce = async (labels: any[]) => {
+    const printAllLabelsAtOnce = async (labels: any[], hideQR: boolean = false) => {
         if (!labels || labels.length === 0) return;
         // Si ZPL está habilitado, enviar todas vía ZPL
         if (isZplModeEnabled()) {
@@ -812,7 +832,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                         : `<div class="box-indicator">${label.totalBoxes} bultos</div>`}
                 </div>
                 ${label.masterTracking ? `<div class="master-ref">Master: ${label.masterTracking}</div>` : ''}
-                <div class="qr-section"><div id="qr-${index}"></div></div>
+                ${!hideQR ? `<div class="qr-section"><div id="qr-${index}"></div></div>` : ''}
                 <div class="barcode-section"><svg id="barcode-${index}"></svg></div>
                 <div class="divider"></div>
                 <div class="client-info">
@@ -857,7 +877,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         </head><body>${labelsHTML}
         <script>
             ${labels.map((label: any, i: number) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.2, height: 70, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
-            ${labels.map((label: any, i: number) => `
+            ${!hideQR ? labels.map((label: any, i: number) => `
                 (function() {
                     try {
                         var qr = qrcode(0, 'M');
@@ -866,7 +886,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                         document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 3, margin: 0 });
                     } catch(e) {}
                 })();
-            `).join('')}
+            `).join('') : ''}
         <\/script></body></html>`;
 
         // Iframe oculto con TODAS las etiquetas (multipágina)
@@ -934,7 +954,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             setBulkMasterTracking('');
             setBulkImage(null);
             setBulkStep(0);
-            setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
+            setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
         } catch (err: any) {
             setBulkError(err.response?.data?.error || err.response?.data?.message || 'Error al finalizar embarque');
         } finally {
@@ -949,7 +969,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkStep(0);
         setBulkBoxes([]);
         setSessionLabels([]);
-        setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '' });
+        setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
         setBulkBoxId('');
         setBulkClientLookup({ status: 'idle' });
         setBulkExpectedBoxes('');
@@ -1738,8 +1758,61 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                 startAdornment: <InputAdornment position="start"><QrCodeScannerIcon sx={{ color: ORANGE }} /></InputAdornment>,
                                                 sx: { bgcolor: 'white', borderRadius: 2 },
                                             }}
-                                            sx={{ mt: 1, mb: 2 }}
+                                            sx={{ mt: 1, mb: 1.5 }}
                                         />
+
+                                        {/* Selector de proveedor de origen — opcional. Lista
+                                            predefinida (Amazon, DHL, UPS, FedEx, USPS, Walmart…).
+                                            Si eligen "Otro" se abre input libre. Se persiste en
+                                            packages.origin_carrier para mostrarlo en el detalle
+                                            del cliente junto a la guía origen. */}
+                                        {(() => {
+                                            const knownCarriers = ORIGIN_CARRIERS.filter(c => c !== 'Otro');
+                                            const oc = bulkCurrentBox.originCarrier || '';
+                                            const isKnown = knownCarriers.includes(oc);
+                                            const isCustom = oc !== '' && !isKnown;
+                                            const selectValue = isKnown ? oc : (isCustom ? 'Otro' : '');
+                                            return (
+                                                <>
+                                                    <TextField
+                                                        select
+                                                        fullWidth
+                                                        label="Proveedor (opcional)"
+                                                        value={selectValue}
+                                                        onChange={(e) => {
+                                                            const v = e.target.value;
+                                                            if (v === 'Otro') {
+                                                                // Si veníamos de un known, limpiamos para que escriban
+                                                                setBulkCurrentBox(p => ({ ...p, originCarrier: isCustom ? p.originCarrier : '' }));
+                                                            } else {
+                                                                setBulkCurrentBox(p => ({ ...p, originCarrier: v }));
+                                                            }
+                                                        }}
+                                                        InputProps={{ sx: { bgcolor: 'white', borderRadius: 2 } }}
+                                                        SelectProps={{ displayEmpty: true }}
+                                                        sx={{ mb: (selectValue === 'Otro') ? 1 : 1.5 }}
+                                                    >
+                                                        <MenuItem value=""><em>Sin especificar</em></MenuItem>
+                                                        {knownCarriers.map((c) => (
+                                                            <MenuItem key={c} value={c}>{c}</MenuItem>
+                                                        ))}
+                                                        <MenuItem value="Otro">Otro…</MenuItem>
+                                                    </TextField>
+                                                    {selectValue === 'Otro' && (
+                                                        <TextField
+                                                            fullWidth
+                                                            size="small"
+                                                            autoFocus
+                                                            placeholder="Nombre del proveedor"
+                                                            value={isCustom ? oc : ''}
+                                                            onChange={(e) => setBulkCurrentBox(p => ({ ...p, originCarrier: e.target.value }))}
+                                                            InputProps={{ sx: { bgcolor: 'white', borderRadius: 2 } }}
+                                                            sx={{ mb: 1.5 }}
+                                                        />
+                                                    )}
+                                                </>
+                                            );
+                                        })()}
 
                                         <Divider sx={{ my: 2 }} />
 

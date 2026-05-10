@@ -3608,6 +3608,7 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
                 p.national_shipping_cost,
                 p.is_master,
                 p.total_boxes,
+                p.origin_carrier,
                 u.box_id,
                 u.full_name as client_name
             FROM packages p
@@ -3673,6 +3674,7 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             id: pkg.id,
             tracking_internal: pkg.tracking_internal,
             tracking_provider: pkg.tracking_provider,
+            origin_carrier: pkg.origin_carrier || null,
             description: pkg.description,
             weight: pkg.weight ? parseFloat(pkg.weight) : null,
             dimensions: dimensions,
@@ -4821,8 +4823,8 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
     const masterId = parseInt(String(req.params.masterId), 10);
     if (!Number.isFinite(masterId)) return res.status(400).json({ error: 'masterId inválido' });
 
-    const { weight, length, width, height, trackingCourier } = req.body as {
-      weight?: number; length?: number; width?: number; height?: number; trackingCourier?: string;
+    const { weight, length, width, height, trackingCourier, originCarrier } = req.body as {
+      weight?: number; length?: number; width?: number; height?: number; trackingCourier?: string; originCarrier?: string;
     };
     const w = parseFloat(String(weight || 0));
     const l = parseFloat(String(length || 0));
@@ -4830,6 +4832,14 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
     const h = parseFloat(String(height || 0));
     if (!w || w <= 0) return res.status(400).json({ error: 'weight requerido' });
     if (!l || !wd || !h) return res.status(400).json({ error: 'dimensiones requeridas' });
+
+    // Asegurar columna origin_carrier (idempotente). Esta columna guarda
+    // el nombre del courier que entregó el paquete a nuestra bodega
+    // Hidalgo TX (Amazon, DHL, UPS, FedEx, Walmart...). Diferente de
+    // tracking_provider, que es el número de guía del courier.
+    await client.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS origin_carrier TEXT`).catch(() => {});
+
+    const cleanOriginCarrier = (originCarrier || '').trim() || null;
 
     // Cargar el "master" — puede ser un master real (is_master=true) o
     // un paquete INDIVIDUAL placeholder (is_master=false con total_boxes=1)
@@ -4878,6 +4888,7 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
       const upd = await client.query(
         `UPDATE packages SET
            tracking_provider = COALESCE($2, tracking_provider),
+           origin_carrier = COALESCE($14, origin_carrier),
            weight = $3,
            pkg_length = $4,
            pkg_width = $5,
@@ -4904,6 +4915,7 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
           tcInd,
           serviceMxnInd,
           costUsdInd,
+          cleanOriginCarrier,
         ]
       );
       await client.query('COMMIT');
@@ -5003,14 +5015,14 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
          destination_country, destination_city, destination_address,
          service_type, warehouse_location,
          pobox_service_cost, pobox_cost_usd, pobox_venta_usd, pobox_tarifa_nivel, registered_exchange_rate,
-         pobox_provider_cost_mxn, pobox_provider_cost_usd)
+         pobox_provider_cost_mxn, pobox_provider_cost_usd, origin_carrier)
        VALUES ($1, $2, $3, $4, $5, $6,
                $7, $8, $9, $10,
                false, $11, $12, $13, $14,
                $15, $16, $17,
                $18, $19,
                $20, $21, $22, $23, $24,
-               $25, $26)
+               $25, $26, $27)
        RETURNING id, tracking_internal, weight, pkg_length, pkg_width, pkg_height`,
       [
         master.user_id,
@@ -5037,6 +5049,7 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
         childTc,
         childServiceMxn,       // pobox_provider_cost_mxn (COSTO INTERNO MXN)
         childCostUsd,          // pobox_provider_cost_usd (COSTO INTERNO USD)
+        cleanOriginCarrier,    // origin_carrier (Amazon, DHL, UPS, FedEx, Walmart...)
       ]
     );
 
