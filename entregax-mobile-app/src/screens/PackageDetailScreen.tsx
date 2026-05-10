@@ -520,7 +520,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             <Divider style={styles.divider} />
 
             <TouchableOpacity style={styles.movementsButton} onPress={openMovements}>
-              <MaterialCommunityIcons name="history" size={18} color="#1976D2" />
+              <MaterialCommunityIcons name="history" size={18} color="#111" />
               <Text style={styles.movementsButtonText}>Ver Movimientos</Text>
             </TouchableOpacity>
 
@@ -1088,6 +1088,8 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#111',
   },
   statusChipText: {
     color: 'white',
@@ -1107,12 +1109,12 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#1976D2',
-    backgroundColor: '#E3F2FD',
+    borderColor: '#C1272D',
+    backgroundColor: ORANGE,
     marginBottom: 12,
   },
   movementsButtonText: {
-    color: '#1976D2',
+    color: '#111',
     fontSize: 13,
     fontWeight: '700',
   },
