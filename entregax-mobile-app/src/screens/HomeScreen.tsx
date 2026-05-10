@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   StyleSheet,
@@ -294,6 +294,23 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
     return grouped;
   }, [packages, serviceFilter, instructionFilter]);
+
+  // 📊 Conteo de paquetes por servicio. Sirve para esconder los
+  // chips de filtro cuando el cliente no tiene paquetes de ese
+  // servicio (ej. nadie tiene DHL → no mostramos "MTY").
+  const serviceCounts = useMemo(() => {
+    let air = 0, maritime = 0, dhl = 0, usa = 0;
+    for (const pkg of packages) {
+      // shipment_type viene tipado pero hay valores legacy ('fcl')
+      // que no están en la unión, por eso casteamos a string.
+      const t = String((pkg as any).shipment_type || '');
+      if (t === 'china_air') air++;
+      else if (t === 'maritime' || t === 'fcl') maritime++;
+      else if (t === 'dhl') dhl++;
+      if ((pkg as any).service_type === 'POBOX_USA') usa++;
+    }
+    return { air, maritime, dhl, usa };
+  }, [packages]);
 
   // 📊 Función para contar paquetes por tipo de instrucciones
   const getInstructionCounts = useCallback(() => {
@@ -2120,48 +2137,58 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               />
             )}
 
-            {/* 🎯 Filtros de Servicio */}
+            {/* 🎯 Filtros de Servicio — solo aparecen los servicios
+                con paquetes activos del cliente. Si tiene 0 de un
+                servicio (ej. nadie tiene DHL), se oculta el chip. */}
             <View style={styles.serviceFilters}>
-              <Pressable
-                style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
-                onPress={() => {
-                  setSelectedIds([]);
-                  setServiceFilter(serviceFilter === 'air' ? null : 'air');
-                }}
-              >
-                <Text style={styles.filterIcon}>✈️</Text>
-                <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
-                onPress={() => {
-                  setSelectedIds([]);
-                  setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime');
-                }}
-              >
-                <Text style={styles.filterIcon}>🚢</Text>
-                <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.filterChip, serviceFilter === 'dhl' && styles.filterChipActive]}
-                onPress={() => {
-                  setSelectedIds([]);
-                  setServiceFilter(serviceFilter === 'dhl' ? null : 'dhl');
-                }}
-              >
-                <Text style={styles.filterIcon}>🚚</Text>
-                <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>MTY</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
-                onPress={() => {
-                  setSelectedIds([]);
-                  setServiceFilter(serviceFilter === 'usa' ? null : 'usa');
-                }}
-              >
-                <Text style={styles.filterIcon}>📦</Text>
-                <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>PO Box</Text>
-              </Pressable>
+              {serviceCounts.air > 0 && (
+                <Pressable
+                  style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
+                  onPress={() => {
+                    setSelectedIds([]);
+                    setServiceFilter(serviceFilter === 'air' ? null : 'air');
+                  }}
+                >
+                  <Text style={styles.filterIcon}>✈️</Text>
+                  <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
+                </Pressable>
+              )}
+              {serviceCounts.maritime > 0 && (
+                <Pressable
+                  style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
+                  onPress={() => {
+                    setSelectedIds([]);
+                    setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime');
+                  }}
+                >
+                  <Text style={styles.filterIcon}>🚢</Text>
+                  <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
+                </Pressable>
+              )}
+              {serviceCounts.dhl > 0 && (
+                <Pressable
+                  style={[styles.filterChip, serviceFilter === 'dhl' && styles.filterChipActive]}
+                  onPress={() => {
+                    setSelectedIds([]);
+                    setServiceFilter(serviceFilter === 'dhl' ? null : 'dhl');
+                  }}
+                >
+                  <Text style={styles.filterIcon}>🚚</Text>
+                  <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>MTY</Text>
+                </Pressable>
+              )}
+              {serviceCounts.usa > 0 && (
+                <Pressable
+                  style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
+                  onPress={() => {
+                    setSelectedIds([]);
+                    setServiceFilter(serviceFilter === 'usa' ? null : 'usa');
+                  }}
+                >
+                  <Text style={styles.filterIcon}>📦</Text>
+                  <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>PO Box</Text>
+                </Pressable>
+              )}
             </View>
           </>
         }

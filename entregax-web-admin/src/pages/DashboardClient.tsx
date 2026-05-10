@@ -5278,7 +5278,11 @@ export default function DashboardClient() {
                 px: isMobile ? 1 : 0,
                 '&::-webkit-scrollbar': { display: 'none' },
               }}>
-                <Box 
+                {/* Cliente pidió que cada filtro de servicio sólo aparezca
+                    si tiene paquetes activos del cliente — antes mostraba
+                    siempre los 4 aunque hubiera servicios con 0. */}
+                {serviceCounts.china_air > 0 && (
+                <Box
                   onClick={() => {
                     if (serviceFilter === 'china_air') {
                       setServiceFilter('all');
@@ -5287,10 +5291,10 @@ export default function DashboardClient() {
                       setServiceFilter('china_air');
                     }
                   }}
-                  sx={{ 
-                    display: 'flex', 
-                    flexDirection: 'column', 
-                    alignItems: 'center', 
+                  sx={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
                     cursor: 'pointer',
                     p: isMobile ? 1 : 1.5,
                     borderRadius: 2,
@@ -5325,16 +5329,18 @@ export default function DashboardClient() {
                       </Box>
                     )}
                   </Box>
-                  <Typography variant="caption" sx={{ 
-                    color: serviceFilter === 'china_air' ? 'white' : '#666', 
-                    fontWeight: 600, 
-                    fontSize: '0.7rem' 
+                  <Typography variant="caption" sx={{
+                    color: serviceFilter === 'china_air' ? 'white' : '#666',
+                    fontWeight: 600,
+                    fontSize: '0.7rem'
                   }}>
                     {t('cd.packages.air')}
                   </Typography>
                 </Box>
+                )}
 
-                <Box 
+                {serviceCounts.china_sea > 0 && (
+                <Box
                   onClick={() => {
                     if (serviceFilter === 'china_sea') {
                       setServiceFilter('all');
@@ -5381,16 +5387,18 @@ export default function DashboardClient() {
                       </Box>
                     )}
                   </Box>
-                  <Typography variant="caption" sx={{ 
-                    color: serviceFilter === 'china_sea' ? 'white' : '#666', 
-                    fontWeight: 600, 
-                    fontSize: '0.7rem' 
+                  <Typography variant="caption" sx={{
+                    color: serviceFilter === 'china_sea' ? 'white' : '#666',
+                    fontWeight: 600,
+                    fontSize: '0.7rem'
                   }}>
                     {t('cd.packages.sea')}
                   </Typography>
                 </Box>
+                )}
 
-                <Box 
+                {serviceCounts.dhl > 0 && (
+                <Box
                   onClick={() => {
                     if (serviceFilter === 'dhl') {
                       setServiceFilter('all');
@@ -5437,16 +5445,18 @@ export default function DashboardClient() {
                       </Box>
                     )}
                   </Box>
-                  <Typography variant="caption" sx={{ 
-                    color: serviceFilter === 'dhl' ? 'white' : '#666', 
-                    fontWeight: 600, 
-                    fontSize: '0.7rem' 
+                  <Typography variant="caption" sx={{
+                    color: serviceFilter === 'dhl' ? 'white' : '#666',
+                    fontWeight: 600,
+                    fontSize: '0.7rem'
                   }}>
                     {t('cd.packages.mty')}
                   </Typography>
                 </Box>
+                )}
 
-                <Box 
+                {serviceCounts.usa_pobox > 0 && (
+                <Box
                   onClick={() => {
                     if (serviceFilter === 'usa_pobox') {
                       setServiceFilter('all');
@@ -5493,14 +5503,15 @@ export default function DashboardClient() {
                       </Box>
                     )}
                   </Box>
-                  <Typography variant="caption" sx={{ 
-                    color: serviceFilter === 'usa_pobox' ? 'white' : '#666', 
-                    fontWeight: 600, 
-                    fontSize: '0.7rem' 
+                  <Typography variant="caption" sx={{
+                    color: serviceFilter === 'usa_pobox' ? 'white' : '#666',
+                    fontWeight: 600,
+                    fontSize: '0.7rem'
                   }}>
                     {t('cd.packages.pobox')}
                   </Typography>
                 </Box>
+                )}
               </Box>
 
               {/* Barra de acciones cuando hay paquetes seleccionados */}
