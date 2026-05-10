@@ -42,28 +42,10 @@ import OpportunityCarousel, { Opportunity } from '../components/OpportunityCarou
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
 
-// Colores de estado
-const STATUS_COLORS: Record<string, string> = {
-  // Aéreos (USA)
-  received: '#2196F3',      // Azul - Recibido en suite
-  in_transit: '#F05A28',    // Naranja - En tránsito
-  processing: '#9C27B0',    // Morado - Procesando envío
-  shipped: '#00BCD4',       // Cyan - Vuelo confirmado
-  delivered: '#4CAF50',     // Verde - Entregado
-  pending: '#FFC107',       // Amarillo - Pendiente
-  // Marítimos (China)
-  received_china: '#1976D2', // Azul oscuro - Recibido en China
-  at_port: '#0277BD',        // Azul puerto
-  customs_mx: '#7B1FA2',     // Morado aduana
-  in_transit_mx: '#E65100',  // Naranja ruta
-  received_cedis: '#388E3C', // Verde CEDIS
-  ready_pickup: '#00796B',   // Teal listo
-  // ✈️🇨🇳 TDI Aéreo China
-  received_origin: '#1976D2', // Azul oscuro - En Bodega China
-  at_customs: '#7B1FA2',      // Morado aduana
-};
-
-// STATUS_LABELS se define dentro del componente usando t()
+// STATUS_LABELS se define dentro del componente usando t().
+// El color del chip de estado ahora siempre es naranja corporativo
+// con texto/ícono negros (decisión de marca), por eso quitamos
+// el mapa STATUS_COLORS que ya no consume nadie.
 
 type RootStackParamList = {
   Login: undefined;
@@ -770,11 +752,6 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // tránsito: el cliente nos pidió que "En Tránsito a MTY" se vea
     // igual que "Recibido en MTY" (ambos grises) y no llamen tanto la
     // atención como un estado de error/alerta.
-    const isPoboxLikeStatus = item.shipment_type !== 'maritime' && item.shipment_type !== 'china_air' && item.shipment_type !== 'dhl';
-    const NEUTRAL_GRAY = '#6B7280';
-    const statusColor = isPoboxLikeStatus
-      ? (item.status === 'delivered' ? '#4CAF50' : NEUTRAL_GRAY)
-      : (STATUS_COLORS[item.status] || '#999');
     // Usar statusLabel traducido - pasar shipment_type para diferenciar marítimo y received_by para entregado
     const statusLabel = getStatusLabel(item.status, item.shipment_type, (item as any).received_by);
     
@@ -973,10 +950,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   )}
                 </View>
                 
-                {/* Chip de Estado */}
+                {/* Chip de Estado — fondo naranja corporativo, texto e
+                    ícono negros (cliente: "la cajita naranja para las status") */}
                 <View style={styles.statusRow}>
-                  <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
-                    <Icon 
+                  <View style={[styles.statusBadge, { backgroundColor: ORANGE }]}>
+                    <Icon
                       source={
                         isMaritime ? (
                           item.status === 'in_transit' ? 'ferry' :
@@ -984,24 +962,23 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                           item.status === 'at_port' ? 'anchor' :
                           item.status === 'delivered' ? 'check-circle' : 'ferry'
                         ) : isChinaAir ? (
-                          // ✈️🇨🇳 Íconos para TDI Aéreo China
                           item.status === 'received_origin' ? 'package-variant' :
                           item.status === 'in_transit' ? 'airplane' :
                           item.status === 'at_customs' ? 'shield-lock' :
                           item.status === 'customs_mx' ? 'shield-lock' :
                           item.status === 'delivered' ? 'check-circle' : 'airplane'
                         ) : (
-                          item.status === 'in_transit' ? 'truck-fast' : 
+                          item.status === 'in_transit' ? 'truck-fast' :
                           item.status === 'received' ? 'package-variant' :
                           item.status === 'shipped' ? 'truck-delivery' :
                           item.status === 'delivered' ? 'check-circle' :
                           item.status === 'processing' ? 'clipboard-text' : 'package-variant'
                         )
-                      } 
-                      size={12} 
-                      color={statusColor} 
+                      }
+                      size={12}
+                      color="#111"
                     />
-                    <Text style={[styles.statusBadgeText, { color: statusColor }]}>{statusLabel}</Text>
+                    <Text style={[styles.statusBadgeText, { color: '#111' }]}>{statusLabel}</Text>
                   </View>
                   
                   {/* 🏷️ Badges compactos (solo íconos) con opción de expandir */}
@@ -1009,7 +986,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     {/* Íconos compactos */}
                     {item.has_gex && (
                       <View style={styles.iconOnlyBadge}>
-                        <Icon source="shield-check" size={14} color="#10B981" />
+                        <View style={styles.gexShieldWrap}>
+                          <Icon source="shield" size={14} color="#111" />
+                          <View style={styles.gexCheckOverlay}>
+                            <Icon source="check-bold" size={8} color={ORANGE} />
+                          </View>
+                        </View>
                       </View>
                     )}
                     {hasDeliveryInstructions && (
@@ -1017,24 +999,20 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         <Icon source="clipboard-check" size={14} color="#D97706" />
                       </View>
                     )}
-                    {/* 🏷️ Etiqueta nacional impresa: si la guía ya pasó por
-                        el módulo de etiquetado y tiene URL/tracking del
-                        carrier nacional, mostramos un badge azul para
-                        que el cliente sepa que ya está lista para salir
-                        a ruta. */}
+                    {/* 🏷️ Etiqueta nacional impresa */}
                     {(!!(item as any).national_label_url || !!(item as any).national_tracking || !!(item as any).skydropx_label_id || !!(item as any).dhl_awb) && (
                       <View style={styles.iconOnlyBadge}>
-                        <Icon source="printer-check" size={14} color="#0EA5E9" />
+                        <Icon source="printer-check" size={14} color={ORANGE} />
                       </View>
                     )}
                     {/* 💳 Orden de pago pendiente */}
                     {hasPendingPaymentOrder && !isPaid && (
                       <View style={styles.iconOnlyBadge}>
-                        <Icon source="cash" size={14} color="#F59E0B" />
+                        <Icon source="cash" size={14} color={ORANGE} />
                       </View>
                     )}
                     <View style={styles.iconOnlyBadge}>
-                      <Icon source={isPaid ? "check-circle" : "credit-card"} size={14} color={isPaid ? "#10B981" : "#EF4444"} />
+                      <Icon source={isPaid ? "check-circle" : "credit-card"} size={14} color={isPaid ? "#10B981" : ORANGE} />
                     </View>
                     
                     {/* Botón expandir/colapsar */}
@@ -1078,7 +1056,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                           el módulo de etiquetado y está listo para ruta. */}
                       {(!!(item as any).national_label_url || !!(item as any).national_tracking || !!(item as any).skydropx_label_id || !!(item as any).dhl_awb) && (
                         <View style={styles.labeledBadge}>
-                          <Icon source="printer-check" size={12} color="#0EA5E9" />
+                          <Icon source="printer-check" size={12} color={ORANGE} />
                           <Text style={styles.labeledBadgeText}>Etiquetado</Text>
                         </View>
                       )}
@@ -1090,7 +1068,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         </View>
                       )}
                       <View style={isPaid ? styles.paidBadge : styles.unpaidBadge}>
-                        <Icon source={isPaid ? "check-circle" : "credit-card"} size={12} color={isPaid ? "#10B981" : "#EF4444"} />
+                        <Icon source={isPaid ? "check-circle" : "credit-card"} size={12} color={isPaid ? "#10B981" : ORANGE} />
                         <Text style={isPaid ? styles.paidBadgeText : styles.unpaidBadgeText}>
                           {isPaid ? 'Pagado' : 'Pagar'}
                         </Text>
@@ -3276,11 +3254,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#111',
   },
-  // 🏷️ Badge Etiquetado (azul cielo) — guía con etiqueta nacional impresa
+  // 🏷️ Badge Etiquetado — amarillo igual que Instrucciones (cliente
+  // pidió armonizar Etiquetado y Pagar con el ámbar de Instrucciones)
   labeledBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0EA5E920',
+    backgroundColor: '#F59E0B20',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -3338,11 +3317,12 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#111',
   },
-  // 💰 Badge No Pagado
+  // 💰 Badge No Pagado — amarillo (era rojo). Armonizado con Instrucciones
+  // y Etiquetado: la urgencia la da el ícono naranja, no el fondo rojo.
   unpaidBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EF444420',
+    backgroundColor: '#F59E0B20',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
