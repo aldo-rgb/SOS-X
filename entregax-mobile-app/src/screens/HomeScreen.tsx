@@ -950,10 +950,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   )}
                 </View>
                 
-                {/* Chip de Estado — fondo naranja corporativo, texto e
-                    ícono negros (cliente: "la cajita naranja para las status") */}
+                {/* Chip de Estado — fondo amarillo (igual que Instrucciones,
+                    Etiquetado, Pagar) con ícono naranja y texto negro. */}
                 <View style={styles.statusRow}>
-                  <View style={[styles.statusBadge, { backgroundColor: ORANGE }]}>
+                  <View style={[styles.statusBadge, { backgroundColor: '#F59E0B20' }]}>
                     <Icon
                       source={
                         isMaritime ? (
@@ -976,7 +976,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         )
                       }
                       size={12}
-                      color="#111"
+                      color={ORANGE}
                     />
                     <Text style={[styles.statusBadgeText, { color: '#111' }]}>{statusLabel}</Text>
                   </View>
