@@ -136,43 +136,45 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       return `✅ Entregado: ${receivedBy}`;
     }
     
-    // Si es marítimo (maritime o fcl), usar labels específicos
+    // Sin emojis: el Chip ya pinta su propio Icon arriba (ferry, airplane,
+    // truck-fast, etc.). Mantener el emoji en el texto produce un doble
+    // ícono ("🚢 🚢 Ya Zarpó").
     if (shipmentType === 'maritime' || shipmentType === 'fcl') {
       const maritimeLabels: Record<string, string> = {
-        received_china: '📦 Recibido CEDIS GZ CHINA',
-        in_transit: '🚢 Ya Zarpó',
-        at_port: '⚓ En Puerto',
-        customs_mx: '🛃 Aduana México',
-        in_transit_mx: '🚛 En Ruta a CEDIS',
-        received_cedis: '✅ En CEDIS',
-        ready_pickup: '📍 Listo para Recoger',
-        delivered: '✅ Entregado',
+        received_china: 'Recibido CEDIS GZ CHINA',
+        in_transit: 'Ya Zarpó',
+        at_port: 'En Puerto',
+        customs_mx: 'Aduana México',
+        in_transit_mx: 'En Ruta a CEDIS',
+        received_cedis: 'En CEDIS',
+        ready_pickup: 'Listo para Recoger',
+        delivered: 'Entregado',
       };
       return maritimeLabels[status] || status;
     }
-    
+
     // ✈️🇨🇳 Labels para TDI Aéreo China
     if (shipmentType === 'china_air') {
       const chinaAirLabels: Record<string, string> = {
-        received_origin: '📦 En Bodega China',
-        in_transit: '✈️ En Tránsito',
-        at_customs: '🛃 En Aduana',
-        customs_mx: '🛃 Aduana México',
-        in_transit_mx: '🚛 En Ruta a CEDIS',
-        received_cedis: '✅ En CEDIS',
-        ready_pickup: '📍 Listo para Recoger',
-        delivered: '✅ Entregado',
+        received_origin: 'En Bodega China',
+        in_transit: 'En Tránsito',
+        at_customs: 'En Aduana',
+        customs_mx: 'Aduana México',
+        in_transit_mx: 'En Ruta a CEDIS',
+        received_cedis: 'En CEDIS',
+        ready_pickup: 'Listo para Recoger',
+        delivered: 'Entregado',
       };
       return chinaAirLabels[status] || status;
     }
-    
+
     // 🚚 Labels para DHL Express
     if (shipmentType === 'dhl') {
       const dhlLabels: Record<string, string> = {
-        received_mty: '📦 Cedis MTY',
-        in_transit: '🚚 En Tránsito',
-        out_for_delivery: '🚛 En ruta de entrega',
-        delivered: '✅ Entregado',
+        received_mty: 'Cedis MTY',
+        in_transit: 'En Tránsito',
+        out_for_delivery: 'En ruta de entrega',
+        delivered: 'Entregado',
       };
       return dhlLabels[status] || status;
     }
@@ -999,7 +1001,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       size={12}
                       color={ORANGE}
                     />
-                    <Text style={[styles.statusBadgeText, { color: '#111' }]}>{statusLabel}</Text>
+                    <Text style={[styles.statusBadgeText, { color: ORANGE }]}>{statusLabel}</Text>
                   </View>
                   
                   {/* 🏷️ Badges compactos (solo íconos) con opción de expandir */}
@@ -1811,7 +1813,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 navigation.navigate('QuoteHub' as any, { user, token });
               }}
             >
-              <Ionicons name="calculator-outline" size={16} color="#fff" />
+              <Ionicons name="calculator-outline" size={16} color={ORANGE} />
               <Text style={styles.requestShipmentText}>Cotizar</Text>
             </TouchableOpacity>
             {/* 🚀 Botón ¿Cómo enviar? o Cambiar Método */}
