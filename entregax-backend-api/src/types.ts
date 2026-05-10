@@ -4,6 +4,7 @@ export type UserRole =
     | 'admin'            // Administrador general
     | 'director'         // Director de área
     | 'branch_manager'   // Gerente de sucursal
+    | 'abogado'          // Abogado
     | 'accountant'       // Contador
     | 'customer_service' // Servicio a cliente
     | 'counter_staff'    // Personal de mostrador

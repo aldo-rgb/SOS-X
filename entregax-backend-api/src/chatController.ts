@@ -21,7 +21,7 @@ export const setChatSocketEmitter = (emitter: typeof socketEmitter) => {
 const STAFF_ROLES = [
   'super_admin', 'admin', 'director', 'branch_manager', 'customer_service',
   'operaciones', 'counter_staff', 'warehouse_ops', 'repartidor',
-  'accountant', 'monitoreo', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor'
+  'accountant', 'abogado', 'monitoreo', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor'
 ];
 
 // Roles que un usuario puede ver al crear un nuevo chat,

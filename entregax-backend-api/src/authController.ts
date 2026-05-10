@@ -341,7 +341,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
         // 4. Determinar permisos y nivel de acceso
         const permissions = ROLE_PERMISSIONS[user.role] || [];
         const isAdmin = ['super_admin', 'admin', 'branch_manager', 'director'].includes(user.role);
-        const isStaff = ['advisor', 'sub_advisor', 'counter_staff', 'warehouse_ops', 'customer_service', 'repartidor', 'accountant', 'operaciones', 'monitoreo'].includes(user.role);
+        const isStaff = ['advisor', 'sub_advisor', 'counter_staff', 'warehouse_ops', 'customer_service', 'repartidor', 'accountant', 'abogado', 'operaciones', 'monitoreo'].includes(user.role);
 
         // 5. Responder con datos del usuario, token y permisos
         res.json({
@@ -428,6 +428,7 @@ export const ROLES = {
     ADMIN: 'admin',                    // Administrador general
     DIRECTOR: 'director',              // Director de área
     BRANCH_MANAGER: 'branch_manager',  // Gerente de sucursal
+    ABOGADO: 'abogado',                // Abogado
     CUSTOMER_SERVICE: 'customer_service', // Servicio a cliente
     OPERACIONES: 'operaciones',        // Operaciones marítimas
     COUNTER_STAFF: 'counter_staff',    // Personal de mostrador
@@ -444,6 +445,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
     [ROLES.ADMIN]: 95,
     [ROLES.DIRECTOR]: 90,
     [ROLES.BRANCH_MANAGER]: 80,
+    [ROLES.ABOGADO]: 56,
     [ROLES.CUSTOMER_SERVICE]: 70,
     [ROLES.OPERACIONES]: 65,
     'advisor': 62,
@@ -460,6 +462,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
     'Admin': 95,
     'Director': 90,
     'Branch Manager': 80,
+    'Abogado': 56,
     'Customer Service': 70,
     'Counter Staff': 60,
     'Advisor': 62,
@@ -485,6 +488,8 @@ function normalizeRoleForHierarchy(role: string): string {
         'director': ROLES.DIRECTOR,
         'Branch Manager': ROLES.BRANCH_MANAGER,
         'branch_manager': ROLES.BRANCH_MANAGER,
+        'Abogado': ROLES.ABOGADO,
+        'abogado': ROLES.ABOGADO,
         'Customer Service': ROLES.CUSTOMER_SERVICE,
         'customer_service': ROLES.CUSTOMER_SERVICE,
         'Counter Staff': ROLES.COUNTER_STAFF,
@@ -511,6 +516,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     [ROLES.ADMIN]: ['users:*', 'shipments:*', 'quotes:*', 'reports:*', 'settings:read'], // Admin general
     [ROLES.DIRECTOR]: ['users:read', 'shipments:*', 'quotes:*', 'reports:*'], // Director de área
     [ROLES.BRANCH_MANAGER]: ['users:read', 'users:write', 'shipments:*', 'quotes:*', 'reports:read'],
+    [ROLES.ABOGADO]: ['accounting:*', 'invoices:*', 'reports:read'],
     [ROLES.CUSTOMER_SERVICE]: ['clients:*', 'support:*', 'crm:*', 'quotes:read'], // Servicio a cliente
     [ROLES.OPERACIONES]: ['shipments:*', 'maritime:*', 'quotes:read', 'reports:read'], // Operaciones marítimas
     [ROLES.COUNTER_STAFF]: ['shipments:read', 'shipments:create', 'quotes:*', 'clients:read'],
@@ -1402,7 +1408,7 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
         }
         if (role !== undefined) {
             // Validar que sea un rol válido
-            const validRoles = ['super_admin', 'admin', 'director', 'branch_manager', 'accountant', 'customer_service', 
+            const validRoles = ['super_admin', 'admin', 'director', 'branch_manager', 'accountant', 'abogado', 'customer_service', 
                                'counter_staff', 'warehouse_ops', 'monitoreo', 'advisor', 'sub_advisor', 'repartidor', 'client'];
             if (!validRoles.includes(role)) {
                 res.status(400).json({ error: 'Rol no válido' });

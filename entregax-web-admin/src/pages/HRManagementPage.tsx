@@ -74,6 +74,7 @@ const EMPLOYEE_ROLES = [
   { value: 'customer_service', label: 'Servicio a Cliente', color: 'primary' as const },
   { value: 'branch_manager', label: 'Operaciones', color: 'secondary' as const },
   { value: 'monitoreo', label: 'Monitoreo', color: 'default' as const },
+  { value: 'abogado', label: 'Abogado', color: 'secondary' as const },
   { value: 'accountant', label: 'Contador', color: 'default' as const },
 ];
 
@@ -149,6 +150,7 @@ const translateRole = (role: string): string => {
     branch_manager: 'Operaciones',
     operaciones: 'Operaciones',
     monitoreo: 'Monitoreo',
+    abogado: 'Abogado',
     accountant: 'Contador',
     contador: 'Contador',
     advisor: 'Asesor',
@@ -170,6 +172,7 @@ const getRoleColor = (role: string): "error" | "warning" | "info" | "success" | 
     branch_manager: 'secondary',
     operaciones: 'secondary',
     monitoreo: 'default',
+    abogado: 'secondary',
     accountant: 'default',
     contador: 'default',
     advisor: 'primary',

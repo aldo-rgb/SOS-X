@@ -298,6 +298,7 @@ export default function UserPanelPermissionsPage() {
       'customer_service': 'Servicio Cliente',
       'warehouse_ops': 'Bodega',
       'repartidor': 'Repartidor',
+      'abogado': 'Abogado',
       'accountant': 'Contador',
       'operaciones': 'Operaciones',
       'monitoreo': 'Monitoreo',
@@ -371,6 +372,7 @@ export default function UserPanelPermissionsPage() {
               <MenuItem value="customer_service">Servicio Cliente</MenuItem>
               <MenuItem value="warehouse_ops">Bodega</MenuItem>
               <MenuItem value="repartidor">Repartidor</MenuItem>
+              <MenuItem value="abogado">Abogado</MenuItem>
               <MenuItem value="accountant">Contador</MenuItem>
             </Select>
           </FormControl>

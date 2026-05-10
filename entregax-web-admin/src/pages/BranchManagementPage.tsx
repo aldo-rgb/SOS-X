@@ -301,6 +301,7 @@ export default function BranchManagementPage() {
     'driver', 'repartidor',
     'manager',
     'monitoreo',            // Monitoreo (observación)
+    'abogado',              // Abogado
     'accountant', 'contador', // Contador
     'advisor', 'sub_advisor', // Asesores
   ];

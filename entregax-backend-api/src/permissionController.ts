@@ -10,7 +10,8 @@ const CONFIGURABLE_ROLES = [
   'Servicio a Cliente',
   'Personal de Mostrador',
   'Operaciones de Bodega',
-  'Contador'
+  'Contador',
+  'Abogado'
 ];
 
 // ============================================
