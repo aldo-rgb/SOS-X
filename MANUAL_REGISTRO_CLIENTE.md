@@ -206,4 +206,4 @@ Sí, **www.entregax.app** funciona en cualquier navegador de celular. También p
 
 ---
 
-**© 2026 EntregaX — Logística Internacional**
+**© Since 2013 EntregaX Paqueteria Internacional**
