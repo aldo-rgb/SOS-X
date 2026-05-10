@@ -19,7 +19,7 @@ type PackageStatus =
     | 'reempacado'
     | 'processing';
 
-interface BoxItem {
+export interface BoxItem {
     weight: number;
     length: number;
     width: number;
@@ -128,7 +128,7 @@ interface POBoxCostResult {
     tcFinal?: number;              // TC usado (para hijas multi-pieza)
 }
 
-const calculatePOBoxCost = async (
+export const calculatePOBoxCost = async (
     client: PoolClient | Pool, 
     boxes: BoxItem[], 
     gexData?: { included: boolean; costMxn?: number; insuranceCost?: number; fixedCost?: number; declaredValueMxn?: number }

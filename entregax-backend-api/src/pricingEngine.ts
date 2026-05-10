@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { computeGex } from './quoteController';
 
 // ============================================
 // INTERFACES
@@ -281,7 +282,12 @@ export const updateLogisticsService = async (req: Request, res: Response): Promi
 // POST /api/quotes/calculate - Calcular cotización
 export const calculateQuoteEndpoint = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { serviceCode, weightKg, lengthCm, widthCm, heightCm, quantity, userId } = req.body;
+        const {
+            serviceCode, weightKg, lengthCm, widthCm, heightCm, quantity, userId,
+            // Soporte opcional para Garantía Extendida — backward compatible:
+            // si no se mandan, gex queda en ceros y totalMxn == mxn.
+            declaredValueMxn, includeGex,
+        } = req.body;
 
         if (!serviceCode || !userId) {
             return res.status(400).json({ error: 'serviceCode y userId son requeridos' });
@@ -297,7 +303,10 @@ export const calculateQuoteEndpoint = async (req: Request, res: Response): Promi
             userId: parseInt(userId)
         });
 
-        res.json(result);
+        const gex = computeGex(declaredValueMxn, includeGex);
+        const totalMxn = +(parseFloat(result.mxn) + gex.gexTotalCost).toFixed(2);
+
+        res.json({ ...result, gex, totalMxn });
     } catch (error: any) {
         console.error('Error calculating quote:', error);
         res.status(400).json({ error: error.message || 'Error al calcular cotización' });
@@ -816,7 +825,10 @@ export const updatePricingCategory = async (req: Request, res: Response): Promis
 // POST /api/maritime/calculate - Calcular costo de envío marítimo
 export const calculateMaritimeCost = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { userId, lengthCm, widthCm, heightCm, weightKg, category } = req.body;
+        const {
+            userId, lengthCm, widthCm, heightCm, weightKg, category,
+            declaredValueMxn, includeGex,
+        } = req.body;
 
         if (!lengthCm || !widthCm || !heightCm || !weightKg) {
             return res.status(400).json({ error: 'Dimensiones y peso son requeridos' });
@@ -831,7 +843,13 @@ export const calculateMaritimeCost = async (req: Request, res: Response): Promis
             category || 'Generico'
         );
 
-        res.json(result);
+        // GEX opcional. Si el cliente pide garantía y manda valor declarado,
+        // anexamos el desglose y devolvemos también totalMxn (precio + GEX).
+        const gex = computeGex(declaredValueMxn, includeGex);
+        const finalPriceMxn = (result as any)?.finalPriceMxn ?? (result as any)?.finalPriceMXN ?? 0;
+        const totalMxn = +(parseFloat(String(finalPriceMxn || 0)) + gex.gexTotalCost).toFixed(2);
+
+        res.json({ ...result, gex, totalMxn });
     } catch (error: any) {
         console.error('Error calculating maritime cost:', error);
         res.status(500).json({ error: error.message || 'Error al calcular costo' });

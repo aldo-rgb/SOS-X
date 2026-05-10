@@ -48,6 +48,7 @@ import POBoxEntryScreen from './src/screens/POBoxEntryScreen';
 import POBoxExitScreen from './src/screens/POBoxExitScreen';
 import POBoxCollectScreen from './src/screens/POBoxCollectScreen';
 import POBoxQuoteScreen from './src/screens/POBoxQuoteScreen';
+import QuoteHubScreen from './src/screens/QuoteHubScreen';
 import POBoxRepackScreen from './src/screens/POBoxRepackScreen';
 import POBoxInventoryScreen from './src/screens/POBoxInventoryScreen';
 import POBoxHubScreen from './src/screens/POBoxHubScreen';
@@ -130,6 +131,7 @@ export type RootStackParamList = {
   POBoxExit: { user: any; token: string };
   POBoxCollect: { user: any; token: string };
   POBoxQuote: { user: any; token: string };
+  QuoteHub: { user: any; token: string };
   POBoxRepack: { user: any; token: string };
   POBoxInventory: { user: any; token: string };
   POBoxHub: { user: any; token: string };
@@ -350,6 +352,7 @@ export default function App() {
           <Stack.Screen name="POBoxExit" component={POBoxExitScreen} />
           <Stack.Screen name="POBoxCollect" component={POBoxCollectScreen} />
           <Stack.Screen name="POBoxQuote" component={POBoxQuoteScreen} />
+          <Stack.Screen name="QuoteHub" component={QuoteHubScreen} />
           <Stack.Screen name="POBoxRepack" component={POBoxRepackScreen} />
           <Stack.Screen name="POBoxInventory" component={POBoxInventoryScreen} />
           <Stack.Screen name="POBoxHub" component={POBoxHubScreen} />

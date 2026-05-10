@@ -1787,6 +1787,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             >
               <Image source={require('../../assets/logo-completo-xpay-t.png')} style={[styles.supplierPaymentLogo, !xpayEnabled && { tintColor: '#999' }]} />
             </TouchableOpacity>
+            {/* 🧮 Botón Cotizar — mismo estilo negro que "¿Cómo enviar?" */}
+            <TouchableOpacity
+              style={styles.requestShipmentButton}
+              onPress={() => {
+                navigation.navigate('QuoteHub' as any, { user, token });
+              }}
+            >
+              <Ionicons name="calculator-outline" size={16} color="#fff" />
+              <Text style={styles.requestShipmentText}>Cotizar</Text>
+            </TouchableOpacity>
             {/* 🚀 Botón ¿Cómo enviar? o Cambiar Método */}
             <TouchableOpacity
               style={[

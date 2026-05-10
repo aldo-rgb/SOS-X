@@ -314,6 +314,7 @@ import {
   calculateMaritimeCost,
   toggleUserVipPricing
 } from './pricingEngine';
+import { quotePOBox, quoteAirChina } from './quoteController';
 import {
   getWarehouseServices,
   getWarehouseReceipts,
@@ -3769,6 +3770,10 @@ app.get('/api/logistics/services', getLogisticsServices);
 
 // Cotizador (Cliente autenticado)
 app.post('/api/quotes/calculate', authenticateToken, calculateQuoteEndpoint);
+// Endpoints adicionales para cotizar PO Box USA y TDI Aéreo China
+// directo desde la app móvil (incluye GEX opcional centralizado).
+app.post('/api/quotes/pobox', authenticateToken, quotePOBox);
+app.post('/api/quotes/air-china', authenticateToken, quoteAirChina);
 
 // Admin: Listas de precios
 app.get('/api/admin/price-lists', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getPriceLists);
