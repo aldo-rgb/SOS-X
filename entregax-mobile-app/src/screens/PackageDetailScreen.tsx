@@ -440,6 +440,9 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
           <View style={styles.noImageContainer}>
             <MaterialCommunityIcons name="camera-off" size={48} color="#ccc" />
             <Text style={styles.noImageText}>Sin foto disponible</Text>
+            <Text style={[styles.noImageText, { fontSize: 11, marginTop: 4, color: '#999' }]}>
+              Las fotos solo se capturan al pasar el paquete por el módulo de salida.
+            </Text>
           </View>
         )}
 
@@ -460,11 +463,16 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                     </View>
                   )}
                 </View>
-                {details.tracking_provider && (
-                  <Text style={styles.providerTracking}>
-                    Tracking: {details.tracking_provider}
+                {/* Guía origen — el tracking del courier (UPS, FedEx, USPS,
+                    Amazon...) con el que el paquete llegó a nuestra bodega
+                    Hidalgo TX. Siempre lo mostramos: si no se capturó al
+                    recibir, dejamos un placeholder explícito para que el
+                    cliente sepa que el campo existe pero quedó vacío. */}
+                <Text style={styles.providerTracking}>
+                  Guía origen: <Text style={{ fontWeight: '700' }}>
+                    {details.tracking_provider || '— No capturada en recepción'}
                   </Text>
-                )}
+                </Text>
               </View>
               <Chip
                 style={[styles.statusChip, { backgroundColor: statusInfo.color }]}

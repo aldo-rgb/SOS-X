@@ -195,17 +195,20 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     }
     
     // Labels para PO Box USA (terrestre)
+    // Sin emojis en el texto: el Chip ya pinta su propio Icon arriba
+    // (truck-fast / package-variant / etc.). Tener el emoji EN el texto
+    // mostraba dos íconos seguidos en la misma línea ("🚚 🚚 En Tránsito").
     const statusLabels: Record<string, string> = {
       received: t('status.inWarehouse'),
-      in_transit: `🚚 ${t('status.inTransit')} a MTY`,
-      processing: `📋 ${t('status.processing')}`,
-      shipped: `🚚 ${t('status.shipped')}`,
-      ready_pickup: '📍 Pick Up',
+      in_transit: `${t('status.inTransit')} a MTY`,
+      processing: t('status.processing'),
+      shipped: t('status.shipped'),
+      ready_pickup: 'Pick Up',
       delivered: t('status.delivered'),
       pending: t('status.pending'),
-      received_mty: '📦 Recibido en MTY',
-      out_for_delivery: '🚛 En ruta de entrega',
-      en_ruta_entrega: '🚛 En ruta de entrega',
+      received_mty: 'Recibido en MTY',
+      out_for_delivery: 'En ruta de entrega',
+      en_ruta_entrega: 'En ruta de entrega',
     };
     return statusLabels[status] || status;
   };
@@ -762,7 +765,15 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   };
 
   const renderPackageCard = ({ item }: { item: Package }) => {
-    const statusColor = STATUS_COLORS[item.status] || '#999';
+    // Para PO Box USA queremos color neutro (gris) en los estados de
+    // tránsito: el cliente nos pidió que "En Tránsito a MTY" se vea
+    // igual que "Recibido en MTY" (ambos grises) y no llamen tanto la
+    // atención como un estado de error/alerta.
+    const isPoboxLikeStatus = item.shipment_type !== 'maritime' && item.shipment_type !== 'china_air' && item.shipment_type !== 'dhl';
+    const NEUTRAL_GRAY = '#6B7280';
+    const statusColor = isPoboxLikeStatus
+      ? (item.status === 'delivered' ? '#4CAF50' : NEUTRAL_GRAY)
+      : (STATUS_COLORS[item.status] || '#999');
     // Usar statusLabel traducido - pasar shipment_type para diferenciar marítimo y received_by para entregado
     const statusLabel = getStatusLabel(item.status, item.shipment_type, (item as any).received_by);
     
