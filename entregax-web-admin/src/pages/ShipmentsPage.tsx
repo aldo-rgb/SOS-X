@@ -1253,6 +1253,9 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       return;
     }
 
+    // Determinar si es PO BOX para no incluir QR
+    const hideQR = warehouseLocation === 'usa_pobox';
+
     try {
     // Mapeo de ciudades a códigos cortos para mostrar grande
     const getCityCode = (city?: string): string => {
@@ -1318,9 +1321,9 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         
         <!-- CÓDIGOS: QR arriba + Barcode abajo (ambos más grandes) -->
         <div class="codes-container">
-          <div class="qr-section">
+          ${!hideQR ? `<div class="qr-section">
             <div id="qr-${index}"></div>
-          </div>
+          </div>` : ''}
           <div class="barcode-section">
             <svg id="barcode-${index}"></svg>
           </div>
@@ -1499,15 +1502,15 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         // Generar códigos de barras
         ${labelsToPrint.map((label, i) => `JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.4, height: 80, displayValue: false, margin: 0 });`).join('')}
         
-        // Generar códigos QR (más grandes)
-        ${labelsToPrint.map((label, i) => `
+        // Generar códigos QR (más grandes) - Solo si no es PO BOX
+        ${!hideQR ? labelsToPrint.map((label, i) => `
           (function() {
             var qr = qrcode(0, 'M');
             qr.addData('https://app.entregax.com/track/${label.tracking}');
             qr.make();
             document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 });
           })();
-        `).join('')}
+        `).join('') : ''}
         
         window.onload = () => { setTimeout(() => { window.print(); window.close(); }, 600); };
       </script></body></html>

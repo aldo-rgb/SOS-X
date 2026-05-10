@@ -244,11 +244,11 @@ export default function LegalDocumentsPage() {
   const getDocumentLabel = (type: string) => {
     switch (type) {
       case 'privacy_policy':
-        return 'Privacidad (Empresa)';
+        return 'Aviso Privacidad (Empresa)';
       case 'privacy_notice':
-        return 'Privacidad  (Empleados)';
+        return 'Aviso Privacidad  (Empleados)';
       case 'advisor_privacy_notice':
-        return 'Privacidad (Asesores)';
+        return 'Contrato (Asesores)';
       case 'service_contract':
         return 'Contrato de Servicios';
       case 'gex_warranty_policy':

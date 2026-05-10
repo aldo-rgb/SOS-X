@@ -797,7 +797,7 @@ export default function SupplierPaymentsPage({ adminMode = false }: { adminMode?
                 <TableRow sx={{ bgcolor: '#0a0a0a', borderBottom: `1px solid ${BORDER}` }}>
                   <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Cliente</TableCell>
                   <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Monto a Enviar al Proveedor</TableCell>
-                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Divisa Destino</TableCell>
+                  <TableCell align="right" sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Destino Divisa</TableCell>
                   <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Estatus</TableCell>
                   <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Factura</TableCell>
                   <TableCell sx={{ color: '#555', fontWeight: 700, textTransform: 'uppercase', fontSize: '0.65rem', letterSpacing: '0.1em', borderBottom: `1px solid ${BORDER}` }}>Pago a Proveedor</TableCell>
