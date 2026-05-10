@@ -45,6 +45,7 @@ import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 // PaymentsIcon removido - Pago Proveedores ahora en Paneles > Admin
 import LoginPage from './pages/LoginPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 import ClientsPage from './pages/ClientsPage';
 // QuotesPage removido - ahora se accede desde PanelsHubPage > Nacional México
 // ConsolidationsPage removido - ahora se accede desde PanelsHubPage > PO Box USA > Salida
@@ -875,6 +876,18 @@ function App() {
           isAuthenticated={isAuthenticated}
           forcePreview={isLocalXPayPreview}
         />
+      </ThemeProvider>
+    );
+  }
+
+  // /reset-password?token=... — landing del email de recuperación.
+  // Se atiende ANTES del check de auth para que el link funcione
+  // aunque haya sesión previa.
+  if (typeof window !== 'undefined' && window.location.pathname === '/reset-password') {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <ResetPasswordPage />
       </ThemeProvider>
     );
   }

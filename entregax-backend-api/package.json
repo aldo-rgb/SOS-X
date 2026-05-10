@@ -20,6 +20,7 @@
   "type": "commonjs",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.993.0",
+    "@aws-sdk/client-sesv2": "^3.1045.0",
     "@aws-sdk/lib-storage": "^3.993.0",
     "@aws-sdk/s3-request-presigner": "^3.993.0",
     "@google-cloud/vision": "^5.3.5",

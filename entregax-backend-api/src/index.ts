@@ -29,6 +29,8 @@ import {
   getBranchManagerDashboard,
   getCounterStaffDashboard,
   changePassword,
+  forgotPassword,
+  resetPassword,
   updateProfile,
   updateProfilePhoto,
   getAdvisors as getAdvisorsList,
@@ -1776,6 +1778,10 @@ app.get('/', (_req: Request, res: Response) => {
 // --- RUTAS DE AUTENTICACIÓN ---
 app.post('/api/auth/register', authRateLimit, registerUser);
 app.post('/api/auth/login', authRateLimit, loginUser);
+// Password recovery — rate limit es importante porque si alguien
+// pega un email a /forgot-password en bucle, mandaríamos N correos.
+app.post('/api/auth/forgot-password', authRateLimit, forgotPassword);
+app.post('/api/auth/reset-password', authRateLimit, resetPassword);
 app.get('/api/auth/profile', authenticateToken, getProfile);
 app.post('/api/auth/change-password', authenticateToken, changePassword);
 app.put('/api/auth/update-profile', authenticateToken, updateProfile);

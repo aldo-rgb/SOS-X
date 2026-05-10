@@ -1,8 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
 import { pool } from './db'; // Conexión real a PostgreSQL
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { generateReferralCode } from './commissionController';
+import { sendPasswordResetEmail } from './emailService';
 
 // Función para generar un ID de Casillero único consecutivo (Ej. S4000, S4001, S4002...)
 const generateBoxId = async (): Promise<string> => {
@@ -1059,6 +1061,145 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
 };
 
 // ============ CAMBIAR CONTRASEÑA (Obligatorio en primer login) ============
+// ============================================
+// FORGOT PASSWORD / RESET PASSWORD
+// ============================================
+//
+// Flujo:
+//   1. Cliente pega su email a POST /api/auth/forgot-password
+//   2. Si existe, generamos token aleatorio (32 bytes hex) y lo
+//      guardamos hasheado con SHA-256 en password_reset_token con
+//      expiración de 1h. SIEMPRE respondemos 200 (no filtrar
+//      existencia de emails — protección contra enumeración).
+//   3. Email lleva el token plano en URL: /reset-password?token=...
+//   4. Cliente postea { token, newPassword } a POST /api/auth/reset-password
+//   5. Validamos hash + expiración, hasheamos la nueva pass con bcrypt
+//      y limpiamos el token.
+
+const PASSWORD_RESET_TTL_MIN = 60;
+
+let columnsMigrationDone = false;
+const ensureResetColumns = async (): Promise<void> => {
+    if (columnsMigrationDone) return;
+    try {
+        await pool.query(`
+            ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS password_reset_token VARCHAR(128),
+            ADD COLUMN IF NOT EXISTS password_reset_expires_at TIMESTAMPTZ
+        `);
+        columnsMigrationDone = true;
+    } catch (err) {
+        console.error('No se pudieron crear columnas password_reset_*:', err);
+    }
+};
+
+const hashToken = (raw: string): string =>
+    crypto.createHash('sha256').update(raw).digest('hex');
+
+export const forgotPassword = async (req: Request, res: Response): Promise<void> => {
+    try {
+        await ensureResetColumns();
+        const email = String(req.body?.email || '').trim().toLowerCase();
+        if (!email || !email.includes('@')) {
+            res.status(400).json({ error: 'Email inválido' });
+            return;
+        }
+
+        const userRes = await pool.query(
+            'SELECT id, email, full_name FROM users WHERE LOWER(email) = $1 LIMIT 1',
+            [email]
+        );
+
+        // Por seguridad: respondemos 200 incluso si el email no existe.
+        // Así un atacante no puede enumerar cuentas registradas.
+        if (userRes.rows.length === 0) {
+            console.log(`[forgot-password] email no registrado: ${email} (silenciado)`);
+            res.json({ ok: true });
+            return;
+        }
+
+        const user = userRes.rows[0];
+        const rawToken = crypto.randomBytes(32).toString('hex');
+        const tokenHash = hashToken(rawToken);
+        const expiresAt = new Date(Date.now() + PASSWORD_RESET_TTL_MIN * 60_000);
+
+        await pool.query(
+            `UPDATE users
+             SET password_reset_token = $1,
+                 password_reset_expires_at = $2
+             WHERE id = $3`,
+            [tokenHash, expiresAt, user.id]
+        );
+
+        // Enviar email — si SES no está configurado, sendPasswordResetEmail
+        // loguea warning y regresa { ok: false }, pero al cliente no le
+        // decimos para no romper la experiencia.
+        const result = await sendPasswordResetEmail(user.email, user.full_name || '', rawToken);
+        if (!result.ok) {
+            console.warn(`[forgot-password] email falló para ${user.email}: ${result.error}`);
+        }
+
+        res.json({ ok: true });
+    } catch (err: any) {
+        console.error('Error en forgotPassword:', err);
+        res.status(500).json({ error: 'Error al procesar solicitud' });
+    }
+};
+
+export const resetPassword = async (req: Request, res: Response): Promise<void> => {
+    try {
+        await ensureResetColumns();
+        const token = String(req.body?.token || '').trim();
+        const newPassword = String(req.body?.newPassword || '');
+
+        if (!token) { res.status(400).json({ error: 'Token requerido' }); return; }
+        if (newPassword.length < 8) {
+            res.status(400).json({ error: 'La contraseña debe tener al menos 8 caracteres' });
+            return;
+        }
+
+        const tokenHash = hashToken(token);
+
+        const userRes = await pool.query(
+            `SELECT id, email, password_reset_expires_at
+             FROM users
+             WHERE password_reset_token = $1
+             LIMIT 1`,
+            [tokenHash]
+        );
+
+        if (userRes.rows.length === 0) {
+            res.status(400).json({ error: 'Token inválido' });
+            return;
+        }
+
+        const user = userRes.rows[0];
+        const expiresAt = user.password_reset_expires_at
+            ? new Date(user.password_reset_expires_at)
+            : null;
+        if (!expiresAt || expiresAt.getTime() < Date.now()) {
+            res.status(400).json({ error: 'El link expiró. Solicita uno nuevo.' });
+            return;
+        }
+
+        const hashed = await bcrypt.hash(newPassword, 10);
+        await pool.query(
+            `UPDATE users
+             SET password = $1,
+                 password_reset_token = NULL,
+                 password_reset_expires_at = NULL,
+                 must_change_password = false
+             WHERE id = $2`,
+            [hashed, user.id]
+        );
+
+        res.json({ ok: true });
+    } catch (err: any) {
+        console.error('Error en resetPassword:', err);
+        res.status(500).json({ error: 'Error al cambiar contraseña' });
+    }
+};
+
 export const changePassword = async (req: Request, res: Response): Promise<void> => {
     try {
         const authReq = req as AuthRequest;

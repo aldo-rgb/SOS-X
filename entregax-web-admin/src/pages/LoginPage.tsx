@@ -69,6 +69,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
 
+  // Forgot password dialog state
+  const [forgotOpen, setForgotOpen] = useState(false);
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotSubmitting, setForgotSubmitting] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+
   // Register form state
   const [registerName, setRegisterName] = useState('');
   const [registerEmail, setRegisterEmail] = useState('');
@@ -88,6 +95,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
   // Existing client dialog state
   const [existingClientDialog, setExistingClientDialog] = useState(false);
+  const [activationQuestionDialog, setActivationQuestionDialog] = useState(false);
+  const [activationFlowSelected, setActivationFlowSelected] = useState(false);
   const [existingClientStep, setExistingClientStep] = useState(0);
   const [existingBoxId, setExistingBoxId] = useState('');
   const [existingName, setExistingName] = useState('');
@@ -122,6 +131,12 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (tabValue === 1 && !activationFlowSelected) {
+      setActivationQuestionDialog(true);
+    }
+  }, [tabValue, activationFlowSelected]);
 
   const validateReferralCodeFromUrl = async (code: string) => {
     setValidatingCode(true);
@@ -202,6 +217,38 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       } else {
         setValidatingCode(false);
       }
+    }
+  };
+
+  const openForgotDialog = () => {
+    setForgotEmail(loginEmail.trim());
+    setForgotSent(false);
+    setForgotError('');
+    setForgotOpen(true);
+  };
+  const closeForgotDialog = () => {
+    if (forgotSubmitting) return;
+    setForgotOpen(false);
+  };
+
+  const handleForgotSubmit = async () => {
+    setForgotError('');
+    const email = forgotEmail.trim().toLowerCase();
+    if (!email || !email.includes('@')) {
+      setForgotError('Ingresa un email válido');
+      return;
+    }
+    setForgotSubmitting(true);
+    try {
+      // No exponemos si el email existe o no — el backend siempre
+      // responde 200 para no permitir enumeración. Aquí solo
+      // mostramos "revisa tu correo".
+      await axios.post(`${API_URL}/auth/forgot-password`, { email });
+      setForgotSent(true);
+    } catch (err: any) {
+      setForgotError(err?.response?.data?.error || 'No se pudo enviar el correo. Intenta de nuevo.');
+    } finally {
+      setForgotSubmitting(false);
     }
   };
 
@@ -453,6 +500,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             width: '100%',
             maxWidth: 440,
             borderRadius: 2,
+            border: '1px solid #F05A28',
             overflow: 'hidden',
             boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
           }}
@@ -492,6 +540,11 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 setTabValue(newValue);
                 setError('');
                 setSuccess('');
+
+                // Al entrar a "Registrarse", preguntar si ya tiene número de cliente
+                if (newValue === 1 && !activationFlowSelected) {
+                  setActivationQuestionDialog(true);
+                }
               }}
               variant="fullWidth"
               sx={{
@@ -604,6 +657,24 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     'Ingresar al Panel'
                   )}
                 </Button>
+
+                {/* Link "¿Olvidaste tu contraseña?" — abre dialog que
+                    pide email y dispara POST /auth/forgot-password. */}
+                <Box sx={{ mt: 2, textAlign: 'center' }}>
+                  <Button
+                    variant="text"
+                    onClick={openForgotDialog}
+                    sx={{
+                      color: '#F05A28',
+                      textTransform: 'none',
+                      fontWeight: 600,
+                      fontSize: '0.875rem',
+                      '&:hover': { background: 'rgba(240,90,40,0.06)' },
+                    }}
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </Button>
+                </Box>
               </form>
             </TabPanel>
 
@@ -878,55 +949,133 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   )}
                 </Button>
 
-                {/* Existing Client Section */}
-                <Divider sx={{ my: 3 }} />
-                <Box
-                  sx={{
-                    p: 2,
-                    bgcolor: '#F8F9FA',
-                    borderRadius: 2,
-                    border: '1px solid #E5E7EB',
-                    textAlign: 'center',
-                  }}
-                >
-                  <InventoryIcon sx={{ fontSize: 32, color: '#F05A28', mb: 1 }} />
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600, mb: 0.5 }}>
-                    ¿Ya tienes número de cliente?
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                    Si ya eres cliente de EntregaX, activa tu cuenta aquí
-                  </Typography>
-                  <Button
-                    variant="outlined"
-                    fullWidth
-                    onClick={() => {
-                      resetExistingClientForm();
-                      setExistingClientDialog(true);
-                    }}
-                    sx={{
-                      borderColor: '#F05A28',
-                      color: '#F05A28',
-                      '&:hover': {
-                        borderColor: '#C1272D',
-                        bgcolor: 'rgba(240, 90, 40, 0.04)',
-                      },
-                    }}
-                  >
-                    Activar cuenta existente
-                  </Button>
-                </Box>
               </form>
             </TabPanel>
 
             {/* Footer */}
             <Box sx={{ mt: 4, textAlign: 'center' }}>
               <Typography variant="caption" color="text.secondary">
-                © 2026 EntregaX — Logística Internacional
+                © Since 2013 EntregaX Paqueteria Internacional
               </Typography>
             </Box>
           </Box>
         </Paper>
       </Fade>
+
+      {/* Forgot password dialog */}
+      <Dialog open={forgotOpen} onClose={closeForgotDialog} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {forgotSent ? 'Revisa tu correo' : '¿Olvidaste tu contraseña?'}
+        </DialogTitle>
+        <DialogContent>
+          {forgotSent ? (
+            <Box sx={{ pt: 1 }}>
+              <Typography variant="body2" sx={{ color: '#444' }}>
+                Si tu correo está registrado, te enviamos un link para
+                restablecer tu contraseña. Es válido por <strong>1 hora</strong>.
+                Revisa también tu carpeta de spam.
+              </Typography>
+            </Box>
+          ) : (
+            <Box sx={{ pt: 1 }}>
+              <Typography variant="body2" sx={{ color: '#444', mb: 2 }}>
+                Ingresa tu correo registrado y te mandaremos un link
+                para restablecer tu contraseña.
+              </Typography>
+              <TextField
+                fullWidth
+                autoFocus
+                type="email"
+                label="Correo electrónico"
+                value={forgotEmail}
+                onChange={(e) => setForgotEmail(e.target.value)}
+                disabled={forgotSubmitting}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleForgotSubmit(); }}
+              />
+              {forgotError && (
+                <Alert severity="error" sx={{ mt: 2 }}>{forgotError}</Alert>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={closeForgotDialog} disabled={forgotSubmitting}>
+            {forgotSent ? 'Cerrar' : 'Cancelar'}
+          </Button>
+          {!forgotSent && (
+            <Button
+              variant="contained"
+              onClick={handleForgotSubmit}
+              disabled={forgotSubmitting}
+              sx={{
+                background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
+                textTransform: 'none',
+                fontWeight: 700,
+                '&:hover': { background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)' },
+              }}
+            >
+              {forgotSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Enviar link'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* Modal de pregunta para flujo de registro */}
+      <Dialog
+        open={activationQuestionDialog}
+        onClose={() => setActivationQuestionDialog(false)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ textAlign: 'center', pt: 3 }}>
+          <InventoryIcon sx={{ fontSize: 34, color: '#F05A28', mb: 1 }} />
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            ¿Ya tienes número de cliente?
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ textAlign: 'center', pb: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            Si ya eres cliente de EntregaX, te ayudaremos para activar tu cuenta.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 3, display: 'flex', justifyContent: 'space-between' }}>
+          <Button
+            variant="outlined"
+            onClick={() => {
+              setActivationFlowSelected(true);
+              setActivationQuestionDialog(false);
+              // Continúa en el formulario de registro normal
+            }}
+            sx={{
+              borderColor: '#D1D5DB',
+              color: '#6B7280',
+              '&:hover': {
+                borderColor: '#9CA3AF',
+                bgcolor: '#F9FAFB',
+              },
+            }}
+          >
+            No
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setActivationFlowSelected(true);
+              setActivationQuestionDialog(false);
+              resetExistingClientForm();
+              setExistingClientDialog(true);
+            }}
+            sx={{
+              background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
+              '&:hover': {
+                background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)',
+              },
+            }}
+          >
+            Sí
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {/* Existing Client Dialog */}
       <Dialog
@@ -936,7 +1085,10 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         fullWidth
         fullScreen={isMobile}
         PaperProps={{
-          sx: { borderRadius: isMobile ? 0 : 2 }
+          sx: {
+            borderRadius: isMobile ? 0 : 2,
+            border: '1px solid #F05A28',
+          }
         }}
       >
         <DialogTitle sx={{ bgcolor: '#111', color: 'white', textAlign: 'center', py: isMobile ? 2 : undefined }}>
