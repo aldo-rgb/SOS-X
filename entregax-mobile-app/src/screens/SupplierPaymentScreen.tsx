@@ -275,64 +275,36 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     setConceptos(next);
   };
 
-  // Validación de claves SAT contra catálogo ENTANGLED (debounced)
+  // Validación + ASIGNACIÓN de claves SAT contra ENTANGLED (debounced).
+  //
+  // ⚠️ ANTES llamábamos a /api/entangled/conceptos/search (catálogo SAT
+  // genérico, NO retorna empresa asignada). Por eso siempre se veía
+  // "Pendiente de asignación" en el cuadro de empresa.
+  //
+  // Web usa POST /api/entangled/asignacion (mismo flujo que la
+  // pantalla EntangledPaymentRequest.tsx:641): le pasas servicio,
+  // monto, tc, comisión, datos fiscales y la clave; el endpoint
+  // responde con empresa.rfc/razon_social + cuenta_bancaria. Ese es
+  // el dato fiscal real que se usa luego para crear la solicitud.
   type ClaveEmpresa = { id?: string; nombre?: string; rfc?: string };
+  type ClaveCuentaBancaria = {
+    banco?: string; titular?: string; cuenta?: string; clabe?: string;
+    sucursal?: string; moneda?: string;
+  };
   type ClaveValidation = {
     clave: string;
     ok: boolean;
     descripcion?: string;
     loading?: boolean;
-    // empresa_asignada viene del API ENTANGLED — es la EMPRESA REAL
-    // que va a emitir la factura por esa clave SAT (NO el proveedor
-    // de pagos como Trébol que solo despacha el dinero).
     empresa?: ClaveEmpresa | null;
-    disponible?: boolean;
+    cuentaBancaria?: ClaveCuentaBancaria | null;
+    error?: string;
   };
   const [claveValidations, setClaveValidations] = useState<ClaveValidation[]>([]);
   const claveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (claveDebounceRef.current) clearTimeout(claveDebounceRef.current);
-    const claves = conceptos
-      .split(',')
-      .map(s => s.trim())
-      .filter(Boolean)
-      .filter(s => /^\d{6,10}$/.test(s.split('|')[0].trim()));
-    if (claves.length === 0) {
-      setClaveValidations([]);
-      return;
-    }
-    setClaveValidations(claves.map(c => ({ clave: c.split('|')[0].trim(), ok: false, loading: true })));
-    claveDebounceRef.current = setTimeout(async () => {
-      const out: ClaveValidation[] = [];
-      for (const c of claves) {
-        const clave = c.split('|')[0].trim();
-        try {
-          const r = await fetch(
-            `${API_URL}/api/entangled/conceptos/search?q=${encodeURIComponent(clave)}&limit=5`,
-            { headers: authHeaders }
-          );
-          const data = await r.json();
-          const list = Array.isArray(data?.results) ? data.results : [];
-          const match = list.find((x: any) => String(x.clave_prodserv) === clave);
-          if (match) {
-            out.push({
-              clave,
-              ok: match.disponible !== false,
-              descripcion: match.descripcion || '',
-              empresa: match.empresa_asignada || null,
-              disponible: match.disponible,
-            });
-          } else {
-            out.push({ clave, ok: false });
-          }
-        } catch {
-          out.push({ clave, ok: false });
-        }
-      }
-      setClaveValidations(out);
-    }, 600);
-    return () => { if (claveDebounceRef.current) clearTimeout(claveDebounceRef.current); };
-  }, [conceptos, token]);
+  // El useEffect que dispara las llamadas a /asignacion vive más abajo,
+  // después de que se define `quote` y `pricing` — referencia esos
+  // valores en su closure y TS no permite el TDZ al revés.
 
   useEffect(() => {
     loadRequests();
@@ -395,6 +367,89 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       monto_mxn_costo_op: costoOpMxn, monto_mxn_total: total,
     };
   })();
+
+  // useEffect que valida + asigna empresa por cada clave SAT capturada.
+  // Vive aquí (post-quote) por TDZ: el closure referencia quote.tipo_cambio.
+  useEffect(() => {
+    if (claveDebounceRef.current) clearTimeout(claveDebounceRef.current);
+    const claves = conceptos
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .filter(s => /^\d{6,10}$/.test(s.split('|')[0].trim()));
+    if (claves.length === 0) {
+      setClaveValidations([]);
+      return;
+    }
+    const tcFinal = quote?.tipo_cambio;
+    const comisionPct = quote?.porcentaje_compra;
+    const montoNum = parseFloat(monto) || 0;
+    const fiscalCompleto = !requiereFactura || !!(rfc && razon && regimen && cp && uso && email);
+    const puedeAsignar = montoNum > 0 && !!tcFinal && fiscalCompleto;
+
+    if (!puedeAsignar) {
+      setClaveValidations(claves.map(c => ({
+        clave: c.split('|')[0].trim(),
+        ok: false,
+        loading: false,
+        error: 'Captura monto y datos fiscales completos para asignar empresa.',
+      })));
+      return;
+    }
+
+    setClaveValidations(claves.map(c => ({ clave: c.split('|')[0].trim(), ok: false, loading: true })));
+    claveDebounceRef.current = setTimeout(async () => {
+      const out: ClaveValidation[] = [];
+      for (const c of claves) {
+        const clave = c.split('|')[0].trim();
+        try {
+          const body: any = {
+            servicio: requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
+            monto_destino: montoNum,
+            divisa_destino: divisa,
+            tc_cliente_final: tcFinal,
+            comision_cliente_final_porcentaje: comisionPct,
+            cliente_final: requiereFactura
+              ? {
+                  rfc: String(rfc).trim().toUpperCase(),
+                  razon_social: String(razon).trim(),
+                  regimen_fiscal: String(regimen).trim(),
+                  cp: String(cp).trim(),
+                  uso_cfdi: String(uso).trim(),
+                  email: String(email).trim(),
+                }
+              : { razon_social: razon || benefName || 'Público en General' },
+          };
+          if (requiereFactura) body.concepto = clave;
+          const r = await fetch(`${API_URL}/api/entangled/asignacion`, {
+            method: 'POST',
+            headers: { ...authHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
+          const data = await r.json();
+          if (r.ok && data?.empresa?.rfc) {
+            out.push({
+              clave,
+              ok: true,
+              descripcion: data?.descripcion || data?.concepto?.descripcion || '',
+              empresa: {
+                rfc: data.empresa.rfc,
+                nombre: data.empresa.razon_social || data.empresa.nombre,
+              },
+              cuentaBancaria: data.cuenta_bancaria || null,
+            });
+          } else {
+            out.push({ clave, ok: false, error: data?.error || 'No se pudo asignar empresa' });
+          }
+        } catch {
+          out.push({ clave, ok: false, error: 'Error de red al consultar asignación' });
+        }
+      }
+      setClaveValidations(out);
+    }, 600);
+    return () => { if (claveDebounceRef.current) clearTimeout(claveDebounceRef.current); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conceptos, token, quote?.tipo_cambio, monto, divisa, requiereFactura, rfc, razon, regimen, cp, uso, email, benefName]);
 
   const defaultProvider = providers.find(x => x.is_default) || providers[0] || null;
 
@@ -588,16 +643,19 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       if (claveValidations.some(v => v.loading)) return 'Validando claves SAT, espera un momento...';
       const invalid = claveValidations.filter(v => !v.ok && !v.loading).map(v => v.clave);
       if (invalid.length > 0) return `Claves SAT no encontradas en catálogo: ${invalid.join(', ')}`;
-      // Bloqueo de mezcla de empresas — igual que en web. No se puede
-      // emitir UNA factura con claves que pertenecen a más de una
-      // empresa facturadora.
-      const empresasDistintas = Array.from(new Set(
+      // Bloqueo de mezcla de empresas — igual que en web. Comparamos
+      // por RFC (más confiable que el nombre, que puede variar en
+      // mayúsculas / saltos de espacio).
+      const rfcsDistintos = Array.from(new Set(
         claveValidations
-          .map(v => v.empresa?.nombre)
-          .filter((n): n is string => !!n)
+          .map(v => v.empresa?.rfc)
+          .filter((r): r is string => !!r)
       ));
-      if (empresasDistintas.length > 1) {
-        return `No puedes mezclar claves SAT de empresas distintas (${empresasDistintas.join(' y ')}). Quita una y deja solo claves de la misma empresa.`;
+      if (rfcsDistintos.length > 1) {
+        const nombres = Array.from(new Set(
+          claveValidations.map(v => v.empresa?.nombre).filter((n): n is string => !!n)
+        ));
+        return `No puedes mezclar claves SAT de empresas distintas (${nombres.join(' y ')}). Quita una y deja solo claves de la misma empresa.`;
       }
     }
     return null;
@@ -1532,20 +1590,22 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     </View>
                   )}
 
-                  {/* Empresa que emitirá la factura — toma empresa_asignada
-                      del API ENTANGLED. Antes mostraba el provider name
-                      (Trébol = agencia de pagos), que es distinto: cada
-                      clave SAT tiene su propia empresa fiscal asignada. */}
-                  {claveValidations.length > 0 && claveValidations.every(v => v.ok) && (() => {
-                    const empresas = claveValidations
-                      .map(v => v.empresa)
-                      .filter((e): e is ClaveEmpresa => !!e && !!e.nombre);
-                    const nombresUnicos = Array.from(new Set(empresas.map(e => e.nombre)));
-                    const mezcla = nombresUnicos.length > 1;
-                    const sinDato = empresas.length === 0;
-                    const empresa = empresas[0];
+                  {/* Empresa que emitirá la factura + cuenta bancaria —
+                      datos vienen de POST /api/entangled/asignacion (web
+                      hace lo mismo). Si las claves pertenecen a empresas
+                      distintas (RFCs distintos), bloqueamos. */}
+                  {claveValidations.length > 0 && (() => {
+                    const validas = claveValidations.filter(v => v.ok && v.empresa?.rfc);
+                    if (validas.length === 0) return null;
+                    const rfcsUnicos = Array.from(new Set(
+                      validas.map(v => v.empresa!.rfc).filter((r): r is string => !!r)
+                    ));
+                    const mezcla = rfcsUnicos.length > 1;
+                    const empresa = validas[0].empresa!;
+                    const cb = validas[0].cuentaBancaria || null;
 
                     if (mezcla) {
+                      const nombres = Array.from(new Set(validas.map(v => v.empresa!.nombre).filter(Boolean)));
                       return (
                         <View
                           style={{
@@ -1562,7 +1622,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                           </Text>
                           <Text style={{ fontSize: 12, color: '#B71C1C' }}>
                             No puedes mezclar claves que pertenecen a más de una empresa
-                            facturadora en una sola operación. Empresas detectadas: {nombresUnicos.join(', ')}.
+                            en una sola operación. Empresas detectadas: {nombres.join(', ')}.
                             Quita una y deja solo claves de la misma empresa.
                           </Text>
                         </View>
@@ -1578,26 +1638,35 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                           borderWidth: 1,
                           borderColor: ORANGE,
                           backgroundColor: '#FFF6F0',
-                          flexDirection: 'row',
-                          alignItems: 'center',
                         }}
                       >
-                        <Ionicons name="business-outline" size={18} color={ORANGE} style={{ marginRight: 8 }} />
-                        <View style={{ flex: 1 }}>
-                          <Text style={{ fontSize: 11, color: TEXT_DIM }}>
-                            {t('xpay.providerAssigned', 'Empresa que emitirá la factura')}
-                          </Text>
-                          <Text style={{ fontSize: 14, fontWeight: '700', color: '#111' }}>
-                            {sinDato
-                              ? 'Pendiente de asignación'
-                              : empresa?.nombre || '—'}
-                          </Text>
-                          {!sinDato && empresa?.rfc && (
-                            <Text style={{ fontSize: 11, color: TEXT_DIM, marginTop: 2 }}>
-                              RFC: {empresa.rfc}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: cb ? 6 : 0 }}>
+                          <Ionicons name="business-outline" size={18} color={ORANGE} style={{ marginRight: 8 }} />
+                          <View style={{ flex: 1 }}>
+                            <Text style={{ fontSize: 11, color: TEXT_DIM }}>
+                              {t('xpay.providerAssigned', 'Empresa que emitirá la factura')}
                             </Text>
-                          )}
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: '#111' }}>
+                              {empresa.nombre || '—'}
+                            </Text>
+                            {empresa.rfc && (
+                              <Text style={{ fontSize: 11, color: TEXT_DIM, marginTop: 2 }}>
+                                RFC: {empresa.rfc}
+                              </Text>
+                            )}
+                          </View>
                         </View>
+                        {cb && (cb.cuenta || cb.clabe || cb.banco) && (
+                          <View style={{ marginTop: 6, paddingTop: 6, borderTopWidth: 1, borderTopColor: '#FFD9C2' }}>
+                            <Text style={{ fontSize: 10, color: ORANGE, fontWeight: '700', letterSpacing: 0.4 }}>
+                              💳 CUENTA BANCARIA ASIGNADA
+                            </Text>
+                            {!!cb.banco && <Text style={{ fontSize: 12, color: '#111', marginTop: 2 }}>Banco: <Text style={{ fontWeight: '700' }}>{cb.banco}</Text></Text>}
+                            {!!cb.titular && <Text style={{ fontSize: 12, color: '#111' }}>Titular: <Text style={{ fontWeight: '700' }}>{cb.titular}</Text></Text>}
+                            {!!cb.cuenta && <Text style={{ fontSize: 12, color: '#111' }}>Cuenta: <Text style={{ fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>{cb.cuenta}</Text></Text>}
+                            {!!cb.clabe && <Text style={{ fontSize: 12, color: '#111' }}>CLABE: <Text style={{ fontWeight: '700', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>{cb.clabe}</Text></Text>}
+                          </View>
+                        )}
                       </View>
                     );
                   })()}
@@ -1613,7 +1682,56 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             <Text style={styles.quoteTitle}>✓ Resumen total</Text>
             <Text style={styles.quoteLine}>Divisa: <Text style={styles.quoteVal}>{divisa}</Text></Text>
             <Text style={styles.quoteLine}>Monto al proveedor: <Text style={styles.quoteVal}>${formatMoney(monto || 0, 2)} {divisa}</Text></Text>
-            <Text style={styles.quoteLine}>Proveedor ENTANGLED: <Text style={styles.quoteVal}>{providers.find((x) => x.id === selectedProviderId)?.name || '-'}</Text></Text>
+
+            {/* Empresa que emitirá la factura + cuenta bancaria asignada
+                (viene de /api/entangled/asignacion para la primera clave
+                SAT capturada — todas comparten empresa porque ya
+                bloqueamos la mezcla). */}
+            {requiereFactura && (() => {
+              const validas = claveValidations.filter(v => v.ok && v.empresa?.rfc);
+              if (validas.length === 0) return null;
+              const empresa = validas[0].empresa!;
+              const cb = validas[0].cuentaBancaria || null;
+              const claves = validas.map(v => v.clave).join(', ');
+              return (
+                <View style={{ marginTop: 8, padding: 10, backgroundColor: '#0a0a0a', borderRadius: 8, borderWidth: 1, borderColor: ORANGE }}>
+                  <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 6 }}>
+                    🏢 EMPRESA QUE EMITIRÁ LA FACTURA
+                  </Text>
+                  <Text style={styles.quoteLine}>Razón social: <Text style={styles.quoteVal}>{empresa.nombre || '—'}</Text></Text>
+                  {!!empresa.rfc && <Text style={styles.quoteLine}>RFC: <Text style={[styles.quoteVal, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{empresa.rfc}</Text></Text>}
+                  <Text style={styles.quoteLine}>Claves SAT: <Text style={styles.quoteVal}>{claves}</Text></Text>
+                  {cb && (cb.cuenta || cb.clabe || cb.banco) && (
+                    <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#333', borderStyle: 'dashed' as any }}>
+                      <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 4 }}>
+                        💳 CUENTA BANCARIA ASIGNADA
+                      </Text>
+                      {!!cb.banco && <Text style={styles.quoteLine}>Banco: <Text style={styles.quoteVal}>{cb.banco}{cb.moneda ? ` (${cb.moneda})` : ''}</Text></Text>}
+                      {!!cb.titular && <Text style={styles.quoteLine}>Titular: <Text style={styles.quoteVal}>{cb.titular}</Text></Text>}
+                      {!!cb.cuenta && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={styles.quoteLine}>Cuenta: <Text style={[styles.quoteVal, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{cb.cuenta}</Text></Text>
+                          <TouchableOpacity onPress={async () => { await Clipboard.setStringAsync(String(cb.cuenta)); }}>
+                            <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700' }}>Copiar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {!!cb.clabe && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Text style={styles.quoteLine}>CLABE: <Text style={[styles.quoteVal, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{cb.clabe}</Text></Text>
+                          <TouchableOpacity onPress={async () => { await Clipboard.setStringAsync(String(cb.clabe)); }}>
+                            <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700' }}>Copiar</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {!!cb.sucursal && <Text style={styles.quoteLine}>Sucursal: <Text style={styles.quoteVal}>{cb.sucursal}</Text></Text>}
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
+
+            <Text style={[styles.quoteLine, { marginTop: 8 }]}>Proveedor ENTANGLED: <Text style={styles.quoteVal}>{providers.find((x) => x.id === selectedProviderId)?.name || '-'}</Text></Text>
             {(() => {
               const prov = providers.find((x) => x.id === selectedProviderId);
               const all = Array.isArray(prov?.bank_accounts) ? prov!.bank_accounts! : [];
