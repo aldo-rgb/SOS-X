@@ -998,6 +998,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         <Icon source="clipboard-check" size={14} color="#8B5CF6" />
                       </View>
                     )}
+                    {/* 🏷️ Etiqueta nacional impresa: si la guía ya pasó por
+                        el módulo de etiquetado y tiene URL/tracking del
+                        carrier nacional, mostramos un badge azul para
+                        que el cliente sepa que ya está lista para salir
+                        a ruta. */}
+                    {(!!(item as any).national_label_url || !!(item as any).national_tracking || !!(item as any).skydropx_label_id || !!(item as any).dhl_awb) && (
+                      <View style={styles.iconOnlyBadge}>
+                        <Icon source="printer-check" size={14} color="#0EA5E9" />
+                      </View>
+                    )}
                     {/* 💳 Orden de pago pendiente */}
                     {hasPendingPaymentOrder && !isPaid && (
                       <View style={styles.iconOnlyBadge}>
@@ -1034,6 +1044,17 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         <View style={styles.deliveryAssignedBadge}>
                           <Icon source="clipboard-check" size={12} color="#8B5CF6" />
                           <Text style={styles.deliveryAssignedText}>Instrucciones</Text>
+                        </View>
+                      )}
+                      {/* 🏷️ Etiquetado: el chip aparece cuando la guía
+                          tiene etiqueta nacional impresa (national_label_url,
+                          national_tracking, skydropx o DHL AWB). Esto le
+                          confirma al cliente que su paquete ya pasó por
+                          el módulo de etiquetado y está listo para ruta. */}
+                      {(!!(item as any).national_label_url || !!(item as any).national_tracking || !!(item as any).skydropx_label_id || !!(item as any).dhl_awb) && (
+                        <View style={styles.labeledBadge}>
+                          <Icon source="printer-check" size={12} color="#0EA5E9" />
+                          <Text style={styles.labeledBadgeText}>Etiquetado</Text>
                         </View>
                       )}
                       {/* 💳 Orden de pago pendiente expandido */}
@@ -3165,6 +3186,21 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: 'bold',
     color: '#8B5CF6',
+  },
+  // 🏷️ Badge Etiquetado (azul cielo) — guía con etiqueta nacional impresa
+  labeledBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0EA5E920',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    gap: 4,
+  },
+  labeledBadgeText: {
+    fontSize: 11,
+    fontWeight: 'bold',
+    color: '#0EA5E9',
   },
   assignedCarrierBadge: {
     flexDirection: 'row',
