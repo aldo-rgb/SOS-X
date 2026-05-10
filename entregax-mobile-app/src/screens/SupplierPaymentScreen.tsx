@@ -276,7 +276,18 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   };
 
   // Validación de claves SAT contra catálogo ENTANGLED (debounced)
-  type ClaveValidation = { clave: string; ok: boolean; descripcion?: string; loading?: boolean };
+  type ClaveEmpresa = { id?: string; nombre?: string; rfc?: string };
+  type ClaveValidation = {
+    clave: string;
+    ok: boolean;
+    descripcion?: string;
+    loading?: boolean;
+    // empresa_asignada viene del API ENTANGLED — es la EMPRESA REAL
+    // que va a emitir la factura por esa clave SAT (NO el proveedor
+    // de pagos como Trébol que solo despacha el dinero).
+    empresa?: ClaveEmpresa | null;
+    disponible?: boolean;
+  };
   const [claveValidations, setClaveValidations] = useState<ClaveValidation[]>([]);
   const claveDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -304,7 +315,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           const list = Array.isArray(data?.results) ? data.results : [];
           const match = list.find((x: any) => String(x.clave_prodserv) === clave);
           if (match) {
-            out.push({ clave, ok: true, descripcion: match.descripcion || '' });
+            out.push({
+              clave,
+              ok: match.disponible !== false,
+              descripcion: match.descripcion || '',
+              empresa: match.empresa_asignada || null,
+              disponible: match.disponible,
+            });
           } else {
             out.push({ clave, ok: false });
           }
@@ -564,6 +581,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       if (claveValidations.some(v => v.loading)) return 'Validando claves SAT, espera un momento...';
       const invalid = claveValidations.filter(v => !v.ok && !v.loading).map(v => v.clave);
       if (invalid.length > 0) return `Claves SAT no encontradas en catálogo: ${invalid.join(', ')}`;
+      // Bloqueo de mezcla de empresas — igual que en web. No se puede
+      // emitir UNA factura con claves que pertenecen a más de una
+      // empresa facturadora.
+      const empresasDistintas = Array.from(new Set(
+        claveValidations
+          .map(v => v.empresa?.nombre)
+          .filter((n): n is string => !!n)
+      ));
+      if (empresasDistintas.length > 1) {
+        return `No puedes mezclar claves SAT de empresas distintas (${empresasDistintas.join(' y ')}). Quita una y deja solo claves de la misma empresa.`;
+      }
     }
     return null;
   };
@@ -1497,31 +1525,75 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     </View>
                   )}
 
-                  {/* Empresa proveedora que recibirá el pago */}
-                  {claveValidations.length > 0 && claveValidations.every(v => v.ok) && (
-                    <View
-                      style={{
-                        marginTop: 10,
-                        padding: 10,
-                        borderRadius: 8,
-                        borderWidth: 1,
-                        borderColor: ORANGE,
-                        backgroundColor: '#FFF6F0',
-                        flexDirection: 'row',
-                        alignItems: 'center',
-                      }}
-                    >
-                      <Ionicons name="business-outline" size={18} color={ORANGE} style={{ marginRight: 8 }} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={{ fontSize: 11, color: TEXT_DIM }}>
-                          {t('xpay.providerAssigned', 'Empresa que enviará el pago')}
-                        </Text>
-                        <Text style={{ fontSize: 14, fontWeight: '700', color: '#111' }}>
-                          {providers.find(p => p.id === selectedProviderId)?.name || providers.find(p => p.is_default)?.name || '—'}
-                        </Text>
+                  {/* Empresa que emitirá la factura — toma empresa_asignada
+                      del API ENTANGLED. Antes mostraba el provider name
+                      (Trébol = agencia de pagos), que es distinto: cada
+                      clave SAT tiene su propia empresa fiscal asignada. */}
+                  {claveValidations.length > 0 && claveValidations.every(v => v.ok) && (() => {
+                    const empresas = claveValidations
+                      .map(v => v.empresa)
+                      .filter((e): e is ClaveEmpresa => !!e && !!e.nombre);
+                    const nombresUnicos = Array.from(new Set(empresas.map(e => e.nombre)));
+                    const mezcla = nombresUnicos.length > 1;
+                    const sinDato = empresas.length === 0;
+                    const empresa = empresas[0];
+
+                    if (mezcla) {
+                      return (
+                        <View
+                          style={{
+                            marginTop: 10,
+                            padding: 10,
+                            borderRadius: 8,
+                            borderWidth: 1,
+                            borderColor: '#D32F2F',
+                            backgroundColor: '#FEEBEE',
+                          }}
+                        >
+                          <Text style={{ fontSize: 13, fontWeight: '700', color: '#D32F2F', marginBottom: 4 }}>
+                            ⚠️ Claves SAT de empresas distintas
+                          </Text>
+                          <Text style={{ fontSize: 12, color: '#B71C1C' }}>
+                            No puedes mezclar claves que pertenecen a más de una empresa
+                            facturadora en una sola operación. Empresas detectadas: {nombresUnicos.join(', ')}.
+                            Quita una y deja solo claves de la misma empresa.
+                          </Text>
+                        </View>
+                      );
+                    }
+
+                    return (
+                      <View
+                        style={{
+                          marginTop: 10,
+                          padding: 10,
+                          borderRadius: 8,
+                          borderWidth: 1,
+                          borderColor: ORANGE,
+                          backgroundColor: '#FFF6F0',
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                        }}
+                      >
+                        <Ionicons name="business-outline" size={18} color={ORANGE} style={{ marginRight: 8 }} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 11, color: TEXT_DIM }}>
+                            {t('xpay.providerAssigned', 'Empresa que emitirá la factura')}
+                          </Text>
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: '#111' }}>
+                            {sinDato
+                              ? 'Pendiente de asignación'
+                              : empresa?.nombre || '—'}
+                          </Text>
+                          {!sinDato && empresa?.rfc && (
+                            <Text style={{ fontSize: 11, color: TEXT_DIM, marginTop: 2 }}>
+                              RFC: {empresa.rfc}
+                            </Text>
+                          )}
+                        </View>
                       </View>
-                    </View>
-                  )}
+                    );
+                  })()}
                 </View>
               </>
             )}
