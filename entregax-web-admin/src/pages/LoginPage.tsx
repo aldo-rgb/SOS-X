@@ -971,7 +971,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           {forgotSent ? (
             <Box sx={{ pt: 1 }}>
               <Typography variant="body2" sx={{ color: '#444' }}>
-                Si tu correo está registrado, te enviamos un link para
+                Te enviamos un link a <strong>{forgotEmail}</strong> para
                 restablecer tu contraseña. Es válido por <strong>1 hora</strong>.
                 Revisa también tu carpeta de spam.
               </Typography>
@@ -1014,7 +1014,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 '&:hover': { background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)' },
               }}
             >
-              {forgotSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Enviar link'}
+              {forgotSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Recuperar'}
             </Button>
           )}
         </DialogActions>

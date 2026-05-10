@@ -1110,11 +1110,14 @@ export const forgotPassword = async (req: Request, res: Response): Promise<void>
             [email]
         );
 
-        // Por seguridad: respondemos 200 incluso si el email no existe.
-        // Así un atacante no puede enumerar cuentas registradas.
+        // Decisión de producto (sobre seguridad): el cliente prefiere
+        // decirle al usuario explícitamente cuando el correo no está
+        // registrado en lugar de mostrar siempre el mismo mensaje
+        // genérico. Pierde la protección anti-enumeración, gana
+        // claridad para el usuario.
         if (userRes.rows.length === 0) {
-            console.log(`[forgot-password] email no registrado: ${email} (silenciado)`);
-            res.json({ ok: true });
+            console.log(`[forgot-password] email no registrado: ${email}`);
+            res.status(404).json({ error: 'Ese correo no está registrado en EntregaX' });
             return;
         }
 

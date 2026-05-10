@@ -272,9 +272,9 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
             </Text>
             {forgotSent ? (
               <Text style={styles.modalBody}>
-                Si tu correo está registrado, te enviamos un link para
-                restablecer tu contraseña. Es válido por 1 hora.
-                Revisa también tu carpeta de spam.
+                Te enviamos un link a {forgotEmail} para restablecer
+                tu contraseña. Es válido por 1 hora. Revisa también
+                tu carpeta de spam.
               </Text>
             ) : (
               <>
