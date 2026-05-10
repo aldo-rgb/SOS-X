@@ -1061,7 +1061,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       )}
                       {hasDeliveryInstructions && (
                         <View style={styles.deliveryAssignedBadge}>
-                          <Icon source="clipboard-check" size={12} color="#8B5CF6" />
+                          <Icon source="clipboard-check" size={12} color="#D97706" />
                           <Text style={styles.deliveryAssignedText}>Instrucciones</Text>
                         </View>
                       )}
@@ -1581,23 +1581,41 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   setTrackedPackage(null);
                   
                   try {
-                    // Buscar en paquetes locales primero
+                    // Búsqueda flexible: comparar tanto en formato exacto
+                    // como compacto (sin guiones, espacios, ?, etc.) contra
+                    // todos los campos de tracking disponibles —
+                    // tracking_internal (ID interno EntregaX),
+                    // tracking_provider (guía origen del courier),
+                    // national_tracking (guía paquetería nacional asignada),
+                    // tracking_courier (legacy).
                     const searchTerm = trackingSearch.trim().toUpperCase();
-                    const found = packages.find(pkg => 
-                      (pkg.tracking_internal?.toUpperCase() === searchTerm) ||
-                      (pkg.tracking_provider?.toUpperCase() === searchTerm) ||
-                      ((pkg as any).tracking_courier?.toUpperCase() === searchTerm)
-                    );
-                    
+                    const compact = (s: string | undefined | null) =>
+                      String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+                    const searchCompact = compact(searchTerm);
+                    const found = packages.find(pkg => {
+                      const fields = [
+                        pkg.tracking_internal,
+                        pkg.tracking_provider,
+                        (pkg as any).national_tracking,
+                        (pkg as any).tracking_courier,
+                      ];
+                      return fields.some(f => {
+                        if (!f) return false;
+                        const fc = compact(f);
+                        return fc === searchCompact || String(f).toUpperCase() === searchTerm;
+                      });
+                    });
+
                     if (found) {
                       setTrackedPackage(found);
                     } else {
-                      // Buscar en API (historial)
+                      // Buscar en API (historial). El backend ya soporta
+                      // comparación compacta y por tracking_provider.
                       const response = await fetch(
-                        `${API_URL}/api/packages/track/${searchTerm}`,
+                        `${API_URL}/api/packages/track/${encodeURIComponent(searchTerm)}`,
                         { headers: { Authorization: `Bearer ${token}` } }
                       );
-                      
+
                       if (response.ok) {
                         const data = await response.json();
                         setTrackedPackage(data);
@@ -3205,7 +3223,8 @@ const styles = StyleSheet.create({
   gexBadgeText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: '#10B981',
+    // Cliente pidió todos los textos de pills en negro
+    color: '#111',
   },
   // ✅ Badge Instrucciones Asignadas — amarillo (era morado)
   deliveryAssignedBadge: {
@@ -3220,7 +3239,7 @@ const styles = StyleSheet.create({
   deliveryAssignedText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: '#D97706',
+    color: '#111',
   },
   // 🏷️ Badge Etiquetado (azul cielo) — guía con etiqueta nacional impresa
   labeledBadge: {
@@ -3235,7 +3254,7 @@ const styles = StyleSheet.create({
   labeledBadgeText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: '#0EA5E9',
+    color: '#111',
   },
   assignedCarrierBadge: {
     flexDirection: 'row',
@@ -3252,7 +3271,7 @@ const styles = StyleSheet.create({
   assignedCarrierText: {
     fontSize: 11,
     fontWeight: '700',
-    color: ORANGE,
+    color: '#111',
   },
   // � Badge Orden de Pago Pendiente
   pendingPaymentBadge: {
@@ -3267,7 +3286,7 @@ const styles = StyleSheet.create({
   pendingPaymentBadgeText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: '#F59E0B',
+    color: '#111',
   },
   // �💰 Badge Pagado
   paidBadge: {
@@ -3282,7 +3301,7 @@ const styles = StyleSheet.create({
   paidBadgeText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: '#10B981',
+    color: '#111',
   },
   // 💰 Badge No Pagado
   unpaidBadge: {
@@ -3297,7 +3316,7 @@ const styles = StyleSheet.create({
   unpaidBadgeText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: '#EF4444',
+    color: '#111',
   },
   infoRow: {
     flexDirection: 'row',
