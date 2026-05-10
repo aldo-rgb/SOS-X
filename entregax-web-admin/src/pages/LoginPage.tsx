@@ -518,7 +518,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
               <Box
                 component="img"
-                src="/logo.png"
+                src="/logo-paqeteria.png"
                 alt="EntregaX"
                 sx={{
                   width: 180,

@@ -95,9 +95,9 @@ export const sendPasswordResetEmail = async (
 ): Promise<SendEmailResult> => {
   const baseUrl = (process.env.WEB_BASE_URL || 'https://entregax.app').replace(/\/$/, '');
   const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
-  // Logo público servido desde el bucket web. Usa la versión completa
-  // (logotipo + isotipo) que ya está en /public del web admin.
-  const logoUrl = `${baseUrl}/entregax-logo-full.png`;
+  // Logo público servido desde /public del web admin. Versión "Paquetería"
+  // (logo nuevo con la marca completa).
+  const logoUrl = `${baseUrl}/logo-paqeteria.png`;
 
   const html = `
     <!DOCTYPE html>

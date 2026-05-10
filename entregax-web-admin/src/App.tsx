@@ -1182,7 +1182,7 @@ function App() {
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <Box
                   component="img"
-                  src="/logo.png"
+                  src="/logo-paqeteria.png"
                   alt="EntregaX"
                   sx={{
                     width: 120,
@@ -1312,7 +1312,7 @@ function App() {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
           <Box
             component="img"
-            src="/logo.png"
+            src="/logo-paqeteria.png"
             alt="EntregaX"
             sx={{
               width: 140,

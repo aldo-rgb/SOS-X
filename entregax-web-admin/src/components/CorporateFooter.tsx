@@ -89,7 +89,7 @@ export default function CorporateFooter() {
           <Box sx={{ flex: { xs: '1 1 100%', md: '0 1 280px' }, textAlign: 'center' }}>
             <Box
               component="img"
-              src="/logo.png"
+              src="/logo-paqeteria.png"
               alt="EntregaX"
               sx={{ height: { xs: 38, md: 44 }, width: 'auto', display: 'inline-block' }}
             />

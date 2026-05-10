@@ -222,7 +222,7 @@ export default function FirmaAbandonoPage() {
         {/* Header */}
         <Box sx={{ textAlign: 'center', mb: 4 }}>
           <img 
-            src="/logo.png" 
+            src="/logo-paqeteria.png" 
             alt="EntregaX" 
             style={{ height: 50, marginBottom: 16 }}
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
