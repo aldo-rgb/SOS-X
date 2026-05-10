@@ -34,7 +34,7 @@ const RED = '#C1272D';
 const BLACK = '#111';
 const LIGHT_GRAY = '#F3F4F6';
 
-type ServiceKey = 'pobox' | 'air_china' | 'maritime' | 'dhl';
+type ServiceKey = 'pobox' | 'air_china' | 'maritime';
 
 interface Props {
   navigation: any;
@@ -53,19 +53,7 @@ const SERVICES: ServiceMeta[] = [
   { key: 'pobox',     title: 'PO Box USA',          subtitle: 'Estados Unidos → Monterrey', icon: 'package-variant',  endpoint: '/api/quotes/pobox' },
   { key: 'air_china', title: 'TDI Aéreo China',     subtitle: 'Aéreo China → México',       icon: 'airplane',         endpoint: '/api/quotes/air-china' },
   { key: 'maritime',  title: 'Marítimo China',      subtitle: 'Contenedor LCL/FCL',         icon: 'ferry',            endpoint: '/api/maritime/calculate' },
-  { key: 'dhl',       title: 'DHL Internacional',   subtitle: 'Express → Monterrey',        icon: 'truck-fast',       endpoint: '/api/quotes/calculate' },
 ];
-
-// Tipos de mercancía aérea (china_air)
-const AIR_TARIFF_TYPES: { code: string; label: string }[] = [
-  { code: 'G', label: 'Genérico' },
-  { code: 'L', label: 'Logo / Marca' },
-  { code: 'S', label: 'Sensible' },
-  { code: 'F', label: 'Flat / Liviano' },
-];
-
-// Categorías marítimas
-const MARITIME_CATEGORIES = ['Generico', 'Sensible', 'Logotipo', 'StartUp'];
 
 const formatMxn = (n: number | string | undefined | null): string => {
   const v = Number(n) || 0;
@@ -91,13 +79,15 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
   const [heightCm, setHeightCm] = useState('');
   const [quantity, setQuantity] = useState('1');
 
-  // Específicos
-  const [tariffType, setTariffType] = useState<string>('G');     // air_china
-  const [maritimeCategory, setMaritimeCategory] = useState<string>('Generico');
+  // Cliente solicitó cotizar siempre como Genérico — sin selector de
+  // tipo de mercancía / categoría. Hardcodeo abajo en el body.
 
   // GEX universal
   const [includeGex, setIncludeGex] = useState(false);
   const [declaredValueMxn, setDeclaredValueMxn] = useState('');
+
+  // Acordeón "¿Cómo se cotiza?" — colapsado por defecto.
+  const [showPricingInfo, setShowPricingInfo] = useState(false);
 
   const selectedService = useMemo(() => SERVICES.find(s => s.key === service) || null, [service]);
 
@@ -108,7 +98,6 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     setError(null);
     setWeightKg(''); setLengthCm(''); setWidthCm(''); setHeightCm('');
     setQuantity('1');
-    setTariffType('G'); setMaritimeCategory('Generico');
     setIncludeGex(false); setDeclaredValueMxn('');
   };
 
@@ -134,17 +123,11 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     if (selectedService.key === 'pobox') {
       body.quantity = Math.max(1, parseInt(quantity) || 1);
     } else if (selectedService.key === 'air_china') {
-      body.tariffType = tariffType;
+      // Cotizador siempre asume Genérico — sin selector visible.
+      body.tariffType = 'G';
     } else if (selectedService.key === 'maritime') {
       body.userId = user?.id;
-      body.category = maritimeCategory;
-    } else if (selectedService.key === 'dhl') {
-      // calculateQuoteEndpoint requiere serviceCode + userId.
-      // El código DHL_MTY debe existir en logistics_services; si no,
-      // el backend regresa 400 con mensaje claro y lo mostramos abajo.
-      body.userId = user?.id;
-      body.serviceCode = 'DHL_MTY';
-      body.quantity = Math.max(1, parseInt(quantity) || 1);
+      body.category = 'Generico';
     }
 
     try {
@@ -223,7 +206,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
 
   const renderInputsPerService = () => {
     if (!selectedService) return null;
-    if (selectedService.key === 'pobox' || selectedService.key === 'dhl') {
+    if (selectedService.key === 'pobox') {
       return (
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>Cantidad de cajas</Text>
@@ -237,43 +220,156 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         </View>
       );
     }
-    if (selectedService.key === 'air_china') {
-      return (
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Tipo de mercancía</Text>
-          <View style={styles.chipRow}>
-            {AIR_TARIFF_TYPES.map(t => (
-              <TouchableOpacity
-                key={t.code}
-                style={[styles.chip, tariffType === t.code && styles.chipActive]}
-                onPress={() => setTariffType(t.code)}
-              >
-                <Text style={[styles.chipText, tariffType === t.code && styles.chipTextActive]}>{t.label}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      );
-    }
-    if (selectedService.key === 'maritime') {
-      return (
-        <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Categoría</Text>
-          <View style={styles.chipRow}>
-            {MARITIME_CATEGORIES.map(c => (
-              <TouchableOpacity
-                key={c}
-                style={[styles.chip, maritimeCategory === c && styles.chipActive]}
-                onPress={() => setMaritimeCategory(c)}
-              >
-                <Text style={[styles.chipText, maritimeCategory === c && styles.chipTextActive]}>{c}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
-      );
-    }
+    // El cotizador siempre asume Genérico para TDI Aéreo y Marítimo
+    // (cliente quitó la elección visual). Si en el futuro se quiere
+    // exponer Logo/Sensible/StartUp habrá que reactivar los chips.
     return null;
+  };
+
+  // ============================================================
+  //  Detalle de cómo se cotiza cada servicio (transparencia al cliente)
+  //  Los rangos / precios son los vigentes en producción (PO Box,
+  //  TDI, Marítimo, DHL). Si admin cambia tarifas habrá que mover
+  //  estos números a un endpoint de tarifas vigentes.
+  // ============================================================
+  const renderPricingInfo = () => {
+    if (!selectedService) return null;
+
+    let body: React.ReactNode = null;
+
+    if (selectedService.key === 'pobox') {
+      body = (
+        <>
+          <Text style={styles.infoFormula}>CBM = (Largo × Ancho × Alto) / 1,000,000</Text>
+          <Text style={styles.infoSub}>Mínimo cobrable por caja: 0.010 m³</Text>
+
+          <View style={styles.tierTable}>
+            <View style={[styles.tierRow, styles.tierHeader]}>
+              <Text style={[styles.tierCell, styles.tierCellHead, { flex: 1 }]}>Nivel</Text>
+              <Text style={[styles.tierCell, styles.tierCellHead, { flex: 2 }]}>Rango CBM</Text>
+              <Text style={[styles.tierCell, styles.tierCellHead, { flex: 1.6, textAlign: 'right' }]}>Costo</Text>
+              <Text style={[styles.tierCell, styles.tierCellHead, { flex: 1.4, textAlign: 'right' }]}>Tipo</Text>
+            </View>
+            <View style={styles.tierRow}>
+              <Text style={[styles.tierCell, { flex: 1, color: '#10B981', fontWeight: '700' }]}>1</Text>
+              <Text style={[styles.tierCell, { flex: 2 }]}>0.0100 – 0.0500</Text>
+              <Text style={[styles.tierCell, { flex: 1.6, textAlign: 'right' }]}>$39 USD</Text>
+              <Text style={[styles.tierCell, { flex: 1.4, textAlign: 'right', color: '#666' }]}>Fijo</Text>
+            </View>
+            <View style={styles.tierRow}>
+              <Text style={[styles.tierCell, { flex: 1, color: ORANGE, fontWeight: '700' }]}>2</Text>
+              <Text style={[styles.tierCell, { flex: 2 }]}>0.0510 – 0.0990</Text>
+              <Text style={[styles.tierCell, { flex: 1.6, textAlign: 'right' }]}>$79 USD</Text>
+              <Text style={[styles.tierCell, { flex: 1.4, textAlign: 'right', color: '#666' }]}>Fijo</Text>
+            </View>
+            <View style={styles.tierRow}>
+              <Text style={[styles.tierCell, { flex: 1, color: RED, fontWeight: '700' }]}>3</Text>
+              <Text style={[styles.tierCell, { flex: 2 }]}>0.1000 +</Text>
+              <Text style={[styles.tierCell, { flex: 1.6, textAlign: 'right' }]}>$750 / m³</Text>
+              <Text style={[styles.tierCell, { flex: 1.4, textAlign: 'right', color: '#666' }]}>Por m³</Text>
+            </View>
+          </View>
+
+          <Text style={styles.infoBlockTitle}>¿Cómo funciona el Nivel 3?</Text>
+          <Text style={styles.infoBody}>
+            A partir de 0.10 m³ el costo por caja se calcula como{' '}
+            <Text style={styles.infoBold}>CBM × $750 USD</Text>. Hay una protección
+            de mínimo: si el resultado queda por debajo del precio fijo del Nivel 2
+            ($79 USD) se cobra el Nivel 2.
+          </Text>
+          <View style={styles.exampleBox}>
+            <Text style={styles.exampleLine}>Ej. caja de 0.10 m³ → 0.10 × $750 = $75 → se cobra <Text style={styles.infoBold}>$79 USD</Text> (mínimo Nivel 2)</Text>
+            <Text style={styles.exampleLine}>Ej. caja de 0.20 m³ → 0.20 × $750 = <Text style={styles.infoBold}>$150 USD</Text></Text>
+            <Text style={styles.exampleLine}>Ej. caja de 0.50 m³ → 0.50 × $750 = <Text style={styles.infoBold}>$375 USD</Text></Text>
+          </View>
+
+          <Text style={styles.infoBlockTitle}>Conversión a MXN</Text>
+          <Text style={styles.infoBody}>
+            Total USD × Tipo de cambio del día (servicio PO Box). El TC se
+            congela al momento de la cotización para que no cambie cuando la
+            guía se procese después.
+          </Text>
+
+          <Text style={styles.infoBlockTitle}>Multi-caja</Text>
+          <Text style={styles.infoBody}>
+            Cada caja se cobra individualmente con su propio CBM. <Text style={styles.infoBold}>No</Text> se
+            suman los volúmenes — 2 cajas de 0.04 m³ cobran $39 + $39 = $78,
+            no $79 (que sería el Nivel 2 con CBM combinado de 0.08).
+          </Text>
+        </>
+      );
+    } else if (selectedService.key === 'air_china') {
+      body = (
+        <>
+          <Text style={styles.infoFormula}>Peso volumétrico = (L × A × Alto) / 5,000</Text>
+          <Text style={styles.infoSub}>Estándar IATA. Se cobra el mayor entre peso real y volumétrico.</Text>
+
+          <Text style={styles.infoBlockTitle}>Tarifa por kg</Text>
+          <Text style={styles.infoBody}>
+            Costo USD = peso cobrable × tarifa por kg. Tu tarifa puede ser
+            personalizada si tienes contrato; si no, usamos la tarifa pública.
+          </Text>
+
+          <Text style={styles.infoBlockTitle}>Tarifa StartUp</Text>
+          <Text style={styles.infoBody}>
+            Para envíos pequeños (peso real ≤ 15 kg) se aplica un precio
+            plano por tramos en lugar de cobrar por kg. Aplica automáticamente
+            si tu peso califica.
+          </Text>
+
+          <Text style={styles.infoBlockTitle}>Conversión a MXN</Text>
+          <Text style={styles.infoBody}>
+            Total USD × Tipo de cambio del servicio TDI Aéreo. El TC se
+            congela al cotizar.
+          </Text>
+        </>
+      );
+    } else if (selectedService.key === 'maritime') {
+      body = (
+        <>
+          <Text style={styles.infoFormula}>CBM físico = (L × A × Alto) / 1,000,000</Text>
+          <Text style={styles.infoFormula}>CBM volumétrico = peso (kg) / 600</Text>
+          <Text style={styles.infoSub}>Se cobra el mayor entre CBM físico y volumétrico.</Text>
+
+          <Text style={styles.infoBlockTitle}>Brackets por CBM</Text>
+          <Text style={styles.infoBody}>
+            La tarifa por m³ baja conforme aumenta el volumen (descuento por
+            escala). Si el CBM cae entre 0.76 y 0.99 m³ se redondea a 1 m³.
+          </Text>
+        </>
+      );
+    }
+
+    return (
+      <View style={styles.infoCard}>
+        <TouchableOpacity
+          style={styles.infoToggle}
+          onPress={() => setShowPricingInfo(v => !v)}
+          activeOpacity={0.7}
+        >
+          <MaterialCommunityIcons name="information-outline" size={18} color={BLACK} />
+          <Text style={styles.infoToggleText}>¿Cómo se cotiza este servicio?</Text>
+          <Ionicons
+            name={showPricingInfo ? 'chevron-up' : 'chevron-down'}
+            size={18}
+            color="#666"
+          />
+        </TouchableOpacity>
+        {showPricingInfo && (
+          <View style={styles.infoContent}>
+            {body}
+            <View style={styles.divider} />
+            <Text style={styles.infoBlockTitle}>Garantía Extendida (opcional)</Text>
+            <Text style={styles.infoBody}>
+              Si activas la garantía: se suma{' '}
+              <Text style={styles.infoBold}>(valor declarado × 5%) + $625 MXN</Text>{' '}
+              al total. Cubre el tiempo de entrega de hasta 90 días naturales
+              en caso de retraso.
+            </Text>
+          </View>
+        )}
+      </View>
+    );
   };
 
   const renderStep1 = () => (
@@ -325,6 +421,9 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
           </View>
         )}
       </View>
+
+      {/* Sección expandible con el detalle de cómo se cotiza */}
+      {renderPricingInfo()}
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
@@ -409,13 +508,6 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
             <View style={[styles.row, { marginTop: 6 }]}>
               <Text style={styles.rowSubLabel}>
                 CBM cobrable: {Number(r.chargeableCbm).toFixed(3)} {r.isVipApplied ? '· VIP' : ''}
-              </Text>
-            </View>
-          )}
-          {selectedService.key === 'dhl' && r.chargeableUnits != null && (
-            <View style={[styles.row, { marginTop: 6 }]}>
-              <Text style={styles.rowSubLabel}>
-                {r.breakdown || `${r.chargeableUnits} ${r.unitLabel || 'kg'}`}
               </Text>
             </View>
           )}
@@ -594,4 +686,70 @@ const styles = StyleSheet.create({
   rowSubLabel: { fontSize: 11, color: '#666' },
 
   disclaimer: { fontSize: 11, color: '#888', marginVertical: 12, textAlign: 'center' },
+
+  // Sección "¿Cómo se cotiza?" — acordeón con el detalle de
+  // fórmulas, niveles y ejemplos por servicio.
+  infoCard: {
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 12,
+    marginTop: 4,
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  infoToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+  },
+  infoToggleText: { flex: 1, fontSize: 13, fontWeight: '700', color: BLACK },
+  infoContent: { paddingHorizontal: 14, paddingBottom: 14 },
+  infoFormula: {
+    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace' }),
+    fontSize: 13,
+    fontWeight: '700',
+    color: BLACK,
+    backgroundColor: '#FFF8F3',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderLeftWidth: 3,
+    borderLeftColor: ORANGE,
+    marginBottom: 6,
+  },
+  infoSub: { fontSize: 11, color: '#666', marginBottom: 12 },
+  infoBlockTitle: { fontSize: 13, fontWeight: '700', color: BLACK, marginTop: 12, marginBottom: 4 },
+  infoBody: { fontSize: 12, color: '#444', lineHeight: 18 },
+  infoBold: { fontWeight: '700', color: BLACK },
+  bulletList: { marginVertical: 6, gap: 3 },
+  bullet: { fontSize: 12, color: '#444', lineHeight: 18 },
+  exampleBox: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 6,
+    gap: 4,
+  },
+  exampleLine: { fontSize: 11, color: '#444', lineHeight: 16 },
+  tierTable: {
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 8,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  tierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F3F4F6',
+  },
+  tierHeader: { backgroundColor: BLACK, borderBottomColor: BLACK },
+  tierCell: { fontSize: 11, color: '#222' },
+  tierCellHead: { color: '#fff', fontWeight: '700', fontSize: 10, letterSpacing: 0.4, textTransform: 'uppercase' },
 });
