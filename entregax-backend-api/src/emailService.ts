@@ -95,6 +95,9 @@ export const sendPasswordResetEmail = async (
 ): Promise<SendEmailResult> => {
   const baseUrl = (process.env.WEB_BASE_URL || 'https://entregax.app').replace(/\/$/, '');
   const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+  // Logo público servido desde el bucket web. Usa la versión completa
+  // (logotipo + isotipo) que ya está en /public del web admin.
+  const logoUrl = `${baseUrl}/entregax-logo-full.png`;
 
   const html = `
     <!DOCTYPE html>
@@ -109,8 +112,11 @@ export const sendPasswordResetEmail = async (
           <td align="center">
             <table role="presentation" width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
               <tr>
-                <td style="background:#111;padding:24px 32px;">
-                  <span style="color:#fff;font-size:22px;font-weight:700;letter-spacing:-0.5px;">EntregaX</span>
+                <td style="background:#111;padding:20px 32px;text-align:left;">
+                  <img src="${logoUrl}"
+                       alt="EntregaX"
+                       width="160"
+                       style="display:inline-block;height:auto;max-width:160px;border:0;outline:none;text-decoration:none;" />
                 </td>
               </tr>
               <tr>
@@ -143,7 +149,7 @@ export const sendPasswordResetEmail = async (
               </tr>
               <tr>
                 <td style="background:#fafafa;padding:16px 32px;text-align:center;font-size:11px;color:#999;">
-                  © ${new Date().getFullYear()} EntregaX — Logística Internacional
+                  © ${new Date().getFullYear()} EntregaX — Paquetería Internacional
                 </td>
               </tr>
             </table>
@@ -163,7 +169,7 @@ ${resetUrl}
 
 Si tú no pediste este cambio, ignora este correo.
 
-— EntregaX`;
+— EntregaX Paquetería Internacional`;
 
   return sendEmail(to, 'Restablece tu contraseña — EntregaX', html, text);
 };
