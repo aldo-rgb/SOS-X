@@ -1160,29 +1160,31 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   </View>
                 )}
 
-                {/* 🛡️ Garantía Extendida — solo texto, sin recuadro:
-                    escudo negro con palomita naranja + texto negro. */}
+                {/* 🛡️ Garantía Extendida —
+                    Protegido: pill con borde negro, escudo negro + palomita
+                                naranja, texto negro.
+                    Sin garantía: solo texto rojo con escudo rojo (sin recuadro). */}
                 {canContractGEX && (
                   <View style={styles.gexTextRow}>
                     {item.has_gex ? (
-                      <>
+                      <View style={styles.gexProtectedFrame}>
                         <View style={styles.gexShieldWrap}>
-                          <Icon source="shield" size={16} color="#111" />
+                          <Icon source="shield" size={14} color="#111" />
                           <View style={styles.gexButtonCheckOverlay}>
-                            <Icon source="check-bold" size={9} color={ORANGE} />
+                            <Icon source="check-bold" size={8} color={ORANGE} />
                           </View>
                         </View>
                         <Text style={styles.gexTextLabel}>
                           {t('home.withExtendedWarranty')}
                         </Text>
-                      </>
+                      </View>
                     ) : (
                       <Pressable
                         style={styles.gexTextRowInner}
                         onPress={handleContractGEX}
                       >
-                        <Icon source="shield-off" size={16} color="#111" />
-                        <Text style={styles.gexTextLabel}>
+                        <Icon source="shield-off" size={14} color="#D32F2F" />
+                        <Text style={styles.gexTextLabelDanger}>
                           {t('home.withoutExtendedWarranty')}
                         </Text>
                       </Pressable>
@@ -3219,10 +3221,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   gexShieldWrap: {
-    width: 14,
-    height: 14,
+    width: 16,
+    height: 16,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'visible',
   },
   gexCheckOverlay: {
     position: 'absolute',
@@ -3388,8 +3391,27 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  // Pill "Protegido" — recuadro negro fino alrededor del texto+escudo.
+  gexProtectedFrame: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#111',
+    backgroundColor: '#fff',
+  },
   gexTextLabel: {
     color: '#111',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  // "Sin Garantía Extendida" — texto rojo (mismo tono del escudo-off).
+  gexTextLabelDanger: {
+    color: '#D32F2F',
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.3,
@@ -3397,7 +3419,7 @@ const styles = StyleSheet.create({
   gexButtonCheckOverlay: {
     position: 'absolute',
     top: 2,
-    left: 4,
+    left: 3,
   },
   // 🚢 Estilos para botón de Instrucciones de Entrega
   deliveryButtonContainer: {
