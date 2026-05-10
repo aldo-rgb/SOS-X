@@ -873,12 +873,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           { opacity: pressed && isSelectable ? 0.7 : 1 }
         ]}
       >
-        <Card 
+        <Card
           style={[
-            styles.card, 
+            styles.card,
+            // Cliente: el recuadro negro es la marca visual de "guía
+            // protegida con Garantía Extendida" — va en el card entero,
+            // no en el pill de texto.
+            item.has_gex && styles.cardGexProtected,
             isSelected && styles.cardSelected,
-            isShipped && styles.cardShipped // Estilo especial para despachados
-          ]} 
+            isShipped && styles.cardShipped
+          ]}
         >
           <Card.Content style={styles.cardContent}>
             <View style={styles.cardRow}>
@@ -1167,7 +1171,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 {canContractGEX && (
                   <View style={styles.gexTextRow}>
                     {item.has_gex ? (
-                      <View style={styles.gexProtectedFrame}>
+                      <View style={styles.gexTextRowInner}>
                         <View style={styles.gexShieldWrap}>
                           <Icon source="shield" size={14} color="#111" />
                           <View style={styles.gexButtonCheckOverlay}>
@@ -3077,6 +3081,13 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: 'transparent',
   },
+  // Recuadro negro alrededor de toda la guía cuando tiene Garantía
+  // Extendida activa — el sello visual de "paquete protegido" vive
+  // en el card entero, no en el pill de abajo.
+  cardGexProtected: {
+    borderColor: '#111',
+    borderWidth: 2,
+  },
   cardSelected: {
     borderColor: ORANGE,
     borderWidth: 2,
@@ -3237,10 +3248,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'visible',
   },
+  // Wrap es 16×16, escudo size=14 (centrado), check size=8 → centrar
+  // el check en el wrap requiere top/left = (16-8)/2 = 4. El escudo
+  // tiene su área visual ligeramente arriba del centro geométrico,
+  // así que subimos el check 1px para alinearlo con el "cuerpo" del
+  // escudo en vez del punto inferior.
   gexCheckOverlay: {
     position: 'absolute',
-    top: 2,
-    left: 3,
+    top: 3,
+    left: 4,
   },
   gexBadgeText: {
     fontSize: 11,
@@ -3401,18 +3417,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
-  // Pill "Protegido" — recuadro negro fino alrededor del texto+escudo.
-  gexProtectedFrame: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#111',
-    backgroundColor: '#fff',
-  },
   gexTextLabel: {
     color: '#111',
     fontSize: 13,
@@ -3428,8 +3432,8 @@ const styles = StyleSheet.create({
   },
   gexButtonCheckOverlay: {
     position: 'absolute',
-    top: 2,
-    left: 3,
+    top: 3,
+    left: 4,
   },
   // 🚢 Estilos para botón de Instrucciones de Entrega
   deliveryButtonContainer: {
