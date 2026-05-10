@@ -5,7 +5,14 @@
       "Read(//Users/kmpsdeveloper/Desktop/**)",
       "Bash(git commit *)",
       "Bash(eas build *)",
-      "Bash(echo \"Build started in background \\(PID: $!\\)\")"
+      "Bash(echo \"Build started in background \\(PID: $!\\)\")",
+      "Bash(git -C /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X status)",
+      "Bash(git -C /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X log --oneline -10)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" https://sos-x-production.up.railway.app/api/health)",
+      "Bash(git -C /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X add entregax-backend-api/src/index.ts)",
+      "Bash(git -C /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X commit -m ' *)",
+      "Bash(curl -s https://sos-x-production.up.railway.app/api/health)",
+      "Bash(git -C /Users/kmpsdeveloper/Desktop/Proyectos/SOS-X add entregax-backend-api/src/entangledControllerV2.ts)"
     ]
   }
 }
