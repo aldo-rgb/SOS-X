@@ -1160,33 +1160,29 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   </View>
                 )}
 
-                {/* 🛡️ Botón de Garantía Extendida (siempre visible para paquetes elegibles) */}
+                {/* 🛡️ Garantía Extendida — solo texto, sin recuadro:
+                    escudo negro con palomita naranja + texto negro. */}
                 {canContractGEX && (
-                  <View style={styles.gexButtonContainer}>
+                  <View style={styles.gexTextRow}>
                     {item.has_gex ? (
-                      <LinearGradient
-                        colors={['#F05A28', '#C1272D']}
-                        start={{ x: 0, y: 0 }}
-                        end={{ x: 1, y: 0 }}
-                        style={styles.gexButton}
-                      >
+                      <>
                         <View style={styles.gexShieldWrap}>
-                          <Icon source="shield" size={18} color="#111" />
+                          <Icon source="shield" size={16} color="#111" />
                           <View style={styles.gexButtonCheckOverlay}>
-                            <Icon source="check-bold" size={10} color={ORANGE} />
+                            <Icon source="check-bold" size={9} color={ORANGE} />
                           </View>
                         </View>
-                        <Text style={styles.gexButtonText}>
+                        <Text style={styles.gexTextLabel}>
                           {t('home.withExtendedWarranty')}
                         </Text>
-                      </LinearGradient>
+                      </>
                     ) : (
                       <Pressable
-                        style={styles.gexButtonUnprotected}
+                        style={styles.gexTextRowInner}
                         onPress={handleContractGEX}
                       >
                         <Icon source="shield-off" size={16} color="#111" />
-                        <Text style={styles.gexButtonTextUnprotected}>
+                        <Text style={styles.gexTextLabel}>
                           {t('home.withoutExtendedWarranty')}
                         </Text>
                       </Pressable>
@@ -3377,51 +3373,31 @@ const styles = StyleSheet.create({
   gexButtonContainer: {
     marginTop: 8,
   },
-  // Banner protegido — gradiente corporativo naranja→rojo, borde negro,
-  // ícono de escudo negro con palomita naranja, texto negro.
-  gexButton: {
+  // Garantía Extendida — solo texto sin recuadro, escudo negro con
+  // palomita naranja y texto negro. Estilo minimal corporativo.
+  gexTextRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#111',
     gap: 8,
-    alignSelf: 'stretch',
+    paddingVertical: 8,
+  },
+  gexTextRowInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  gexTextLabel: {
+    color: '#111',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   gexButtonCheckOverlay: {
     position: 'absolute',
-    top: 3,
+    top: 2,
     left: 4,
-  },
-  // Banner sin garantía — fondo blanco, borde negro, texto/ícono negros.
-  // Variante "fantasma" más sobria que el rojo macizo anterior.
-  gexButtonUnprotected: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F3F4F6',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#111',
-    gap: 8,
-    alignSelf: 'stretch',
-  },
-  gexButtonText: {
-    color: '#111',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  gexButtonTextUnprotected: {
-    color: '#111',
-    fontSize: 13,
-    fontWeight: '700',
-    letterSpacing: 0.3,
   },
   // 🚢 Estilos para botón de Instrucciones de Entrega
   deliveryButtonContainer: {
