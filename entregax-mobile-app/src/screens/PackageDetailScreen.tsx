@@ -296,19 +296,42 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
   }, [pkg.id, token, isMultiPackage]);
 
   const getStatusInfo = (status: string) => {
+    const NEUTRAL_GRAY = '#6B7280';
     switch (status) {
       case 'received':
-        return { label: 'En Bodega', color: '#FF9800', icon: 'package-variant' };
+        return { label: 'En Bodega', color: NEUTRAL_GRAY, icon: 'package-variant' };
       case 'processing':
-        return { label: 'Procesando', color: PURPLE, icon: 'cog' };
+        return { label: 'Procesando', color: NEUTRAL_GRAY, icon: 'cog' };
       case 'in_transit':
-        return { label: 'En Tránsito', color: ORANGE, icon: 'truck-delivery' };
+      case 'in_transit_mty':
+        return { label: 'En Tránsito a MTY', color: NEUTRAL_GRAY, icon: 'truck-delivery' };
       case 'shipped':
-        return { label: 'Enviado', color: '#00BCD4', icon: 'airplane' };
+        return { label: 'Enviado', color: NEUTRAL_GRAY, icon: 'airplane' };
+      case 'received_mty':
+      case 'received_cedis':
+        return { label: 'Recibido en MTY', color: NEUTRAL_GRAY, icon: 'package-variant' };
+      case 'received_cdmx':
+      case 'received_cdx':
+        return { label: 'Recibido en CDMX', color: NEUTRAL_GRAY, icon: 'package-variant' };
+      case 'ready_pickup':
+      case 'ready_for_pickup':
+        return { label: 'Listo para Recoger', color: '#0EA5E9', icon: 'package-check' };
+      case 'out_for_delivery':
+      case 'en_ruta_entrega':
+        return { label: 'En Ruta de Entrega', color: '#F59E0B', icon: 'truck-fast' };
       case 'delivered':
         return { label: 'Entregado', color: '#4CAF50', icon: 'check-circle' };
+      case 'returned_to_warehouse':
+        return { label: 'Devuelto a Bodega', color: '#EF4444', icon: 'undo' };
       default:
-        return { label: status, color: '#999', icon: 'package' };
+        // Fallback: convertir snake_case a Title Case en lugar de mostrar
+        // el código raw (ej. "received_mty" → "Received Mty"). Para
+        // estados conocidos siempre vamos a tener un case arriba.
+        return {
+          label: status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+          color: NEUTRAL_GRAY,
+          icon: 'package',
+        };
     }
   };
 

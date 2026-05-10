@@ -3183,11 +3183,11 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#10B981',
   },
-  // ✅ Badge Instrucciones Asignadas
+  // ✅ Badge Instrucciones Asignadas — amarillo (era morado)
   deliveryAssignedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#8B5CF620',
+    backgroundColor: '#F59E0B20',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
@@ -3196,7 +3196,7 @@ const styles = StyleSheet.create({
   deliveryAssignedText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: '#8B5CF6',
+    color: '#D97706',
   },
   // 🏷️ Badge Etiquetado (azul cielo) — guía con etiqueta nacional impresa
   labeledBadge: {
