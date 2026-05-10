@@ -1055,7 +1055,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     <View style={styles.expandedBadgesContainer}>
                       {item.has_gex && (
                         <View style={styles.gexBadge}>
-                          <Icon source="shield-check" size={12} color="#10B981" />
+                          {/* Escudo negro con palomita naranja superpuesta */}
+                          <View style={styles.gexShieldWrap}>
+                            <Icon source="shield" size={14} color="#111" />
+                            <View style={styles.gexCheckOverlay}>
+                              <Icon source="check-bold" size={8} color={ORANGE} />
+                            </View>
+                          </View>
                           <Text style={styles.gexBadgeText}>{t('home.extendedWarranty')}</Text>
                         </View>
                       )}
@@ -1179,16 +1185,34 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 {/* 🛡️ Botón de Garantía Extendida (siempre visible para paquetes elegibles) */}
                 {canContractGEX && (
                   <View style={styles.gexButtonContainer}>
-                    <Pressable
-                      style={item.has_gex ? styles.gexButton : styles.gexButtonUnprotected}
-                      onPress={item.has_gex ? undefined : handleContractGEX}
-                      disabled={item.has_gex}
-                    >
-                      <Icon source={item.has_gex ? "shield-check" : "shield-off"} size={16} color="#fff" />
-                      <Text style={styles.gexButtonText}>
-                        {item.has_gex ? t('home.withExtendedWarranty') : t('home.withoutExtendedWarranty')}
-                      </Text>
-                    </Pressable>
+                    {item.has_gex ? (
+                      <LinearGradient
+                        colors={['#F05A28', '#C1272D']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.gexButton}
+                      >
+                        <View style={styles.gexShieldWrap}>
+                          <Icon source="shield" size={18} color="#111" />
+                          <View style={styles.gexButtonCheckOverlay}>
+                            <Icon source="check-bold" size={10} color={ORANGE} />
+                          </View>
+                        </View>
+                        <Text style={styles.gexButtonText}>
+                          {t('home.withExtendedWarranty')}
+                        </Text>
+                      </LinearGradient>
+                    ) : (
+                      <Pressable
+                        style={styles.gexButtonUnprotected}
+                        onPress={handleContractGEX}
+                      >
+                        <Icon source="shield-off" size={16} color="#111" />
+                        <Text style={styles.gexButtonTextUnprotected}>
+                          {t('home.withoutExtendedWarranty')}
+                        </Text>
+                      </Pressable>
+                    )}
                   </View>
                 )}
               </View>
@@ -3210,15 +3234,26 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#f0f0f0',
   },
-  // 🛡️ Badge GEX
+  // 🛡️ Badge GEX — gris con escudo negro y palomita naranja
   gexBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#10B98120',
+    backgroundColor: '#E5E7EB',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     gap: 4,
+  },
+  gexShieldWrap: {
+    width: 14,
+    height: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  gexCheckOverlay: {
+    position: 'absolute',
+    top: 2,
+    left: 3,
   },
   gexBadgeText: {
     fontSize: 11,
@@ -3362,32 +3397,51 @@ const styles = StyleSheet.create({
   gexButtonContainer: {
     marginTop: 8,
   },
+  // Banner protegido — gradiente corporativo naranja→rojo, borde negro,
+  // ícono de escudo negro con palomita naranja, texto negro.
   gexButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#F05A28', // Naranja EntregaX - Protegido
-    paddingVertical: 8,
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 6,
-    gap: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#111',
+    gap: 8,
     alignSelf: 'stretch',
   },
+  gexButtonCheckOverlay: {
+    position: 'absolute',
+    top: 3,
+    left: 4,
+  },
+  // Banner sin garantía — fondo blanco, borde negro, texto/ícono negros.
+  // Variante "fantasma" más sobria que el rojo macizo anterior.
   gexButtonUnprotected: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#C1272D', // Rojo EntregaX - Sin protección
-    paddingVertical: 8,
+    backgroundColor: '#F3F4F6',
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 6,
-    gap: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#111',
+    gap: 8,
     alignSelf: 'stretch',
   },
   gexButtonText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
+    color: '#111',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  gexButtonTextUnprotected: {
+    color: '#111',
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   // 🚢 Estilos para botón de Instrucciones de Entrega
   deliveryButtonContainer: {
