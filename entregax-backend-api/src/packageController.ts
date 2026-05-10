@@ -3670,11 +3670,38 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
         console.log(`   dimensions=${JSON.stringify(dimensions)}, cbm=${cbm}, cost=${pkg.assigned_cost_mxn}`);
 
         // Formatear respuesta
+        // Si es un master sin tracking_provider / origin_carrier / image_url
+        // propios, heredamos los del primer hijo capturado. Las hijas
+        // guardan la guía del courier (tracking_provider), proveedor
+        // (origin_carrier) y foto (image_url) durante addBulkBoxToMaster /
+        // batchAttachImage. Misma lógica que ya hace la web admin para
+        // mostrar "Guías Proveedor" en el master.
+        let effectiveTrackingProvider = pkg.tracking_provider || null;
+        let effectiveOriginCarrier = pkg.origin_carrier || null;
+        let effectiveImageUrl = pkg.image_url || null;
+        if (pkg.is_master && (!effectiveTrackingProvider || !effectiveOriginCarrier || !effectiveImageUrl)) {
+            try {
+                const ch = await pool.query(
+                    `SELECT tracking_provider, origin_carrier, image_url
+                     FROM packages
+                     WHERE master_id = $1
+                       AND (tracking_provider IS NOT NULL OR origin_carrier IS NOT NULL OR image_url IS NOT NULL)
+                     ORDER BY box_number ASC LIMIT 1`,
+                    [pkg.id]
+                );
+                if (ch.rows.length > 0) {
+                    if (!effectiveTrackingProvider) effectiveTrackingProvider = ch.rows[0].tracking_provider || null;
+                    if (!effectiveOriginCarrier) effectiveOriginCarrier = ch.rows[0].origin_carrier || null;
+                    if (!effectiveImageUrl) effectiveImageUrl = ch.rows[0].image_url || null;
+                }
+            } catch { /* sin hijas o tabla no accesible — silencioso */ }
+        }
+
         const packageDetail = {
             id: pkg.id,
             tracking_internal: pkg.tracking_internal,
-            tracking_provider: pkg.tracking_provider,
-            origin_carrier: pkg.origin_carrier || null,
+            tracking_provider: effectiveTrackingProvider,
+            origin_carrier: effectiveOriginCarrier,
             description: pkg.description,
             weight: pkg.weight ? parseFloat(pkg.weight) : null,
             dimensions: dimensions,
@@ -3682,7 +3709,7 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             declared_value: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
             status: pkg.status,
             carrier: pkg.carrier,
-            image_url: pkg.image_url,
+            image_url: effectiveImageUrl,
             has_gex: pkg.has_gex || false,
             gex_folio: pkg.gex_folio,
             gex_insurance_cost: pkg.gex_insurance_cost != null ? parseFloat(pkg.gex_insurance_cost) : null,

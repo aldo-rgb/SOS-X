@@ -9582,7 +9582,7 @@ export default function DashboardClient() {
                 {/* Para masters: mostrar todas las guías de proveedor concatenadas */}
                 {selectedPackage.is_master && !selectedPackage.tracking_provider && selectedPackage.included_guides && selectedPackage.included_guides.some(g => g.tracking_provider) && (
                   <Typography variant="body2" sx={{ mt: 0.5, color: '#333' }}>
-                    🚚 <strong>Guías Proveedor:</strong>{' '}
+                    🚚 <strong>Guía Origen:</strong>{' '}
                     <span style={{ fontFamily: 'monospace' }}>
                       {selectedPackage.included_guides.filter(g => g.tracking_provider).map(g => g.tracking_provider).join(', ')}
                     </span>

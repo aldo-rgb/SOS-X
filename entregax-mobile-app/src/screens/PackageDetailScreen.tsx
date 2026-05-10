@@ -24,6 +24,7 @@ import {
 } from 'react-native-paper';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { API_URL, Package } from '../services/api';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 
@@ -502,12 +503,18 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                   </Text>
                 </Text>
               </View>
-              <Chip
-                style={[styles.statusChip, { backgroundColor: statusInfo.color }]}
-                textStyle={styles.statusChipText}
+              {/* Chip de status con gradiente corporativo naranja → rojo
+                  (los colores de la X del logo) — mismo look que el badge
+                  multi-guía. Reemplaza el Chip de Paper con backgroundColor
+                  fijo gris. */}
+              <LinearGradient
+                colors={['#F05A28', '#C1272D']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.statusChip}
               >
-                {statusInfo.label}
-              </Chip>
+                <Text style={styles.statusChipText}>{statusInfo.label}</Text>
+              </LinearGradient>
             </View>
 
             <Divider style={styles.divider} />
@@ -817,11 +824,12 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                   </View>
                 )}
 
-                {/* Monto ya pagado */}
+                {/* Monto ya pagado — cliente pidió no usar verde en esta sección,
+                    todo en naranja corporativo o negro. */}
                 {(details.monto_pagado ?? 0) > 0 && (
                   <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>✅ Monto Pagado</Text>
-                    <Text style={[styles.costValue, { color: '#4CAF50' }]}>-${(details.monto_pagado || 0).toFixed(2)} MXN</Text>
+                    <Text style={styles.costLabel}>Monto Pagado</Text>
+                    <Text style={[styles.costValue, { color: ORANGE }]}>-${(details.monto_pagado || 0).toFixed(2)} MXN</Text>
                   </View>
                 )}
               </>
@@ -843,10 +851,10 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                 <Divider style={styles.divider} />
                 <View style={styles.totalRow}>
                   <Text style={styles.totalLabel}>
-                    {isPaid() ? '✅ PAGADO' : 'SALDO PENDIENTE'}
+                    {isPaid() ? 'PAGADO' : 'SALDO PENDIENTE'}
                   </Text>
                   {isPaid() ? (
-                    <Text style={[styles.totalValue, { color: '#4CAF50' }]}>
+                    <Text style={[styles.totalValue, { color: ORANGE }]}>
                       Completado
                     </Text>
                   ) : (
@@ -1075,6 +1083,11 @@ const styles = StyleSheet.create({
   },
   statusChip: {
     marginLeft: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   statusChipText: {
     color: 'white',
@@ -1175,7 +1188,9 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 12,
     elevation: 2,
-    backgroundColor: '#E3F2FD',
+    // Gris neutro corporativo (antes era #E3F2FD celeste). Se alinea con
+    // los demás cards del detalle.
+    backgroundColor: '#F3F4F6',
   },
   costRow: {
     flexDirection: 'row',
