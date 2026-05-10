@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Clipboard from 'expo-clipboard';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
   StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal, Image, ImageBackground, Dimensions,
@@ -127,6 +129,7 @@ interface PaymentRequest {
   op_comprobante_cliente_url?: string | null;
   comprobante_subido_at?: string | null;
   payment_deadline_at?: string | null;
+  instructions_snapshot?: any;
   created_at: string;
 }
 
@@ -178,7 +181,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [editingFiscalData, setEditingFiscalData] = useState(false);
   const [editingSupplierData, setEditingSupplierData] = useState(false);
   const [showNewSupplierForm, setShowNewSupplierForm] = useState(false);
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3 | 4>(1);
+  // Wizard ahora arranca en step 0 (selección de servicio: con/sin factura)
+  // igual que la versión web. Antes el wizard empezaba en "Monto" y la
+  // selección de factura quedaba escondida en step 3.
+  const [wizardStep, setWizardStep] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [successModalVisible, setSuccessModalVisible] = useState(false);
   const [lastRequestId, setLastRequestId] = useState<number | null>(null);
   const [lastReferencia, setLastReferencia] = useState<string | null>(null);
@@ -519,7 +525,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setBenefBankAddress(''); setBenefSwift(''); setBenefAba(''); setBenefAlias('');
         setComprobanteAsset(null);
         setSelectedSupplierId('new');
-        setEditingFiscalData(false); setEditingSupplierData(false); setWizardStep(1);
+        setEditingFiscalData(false); setEditingSupplierData(false); setWizardStep(0);
         loadRequests(); loadSuppliers();
         setViewMode('dashboard');
       } else {
@@ -531,7 +537,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     setSubmitting(false);
   };
 
-  const validateWizardStep = (step: 1 | 2 | 3 | 4): string | null => {
+  const validateWizardStep = (step: 0 | 1 | 2 | 3 | 4): string | null => {
+    if (step === 0) {
+      // El step 0 solo confirma la selección de servicio (requiereFactura ya
+      // se setea al tocar la card). No hay nada que validar.
+      return null;
+    }
     if (step === 1) {
       if (!selectedProviderId) return 'Selecciona un proveedor ENTANGLED';
       if (!monto || parseFloat(monto) <= 0) return 'Captura un monto válido';
@@ -560,7 +571,112 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const goNextStep = () => {
     const err = validateWizardStep(wizardStep);
     if (err) { Alert.alert('Faltan datos', err); return; }
-    setWizardStep((s) => (s === 1 ? 2 : s === 2 ? 3 : s === 3 ? 4 : 4));
+    // Si el cliente seleccionó "Pago sin factura" en step 0, brincamos
+    // de Beneficiario directo a Resumen — no hay nada que capturar
+    // en step 3 (Factura).
+    if (wizardStep === 2 && !requiereFactura) {
+      setWizardStep(4);
+      return;
+    }
+    setWizardStep((s) => Math.min((s + 1) as 0 | 1 | 2 | 3 | 4, 4) as 0 | 1 | 2 | 3 | 4);
+  };
+  const goPrevStep = () => {
+    // Inversa del salto en goNextStep: desde resumen, si era pago sin
+    // factura, regresamos a beneficiario (no a un step 3 vacío).
+    if (wizardStep === 4 && !requiereFactura) {
+      setWizardStep(2);
+      return;
+    }
+    setWizardStep((s) => Math.max((s - 1) as 0 | 1 | 2 | 3 | 4, 0) as 0 | 1 | 2 | 3 | 4);
+  };
+
+  // Genera un PDF con las instrucciones de pago. Por defecto usa la
+  // solicitud recién creada (lastReferencia + lastEmpresas) pero se
+  // puede pasar override para descargar el PDF de cualquier solicitud
+  // existente — usado desde la lista "Últimos envíos".
+  const downloadInstructionsPDF = async (override?: { referencia: string; empresas: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }> }) => {
+    try {
+      const referencia = override?.referencia || lastReferencia;
+      const empresas = override?.empresas || lastEmpresas;
+      if (!referencia) return;
+      const totalAmount = empresas.reduce((sum, e) => sum + (Number(e.monto) || 0), 0);
+      const empresasHtml = empresas.map((emp) => {
+        const cb: any = emp.cuenta_bancaria || {};
+        const banco = cb.banco || cb.bank || '';
+        const titular = cb.titular || cb.holder || emp.empresa || '';
+        const cuenta = cb.cuenta || cb.account || cb.numero_cuenta || '';
+        const clabe = cb.clabe || cb.CLABE || '';
+        const sucursal = cb.sucursal || cb.branch || '';
+        return `
+          <div class="emp">
+            ${emp.clave_prodserv ? `<div class="muted">SAT <b>${emp.clave_prodserv}</b>${emp.monto != null ? ` · ${Number(emp.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${emp.divisa || ''}` : ''}</div>` : ''}
+            ${banco ? `<div><span class="lbl">Banco:</span> <b>${banco}</b></div>` : ''}
+            ${titular ? `<div><span class="lbl">Titular:</span> <b>${titular}</b></div>` : ''}
+            ${cuenta ? `<div><span class="lbl">Cuenta:</span> <b>${cuenta}</b></div>` : ''}
+            ${clabe ? `<div><span class="lbl">CLABE:</span> <b>${clabe}</b></div>` : ''}
+            ${sucursal ? `<div><span class="lbl">Sucursal:</span> ${sucursal}</div>` : ''}
+          </div>
+        `;
+      }).join('');
+
+      const html = `
+        <!DOCTYPE html>
+        <html><head><meta charset="utf-8" />
+        <style>
+          * { box-sizing: border-box; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; color: #111827; padding: 24px; margin: 0; }
+          .header { background: #0a0a0a; color: #fff; padding: 18px 24px; border-bottom: 4px solid #F05A28; margin: -24px -24px 18px -24px; }
+          .header .title { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
+          .header .title .x { color: #F05A28; }
+          .header .sub { font-size: 11px; color: #b3b3b3; margin-top: 4px; letter-spacing: 0.6px; }
+          .ref-card { border: 1.5px solid #F05A28; border-left: 5px solid #F05A28; border-radius: 8px; padding: 14px 18px; margin: 0 0 18px 0; background: #fff; }
+          .ref-card .ref-label { font-size: 10px; color: #6B7280; font-weight: 700; letter-spacing: 1px; }
+          .ref-card .ref-code { font-family: 'Courier New', monospace; font-weight: 800; font-size: 22px; color: #0a0a0a; margin-top: 4px; }
+          .ref-card .total { font-size: 14px; color: #0a0a0a; margin-top: 6px; }
+          h2 { color: #F05A28; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; margin: 18px 0 10px 0; }
+          .emp { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: #fafafa; font-size: 12px; line-height: 1.6; }
+          .emp .lbl { color: #6B7280; }
+          .emp .muted { color: #6B7280; font-size: 11px; margin-bottom: 4px; }
+          .warn { background: #fff8e1; border: 1px solid #ffc107; border-radius: 6px; padding: 10px 12px; font-size: 12px; color: #5d4037; margin-top: 14px; }
+          .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #6B7280; text-align: center; }
+        </style></head>
+        <body>
+          <div class="header">
+            <div class="title">Entrega<span class="x">X</span> · X-PAY</div>
+            <div class="sub">INSTRUCCIONES DE PAGO · Confirmación de solicitud de triangulación internacional</div>
+          </div>
+
+          <div class="ref-card">
+            <div class="ref-label">REFERENCIA DE PAGO</div>
+            <div class="ref-code">${referencia}</div>
+            ${totalAmount > 0 ? `<div class="total">Total a depositar: <b>${totalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</b></div>` : ''}
+            <div class="total" style="font-size:12px;color:#6B7280;margin-top:4px;">Emitido: ${new Date().toLocaleString('es-MX')}</div>
+          </div>
+
+          <h2>💳 Depositar / Transferir a</h2>
+          ${empresasHtml || '<div class="emp">Sin información bancaria disponible.</div>'}
+
+          <div class="warn">
+            ⚠ Incluye la referencia <b>${referencia}</b> en el concepto de tu transferencia para que podamos identificarla.
+          </div>
+
+          <div class="footer">
+            Una vez realizada la transferencia, sube tu comprobante desde "Últimos envíos" para procesar la solicitud.<br />
+            EntregaX Paquetería · X-PAY · Triangulación SAT
+          </div>
+        </body></html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html, base64: false });
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: `XPay-${referencia}.pdf`, UTI: 'com.adobe.pdf' });
+      } else {
+        Alert.alert('PDF generado', `Archivo guardado en: ${uri}`);
+      }
+    } catch (err: any) {
+      Alert.alert('Error generando PDF', err?.message || 'No se pudo generar el archivo');
+    }
   };
 
   const statusColor = (s: string) => {
@@ -722,7 +838,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               if (defaultProvider) setSelectedProviderId(defaultProvider.id);
               setSelectedSupplierId('new');
               setShowNewSupplierForm(false);
-              setWizardStep(1);
+              // Empezamos en step 0 (Servicio) — el usuario debe elegir
+              // con/sin factura antes de capturar el monto.
+              setWizardStep(0);
               setViewMode('wizard');
             }}
           >
@@ -910,6 +1028,21 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   </View>
                 )}
 
+                {/* Descargar PDF de instrucciones — disponible siempre que
+                    tengamos snapshot guardado de cuentas beneficiarias. */}
+                {!!(r.instructions_snapshot?.empresas?.length) && (
+                  <TouchableOpacity
+                    style={[styles.linkBtn, { marginTop: 8, alignSelf: 'flex-start', borderColor: ORANGE }]}
+                    onPress={() => downloadInstructionsPDF({
+                      referencia: r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`,
+                      empresas: r.instructions_snapshot.empresas,
+                    })}
+                  >
+                    <Ionicons name="document-text-outline" size={13} color={ORANGE} />
+                    <Text style={[styles.linkText, { color: ORANGE }]}>Descargar PDF</Text>
+                  </TouchableOpacity>
+                )}
+
                 {(r.factura_url || r.comprobante_proveedor_url) && (
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
                     {r.factura_url && (
@@ -949,9 +1082,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           <Text style={styles.sectionTitle}>{t('xpay.newRequest', 'Nueva solicitud')}</Text>
         </View>
 
-        {/* Stepper */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20 }}>
+        {/* Stepper — 5 pasos igual que la web (0-Servicio / 1-Monto /
+            2-Beneficiario / 3-Factura / 4-Resumen). El step 3 se muestra
+            con opacity reducida cuando el cliente eligió "Pago sin
+            factura" porque será saltado. */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 20, justifyContent: 'space-between' }}>
           {([
+            { id: 0 as const, label: 'Servicio' },
             { id: 1 as const, label: 'Monto' },
             { id: 2 as const, label: 'Beneficiario' },
             { id: 3 as const, label: 'Factura' },
@@ -959,11 +1096,13 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           ] as const).map((s, idx) => {
             const isActive = wizardStep === s.id;
             const isDone = wizardStep > s.id;
+            const isSkipped = s.id === 3 && !requiereFactura && wizardStep > 0;
             return (
               <React.Fragment key={s.id}>
                 <TouchableOpacity
-                  style={{ alignItems: 'center', gap: 5 }}
+                  style={{ alignItems: 'center', gap: 5, opacity: isSkipped ? 0.35 : 1 }}
                   onPress={() => setWizardStep(s.id)}
+                  disabled={isSkipped}
                 >
                   <View style={[
                     styles.stepCircle,
@@ -979,13 +1118,81 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     {s.label}
                   </Text>
                 </TouchableOpacity>
-                {idx < 3 && (
+                {idx < 4 && (
                   <View style={[styles.stepLine, (isDone || isActive) && { backgroundColor: ORANGE }]} />
                 )}
               </React.Fragment>
             );
           })}
         </View>
+
+        {/* Step 0: Selección de servicio (con/sin factura SAT) */}
+        {wizardStep === 0 && (
+          <View>
+            <Text style={[styles.sectionTitle, { fontSize: 14, marginBottom: 6 }]}>¿Qué tipo de envío necesitas?</Text>
+            <Text style={{ fontSize: 12, color: TEXT_DIM, marginBottom: 14 }}>
+              Selecciona si requieres factura SAT para tu cliente final o si solo necesitas enviar el pago al proveedor.
+            </Text>
+
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => { setRequiereFactura(true); setWizardStep(1); }}
+              style={{
+                borderWidth: 2,
+                borderColor: requiereFactura ? ORANGE : BORDER,
+                borderRadius: 12,
+                padding: 14,
+                marginBottom: 10,
+                backgroundColor: requiereFactura ? 'rgba(240,90,40,0.08)' : SURFACE_2,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <Ionicons name="receipt-outline" size={22} color={ORANGE} />
+                <Text style={{ color: TEXT, fontWeight: '700', fontSize: 15 }}>Pago con factura SAT</Text>
+              </View>
+              <Text style={{ color: TEXT_DIM, fontSize: 12, lineHeight: 18, marginBottom: 8 }}>
+                Emite factura SAT a tu cliente final. Requiere datos fiscales (RFC, régimen, uso CFDI) y conceptos.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: 'rgba(240,90,40,0.18)' }}>
+                  <Text style={{ color: ORANGE, fontSize: 10, fontWeight: '700' }}>CFDI 4.0</Text>
+                </View>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: 'rgba(240,90,40,0.18)' }}>
+                  <Text style={{ color: ORANGE, fontSize: 10, fontWeight: '700' }}>Triangulación SAT</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => { setRequiereFactura(false); setWizardStep(1); }}
+              style={{
+                borderWidth: 2,
+                borderColor: !requiereFactura && wizardStep > 0 ? ORANGE : BORDER,
+                borderRadius: 12,
+                padding: 14,
+                marginBottom: 12,
+                backgroundColor: SURFACE_2,
+              }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+                <Ionicons name="cash-outline" size={22} color={GREEN} />
+                <Text style={{ color: TEXT, fontWeight: '700', fontSize: 15 }}>Pago sin factura</Text>
+              </View>
+              <Text style={{ color: TEXT_DIM, fontSize: 12, lineHeight: 18, marginBottom: 8 }}>
+                Solo envía el pago al proveedor internacional. No se emite factura SAT.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: 'rgba(74,222,128,0.18)' }}>
+                  <Text style={{ color: GREEN, fontSize: 10, fontWeight: '700' }}>Sin RFC</Text>
+                </View>
+                <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: 12, backgroundColor: 'rgba(74,222,128,0.18)' }}>
+                  <Text style={{ color: GREEN, fontSize: 10, fontWeight: '700' }}>Proceso ágil</Text>
+                </View>
+              </View>
+            </TouchableOpacity>
+          </View>
+        )}
 
         {/* Step 1: Monto */}
         {wizardStep === 1 && (
@@ -1154,14 +1361,16 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         {/* Step 3: Factura */}
         {wizardStep === 3 && (
           <>
-            <Text style={styles.label}>🧾 {t('xpay.invoiceQuestion', '¿Requieres factura?')}</Text>
-            <View style={{ flexDirection: 'row', marginBottom: 8 }}>
-              <TouchableOpacity style={[styles.chip, !requiereFactura && styles.chipActive]} onPress={() => setRequiereFactura(false)}>
-                <Text style={[styles.chipText, !requiereFactura && styles.chipTextActive]}>{t('xpay.invoiceNo', 'No')}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.chip, requiereFactura && styles.chipActive]} onPress={() => setRequiereFactura(true)}>
-                <Text style={[styles.chipText, requiereFactura && styles.chipTextActive]}>{t('xpay.invoiceYes', 'Sí')}</Text>
-              </TouchableOpacity>
+            {/* La decisión con/sin factura ya se tomó en el step 0 (Servicio).
+                Aquí mostramos solo el contenido correspondiente al modo
+                "pago_con_factura". Si el cliente eligió "sin factura",
+                este step se salta automáticamente en goNextStep. */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12, padding: 10, borderRadius: 8, backgroundColor: 'rgba(240,90,40,0.08)', borderWidth: 1, borderColor: 'rgba(240,90,40,0.3)' }}>
+              <Ionicons name="receipt-outline" size={18} color={ORANGE} />
+              <Text style={{ color: TEXT, fontSize: 12, flex: 1 }}>
+                Servicio seleccionado: <Text style={{ fontWeight: '700' }}>Pago con factura SAT</Text>.{' '}
+                <Text style={{ color: ORANGE, fontWeight: '600' }} onPress={() => setWizardStep(0)}>Cambiar</Text>
+              </Text>
             </View>
 
             {requiereFactura && (
@@ -1383,15 +1592,20 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         </View>
 
         <View style={styles.wizardActionsRow}>
-          {wizardStep > 1 && (
+          {wizardStep > 0 && (
             <TouchableOpacity
               style={[styles.navBtn, styles.navBtnGhost]}
-              onPress={() => setWizardStep((s) => (s === 4 ? 3 : s === 3 ? 2 : s === 2 ? 1 : 1))}
+              onPress={goPrevStep}
             >
               <Text style={styles.navBtnGhostText}>{t('common.back', 'Atrás')}</Text>
             </TouchableOpacity>
           )}
-          {wizardStep < 4 ? (
+          {wizardStep === 0 ? (
+            // Step 0: la navegación se hace tocando una de las dos cards
+            // (cada card avanza a step 1 directo). Aquí no mostramos
+            // botón "Siguiente" para forzar la selección.
+            null
+          ) : wizardStep < 4 ? (
             <TouchableOpacity style={[styles.navBtn, styles.navBtnNext]} onPress={goNextStep}>
               <Text style={styles.navBtnNextText}>{t('common.next', 'Siguiente')}</Text>
             </TouchableOpacity>
@@ -1564,6 +1778,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 }}
               >
                 <Text style={[styles.successBtnText, { color: '#fff' }]}>📎 Subir comprobante ahora</Text>
+              </TouchableOpacity>
+            )}
+            {lastReferencia && (
+              <TouchableOpacity
+                style={[styles.successBtn, { borderColor: ORANGE, borderWidth: 1, marginBottom: 8 }]}
+                onPress={() => downloadInstructionsPDF()}
+              >
+                <Text style={[styles.successBtnText, { color: ORANGE }]}>📄 Descargar PDF de instrucciones</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity style={styles.successBtn} onPress={() => setSuccessModalVisible(false)}>
