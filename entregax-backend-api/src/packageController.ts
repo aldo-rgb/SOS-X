@@ -4919,8 +4919,37 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
       });
     }
 
+    // 🩹 Compatibilidad con masters legacy de 1 sola caja: antes de mi
+    // fix, la recepción de 1 caja creaba master + 1 hija. Si nos llega
+    // un master con total_boxes=1 (is_master=true) y exactamente 1 hija
+    // existente, lo tratamos como ya completado para evitar duplicar.
+    if (master.is_master === true && Number(master.total_boxes) === 1) {
+      const existing = await client.query(
+        `SELECT id, tracking_internal, weight, pkg_length, pkg_width, pkg_height
+         FROM packages WHERE master_id = $1 LIMIT 1`,
+        [masterId]
+      );
+      if (existing.rows.length > 0) {
+        // La caja ya existe — devolvemos 200 con esa info en lugar de
+        // 400 "Ya se registraron". El frontend ve éxito y avanza al
+        // siguiente paso (foto/cierre) sin doble registro.
+        return res.status(200).json({
+          success: true,
+          isIndividual: true,
+          alreadyExisted: true,
+          childId: existing.rows[0].id,
+          childTracking: existing.rows[0].tracking_internal,
+          boxNumber: 1,
+          expectedTotal: 1,
+          completed: true,
+          weight: existing.rows[0].weight,
+        });
+      }
+      // Master legacy sin hijas todavía → seguimos al flujo normal de
+      // creación de hija (será la única caja).
+    }
+
     // A partir de aquí, flujo MULTI-CAJA (master real con is_master=true).
-    // Ya descartamos arriba el caso individual (1 caja).
     if (master.is_master !== true) {
       return res.status(400).json({ error: 'El paquete no es un master multi-caja válido' });
     }
