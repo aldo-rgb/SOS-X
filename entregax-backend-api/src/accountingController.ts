@@ -1046,12 +1046,40 @@ export const getReceivedInvoiceDetail = async (req: AuthRequest, res: Response):
 
         const inv = await pool.query(`SELECT * FROM accounting_received_invoices WHERE id=$1 AND fiscal_emitter_id=$2`, [invoiceId, emitterId]);
         if (!inv.rows[0]) return res.status(404).json({ error: 'No encontrada' });
-        const items = await pool.query(`
+        let items = await pool.query(`
             SELECT i.*, p.description AS matched_description, p.sku AS matched_sku
             FROM accounting_received_invoice_items i
             LEFT JOIN accounting_products p ON p.id=i.matched_product_id
             WHERE i.received_invoice_id=$1 ORDER BY i.id ASC
         `, [invoiceId]);
+
+        // Recuperación: si no hay items pero tenemos el XML, re-parseamos con el parser robusto.
+        if (items.rows.length === 0 && inv.rows[0].xml_content) {
+            try {
+                const { items: parsedItems } = parseCfdiXml(inv.rows[0].xml_content);
+                if (parsedItems.length > 0) {
+                    const client = await pool.connect();
+                    try {
+                        await client.query('BEGIN');
+                        await insertReceivedInvoiceItems(client, emitterId, invoiceId, parsedItems);
+                        await client.query('COMMIT');
+                    } catch (e) {
+                        await client.query('ROLLBACK');
+                        throw e;
+                    } finally {
+                        client.release();
+                    }
+                    items = await pool.query(`
+                        SELECT i.*, p.description AS matched_description, p.sku AS matched_sku
+                        FROM accounting_received_invoice_items i
+                        LEFT JOIN accounting_products p ON p.id=i.matched_product_id
+                        WHERE i.received_invoice_id=$1 ORDER BY i.id ASC
+                    `, [invoiceId]);
+                }
+            } catch (recErr) {
+                console.warn('getReceivedInvoiceDetail: recuperación de items falló:', (recErr as any)?.message);
+            }
+        }
         return res.json({ success: true, invoice: inv.rows[0], items: items.rows });
     } catch (e: any) {
         console.error('getReceivedInvoiceDetail:', e);
@@ -1059,16 +1087,93 @@ export const getReceivedInvoiceDetail = async (req: AuthRequest, res: Response):
     }
 };
 
-// Parser simple de CFDI 4.0 XML usando regex (sin dependencias nuevas)
+// Parser robusto de CFDI 4.0 / 3.3 XML.
+// Usa fast-xml-parser (maneja cualquier prefijo de namespace) y cae a regex como respaldo.
 function parseCfdiXml(xml: string): { header: any; items: any[] } {
-    // Extrae la etiqueta de apertura completa de un nodo (incluye todos sus atributos,
-    // aunque contengan URLs con "/"). Maneja saltos de línea y self-closing.
+    // --- Estrategia 1: fast-xml-parser (preferida) ---
+    try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { XMLParser } = require('fast-xml-parser');
+        const parser = new XMLParser({
+            ignoreAttributes: false,
+            attributeNamePrefix: '@_',
+            removeNSPrefix: true, // <cfdi:Comprobante> -> Comprobante
+            parseAttributeValue: false,
+            trimValues: true,
+            allowBooleanAttributes: true,
+        });
+        const doc = parser.parse(xml);
+        const comp = doc?.Comprobante || doc?.['cfdi:Comprobante'];
+        if (comp) {
+            const a = (obj: any, name: string) => (obj && obj[`@_${name}`] != null ? String(obj[`@_${name}`]) : null);
+            const emisor = comp.Emisor || comp['cfdi:Emisor'] || {};
+            const receptor = comp.Receptor || comp['cfdi:Receptor'] || {};
+            const complemento = comp.Complemento || comp['cfdi:Complemento'] || {};
+            const timbreRaw = complemento.TimbreFiscalDigital
+                || complemento['tfd:TimbreFiscalDigital']
+                || (Array.isArray(complemento) ? complemento.find((x: any) => x?.TimbreFiscalDigital || x?.['tfd:TimbreFiscalDigital']) : null)
+                || {};
+            const timbre = timbreRaw.TimbreFiscalDigital || timbreRaw['tfd:TimbreFiscalDigital'] || timbreRaw;
+
+            const header: any = {
+                uuid_sat: a(timbre, 'UUID'),
+                fecha_timbrado: a(timbre, 'FechaTimbrado'),
+                folio: a(comp, 'Folio'),
+                serie: a(comp, 'Serie'),
+                fecha_emision: a(comp, 'Fecha'),
+                tipo_comprobante: a(comp, 'TipoDeComprobante') || 'I',
+                metodo_pago: a(comp, 'MetodoPago'),
+                forma_pago: a(comp, 'FormaPago'),
+                moneda: a(comp, 'Moneda') || 'MXN',
+                tipo_cambio: parseFloat(a(comp, 'TipoCambio') || '1'),
+                subtotal: parseFloat(a(comp, 'SubTotal') || '0'),
+                descuento: parseFloat(a(comp, 'Descuento') || '0'),
+                total: parseFloat(a(comp, 'Total') || '0'),
+                emisor_rfc: a(emisor, 'Rfc'),
+                emisor_nombre: a(emisor, 'Nombre'),
+                receptor_rfc: a(receptor, 'Rfc'),
+                receptor_nombre: a(receptor, 'Nombre'),
+                uso_cfdi: a(receptor, 'UsoCFDI'),
+            };
+
+            const conceptosWrap = comp.Conceptos || comp['cfdi:Conceptos'] || {};
+            let conceptosArr: any[] = [];
+            const rawConc = conceptosWrap.Concepto ?? conceptosWrap['cfdi:Concepto'];
+            if (Array.isArray(rawConc)) conceptosArr = rawConc;
+            else if (rawConc && typeof rawConc === 'object') conceptosArr = [rawConc];
+
+            const items = conceptosArr.map((c: any) => {
+                const cantidad = parseFloat(a(c, 'Cantidad') || '1');
+                const valor = parseFloat(a(c, 'ValorUnitario') || '0');
+                return {
+                    sat_clave_prod_serv: a(c, 'ClaveProdServ'),
+                    sat_clave_unidad: a(c, 'ClaveUnidad'),
+                    no_identificacion: a(c, 'NoIdentificacion'),
+                    description: a(c, 'Descripcion') || '',
+                    quantity: cantidad,
+                    unit_price: valor,
+                    amount: parseFloat(a(c, 'Importe') || String(cantidad * valor)),
+                    discount: parseFloat(a(c, 'Descuento') || '0'),
+                };
+            });
+
+            // IVA total
+            const imp = comp.Impuestos || comp['cfdi:Impuestos'] || {};
+            const iva = parseFloat(a(imp, 'TotalImpuestosTrasladados') || '0');
+            header.iva = iva;
+
+            if (header.uuid_sat) {
+                return { header, items };
+            }
+        }
+    } catch (err) {
+        console.warn('parseCfdiXml: fast-xml-parser falló, usando regex de respaldo:', (err as any)?.message);
+    }
+
+    // --- Estrategia 2 (respaldo): parser regex ---
     const extractOpenTag = (name: string, source: string = xml): string => {
-        // name puede venir con o sin prefijo, intentamos ambos
         const patterns = [
-            new RegExp(`<${name}\\b[^>]*?/?>`, 'i'),
-            new RegExp(`<cfdi:${name}\\b[^>]*?/?>`, 'i'),
-            new RegExp(`<tfd:${name}\\b[^>]*?/?>`, 'i'),
+            new RegExp(`<[A-Za-z0-9_-]*:?${name}\\b[^>]*?/?>`, 'i'),
         ];
         for (const re of patterns) {
             const m = source.match(re);
@@ -1078,8 +1183,10 @@ function parseCfdiXml(xml: string): { header: any; items: any[] } {
     };
     const attr = (tag: string, name: string): string | null => {
         if (!tag) return null;
-        const re = new RegExp(`\\b${name}\\s*=\\s*\"([^\"]*)\"`, 'i');
-        const m = tag.match(re);
+        // Acepta comillas dobles o simples
+        const reD = new RegExp(`\\b${name}\\s*=\\s*\"([^\"]*)\"`, 'i');
+        const reS = new RegExp(`\\b${name}\\s*=\\s*'([^']*)'`, 'i');
+        const m = tag.match(reD) || tag.match(reS);
         return m && m[1] !== undefined ? m[1] : null;
     };
 
@@ -1088,7 +1195,7 @@ function parseCfdiXml(xml: string): { header: any; items: any[] } {
     const receptor = extractOpenTag('Receptor');
     const timbre = extractOpenTag('TimbreFiscalDigital');
 
-    const header = {
+    const header: any = {
         uuid_sat: attr(timbre, 'UUID'),
         fecha_timbrado: attr(timbre, 'FechaTimbrado'),
         folio: attr(comprobante, 'Folio'),
@@ -1110,8 +1217,8 @@ function parseCfdiXml(xml: string): { header: any; items: any[] } {
     };
 
     const items: any[] = [];
-    // Conceptos: pueden ser self-closing <Concepto .../> o tener hijos <Concepto ...>...</Concepto>
-    const conceptosRe = /<(?:cfdi:)?Concepto\b[^>]*?\/?>/gi;
+    // Acepta cualquier prefijo de namespace (cfdi:, ns0:, sin prefijo)
+    const conceptosRe = /<[A-Za-z0-9_-]*:?Concepto\b[^>]*?\/?>/gi;
     const matches = xml.match(conceptosRe) || [];
     for (const c of matches) {
         const cantidad = parseFloat(attr(c, 'Cantidad') || '1');
@@ -1127,10 +1234,41 @@ function parseCfdiXml(xml: string): { header: any; items: any[] } {
             discount: parseFloat(attr(c, 'Descuento') || '0'),
         });
     }
-    // IVA total desde <cfdi:Impuestos TotalImpuestosTrasladados="...">
     const iva = parseFloat(xml.match(/TotalImpuestosTrasladados\s*=\s*\"([^\"]*)\"/i)?.[1] || '0');
-    (header as any).iva = iva;
+    header.iva = iva;
     return { header, items };
+}
+
+// Inserta los items parseados de un CFDI en accounting_received_invoice_items.
+// Reutilizable para recuperar items que se subieron antes del parser robusto.
+async function insertReceivedInvoiceItems(
+    client: any,
+    emitterId: number,
+    invoiceId: number,
+    items: any[]
+): Promise<void> {
+    for (const it of items) {
+        let matchedProductId: number | null = null;
+        if (it.sat_clave_prod_serv) {
+            const mr = await client.query(
+                `SELECT id FROM accounting_products
+                  WHERE fiscal_emitter_id=$1 AND sat_clave_prod_serv=$2 AND is_active=TRUE
+                  ORDER BY (CASE WHEN description ILIKE $3 THEN 0 ELSE 1 END) LIMIT 1`,
+                [emitterId, it.sat_clave_prod_serv, `%${String(it.description || '').substring(0, 30)}%`]
+            );
+            if (mr.rows[0]) matchedProductId = mr.rows[0].id;
+        }
+        await client.query(
+            `INSERT INTO accounting_received_invoice_items
+                (received_invoice_id, sat_clave_prod_serv, sat_clave_unidad, no_identificacion,
+                 description, quantity, unit_price, amount, discount, matched_product_id)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+            [
+                invoiceId, it.sat_clave_prod_serv, it.sat_clave_unidad, it.no_identificacion,
+                it.description, it.quantity, it.unit_price, it.amount, it.discount, matchedProductId,
+            ]
+        );
+    }
 }
 
 export const uploadReceivedInvoice = async (req: AuthRequest, res: Response): Promise<any> => {
@@ -1231,12 +1369,12 @@ export const uploadReceivedInvoice = async (req: AuthRequest, res: Response): Pr
                 }
             }
 
-            if (import_inventory && header.tipo_comprobante === 'I') {
+            if (import_inventory && header.tipo_comprobante === 'I' && items.length > 0) {
                 await client.query(`UPDATE accounting_received_invoices SET inventory_imported=TRUE, inventory_imported_at=CURRENT_TIMESTAMP WHERE id=$1`, [invoiceId]);
             }
 
             await client.query('COMMIT');
-            return res.json({ success: true, invoice: ins.rows[0], items_count: items.length, inventory_imported: import_inventory && header.tipo_comprobante === 'I' });
+            return res.json({ success: true, invoice: ins.rows[0], items_count: items.length, inventory_imported: import_inventory && header.tipo_comprobante === 'I' && items.length > 0 });
         } catch (err) {
             await client.query('ROLLBACK'); throw err;
         } finally {
@@ -1265,7 +1403,7 @@ export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Re
         if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
 
         const invRes = await pool.query(
-            `SELECT id, uuid_sat, tipo_comprobante, moneda, inventory_imported
+            `SELECT id, uuid_sat, tipo_comprobante, moneda, inventory_imported, xml_content
                FROM accounting_received_invoices
               WHERE id=$1 AND fiscal_emitter_id=$2`,
             [invoiceId, emitterId]
@@ -1283,7 +1421,7 @@ export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Re
         try {
             await client.query('BEGIN');
 
-            const itemsRes = await client.query(
+            let itemsRes = await client.query(
                 `SELECT id, sat_clave_prod_serv, sat_clave_unidad, no_identificacion,
                         description, quantity, unit_price, matched_product_id, imported_to_inventory
                    FROM accounting_received_invoice_items
@@ -1291,6 +1429,34 @@ export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Re
                   ORDER BY id ASC`,
                 [invoiceId]
             );
+
+            // Recuperación: si la tabla de items está vacía pero tenemos el XML,
+            // re-parseamos e insertamos los items antes de importar.
+            if (itemsRes.rows.length === 0 && invoice.xml_content) {
+                try {
+                    const { items: parsedItems } = parseCfdiXml(invoice.xml_content);
+                    if (parsedItems.length > 0) {
+                        await insertReceivedInvoiceItems(client, emitterId, invoiceId, parsedItems);
+                        itemsRes = await client.query(
+                            `SELECT id, sat_clave_prod_serv, sat_clave_unidad, no_identificacion,
+                                    description, quantity, unit_price, matched_product_id, imported_to_inventory
+                               FROM accounting_received_invoice_items
+                              WHERE received_invoice_id=$1
+                              ORDER BY id ASC`,
+                            [invoiceId]
+                        );
+                    }
+                } catch (recErr) {
+                    console.warn('importReceivedInvoiceToInventory: recuperación falló:', (recErr as any)?.message);
+                }
+            }
+
+            if (itemsRes.rows.length === 0) {
+                await client.query('ROLLBACK');
+                return res.status(422).json({
+                    error: 'La factura no tiene conceptos importables. Revisa el XML del CFDI; podría no contener nodos <cfdi:Concepto> válidos.',
+                });
+            }
 
             let importedCount = 0;
             let skippedCount = 0;
@@ -1362,9 +1528,10 @@ export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Re
 
             await client.query(
                 `UPDATE accounting_received_invoices
-                    SET inventory_imported=TRUE, inventory_imported_at=CURRENT_TIMESTAMP
+                    SET inventory_imported = (CASE WHEN $2::int > 0 THEN TRUE ELSE inventory_imported END),
+                        inventory_imported_at = (CASE WHEN $2::int > 0 THEN CURRENT_TIMESTAMP ELSE inventory_imported_at END)
                   WHERE id=$1`,
-                [invoiceId]
+                [invoiceId, importedCount]
             );
 
             await client.query('COMMIT');

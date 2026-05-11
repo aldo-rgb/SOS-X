@@ -108,6 +108,11 @@ export default function BranchAssetsInventory({ branches, users }: Props) {
   // Dialog QR
   const [qrAsset, setQrAsset] = useState<Asset | null>(null);
 
+  // Dialog mantenimiento preventivo
+  const [maintAsset, setMaintAsset] = useState<Asset | null>(null);
+  const [maintNotes, setMaintNotes] = useState('');
+  const [maintSubmitting, setMaintSubmitting] = useState(false);
+
   const load = async () => {
     setLoading(true);
     setError(null);
@@ -155,14 +160,25 @@ export default function BranchAssetsInventory({ branches, users }: Props) {
     }
   };
 
-  const markMaintenance = async (a: Asset) => {
-    const notes = prompt(`Registrar mantenimiento preventivo de ${a.sku}\n\nObservaciones (opcional):`, '');
-    if (notes === null) return; // canceló
+  const markMaintenance = (a: Asset) => {
+    setMaintAsset(a);
+    setMaintNotes('');
+  };
+
+  const confirmMaintenance = async () => {
+    if (!maintAsset) return;
+    setMaintSubmitting(true);
     try {
-      await api.post(`/admin/branch-assets/${a.id}/maintenance`, { notes: notes.trim() || null });
+      await api.post(`/admin/branch-assets/${maintAsset.id}/maintenance`, {
+        notes: maintNotes.trim() || null,
+      });
+      setMaintAsset(null);
+      setMaintNotes('');
       await load();
     } catch (err: any) {
       alert(err?.response?.data?.error || 'No se pudo registrar el mantenimiento');
+    } finally {
+      setMaintSubmitting(false);
     }
   };
 
@@ -419,6 +435,15 @@ export default function BranchAssetsInventory({ branches, users }: Props) {
       {qrAsset && (
         <QrDialog asset={qrAsset} onClose={() => setQrAsset(null)} />
       )}
+
+      <MaintenanceDialog
+        asset={maintAsset}
+        notes={maintNotes}
+        onNotesChange={setMaintNotes}
+        submitting={maintSubmitting}
+        onCancel={() => { setMaintAsset(null); setMaintNotes(''); }}
+        onConfirm={confirmMaintenance}
+      />
     </Paper>
   );
 }
@@ -455,6 +480,11 @@ function AssetDialog({ open, onClose, onSaved, editing, branches, users }: Dialo
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [uploadingKind, setUploadingKind] = useState<null | 'photo' | 'invoice'>(null);
+  // URLs firmadas (S3) para previsualización inmediata tras subir un archivo.
+  // Se mantienen aparte del form para no contaminar la URL canónica que se
+  // persiste en BD (las firmadas expiran).
+  const [photoViewUrl, setPhotoViewUrl] = useState<string>(editing?.photo_url || '');
+  const [invoiceViewUrl, setInvoiceViewUrl] = useState<string>(editing?.invoice_url || '');
 
   const set = (k: keyof typeof form, v: any) => setForm(prev => ({ ...prev, [k]: v }));
 
@@ -473,6 +503,12 @@ function AssetDialog({ open, onClose, onSaved, editing, branches, users }: Dialo
       const r = await api.post('/admin/branch-assets/upload', { dataUrl, kind });
       if (r.data?.url) {
         set(kind === 'photo' ? 'photo_url' : 'invoice_url', r.data.url);
+        // La URL firmada (viewUrl) sirve para que el preview funcione aunque
+        // el bucket S3 sea privado. Si el backend no la devuelve, caemos a
+        // la URL pública (que funcionará sólo si el bucket es público).
+        const view = r.data.viewUrl || r.data.signedUrl || r.data.url;
+        if (kind === 'photo') setPhotoViewUrl(view);
+        else setInvoiceViewUrl(view);
       }
     } catch (e: any) {
       alert(e?.response?.data?.error || 'No se pudo subir el archivo');
@@ -577,7 +613,7 @@ function AssetDialog({ open, onClose, onSaved, editing, branches, users }: Dialo
           <Box>
             <Typography variant="caption" color="text.secondary">Foto del equipo</Typography>
             <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-              {form.photo_url && <Avatar src={form.photo_url} variant="rounded" sx={{ width: 56, height: 56 }} />}
+              {(photoViewUrl || form.photo_url) && <Avatar src={photoViewUrl || form.photo_url} variant="rounded" sx={{ width: 56, height: 56 }} />}
               <Button component="label" variant="outlined" disabled={uploadingKind === 'photo'} size="small">
                 {uploadingKind === 'photo' ? 'Subiendo…' : (form.photo_url ? 'Reemplazar foto' : 'Subir foto')}
                 <input hidden type="file" accept="image/*" onChange={(e) => e.target.files?.[0] && uploadFile('photo', e.target.files[0])} />
@@ -588,7 +624,7 @@ function AssetDialog({ open, onClose, onSaved, editing, branches, users }: Dialo
             <Typography variant="caption" color="text.secondary">Factura de compra (PDF)</Typography>
             <Box sx={{ mt: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
               {form.invoice_url && (
-                <Button size="small" component="a" href={form.invoice_url} target="_blank">Ver actual</Button>
+                <Button size="small" component="a" href={invoiceViewUrl || form.invoice_url} target="_blank">Ver actual</Button>
               )}
               <Button component="label" variant="outlined" disabled={uploadingKind === 'invoice'} size="small">
                 {uploadingKind === 'invoice' ? 'Subiendo…' : (form.invoice_url ? 'Reemplazar factura' : 'Subir PDF')}
@@ -678,6 +714,128 @@ function QrDialog({ asset, onClose }: { asset: Asset; onClose: () => void }) {
         <Button onClick={onClose}>Cerrar</Button>
         <Button variant="contained" startIcon={<PrintIcon />} onClick={print} sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#d94d1f' } }}>
           Imprimir etiqueta
+        </Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
+// ====================================================================
+//  MaintenanceDialog — registrar mantenimiento preventivo
+// ====================================================================
+// Reemplaza al window.prompt nativo con un diálogo MUI completo que
+// muestra: SKU/marca/modelo, fecha en que se registra (hoy), próximo
+// vencimiento estimado (+6 meses) y campo opcional de observaciones.
+function MaintenanceDialog({
+  asset,
+  notes,
+  onNotesChange,
+  submitting,
+  onCancel,
+  onConfirm,
+}: {
+  asset: Asset | null;
+  notes: string;
+  onNotesChange: (v: string) => void;
+  submitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const today = new Date();
+  const nextDue = new Date(today);
+  nextDue.setMonth(nextDue.getMonth() + 6);
+  const fmt = (d: Date) =>
+    d.toLocaleDateString('es-MX', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  return (
+    <Dialog open={!!asset} onClose={onCancel} maxWidth="sm" fullWidth>
+      <DialogTitle
+        sx={{
+          background: 'linear-gradient(135deg, #F05A28 0%, #d94d1f 100%)',
+          color: 'white',
+          fontWeight: 800,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1.5,
+          py: 2,
+        }}
+      >
+        <Box
+          sx={{
+            width: 44, height: 44, borderRadius: '50%',
+            bgcolor: 'rgba(255,255,255,0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 22,
+          }}
+        >
+          🛠️
+        </Box>
+        <Box>
+          <Typography sx={{ fontWeight: 800, fontSize: '1.1rem', lineHeight: 1.2 }}>
+            Registrar mantenimiento preventivo
+          </Typography>
+          <Typography variant="caption" sx={{ opacity: 0.85 }}>
+            {asset?.sku} · {[asset?.brand, asset?.model].filter(Boolean).join(' · ') || 'Sin marca/modelo'}
+          </Typography>
+        </Box>
+      </DialogTitle>
+
+      <DialogContent sx={{ pt: 3 }}>
+        <Box
+          sx={{
+            display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+            gap: 2, mb: 2,
+          }}
+        >
+          <Box sx={{ p: 1.5, bgcolor: '#FFF4EE', border: '1px solid #FAD3C0', borderRadius: 2 }}>
+            <Typography variant="caption" sx={{ color: '#A33B12', fontWeight: 700, letterSpacing: 0.5 }}>
+              FECHA DE REGISTRO
+            </Typography>
+            <Typography sx={{ fontWeight: 800, mt: 0.5, color: '#F05A28', textTransform: 'capitalize' }}>
+              {fmt(today)}
+            </Typography>
+          </Box>
+          <Box sx={{ p: 1.5, bgcolor: '#F4F6F8', border: '1px solid #E0E4E8', borderRadius: 2 }}>
+            <Typography variant="caption" sx={{ color: '#666', fontWeight: 700, letterSpacing: 0.5 }}>
+              PRÓXIMO VENCIMIENTO (+6 MESES)
+            </Typography>
+            <Typography sx={{ fontWeight: 800, mt: 0.5, color: '#333', textTransform: 'capitalize' }}>
+              {fmt(nextDue)}
+            </Typography>
+          </Box>
+        </Box>
+
+        <TextField
+          label="Observaciones (opcional)"
+          value={notes}
+          onChange={(e) => onNotesChange(e.target.value)}
+          multiline
+          minRows={3}
+          fullWidth
+          placeholder="Refacciones reemplazadas, técnico responsable, costos, etc."
+          autoFocus
+        />
+      </DialogContent>
+
+      <DialogActions sx={{ px: 3, pb: 2 }}>
+        <Button onClick={onCancel} disabled={submitting} sx={{ color: '#666', textTransform: 'none' }}>
+          Cancelar
+        </Button>
+        <Button
+          variant="contained"
+          onClick={onConfirm}
+          disabled={submitting}
+          sx={{
+            bgcolor: '#F05A28', textTransform: 'none', fontWeight: 700, px: 3,
+            '&:hover': { bgcolor: '#d94d1f' },
+          }}
+        >
+          {submitting ? (
+            <>
+              <CircularProgress size={16} sx={{ color: 'white', mr: 1 }} />
+              Registrando…
+            </>
+          ) : 'Registrar mantenimiento'}
         </Button>
       </DialogActions>
     </Dialog>

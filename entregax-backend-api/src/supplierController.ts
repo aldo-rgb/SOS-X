@@ -202,6 +202,9 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
             JOIN packages p ON p.consolidation_id = c.id
             LEFT JOIN suppliers s ON p.supplier_id = s.id
             WHERE p.supplier_id IS NOT NULL
+              -- Excluir guías master que tienen hijas (multi-bulto): sus hijas
+              -- ya contienen el costo individual, sumar el master duplicaría.
+              AND NOT (COALESCE(p.is_master, FALSE) = TRUE AND COALESCE(p.total_boxes, 1) > 1)
             GROUP BY c.id, c.status, c.created_at, s.id, s.name
             -- Solo consolidaciones que TODAVÍA tienen algo pendiente
             HAVING COUNT(p.id) FILTER (WHERE COALESCE(p.costing_paid, FALSE) = FALSE) > 0
@@ -227,12 +230,15 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                         p.status,
                         COALESCE(p.missing_on_arrival, FALSE) AS missing_on_arrival,
                         COALESCE(p.is_lost, FALSE) AS is_lost,
+                        COALESCE(p.is_master, FALSE) AS is_master,
+                        COALESCE(p.total_boxes, 1) AS total_boxes,
                         u.full_name as client_name,
                         u.box_id as client_box_id
                     FROM packages p
                     LEFT JOIN users u ON p.user_id = u.id
                     WHERE p.consolidation_id = $1 
                     AND p.supplier_id = $2
+                    AND NOT (COALESCE(p.is_master, FALSE) = TRUE AND COALESCE(p.total_boxes, 1) > 1)
                     ORDER BY
                         CASE WHEN COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE THEN 1 ELSE 0 END,
                         p.tracking_internal

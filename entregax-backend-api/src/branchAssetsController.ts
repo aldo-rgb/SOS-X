@@ -20,7 +20,45 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
-import { uploadToS3 } from './s3Service';
+import { uploadToS3, getSignedUrlForKey, extractKeyFromUrl } from './s3Service';
+
+// Convierte una URL pública de S3 (o el path/key directo) a una URL firmada
+// temporal para que el navegador pueda descargar el archivo aunque el bucket
+// sea privado. Si no es una URL de S3, se devuelve tal cual.
+async function toSignedUrl(url: string | null | undefined): Promise<string | null> {
+    if (!url) return null;
+    try {
+        const key = extractKeyFromUrl(url);
+        if (!key) return url;
+        return await getSignedUrlForKey(key, 3600);
+    } catch (err) {
+        console.warn('[branchAssets] no se pudo firmar URL:', (err as any)?.message);
+        return url;
+    }
+}
+
+async function signAssetUrls<T extends { photo_url?: string | null; invoice_url?: string | null }>(row: T): Promise<T> {
+    if (!row) return row;
+    const [photo, invoice] = await Promise.all([
+        toSignedUrl(row.photo_url),
+        toSignedUrl(row.invoice_url),
+    ]);
+    return { ...row, photo_url: photo, invoice_url: invoice };
+}
+
+// Normaliza una URL S3 a su forma canónica (sin query string de firma) para
+// guardarla en BD. Si la URL es de S3 pero viene con firma, la limpia. Si no
+// es S3, la devuelve tal cual.
+function normalizeS3UrlForStorage(url: string | null | undefined): string | null {
+    if (!url) return null;
+    try {
+        const u = new URL(url);
+        if (!u.hostname.includes('s3')) return url;
+        return `${u.origin}${u.pathname}`;
+    } catch {
+        return url;
+    }
+}
 
 // ============================================
 // Migración lazy: corre la primera vez que el
@@ -130,7 +168,8 @@ export const listAssets = async (req: Request, res: Response): Promise<any> => {
             LIMIT 500
         `, params);
 
-        return res.json(result.rows);
+        const signed = await Promise.all(result.rows.map((r: any) => signAssetUrls(r)));
+        return res.json(signed);
     } catch (err: any) {
         console.error('[branchAssets] list error:', err);
         return res.status(500).json({ error: err.message || 'Error al listar activos' });
@@ -157,7 +196,7 @@ export const getAssetById = async (req: Request, res: Response): Promise<any> =>
             LIMIT 1
         `, [id]);
         if (r.rows.length === 0) return res.status(404).json({ error: 'Activo no encontrado' });
-        return res.json(r.rows[0]);
+        return res.json(await signAssetUrls(r.rows[0]));
     } catch (err: any) {
         console.error('[branchAssets] getById error:', err);
         return res.status(500).json({ error: err.message || 'Error' });
@@ -219,12 +258,12 @@ export const createAsset = async (req: Request, res: Response): Promise<any> => 
             assigned_to_user_id || null,
             acquisition_date || null,
             acquisition_cost != null ? Number(acquisition_cost) : null,
-            photo_url || null,
-            invoice_url || null,
+            normalizeS3UrlForStorage(photo_url),
+            normalizeS3UrlForStorage(invoice_url),
             notes || null,
         ]);
 
-        return res.status(201).json(r.rows[0]);
+        return res.status(201).json(await signAssetUrls(r.rows[0]));
     } catch (err: any) {
         console.error('[branchAssets] create error:', err);
         if (err.code === '23505') {
@@ -279,13 +318,13 @@ export const updateAsset = async (req: Request, res: Response): Promise<any> => 
             assigned_to_user_id || null,
             acquisition_date || null,
             acquisition_cost != null ? Number(acquisition_cost) : null,
-            photo_url || null,
-            invoice_url || null,
+            normalizeS3UrlForStorage(photo_url),
+            normalizeS3UrlForStorage(invoice_url),
             notes || null,
             id,
         ]);
         if (r.rows.length === 0) return res.status(404).json({ error: 'Activo no encontrado' });
-        return res.json(r.rows[0]);
+        return res.json(await signAssetUrls(r.rows[0]));
     } catch (err: any) {
         console.error('[branchAssets] update error:', err);
         if (err.code === '23505') {
@@ -338,7 +377,7 @@ export const markMaintenanceDone = async (req: Request, res: Response): Promise<
             RETURNING *
         `, [notes ? String(notes) : null, id]);
         if (r.rows.length === 0) return res.status(404).json({ error: 'Activo no encontrado' });
-        return res.json(r.rows[0]);
+        return res.json(await signAssetUrls(r.rows[0]));
     } catch (err: any) {
         console.error('[branchAssets] markMaintenanceDone error:', err);
         return res.status(500).json({ error: err.message || 'Error al registrar mantenimiento' });
@@ -360,8 +399,12 @@ export const uploadAssetFile = async (req: Request, res: Response): Promise<any>
         const ext = contentType.split('/')[1] || 'bin';
         const safeKind = kind === 'invoice' ? 'invoice' : 'photo';
         const key = `branch-assets/${safeKind}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        // Guardamos la URL pública canónica en BD, pero devolvemos al cliente
+        // una URL firmada para que la previsualización funcione aunque el
+        // bucket sea privado.
         const url = await uploadToS3(buffer, key, contentType);
-        return res.json({ url });
+        const signedUrl = await getSignedUrlForKey(key, 3600).catch(() => url);
+        return res.json({ url, signedUrl, viewUrl: signedUrl });
     } catch (err: any) {
         console.error('[branchAssets] upload error:', err);
         return res.status(500).json({ error: err.message || 'Error al subir archivo' });

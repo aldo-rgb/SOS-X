@@ -162,6 +162,8 @@ interface ConsolidacionPendiente {
     status?: string;
     missing_on_arrival?: boolean;
     is_lost?: boolean;
+    is_master?: boolean;
+    total_boxes?: number;
     client_name: string;
     client_box_id: string;
   }>;
@@ -348,6 +350,7 @@ const CajaChicaPage: React.FC = () => {
       supplier_name: string;
       tracking: string;
       client: string;
+      client_box_id: string;
       description: string;
       weight: number;
       dims: string;
@@ -364,6 +367,9 @@ const CajaChicaPage: React.FC = () => {
     const selected = consolidacionesPendientes.filter(c => selectedConsolidaciones.has(c.id));
     selected.forEach((c) => {
       (c.packages || []).forEach((p) => {
+        // Ocultar guías master con múltiples bultos: sus hijas (sufijo -NNNN)
+        // ya contienen el costo individual, sumar el master duplicaría totales.
+        if (p.is_master && Number(p.total_boxes || 1) > 1) return;
         const usd = Number(p.pobox_cost_usd || 0);
         const mxn = Number(p.pobox_service_cost || 0);
         const tc = usd > 0 ? mxn / usd : 0;
@@ -386,6 +392,8 @@ const CajaChicaPage: React.FC = () => {
           statusLabel = 'YA PAGADA';
         } else if (p.status && p.status !== 'received_mty') {
           statusLabel = 'EN TRÁNSITO';
+          countsToTotal = false;
+          reasonNoCount = 'Aún no llega a MTY';
         }
 
         rows.push({
@@ -393,6 +401,7 @@ const CajaChicaPage: React.FC = () => {
           supplier_name: c.supplier_name,
           tracking: p.tracking,
           client: `${p.client_name || '—'} (${p.client_box_id || 'N/A'})`,
+          client_box_id: p.client_box_id || '',
           description: p.description || '—',
           weight: Number(p.weight || 0),
           dims,
@@ -439,6 +448,7 @@ const CajaChicaPage: React.FC = () => {
   th { background: #1a1a1a; color: #fff; padding: 6px 4px; text-align: left; font-size: 9px; }
   td { padding: 5px 4px; border-bottom: 1px solid #ddd; font-size: 9px; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  th.center, td.center { text-align: center; }
   tr.group { background: #fff3ea; font-weight: 700; }
   .totals { margin-top: 12px; border: 2px solid #C1272D; padding: 8px 12px; display: flex; justify-content: space-between; }
   .totals .big { font-size: 14px; font-weight: 900; color: #C1272D; }
@@ -450,9 +460,9 @@ const CajaChicaPage: React.FC = () => {
   <thead>
     <tr>
       <th>Consolidación</th>
-      <th>Proveedor</th>
+      <th># Cliente</th>
       <th>Guía</th>
-      <th class="num">Peso (kg)</th>
+      <th class="num center">Peso (kg)</th>
       <th>Medidas (in)</th>
       <th class="num">USD</th>
       <th class="num">TC</th>
@@ -465,17 +475,20 @@ const CajaChicaPage: React.FC = () => {
       const rowStyle = r.countsToTotal
         ? ''
         : r.statusLabel === 'PERDIDA' ? 'background:#ffebee;color:#999;'
+        : r.statusLabel === 'EN TRÁNSITO' ? 'background:#e3f2fd;color:#1565c0;'
         : 'background:#fff3e0;color:#999;';
       const tachado = r.statusLabel === 'PERDIDA' ? 'text-decoration:line-through;' : '';
-      const statusColor = r.countsToTotal
-        ? (r.statusLabel === 'YA PAGADA' ? '#2e7d32' : r.statusLabel === 'EN TRÁNSITO' ? '#1565c0' : '#2e7d32')
-        : r.statusLabel === 'PERDIDA' ? '#c62828' : '#ef6c00';
+      const statusColor = r.statusLabel === 'YA PAGADA' ? '#2e7d32'
+        : r.statusLabel === 'EN TRÁNSITO' ? '#1565c0'
+        : r.statusLabel === 'PERDIDA' ? '#c62828'
+        : r.statusLabel === 'FALTANTE' ? '#ef6c00'
+        : '#2e7d32';
       return `
       <tr style="${rowStyle}">
         <td>#${r.consolidacion_id}</td>
-        <td>${r.supplier_name || '—'}</td>
+        <td style="font-family:monospace;font-weight:600">${r.client_box_id || '—'}</td>
         <td style="font-family:monospace;font-weight:600;${tachado}">${r.tracking}</td>
-        <td class="num">${r.weight.toFixed(2)}</td>
+        <td class="num center">${r.weight.toFixed(2)}</td>
         <td>${r.dims}</td>
         <td class="num">$${r.usd.toFixed(2)}</td>
         <td class="num">${r.tc.toFixed(2)}</td>
