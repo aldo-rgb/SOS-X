@@ -817,6 +817,32 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             WHERE (p.is_master = true OR p.master_id IS NULL)
             AND (p.service_type = 'POBOX_USA' OR p.service_type = 'air' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
+            -- 🩹 Anti-duplicado: si el tracking termina en "-NNNN" se trata
+            -- de una CAJA HIJA. Tres casos posibles:
+            --  (a) Existe el master base con el tracking sin sufijo → ese ya
+            --      se muestra; ocultamos TODAS las hijas.
+            --  (b) No hay master base pero hay múltiples hermanas con el
+            --      mismo prefijo (bug legacy donde cada caja se registró
+            --      como master independiente con sufijo -NNNN). Mostramos
+            --      solo UNA representante (la de menor id).
+            --  (c) Es un tracking suelto que solo casualmente termina en
+            --      -NNNN (sin hermanos ni master) → se muestra normal.
+            AND (
+              p.tracking_internal !~ '-[0-9]{4}$'
+              OR (
+                NOT EXISTS (
+                  SELECT 1 FROM packages pm
+                   WHERE pm.tracking_internal = regexp_replace(p.tracking_internal, '-[0-9]{4}$', '')
+                     AND pm.id <> p.id
+                )
+                AND p.id = (
+                  SELECT MIN(ps.id) FROM packages ps
+                   WHERE regexp_replace(ps.tracking_internal, '-[0-9]{4}$', '')
+                       = regexp_replace(p.tracking_internal, '-[0-9]{4}$', '')
+                     AND ps.tracking_internal ~ '-[0-9]{4}$'
+                )
+              )
+            )
         `;
         const params: (string | number)[] = [];
 
