@@ -952,36 +952,62 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                   </TouchableOpacity>
                 </View>
               </View>
-            ) : (
-              <TouchableOpacity 
-                style={[advStyles.referralCard, { alignItems: 'center', paddingVertical: 16 }]}
-                onPress={() => {
-                  if (!user.privacyAcceptedAt) {
-                    navigation.navigate('EmployeeOnboarding', { user, token });
-                  } else {
-                    navigation.navigate('MyProfile', { user, token });
-                  }
-                }}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="lock-closed" size={28} color="#999" />
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#666', marginTop: 6, textAlign: 'center' }}>
-                  🔒 Código de Referido Bloqueado
+            ) : null /* Cliente pidió ocultar la card de "Código de Referido
+                       Bloqueado" — el banner "Acceso Restringido" de
+                       abajo ya invita a iniciar la verificación. */}
+
+            {/* 🔒 GATE: Bloqueo total de información hasta verificación + términos */}
+            {!(user.privacyAcceptedAt && user.isVerified) ? (
+              <View style={{
+                marginTop: 16,
+                padding: 20,
+                backgroundColor: '#FFF8E1',
+                borderRadius: 12,
+                borderWidth: 1,
+                borderColor: '#F59E0B',
+                alignItems: 'center'
+              }}>
+                <Ionicons name="lock-closed" size={48} color="#F59E0B" />
+                <Text style={{ fontSize: 16, fontWeight: '700', color: '#92400E', marginTop: 8, textAlign: 'center' }}>
+                  Acceso Restringido
                 </Text>
-                <Text style={{ fontSize: 12, color: '#999', marginTop: 3, textAlign: 'center', paddingHorizontal: 10 }}>
-                  {!user.privacyAcceptedAt 
-                    ? 'Acepta los Términos y Condiciones para continuar'
-                    : 'Completa tu verificación de identidad para desbloquear tu código'}
+                <Text style={{ fontSize: 13, color: '#78350F', marginTop: 6, textAlign: 'center', lineHeight: 18 }}>
+                  {!user.privacyAcceptedAt
+                    ? 'Para acceder al panel de asesor primero debes aceptar los Términos y Condiciones.'
+                    : 'Para ver la información de tus clientes, embarques y comisiones primero completa tu verificación de identidad.'}
                 </Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10, backgroundColor: !user.privacyAcceptedAt ? '#F59E0B' : ORANGE, borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7 }}>
-                  <Ionicons name={!user.privacyAcceptedAt ? 'document-text' : 'shield-checkmark'} size={16} color="#fff" />
-                  <Text style={{ color: '#fff', fontWeight: '600', marginLeft: 6, fontSize: 13 }}>
+                <TouchableOpacity
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    marginTop: 14,
+                    backgroundColor: !user.privacyAcceptedAt ? '#F59E0B' : ORANGE,
+                    borderRadius: 8,
+                    paddingHorizontal: 18,
+                    paddingVertical: 10
+                  }}
+                  onPress={() => {
+                    if (!user.privacyAcceptedAt) {
+                      navigation.navigate('EmployeeOnboarding', { user, token });
+                    } else {
+                      navigation.navigate('Verification', { user, token });
+                    }
+                  }}
+                >
+                  <Ionicons name={!user.privacyAcceptedAt ? 'document-text' : 'shield-checkmark'} size={18} color="#fff" />
+                  <Text style={{ color: '#fff', fontWeight: '700', marginLeft: 8, fontSize: 14 }}>
                     {!user.privacyAcceptedAt ? 'Aceptar Términos' : 'Iniciar Verificación'}
                   </Text>
-                </View>
-              </TouchableOpacity>
-            )}
-
+                </TouchableOpacity>
+                {user.isVerified === false && user.verificationStatus === 'pending_review' && (
+                  <Text style={{ marginTop: 12, fontSize: 12, color: '#92400E', fontStyle: 'italic' }}>
+                    Tu verificación está en revisión. Te avisaremos cuando se apruebe.
+                  </Text>
+                )}
+                <View style={{ height: 40 }} />
+              </View>
+            ) : (
+            <>
             {/* Mis Clientes */}
             <Text style={styles.sectionTitle}>👥 {t('advisorPanel.myClients')}</Text>
             <View style={advStyles.statsGrid}>
@@ -1140,6 +1166,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             )}
 
             <View style={{ height: 40 }} />
+            </>
+            )}
           </View>
         ) : isAdvisor && advisorLoading ? (
           <View style={{ padding: 40, alignItems: 'center' }}>
