@@ -1187,7 +1187,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           {defaultProvider ? (
             <View style={styles.liveChip}>
               <View style={styles.liveDot} />
-              <Text style={styles.liveText}>LIVE · {defaultProvider.name}</Text>
+              <Text style={styles.liveText}>LIVE</Text>
             </View>
           ) : (
             <ActivityIndicator size="small" color={ORANGE} />
