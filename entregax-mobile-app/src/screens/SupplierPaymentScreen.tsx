@@ -1400,20 +1400,21 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   </View>
                 )}
 
-                {/* Descargar PDF de instrucciones — disponible siempre que
-                    tengamos snapshot guardado de cuentas beneficiarias. */}
-                {!!(r.instructions_snapshot?.empresas?.length) && (
-                  <TouchableOpacity
-                    style={[styles.linkBtn, { marginTop: 8, alignSelf: 'flex-start', borderColor: ORANGE }]}
-                    onPress={() => downloadInstructionsPDF({
-                      referencia: r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`,
-                      empresas: r.instructions_snapshot.empresas,
-                    })}
-                  >
-                    <Ionicons name="document-text-outline" size={13} color={ORANGE} />
-                    <Text style={[styles.linkText, { color: ORANGE }]}>Descargar PDF</Text>
-                  </TouchableOpacity>
-                )}
+                {/* Descargar PDF de instrucciones — siempre disponible.
+                    Si no hay snapshot de empresas, el PDF se genera de
+                    todas formas con referencia + aviso "sin info bancaria".
+                    Antes se ocultaba el botón cuando faltaba el snapshot,
+                    pero el cliente lo necesita siempre. */}
+                <TouchableOpacity
+                  style={[styles.linkBtn, { marginTop: 8, alignSelf: 'flex-start', borderColor: ORANGE }]}
+                  onPress={() => downloadInstructionsPDF({
+                    referencia: r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`,
+                    empresas: r.instructions_snapshot?.empresas || [],
+                  })}
+                >
+                  <Ionicons name="document-text-outline" size={13} color={ORANGE} />
+                  <Text style={[styles.linkText, { color: ORANGE }]}>Descargar PDF de instrucciones</Text>
+                </TouchableOpacity>
 
                 {(r.factura_url || r.comprobante_proveedor_url) && (
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
@@ -2105,7 +2106,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               return (
                 <View style={{ marginTop: 8, padding: 10, backgroundColor: '#0a0a0a', borderRadius: 8, borderWidth: 1, borderColor: ORANGE }}>
                   <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 6 }}>
-                    🏢 EMPRESA QUE EMITIRÁ LA FACTURA
+                    🏢 REFERENCIA
                   </Text>
                   <Text style={styles.quoteLine}>Razón social: <Text style={styles.quoteVal}>{empresa.nombre || '—'}</Text></Text>
                   {!!empresa.rfc && <Text style={styles.quoteLine}>RFC: <Text style={[styles.quoteVal, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{empresa.rfc}</Text></Text>}
