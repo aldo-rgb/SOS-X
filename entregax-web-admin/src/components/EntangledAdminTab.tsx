@@ -42,6 +42,14 @@ interface EntangledRow {
   comision_cobrada_porcentaje?: number | string | null;
   tc_aplicado_usd?: number | string | null;
   empresas_asignadas?: unknown;
+  // Timestamps de ciclo de vida — usados por la columna "Procesando"
+  // y el chip de días transcurridos. El backend los devuelve desde
+  // entangled_payment_requests.
+  comprobante_subido_at?: string | null;
+  factura_emitida_at?: string | null;
+  proveedor_pagado_at?: string | null;
+  // box_id del usuario (S1, S54, etc) — alimenta la columna Cliente
+  client_box_id?: string | null;
 }
 
 const statusColor = (s: string): 'default' | 'warning' | 'info' | 'success' | 'error' => {
@@ -121,7 +129,7 @@ export default function EntangledAdminTab() {
                 const conFactura = r.servicio !== 'pago_sin_factura';
                 // Cliente: usamos el box_id (formato "S1", "S54", etc) en
                 // lugar del user_id crudo (#54).
-                const clientCode = (r as any).client_box_id
+                const clientCode = r.client_box_id
                   || (r.user_id ? `S${r.user_id}` : '—');
                 return (
                 <TableRow key={r.id} hover>
@@ -161,8 +169,8 @@ export default function EntangledAdminTab() {
                     {(() => {
                       const start = r.comprobante_subido_at ? new Date(r.comprobante_subido_at) : null;
                       if (!start) return <Typography variant="caption" color="text.disabled">—</Typography>;
-                      const facturaAt = (r as any).factura_emitida_at ? new Date((r as any).factura_emitida_at) : null;
-                      const pagoAt = (r as any).proveedor_pagado_at ? new Date((r as any).proveedor_pagado_at) : null;
+                      const facturaAt = r.factura_emitida_at ? new Date(r.factura_emitida_at) : null;
+                      const pagoAt = r.proveedor_pagado_at ? new Date(r.proveedor_pagado_at) : null;
                       const completo = !!facturaAt && !!pagoAt;
                       const endTs = completo
                         ? Math.max(facturaAt!.getTime(), pagoAt!.getTime())
