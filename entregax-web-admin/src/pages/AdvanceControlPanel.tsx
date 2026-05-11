@@ -400,11 +400,14 @@ export default function AdvanceControlPanel() {
             formData.append('referencias', JSON.stringify(parsedReferencias));
             formData.append('comprobante', comprobanteFile);
 
+            // Importante: NO setear Content-Type manualmente. Cuando se
+            // envía FormData, axios genera 'multipart/form-data; boundary=...'
+            // automáticamente. Si lo fijas sin boundary, el body llega
+            // mal formado y multer rechaza.
             await axios.post(`${API_URL}/api/anticipos/bolsas`, formData, {
-                headers: { 
+                headers: {
                     Authorization: `Bearer ${getToken()}`,
-                    'Content-Type': 'multipart/form-data'
-                }
+                },
             });
             setSnackbar({ open: true, message: `✅ Depósito de $${formatCurrency(getTotalReferencias())} registrado con ${parsedReferencias.length} referencia(s)`, severity: 'success' });
             setBolsaDialog(false);
