@@ -4061,14 +4061,14 @@ app.delete('/api/admin/branches/:id', authenticateToken, requireRole(ROLES.SUPER
 // cualquier personal con acceso al panel admin_branches (otorgado
 // por la matriz de permisos) pueda consultar el inventario.
 // Escrituras siguen restringidas a DIRECTOR.
-// Gestión de activos: lectura para personal de mostrador, alta/edición/upload
-// para gerentes de sucursal (registran activos del CEDIS día a día). Borrado
-// sigue restringido a DIRECTOR para evitar pérdidas accidentales del patrimonio.
+// Gestión de activos: el personal de mostrador puede registrar y editar
+// activos del CEDIS donde trabaja día a día. Borrado sigue restringido a
+// DIRECTOR para evitar pérdidas accidentales del patrimonio.
 app.get('/api/admin/branch-assets', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), listAssets);
-app.post('/api/admin/branch-assets', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createAsset);
-app.put('/api/admin/branch-assets/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), updateAsset);
+app.post('/api/admin/branch-assets', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createAsset);
+app.put('/api/admin/branch-assets/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateAsset);
 app.delete('/api/admin/branch-assets/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteAsset);
-app.post('/api/admin/branch-assets/upload', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), uploadAssetFile);
+app.post('/api/admin/branch-assets/upload', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadAssetFile);
 app.post('/api/admin/branch-assets/:id/maintenance', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), markMaintenanceDone);
 app.get('/api/branch-assets/:id', getAssetById);
 // Asignación de empleados
