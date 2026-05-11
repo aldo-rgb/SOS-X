@@ -7383,7 +7383,7 @@ app.post('/api/admin/hr/employees/:id/reactivate', authenticateToken, requireMin
 });
 app.get('/api/admin/hr/attendance', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getAttendanceHistory);
 app.get('/api/admin/hr/attendance/stats', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getAttendanceStats);
-app.get('/api/admin/hr/drivers/live', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getDriversLiveLocation);
+app.get('/api/admin/hr/drivers/live', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.CUSTOMER_SERVICE, ROLES.COUNTER_STAFF, ROLES.ACCOUNTANT, ROLES.MONITOREO, ROLES.OPERACIONES), getDriversLiveLocation);
 
 // Ubicaciones de trabajo (geocercas)
 app.get('/api/admin/hr/locations', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getWorkLocations);
@@ -7417,7 +7417,7 @@ const hrDocUpload = multer({
 });
 
 app.get('/api/admin/hr/dashboard-summary', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getHRDashboardSummary);
-app.get('/api/admin/hr/employees/:id/full-profile', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getEmployeeFullProfile);
+app.get('/api/admin/hr/employees/:id/full-profile', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeeFullProfile);
 app.post('/api/admin/hr/employees/:id/documents', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), hrDocUpload.single('file'), uploadEmployeeDocument);
 app.delete('/api/admin/hr/documents/:docId', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteEmployeeDocument);
 app.put('/api/admin/hr/employees/:id/payroll', authenticateToken, requireMinLevel(ROLES.ADMIN), upsertPayroll);

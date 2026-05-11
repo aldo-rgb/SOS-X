@@ -226,6 +226,9 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                         p.pkg_height,
                         p.pobox_service_cost,
                         p.pobox_cost_usd,
+                        p.pobox_provider_cost_usd,
+                        p.pobox_provider_cost_mxn,
+                        p.registered_exchange_rate,
                         p.costing_paid,
                         p.status,
                         COALESCE(p.missing_on_arrival, FALSE) AS missing_on_arrival,
@@ -239,7 +242,9 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                     LEFT JOIN legacy_clients lc ON UPPER(lc.box_id) = UPPER(p.box_id)
                     WHERE p.consolidation_id = $1 
                     AND p.supplier_id = $2
-                    AND NOT (COALESCE(p.is_master, FALSE) = TRUE AND COALESCE(p.total_boxes, 1) > 1)
+                    AND NOT EXISTS (
+                        SELECT 1 FROM packages c WHERE c.master_id = p.id
+                    )
                     ORDER BY
                         CASE WHEN COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE THEN 1 ELSE 0 END,
                         p.tracking_internal
@@ -301,6 +306,9 @@ export const getSupplierConsolidations = async (req: Request, res: Response): Pr
                         p.status,
                         p.pobox_service_cost,
                         p.pobox_cost_usd,
+                        p.pobox_provider_cost_usd,
+                        p.pobox_provider_cost_mxn,
+                        p.registered_exchange_rate,
                         p.costing_paid,
                         p.received_at,
                         COALESCE(u.full_name, lc.full_name) as client_name,
@@ -309,6 +317,9 @@ export const getSupplierConsolidations = async (req: Request, res: Response): Pr
                     LEFT JOIN users u ON p.user_id = u.id
                     LEFT JOIN legacy_clients lc ON UPPER(lc.box_id) = UPPER(p.box_id)
                     WHERE p.consolidation_id = $1 AND p.supplier_id = $2
+                    AND NOT EXISTS (
+                        SELECT 1 FROM packages c WHERE c.master_id = p.id
+                    )
                     ORDER BY p.tracking_internal
                 `, [consolidation.id, id]);
                 

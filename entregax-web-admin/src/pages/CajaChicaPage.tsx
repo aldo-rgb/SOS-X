@@ -158,6 +158,9 @@ interface ConsolidacionPendiente {
     pkg_height?: number;
     pobox_service_cost: number;
     pobox_cost_usd: number;
+    pobox_provider_cost_usd?: number;
+    pobox_provider_cost_mxn?: number;
+    registered_exchange_rate?: number;
     costing_paid: boolean;
     status?: string;
     missing_on_arrival?: boolean;
@@ -370,9 +373,20 @@ const CajaChicaPage: React.FC = () => {
         // Ocultar guías master con múltiples bultos: sus hijas (sufijo -NNNN)
         // ya contienen el costo individual, sumar el master duplicaría totales.
         if (p.is_master && Number(p.total_boxes || 1) > 1) return;
-        const usd = Number(p.pobox_cost_usd || 0);
-        const mxn = Number(p.pobox_service_cost || 0);
-        const tc = usd > 0 ? mxn / usd : 0;
+        // Costo USD que se paga al proveedor (couriers / forwarders).
+        // Preferimos pobox_provider_cost_usd; si no existe, pobox_cost_usd como
+        // fallback histórico (eran iguales en el momento del costeo).
+        const usd = Number(p.pobox_provider_cost_usd ?? p.pobox_cost_usd ?? 0);
+        // TC oficial registrado al momento de costear. OJO: pobox_service_cost
+        // NO es USD*TC (es el precio de venta al cliente con margen). Por eso
+        // tenemos columnas dedicadas para el costo real al proveedor.
+        const tc = Number(p.registered_exchange_rate ?? 0);
+        // MXN que efectivamente se le paga al proveedor (USD × TC oficial).
+        // Si la BD no tiene el campo poblado, lo derivamos manualmente.
+        const mxn = Number(
+          p.pobox_provider_cost_mxn ??
+          (tc > 0 ? usd * tc : 0)
+        );
         const dims = p.pkg_length && p.pkg_width && p.pkg_height
           ? `${(Number(p.pkg_length) * 0.393701).toFixed(1)}×${(Number(p.pkg_width) * 0.393701).toFixed(1)}×${(Number(p.pkg_height) * 0.393701).toFixed(1)} in`
           : '—';
@@ -461,6 +475,7 @@ const CajaChicaPage: React.FC = () => {
 <table>
   <thead>
     <tr>
+      <th class="num center">No.</th>
       <th>Consolidación</th>
       <th># Cliente</th>
       <th>Guía</th>
@@ -473,7 +488,7 @@ const CajaChicaPage: React.FC = () => {
     </tr>
   </thead>
   <tbody>
-    ${rows.map(r => {
+    ${rows.map((r, idx) => {
       // Mapeo de status técnico de DB a etiqueta legible para el reporte.
       const statusMap: Record<string, string> = {
         'received': 'Recibido (USA)',
@@ -488,6 +503,7 @@ const CajaChicaPage: React.FC = () => {
       const lastStatus = statusMap[r.status] || r.status || '—';
       return `
       <tr>
+        <td class="num center" style="font-weight:600;color:#666">${idx + 1}</td>
         <td>#${r.consolidacion_id}</td>
         <td style="font-family:monospace;font-weight:600">${r.client_box_id || '—'}</td>
         <td style="font-family:monospace;font-weight:600">${r.tracking}</td>
