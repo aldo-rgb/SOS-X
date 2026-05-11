@@ -1,0 +1,8 @@
+node_modules/
+builds/
+*.apk
+*.aab
+*.ipa
+.expo/
+APPSTORE_DEPLOY.md
+secrets/
