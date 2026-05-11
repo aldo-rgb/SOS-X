@@ -77,6 +77,15 @@ INSERT INTO admin_panel_modules (panel_key, module_key, module_name, description
 ('admin_mx_cedis', 'reports', 'Reportes', 'Reportes y estadísticas', 'Assessment', 6)
 ON CONFLICT (panel_key, module_key) DO NOTHING;
 
+-- 6.5 Insertar módulos para Sucursales (admin_branches)
+-- Las 4 sub-tabs del módulo de Gestión de Sucursales en web.
+INSERT INTO admin_panel_modules (panel_key, module_key, module_name, description, icon, sort_order) VALUES
+('admin_branches', 'sucursales',        'Sucursales',           'Alta y edición de CEDIS / mostradores',          'Business',   1),
+('admin_branches', 'asignaciones',      'Asignaciones',         'Empleados asignados a cada sucursal',            'Group',      2),
+('admin_branches', 'sin_asignar',       'Sin Asignar',          'Empleados pendientes de asignación',             'GroupAdd',   3),
+('admin_branches', 'inventario_activos','Inventario de Activos','Control patrimonial de equipos por sucursal',    'Inventory',  4)
+ON CONFLICT (panel_key, module_key) DO NOTHING;
+
 -- 7. Insertar módulos para Nacional México (admin_mx_national)
 INSERT INTO admin_panel_modules (panel_key, module_key, module_name, description, icon, sort_order) VALUES
 ('admin_mx_national', 'inventory', 'Inventario', 'Control de inventario', 'Inventory', 1),
