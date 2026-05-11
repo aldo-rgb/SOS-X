@@ -68,6 +68,7 @@ import {
   batchAttachImage,
   startBulkMaster,
   addBulkBoxToMaster,
+  updateBulkMaster,
   getUnassignedPackages,
   searchClients
 } from './packageController';
@@ -3056,6 +3057,7 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
 
 // Recepción incremental en serie: crea master vacío y agrega hijas una por una
 app.post('/api/packages/bulk-master/start', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), startBulkMaster);
+app.patch('/api/packages/bulk-master/:masterId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateBulkMaster);
 app.post('/api/packages/bulk-master/:masterId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addBulkBoxToMaster);
 
 //  Lookup de cliente por casillero (busca en users y legacy_clients)

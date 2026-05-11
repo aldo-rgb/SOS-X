@@ -143,6 +143,14 @@ export default function BranchManagementPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [tabValue, setTabValue] = useState(0);
+
+  // Permisos de módulos del panel admin_branches. Si el usuario NO
+  // es super_admin, solo verá las sub-tabs cuyo module_key esté en
+  // este mapa con can_view=true. Las 4 keys posibles:
+  //   sucursales, asignaciones, sin_asignar, inventario_activos
+  const [moduleAccess, setModuleAccess] = useState<Record<string, boolean>>({});
+  const [, setModuleAccessReady] = useState(false);
+  const canView = (m: string) => isSuperAdmin || moduleAccess[m] === true;
   
   // Estados para dialogs
   const [openBranchDialog, setOpenBranchDialog] = useState(false);
@@ -178,15 +186,58 @@ export default function BranchManagementPage() {
     loadData();
   }, []);
 
+  // Cargar permisos de módulo del panel admin_branches y posicionar
+  // el primer tab visible cuando estén listos.
+  useEffect(() => {
+    if (isSuperAdmin) {
+      setModuleAccess({ sucursales: true, asignaciones: true, sin_asignar: true, inventario_activos: true });
+      setModuleAccessReady(true);
+      return;
+    }
+    let cancelled = false;
+    api.get('/modules/admin_branches/me')
+      .then((r) => {
+        if (cancelled) return;
+        const list = Array.isArray(r.data?.modules) ? r.data.modules : [];
+        const map: Record<string, boolean> = {};
+        for (const m of list) {
+          if (m.can_view === true) map[String(m.module_key)] = true;
+        }
+        setModuleAccess(map);
+        // Mover el tabValue al primer tab que sí pueda ver
+        const order = ['sucursales', 'asignaciones', 'sin_asignar', 'inventario_activos'];
+        const firstAllowed = order.findIndex((k) => map[k]);
+        if (firstAllowed >= 0) setTabValue(firstAllowed);
+      })
+      .catch(() => {
+        if (!cancelled) setModuleAccess({});
+      })
+      .finally(() => { if (!cancelled) setModuleAccessReady(true); });
+    return () => { cancelled = true; };
+  }, [isSuperAdmin]);
+
   const loadData = async () => {
     setLoading(true);
     try {
-      const [branchesRes, usersRes] = await Promise.all([
+      // Cada request se maneja independiente — un usuario con permiso
+      // sólo al módulo "inventario_activos" no tiene acceso a
+      // /admin/users (DIRECTOR+) y antes esa falla derribaba toda la
+      // pantalla. Ahora capturamos por separado y dejamos arrays
+      // vacíos cuando no hay acceso.
+      const [branchesRes, usersRes] = await Promise.allSettled([
         api.get('/admin/branches'),
         api.get('/admin/users?include_branch=true'),
       ]);
-      setBranches(branchesRes.data.branches || branchesRes.data || []);
-      setUsers(usersRes.data.users || usersRes.data || []);
+      if (branchesRes.status === 'fulfilled') {
+        setBranches(branchesRes.value.data.branches || branchesRes.value.data || []);
+      } else {
+        setBranches([]);
+      }
+      if (usersRes.status === 'fulfilled') {
+        setUsers(usersRes.value.data.users || usersRes.value.data || []);
+      } else {
+        setUsers([]);
+      }
     } catch (err) {
       console.error('Error loading data:', err);
       setSnackbar({ open: true, message: 'Error al cargar datos', severity: 'error' });
@@ -437,6 +488,7 @@ export default function BranchManagementPage() {
           >
             Refrescar
           </Button>
+          {canView('sucursales') && (
           <Button
             startIcon={<AddIcon sx={{ fontSize: 18 }} />}
             onClick={() => handleOpenBranchDialog()}
@@ -455,6 +507,7 @@ export default function BranchManagementPage() {
           >
             Nueva Sucursal
           </Button>
+          )}
         </Box>
       </Box>
 
@@ -489,15 +542,18 @@ export default function BranchManagementPage() {
             },
           }}
         >
-          <Tab label={`SUCURSALES · ${branches.length}`} />
-          <Tab label={`ASIGNACIONES · ${employeeUsers.filter(u => u.branch_id).length}`} />
-          <Tab label={`SIN ASIGNAR · ${unassignedUsers.length}`} />
-          <Tab label="INVENTARIO DE ACTIVOS" />
+          {/* Cada Tab se conserva en el array (preservamos los
+              índices 0-3) pero se oculta con display:none cuando
+              el usuario no tiene el módulo correspondiente. */}
+          <Tab label={`SUCURSALES · ${branches.length}`} sx={{ display: canView('sucursales') ? undefined : 'none' }} />
+          <Tab label={`ASIGNACIONES · ${employeeUsers.filter(u => u.branch_id).length}`} sx={{ display: canView('asignaciones') ? undefined : 'none' }} />
+          <Tab label={`SIN ASIGNAR · ${unassignedUsers.length}`} sx={{ display: canView('sin_asignar') ? undefined : 'none' }} />
+          <Tab label="INVENTARIO DE ACTIVOS" sx={{ display: canView('inventario_activos') ? undefined : 'none' }} />
         </Tabs>
       </Box>
 
       {/* Tab 0: Lista de Sucursales */}
-      {tabValue === 0 && (
+      {tabValue === 0 && canView('sucursales') && (
         <Grid container spacing={2.5}>
           {branches.map((branch) => {
             const branchUsers = getUsersByBranch(branch.id);
@@ -872,7 +928,7 @@ export default function BranchManagementPage() {
       )}
 
       {/* Tab 1: Asignaciones actuales */}
-      {tabValue === 1 && (
+      {tabValue === 1 && canView('asignaciones') && (
         <TableContainer
           sx={{
             bgcolor: FINTECH.surface,
@@ -934,7 +990,7 @@ export default function BranchManagementPage() {
       )}
 
       {/* Tab 2: Sin asignar */}
-      {tabValue === 2 && (
+      {tabValue === 2 && canView('sin_asignar') && (
         <TableContainer
           sx={{
             bgcolor: FINTECH.surface,
@@ -1416,7 +1472,7 @@ export default function BranchManagementPage() {
       </Dialog>
 
       {/* Tab 3: Inventario de activos por sucursal */}
-      {tabValue === 3 && (
+      {tabValue === 3 && canView('inventario_activos') && (
         <BranchAssetsInventory branches={branches} users={users} />
       )}
 

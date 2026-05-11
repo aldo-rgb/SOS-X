@@ -797,9 +797,21 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
         const { status, boxId, limit = 50, sinCliente } = req.query;
 
         // Solo mostrar paquetes POBOX USA - usar LEFT JOIN para incluir paquetes sin cliente y legacy
+        // status_date: fecha en que el paquete entró en su estado ACTUAL (desde
+        // package_history). Sirve para que el filtro "Día recibido" del
+        // inventario web refleje la recepción real en el almacén actual (p.ej.
+        // CEDIS MTY) y no la fecha del primer received_at (Hidalgo), que en
+        // `packages.received_at` queda fija por el COALESCE del flujo de
+        // recepción en MTY.
         let query = `
             SELECT p.*, u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
-                   lc.full_name as legacy_name, lc.box_id as legacy_box_id
+                   lc.full_name as legacy_name, lc.box_id as legacy_box_id,
+                   (
+                       SELECT MAX(ph.created_at)
+                         FROM package_history ph
+                        WHERE ph.package_id = p.id
+                          AND ph.status::text = p.status::text
+                   ) AS status_date
             FROM packages p 
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
@@ -842,6 +854,10 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
             status: pkg.status, statusLabel: getStatusLabel(pkg.status),
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
+            // Fecha en la que el paquete entró en su estado actual (recepción
+            // en Hidalgo, en MTY, salida a ruta, etc.). Cae a received_at /
+            // created_at si no hay historial todavía.
+            statusDate: pkg.status_date || pkg.received_at || pkg.created_at,
             consolidationId: pkg.consolidation_id,
             supplierId: pkg.supplier_id,
             client: pkg.user_id 
@@ -4832,6 +4848,77 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
     await client.query('ROLLBACK').catch(() => {});
     console.error('❌ Error startBulkMaster:', error);
     return res.status(500).json({ error: error.message || 'Error al iniciar master' });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * PATCH /api/packages/bulk-master/:masterId
+ * Permite ajustar el total esperado de cajas (total_boxes) de un master
+ * en serie ya iniciado, por si al recibir físicamente la cantidad cambió.
+ * No se acepta un valor menor a las cajas ya capturadas (children) ni < 1.
+ *
+ * Body: { expectedTotalBoxes: number }
+ * Response: { success, totalBoxes, currentChildren }
+ */
+export const updateBulkMaster = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const masterId = parseInt(String(req.params.masterId), 10);
+    if (!Number.isFinite(masterId)) return res.status(400).json({ error: 'masterId inválido' });
+    const total = parseInt(String((req.body || {}).expectedTotalBoxes || 0), 10);
+    if (!total || total < 1) {
+      return res.status(400).json({ error: 'expectedTotalBoxes requerido (>=1)' });
+    }
+
+    const m = await client.query(
+      `SELECT id, is_master, total_boxes
+         FROM packages WHERE id = $1`,
+      [masterId]
+    );
+    if (m.rows.length === 0) return res.status(404).json({ error: 'Master no encontrado' });
+    const master = m.rows[0];
+
+    // Si es placeholder individual (is_master=false, total_boxes=1), solo
+    // se permite "subir" a multi-caja si aún no fue capturada esa única
+    // caja (weight=0). Para mantenerlo simple, en esa transición pedimos
+    // al frontend que cree un nuevo master desde cero — aquí solo
+    // permitimos editar masters reales.
+    if (master.is_master !== true) {
+      return res.status(400).json({ error: 'No se puede ajustar la cantidad: la recepción se inició como individual. Cancela y vuelve a iniciar con el total correcto.' });
+    }
+
+    // Cajas ya capturadas (hijas existentes)
+    const c = await client.query(
+      `SELECT COUNT(*)::int AS n FROM packages WHERE master_id = $1`,
+      [masterId]
+    );
+    const currentChildren = c.rows[0].n as number;
+    if (total < currentChildren) {
+      return res.status(400).json({
+        error: `Ya capturaste ${currentChildren} caja(s). El total esperado no puede ser menor.`,
+        currentChildren,
+      });
+    }
+    if (total === Number(master.total_boxes)) {
+      return res.json({ success: true, totalBoxes: total, currentChildren });
+    }
+
+    await client.query(
+      `UPDATE packages SET total_boxes = $2, updated_at = NOW() WHERE id = $1`,
+      [masterId, total]
+    );
+    // Propagar a las hijas existentes para que la etiqueta "N de M" sea consistente
+    await client.query(
+      `UPDATE packages SET total_boxes = $2, updated_at = NOW() WHERE master_id = $1`,
+      [masterId, total]
+    );
+
+    return res.json({ success: true, totalBoxes: total, currentChildren });
+  } catch (error: any) {
+    console.error('❌ Error updateBulkMaster:', error?.message || error);
+    return res.status(500).json({ error: 'Error al actualizar total de cajas', details: error?.message });
   } finally {
     client.release();
   }

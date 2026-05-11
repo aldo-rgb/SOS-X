@@ -47,6 +47,9 @@ interface InventoryPackage {
     status: string;
     statusLabel?: string;
     receivedAt: string;
+    /** Fecha en la que el paquete entró en su estado actual (CEDIS MTY,
+     *  En Ruta, Entregado, etc.). Backend la calcula desde package_history. */
+    statusDate?: string;
     deliveredAt?: string;
     consolidationId?: number;
     client: {
@@ -133,7 +136,11 @@ export default function POBoxInventoryPage({ onBack }: Props) {
         return packages.filter((p) => {
             if (statusFilter !== 'all' && p.status !== statusFilter) return false;
             if (dateFilter) {
-                const d = p.receivedAt ? new Date(p.receivedAt) : null;
+                // Usamos statusDate (fecha en la que entró al estado actual)
+                // si el backend la provee — refleja la recepción real en el
+                // almacén/etapa actual (p.ej. CEDIS MTY). Fallback a receivedAt.
+                const raw = p.statusDate || p.receivedAt;
+                const d = raw ? new Date(raw) : null;
                 if (!d || isNaN(d.getTime())) return false;
                 const y = d.getFullYear();
                 const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -199,11 +206,11 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                     <TextField
                         size="small"
                         type="date"
-                        label="Día recibido"
+                        label={statusFilter === 'all' ? 'Día (estado actual)' : `Día · ${STATUS_LABELS[statusFilter]?.label || statusFilter}`}
                         InputLabelProps={{ shrink: true }}
                         value={dateFilter}
                         onChange={(e) => { setDateFilter(e.target.value); setPage(0); }}
-                        sx={{ minWidth: 180 }}
+                        sx={{ minWidth: 220 }}
                     />
                     {dateFilter && (
                         <Chip
@@ -280,9 +287,12 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                                 ) : '—'}
                                             </TableCell>
                                             <TableCell>
-                                                {p.receivedAt
-                                                    ? new Date(p.receivedAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
-                                                    : '—'}
+                                                {(() => {
+                                                    const raw = p.statusDate || p.receivedAt;
+                                                    return raw
+                                                        ? new Date(raw).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                                                        : '—';
+                                                })()}
                                             </TableCell>
                                         </TableRow>
                                     );

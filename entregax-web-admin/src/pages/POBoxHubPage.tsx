@@ -51,6 +51,7 @@ import {
     TableRow,
     TablePagination,
     Tooltip,
+    Autocomplete,
 } from '@mui/material';
 import {
     CallReceived as EntryIcon,
@@ -78,6 +79,8 @@ import {
     Person as PersonIcon,
     ArrowForward as ArrowForwardIcon,
     AllInbox as AllInboxIcon,
+    Edit as EditIcon,
+    Check as CheckIcon,
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import api from '../services/api';
@@ -318,6 +321,10 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [bulkCurrentBox, setBulkCurrentBox] = useState({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
     const [bulkBoxId, setBulkBoxId] = useState(''); // Número de casillero del cliente
     const [bulkExpectedBoxes, setBulkExpectedBoxes] = useState<string>(''); // Total esperado de cajas
+    // Edición inline del total esperado en el paso 2 (por si cambia la cantidad
+    // al momento de recibir). No se puede bajar por debajo de lo ya capturado.
+    const [editingExpected, setEditingExpected] = useState(false);
+    const [editingExpectedValue, setEditingExpectedValue] = useState<string>('');
     // 🔍 Lookup del cliente por casillero (users + legacy_clients)
     const [bulkClientLookup, setBulkClientLookup] = useState<{
       status: 'idle' | 'loading' | 'found' | 'notfound' | 'error';
@@ -576,6 +583,39 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkCurrentBox(p => (p.weight === w ? p : { ...p, weight: w }));
     }, [bulkLiveWeight, bulkScaleLive]);
     
+    // Confirma la edición inline del total esperado de cajas (paso 2).
+    // Si aún no se creó el master, solo actualiza el estado local. Si ya
+    // existe master, llama al backend para mantener total_boxes sincronizado.
+    const commitEditedExpected = async () => {
+        const next = Math.max(1, parseInt(editingExpectedValue) || 0);
+        const min = Math.max(1, bulkBoxes.length);
+        if (next < min) {
+            setBulkError(`El total no puede ser menor a las ${min} caja(s) ya capturadas`);
+            return;
+        }
+        if (String(next) === String(bulkExpectedBoxes)) {
+            setEditingExpected(false);
+            return;
+        }
+        if (bulkMasterId) {
+            try {
+                const token = localStorage.getItem('token') || '';
+                await axios.patch(
+                    `${API_URL}/api/packages/bulk-master/${bulkMasterId}`,
+                    { expectedTotalBoxes: next },
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+            } catch (e: unknown) {
+                const err = e as { response?: { data?: { error?: string } }; message?: string };
+                setBulkError(err.response?.data?.error || err.message || 'No se pudo actualizar el total');
+                return;
+            }
+        }
+        setBulkExpectedBoxes(String(next));
+        setEditingExpected(false);
+        setBulkError('');
+    };
+
     // Asegura que exista un master incremental abierto (lo crea si aún no existe)
     const ensureBulkMaster = async (): Promise<number | null> => {
         if (bulkMasterId) return bulkMasterId;
@@ -1715,15 +1755,61 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                             {/* PASO 1: CAPTURAR CAJAS */}
                             {bulkStep === 1 && (
                                 <Box>
-                                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
                                         <InventoryIcon sx={{ color: ORANGE }} /> Agregar Cajas
-                                        {(parseInt(bulkExpectedBoxes) || 0) > 0 && (
-                                            <Chip
-                                                size="small"
-                                                color={bulkBoxes.length >= (parseInt(bulkExpectedBoxes) || 0) ? 'success' : 'warning'}
-                                                label={`${bulkBoxes.length} / ${bulkExpectedBoxes} cajas`}
-                                                sx={{ ml: 1 }}
-                                            />
+                                        {(parseInt(bulkExpectedBoxes) || 0) > 0 && !editingExpected && (
+                                            <>
+                                                <Chip
+                                                    size="small"
+                                                    color={bulkBoxes.length >= (parseInt(bulkExpectedBoxes) || 0) ? 'success' : 'warning'}
+                                                    label={`${bulkBoxes.length} / ${bulkExpectedBoxes} cajas`}
+                                                    sx={{ ml: 1 }}
+                                                />
+                                                <Tooltip title="Ajustar el total de cajas">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => {
+                                                            setEditingExpectedValue(bulkExpectedBoxes);
+                                                            setEditingExpected(true);
+                                                        }}
+                                                        sx={{ color: ORANGE }}
+                                                    >
+                                                        <EditIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            </>
+                                        )}
+                                        {editingExpected && (
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ml: 1 }}>
+                                                <TextField
+                                                    size="small"
+                                                    type="number"
+                                                    autoFocus
+                                                    value={editingExpectedValue}
+                                                    onChange={(e) => setEditingExpectedValue(e.target.value)}
+                                                    onKeyDown={async (e) => {
+                                                        if (e.key === 'Enter') {
+                                                            e.preventDefault();
+                                                            await commitEditedExpected();
+                                                        } else if (e.key === 'Escape') {
+                                                            setEditingExpected(false);
+                                                        }
+                                                    }}
+                                                    inputProps={{ min: Math.max(1, bulkBoxes.length), style: { width: 70, textAlign: 'center' } }}
+                                                    sx={{ width: 110 }}
+                                                    helperText={`Mín. ${Math.max(1, bulkBoxes.length)}`}
+                                                />
+                                                <Tooltip title="Confirmar">
+                                                    <IconButton size="small" color="success" onClick={commitEditedExpected}>
+                                                        <CheckIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                                <Tooltip title="Cancelar">
+                                                    <IconButton size="small" onClick={() => setEditingExpected(false)}>
+                                                        <CloseIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            </Box>
                                         )}
                                     </Typography>
                                     <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -1776,59 +1862,35 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                             sx={{ mt: 1, mb: 1.5 }}
                                         />
 
-                                        {/* Selector de proveedor de origen — opcional. Lista
-                                            predefinida (Amazon, DHL, UPS, FedEx, USPS, Walmart…).
-                                            Si eligen "Otro" se abre input libre. Se persiste en
-                                            packages.origin_carrier para mostrarlo en el detalle
-                                            del cliente junto a la guía origen. */}
-                                        {(() => {
-                                            const knownCarriers = ORIGIN_CARRIERS.filter(c => c !== 'Otro');
-                                            const oc = bulkCurrentBox.originCarrier || '';
-                                            const isKnown = knownCarriers.includes(oc);
-                                            const isCustom = oc !== '' && !isKnown;
-                                            const selectValue = isKnown ? oc : (isCustom ? 'Otro' : '');
-                                            return (
-                                                <>
-                                                    <TextField
-                                                        select
-                                                        fullWidth
-                                                        label="Proveedor (opcional)"
-                                                        value={selectValue}
-                                                        onChange={(e) => {
-                                                            const v = e.target.value;
-                                                            if (v === 'Otro') {
-                                                                // Si veníamos de un known, limpiamos para que escriban
-                                                                setBulkCurrentBox(p => ({ ...p, originCarrier: isCustom ? p.originCarrier : '' }));
-                                                            } else {
-                                                                setBulkCurrentBox(p => ({ ...p, originCarrier: v }));
-                                                            }
-                                                        }}
-                                                        InputProps={{ sx: { bgcolor: 'white', borderRadius: 2 } }}
-                                                        InputLabelProps={{ shrink: true }}
-                                                        SelectProps={{ displayEmpty: true }}
-                                                        sx={{ mb: (selectValue === 'Otro') ? 1 : 1.5 }}
-                                                    >
-                                                        <MenuItem value=""><em>Sin especificar</em></MenuItem>
-                                                        {knownCarriers.map((c) => (
-                                                            <MenuItem key={c} value={c}>{c}</MenuItem>
-                                                        ))}
-                                                        <MenuItem value="Otro">Otro…</MenuItem>
-                                                    </TextField>
-                                                    {selectValue === 'Otro' && (
-                                                        <TextField
-                                                            fullWidth
-                                                            size="small"
-                                                            autoFocus
-                                                            placeholder="Nombre del proveedor"
-                                                            value={isCustom ? oc : ''}
-                                                            onChange={(e) => setBulkCurrentBox(p => ({ ...p, originCarrier: e.target.value }))}
-                                                            InputProps={{ sx: { bgcolor: 'white', borderRadius: 2 } }}
-                                                            sx={{ mb: 1.5 }}
-                                                        />
-                                                    )}
-                                                </>
-                                            );
-                                        })()}
+                                        {/* Selector de proveedor de origen — opcional. Autocomplete
+                                            con búsqueda libre: muestra sugerencias de la lista
+                                            ORIGIN_CARRIERS (Amazon, DHL, UPS, FedEx, USPS, Walmart…)
+                                            pero si el usuario escribe un nombre que no existe se
+                                            respeta tal cual. Persiste en packages.origin_carrier
+                                            para mostrarlo en el detalle del cliente. */}
+                                        <Autocomplete
+                                            freeSolo
+                                            fullWidth
+                                            options={ORIGIN_CARRIERS.filter(c => c !== 'Otro')}
+                                            value={bulkCurrentBox.originCarrier || ''}
+                                            inputValue={bulkCurrentBox.originCarrier || ''}
+                                            onChange={(_, v) => setBulkCurrentBox(p => ({ ...p, originCarrier: (v || '').toString() }))}
+                                            onInputChange={(_, v) => setBulkCurrentBox(p => ({ ...p, originCarrier: v }))}
+                                            isOptionEqualToValue={(o, v) => o.toLowerCase() === String(v).toLowerCase()}
+                                            sx={{ mb: 1.5 }}
+                                            renderInput={(params) => (
+                                                <TextField
+                                                    {...params}
+                                                    label="Proveedor (opcional)"
+                                                    placeholder="Amazon, DHL, UPS… o escribe uno nuevo"
+                                                    InputLabelProps={{ ...params.InputLabelProps, shrink: true }}
+                                                    InputProps={{
+                                                        ...params.InputProps,
+                                                        sx: { bgcolor: 'white', borderRadius: 2 },
+                                                    }}
+                                                />
+                                            )}
+                                        />
 
                                         <Divider sx={{ my: 2 }} />
 
