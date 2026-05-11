@@ -1365,23 +1365,15 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             const sc = statusColor(r.estatus_global);
             return (
               <View key={r.id} style={[styles.requestItem, idx === requests.length - 1 && { borderBottomWidth: 0 }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-                  <View style={{ flex: 1, marginRight: 8 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                      <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: `${ORANGE}55`, backgroundColor: `${ORANGE}12` }}>
-                        <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 }}>
-                          {r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`}
-                        </Text>
-                      </View>
-                      {r.cf_rfc ? <Text style={{ color: TEXT_MUTED, fontSize: 10, letterSpacing: 0.5 }}>{r.cf_rfc}</Text> : null}
-                    </View>
-                    <Text style={{ color: TEXT, fontWeight: '700', fontSize: 14 }} numberOfLines={1}>
-                      {r.cf_razon_social || '—'}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1, borderColor: `${ORANGE}55`, backgroundColor: `${ORANGE}12` }}>
+                    <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '900', letterSpacing: 1.2 }}>
+                      {r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`}
                     </Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: `${sc}18`, borderColor: `${sc}45` }]}>
                     <Text style={[styles.statusBadgeText, { color: sc }]}>
-                      {(r.estatus_global || '-').toUpperCase()}
+                      {(r.estatus_global || '-').toUpperCase().replace(/_/g, ' ')}
                     </Text>
                   </View>
                 </View>
@@ -1421,44 +1413,41 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   </View>
                 </View>
 
-                {/* Upload comprobante button */}
-                {isActive && !r.op_comprobante_cliente_url && (
-                  <TouchableOpacity
-                    style={styles.uploadBtn}
-                    onPress={() => uploadComprobante(r.id)}
-                    disabled={uploadingId === r.id}
-                  >
-                    {uploadingId === r.id
-                      ? <ActivityIndicator size="small" color="#fff" />
-                      : <><Ionicons name="cloud-upload-outline" size={14} color="#fff" /><Text style={styles.uploadBtnText}>Subir comprobante de pago</Text></>
-                    }
-                  </TouchableOpacity>
-                )}
-                {isActive && !!r.op_comprobante_cliente_url && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 8 }}>
-                    <Ionicons name="checkmark-circle" size={14} color="#4ade80" />
-                    <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '700' }}>Comprobante enviado</Text>
-                    <TouchableOpacity onPress={() => uploadComprobante(r.id)}>
-                      <Text style={{ color: TEXT_MUTED, fontSize: 10, marginLeft: 4 }}>Reemplazar</Text>
+                {/* Fila de acciones: "Subir comprobante" + "Descargar
+                    instrucciones" — simétricos lado a lado, ambos flex:1. */}
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'stretch' }}>
+                  {isActive && !r.op_comprobante_cliente_url ? (
+                    <TouchableOpacity
+                      style={[styles.uploadBtn, { flex: 1, marginTop: 0 }]}
+                      onPress={() => uploadComprobante(r.id)}
+                      disabled={uploadingId === r.id}
+                    >
+                      {uploadingId === r.id
+                        ? <ActivityIndicator size="small" color="#fff" />
+                        : <><Ionicons name="cloud-upload-outline" size={14} color="#fff" /><Text style={styles.uploadBtnText}>Subir comprobante</Text></>
+                      }
                     </TouchableOpacity>
-                  </View>
-                )}
+                  ) : isActive && !!r.op_comprobante_cliente_url ? (
+                    <TouchableOpacity
+                      style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1, borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.08)' }}
+                      onPress={() => uploadComprobante(r.id)}
+                    >
+                      <Ionicons name="checkmark-circle" size={14} color="#4ade80" />
+                      <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '700' }}>Reemplazar</Text>
+                    </TouchableOpacity>
+                  ) : null}
 
-                {/* Descargar PDF de instrucciones — siempre disponible.
-                    Si no hay snapshot de empresas, el PDF se genera de
-                    todas formas con referencia + aviso "sin info bancaria".
-                    Antes se ocultaba el botón cuando faltaba el snapshot,
-                    pero el cliente lo necesita siempre. */}
-                <TouchableOpacity
-                  style={[styles.linkBtn, { marginTop: 8, alignSelf: 'flex-start', borderColor: ORANGE }]}
-                  onPress={() => downloadInstructionsPDF({
-                    referencia: r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`,
-                    empresas: r.instructions_snapshot?.empresas || [],
-                  })}
-                >
-                  <Ionicons name="document-text-outline" size={13} color={ORANGE} />
-                  <Text style={[styles.linkText, { color: ORANGE }]}>Descargar PDF de instrucciones</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.linkBtn, { flex: 1, borderColor: ORANGE, justifyContent: 'center', paddingVertical: 10 }]}
+                    onPress={() => downloadInstructionsPDF({
+                      referencia: r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`,
+                      empresas: r.instructions_snapshot?.empresas || [],
+                    })}
+                  >
+                    <Ionicons name="document-text-outline" size={13} color={ORANGE} />
+                    <Text style={[styles.linkText, { color: ORANGE }]}>Descargar instrucciones</Text>
+                  </TouchableOpacity>
+                </View>
 
                 {(r.factura_url || r.comprobante_proveedor_url) && (
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
@@ -2333,10 +2322,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
               </View>
             )}
 
-            {/* Cronómetro iniciado */}
+            {/* metro iniciado */}
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 14, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: 'rgba(74,222,128,0.08)', borderWidth: 1, borderColor: 'rgba(74,222,128,0.25)' }}>
               <Ionicons name="stopwatch-outline" size={13} color="#4ade80" />
-              <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '700', letterSpacing: 0.4 }}>Cronómetro de operación iniciado</Text>
+              <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '700', letterSpacing: 0.4 }}>Operacion Exitosa</Text>
             </View>
 
             <TouchableOpacity
