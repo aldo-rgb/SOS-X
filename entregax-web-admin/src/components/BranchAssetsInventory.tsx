@@ -59,6 +59,11 @@ interface Asset {
   invoice_url: string | null;
   notes: string | null;
   created_at: string;
+  // Mantenimiento preventivo (cada 6 meses desde acquisition_date
+  // o desde last_maintenance_at si ya hubo uno)
+  last_maintenance_at: string | null;
+  maintenance_notes: string | null;
+  next_maintenance_due_at: string | null;
 }
 
 const CATEGORIES = [
@@ -150,6 +155,47 @@ export default function BranchAssetsInventory({ branches, users }: Props) {
     }
   };
 
+  const markMaintenance = async (a: Asset) => {
+    const notes = prompt(`Registrar mantenimiento preventivo de ${a.sku}\n\nObservaciones (opcional):`, '');
+    if (notes === null) return; // canceló
+    try {
+      await api.post(`/admin/branch-assets/${a.id}/maintenance`, { notes: notes.trim() || null });
+      await load();
+    } catch (err: any) {
+      alert(err?.response?.data?.error || 'No se pudo registrar el mantenimiento');
+    }
+  };
+
+  // Helper: clasifica el estado de mantenimiento de un activo.
+  // - 'overdue'  → vencido (next_maintenance_due_at < hoy)
+  // - 'soon'     → vence en ≤30 días
+  // - 'ok'       → vencimiento > 30 días o sin programar
+  type MaintLevel = 'overdue' | 'soon' | 'ok';
+  const maintLevel = (a: Asset): MaintLevel => {
+    if (!a.next_maintenance_due_at) return 'ok';
+    const due = new Date(a.next_maintenance_due_at).getTime();
+    const now = Date.now();
+    const daysLeft = (due - now) / 86_400_000;
+    if (daysLeft < 0) return 'overdue';
+    if (daysLeft <= 30) return 'soon';
+    return 'ok';
+  };
+
+  // Stat counters para las 3 cards de arriba
+  const stats = useMemo(() => {
+    const alerts = assets.filter(a => a.status === 'en_reparacion' || a.status === 'de_baja').length;
+    // "Inspecciones" = activos que no son nuevos/excelentes y aún están operando.
+    // Es la lectura más útil sin meter un sistema separado de inspecciones.
+    const inspections = assets.filter(a => a.status === 'desgastado').length;
+    const overdueMaint = assets.filter(a => maintLevel(a) === 'overdue').length;
+    const soonMaint = assets.filter(a => maintLevel(a) === 'soon').length;
+    return { alerts, inspections, overdueMaint, soonMaint };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assets]);
+
+  const fmtDate = (iso: string | null) =>
+    iso ? new Date(iso).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
+
   const totalCost = useMemo(
     () => assets.reduce((s, a) => s + (parseFloat(a.acquisition_cost || '0') || 0), 0),
     [assets]
@@ -172,6 +218,57 @@ export default function BranchAssetsInventory({ branches, users }: Props) {
             Agregar activo
           </Button>
         </Box>
+      </Box>
+
+      {/* Stat cards arriba del inventario — mismo pattern que
+          Gestión de Flotilla. La 3ra reemplaza "Documentos por
+          Vencer" por "Mantenimiento Preventivo" (cada 6 meses
+          desde la adquisición). */}
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(3, 1fr)' }, gap: 1.5, mb: 2 }}>
+        <Paper variant="outlined" sx={{ p: 1.5, borderColor: stats.alerts > 0 ? '#D32F2F' : '#E5E7EB' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ fontSize: 22 }}>🚨</Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="caption" color="text.secondary">Alertas</Typography>
+              <Typography variant="h5" fontWeight={900} color={stats.alerts > 0 ? 'error.main' : 'text.primary'}>
+                {stats.alerts}
+              </Typography>
+              <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
+                Equipos en reparación o de baja
+              </Typography>
+            </Box>
+          </Box>
+        </Paper>
+        <Paper variant="outlined" sx={{ p: 1.5, borderColor: stats.inspections > 0 ? '#F59E0B' : '#E5E7EB' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ fontSize: 22 }}>🔍</Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="caption" color="text.secondary">Inspecciones</Typography>
+              <Typography variant="h5" fontWeight={900} color={stats.inspections > 0 ? 'warning.main' : 'text.primary'}>
+                {stats.inspections}
+              </Typography>
+              <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
+                Equipos marcados como desgastados
+              </Typography>
+            </Box>
+          </Box>
+        </Paper>
+        <Paper variant="outlined" sx={{ p: 1.5, borderColor: stats.overdueMaint > 0 ? '#D32F2F' : stats.soonMaint > 0 ? '#F59E0B' : '#E5E7EB' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ fontSize: 22 }}>🛠️</Box>
+            <Box sx={{ flex: 1 }}>
+              <Typography variant="caption" color="text.secondary">Mantenimiento Preventivo</Typography>
+              <Typography variant="h5" fontWeight={900} color={stats.overdueMaint > 0 ? 'error.main' : stats.soonMaint > 0 ? 'warning.main' : 'text.primary'}>
+                {stats.overdueMaint > 0 ? stats.overdueMaint : stats.soonMaint}
+              </Typography>
+              <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10 }}>
+                {stats.overdueMaint > 0
+                  ? `${stats.overdueMaint} vencido${stats.overdueMaint === 1 ? '' : 's'} · ${stats.soonMaint} próximo${stats.soonMaint === 1 ? '' : 's'}`
+                  : `${stats.soonMaint} próximo${stats.soonMaint === 1 ? '' : 's'} (≤30 días)`}
+              </Typography>
+            </Box>
+          </Box>
+        </Paper>
       </Box>
 
       {/* Filtros */}
@@ -219,15 +316,16 @@ export default function BranchAssetsInventory({ branches, users }: Props) {
               <TableCell>Sucursal</TableCell>
               <TableCell>Responsable</TableCell>
               <TableCell>Estado</TableCell>
+              <TableCell>Próx. Mantenimiento</TableCell>
               <TableCell align="right">Costo</TableCell>
               <TableCell align="right">Acciones</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={10} align="center" sx={{ py: 6 }}><CircularProgress /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={11} align="center" sx={{ py: 6 }}><CircularProgress /></TableCell></TableRow>
             ) : assets.length === 0 ? (
-              <TableRow><TableCell colSpan={10} align="center" sx={{ py: 6 }}>
+              <TableRow><TableCell colSpan={11} align="center" sx={{ py: 6 }}>
                 <Typography color="text.secondary">Sin activos registrados con esos filtros</Typography>
               </TableCell></TableRow>
             ) : assets.map(a => {
@@ -264,12 +362,32 @@ export default function BranchAssetsInventory({ branches, users }: Props) {
                     ) : <span style={{ color: '#999' }}>—</span>}
                   </TableCell>
                   <TableCell><Chip size="small" label={sm.label} color={sm.color} /></TableCell>
+                  <TableCell>
+                    {(() => {
+                      const lvl = maintLevel(a);
+                      const color = lvl === 'overdue' ? 'error' : lvl === 'soon' ? 'warning' : 'success';
+                      const label = lvl === 'overdue' ? 'VENCIDO' : lvl === 'soon' ? 'PRÓXIMO' : 'OK';
+                      return (
+                        <Box>
+                          <Chip size="small" label={label} color={color} sx={{ fontWeight: 700, fontSize: 10, height: 18 }} />
+                          <Typography variant="caption" sx={{ display: 'block', mt: 0.5, color: '#666' }}>
+                            {fmtDate(a.next_maintenance_due_at)}
+                          </Typography>
+                        </Box>
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell align="right">
                     {a.acquisition_cost
                       ? `$${Number(a.acquisition_cost).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
                       : <span style={{ color: '#999' }}>—</span>}
                   </TableCell>
                   <TableCell align="right">
+                    <Tooltip title="Registrar mantenimiento">
+                      <IconButton size="small" onClick={() => markMaintenance(a)}>
+                        <span style={{ fontSize: 16, lineHeight: 1 }}>🛠️</span>
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title="QR / Etiqueta">
                       <IconButton size="small" onClick={() => setQrAsset(a)}><QrCode2Icon fontSize="small" /></IconButton>
                     </Tooltip>

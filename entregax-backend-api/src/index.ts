@@ -356,6 +356,7 @@ import {
   updateAsset,
   deleteAsset,
   uploadAssetFile,
+  markMaintenanceDone,
 } from './branchAssetsController';
 import {
   scanPackageToLoad,
@@ -4051,6 +4052,7 @@ app.post('/api/admin/branch-assets', authenticateToken, requireMinLevel(ROLES.DI
 app.put('/api/admin/branch-assets/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateAsset);
 app.delete('/api/admin/branch-assets/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteAsset);
 app.post('/api/admin/branch-assets/upload', authenticateToken, requireMinLevel(ROLES.DIRECTOR), uploadAssetFile);
+app.post('/api/admin/branch-assets/:id/maintenance', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), markMaintenanceDone);
 app.get('/api/branch-assets/:id', getAssetById);
 // Asignación de empleados
 app.post('/api/admin/assign-branch', authenticateToken, requireMinLevel(ROLES.ADMIN), assignWorkerToBranch);
@@ -7937,6 +7939,35 @@ app.post('/api/admin/carousel/slides/:id/duplicate', authenticateToken, requireR
 app.get('/api/admin/carousel/stats', authenticateToken, requireRole('super_admin'), getCarouselStats);
 // Admin - Upload de imágenes
 app.post('/api/admin/carousel/upload', authenticateToken, requireRole('super_admin'), carouselUpload.single('image'), uploadSlideImage);
+
+// ============================================
+// BRAND ASSETS (Logos corporativos centralizados)
+// ============================================
+import {
+  listBrandAssets,
+  getActiveBrandAssets,
+  uploadBrandAsset,
+  activateBrandAsset,
+  deleteBrandAsset,
+} from './brandAssetsController';
+
+const brandAssetUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB max
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml', 'image/gif'];
+    if (allowedTypes.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Tipo de archivo no permitido. Solo PNG, JPG, WEBP, SVG, GIF'));
+  },
+});
+
+// Público — obtiene los logos activos para que cualquier frontend los consuma
+app.get('/api/brand-assets/active', getActiveBrandAssets);
+// Admin
+app.get('/api/admin/brand-assets', authenticateToken, requireRole('super_admin'), listBrandAssets);
+app.post('/api/admin/brand-assets/upload', authenticateToken, requireRole('super_admin'), brandAssetUpload.single('file'), uploadBrandAsset);
+app.post('/api/admin/brand-assets/:id/activate', authenticateToken, requireRole('super_admin'), activateBrandAsset);
+app.delete('/api/admin/brand-assets/:id', authenticateToken, requireRole('super_admin'), deleteBrandAsset);
 
 // ============================================
 // TESORERÍA SUCURSAL (Sistema de Caja Chica por Sucursal)

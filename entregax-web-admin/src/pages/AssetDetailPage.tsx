@@ -28,6 +28,7 @@ import BusinessIcon from '@mui/icons-material/Business';
 import PersonIcon from '@mui/icons-material/Person';
 import EventIcon from '@mui/icons-material/Event';
 import ReceiptIcon from '@mui/icons-material/Receipt';
+import BuildIcon from '@mui/icons-material/Build';
 
 const API_URL = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api`
@@ -51,6 +52,9 @@ interface Asset {
   branch_city?: string | null;
   assigned_to_name?: string | null;
   assigned_to_email?: string | null;
+  last_maintenance_at?: string | null;
+  next_maintenance_due_at?: string | null;
+  maintenance_notes?: string | null;
 }
 
 const statusColor: Record<string, 'success' | 'warning' | 'error' | 'info' | 'default'> = {
@@ -196,6 +200,41 @@ export default function AssetDetailPage() {
                    asset.acquisition_cost ? `$${Number(asset.acquisition_cost).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN` : '',
                  ].filter(Boolean).join(' · ')} />
           )}
+
+          {/* Mantenimiento preventivo */}
+          {asset.next_maintenance_due_at && (() => {
+            const due = new Date(asset.next_maintenance_due_at);
+            const daysLeft = Math.floor((due.getTime() - Date.now()) / 86_400_000);
+            const overdue = daysLeft < 0;
+            const soon = daysLeft >= 0 && daysLeft <= 30;
+            const color = overdue ? '#D32F2F' : soon ? '#F59E0B' : '#10B981';
+            const label = overdue
+              ? `VENCIDO hace ${Math.abs(daysLeft)} día${Math.abs(daysLeft) === 1 ? '' : 's'}`
+              : soon
+                ? `En ${daysLeft} día${daysLeft === 1 ? '' : 's'}`
+                : `Próximo en ${daysLeft} días`;
+            return (
+              <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5, alignItems: 'flex-start' }}>
+                <Avatar sx={{ width: 32, height: 32, bgcolor: '#FFF3E0' }}>
+                  <BuildIcon fontSize="small" sx={{ color: '#F05A28' }} />
+                </Avatar>
+                <Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ letterSpacing: 1, fontWeight: 700 }}>
+                    MANTENIMIENTO PREVENTIVO
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {due.toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' })}
+                  </Typography>
+                  <Chip size="small" label={label} sx={{ mt: 0.5, bgcolor: color, color: '#fff', fontWeight: 700, fontSize: 10, height: 18 }} />
+                  {asset.last_maintenance_at && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      Último servicio: {new Date(asset.last_maintenance_at).toLocaleDateString('es-MX')}
+                    </Typography>
+                  )}
+                </Box>
+              </Box>
+            );
+          })()}
 
           {/* Factura */}
           {asset.invoice_url && (

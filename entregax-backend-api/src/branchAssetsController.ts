@@ -26,6 +26,10 @@ import { uploadToS3 } from './s3Service';
 // Migración lazy: corre la primera vez que el
 // controller atiende un request.
 // ============================================
+// Intervalo de mantenimiento preventivo: cada 6 meses desde la
+// fecha de adquisición (o desde el último mantenimiento si hay).
+export const MAINTENANCE_INTERVAL_MONTHS = 6;
+
 let migrationDone = false;
 const ensureTable = async (): Promise<void> => {
     if (migrationDone) return;
@@ -50,6 +54,15 @@ const ensureTable = async (): Promise<void> => {
                 updated_at      TIMESTAMPTZ DEFAULT NOW()
             )
         `);
+        // Columnas de mantenimiento preventivo (auto-añadidas).
+        // last_maintenance_at: último mantenimiento ejecutado. Si NULL,
+        //   se usa acquisition_date como punto de partida.
+        // maintenance_notes: bitácora libre del último servicio.
+        await pool.query(`
+            ALTER TABLE branch_assets
+              ADD COLUMN IF NOT EXISTS last_maintenance_at TIMESTAMPTZ,
+              ADD COLUMN IF NOT EXISTS maintenance_notes TEXT
+        `);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_branch_assets_branch ON branch_assets(branch_id)`);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_branch_assets_category ON branch_assets(category)`);
         await pool.query(`CREATE INDEX IF NOT EXISTS idx_branch_assets_status ON branch_assets(status)`);
@@ -58,6 +71,19 @@ const ensureTable = async (): Promise<void> => {
         console.error('[branchAssets] migration error:', err);
     }
 };
+
+// Devuelve un fragmento SQL que calcula next_maintenance_due_at en
+// función de last_maintenance_at (si existe) o acquisition_date.
+// Lo dejo como subselect inline para evitar funciones SQL nuevas.
+const NEXT_MAINTENANCE_SQL = `
+    CASE
+      WHEN a.last_maintenance_at IS NOT NULL
+        THEN a.last_maintenance_at + INTERVAL '${MAINTENANCE_INTERVAL_MONTHS} months'
+      WHEN a.acquisition_date IS NOT NULL
+        THEN (a.acquisition_date::timestamp + INTERVAL '${MAINTENANCE_INTERVAL_MONTHS} months') AT TIME ZONE 'UTC'
+      ELSE NULL
+    END AS next_maintenance_due_at
+`;
 
 // ============================================
 // GET /api/admin/branch-assets
@@ -94,7 +120,8 @@ export const listAssets = async (req: Request, res: Response): Promise<any> => {
         const result = await pool.query(`
             SELECT a.*,
                    b.name AS branch_name, b.code AS branch_code,
-                   u.full_name AS assigned_to_name, u.email AS assigned_to_email
+                   u.full_name AS assigned_to_name, u.email AS assigned_to_email,
+                   ${NEXT_MAINTENANCE_SQL}
             FROM branch_assets a
             LEFT JOIN branches b ON a.branch_id = b.id
             LEFT JOIN users u ON a.assigned_to_user_id = u.id
@@ -121,7 +148,8 @@ export const getAssetById = async (req: Request, res: Response): Promise<any> =>
         const r = await pool.query(`
             SELECT a.*,
                    b.name AS branch_name, b.code AS branch_code, b.city AS branch_city,
-                   u.full_name AS assigned_to_name, u.email AS assigned_to_email
+                   u.full_name AS assigned_to_name, u.email AS assigned_to_email,
+                   ${NEXT_MAINTENANCE_SQL}
             FROM branch_assets a
             LEFT JOIN branches b ON a.branch_id = b.id
             LEFT JOIN users u ON a.assigned_to_user_id = u.id
@@ -270,6 +298,34 @@ export const deleteAsset = async (req: Request, res: Response): Promise<any> => 
 // Body: { dataUrl: "data:image/png;base64,..." , kind: "photo" | "invoice" }
 // Devuelve { url } pública S3
 // ============================================
+// ============================================
+// POST /api/admin/branch-assets/:id/maintenance
+// Marca un mantenimiento como ejecutado (now()). Esto reinicia el
+// contador para el siguiente preventivo (6 meses después).
+// Body opcional: { notes }
+// ============================================
+export const markMaintenanceDone = async (req: Request, res: Response): Promise<any> => {
+    try {
+        await ensureTable();
+        const id = parseInt(String(req.params.id || ''));
+        if (!id) return res.status(400).json({ error: 'ID inválido' });
+        const { notes } = req.body || {};
+        const r = await pool.query(`
+            UPDATE branch_assets
+            SET last_maintenance_at = NOW(),
+                maintenance_notes = COALESCE($1, maintenance_notes),
+                updated_at = NOW()
+            WHERE id = $2
+            RETURNING *
+        `, [notes ? String(notes) : null, id]);
+        if (r.rows.length === 0) return res.status(404).json({ error: 'Activo no encontrado' });
+        return res.json(r.rows[0]);
+    } catch (err: any) {
+        console.error('[branchAssets] markMaintenanceDone error:', err);
+        return res.status(500).json({ error: err.message || 'Error al registrar mantenimiento' });
+    }
+};
+
 export const uploadAssetFile = async (req: Request, res: Response): Promise<any> => {
     try {
         const { dataUrl, kind } = req.body || {};
