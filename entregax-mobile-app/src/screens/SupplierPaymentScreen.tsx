@@ -1395,41 +1395,57 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                   </View>
                 </View>
 
-                {/* Fila de acciones: "Subir comprobante" + "Descargar
-                    instrucciones" — simétricos lado a lado, ambos flex:1. */}
-                <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'stretch' }}>
-                  {isActive && !r.op_comprobante_cliente_url ? (
-                    <TouchableOpacity
-                      style={[styles.uploadBtn, { flex: 1, marginTop: 0 }]}
-                      onPress={() => uploadComprobante(r.id)}
-                      disabled={uploadingId === r.id}
-                    >
-                      {uploadingId === r.id
-                        ? <ActivityIndicator size="small" color="#fff" />
-                        : <><Ionicons name="cloud-upload-outline" size={14} color="#fff" /><Text style={styles.uploadBtnText}>Subir comprobante</Text></>
-                      }
-                    </TouchableOpacity>
-                  ) : isActive && !!r.op_comprobante_cliente_url ? (
-                    <TouchableOpacity
-                      style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 8, borderWidth: 1, borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.08)' }}
-                      onPress={() => uploadComprobante(r.id)}
-                    >
-                      <Ionicons name="checkmark-circle" size={14} color="#4ade80" />
-                      <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '700' }}>Reemplazar</Text>
-                    </TouchableOpacity>
-                  ) : null}
-
-                  <TouchableOpacity
-                    style={[styles.linkBtn, { flex: 1, borderColor: ORANGE, justifyContent: 'center', paddingVertical: 10 }]}
-                    onPress={() => downloadInstructionsPDF({
-                      referencia: r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`,
-                      empresas: r.instructions_snapshot?.empresas || [],
-                    })}
-                  >
-                    <Ionicons name="document-text-outline" size={13} color={ORANGE} />
-                    <Text style={[styles.linkText, { color: ORANGE }]}>Descargar instrucciones</Text>
-                  </TouchableOpacity>
-                </View>
+                {/* Fila de acciones — la mostramos sólo si hay acción
+                    pendiente. Cliente pidió ocultar "Descargar
+                    instrucciones" cuando la operación ya cerró
+                    (tiene factura emitida + comprobante de pago al
+                    proveedor) — el PDF original ya no aplica. */}
+                {(() => {
+                  const operacionCerrada = !!(r.factura_url && r.comprobante_proveedor_url);
+                  const mostrarSubir = isActive && !r.op_comprobante_cliente_url;
+                  const mostrarReemplazar = isActive && !!r.op_comprobante_cliente_url;
+                  const mostrarDescargar = !operacionCerrada;
+                  if (!mostrarSubir && !mostrarReemplazar && !mostrarDescargar) return null;
+                  return (
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, alignItems: 'stretch' }}>
+                      {mostrarSubir && (
+                        <TouchableOpacity
+                          style={[styles.uploadBtn, { flex: 1, marginTop: 0 }]}
+                          onPress={() => uploadComprobante(r.id)}
+                          disabled={uploadingId === r.id}
+                        >
+                          {uploadingId === r.id
+                            ? <ActivityIndicator size="small" color="#fff" />
+                            : <><Ionicons name="cloud-upload-outline" size={13} color="#fff" /><Text style={styles.uploadBtnText}>Subir</Text></>
+                          }
+                        </TouchableOpacity>
+                      )}
+                      {mostrarReemplazar && (
+                        <TouchableOpacity
+                          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 10, borderWidth: 1, borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.08)' }}
+                          onPress={() => uploadComprobante(r.id)}
+                        >
+                          <Ionicons name="checkmark-circle" size={13} color="#4ade80" />
+                          <Text style={{ color: '#4ade80', fontSize: 11, fontWeight: '700' }}>Reemplazar</Text>
+                        </TouchableOpacity>
+                      )}
+                      {mostrarDescargar && (
+                        <TouchableOpacity
+                          style={[styles.linkBtn, { flex: 1, borderColor: ORANGE, justifyContent: 'center', paddingVertical: 9, paddingHorizontal: 8 }]}
+                          onPress={() => downloadInstructionsPDF({
+                            referencia: r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`,
+                            empresas: r.instructions_snapshot?.empresas || [],
+                          })}
+                        >
+                          <Ionicons name="document-text-outline" size={13} color={ORANGE} />
+                          <Text style={[styles.linkText, { color: ORANGE, fontSize: 11, fontWeight: '700' }]} numberOfLines={1}>
+                            Descargar instrucciones
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  );
+                })()}
 
                 {(r.factura_url || r.comprobante_proveedor_url) && (
                   <View style={{ flexDirection: 'row', gap: 8, marginTop: 10 }}>
@@ -2663,10 +2679,12 @@ const styles = StyleSheet.create({
   statusPillText: { fontSize: 10, fontWeight: '600' },
   uploadBtn: {
     marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 7, paddingVertical: 9, paddingHorizontal: 14, borderRadius: 10,
+    // Padding/gap reducidos para que el texto del botón hermano
+    // ("Descargar instrucciones") no se desfase a dos renglones.
+    gap: 4, paddingVertical: 9, paddingHorizontal: 8, borderRadius: 10,
     backgroundColor: ORANGE,
   },
-  uploadBtnText: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.3 },
+  uploadBtnText: { color: '#fff', fontSize: 11, fontWeight: '800', letterSpacing: 0.2 },
   linkBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
     paddingVertical: 5, paddingHorizontal: 10,
