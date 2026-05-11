@@ -106,24 +106,23 @@ export default function EntangledAdminTab() {
                 <TableCell>RFC / Razón social</TableCell>
                 <TableCell align="right">Monto</TableCell>
                 <TableCell>Divisa</TableCell>
-                <TableCell align="right">Util. XPAY (MXN)</TableCell>
                 <TableCell>Global</TableCell>
                 <TableCell align="center">Procesando</TableCell>
                 <TableCell>Factura</TableCell>
                 <TableCell>Proveedor</TableCell>
-                <TableCell>ID transacción</TableCell>
                 <TableCell>Acciones</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {rows.map((r) => {
-                const monto = Number(r.op_monto) || 0;
-                const pctC = r.comision_cliente_final_porcentaje != null ? Number(r.comision_cliente_final_porcentaje) : null;
-                const pctK = r.comision_cobrada_porcentaje != null ? Number(r.comision_cobrada_porcentaje) : null;
-                const tcUsd = r.tc_aplicado_usd != null ? Number(r.tc_aplicado_usd) : null;
-                const utilMxn = (pctC != null && pctK != null && tcUsd != null)
-                  ? monto * (pctC - pctK) / 100 * tcUsd
-                  : null;
+                // Servicio: solo mostramos un chip "Facturado" cuando hay
+                // factura — sin factura no pintamos nada (cliente lo pidió
+                // así para reducir ruido visual en la tabla)
+                const conFactura = r.servicio !== 'pago_sin_factura';
+                // Cliente: usamos el box_id (formato "S1", "S54", etc) en
+                // lugar del user_id crudo (#54).
+                const clientCode = (r as any).client_box_id
+                  || (r.user_id ? `S${r.user_id}` : '—');
                 return (
                 <TableRow key={r.id} hover>
                   <TableCell>{r.id}</TableCell>
@@ -136,16 +135,15 @@ export default function EntangledAdminTab() {
                     </Typography>
                   </TableCell>
                   <TableCell>
-                    <Chip
-                      size="small"
-                      label={r.servicio === 'pago_sin_factura' ? 'Sin' : 'Con'}
-                      color={r.servicio === 'pago_sin_factura' ? 'default' : 'primary'}
-                      variant={r.servicio ? 'filled' : 'outlined'}
-                    />
+                    {conFactura ? (
+                      <Chip size="small" label="Facturado" color="primary" />
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">—</Typography>
+                    )}
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" fontWeight="bold">{r.user_name || r.user_email || `#${r.user_id}`}</Typography>
-                    <Typography variant="caption" color="text.secondary">{r.cf_email}</Typography>
+                    <Typography variant="body2" fontWeight="bold">{clientCode}</Typography>
+                    <Typography variant="caption" color="text.secondary">{r.cf_email || r.user_email}</Typography>
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="bold">{r.cf_rfc}</Typography>
@@ -155,20 +153,6 @@ export default function EntangledAdminTab() {
                     <Typography fontWeight="bold">{Number(r.op_monto).toLocaleString()}</Typography>
                   </TableCell>
                   <TableCell>{r.op_divisa_destino}</TableCell>
-                  <TableCell align="right">
-                    {utilMxn != null ? (
-                      <Typography fontWeight="bold" color={utilMxn >= 0 ? 'success.main' : 'error.main'}>
-                        ${utilMxn.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </Typography>
-                    ) : (
-                      <Typography variant="caption" color="text.disabled">—</Typography>
-                    )}
-                    {pctC != null && pctK != null && (
-                      <Typography variant="caption" color="text.secondary" display="block">
-                        {pctC.toFixed(2)}% − {pctK.toFixed(2)}%
-                      </Typography>
-                    )}
-                  </TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_global)} label={r.estatus_global || '-'} /></TableCell>
                   {/* Días procesando: empieza al recibir el comprobante del
                       cliente, deja de contar cuando AMBOS factura_emitida_at
@@ -204,11 +188,6 @@ export default function EntangledAdminTab() {
                   <TableCell><Chip size="small" color={statusColor(r.estatus_factura)} label={r.estatus_factura || '-'} /></TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_proveedor)} label={r.estatus_proveedor || '-'} /></TableCell>
                   <TableCell>
-                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>
-                      {r.entangled_transaccion_id ? r.entangled_transaccion_id.slice(0, 12) + '…' : '—'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
                       <Tooltip title="Ver detalles">
                         <IconButton size="small" color="primary" onClick={() => setDetail(r as EntangledRequestDetail)}>
@@ -243,7 +222,7 @@ export default function EntangledAdminTab() {
               })}
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={14} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">Sin solicitudes registradas</Typography>
                   </TableCell>
                 </TableRow>

@@ -638,6 +638,7 @@ export const getAllPaymentRequests = async (req: Request, res: Response): Promis
            ELSE 0
               END AS cancellation_fee_usd,
              u.full_name AS client_name, u.email AS client_email,
+             u.box_id AS client_box_id,
              a.full_name AS advisor_name
       FROM entangled_payment_requests r
       LEFT JOIN users u ON r.user_id = u.id
