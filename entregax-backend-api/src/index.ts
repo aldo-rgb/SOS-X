@@ -3990,7 +3990,7 @@ app.get('/api/warehouse/inventory', authenticateToken, requireMinLevel(ROLES.WAR
 
 // ========== GESTIÓN DE SUCURSALES (ADMIN) ==========
 // GET /api/admin/users - Obtener usuarios con información de sucursal
-app.get('/api/admin/users', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req: AuthRequest, res: Response) => {
+app.get('/api/admin/users', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), async (req: AuthRequest, res: Response) => {
   try {
     const includeBranch = req.query.include_branch === 'true';
     
@@ -7371,9 +7371,9 @@ app.post('/api/hr/check-out', authenticateToken, checkOut);
 app.get('/api/hr/my-attendance', authenticateToken, getMyAttendanceToday);
 app.post('/api/hr/track-gps', authenticateToken, trackGPSLocation);
 
-// Admin HR
-app.get('/api/admin/hr/employees', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getEmployeesWithAttendance);
-app.get('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getEmployeeDetail);
+// Admin HR — lectura accesible también a Contador para nómina/reportes.
+app.get('/api/admin/hr/employees', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeesWithAttendance);
+app.get('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeeDetail);
 app.post('/api/admin/hr/employees', authenticateToken, requireMinLevel(ROLES.ADMIN), createEmployee);
 app.put('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateEmployee);
 app.delete('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteEmployee);
@@ -7381,12 +7381,12 @@ app.post('/api/admin/hr/employees/:id/reactivate', authenticateToken, requireMin
   const mod = await import('./hrController');
   return mod.reactivateEmployee(req, res);
 });
-app.get('/api/admin/hr/attendance', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAttendanceHistory);
-app.get('/api/admin/hr/attendance/stats', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAttendanceStats);
+app.get('/api/admin/hr/attendance', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getAttendanceHistory);
+app.get('/api/admin/hr/attendance/stats', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getAttendanceStats);
 app.get('/api/admin/hr/drivers/live', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getDriversLiveLocation);
 
 // Ubicaciones de trabajo (geocercas)
-app.get('/api/admin/hr/locations', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getWorkLocations);
+app.get('/api/admin/hr/locations', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getWorkLocations);
 app.post('/api/admin/hr/locations', authenticateToken, requireMinLevel(ROLES.ADMIN), createWorkLocation);
 
 // ========== HR EXPANSION: Expediente Digital, Nómina, Préstamos, Pagaré ==========
