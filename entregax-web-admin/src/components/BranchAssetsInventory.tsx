@@ -483,7 +483,9 @@ function AssetDialog({ open, onClose, onSaved, editing, branches, users }: Dialo
 
   const submit = async () => {
     setErr(null);
-    if (!form.sku.trim()) { setErr('SKU es requerido'); return; }
+    // En edición el SKU es obligatorio; en alta el backend lo genera
+    // automáticamente (XA-0001, XA-0002…) si no se manda.
+    if (editing && !form.sku.trim()) { setErr('SKU es requerido'); return; }
     if (!form.category) { setErr('Categoría es requerida'); return; }
     setSubmitting(true);
     try {
