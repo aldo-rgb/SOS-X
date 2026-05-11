@@ -129,6 +129,11 @@ interface BoxItem {
     height: string;
     trackingCourier?: string;
     originCarrier?: string;
+    // ID y tracking en BD del paquete hijo (asignados tras POST exitoso).
+    // Necesarios para poder eliminar la caja del backend si el operador
+    // se equivoca y borra del listado local.
+    dbId?: number;
+    dbTracking?: string;
 }
 
 // Lista de proveedores/couriers comunes que entregan en bodega Hidalgo TX.
@@ -644,8 +649,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }
     };
 
-    // Agregar UNA caja al master existente. Devuelve el label generado (o null si falla)
-    const addBoxToBulkMaster = async (box: BoxItem): Promise<any | null> => {
+    // Agregar UNA caja al master existente. Devuelve { label, childId, childTracking } (o null si falla)
+    const addBoxToBulkMaster = async (box: BoxItem): Promise<{ label: any; childId: number; childTracking: string } | null> => {
         const masterId = await ensureBulkMaster();
         if (!masterId) return null;
         try {
@@ -672,7 +677,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 peso: parseFloat(box.weight) || 0,
                 medidas: `${box.length}×${box.width}×${box.height} cm`,
             }]);
-            return label || null;
+            return { label: label || null, childId, childTracking: tracking };
         } catch (err: any) {
             setBulkError(err.response?.data?.error || err.message || 'Error al agregar caja');
             return null;
@@ -699,9 +704,12 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         const normalizedTracking = normalizeCarrierGuide(bulkCurrentBox.trackingCourier);
         const newBox: BoxItem = { ...bulkCurrentBox, trackingCourier: normalizedTracking, id: Date.now() };
         setBulkSubmitting(true);
-        const label = await addBoxToBulkMaster(newBox);
+        const result = await addBoxToBulkMaster(newBox);
         setBulkSubmitting(false);
-        if (!label) return;
+        if (!result) return;
+        newBox.dbId = result.childId;
+        newBox.dbTracking = result.childTracking;
+        const label = result.label;
         setBulkBoxes(prev => [...prev, newBox]);
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
         setBulkBoxQuantity('1');
@@ -729,9 +737,11 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         const batchLabels: any[] = [];
         let allOk = true;
         for (const box of newBoxes) {
-            const label = await addBoxToBulkMaster(box);
-            if (!label) { allOk = false; break; }
-            batchLabels.push(label);
+            const result = await addBoxToBulkMaster(box);
+            if (!result) { allOk = false; break; }
+            box.dbId = result.childId;
+            box.dbTracking = result.childTracking;
+            if (result.label) batchLabels.push(result.label);
         }
         setBulkSubmitting(false);
         if (!allOk) { setBulkMultiScanOpen(false); return; }
@@ -753,9 +763,54 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
-    // Eliminar caja
-    const handleRemoveBulkBox = (id: number) => {
-        setBulkBoxes(prev => prev.filter(b => b.id !== id));
+    // Eliminar caja: llama al backend para borrar el paquete hijo y
+    // actualiza todos los contadores locales (lista, IDs registrados y
+    // chip de "X registrado(s)" en el header). Sin esto, el backend
+    // sigue contando la caja y rechaza nuevas con "Ya se registraron
+    // las N cajas esperadas".
+    const handleRemoveBulkBox = async (id: number) => {
+        const target = bulkBoxes.find(b => b.id === id);
+        if (!target) return;
+        // Confirmación rápida porque borra del backend
+        const trackingMsg = target.dbTracking ? `\n${target.dbTracking}` : '';
+        if (!window.confirm(`¿Borrar esta caja del sistema?${trackingMsg}\n\nEsto liberará el cupo para volver a registrarla.`)) {
+            return;
+        }
+
+        const dbId = target.dbId;
+        // Si la caja aún no se sincronizó con backend (no debería pasar en
+        // flujo normal porque setBulkBoxes ocurre después del POST exitoso),
+        // solo limpiamos local.
+        if (!dbId || !bulkMasterId) {
+            setBulkBoxes(prev => prev.filter(b => b.id !== id));
+            return;
+        }
+
+        try {
+            const token = localStorage.getItem('token') || '';
+            const r = await axios.delete(
+                `${API_URL}/api/packages/bulk-master/${bulkMasterId}/child/${dbId}`,
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            // Actualizar TODOS los estados relacionados al contador
+            setBulkBoxes(prev => prev.filter(b => b.id !== id));
+            setBulkRegisteredIds(prev => prev.filter(i => i !== dbId));
+            setPaquetesRegistrados(prev => prev.filter(p => p.tracking !== target.dbTracking));
+            // Si el backend reporta que ya no quedan hijas y borró el master,
+            // reseteamos el masterId para que la próxima caja inicie uno nuevo.
+            if (r.data?.masterDeleted) {
+                setBulkMasterId(null);
+            }
+            setSnackbar({
+                open: true,
+                message: `🗑️ Caja ${target.dbTracking || ''} eliminada`,
+                severity: 'success',
+            });
+        } catch (err: any) {
+            const msg = err?.response?.data?.error || err?.message || 'No se pudo eliminar la caja';
+            setBulkError(msg);
+            setSnackbar({ open: true, message: msg, severity: 'error' });
+        }
     };
 
     // Calcular totales de cajas

@@ -5261,4 +5261,138 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
   }
 };
 
+/**
+ * DELETE /api/packages/bulk-master/:masterId/child/:childId
+ * Elimina una caja hija de un master en serie (recepción multi-caja).
+ * Útil cuando el operador se equivoca al capturar una guía y necesita
+ * borrarla para volver a registrarla. Libera el cupo en el contador del
+ * master (currentChildren < total_boxes) para permitir agregar de nuevo.
+ *
+ * Caso especial: si masterId === childId y es placeholder individual
+ * (is_master=false, total_boxes=1) con weight>0, se "revierte" la captura
+ * dejando weight=0 y dimensiones=NULL para que pueda recapturarse.
+ */
+export const removeBulkBoxFromMaster = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const masterId = parseInt(String(req.params.masterId), 10);
+    const childId = parseInt(String(req.params.childId), 10);
+    if (!Number.isFinite(masterId) || !Number.isFinite(childId)) {
+      return res.status(400).json({ error: 'masterId/childId inválidos' });
+    }
+
+    // Cargar paquete a eliminar
+    const c = await client.query(
+      `SELECT id, master_id, is_master, total_boxes, tracking_internal, weight
+         FROM packages WHERE id = $1`,
+      [childId]
+    );
+    if (c.rows.length === 0) return res.status(404).json({ error: 'Caja no encontrada' });
+    const child = c.rows[0];
+
+    // Caso individual placeholder: revertir captura sin borrar la fila
+    if (masterId === childId && child.is_master === false && Number(child.total_boxes) === 1) {
+      await client.query('BEGIN');
+      await client.query(
+        `UPDATE packages SET
+           weight = 0,
+           pkg_length = NULL,
+           pkg_width = NULL,
+           pkg_height = NULL,
+           tracking_provider = NULL,
+           origin_carrier = NULL,
+           pobox_service_cost = 0,
+           pobox_cost_usd = NULL,
+           pobox_venta_usd = NULL,
+           pobox_tarifa_nivel = NULL,
+           pobox_provider_cost_mxn = NULL,
+           pobox_provider_cost_usd = NULL,
+           updated_at = NOW()
+         WHERE id = $1`,
+        [childId]
+      );
+      await client.query('COMMIT');
+      return res.json({
+        success: true,
+        reverted: true,
+        currentChildren: 0,
+        expectedTotal: 1,
+        message: 'Captura individual revertida',
+      });
+    }
+
+    // Caso multi-caja: el child debe pertenecer al master
+    if (child.master_id !== masterId) {
+      return res.status(400).json({ error: 'La caja no pertenece a este master' });
+    }
+    if (child.is_master === true) {
+      return res.status(400).json({ error: 'No se puede borrar un master desde este endpoint' });
+    }
+
+    await client.query('BEGIN');
+
+    // Borrar relaciones primero
+    const relatedTables = [
+      'caja_chica_aplicacion_pagos',
+      'delivery_documents',
+      'china_status_history',
+      'package_history',
+    ];
+    for (const t of relatedTables) {
+      try {
+        await client.query(`DELETE FROM ${t} WHERE package_id = $1`, [childId]);
+      } catch {
+        // tabla puede no existir en algún ambiente
+      }
+    }
+    await client.query('DELETE FROM packages WHERE id = $1', [childId]);
+
+    // Contar hijos restantes
+    const r = await client.query(
+      `SELECT COUNT(*)::int AS n FROM packages WHERE master_id = $1`,
+      [masterId]
+    );
+    const currentChildren = r.rows[0].n as number;
+
+    // Si era la última caja del master, eliminar también el master vacío
+    let masterDeleted = false;
+    if (currentChildren === 0) {
+      try {
+        for (const t of relatedTables) {
+          try {
+            await client.query(`DELETE FROM ${t} WHERE package_id = $1`, [masterId]);
+          } catch {}
+        }
+        await client.query('DELETE FROM packages WHERE id = $1 AND is_master = true', [masterId]);
+        masterDeleted = true;
+      } catch (mErr) {
+        console.warn('[removeBulkBoxFromMaster] No se pudo borrar master vacío:', mErr);
+      }
+    }
+
+    await client.query('COMMIT');
+
+    // total esperado (puede que el master ya no exista)
+    let expectedTotal: number | null = null;
+    if (!masterDeleted) {
+      const tb = await client.query(`SELECT total_boxes FROM packages WHERE id = $1`, [masterId]);
+      expectedTotal = tb.rows[0]?.total_boxes ?? null;
+    }
+
+    return res.json({
+      success: true,
+      removedId: childId,
+      removedTracking: child.tracking_internal,
+      currentChildren,
+      expectedTotal,
+      masterDeleted,
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('❌ Error removeBulkBoxFromMaster:', error?.message || error);
+    return res.status(500).json({ error: error.message || 'Error al eliminar caja' });
+  } finally {
+    client.release();
+  }
+};
 

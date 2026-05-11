@@ -69,6 +69,7 @@ import {
   startBulkMaster,
   addBulkBoxToMaster,
   updateBulkMaster,
+  removeBulkBoxFromMaster,
   getUnassignedPackages,
   searchClients
 } from './packageController';
@@ -3059,6 +3060,7 @@ app.post('/api/cs/instructions/revert', authenticateToken, requireMinLevel(ROLES
 app.post('/api/packages/bulk-master/start', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), startBulkMaster);
 app.patch('/api/packages/bulk-master/:masterId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateBulkMaster);
 app.post('/api/packages/bulk-master/:masterId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addBulkBoxToMaster);
+app.delete('/api/packages/bulk-master/:masterId/child/:childId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), removeBulkBoxFromMaster);
 
 //  Lookup de cliente por casillero (busca en users y legacy_clients)
 app.get('/api/packages/lookup-client/:boxId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req, res) => {
