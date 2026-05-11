@@ -735,19 +735,40 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }));
         setBulkSubmitting(true);
         const batchLabels: any[] = [];
+        const successfulBoxes: BoxItem[] = [];
         let allOk = true;
         for (const box of newBoxes) {
             const result = await addBoxToBulkMaster(box);
             if (!result) { allOk = false; break; }
             box.dbId = result.childId;
             box.dbTracking = result.childTracking;
+            successfulBoxes.push(box);
             if (result.label) batchLabels.push(result.label);
         }
         setBulkSubmitting(false);
-        if (!allOk) { setBulkMultiScanOpen(false); return; }
-        setBulkBoxes(prev => [...prev, ...newBoxes]);
+        // ⚠️ Importante: aunque haya fallado a mitad del lote, las cajas que
+        // sí se crearon ya existen en backend. DEBEMOS agregarlas al UI
+        // para que el operador vea el estado real y pueda borrarlas si
+        // quiere. De lo contrario el siguiente reintento generaría
+        // duplicados / colisiones de tracking.
+        if (successfulBoxes.length > 0) {
+            setBulkBoxes(prev => [...prev, ...successfulBoxes]);
+        }
+        // Siempre limpiamos el formulario y volvemos cantidad a 1
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
         setBulkBoxQuantity('1');
+        if (!allOk) {
+            setBulkMultiScanOpen(false);
+            // bulkError ya fue seteado por addBoxToBulkMaster
+            if (successfulBoxes.length > 0) {
+                setSnackbar({
+                    open: true,
+                    message: `Se registraron ${successfulBoxes.length} de ${newBoxes.length} cajas. Revisa el error y reintenta el resto.`,
+                    severity: 'warning',
+                });
+            }
+            return;
+        }
         setBulkMultiScanOpen(false);
         setBulkError('');
         // Imprimir TODAS las etiquetas de este bloque en un solo archivo (multi-página) - SIN QR para recepción PO BOX
@@ -763,29 +784,41 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
-    // Eliminar caja: llama al backend para borrar el paquete hijo y
+    // Estado para el diálogo de confirmación de borrado de caja.
+    // Se abre desde handleRemoveBulkBox(id) y el delete real ocurre en
+    // confirmRemoveBulkBox() al presionar el botón rojo del dialog.
+    const [removeConfirm, setRemoveConfirm] = useState<{ open: boolean; box: BoxItem | null; submitting: boolean }>({ open: false, box: null, submitting: false });
+
+    // Eliminar caja: abre el diálogo de confirmación. El borrado real
+    // se ejecuta en confirmRemoveBulkBox tras la confirmación del usuario.
+    const handleRemoveBulkBox = (id: number) => {
+        const target = bulkBoxes.find(b => b.id === id);
+        if (!target) return;
+        setRemoveConfirm({ open: true, box: target, submitting: false });
+    };
+
+    // Borrado real: llama al backend para borrar el paquete hijo y
     // actualiza todos los contadores locales (lista, IDs registrados y
     // chip de "X registrado(s)" en el header). Sin esto, el backend
     // sigue contando la caja y rechaza nuevas con "Ya se registraron
     // las N cajas esperadas".
-    const handleRemoveBulkBox = async (id: number) => {
-        const target = bulkBoxes.find(b => b.id === id);
-        if (!target) return;
-        // Confirmación rápida porque borra del backend
-        const trackingMsg = target.dbTracking ? `\n${target.dbTracking}` : '';
-        if (!window.confirm(`¿Borrar esta caja del sistema?${trackingMsg}\n\nEsto liberará el cupo para volver a registrarla.`)) {
+    const confirmRemoveBulkBox = async () => {
+        const target = removeConfirm.box;
+        if (!target) {
+            setRemoveConfirm({ open: false, box: null, submitting: false });
             return;
         }
-
         const dbId = target.dbId;
         // Si la caja aún no se sincronizó con backend (no debería pasar en
         // flujo normal porque setBulkBoxes ocurre después del POST exitoso),
         // solo limpiamos local.
         if (!dbId || !bulkMasterId) {
-            setBulkBoxes(prev => prev.filter(b => b.id !== id));
+            setBulkBoxes(prev => prev.filter(b => b.id !== target.id));
+            setRemoveConfirm({ open: false, box: null, submitting: false });
             return;
         }
 
+        setRemoveConfirm(prev => ({ ...prev, submitting: true }));
         try {
             const token = localStorage.getItem('token') || '';
             const r = await axios.delete(
@@ -793,7 +826,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 { headers: { Authorization: `Bearer ${token}` } }
             );
             // Actualizar TODOS los estados relacionados al contador
-            setBulkBoxes(prev => prev.filter(b => b.id !== id));
+            setBulkBoxes(prev => prev.filter(b => b.id !== target.id));
             setBulkRegisteredIds(prev => prev.filter(i => i !== dbId));
             setPaquetesRegistrados(prev => prev.filter(p => p.tracking !== target.dbTracking));
             // Si el backend reporta que ya no quedan hijas y borró el master,
@@ -801,6 +834,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             if (r.data?.masterDeleted) {
                 setBulkMasterId(null);
             }
+            setRemoveConfirm({ open: false, box: null, submitting: false });
             setSnackbar({
                 open: true,
                 message: `🗑️ Caja ${target.dbTracking || ''} eliminada`,
@@ -808,6 +842,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             });
         } catch (err: any) {
             const msg = err?.response?.data?.error || err?.message || 'No se pudo eliminar la caja';
+            setRemoveConfirm(prev => ({ ...prev, submitting: false }));
             setBulkError(msg);
             setSnackbar({ open: true, message: msg, severity: 'error' });
         }
@@ -2517,6 +2552,125 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 <DialogActions sx={{ p: 2 }}>
                     <Button onClick={handleCloseInventory} color="inherit">
                         Cerrar
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Diálogo de confirmación: borrar caja del listado en serie */}
+            <Dialog
+                open={removeConfirm.open}
+                onClose={() => !removeConfirm.submitting && setRemoveConfirm({ open: false, box: null, submitting: false })}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{
+                    sx: {
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                        boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
+                    },
+                }}
+            >
+                {/* Encabezado con franja roja + ícono circular */}
+                <Box
+                    sx={{
+                        position: 'relative',
+                        background: 'linear-gradient(135deg, #FFF3F0 0%, #FFE4DC 100%)',
+                        px: 3,
+                        pt: 4,
+                        pb: 3,
+                        textAlign: 'center',
+                    }}
+                >
+                    <Box
+                        sx={{
+                            width: 72,
+                            height: 72,
+                            borderRadius: '50%',
+                            mx: 'auto',
+                            mb: 1.5,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: 'linear-gradient(135deg, #FF6B4A 0%, #E03E14 100%)',
+                            boxShadow: '0 8px 24px rgba(224,62,20,0.35)',
+                        }}
+                    >
+                        <DeleteIcon sx={{ fontSize: 38, color: '#fff' }} />
+                    </Box>
+                    <Typography variant="h6" sx={{ fontWeight: 700, color: '#7A1F08', mb: 0.5 }}>
+                        ¿Borrar esta caja?
+                    </Typography>
+                    <Typography variant="body2" sx={{ color: '#9C3A1E' }}>
+                        Esta acción no se puede deshacer
+                    </Typography>
+                </Box>
+
+                <DialogContent sx={{ px: 3, pt: 3, pb: 1 }}>
+                    {removeConfirm.box?.dbTracking && (
+                        <Box
+                            sx={{
+                                p: 2,
+                                mb: 2,
+                                borderRadius: 2,
+                                border: '1px dashed',
+                                borderColor: 'grey.300',
+                                bgcolor: 'grey.50',
+                                textAlign: 'center',
+                            }}
+                        >
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
+                                Guía interna
+                            </Typography>
+                            <Typography
+                                variant="body1"
+                                sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE, letterSpacing: 0.5 }}
+                            >
+                                {removeConfirm.box.dbTracking}
+                            </Typography>
+                            {removeConfirm.box.trackingCourier && (
+                                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
+                                    Proveedor: <strong>{removeConfirm.box.trackingCourier}</strong>
+                                </Typography>
+                            )}
+                        </Box>
+                    )}
+                    <Alert severity="info" sx={{ borderRadius: 2 }} icon={false}>
+                        <Typography variant="body2">
+                            Se liberará el cupo en el contador para volver a registrarla.
+                        </Typography>
+                    </Alert>
+                </DialogContent>
+
+                <DialogActions sx={{ px: 3, pb: 3, pt: 2, gap: 1 }}>
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                        color="inherit"
+                        disabled={removeConfirm.submitting}
+                        onClick={() => setRemoveConfirm({ open: false, box: null, submitting: false })}
+                        sx={{ borderRadius: 2, py: 1.2, fontWeight: 600 }}
+                    >
+                        Cancelar
+                    </Button>
+                    <Button
+                        fullWidth
+                        variant="contained"
+                        color="error"
+                        disabled={removeConfirm.submitting}
+                        onClick={confirmRemoveBulkBox}
+                        startIcon={removeConfirm.submitting ? <CircularProgress size={18} color="inherit" /> : <DeleteIcon />}
+                        sx={{
+                            borderRadius: 2,
+                            py: 1.2,
+                            fontWeight: 700,
+                            background: 'linear-gradient(135deg, #FF6B4A 0%, #E03E14 100%)',
+                            boxShadow: '0 6px 16px rgba(224,62,20,0.3)',
+                            '&:hover': {
+                                background: 'linear-gradient(135deg, #FF5A36 0%, #C8330E 100%)',
+                            },
+                        }}
+                    >
+                        {removeConfirm.submitting ? 'Borrando…' : 'Sí, borrar'}
                     </Button>
                 </DialogActions>
             </Dialog>

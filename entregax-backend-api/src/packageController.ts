@@ -5110,12 +5110,19 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
       return res.status(400).json({ error: 'El paquete no es un master multi-caja válido' });
     }
 
-    // Contar hijas actuales
+    // Contar hijas actuales (para validar tope) y obtener el máximo
+    // box_number existente (para asignar el siguiente sin colisión).
+    // ⚠️ No usamos currentChildren+1: si el operador borró una caja
+    // intermedia, currentChildren+1 caería en un box_number ya usado y
+    // generaría un tracking_internal duplicado → UNIQUE violation → 500.
     const c = await client.query(
-      `SELECT COUNT(*)::int AS n FROM packages WHERE master_id = $1`,
+      `SELECT COUNT(*)::int AS n,
+              COALESCE(MAX(box_number), 0)::int AS mx
+         FROM packages WHERE master_id = $1`,
       [masterId]
     );
     const currentChildren = c.rows[0].n as number;
+    const maxBoxNumber = c.rows[0].mx as number;
     const expectedTotal = master.total_boxes as number;
     if (currentChildren >= expectedTotal) {
       return res.status(400).json({
@@ -5123,7 +5130,7 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
       });
     }
 
-    const boxNumber = currentChildren + 1;
+    const boxNumber = Math.max(currentChildren, maxBoxNumber) + 1;
     const childTracking = `${master.tracking_internal}-${String(boxNumber).padStart(4, '0')}`;
 
     // 💰 Calcular costo PO Box para ESTA caja individual usando la misma fórmula

@@ -487,8 +487,7 @@ function AssetDialog({ open, onClose, onSaved, editing, branches, users }: Dialo
     if (!form.category) { setErr('Categoría es requerida'); return; }
     setSubmitting(true);
     try {
-      const body = {
-        sku: form.sku.trim().toUpperCase(),
+      const body: any = {
         category: form.category,
         branch_id: form.branch_id || null,
         brand: form.brand.trim() || null,
@@ -502,6 +501,10 @@ function AssetDialog({ open, onClose, onSaved, editing, branches, users }: Dialo
         invoice_url: form.invoice_url || null,
         notes: form.notes.trim() || null,
       };
+      // SKU: en edición siempre se manda; en alta solo si el operador
+      // escribió algo. Si va vacío, el backend genera XA-0001, XA-0002...
+      const skuTrim = form.sku.trim().toUpperCase();
+      if (editing || skuTrim) body.sku = skuTrim;
       if (editing) {
         await api.put(`/admin/branch-assets/${editing.id}`, body);
       } else {
@@ -521,10 +524,15 @@ function AssetDialog({ open, onClose, onSaved, editing, branches, users }: Dialo
       <DialogContent>
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2, pt: 1 }}>
           <TextField
-            label="SKU *" value={form.sku}
+            label={editing ? 'SKU *' : 'SKU (automático)'}
+            value={form.sku}
             onChange={(e) => set('sku', e.target.value.toUpperCase())}
-            placeholder="MTY-SC-001" fullWidth
-            helperText="Código interno único. Ej. MTY-SC-001"
+            placeholder={editing ? 'MTY-SC-001' : 'Se asignará XA-0001, XA-0002…'}
+            fullWidth
+            disabled={!editing}
+            helperText={editing
+              ? 'Código interno único. Ej. MTY-SC-001'
+              : 'Se genera automáticamente en serie (XA-0001, XA-0002…)'}
           />
           <TextField
             label="Categoría *" select value={form.category}

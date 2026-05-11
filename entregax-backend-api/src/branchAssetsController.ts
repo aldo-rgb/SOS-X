@@ -178,8 +178,27 @@ export const createAsset = async (req: Request, res: Response): Promise<any> => 
             photo_url, invoice_url, notes,
         } = req.body || {};
 
-        if (!sku || !category) {
-            return res.status(400).json({ error: 'SKU y categoría son requeridos' });
+        if (!category) {
+            return res.status(400).json({ error: 'Categoría es requerida' });
+        }
+
+        // Auto-generar SKU si no viene en el body. Formato: XA-0001, XA-0002...
+        // Tomamos el máximo número existente con prefijo XA- y sumamos 1.
+        let finalSku = String(sku || '').trim().toUpperCase();
+        if (!finalSku) {
+            // Reintentar hasta 5 veces ante race condition (clave única)
+            for (let attempt = 0; attempt < 5; attempt++) {
+                const seq = await pool.query(`
+                    SELECT COALESCE(MAX(CAST(SUBSTRING(sku FROM 4) AS INTEGER)), 0) AS max_num
+                      FROM branch_assets
+                     WHERE sku ~ '^XA-[0-9]+$'
+                `);
+                const next = (parseInt(seq.rows[0]?.max_num || 0, 10) || 0) + 1 + attempt;
+                finalSku = `XA-${String(next).padStart(4, '0')}`;
+                // Verificar que no exista (por seguridad ante condiciones de carrera)
+                const dup = await pool.query(`SELECT 1 FROM branch_assets WHERE sku = $1`, [finalSku]);
+                if (dup.rows.length === 0) break;
+            }
         }
 
         const r = await pool.query(`
@@ -190,7 +209,7 @@ export const createAsset = async (req: Request, res: Response): Promise<any> => 
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         `, [
-            String(sku).trim().toUpperCase(),
+            finalSku,
             category,
             branch_id || null,
             brand || null,
