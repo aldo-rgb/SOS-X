@@ -6,6 +6,19 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 
+// ─── Helper: asegurar que existan columnas de onboarding (idempotente) ───
+let _advisorColumnsEnsured = false;
+const ensureAdvisorColumns = async () => {
+  if (_advisorColumnsEnsured) return;
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_signature_url TEXT`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS contract_pdf_url TEXT`);
+    _advisorColumnsEnsured = true;
+  } catch (e) {
+    console.warn('No se pudieron asegurar columnas de advisor:', (e as any)?.message);
+  }
+};
+
 // ─── Helper: obtener userId del asesor desde JWT ───
 function getAdvisorId(req: Request): number | null {
   return (req as any).user?.userId || (req as any).user?.id || null;
@@ -15,6 +28,7 @@ function getAdvisorId(req: Request): number | null {
 // (identidad verificada + aviso de privacidad / términos firmados).
 // Si NO está completo, responde 403 con detalle del bloqueo y retorna false.
 async function ensureAdvisorOnboarded(req: Request, res: Response): Promise<boolean> {
+  await ensureAdvisorColumns();
   const advisorId = getAdvisorId(req);
   if (!advisorId) {
     res.status(401).json({ error: 'No autenticado' });
@@ -54,6 +68,7 @@ async function ensureAdvisorOnboarded(req: Request, res: Response): Promise<bool
 // ─── 1. DASHBOARD STATS ───
 export const getAdvisorDashboard = async (req: Request, res: Response): Promise<any> => {
   try {
+    await ensureAdvisorColumns();
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 

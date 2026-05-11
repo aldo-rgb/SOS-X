@@ -130,6 +130,15 @@ const SERVICE_STYLE: Record<string, { bg: string; color: string; border: string 
 const getServiceStyle = (svc: string) => SERVICE_STYLE[svc] || { bg: '#1f1f24', color: '#bdbdc4', border: '#33333a' };
 
 export default function BranchManagementPage() {
+  // Solo super_admin puede eliminar sucursales
+  const currentUserRole = (() => {
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? (JSON.parse(raw)?.role || '') : '';
+    } catch { return ''; }
+  })();
+  const isSuperAdmin = currentUserRole === 'super_admin';
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -561,18 +570,21 @@ export default function BranchManagementPage() {
                         >
                           <EditIcon sx={{ fontSize: 16 }} />
                         </IconButton>
-                        <IconButton
-                          size="small"
-                          onClick={() => handleDeleteBranch(branch.id)}
-                          sx={{
-                            color: FINTECH.textMuted,
-                            width: 30,
-                            height: 30,
-                            '&:hover': { color: '#d32f2f', bgcolor: 'rgba(211,47,47,0.08)' },
-                          }}
-                        >
-                          <DeleteIcon sx={{ fontSize: 16 }} />
-                        </IconButton>
+                        {isSuperAdmin && (
+                          <IconButton
+                            size="small"
+                            onClick={() => handleDeleteBranch(branch.id)}
+                            title="Eliminar sucursal"
+                            sx={{
+                              color: FINTECH.textMuted,
+                              width: 30,
+                              height: 30,
+                              '&:hover': { color: '#d32f2f', bgcolor: 'rgba(211,47,47,0.08)' },
+                            }}
+                          >
+                            <DeleteIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        )}
                       </Box>
                     </Box>
 

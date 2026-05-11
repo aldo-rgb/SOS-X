@@ -85,6 +85,7 @@ import {
   getVerificationDetails,
   approveVerification,
   rejectVerification,
+  reanalyzeVerification,
   getVerificationStats
 } from './verificationController';
 import {
@@ -3487,6 +3488,7 @@ app.get('/api/admin/verifications/stats', authenticateToken, requireMinLevel(ROL
 app.get('/api/admin/verifications/:userId/details', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getVerificationDetails);
 app.post('/api/admin/verifications/:userId/approve', authenticateToken, requireMinLevel(ROLES.DIRECTOR), approveVerification);
 app.post('/api/admin/verifications/:userId/reject', authenticateToken, requireMinLevel(ROLES.DIRECTOR), rejectVerification);
+app.post('/api/admin/verifications/:userId/reanalyze', authenticateToken, requireMinLevel(ROLES.DIRECTOR), reanalyzeVerification);
 
 // --- RUTAS DE FACTURACIÓN FISCAL ---
 // Admin: Gestión de empresas emisoras
@@ -4046,7 +4048,7 @@ app.get('/api/admin/users/search', authenticateToken, requireMinLevel(ROLES.WARE
 app.get('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAllBranches);
 app.post('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createBranch);
 app.put('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateBranch);
-app.delete('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBranch);
+app.delete('/api/admin/branches/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteBranch);
 // Inventario de activos por sucursal (módulo de control patrimonial).
 // El GET /:id va sin auth porque alimenta el QR pegado al equipo —
 // un supervisor lo escanea con su celular y debe poder ver la ficha

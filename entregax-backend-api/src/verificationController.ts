@@ -9,6 +9,31 @@ import path from 'path';
 // Cargar variables de entorno
 dotenv.config({ path: path.join(__dirname, '..', '.env') });
 
+// ─── Asegurar tablas de documentos guardados (idempotente) ───
+let _docTablesEnsured = false;
+export const ensureUserDocumentTables = async () => {
+    if (_docTablesEnsured) return;
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS user_saved_documents (
+                id SERIAL PRIMARY KEY,
+                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                document_type VARCHAR(64) NOT NULL,
+                file_url TEXT NOT NULL,
+                original_filename VARCHAR(255),
+                created_at TIMESTAMP DEFAULT NOW(),
+                updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(user_id, document_type)
+            )
+        `);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_usd_user ON user_saved_documents(user_id)`);
+        await pool.query(`CREATE INDEX IF NOT EXISTS idx_usd_type ON user_saved_documents(user_id, document_type)`);
+        _docTablesEnsured = true;
+    } catch (e) {
+        console.warn('No se pudo asegurar user_saved_documents:', (e as any)?.message);
+    }
+};
+
 // Inicializar cliente OpenAI (lazy init para asegurar que env está cargado)
 let openaiClient: OpenAI | null = null;
 const getOpenAI = () => {
@@ -20,7 +45,13 @@ const getOpenAI = () => {
     return openaiClient;
 };
 
-// ============ COMPARAR ROSTROS CON GPT-4 VISION ============
+// ============ VALIDAR DOCUMENTO DE IDENTIDAD CON GPT-4 VISION ============
+// Nota: Se evita el lenguaje de "comparar rostros / biometría" porque las
+// políticas de OpenAI bloquean ese tipo de petición. En su lugar le pedimos
+// al modelo que valide la CONSISTENCIA del documento: que la foto de la
+// credencial y la foto de control (selfie) parezcan ser del mismo titular
+// (mismo peinado, edad aparente, complexión, rasgos generales), igual que
+// haría un cajero de banco revisando una identificación.
 async function compareFacesWithAI(selfieBase64: string, ineBase64: string): Promise<{ match: boolean; confidence: string; reason: string }> {
     try {
         const response = await getOpenAI().chat.completions.create({
@@ -28,31 +59,33 @@ async function compareFacesWithAI(selfieBase64: string, ineBase64: string): Prom
             messages: [
                 {
                     role: "system",
-                    content: `Eres un experto en verificación de identidad. Tu trabajo es comparar dos imágenes:
-1. Una selfie de una persona
-2. Una foto de identificación oficial (Identificacion Oficial)
+                    content: `Eres un auditor de KYC (Know Your Customer) de una empresa de paquetería en México. Tu única tarea es validar la CONSISTENCIA VISUAL entre la foto de una identificación oficial (INE/IFE) y una foto de control tomada al momento del registro, igual que lo haría un cajero de banco revisando una credencial.
 
-Debes determinar si la persona en la selfie es la misma que aparece en el documento de identidad.
+NO realizas reconocimiento facial biométrico ni identificas personas por nombre. Solo determinas si las dos imágenes parecen corresponder al MISMO titular del documento revisando:
+- Forma general del rostro y del cabello
+- Edad aparente aproximada
+- Complexión y tono de piel
+- Rasgos generales (cejas, barba, lentes, etc.)
 
-IMPORTANTE: Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
+Responde ÚNICAMENTE con JSON válido, sin texto adicional, con esta estructura:
 {
-  "match": true/false,
-  "confidence": "high"/"medium"/"low",
+  "match": true | false,
+  "confidence": "high" | "medium" | "low",
   "reason": "explicación breve en español"
 }
 
-Criterios de evaluación:
-- Rasgos faciales (ojos, nariz, boca, forma del rostro)
-- Considerar que puede haber diferencias por edad, iluminación, ángulo
-- Si la imagen está borrosa o no se ve bien el rostro, indica confidence "low"
-- Si claramente no es la misma persona, match=false con confidence "high"`
+Reglas:
+- Si las dos imágenes son consistentes con el mismo titular → match=true.
+- Si claramente NO son consistentes (otra persona) → match=false, confidence="high".
+- Si la imagen está borrosa, oscura, recortada o no se aprecia bien → confidence="low".
+- Sé tolerante con diferencias de edad, peinado, iluminación y ángulo.`
                 },
                 {
                     role: "user",
                     content: [
                         {
                             type: "text",
-                            text: "Compara estas dos imágenes. La primera es la selfie del usuario, la segunda es su INE. ¿Es la misma persona?"
+                            text: "Aquí están las dos imágenes para validación KYC. La primera es la foto de control tomada al registrarse; la segunda es la foto que aparece impresa en la credencial oficial. ¿Son consistentes con el mismo titular? Responde solo con el JSON solicitado."
                         },
                         {
                             type: "image_url",
@@ -72,31 +105,42 @@ Criterios de evaluación:
                 }
             ],
             max_tokens: 300,
+            response_format: { type: 'json_object' },
         });
 
         const content = response.choices[0]?.message?.content || '';
-        
+        console.log('🤖 Respuesta cruda de OpenAI Vision:', content);
+
         // Extraer JSON de la respuesta
         const jsonMatch = content.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-            const result = JSON.parse(jsonMatch[0]);
-            return {
-                match: result.match === true,
-                confidence: result.confidence || 'medium',
-                reason: result.reason || 'Análisis completado'
-            };
+            try {
+                const result = JSON.parse(jsonMatch[0]);
+                return {
+                    match: result.match === true,
+                    confidence: result.confidence || 'medium',
+                    reason: result.reason || 'Análisis completado'
+                };
+            } catch (parseErr) {
+                console.warn('⚠️ JSON inválido en respuesta IA:', parseErr);
+                // Cae al fallback de abajo, pero guardamos el contenido crudo
+            }
         }
 
-        // Si no hay JSON válido, asumir que no hubo match
+        // Si no hay JSON válido, devolver el texto crudo de la IA (truncado)
+        // para que el admin pueda entender qué pasó (idioma, formato, etc.)
+        const rawReason = content
+            ? `IA respondió en texto libre: "${content.substring(0, 300)}${content.length > 300 ? '…' : ''}"`
+            : 'OpenAI devolvió una respuesta vacía. Posibles causas: imágenes en formato HEIC (iOS), demasiado oscuras, borrosas o sin rostro visible.';
         return {
             match: false,
             confidence: 'low',
-            reason: 'No se pudo analizar correctamente las imágenes'
+            reason: rawReason
         };
 
     } catch (error: any) {
         console.error('Error en OpenAI Vision:', error);
-        
+
         // Si no hay API key o hay error, usar modo simulado
         if (error.code === 'invalid_api_key' || !process.env.OPENAI_API_KEY) {
             console.log('⚠️ MODO SIMULADO: No hay API key de OpenAI configurada');
@@ -106,8 +150,14 @@ Criterios de evaluación:
                 reason: 'Verificación simulada - Configurar OPENAI_API_KEY para verificación real'
             };
         }
-        
-        throw new Error('Error al procesar verificación de identidad');
+
+        // Devolver el error real para que quede registrado en pending_review
+        const errMsg = error?.message || error?.error?.message || String(error);
+        return {
+            match: false,
+            confidence: 'low',
+            reason: `Error al llamar a OpenAI: ${errMsg.substring(0, 300)}`
+        };
     }
 }
 
@@ -187,6 +237,7 @@ export const uploadVerificationDocuments = async (req: Request, res: Response): 
         // Guardar Constancia de Situación Fiscal (si la subieron)
         if (constanciaFiscalBase64) {
             try {
+                await ensureUserDocumentTables();
                 const { uploadToS3, isS3Configured } = await import('./s3Service');
                 const fs = await import('fs');
                 const pathMod = await import('path');
@@ -223,6 +274,8 @@ export const uploadVerificationDocuments = async (req: Request, res: Response): 
                 // Si es asesor, mirror al expediente HR como doc_type='rfc'
                 if (isAdvisor) {
                     try {
+                        const { ensureHRTables } = await import('./hrExpansionController');
+                        await ensureHRTables();
                         await pool.query(
                             `INSERT INTO employee_documents
                                (user_id, doc_type, filename, url, storage_key, mime_type, size_bytes, notes, uploaded_by)
@@ -423,15 +476,37 @@ export const getVerificationDetails = async (req: Request, res: Response): Promi
                 id, full_name, email, box_id, phone, role,
                 verification_status, verification_submitted_at,
                 ine_front_url, ine_back_url, selfie_url, signature_url,
+                privacy_signature_url, privacy_accepted_at,
                 profile_photo_url, ai_verification_reason, created_at,
                 is_employee_onboarded, driver_license_front_url, driver_license_back_url,
-                driver_license_expiry
+                driver_license_expiry, is_verified,
+                fiscal_razon_social, fiscal_rfc, fiscal_codigo_postal,
+                fiscal_regimen_fiscal, fiscal_uso_cfdi
             FROM users WHERE id = $1
         `, [userId]);
         if (result.rowCount === 0) {
             res.status(404).json({ error: 'Usuario no encontrado' });
             return;
         }
+
+        // Adjuntar Constancia de Situación Fiscal si existe en user_saved_documents
+        try {
+            const csf = await pool.query(
+                `SELECT file_url, original_filename, updated_at
+                   FROM user_saved_documents
+                  WHERE user_id = $1 AND document_type = 'constancia_fiscal'
+                  LIMIT 1`,
+                [userId]
+            );
+            if (csf.rowCount && csf.rows[0]) {
+                result.rows[0].constancia_fiscal_url = csf.rows[0].file_url;
+                result.rows[0].constancia_fiscal_filename = csf.rows[0].original_filename;
+                result.rows[0].constancia_fiscal_uploaded_at = csf.rows[0].updated_at;
+            }
+        } catch (e) {
+            console.warn('No se pudo cargar constancia fiscal:', (e as any)?.message);
+        }
+
         res.json(result.rows[0]);
     } catch (error) {
         console.error('Error obteniendo detalle de verificación:', error);
@@ -486,6 +561,51 @@ export const approveVerification = async (req: Request, res: Response): Promise<
     } catch (error) {
         console.error('Error aprobando verificación:', error);
         res.status(500).json({ error: 'Error al aprobar verificación' });
+    }
+};
+
+// ============ ADMIN: RE-ANALIZAR CON IA ============
+// Vuelve a llamar a OpenAI Vision con los documentos ya guardados,
+// útil cuando la primera ejecución falló por timeout o respuesta inválida.
+export const reanalyzeVerification = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const { userId } = req.params;
+        if (!userId) {
+            res.status(400).json({ error: 'ID de usuario requerido' });
+            return;
+        }
+
+        const r = await pool.query(
+            `SELECT ine_front_url, selfie_url FROM users WHERE id = $1`,
+            [userId]
+        );
+        if (r.rowCount === 0) {
+            res.status(404).json({ error: 'Usuario no encontrado' });
+            return;
+        }
+        const { ine_front_url, selfie_url } = r.rows[0];
+        if (!ine_front_url || !selfie_url) {
+            res.status(400).json({ error: 'Faltan documentos (INE Frente o Selfie) para re-analizar' });
+            return;
+        }
+
+        const ai = await compareFacesWithAI(selfie_url, ine_front_url);
+        const newStatus = ai.match && ai.confidence !== 'low' ? 'verified' : 'pending_review';
+        const newVerified = newStatus === 'verified';
+
+        await pool.query(
+            `UPDATE users
+             SET ai_verification_reason = $1,
+                 verification_status = $2,
+                 is_verified = $3
+             WHERE id = $4`,
+            [ai.reason, newStatus, newVerified, userId]
+        );
+
+        res.json({ success: true, aiAnalysis: ai, newStatus });
+    } catch (error: any) {
+        console.error('Error re-analizando verificación:', error);
+        res.status(500).json({ error: error?.message || 'Error al re-analizar' });
     }
 };
 

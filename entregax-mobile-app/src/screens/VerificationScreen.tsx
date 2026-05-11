@@ -36,7 +36,7 @@ type Props = {
 const { width, height } = Dimensions.get('window');
 
 const buildSteps = (isAdvisor: boolean) => ([
-    { id: 1, title: 'ID Oficial', icon: 'card-outline', instruction: 'Toma una foto del frente de tu ID' },
+    { id: 1, title: 'INE Frente', icon: 'card-outline', instruction: 'Toma una foto del frente de tu ID' },
     { id: 2, title: 'INE Reverso', icon: 'card-outline', instruction: 'Toma una foto del reverso de tu ID' },
     {
         id: 3,
@@ -92,8 +92,22 @@ export default function VerificationScreen({ navigation, route }: Props) {
     const STEP_TERMS = 5;
     const STEP_SIGNATURE = 6;
     const PHOTO_STEPS = [STEP_INE_FRONT, STEP_INE_BACK, STEP_SELFIE];
+    // Slots: claves estables para las fotos (independientes del número de paso)
+    type PhotoSlot = 'ineFront' | 'ineBack' | 'selfie';
+    const SLOT_INE_FRONT: PhotoSlot = 'ineFront';
+    const SLOT_INE_BACK: PhotoSlot = 'ineBack';
+    const SLOT_SELFIE: PhotoSlot = 'selfie';
+    const slotForStep = (step: number): PhotoSlot | null => {
+        if (step === STEP_INE_FRONT) return SLOT_INE_FRONT;
+        if (step === STEP_INE_BACK) return SLOT_INE_BACK;
+        if (step === STEP_SELFIE) return SLOT_SELFIE;
+        return null;
+    };
     const [currentStep, setCurrentStep] = useState(1);
-    const [images, setImages] = useState<{ [key: number]: string }>({});
+    const [images, setImages] = useState<{ [key: string]: string }>({});
+    // Indicador visual: colapsa INE Frente + Reverso en 1 punto (5 puntos en total)
+    const VISUAL_TOTAL = 5;
+    const visualStep = currentStep <= STEP_INE_BACK ? 1 : currentStep - 1;
     const [constanciaFiscal, setConstanciaFiscal] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
     const [signature, setSignature] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
@@ -130,7 +144,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
         return () => { cancelled = true; };
     }, []);
     const [showCamera, setShowCamera] = useState(false);
-    const [cameraStep, setCameraStep] = useState(1);
+    const [cameraSlot, setCameraSlot] = useState<PhotoSlot>('ineFront');
     const signatureRef = useRef<any>(null);
     const cameraRef = useRef<any>(null);
     const [permission, requestPermission] = useCameraPermissions();
@@ -159,7 +173,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
     };
 
     // Abrir cámara con guía
-    const openCameraWithGuide = async (step: number) => {
+    const openCameraWithGuide = async (slot: PhotoSlot) => {
         if (!permission?.granted) {
             const result = await requestPermission();
             if (!result.granted) {
@@ -167,7 +181,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                 return;
             }
         }
-        setCameraStep(step);
+        setCameraSlot(slot);
         setShowCamera(true);
     };
 
@@ -176,7 +190,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
         if (cameraRef.current) {
             try {
                 const photo = await cameraRef.current.takePictureAsync({ quality: 0.7 });
-                setImages(prev => ({ ...prev, [cameraStep]: photo.uri }));
+                setImages(prev => ({ ...prev, [cameraSlot]: photo.uri }));
                 setShowCamera(false);
             } catch (error) {
                 console.error('Error tomando foto:', error);
@@ -185,9 +199,9 @@ export default function VerificationScreen({ navigation, route }: Props) {
         }
     };
 
-    const pickImage = async (step: number, useCamera: boolean = true) => {
+    const pickImage = async (slot: PhotoSlot, useCamera: boolean = true) => {
         if (useCamera) {
-            openCameraWithGuide(step);
+            openCameraWithGuide(slot);
             return;
         }
         
@@ -204,16 +218,9 @@ export default function VerificationScreen({ navigation, route }: Props) {
                 quality: 0.7,
             });
 
-            console.log('📷 Resultado picker:', result);
-
             if (!result.canceled && result.assets && result.assets[0]) {
                 const uri = result.assets[0].uri;
-                console.log('✅ Imagen guardada para paso', step, ':', uri);
-                setImages(prev => {
-                    const newImages = { ...prev, [step]: uri };
-                    console.log('📸 Estado images actualizado:', newImages);
-                    return newImages;
-                });
+                setImages(prev => ({ ...prev, [slot]: uri }));
             }
         } catch (error) {
             console.error('Error picking image:', error);
@@ -223,10 +230,13 @@ export default function VerificationScreen({ navigation, route }: Props) {
 
     const handleNext = () => {
         if (currentStep < STEPS.length) {
-            // Validar pasos de fotos (INE front/back y selfie)
-            if (PHOTO_STEPS.includes(currentStep) && !images[currentStep]) {
-                Alert.alert('Falta documento', 'Por favor, toma la foto antes de continuar.');
-                return;
+            // Validar pasos de fotos
+            if (PHOTO_STEPS.includes(currentStep)) {
+                const slot = slotForStep(currentStep);
+                if (slot && !images[slot]) {
+                    Alert.alert('Falta documento', 'Por favor, toma la foto antes de continuar.');
+                    return;
+                }
             }
             // Validar Constancia Fiscal solo si es asesor (obligatoria)
             if (currentStep === STEP_CSF && isAdvisor && !constanciaFiscal) {
@@ -253,7 +263,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
 
     const handleSubmit = async () => {
         // Validar que tenemos todos los documentos
-        if (!images[STEP_INE_FRONT] || !images[STEP_INE_BACK] || !images[STEP_SELFIE]) {
+        if (!images[SLOT_INE_FRONT] || !images[SLOT_INE_BACK] || !images[SLOT_SELFIE]) {
             Alert.alert('Faltan documentos', 'Por favor completa todos los pasos de verificación.');
             return;
         }
@@ -271,13 +281,13 @@ export default function VerificationScreen({ navigation, route }: Props) {
 
         try {
             // Convertir imágenes a base64
-            const ineFrontBase64 = await FileSystem.readAsStringAsync(images[STEP_INE_FRONT], {
+            const ineFrontBase64 = await FileSystem.readAsStringAsync(images[SLOT_INE_FRONT], {
                 encoding: 'base64',
             });
-            const ineBackBase64 = await FileSystem.readAsStringAsync(images[STEP_INE_BACK], {
+            const ineBackBase64 = await FileSystem.readAsStringAsync(images[SLOT_INE_BACK], {
                 encoding: 'base64',
             });
-            const selfieBase64 = await FileSystem.readAsStringAsync(images[STEP_SELFIE], {
+            const selfieBase64 = await FileSystem.readAsStringAsync(images[SLOT_SELFIE], {
                 encoding: 'base64',
             });
 
@@ -368,33 +378,33 @@ export default function VerificationScreen({ navigation, route }: Props) {
 
     const renderStepIndicator = () => (
         <View style={styles.stepIndicator}>
-            {STEPS.map((step, index) => (
-                <React.Fragment key={step.id}>
+            {Array.from({ length: VISUAL_TOTAL }, (_, i) => i + 1).map((dot, index) => (
+                <React.Fragment key={dot}>
                     <View
                         style={[
                             styles.stepCircle,
-                            currentStep === step.id && styles.stepCircleActive,
-                            currentStep > step.id && styles.stepCircleCompleted,
+                            visualStep === dot && styles.stepCircleActive,
+                            visualStep > dot && styles.stepCircleCompleted,
                         ]}
                     >
-                        {currentStep > step.id ? (
+                        {visualStep > dot ? (
                             <Ionicons name="checkmark" size={16} color="#FFF" />
                         ) : (
                             <Text
                                 style={[
                                     styles.stepNumber,
-                                    currentStep >= step.id && styles.stepNumberActive,
+                                    visualStep >= dot && styles.stepNumberActive,
                                 ]}
                             >
-                                {step.id}
+                                {dot}
                             </Text>
                         )}
                     </View>
-                    {index < STEPS.length - 1 && (
+                    {index < VISUAL_TOTAL - 1 && (
                         <View
                             style={[
                                 styles.stepLine,
-                                currentStep > step.id && styles.stepLineCompleted,
+                                visualStep > dot && styles.stepLineCompleted,
                             ]}
                         />
                     )}
@@ -514,7 +524,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                 <CameraView
                     ref={cameraRef}
                     style={styles.camera}
-                    facing={cameraStep === STEP_SELFIE ? 'front' : 'back'}
+                    facing={cameraSlot === SLOT_SELFIE ? 'front' : 'back'}
                 >
                     {/* Overlay con guía */}
                     <View style={styles.cameraOverlay}>
@@ -523,15 +533,15 @@ export default function VerificationScreen({ navigation, route }: Props) {
                                 <Ionicons name="close" size={32} color="#FFF" />
                             </TouchableOpacity>
                             <Text style={styles.cameraTitle}>
-                                {cameraStep === STEP_INE_FRONT ? 'Frente de ID' :
-                                 cameraStep === STEP_INE_BACK ? 'Reverso de ID' : 'Selfie'}
+                                {cameraSlot === SLOT_INE_FRONT ? 'Frente de ID' :
+                                 cameraSlot === SLOT_INE_BACK ? 'Reverso de ID' : 'Selfie'}
                             </Text>
                             <View style={{ width: 32 }} />
                         </View>
 
                         {/* Guía de encuadre */}
                         <View style={styles.guideContainer}>
-                            {cameraStep === STEP_SELFIE ? (
+                            {cameraSlot === SLOT_SELFIE ? (
                                 // Guía circular para selfie
                                 <View style={styles.selfieGuide}>
                                     <Text style={styles.guideText}>Centra tu rostro</Text>
@@ -544,7 +554,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                                     <View style={styles.cornerBL} />
                                     <View style={styles.cornerBR} />
                                     <Text style={styles.guideText}>
-                                        Centra tu {cameraStep === STEP_INE_FRONT ? 'ID (frente)' : 'ID (reverso)'}
+                                        Centra tu {cameraSlot === SLOT_INE_FRONT ? 'ID (frente)' : 'ID (reverso)'}
                                     </Text>
                                 </View>
                             )}
@@ -682,51 +692,56 @@ export default function VerificationScreen({ navigation, route }: Props) {
             );
         }
 
-        // Pasos 1, 2, 3: Fotos
-        return (
-            <View style={styles.stepContent}>
-                <View style={styles.iconContainer}>
-                    <Ionicons name={step.icon as any} size={60} color="#0A2540" />
-                </View>
-                <Text style={styles.stepTitle}>{step.title}</Text>
-                <Text style={styles.stepInstruction}>{step.instruction}</Text>
+        // Pasos de foto individuales (INE Frente, INE Reverso, Selfie)
+        const slot = slotForStep(currentStep);
+        if (slot) {
+            return (
+                <View style={styles.stepContent}>
+                    <View style={styles.iconContainer}>
+                        <Ionicons name={step.icon as any} size={60} color="#0A2540" />
+                    </View>
+                    <Text style={styles.stepTitle}>{step.title}</Text>
+                    <Text style={styles.stepInstruction}>{step.instruction}</Text>
 
-                {images[currentStep] ? (
-                    <View style={styles.imagePreview}>
-                        <Image
-                            source={{ uri: images[currentStep] }}
-                            style={styles.previewImage}
-                        />
-                        <TouchableOpacity
-                            style={styles.retakeButton}
-                            onPress={() => pickImage(currentStep, true)}
-                        >
-                            <Ionicons name="camera" size={20} color="#FFF" />
-                            <Text style={styles.retakeText}>Retomar</Text>
-                        </TouchableOpacity>
-                    </View>
-                ) : (
-                    <View style={styles.captureButtons}>
-                        <TouchableOpacity
-                            style={styles.captureButton}
-                            onPress={() => pickImage(currentStep, true)}
-                        >
-                            <Ionicons name="camera" size={40} color="#FFF" />
-                            <Text style={styles.captureText}>Tomar foto</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.captureButton, styles.galleryButton]}
-                            onPress={() => pickImage(currentStep, false)}
-                        >
-                            <Ionicons name="images" size={40} color="#0A2540" />
-                            <Text style={[styles.captureText, { color: '#0A2540' }]}>
-                                Galería
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
-                )}
-            </View>
-        );
+                    {images[slot] ? (
+                        <View style={styles.imagePreview}>
+                            <Image
+                                source={{ uri: images[slot] }}
+                                style={styles.previewImage}
+                            />
+                            <TouchableOpacity
+                                style={styles.retakeButton}
+                                onPress={() => pickImage(slot, true)}
+                            >
+                                <Ionicons name="camera" size={20} color="#FFF" />
+                                <Text style={styles.retakeText}>Retomar</Text>
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <View style={styles.captureButtons}>
+                            <TouchableOpacity
+                                style={styles.captureButton}
+                                onPress={() => pickImage(slot, true)}
+                            >
+                                <Ionicons name="camera" size={40} color="#FFF" />
+                                <Text style={styles.captureText}>Tomar foto</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={[styles.captureButton, styles.galleryButton]}
+                                onPress={() => pickImage(slot, false)}
+                            >
+                                <Ionicons name="images" size={40} color="#0A2540" />
+                                <Text style={[styles.captureText, { color: '#0A2540' }]}>
+                                    Galería
+                                </Text>
+                            </TouchableOpacity>
+                        </View>
+                    )}
+                </View>
+            );
+        }
+
+        return null;
     };
 
     if (verifying) {
@@ -747,15 +762,21 @@ export default function VerificationScreen({ navigation, route }: Props) {
             <View style={styles.header}>
                 <Text style={styles.headerTitle}>Verificación de Identidad</Text>
                 <Text style={styles.headerSubtitle}>
-                    Paso {currentStep} de {STEPS.length}
+                    Paso {visualStep} de {VISUAL_TOTAL}
                 </Text>
             </View>
 
             {renderStepIndicator()}
 
-            <ScrollView contentContainerStyle={styles.scrollContent}>
-                {renderCurrentStep()}
-            </ScrollView>
+            {currentStep === STEP_SIGNATURE ? (
+                <View style={styles.scrollContent}>
+                    {renderCurrentStep()}
+                </View>
+            ) : (
+                <ScrollView contentContainerStyle={styles.scrollContent}>
+                    {renderCurrentStep()}
+                </ScrollView>
+            )}
 
             <View style={styles.footer}>
                 {currentStep > 1 && (
@@ -769,7 +790,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                     <TouchableOpacity
                         style={[
                             styles.nextButton,
-                            (PHOTO_STEPS.includes(currentStep) && !images[currentStep]) && styles.nextButtonDisabled,
+                            (PHOTO_STEPS.includes(currentStep) && (() => { const s = slotForStep(currentStep); return s ? !images[s] : false; })()) && styles.nextButtonDisabled,
                             (currentStep === STEP_CSF && isAdvisor && !constanciaFiscal) && styles.nextButtonDisabled,
                             (currentStep === STEP_TERMS && !termsAccepted) && styles.nextButtonDisabled,
                         ]}

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
 import {
@@ -45,6 +45,46 @@ import InventoryIcon from '@mui/icons-material/Inventory';
 import CloseIcon from '@mui/icons-material/Close';
 import LockResetIcon from '@mui/icons-material/LockReset';
 import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import BadgeIcon from '@mui/icons-material/Badge';
+import DrawIcon from '@mui/icons-material/Draw';
+import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import VerifiedIcon from '@mui/icons-material/Verified';
+
+// Tipo para datos de verificación cargados bajo demanda
+interface VerificationDetail {
+  ine_front_url?: string | null;
+  ine_back_url?: string | null;
+  selfie_url?: string | null;
+  signature_url?: string | null;
+  privacy_signature_url?: string | null;
+  privacy_accepted_at?: string | null;
+  verification_status?: string | null;
+  verification_submitted_at?: string | null;
+  is_verified?: boolean | null;
+  ai_verification_reason?: string | null;
+  // Constancia de Situación Fiscal
+  constancia_fiscal_url?: string | null;
+  constancia_fiscal_filename?: string | null;
+  constancia_fiscal_uploaded_at?: string | null;
+  // Datos fiscales
+  fiscal_razon_social?: string | null;
+  fiscal_rfc?: string | null;
+  fiscal_codigo_postal?: string | null;
+  fiscal_regimen_fiscal?: string | null;
+  fiscal_uso_cfdi?: string | null;
+}
+
+// Convierte un valor (data URI base64 o URL http) en src usable por <img>
+const resolveImageSrc = (val?: string | null): string | null => {
+  if (!val) return null;
+  const v = String(val).trim();
+  if (!v || v === 'signature_data') return null;
+  if (v.startsWith('data:')) return v;
+  if (v.startsWith('http://') || v.startsWith('https://')) return v;
+  // Asumimos PNG si parece base64 puro
+  if (/^[A-Za-z0-9+/=\s]+$/.test(v.substring(0, 80))) return `data:image/png;base64,${v}`;
+  return v;
+};
 
 interface User {
   id: number;
@@ -124,6 +164,8 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [verificationDetail, setVerificationDetail] = useState<VerificationDetail | null>(null);
+  const [loadingVerification, setLoadingVerification] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState({ full_name: '', email: '', role: '', box_id: '', advisor_id: null as number | null });
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
@@ -185,6 +227,34 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
     setSelectedUser(user);
     setDetailsOpen(true);
   };
+
+  // Cargar documentos de verificación (INE, selfie, firma) al abrir detalles
+  useEffect(() => {
+    if (!detailsOpen || !selectedUser) {
+      setVerificationDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setLoadingVerification(true);
+    setVerificationDetail(null);
+    (async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const base = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+        const resp = await axios.get(
+          `${base}/api/admin/verifications/${selectedUser.id}/details`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        if (!cancelled) setVerificationDetail(resp.data);
+      } catch (err) {
+        console.warn('No se pudieron cargar documentos de verificación:', err);
+        if (!cancelled) setVerificationDetail({});
+      } finally {
+        if (!cancelled) setLoadingVerification(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [detailsOpen, selectedUser]);
 
   // Cargar lista de asesores
   const loadAdvisors = async () => {
@@ -669,6 +739,315 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                   <Typography variant="caption" color="text.secondary">Entregados</Typography>
                 </Paper>
               </Box>
+
+              {/* ============ VERIFICACIÓN DE IDENTIDAD ============ */}
+              <Divider sx={{ my: 3 }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                <VerifiedIcon sx={{ color: verificationDetail?.is_verified ? '#10B981' : '#9E9E9E' }} />
+                <Typography variant="subtitle2" fontWeight={600}>
+                  Verificación de Identidad
+                </Typography>
+                {verificationDetail?.verification_status && (
+                  <Chip
+                    size="small"
+                    label={
+                      verificationDetail.verification_status === 'verified' ? 'Verificado' :
+                      verificationDetail.verification_status === 'pending_review' ? 'Pendiente revisión' :
+                      verificationDetail.verification_status === 'rejected' ? 'Rechazado' :
+                      'Sin verificar'
+                    }
+                    color={
+                      verificationDetail.verification_status === 'verified' ? 'success' :
+                      verificationDetail.verification_status === 'pending_review' ? 'warning' :
+                      verificationDetail.verification_status === 'rejected' ? 'error' : 'default'
+                    }
+                    sx={{ fontWeight: 600 }}
+                  />
+                )}
+              </Box>
+
+              {loadingVerification ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+                  <CircularProgress size={28} sx={{ color: '#F05A28' }} />
+                </Box>
+              ) : (() => {
+                const ineFront = resolveImageSrc(verificationDetail?.ine_front_url);
+                const ineBack = resolveImageSrc(verificationDetail?.ine_back_url);
+                const selfie = resolveImageSrc(verificationDetail?.selfie_url);
+                const signature = resolveImageSrc(verificationDetail?.signature_url)
+                  || resolveImageSrc(verificationDetail?.privacy_signature_url);
+                const hasAny = !!(ineFront || ineBack || selfie || signature);
+
+                if (!hasAny) {
+                  return (
+                    <Alert severity="info" sx={{ mt: 1 }}>
+                      Este cliente aún no ha completado su verificación de identidad.
+                    </Alert>
+                  );
+                }
+
+                return (
+                  <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
+                    {/* INE Frente */}
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                        <BadgeIcon fontSize="small" /> INE Frente
+                      </Typography>
+                      <Paper sx={{ p: 1, bgcolor: 'grey.50', minHeight: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2 }}>
+                        {ineFront ? (
+                          <img
+                            src={ineFront}
+                            alt="INE Frente"
+                            style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 6, cursor: 'pointer' }}
+                            onClick={() => window.open(ineFront, '_blank')}
+                          />
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">No disponible</Typography>
+                        )}
+                      </Paper>
+                    </Box>
+
+                    {/* INE Reverso */}
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                        <BadgeIcon fontSize="small" /> INE Reverso
+                      </Typography>
+                      <Paper sx={{ p: 1, bgcolor: 'grey.50', minHeight: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2 }}>
+                        {ineBack ? (
+                          <img
+                            src={ineBack}
+                            alt="INE Reverso"
+                            style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 6, cursor: 'pointer' }}
+                            onClick={() => window.open(ineBack, '_blank')}
+                          />
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">No disponible</Typography>
+                        )}
+                      </Paper>
+                    </Box>
+
+                    {/* Selfie */}
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                        <CameraAltIcon fontSize="small" /> Selfie
+                      </Typography>
+                      <Paper sx={{ p: 1, bgcolor: 'grey.50', minHeight: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2 }}>
+                        {selfie ? (
+                          <img
+                            src={selfie}
+                            alt="Selfie"
+                            style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 6, cursor: 'pointer' }}
+                            onClick={() => window.open(selfie, '_blank')}
+                          />
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">No disponible</Typography>
+                        )}
+                      </Paper>
+                    </Box>
+
+                    {/* Firma digital */}
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                        <DrawIcon fontSize="small" /> Firma Digital
+                      </Typography>
+                      <Paper sx={{ p: 1, bgcolor: '#fff', minHeight: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2, border: '1px solid #e0e0e0' }}>
+                        {signature ? (
+                          <img
+                            src={signature}
+                            alt="Firma"
+                            style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain', cursor: 'pointer' }}
+                            onClick={() => window.open(signature, '_blank')}
+                          />
+                        ) : (
+                          <Typography variant="caption" color="text.secondary">No disponible</Typography>
+                        )}
+                      </Paper>
+                    </Box>
+                  </Box>
+                );
+              })()}
+
+              {verificationDetail?.ai_verification_reason && (
+                <Alert
+                  severity={
+                    verificationDetail.verification_status === 'verified' ? 'success' :
+                    verificationDetail.verification_status === 'rejected' ? 'error' : 'warning'
+                  }
+                  sx={{ mt: 2 }}
+                  action={
+                    (verificationDetail.ine_front_url && verificationDetail.selfie_url) ? (
+                      <Button
+                        size="small"
+                        disabled={loadingVerification}
+                        onClick={async () => {
+                          if (!selectedUser) return;
+                          try {
+                            setLoadingVerification(true);
+                            const token = localStorage.getItem('token');
+                            const base = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+                            const resp = await axios.post(
+                              `${base}/api/admin/verifications/${selectedUser.id}/reanalyze`,
+                              {},
+                              { headers: { Authorization: `Bearer ${token}` } }
+                            );
+                            setSnackbar({
+                              open: true,
+                              message: `IA: ${resp.data.aiAnalysis?.reason || 'Análisis completado'}`,
+                              severity: resp.data.newStatus === 'verified' ? 'success' : 'error',
+                            });
+                            // Recargar detalle
+                            const r2 = await axios.get(
+                              `${base}/api/admin/verifications/${selectedUser.id}/details`,
+                              { headers: { Authorization: `Bearer ${token}` } }
+                            );
+                            setVerificationDetail(r2.data);
+                          } catch (err) {
+                            console.error(err);
+                            setSnackbar({ open: true, message: 'Error al re-analizar', severity: 'error' });
+                          } finally {
+                            setLoadingVerification(false);
+                          }
+                        }}
+                      >
+                        Re-analizar IA
+                      </Button>
+                    ) : undefined
+                  }
+                >
+                  <Typography variant="caption" sx={{ display: 'block', fontWeight: 700, mb: 0.5 }}>
+                    Resultado del análisis IA
+                  </Typography>
+                  <Typography variant="caption" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {verificationDetail.ai_verification_reason}
+                  </Typography>
+                </Alert>
+              )}
+
+              {/* ============ DATOS FISCALES + CONSTANCIA ============ */}
+              {(verificationDetail?.fiscal_rfc
+                || verificationDetail?.fiscal_razon_social
+                || verificationDetail?.constancia_fiscal_url) && (
+                <>
+                  <Divider sx={{ my: 3 }} />
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                    <BadgeIcon sx={{ color: '#0A2540' }} />
+                    <Typography variant="subtitle2" fontWeight={600}>
+                      Datos Fiscales
+                    </Typography>
+                  </Box>
+
+                  {(verificationDetail.fiscal_rfc || verificationDetail.fiscal_razon_social) ? (
+                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2, mb: 2 }}>
+                      {verificationDetail.fiscal_razon_social && (
+                        <Box sx={{ gridColumn: 'span 2' }}>
+                          <Typography variant="caption" color="text.secondary">Razón Social</Typography>
+                          <Typography variant="body2" fontWeight={500}>
+                            {verificationDetail.fiscal_razon_social}
+                          </Typography>
+                        </Box>
+                      )}
+                      {verificationDetail.fiscal_rfc && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">RFC</Typography>
+                          <Typography variant="body2" fontWeight={500} sx={{ fontFamily: 'monospace' }}>
+                            {verificationDetail.fiscal_rfc}
+                          </Typography>
+                        </Box>
+                      )}
+                      {verificationDetail.fiscal_codigo_postal && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">Código Postal</Typography>
+                          <Typography variant="body2" fontWeight={500}>
+                            {verificationDetail.fiscal_codigo_postal}
+                          </Typography>
+                        </Box>
+                      )}
+                      {verificationDetail.fiscal_regimen_fiscal && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">Régimen Fiscal</Typography>
+                          <Typography variant="body2" fontWeight={500}>
+                            {verificationDetail.fiscal_regimen_fiscal}
+                          </Typography>
+                        </Box>
+                      )}
+                      {verificationDetail.fiscal_uso_cfdi && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">Uso CFDI</Typography>
+                          <Typography variant="body2" fontWeight={500}>
+                            {verificationDetail.fiscal_uso_cfdi}
+                          </Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  ) : (
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                      <Typography variant="caption">
+                        El cliente aún no ha registrado sus datos fiscales (RFC, razón social, etc.).
+                      </Typography>
+                    </Alert>
+                  )}
+
+                  {/* Constancia de Situación Fiscal */}
+                  <Box>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                      <BadgeIcon fontSize="small" /> Constancia de Situación Fiscal
+                    </Typography>
+                    {(() => {
+                      const raw = verificationDetail.constancia_fiscal_url;
+                      if (!raw) {
+                        return (
+                          <Alert severity="warning" sx={{ mt: 0.5 }}>
+                            <Typography variant="caption">
+                              El cliente no ha subido su Constancia de Situación Fiscal.
+                            </Typography>
+                          </Alert>
+                        );
+                      }
+                      const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+                      const url = raw.startsWith('http') ? raw : `${apiBase}${raw}`;
+                      const isPdf = /\.pdf(\?|$)/i.test(raw) || raw.startsWith('data:application/pdf');
+                      return (
+                        <Paper sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+                          {isPdf ? (
+                            <Box sx={{
+                              width: 56, height: 56, bgcolor: '#C1272D',
+                              borderRadius: 1, display: 'flex',
+                              alignItems: 'center', justifyContent: 'center',
+                              color: 'white', fontWeight: 700, fontSize: 12, flexShrink: 0,
+                            }}>PDF</Box>
+                          ) : (
+                            <img
+                              src={url}
+                              alt="Constancia Fiscal"
+                              style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }}
+                            />
+                          )}
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Typography variant="body2" fontWeight={500} sx={{
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            }}>
+                              {verificationDetail.constancia_fiscal_filename || 'Constancia Fiscal'}
+                            </Typography>
+                            {verificationDetail.constancia_fiscal_uploaded_at && (
+                              <Typography variant="caption" color="text.secondary">
+                                Subida: {new Date(verificationDetail.constancia_fiscal_uploaded_at).toLocaleDateString('es-MX')}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => window.open(url, '_blank')}
+                            sx={{ flexShrink: 0 }}
+                          >
+                            Ver
+                          </Button>
+                        </Paper>
+                      );
+                    })()}
+                  </Box>
+                </>
+              )}
             </Box>
           )}
         </DialogContent>

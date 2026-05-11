@@ -668,7 +668,13 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkError('');
         // Imprimir la etiqueta de este bloque en un solo archivo - SIN QR para recepción PO BOX
         await printAllLabelsAtOnce([label], true);
-        setSnackbar({ open: true, message: `🖨️ Etiqueta enviada a impresión — ${bulkBoxes.length + 1}${expected > 0 ? `/${expected}` : ''}`, severity: 'success' });
+        const totalAfter = bulkBoxes.length + 1;
+        setSnackbar({ open: true, message: `🖨️ Etiqueta enviada a impresión — ${totalAfter}${expected > 0 ? `/${expected}` : ''}`, severity: 'success' });
+        // Si ya se completó el total esperado, cerrar automáticamente el wizard
+        if (expected > 0 && totalAfter >= expected) {
+            setTimeout(() => { handleCloseBulkReceive(); }, 800);
+            return;
+        }
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
@@ -697,6 +703,13 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         // Imprimir TODAS las etiquetas de este bloque en un solo archivo (multi-página) - SIN QR para recepción PO BOX
         if (batchLabels.length > 0) await printAllLabelsAtOnce(batchLabels, true);
         setSnackbar({ open: true, message: `🖨️ ${batchLabels.length} etiqueta(s) enviada(s) a impresión en un solo archivo`, severity: 'success' });
+        // Auto-cerrar si ya se completó el total esperado
+        const expectedTotal = parseInt(bulkExpectedBoxes) || 0;
+        const totalAfterMulti = bulkBoxes.length + newBoxes.length;
+        if (expectedTotal > 0 && totalAfterMulti >= expectedTotal) {
+            setTimeout(() => { handleCloseBulkReceive(); }, 800);
+            return;
+        }
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
     };
 
@@ -832,6 +845,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                         : `<div class="box-indicator">${label.totalBoxes} bultos</div>`}
                 </div>
                 ${label.masterTracking ? `<div class="master-ref">Master: ${label.masterTracking}</div>` : ''}
+                ${label.trackingCourier ? `<div class="supplier-guide">📦 Guía proveedor${label.originCarrier ? ` (${label.originCarrier})` : ''}: <strong>${label.trackingCourier}</strong></div>` : ''}
                 ${!hideQR ? `<div class="qr-section"><div id="qr-${index}"></div></div>` : ''}
                 <div class="barcode-section"><svg id="barcode-${index}"></svg></div>
                 <div class="divider"></div>
@@ -859,6 +873,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 .tracking-code { font-size: 20px; font-weight: bold; letter-spacing: 1px; }
                 .box-indicator { font-size: 13px; color: #333; font-weight: 600; display: inline-block; margin-top: 1px; }
                 .master-ref { text-align: center; font-size: 10px; color: #666; margin: 1px 0; }
+                .supplier-guide { text-align: center; font-size: 11px; color: #111; background: #FFF3E0; border: 1px dashed #F05A28; border-radius: 4px; padding: 3px 6px; margin: 3px 6px; word-break: break-all; }
                 .qr-section { text-align: center; margin: 3px 0; }
                 .qr-section svg, .qr-section img { width: 120px !important; height: 120px !important; }
                 .barcode-section { text-align: center; margin: 4px 0; }
@@ -1789,6 +1804,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                                                             }
                                                         }}
                                                         InputProps={{ sx: { bgcolor: 'white', borderRadius: 2 } }}
+                                                        InputLabelProps={{ shrink: true }}
                                                         SelectProps={{ displayEmpty: true }}
                                                         sx={{ mb: (selectValue === 'Otro') ? 1 : 1.5 }}
                                                     >

@@ -1486,6 +1486,7 @@
       "categories": {
         "tracking": "📦 追踪",
         "delay": "⏰ 延迟",
+        "missing": "📭 报告物品缺失",
         "warranty": "🛡️ 延长保修",
         "compensation": "💰 赔偿",
         "systemError": "⚙️ 系统错误",

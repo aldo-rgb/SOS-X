@@ -58,6 +58,7 @@ const statusConfig: Record<string, { label: string; color: 'warning' | 'info' | 
 const categoryLabels: Record<string, string> = {
   tracking: '📦 Rastreo',
   delay: '⏰ Retraso',
+  missing: '📭 Faltante',
   warranty: '🛡️ Garantía',
   compensation: '💰 Compensación',
   systemError: '⚙️ Error del Sistema',

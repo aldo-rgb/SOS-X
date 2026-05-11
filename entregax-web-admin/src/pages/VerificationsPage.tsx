@@ -295,6 +295,41 @@ export default function VerificationsPage() {
     }
   };
 
+  // Re-ejecuta el análisis de IA con los documentos ya guardados
+  const handleReanalyze = async () => {
+    if (!selectedUser) return;
+    setProcessing(true);
+    try {
+      const resp = await axios.post(
+        `${API_URL}/admin/verifications/${selectedUser.id}/reanalyze`,
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      const reason = resp.data?.aiAnalysis?.reason || 'Análisis completado';
+      const newStatus = resp.data?.newStatus;
+      setSnackbar({
+        open: true,
+        message: `IA: ${reason}`,
+        severity: newStatus === 'verified' ? 'success' : 'info',
+      });
+      // Actualizar el motivo en el estado local sin cerrar el modal
+      setSelectedUser({
+        ...selectedUser,
+        ai_verification_reason: reason,
+        verification_status: newStatus || selectedUser.verification_status,
+      });
+      // Si quedó verificado automáticamente, recargamos lista
+      if (newStatus === 'verified') {
+        setTimeout(() => { setViewDialog(false); loadData(); }, 1200);
+      }
+    } catch (error) {
+      console.error('Error re-analizando:', error);
+      setSnackbar({ open: true, message: 'Error al re-analizar con IA', severity: 'error' });
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const openViewDialog = async (user: PendingUser) => {
     // Mostrar el diálogo de inmediato con la info ya conocida
     setSelectedUser(user);
@@ -706,7 +741,21 @@ export default function VerificationsPage() {
                   </Box>
                 </Box>
                 {selectedUser.ai_verification_reason && (
-                  <Alert severity="info" sx={{ mt: 2 }}>
+                  <Alert
+                    severity="info"
+                    sx={{ mt: 2 }}
+                    action={
+                      <Button
+                        size="small"
+                        color="warning"
+                        variant="outlined"
+                        disabled={processing}
+                        onClick={handleReanalyze}
+                      >
+                        🤖 Re-analizar IA
+                      </Button>
+                    }
+                  >
                     <Typography variant="body2">
                       <strong>Motivo IA:</strong> {selectedUser.ai_verification_reason}
                     </Typography>

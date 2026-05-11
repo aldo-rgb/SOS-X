@@ -79,10 +79,12 @@ import {
   UnfoldMore as UnfoldMoreIcon,
   Security as SecurityIcon,
   GppBad as GppBadIcon,
+  Badge as BadgeIcon,
   GppGood as GppGoodIcon,
   AccountBalanceWallet as WalletIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
+import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
 
 // ─── Types ───
 
@@ -302,6 +304,7 @@ export default function DashboardAdvisor() {
   const [activeTab, setActiveTab] = useState(0);
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState<AdvisorDashboardData | null>(null);
+  const [verifyWizardOpen, setVerifyWizardOpen] = useState(false);
 
   // Clients tab
   const [clients, setClients] = useState<AdvisorClient[]>([]);
@@ -1802,14 +1805,22 @@ export default function DashboardAdvisor() {
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Button
               variant="contained"
+              startIcon={<BadgeIcon />}
+              onClick={() => setVerifyWizardOpen(true)}
+              sx={{ bgcolor: '#0A2540', '&:hover': { bgcolor: '#0d2f54' } }}
+            >
+              Completar verificación aquí
+            </Button>
+            <Button
+              variant="outlined"
               startIcon={<RefreshIcon />}
               onClick={() => fetchDashboard()}
-              sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#d44a1f' } }}
+              sx={{ borderColor: '#F05A28', color: '#F05A28' }}
             >
               Ya completé, verificar de nuevo
             </Button>
             <Button
-              variant="outlined"
+              variant="text"
               onClick={() => {
                 localStorage.removeItem('token');
                 window.location.href = '/login';
@@ -1818,7 +1829,15 @@ export default function DashboardAdvisor() {
               Cerrar sesión
             </Button>
           </Box>
+          <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', mt: 2, color: 'text.secondary' }}>
+            También puedes completarla desde la app móvil EntregaX.
+          </Typography>
         </Paper>
+        <AdvisorVerificationWizard
+          open={verifyWizardOpen}
+          onClose={() => setVerifyWizardOpen(false)}
+          onComplete={() => { setVerifyWizardOpen(false); fetchDashboard(); }}
+        />
       </Box>
     );
   }

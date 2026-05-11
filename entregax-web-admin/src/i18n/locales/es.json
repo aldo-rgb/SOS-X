@@ -1810,6 +1810,7 @@
       "categories": {
         "tracking": "📦 Rastreo",
         "delay": "⏰ Retraso",
+        "missing": "📭 Reportar Faltante",
         "warranty": "🛡️ Garantía Extendida",
         "compensation": "💰 Compensación",
         "systemError": "⚙️ Error del Sistema",

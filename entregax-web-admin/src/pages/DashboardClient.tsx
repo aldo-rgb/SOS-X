@@ -2842,6 +2842,7 @@ export default function DashboardClient() {
   const supportCategories = [
     { value: 'tracking', label: t('cd.support.categories.tracking') },
     { value: 'delay', label: t('cd.support.categories.delay') },
+    { value: 'missing', label: t('cd.support.categories.missing') },
     { value: 'warranty', label: t('cd.support.categories.warranty') },
     { value: 'compensation', label: t('cd.support.categories.compensation') },
     { value: 'systemError', label: t('cd.support.categories.systemError') },

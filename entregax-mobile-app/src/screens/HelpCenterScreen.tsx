@@ -125,6 +125,7 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
   const ticketCategories = [
     { value: 'tracking', label: t('helpCenter.categories.tracking') },
     { value: 'delay', label: t('helpCenter.categories.delay') },
+    { value: 'missing', label: t('helpCenter.categories.missing') },
     { value: 'warranty', label: t('helpCenter.categories.warranty') },
     { value: 'compensation', label: t('helpCenter.categories.compensation') },
     { value: 'systemError', label: t('helpCenter.categories.systemError') },

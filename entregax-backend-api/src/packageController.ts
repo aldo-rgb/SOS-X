@@ -4946,6 +4946,35 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
         ]
       );
       await client.query('COMMIT');
+
+      // Construir un label compatible con el flujo multi-caja para que el
+      // frontend imprima la etiqueta también en la ruta individual.
+      let clientNameInd = 'SIN CLIENTE';
+      const clientBoxIdInd = master.box_id || 'PENDIENTE';
+      if (master.user_id) {
+        const u = await pool.query('SELECT full_name FROM users WHERE id = $1', [master.user_id]);
+        if (u.rows.length > 0) clientNameInd = u.rows[0].full_name;
+      } else if (master.box_id) {
+        const lg = await pool.query('SELECT full_name FROM legacy_clients WHERE box_id = $1', [master.box_id]);
+        if (lg.rows.length > 0) clientNameInd = lg.rows[0].full_name;
+      }
+      const labelInd = {
+        boxNumber: 1,
+        totalBoxes: 1,
+        tracking: upd.rows[0].tracking_internal,
+        labelCode: upd.rows[0].tracking_internal,
+        masterTracking: null,
+        isMaster: false,
+        weight: parseFloat(upd.rows[0].weight),
+        dimensions: formatDimensions(parseFloat(upd.rows[0].pkg_length), parseFloat(upd.rows[0].pkg_width), parseFloat(upd.rows[0].pkg_height)),
+        clientName: clientNameInd,
+        clientBoxId: clientBoxIdInd,
+        description: 'Hidalgo TX',
+        receivedAt: new Date().toISOString(),
+        trackingCourier: trackingCourier || null,
+        originCarrier: cleanOriginCarrier || null,
+      };
+
       return res.status(201).json({
         success: true,
         isIndividual: true,
@@ -4955,6 +4984,7 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
         expectedTotal: 1,
         completed: true,
         weight: upd.rows[0].weight,
+        label: labelInd,
       });
     }
 
@@ -5121,6 +5151,8 @@ export const addBulkBoxToMaster = async (req: Request, res: Response): Promise<a
       clientBoxId,
       description: 'Hidalgo TX',
       receivedAt: new Date().toISOString(),
+      trackingCourier: trackingCourier || null,
+      originCarrier: cleanOriginCarrier || null,
     };
 
     return res.status(201).json({
