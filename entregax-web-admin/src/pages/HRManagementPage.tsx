@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import axios from 'axios';
+import ConfirmDialog from '../components/ConfirmDialog';
+import EmployeeProfilePage from './EmployeeProfilePage';
+import VacationQuintaDialog from '../components/VacationQuintaDialog';
 import {
   Box,
   Typography,
@@ -64,6 +67,7 @@ import {
   Edit as EditIcon,
   Delete as DeleteIcon,
   ContentCopy as CopyIcon,
+  BeachAccess as BeachAccessIcon,
 } from '@mui/icons-material';
 
 // Roles disponibles para empleados
@@ -99,6 +103,11 @@ interface Employee {
   attendance_status: string | null;
   check_in_address: string | null;
   privacy_accepted_at: string | null;
+  is_active?: boolean;
+  is_blocked?: boolean;
+  block_reason?: string | null;
+  blocked_at?: string | null;
+  deleted_at?: string | null;
   // Documentos
   profile_photo_url?: string;
   ine_front_url?: string;
@@ -110,6 +119,10 @@ interface Employee {
   days_present?: number;
   days_late?: number;
   days_absent?: number;
+  // Completitud de expediente (calculado backend)
+  expediente_completo?: boolean;
+  expediente_faltantes?: string[];
+  expediente_imss_aplica?: boolean;
 }
 
 interface AttendanceStats {
@@ -192,6 +205,8 @@ const getInitials = (name: string): string => {
 export default function HRManagementPage() {
   const { t: _t } = useTranslation();
   const [tab, setTab] = useState(0);
+  const [viewProfileId, setViewProfileId] = useState<number | null>(null);
+  const [vacQuintaEmp, setVacQuintaEmp] = useState<Employee | null>(null);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [stats, setStats] = useState<AttendanceStats | null>(null);
   const [drivers, setDrivers] = useState<DriverLocation[]>([]);
@@ -216,6 +231,7 @@ export default function HRManagementPage() {
   const [showTempPassword, setShowTempPassword] = useState(false);
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ name: string; password: string } | null>(null);
   const [searchEmployee, setSearchEmployee] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
@@ -224,14 +240,23 @@ export default function HRManagementPage() {
     severity: 'success'
   });
 
+  // Confirmación de baja de empleado
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; employee: Employee | null; loading: boolean }>({
+    open: false,
+    employee: null,
+    loading: false,
+  });
+
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const getToken = () => localStorage.getItem('token') || '';
 
   // Cargar empleados
   const loadEmployees = async () => {
     try {
+      const includeInactive = showInactive || searchEmployee.trim().length >= 2;
       const res = await axios.get(`${API_URL}/api/admin/hr/employees`, {
-        headers: { Authorization: `Bearer ${getToken()}` }
+        headers: { Authorization: `Bearer ${getToken()}` },
+        params: includeInactive ? { include_inactive: 'true' } : {},
       });
       setEmployees(res.data);
     } catch (error) {
@@ -349,22 +374,30 @@ export default function HRManagementPage() {
     }
   };
 
-  // Eliminar empleado
-  const handleDeleteEmployee = async (employee: Employee) => {
-    if (!confirm(`¿Estás seguro de dar de baja a ${employee.full_name}?`)) return;
+// Eliminar empleado (abre diálogo de confirmación corporativo)
+  const handleDeleteEmployee = (employee: Employee) => {
+    setConfirmDelete({ open: true, employee, loading: false });
+  };
 
+  const performDeleteEmployee = async () => {
+    const employee = confirmDelete.employee;
+    if (!employee) return;
+    setConfirmDelete(s => ({ ...s, loading: true }));
     try {
       await axios.delete(
         `${API_URL}/api/admin/hr/employees/${employee.id}`,
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
-      setSnackbar({ open: true, message: `${employee.full_name} dado de baja`, severity: 'success' });
+      setSnackbar({ open: true, message: `${employee.full_name} dado de baja correctamente`, severity: 'success' });
+      setConfirmDelete({ open: false, employee: null, loading: false });
       loadEmployees();
-    } catch (error: any) {
-      setSnackbar({ 
-        open: true, 
-        message: error.response?.data?.error || 'Error al eliminar empleado', 
-        severity: 'error' 
+    } catch (error: unknown) {
+      setConfirmDelete(s => ({ ...s, loading: false }));
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al eliminar empleado';
+      setSnackbar({
+        open: true,
+        message: msg,
+        severity: 'error'
       });
     }
   };
@@ -373,6 +406,23 @@ export default function HRManagementPage() {
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
     setSnackbar({ open: true, message: 'Contraseña copiada al portapapeles', severity: 'info' });
+  };
+
+  // Reactivar empleado
+  const handleReactivateEmployee = async (employee: Employee) => {
+    if (!window.confirm(`¿Reactivar a ${employee.full_name}? Volverá a aparecer en la lista activa.`)) return;
+    try {
+      await axios.post(
+        `${API_URL}/api/admin/hr/employees/${employee.id}/reactivate`,
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({ open: true, message: `${employee.full_name} reactivado correctamente`, severity: 'success' });
+      loadEmployees();
+    } catch (error: unknown) {
+      const msg = (error as { response?: { data?: { error?: string } } })?.response?.data?.error || 'Error al reactivar empleado';
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+    }
   };
 
   // Carga inicial
@@ -391,12 +441,19 @@ export default function HRManagementPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Ver detalle de empleado
-  const handleViewEmployee = (employee: Employee) => {
+  // Recargar lista cuando cambia el toggle "Mostrar inactivos"
+  useEffect(() => {
+    loadEmployees();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInactive]);
+
+  // Ver detalle de empleado (legacy — ahora abrimos EmployeeProfilePage)
+  const _handleViewEmployee = (employee: Employee) => {
     setSelectedEmployee(employee);
     setDetailOpen(true);
     loadEmployeeDetail(employee.id);
   };
+  void _handleViewEmployee;
 
   // Contadores rápidos
   const checkedInToday = employees.filter(e => e.check_in_time).length;
@@ -433,6 +490,11 @@ export default function HRManagementPage() {
     </TableRow>
   );
   void _TableRowSkeleton;
+
+  // Si hay un empleado seleccionado para ver su expediente completo, renderizamos esa página
+  if (viewProfileId !== null) {
+    return <EmployeeProfilePage employeeId={viewProfileId} onBack={() => setViewProfileId(null)} />;
+  }
 
   return (
     <Box sx={{ p: 3 }}>
@@ -541,7 +603,7 @@ export default function HRManagementPage() {
       {/* TAB 0: Lista de Personal */}
       {tab === 0 && (
         <>
-        <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center' }}>
+        <Box sx={{ mb: 2, display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField
             size="small"
             fullWidth
@@ -550,6 +612,15 @@ export default function HRManagementPage() {
             onChange={(e) => setSearchEmployee(e.target.value)}
             sx={{ maxWidth: 480 }}
           />
+          <Button
+            size="small"
+            variant={showInactive ? 'contained' : 'outlined'}
+            color={showInactive ? 'warning' : 'inherit'}
+            onClick={() => setShowInactive(v => !v)}
+            sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+          >
+            {showInactive ? '✓ Mostrando inactivos' : 'Mostrar inactivos'}
+          </Button>
           <Typography variant="body2" color="text.secondary">
             {(() => {
               const q = searchEmployee.trim().toLowerCase();
@@ -572,6 +643,7 @@ export default function HRManagementPage() {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Rol</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tallas (P/C)</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Contacto Emergencia</TableCell>
+                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Expediente</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Checador Hoy</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Acciones</TableCell>
               </TableRow>
@@ -594,6 +666,7 @@ export default function HRManagementPage() {
                     <TableCell><Skeleton variant="text" width={60} /></TableCell>
                     <TableCell><Skeleton variant="text" width={100} /></TableCell>
                     <TableCell><Skeleton variant="rounded" width={80} height={24} /></TableCell>
+                    <TableCell><Skeleton variant="rounded" width={80} height={24} /></TableCell>
                     <TableCell><Skeleton variant="text" width={60} /></TableCell>
                   </TableRow>
                 ))
@@ -608,7 +681,7 @@ export default function HRManagementPage() {
                 if (filteredEmployees.length === 0) {
                   return (
                     <TableRow>
-                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
                         <Typography color="text.secondary">
                           {employees.length === 0 ? 'No hay empleados registrados' : 'Sin coincidencias para la búsqueda'}
                         </Typography>
@@ -617,14 +690,19 @@ export default function HRManagementPage() {
                   );
                 }
                 return filteredEmployees.map((emp) => (
-                <TableRow key={emp.id} hover>
+                <TableRow key={emp.id} hover sx={emp.is_active === false || emp.is_blocked ? { opacity: 0.55, bgcolor: '#fafafa' } : undefined}>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                       <Avatar sx={{ bgcolor: getRoleColor(emp.role) === 'default' ? '#666' : undefined }}>
                         {getInitials(emp.full_name)}
                       </Avatar>
                       <Box>
-                        <Typography fontWeight="bold">{emp.full_name}</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography fontWeight="bold">{emp.full_name}</Typography>
+                          {(emp.is_active === false || emp.is_blocked) && (
+                            <Chip label="DADO DE BAJA" size="small" color="error" sx={{ fontSize: 10, height: 20 }} />
+                          )}
+                        </Box>
                         <Typography variant="caption" color="text.secondary">{emp.phone || emp.email}</Typography>
                       </Box>
                     </Box>
@@ -646,6 +724,42 @@ export default function HRManagementPage() {
                   </TableCell>
                   <TableCell>{emp.emergency_contact || <Typography color="text.secondary">No registrado</Typography>}</TableCell>
                   <TableCell>
+                    {emp.expediente_completo ? (
+                      <Chip
+                        label="Completo"
+                        size="small"
+                        color="success"
+                        icon={<CheckCircleIcon sx={{ fontSize: 16 }} />}
+                        sx={{ fontWeight: 600 }}
+                      />
+                    ) : (
+                      <Tooltip
+                        title={
+                          (emp.expediente_faltantes && emp.expediente_faltantes.length > 0)
+                            ? <Box sx={{ p: 0.5 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', mb: 0.5 }}>
+                                  Faltantes:
+                                </Typography>
+                                {emp.expediente_faltantes.map((f, i) => (
+                                  <Typography key={i} variant="caption" sx={{ display: 'block' }}>• {f}</Typography>
+                                ))}
+                              </Box>
+                            : 'Expediente incompleto'
+                        }
+                        arrow
+                      >
+                        <Chip
+                          label={`Incompleto${emp.expediente_faltantes ? ` (${emp.expediente_faltantes.length})` : ''}`}
+                          size="small"
+                          color="warning"
+                          variant="outlined"
+                          icon={<WarningIcon sx={{ fontSize: 16 }} />}
+                          sx={{ fontWeight: 600, cursor: 'help' }}
+                        />
+                      </Tooltip>
+                    )}
+                  </TableCell>
+                  <TableCell>
                     {emp.check_in_time ? (
                       <Box>
                         <Typography color={emp.attendance_status === 'late' ? 'warning.main' : 'success.main'} fontWeight="bold">
@@ -665,7 +779,7 @@ export default function HRManagementPage() {
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', justifyContent: 'center', gap: 0.5 }}>
                       <Tooltip title="Ver Expediente">
-                        <IconButton size="small" onClick={() => handleViewEmployee(emp)}>
+                        <IconButton size="small" onClick={() => setViewProfileId(emp.id)}>
                           <ViewIcon />
                         </IconButton>
                       </Tooltip>
@@ -674,11 +788,24 @@ export default function HRManagementPage() {
                           <EditIcon />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Dar de Baja">
-                        <IconButton size="small" color="error" onClick={() => handleDeleteEmployee(emp)}>
-                          <DeleteIcon />
+                      <Tooltip title="Vacaciones y Quinta">
+                        <IconButton size="small" sx={{ color: '#0ea5e9' }} onClick={() => setVacQuintaEmp(emp)}>
+                          <BeachAccessIcon />
                         </IconButton>
                       </Tooltip>
+                      {(emp.is_active === false || emp.is_blocked) ? (
+                        <Tooltip title="Reactivar empleado">
+                          <IconButton size="small" sx={{ color: '#16a34a' }} onClick={() => handleReactivateEmployee(emp)}>
+                            <CheckCircleIcon />
+                          </IconButton>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip title="Dar de Baja">
+                          <IconButton size="small" color="error" onClick={() => handleDeleteEmployee(emp)}>
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </Box>
                   </TableCell>
                 </TableRow>
@@ -1363,21 +1490,58 @@ export default function HRManagementPage() {
         </DialogActions>
       </Dialog>
 
+      {/* Confirmación: dar de baja empleado */}
+      <ConfirmDialog
+        open={confirmDelete.open}
+        onClose={() => !confirmDelete.loading && setConfirmDelete({ open: false, employee: null, loading: false })}
+        onConfirm={performDeleteEmployee}
+        title="¿Dar de baja a este empleado?"
+        message={
+          <>
+            Estás a punto de dar de baja a <strong>{confirmDelete.employee?.full_name}</strong>.{' '}
+            La cuenta quedará desactivada y no podrá iniciar sesión. Esta acción puede revertirse posteriormente desde administración.
+          </>
+        }
+        confirmText="Sí, dar de baja"
+        cancelText="Cancelar"
+        severity="danger"
+        loading={confirmDelete.loading}
+      />
+
       {/* Snackbar */}
       <Snackbar
         open={snackbar.open}
-        autoHideDuration={4000}
+        autoHideDuration={4500}
         onClose={() => setSnackbar({ ...snackbar, open: false })}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
-        <Alert 
-          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+        <Alert
+          onClose={() => setSnackbar({ ...snackbar, open: false })}
           severity={snackbar.severity}
-          sx={{ width: '100%' }}
+          variant="filled"
+          sx={{
+            minWidth: 320,
+            borderRadius: 2,
+            fontWeight: 600,
+            boxShadow: '0 8px 24px rgba(15,23,42,0.18)',
+            alignItems: 'center',
+            '& .MuiAlert-icon': { fontSize: 22 },
+            ...(snackbar.severity === 'success' && { bgcolor: '#16a34a' }),
+            ...(snackbar.severity === 'error'   && { bgcolor: '#dc2626' }),
+            ...(snackbar.severity === 'info'    && { bgcolor: '#0284c7' }),
+          }}
         >
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      <VacationQuintaDialog
+        open={!!vacQuintaEmp}
+        employeeId={vacQuintaEmp?.id ?? null}
+        employeeName={vacQuintaEmp?.full_name}
+        onClose={() => setVacQuintaEmp(null)}
+        onChange={() => loadEmployees()}
+      />
     </Box>
   );
 }

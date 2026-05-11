@@ -115,6 +115,80 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   } | null>(null);
   const [existingValidatingCode, setExistingValidatingCode] = useState(false);
 
+  // Box ID Claim dialog (público, sin login)
+  const [claimDialog, setClaimDialog] = useState(false);
+  const [claimSubmitting, setClaimSubmitting] = useState(false);
+  const [claimError, setClaimError] = useState('');
+  const [claimSuccess, setClaimSuccess] = useState<{ folio: string } | null>(null);
+  const [claimBoxId, setClaimBoxId] = useState('');
+  const [claimFullName, setClaimFullName] = useState('');
+  const [claimEmail, setClaimEmail] = useState('');
+  const [claimPhone, setClaimPhone] = useState('');
+  const [claimMessage, setClaimMessage] = useState('');
+  const [claimIneFront, setClaimIneFront] = useState<File | null>(null);
+  const [claimIneBack, setClaimIneBack] = useState<File | null>(null);
+
+  const openClaimDialog = () => {
+    setClaimError('');
+    setClaimSuccess(null);
+    setClaimBoxId(existingBoxId || '');
+    setClaimFullName('');
+    setClaimEmail('');
+    setClaimPhone('');
+    setClaimMessage('');
+    setClaimIneFront(null);
+    setClaimIneBack(null);
+    setClaimDialog(true);
+  };
+
+  const handleSubmitClaim = async () => {
+    setClaimError('');
+    if (!claimBoxId || claimBoxId.trim().length < 2) {
+      setClaimError('Ingresa el número de cliente que estás reclamando.');
+      return;
+    }
+    if (!claimFullName || claimFullName.trim().length < 3) {
+      setClaimError('Ingresa tu nombre completo.');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(claimEmail)) {
+      setClaimError('Ingresa un correo electrónico válido.');
+      return;
+    }
+    if (!claimPhone || claimPhone.trim().length < 7) {
+      setClaimError('Ingresa un teléfono de contacto.');
+      return;
+    }
+    if (!claimIneFront) {
+      setClaimError('Adjunta una foto del frente de tu INE.');
+      return;
+    }
+    setClaimSubmitting(true);
+    try {
+      const fd = new FormData();
+      fd.append('box_id', claimBoxId.trim().toUpperCase());
+      fd.append('full_name', claimFullName.trim());
+      fd.append('email', claimEmail.trim().toLowerCase());
+      fd.append('phone', claimPhone.trim());
+      if (claimMessage.trim()) fd.append('message', claimMessage.trim());
+      fd.append('ine_front', claimIneFront);
+      if (claimIneBack) fd.append('ine_back', claimIneBack);
+
+      const resp = await axios.post(`${API_URL}/support/public/claim-box-id`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      if (resp.data?.success) {
+        setClaimSuccess({ folio: resp.data.folio });
+      } else {
+        setClaimError(resp.data?.error || 'No se pudo registrar la reclamación.');
+      }
+    } catch (err: any) {
+      setClaimError(err?.response?.data?.error || 'Error al enviar la reclamación.');
+    } finally {
+      setClaimSubmitting(false);
+    }
+  };
+
   // Leer código de referido desde URL (?ref=XXXX)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1114,6 +1188,22 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           {error && (
             <Alert severity="error" sx={{ mb: 3, borderRadius: 2 }}>
               {error}
+              {existingClientStep === 0 && /ya fue activado|already activated/i.test(error) && (
+                <Box sx={{ mt: 1.5, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    ¿Alguien tomó tu número de cliente?
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    onClick={openClaimDialog}
+                    sx={{ textTransform: 'none', borderRadius: 2 }}
+                  >
+                    ¿Necesitas Ayuda?
+                  </Button>
+                </Box>
+              )}
             </Alert>
           )}
 
@@ -1424,6 +1514,215 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             >
               {loading ? <CircularProgress size={20} color="inherit" /> : 'Activar Cuenta'}
             </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      {/* 🆘 Box ID Claim Dialog (público) */}
+      <Dialog
+        open={claimDialog}
+        onClose={() => !claimSubmitting && setClaimDialog(false)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isMobile}
+        PaperProps={{
+          sx: {
+            borderRadius: isMobile ? 0 : 2,
+            border: '1px solid #C1272D',
+          }
+        }}
+      >
+        <DialogTitle sx={{ bgcolor: '#111', color: 'white', textAlign: 'center', py: isMobile ? 2 : undefined }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            ¿Alguien tomó tu número de cliente?
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#F05A28', mt: 0.5 }}>
+            Con gusto te ayudamos a resolverlo
+          </Typography>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3, px: isMobile ? 2 : 3 }}>
+          {claimSuccess ? (
+            <Box sx={{ textAlign: 'center', py: 2 }}>
+              <CheckCircleOutlineIcon sx={{ fontSize: 56, color: 'success.main', mb: 1 }} />
+              <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+                Reclamación registrada
+              </Typography>
+              <Alert severity="success" sx={{ textAlign: 'left', borderRadius: 2, mb: 2 }}>
+                Tu folio es <strong>{claimSuccess.folio}</strong>.<br />
+                Servicio a Cliente revisará tu caso y te contactará al correo que proporcionaste.
+                Guarda este folio para dar seguimiento.
+              </Alert>
+            </Box>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Typography variant="body2" color="text.secondary">
+                Llena el formulario y adjunta tu INE. Nuestro equipo de Servicio a Cliente
+                validará la información y te ayudará a recuperar tu número de cliente.
+              </Typography>
+
+              {claimError && (
+                <Alert severity="error" sx={{ borderRadius: 2 }}>
+                  {claimError}
+                </Alert>
+              )}
+
+              <TextField
+                fullWidth
+                label="Número de cliente reclamado"
+                value={claimBoxId}
+                onChange={(e) => setClaimBoxId(e.target.value.toUpperCase())}
+                placeholder="Ej: S87, DHL-001"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <InventoryIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <TextField
+                fullWidth
+                label="Nombre completo"
+                value={claimFullName}
+                onChange={(e) => setClaimFullName(e.target.value)}
+                placeholder="Como aparece en tu INE"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PersonOutlineIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <TextField
+                fullWidth
+                type="email"
+                label="Correo electrónico"
+                value={claimEmail}
+                onChange={(e) => setClaimEmail(e.target.value)}
+                placeholder="tu@correo.com"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <EmailOutlinedIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <TextField
+                fullWidth
+                label="Teléfono"
+                value={claimPhone}
+                onChange={(e) => setClaimPhone(e.target.value.replace(/[^0-9+\s-]/g, ''))}
+                placeholder="Ej: 81 1234 5678"
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <PhoneIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+              <TextField
+                fullWidth
+                multiline
+                minRows={2}
+                maxRows={4}
+                label="Cuéntanos qué pasó (opcional)"
+                value={claimMessage}
+                onChange={(e) => setClaimMessage(e.target.value)}
+                placeholder="Describe brevemente la situación"
+              />
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                  INE (frente) *
+                </Typography>
+                <Button
+                  variant={claimIneFront ? 'contained' : 'outlined'}
+                  component="label"
+                  fullWidth
+                  color={claimIneFront ? 'success' : 'primary'}
+                  sx={{ textTransform: 'none', justifyContent: 'flex-start' }}
+                >
+                  {claimIneFront ? `✓ ${claimIneFront.name}` : 'Subir foto del frente de INE'}
+                  <input
+                    hidden
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setClaimIneFront(e.target.files?.[0] || null)}
+                  />
+                </Button>
+              </Box>
+
+              <Box>
+                <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 600 }}>
+                  INE (reverso) — opcional
+                </Typography>
+                <Button
+                  variant={claimIneBack ? 'contained' : 'outlined'}
+                  component="label"
+                  fullWidth
+                  color={claimIneBack ? 'success' : 'inherit'}
+                  sx={{ textTransform: 'none', justifyContent: 'flex-start' }}
+                >
+                  {claimIneBack ? `✓ ${claimIneBack.name}` : 'Subir foto del reverso de INE'}
+                  <input
+                    hidden
+                    type="file"
+                    accept="image/*,application/pdf"
+                    onChange={(e) => setClaimIneBack(e.target.files?.[0] || null)}
+                  />
+                </Button>
+              </Box>
+
+              <Alert severity="info" sx={{ borderRadius: 2 }}>
+                Tu información solo se usará para validar tu identidad y proteger tu cuenta.
+              </Alert>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          {claimSuccess ? (
+            <Button
+              variant="contained"
+              fullWidth={isMobile}
+              onClick={() => {
+                setClaimDialog(false);
+                setClaimSuccess(null);
+              }}
+              sx={{
+                background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
+                '&:hover': {
+                  background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)',
+                },
+              }}
+            >
+              Cerrar
+            </Button>
+          ) : (
+            <>
+              <Button
+                onClick={() => setClaimDialog(false)}
+                disabled={claimSubmitting}
+                color="inherit"
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="contained"
+                onClick={handleSubmitClaim}
+                disabled={claimSubmitting}
+                sx={{
+                  background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
+                  '&:hover': {
+                    background: 'linear-gradient(90deg, #A01F25 0%, #D94A20 100%)',
+                  },
+                }}
+              >
+                {claimSubmitting ? <CircularProgress size={20} color="inherit" /> : 'Enviar reclamación'}
+              </Button>
+            </>
           )}
         </DialogActions>
       </Dialog>

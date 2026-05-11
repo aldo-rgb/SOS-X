@@ -514,6 +514,11 @@ export const getMyPaymentRequests = async (req: Request, res: Response): Promise
               entangled_transaccion_id,
               cf_rfc, cf_razon_social, cf_email,
               op_monto, op_divisa_destino,
+              -- Beneficiario final (proveedor al que se envió) y tipo
+              -- de cambio aplicado — el mobile los muestra en cada
+              -- card de "Últimos envíos" (monto MXN + nombre).
+              op_beneficiario_nombre,
+              tc_cliente_final,
               estatus_global, estatus_factura, estatus_proveedor,
               factura_url, factura_emitida_at,
               (raw_response->>'factura_xml_url') AS factura_xml_url,

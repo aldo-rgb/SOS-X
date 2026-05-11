@@ -335,7 +335,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
           <Text style={styles.infoBody}>
             La tarifa por m³ baja conforme aumenta el volumen (descuento por
             escala). Si el CBM cae entre 0.76 y 0.99 m³ se redondea a 1 m³.
-          </Text>
+          </Text>   
         </>
       );
     }

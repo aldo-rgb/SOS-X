@@ -104,7 +104,10 @@ const getServiceColor = (serviceType: string) => {
 
 export default function CommissionsPage() {
   const { i18n } = useTranslation();
-  const [rates, setRates] = useState<CommissionRate[]>([]);
+  // Tarifas se manejan ahora en System Settings; mantenemos el setter
+  // por si otro effect aún lo escribe.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [, setRates] = useState<CommissionRate[]>([]);
   const [stats, setStats] = useState<CommissionStats | null>(null);
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
   const [_emitters, setEmitters] = useState<FiscalEmitter[]>([]);
@@ -151,25 +154,10 @@ export default function CommissionsPage() {
     loadData();
   }, [loadData]);
 
-  const handleUpdate = async (id: number, newPercentage: number, newOverride: number, newEmitterId: number | null, fixedFee?: number) => {
-    try {
-      // Actualizar porcentajes, override y comisión fija
-      await axios.put(`${API_URL}/admin/commissions`, 
-        { id, percentage: newPercentage, leader_override: newOverride, fixed_fee: fixedFee },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      // Asignar empresa facturadora
-      await axios.post(`${API_URL}/admin/fiscal/assign-service`, 
-        { serviceId: id, emitterId: newEmitterId },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      setSnackbar({ open: true, message: i18n.language === 'es' ? 'Tarifa actualizada' : 'Rate updated', severity: 'success' });
-      loadData();
-    } catch (error) {
-      console.error('Error updating rate:', error);
-      setSnackbar({ open: true, message: 'Error al actualizar', severity: 'error' });
-    }
-  };
+  // handleUpdate (edición inline de tarifas) removido — el flujo
+  // ahora vive en System Settings. Se conserva el setRates por si
+  // otro effect aún escribe pero no hay lector. Si se reactiva la
+  // edición inline, restaurar desde git history.
 
   const handleCreateAdvisor = async () => {
     if (!newAdvisor.full_name || !newAdvisor.email || !newAdvisor.phone || !newAdvisor.password) {
@@ -328,54 +316,26 @@ export default function CommissionsPage() {
 
       {/* Main Content */}
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-        {/* Commission Rates Table */}
+        {/* Commission Rates Table moved to → Ajustes del Sistema */}
         <Box sx={{ flex: '2 1 600px', minWidth: 300 }}>
-          <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
-            <Box sx={{ bgcolor: BLACK, px: 3, py: 2 }}>
-              <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
-                📊 {i18n.language === 'es' ? 'Tarifas de Comisión por Servicio' : 'Commission Rates by Service'}
-              </Typography>
-            </Box>
-            
-            <Alert severity="info" sx={{ mx: 2, mt: 2 }}>
-              <Typography variant="body2">
-                {i18n.language === 'es' 
-                  ? 'Estos porcentajes se aplican al valor del envío cuando un cliente referido realiza un pago.'
-                  : 'These percentages apply to shipment value when a referred client makes a payment.'}
-              </Typography>
-            </Alert>
-
-            <TableContainer>
-              <Table>
-                <TableHead>
-                  <TableRow sx={{ bgcolor: 'grey.100' }}>
-                    <TableCell sx={{ fontWeight: 'bold' }}>
-                      {i18n.language === 'es' ? 'Tipo de Servicio' : 'Service Type'}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>
-                      {i18n.language === 'es' ? 'Comisión (%)' : 'Commission (%)'}
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>
-                      <Tooltip title={i18n.language === 'es' ? 'La comisión se divide 50% para el asesor líder y 50% para el subasesor. GEX es pago completo al subasesor.' : 'Commission is split 50% to lead advisor and 50% to sub-advisor. GEX pays full amount to sub-advisor.'}>
-                        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
-                          {i18n.language === 'es' ? 'Split Asesor / Sub' : 'Split Advisor / Sub'}
-                          <SupervisorAccountIcon fontSize="small" />
-                        </Box>
-                      </Tooltip>
-                    </TableCell>
-                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>
-                      {i18n.language === 'es' ? 'Acción' : 'Action'}
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {rates.map((rate) => (
-                    <CommissionRow key={rate.id} rate={rate} onSave={handleUpdate} language={i18n.language} />
-                  ))}
-                </TableBody>
-              </Table>
-            </TableContainer>
-          </Paper>
+          <Alert severity="info" icon={<InfoOutlinedIcon />} sx={{ borderRadius: 3 }}>
+            <Typography variant="body2" fontWeight={600} sx={{ mb: 0.5 }}>
+              {i18n.language === 'es' ? 'Tarifas de Comisión' : 'Commission Rates'}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              {i18n.language === 'es'
+                ? 'La configuración de tarifas se administra desde Ajustes del Sistema.'
+                : 'Commission rates are now managed in System Settings.'}
+            </Typography>
+            <Button
+              size="small"
+              variant="outlined"
+              sx={{ mt: 1.5 }}
+              onClick={() => { window.location.href = '/settings'; }}
+            >
+              {i18n.language === 'es' ? 'Ir a Ajustes del Sistema' : 'Go to System Settings'}
+            </Button>
+          </Alert>
         </Box>
 
         {/* Top Advisors */}
@@ -634,7 +594,11 @@ interface CommissionRowProps {
   language: string;
 }
 
-function CommissionRow({ rate, onSave, language }: CommissionRowProps) {
+// CommissionRow component (edición inline) — removido del export
+// activo porque el flujo migró a System Settings. Si se reactiva,
+// restaurar desde git history.
+// @ts-expect-error función conservada pero sin usar
+function _UNUSED_CommissionRow({ rate, onSave, language }: CommissionRowProps) {
   const [val, setVal] = useState<string>(rate.percentage.toString());
   const [fixedFeeVal, setFixedFeeVal] = useState<string>((rate.fixed_fee || 0).toString());
   const [saving, setSaving] = useState(false);

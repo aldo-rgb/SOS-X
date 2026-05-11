@@ -194,12 +194,22 @@ export const createPaymentRequestV2 = async (
   const referenciaPago = `XP${String(Math.floor(100000 + Math.random() * 900000)).padStart(6, '0')}`;
   let requestId: number;
   try {
-    // Migración idempotente: columnas adicionales (tc + snapshot UI)
+    // Migración idempotente: columnas adicionales (tc + snapshot UI
+    // + nombre del beneficiario para mostrar en "Últimos envíos")
     await pool.query(
       `ALTER TABLE entangled_payment_requests
          ADD COLUMN IF NOT EXISTS tc_cliente_final NUMERIC(14,6),
-         ADD COLUMN IF NOT EXISTS instructions_snapshot JSONB`
+         ADD COLUMN IF NOT EXISTS instructions_snapshot JSONB,
+         ADD COLUMN IF NOT EXISTS op_beneficiario_nombre VARCHAR(200)`
     ).catch(() => {});
+    // Nombre del beneficiario (proveedor final al que se le envía
+    // el dinero) — se persiste para mostrarlo en Últimos envíos.
+    // Mobile lo manda como FormData; web también puede pasarlo en
+    // body.beneficiario_nombre. Si no llega, queda NULL.
+    const beneficiarioNombre = body.beneficiario_nombre
+      ? String(body.beneficiario_nombre).trim().slice(0, 200)
+      : null;
+
     const ins = await pool.query(
       `INSERT INTO entangled_payment_requests (
          user_id, advisor_id,
@@ -209,6 +219,7 @@ export const createPaymentRequestV2 = async (
          op_monto, op_divisa_destino, op_conceptos,
          comision_cliente_final_porcentaje, tc_cliente_final,
          instructions_snapshot,
+         op_beneficiario_nombre,
          estatus_global, estatus_factura, estatus_proveedor
        ) VALUES (
          $1, $2,
@@ -218,7 +229,8 @@ export const createPaymentRequestV2 = async (
          $12, $13, $14::jsonb,
          $15, $16,
          $17::jsonb,
-         'pendiente', $18, 'pendiente'
+         $18,
+         'pendiente', $19, 'pendiente'
        ) RETURNING id`,
       [
         userId,
@@ -238,6 +250,7 @@ export const createPaymentRequestV2 = async (
         commission.porcentaje,
         tcClienteFinal,
         instructionsSnapshot ? JSON.stringify(instructionsSnapshot) : null,
+        beneficiarioNombre,
         servicio === 'pago_con_factura' ? 'pendiente' : 'no_aplica',
       ]
     );

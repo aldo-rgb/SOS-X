@@ -121,6 +121,10 @@ interface PaymentRequest {
   cf_razon_social: string;
   op_monto: number;
   op_divisa_destino: string;
+  // Nombre del beneficiario final + tipo de cambio que se aplicó —
+  // se usan en la card para mostrar a quién se envió y monto MXN
+  op_beneficiario_nombre?: string | null;
+  tc_cliente_final?: number | string | null;
   estatus_global: string;
   estatus_factura: string;
   estatus_proveedor: string;
@@ -642,6 +646,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       fd.append('servicio', servicio);
       fd.append('monto_usd', String(parseFloat(monto)));
       fd.append('divisa', divisa);
+      // Nombre del beneficiario final — se guarda en la tabla para
+      // mostrarlo después en cada card de "Últimos envíos".
+      if (benefName) {
+        fd.append('beneficiario_nombre', benefName);
+      }
       // tc_cliente_final = tipo de cambio que XPAY cobra al cliente
       // final (cotización congelada). El backend ENTANGLED lo exige
       // para guardar la transacción — sin este campo regresa 400
@@ -1368,6 +1377,26 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 <Text style={{ color: ORANGE, fontWeight: '900', fontSize: 22, marginTop: 8, letterSpacing: 0.3 }}>
                   {Number(r.op_monto).toLocaleString()} {r.op_divisa_destino}
                 </Text>
+                {(() => {
+                  // Equivalente en MXN — calculado con el TC congelado
+                  // al crear la solicitud. Datos viejos sin
+                  // tc_cliente_final salen sin esta línea.
+                  const tc = Number(r.tc_cliente_final) || 0;
+                  if (!tc) return null;
+                  const mxn = Number(r.op_monto) * tc;
+                  return (
+                    <Text style={{ color: TEXT_MUTED, fontSize: 11, fontWeight: '600', marginTop: 2 }}>
+                      ≈ ${mxn.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                      <Text style={{ color: TEXT_DIM }}>  ·  TC {tc.toFixed(4)}</Text>
+                    </Text>
+                  );
+                })()}
+                {r.op_beneficiario_nombre && (
+                  <Text style={{ color: TEXT, fontSize: 12, fontWeight: '700', marginTop: 6 }} numberOfLines={1}>
+                    <Text style={{ color: TEXT_MUTED, fontWeight: '500' }}>Proveedor: </Text>
+                    {r.op_beneficiario_nombre}
+                  </Text>
+                )}
 
                 {/* Deadline OR chronometer */}
                 {isActive && !r.comprobante_subido_at && (

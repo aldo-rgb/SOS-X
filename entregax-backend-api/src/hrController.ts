@@ -46,7 +46,7 @@ const PRIVACY_FALLBACK = {
   contactEmail: "aldocampos@entregax.com",
 };
 
-const ADVISOR_FALLBACK = {
+export const ADVISOR_FALLBACK = {
   title: "AVISO DE PRIVACIDAD Y TÉRMINOS DE COMISIONES PARA ASESORES COMERCIALES",
   company: "Logística System Development S.A. de C.V.",
   address: "Revolución Sur 3866 B8, Torremolinos, Monterrey, Nuevo León, C.P. 64860",
@@ -85,7 +85,7 @@ function parseSectionsFromContent(text: string): Array<{ title: string; content:
   return sections;
 }
 
-async function getEditableLegalDoc(documentType: string, fallback: typeof PRIVACY_FALLBACK) {
+export async function getEditableLegalDoc(documentType: string, fallback: typeof PRIVACY_FALLBACK) {
   try {
     const r = await pool.query(
       `SELECT title, content, version, updated_at FROM legal_documents WHERE document_type = $1 AND is_active = TRUE LIMIT 1`,
@@ -503,7 +503,15 @@ export const trackGPSLocation = async (req: Request, res: Response): Promise<voi
 // ============================================
 export const getEmployeesWithAttendance = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { date } = req.query;
+    const { date, include_inactive } = req.query;
+    const showInactive = String(include_inactive || '').toLowerCase() === 'true' || include_inactive === '1';
+
+    // Asegurar columnas (idempotente)
+    await pool.query(`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL
+    `);
 
     // Consulta optimizada - solo datos básicos de usuarios primero
     // 🚀 Excluimos profile_photo_url (puede ser base64 enorme; ralentiza la lista).
@@ -513,13 +521,18 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         u.id, u.full_name, u.email, u.phone, u.role, u.box_id,
         u.is_employee_onboarded, u.pants_size, u.shirt_size, u.shoe_size,
         u.emergency_contact, u.hire_date, u.employee_number,
+        COALESCE(u.is_active, TRUE) AS is_active,
+        COALESCE(u.is_blocked, FALSE) AS is_blocked,
+        u.block_reason, u.blocked_at, u.deleted_at,
         CASE 
           WHEN u.profile_photo_url IS NOT NULL AND LENGTH(u.profile_photo_url) < 500 THEN u.profile_photo_url 
           ELSE NULL 
         END AS profile_photo_url,
-        u.privacy_accepted_at
+        u.privacy_accepted_at,
+        CASE WHEN u.privacy_signature_url IS NOT NULL THEN TRUE ELSE FALSE END AS has_privacy_signature
       FROM users u
-      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director')
+      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor')
+        ${showInactive ? '' : 'AND COALESCE(u.is_active, TRUE) = TRUE AND COALESCE(u.is_blocked, FALSE) = FALSE'}
       ORDER BY u.role, u.full_name
     `);
 
@@ -558,7 +571,103 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
       check_out_address: attendanceMap[u.id]?.check_out_address || null,
     }));
 
-    res.json(employees);
+    // ============================================
+    // Expediente: completo / incompleto
+    // ============================================
+    // Reglas:
+    //  • Datos básicos llenos: phone, hire_date, employee_number, emergency_contact
+    //  • Docs obligatorios SIEMPRE: ine_front, ine_back, contract, comprobante_domicilio
+    //  • Si tiene IMSS (NSS o alta IMSS o status='activo'): + nss_constancia, aviso_alta_imss
+    //  • NO obligatorios: rfc, curp
+    const userIds = employees.map(e => e.id);
+    let docsByUser: Record<number, Set<string>> = {};
+    let payrollByUser: Record<number, any> = {};
+    if (userIds.length > 0) {
+      try {
+        const dq = await pool.query(
+          `SELECT user_id, doc_type FROM employee_documents WHERE user_id = ANY($1::int[])`,
+          [userIds]
+        );
+        dq.rows.forEach((r: any) => {
+          (docsByUser[r.user_id] = docsByUser[r.user_id] || new Set()).add(r.doc_type);
+        });
+      } catch { /* tabla quizá aún no creada */ }
+      try {
+        const pq = await pool.query(
+          `SELECT user_id, nss, imss_status, imss_alta_date
+             FROM employee_payroll_info WHERE user_id = ANY($1::int[])`,
+          [userIds]
+        );
+        pq.rows.forEach((r: any) => { payrollByUser[r.user_id] = r; });
+      } catch { /* tabla quizá aún no creada */ }
+    }
+
+    const isFilled = (v: any) => v !== null && v !== undefined && String(v).trim() !== '';
+    const ADVISOR_ROLES = new Set(['advisor', 'asesor', 'asesor_lider', 'sub_advisor']);
+
+    const employeesWithCompleteness = employees.map((e: any) => {
+      const docs = docsByUser[e.id] || new Set<string>();
+      const isAdvisor = ADVISOR_ROLES.has(String(e.role || '').toLowerCase());
+      const missing: string[] = [];
+
+      if (isAdvisor) {
+        // ASESORES: reglas más cortas (sin IMSS, sin contacto emergencia)
+        if (!isFilled(e.phone)) missing.push('Teléfono');
+        if (!isFilled(e.full_name)) missing.push('Nombre completo');
+        if (!docs.has('ine_front')) missing.push('INE Anverso');
+        if (!docs.has('ine_back')) missing.push('INE Reverso');
+        if (!docs.has('contract')) {
+          // Si firmó privacy notice, el contrato se puede auto-generar
+          missing.push(e.has_privacy_signature
+            ? 'Contrato firmado (generar PDF)'
+            : 'Contrato laboral (pendiente de firma)');
+        }
+        if (!docs.has('rfc')) missing.push('RFC / Constancia Fiscal');
+
+        return {
+          ...e,
+          is_advisor: true,
+          expediente_completo: missing.length === 0,
+          expediente_faltantes: missing,
+          expediente_imss_aplica: false,
+        };
+      }
+
+      // EMPLEADOS INTERNOS
+      const p = payrollByUser[e.id] || null;
+      const hasImss = !!(p && (
+        isFilled(p.nss) || isFilled(p.imss_alta_date) ||
+        (p.imss_status && p.imss_status !== 'pendiente' && p.imss_status !== '')
+      ));
+
+      // Datos básicos
+      if (!isFilled(e.phone)) missing.push('Teléfono');
+      if (!isFilled(e.hire_date)) missing.push('Fecha de ingreso');
+      if (!isFilled(e.employee_number)) missing.push('Número de empleado');
+      if (!isFilled(e.emergency_contact)) missing.push('Contacto de emergencia');
+
+      // Documentos siempre obligatorios
+      if (!docs.has('ine_front')) missing.push('INE Anverso');
+      if (!docs.has('ine_back')) missing.push('INE Reverso');
+      if (!docs.has('contract')) missing.push('Contrato laboral');
+      if (!docs.has('comprobante_domicilio')) missing.push('Comprobante de domicilio');
+
+      // Si está dado de alta en IMSS: NSS + Aviso de alta
+      if (hasImss) {
+        if (!docs.has('nss_constancia')) missing.push('Constancia NSS');
+        if (!docs.has('aviso_alta_imss')) missing.push('Aviso Alta IMSS');
+      }
+
+      return {
+        ...e,
+        is_advisor: false,
+        expediente_completo: missing.length === 0,
+        expediente_faltantes: missing,
+        expediente_imss_aplica: hasImss,
+      };
+    });
+
+    res.json(employeesWithCompleteness);
   } catch (error) {
     console.error('Error obteniendo empleados:', error);
     res.status(500).json({ error: 'Error al obtener empleados' });
@@ -952,17 +1061,33 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<void>
   try {
     const { id } = req.params;
 
-    // En lugar de borrar, desactivamos
+    // Asegurar columnas de soft-delete (idempotente)
+    await pool.query(`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL
+    `);
+
+    // Soft-delete: desactivar y marcar fecha de baja
     const result = await pool.query(`
       UPDATE users SET
         is_active = FALSE,
+        is_blocked = TRUE,
+        block_reason = COALESCE(block_reason, 'Baja administrativa'),
+        blocked_at = COALESCE(blocked_at, NOW()),
         deleted_at = NOW()
-      WHERE id = $1 AND role IN ('repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'abogado')
+      WHERE id = $1
+        AND role IN (
+          'repartidor', 'warehouse_ops', 'counter_staff', 'customer_service',
+          'branch_manager', 'monitoreo', 'accountant', 'contador',
+          'operaciones', 'operations', 'abogado', 'sales', 'manager',
+          'driver', 'support', 'director'
+        )
       RETURNING id, full_name
     `, [id]);
 
     if (result.rows.length === 0) {
-      res.status(404).json({ error: 'Empleado no encontrado o no se puede eliminar' });
+      res.status(404).json({ error: 'Empleado no encontrado o no se puede dar de baja desde este panel' });
       return;
     }
 
@@ -970,9 +1095,41 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<void>
       success: true,
       message: `Empleado ${result.rows[0].full_name} dado de baja`
     });
-  } catch (error) {
-    console.error('Error eliminando empleado:', error);
-    res.status(500).json({ error: 'Error al eliminar empleado' });
+  } catch (error: any) {
+    console.error('Error eliminando empleado:', error?.message || error);
+    res.status(500).json({ error: error?.message || 'Error al eliminar empleado' });
+  }
+};
+
+// ============================================
+// REACTIVAR EMPLEADO (revertir soft-delete)
+// ============================================
+export const reactivateEmployee = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    await pool.query(`
+      ALTER TABLE users
+        ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP NULL
+    `);
+    const result = await pool.query(`
+      UPDATE users SET
+        is_active = TRUE,
+        is_blocked = FALSE,
+        block_reason = NULL,
+        blocked_at = NULL,
+        deleted_at = NULL
+      WHERE id = $1
+      RETURNING id, full_name
+    `, [id]);
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Empleado no encontrado' });
+      return;
+    }
+    res.json({ success: true, message: `Empleado ${result.rows[0].full_name} reactivado` });
+  } catch (error: any) {
+    console.error('Error reactivando empleado:', error?.message || error);
+    res.status(500).json({ error: error?.message || 'Error al reactivar empleado' });
   }
 };
 

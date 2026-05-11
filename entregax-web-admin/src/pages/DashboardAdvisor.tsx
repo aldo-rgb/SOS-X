@@ -95,6 +95,11 @@ interface AdvisorDashboardData {
     boxId: string;
     role: string;
     joinedAt: string;
+    isVerified?: boolean;
+    verificationStatus?: string;
+    privacyAccepted?: boolean;
+    privacyAcceptedAt?: string | null;
+    hasPrivacySignature?: boolean;
   };
   clients: {
     total: number;
@@ -343,8 +348,28 @@ export default function DashboardAdvisor() {
       setLoading(true);
       const res = await api.get('/advisor/dashboard');
       setDashboardData(res.data);
-    } catch (err) {
-      console.error('Error loading advisor dashboard:', err);
+    } catch (err: any) {
+      const data = err?.response?.data;
+      if (data?.code === 'ADVISOR_ONBOARDING_REQUIRED' && data?.onboarding) {
+        // Construir un dashboardData mínimo para que el gate funcione
+        setDashboardData({
+          advisor: {
+            id: 0,
+            fullName: '',
+            email: '',
+            referralCode: '',
+            boxId: '',
+            role: 'advisor',
+            joinedAt: '',
+            isVerified: data.onboarding.isVerified,
+            verificationStatus: data.onboarding.verificationStatus,
+            privacyAccepted: data.onboarding.privacyAccepted,
+            hasPrivacySignature: data.onboarding.hasPrivacySignature,
+          },
+        } as any);
+      } else {
+        console.error('Error loading advisor dashboard:', err);
+      }
     } finally {
       setLoading(false);
     }
@@ -1698,6 +1723,105 @@ export default function DashboardAdvisor() {
     { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
     { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
   ], [t, isMobile]);
+
+  // ─── GATE: Verificación + Aviso de privacidad firmado ───
+  const onboardingComplete = !!(
+    dashboardData?.advisor?.isVerified &&
+    dashboardData?.advisor?.privacyAccepted &&
+    dashboardData?.advisor?.hasPrivacySignature
+  );
+
+  if (!loading && dashboardData && !onboardingComplete) {
+    const a = dashboardData.advisor;
+    const verifPending = !a.isVerified;
+    const termsPending = !a.privacyAccepted || !a.hasPrivacySignature;
+    const verifStatus = a.verificationStatus || 'not_started';
+    return (
+      <Box sx={{ maxWidth: 760, mx: 'auto', mt: { xs: 2, md: 6 }, px: 2 }}>
+        <Paper sx={{ p: { xs: 3, md: 5 }, borderRadius: 3, border: '1px solid #fed7aa' }}>
+          <Box sx={{ textAlign: 'center', mb: 3 }}>
+            <Box sx={{
+              width: 80, height: 80, mx: 'auto', mb: 2, borderRadius: '50%',
+              bgcolor: '#fff7ed', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <GppBadIcon sx={{ fontSize: 48, color: '#F05A28' }} />
+            </Box>
+            <Typography variant="h5" fontWeight={700} sx={{ mb: 1 }}>
+              Completa tu activación de Asesor
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Tu cuenta aún no está habilitada. Completa los siguientes pasos desde la app móvil
+              EntregaX para acceder a tu panel, ver clientes, embarques y comisiones.
+            </Typography>
+          </Box>
+
+          <Box sx={{ mb: 3 }}>
+            <Alert
+              severity={verifPending ? 'warning' : 'success'}
+              icon={verifPending ? <PendingIcon /> : <CheckCircleIcon />}
+              sx={{ mb: 2, borderRadius: 2 }}
+            >
+              <Typography fontWeight={700}>
+                {verifPending ? 'Verificación de identidad pendiente' : 'Identidad verificada ✓'}
+              </Typography>
+              <Typography variant="body2">
+                {verifPending
+                  ? verifStatus === 'pending_review'
+                    ? 'Tus documentos fueron recibidos y están en revisión por un administrador (24-48 hrs).'
+                    : 'Sube INE (ambos lados), Constancia Fiscal y selfie desde la app móvil.'
+                  : 'Tu identidad ya fue validada correctamente.'}
+              </Typography>
+            </Alert>
+
+            <Alert
+              severity={termsPending ? 'warning' : 'success'}
+              icon={termsPending ? <PendingIcon /> : <CheckCircleIcon />}
+              sx={{ borderRadius: 2 }}
+            >
+              <Typography fontWeight={700}>
+                {termsPending ? 'Aceptación de términos pendiente' : 'Términos firmados ✓'}
+              </Typography>
+              <Typography variant="body2">
+                {termsPending
+                  ? 'Debes leer y firmar digitalmente el Aviso de Privacidad y el Contrato de Asesor desde la app móvil.'
+                  : `Firmado el ${a.privacyAcceptedAt ? new Date(a.privacyAcceptedAt).toLocaleDateString('es-MX', { dateStyle: 'long' }) : ''}`}
+              </Typography>
+            </Alert>
+          </Box>
+
+          <Box sx={{
+            bgcolor: '#fffbeb', border: '1px solid #fde68a', borderRadius: 2, p: 2, mb: 3,
+          }}>
+            <Typography variant="body2" sx={{ color: '#92400e' }}>
+              <strong>¿Por qué este bloqueo?</strong> Para proteger los datos de tus clientes y
+              cumplir con la normativa fiscal y de protección de datos (LFPDP), no podemos darte
+              acceso a información comercial hasta que tu cuenta esté completamente activada.
+            </Typography>
+          </Box>
+
+          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Button
+              variant="contained"
+              startIcon={<RefreshIcon />}
+              onClick={() => fetchDashboard()}
+              sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#d44a1f' } }}
+            >
+              Ya completé, verificar de nuevo
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => {
+                localStorage.removeItem('token');
+                window.location.href = '/login';
+              }}
+            >
+              Cerrar sesión
+            </Button>
+          </Box>
+        </Paper>
+      </Box>
+    );
+  }
 
   return (
     <Box sx={{ 

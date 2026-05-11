@@ -693,3 +693,242 @@ export const assignTicket = async (req: Request, res: Response): Promise<any> =>
     res.status(500).json({ error: 'Error asignando ticket' });
   }
 };
+
+// ============================================================
+// 🆘 RECLAMACIÓN PÚBLICA DE NÚMERO DE CLIENTE (sin login)
+// ============================================================
+// Permite a un visitante levantar un ticket cuando alguien más
+// activó su número de cliente. Sube su INE, correo y teléfono.
+
+const claimsUploadsDir = path.join(__dirname, '..', 'uploads', 'support', 'claims');
+try {
+  if (!fs.existsSync(claimsUploadsDir)) {
+    fs.mkdirSync(claimsUploadsDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn('⚠️ No se pudo crear directorio de claims:', e);
+}
+
+const claimsStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, claimsUploadsDir),
+  filename: (_req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, `claim-${uniqueSuffix}${path.extname(file.originalname)}`);
+  }
+});
+
+const claimsMulter = multer({
+  storage: claimsStorage,
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  fileFilter: (_req, file, cb) => {
+    const allowed = /jpeg|jpg|png|webp|pdf/;
+    const extOk = allowed.test(path.extname(file.originalname).toLowerCase());
+    const mimeOk = allowed.test(file.mimetype);
+    if (extOk && mimeOk) cb(null, true);
+    else cb(null, false);
+  }
+}).fields([
+  { name: 'ine_front', maxCount: 1 },
+  { name: 'ine_back', maxCount: 1 }
+]);
+
+export const uploadBoxIdClaimFiles = (req: Request, res: Response, next: Function) => {
+  claimsMulter(req, res, (err: any) => {
+    if (err) {
+      console.warn('⚠️ Error multer claims (continuando):', err.message || err);
+    }
+    next();
+  });
+};
+
+// Asegurar tabla de claims (idempotente)
+let _claimsTableEnsured = false;
+const ensureClaimsTable = async () => {
+  if (_claimsTableEnsured) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS box_id_claims (
+        id SERIAL PRIMARY KEY,
+        folio VARCHAR(32) UNIQUE NOT NULL,
+        claimed_box_id VARCHAR(64) NOT NULL,
+        full_name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        phone VARCHAR(64) NOT NULL,
+        message TEXT,
+        ine_front_url TEXT,
+        ine_back_url TEXT,
+        status VARCHAR(32) NOT NULL DEFAULT 'pending',
+        admin_notes TEXT,
+        resolved_by_user_id INTEGER,
+        resolved_at TIMESTAMP,
+        ip_address VARCHAR(64),
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_box_id_claims_status ON box_id_claims(status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_box_id_claims_box ON box_id_claims(claimed_box_id)`);
+    _claimsTableEnsured = true;
+  } catch (e) {
+    console.error('Error asegurando tabla box_id_claims:', e);
+  }
+};
+
+const generateClaimFolio = (): string => {
+  const ts = Date.now().toString(36).toUpperCase();
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `CLM-${ts}-${rand}`;
+};
+
+// 🌐 PÚBLICO: Levantar reclamación de box_id (sin auth)
+export const submitBoxIdClaim = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureClaimsTable();
+
+    const {
+      box_id,
+      full_name,
+      email,
+      phone,
+      message
+    } = req.body || {};
+
+    // Validaciones básicas
+    if (!box_id || String(box_id).trim().length < 2) {
+      return res.status(400).json({ success: false, error: 'Número de cliente requerido' });
+    }
+    if (!full_name || String(full_name).trim().length < 3) {
+      return res.status(400).json({ success: false, error: 'Nombre completo requerido' });
+    }
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
+      return res.status(400).json({ success: false, error: 'Correo electrónico inválido' });
+    }
+    if (!phone || String(phone).trim().length < 7) {
+      return res.status(400).json({ success: false, error: 'Teléfono requerido' });
+    }
+
+    const files = (req as any).files || {};
+    const ineFrontFile = files.ine_front?.[0];
+    const ineBackFile = files.ine_back?.[0];
+
+    if (!ineFrontFile) {
+      return res.status(400).json({ success: false, error: 'Foto de INE (frente) requerida' });
+    }
+
+    const apiBase = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+    const ineFrontUrl = `${apiBase}/uploads/support/claims/${ineFrontFile.filename}`;
+    const ineBackUrl = ineBackFile ? `${apiBase}/uploads/support/claims/${ineBackFile.filename}` : null;
+
+    const folio = generateClaimFolio();
+    const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
+    const ua = req.headers['user-agent'] || '';
+
+    const inserted = await pool.query(
+      `INSERT INTO box_id_claims
+         (folio, claimed_box_id, full_name, email, phone, message,
+          ine_front_url, ine_back_url, status, ip_address, user_agent)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'pending', $9, $10)
+       RETURNING id, folio, created_at`,
+      [
+        folio,
+        String(box_id).trim().toUpperCase(),
+        String(full_name).trim(),
+        String(email).trim().toLowerCase(),
+        String(phone).trim(),
+        message ? String(message).trim().slice(0, 2000) : null,
+        ineFrontUrl,
+        ineBackUrl,
+        ip.slice(0, 60),
+        String(ua).slice(0, 500)
+      ]
+    );
+
+    const claim = inserted.rows[0];
+
+    // Notificar a todo Servicio a Cliente + Admins
+    try {
+      const { createCustomNotification } = await import('./notificationController');
+      const staff = await pool.query(
+        `SELECT id FROM users
+          WHERE role IN ('customer_service','admin','super_admin')
+            AND (status IS NULL OR status = 'active')`
+      );
+      const title = '🆘 Reclamación de número de cliente';
+      const msg = `${claim.folio}: ${full_name} reclama el número ${String(box_id).toUpperCase()}`;
+      const actionUrl = `/admin/support/box-id-claims/${claim.id}`;
+      await Promise.all(
+        staff.rows.map((s: any) =>
+          createCustomNotification(
+            s.id,
+            title,
+            msg,
+            'warning',
+            'shield-alert',
+            { claimId: claim.id, folio: claim.folio, boxId: String(box_id).toUpperCase() },
+            actionUrl
+          )
+        )
+      );
+    } catch (notifErr) {
+      console.warn('No se pudo notificar a staff sobre claim:', notifErr);
+    }
+
+    return res.json({
+      success: true,
+      folio: claim.folio,
+      claimId: claim.id,
+      message: 'Tu reclamación fue registrada. Servicio a cliente la revisará y te contactará a tu correo.'
+    });
+  } catch (error: any) {
+    console.error('Error en submitBoxIdClaim:', error);
+    return res.status(500).json({ success: false, error: 'Error al registrar la reclamación' });
+  }
+};
+
+// 👮 ADMIN: Listar claims
+export const getBoxIdClaims = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureClaimsTable();
+    const { status } = req.query;
+    let q = `SELECT * FROM box_id_claims`;
+    const params: any[] = [];
+    if (status && typeof status === 'string') {
+      params.push(status);
+      q += ` WHERE status = $1`;
+    }
+    q += ` ORDER BY created_at DESC LIMIT 200`;
+    const r = await pool.query(q, params);
+    return res.json({ success: true, claims: r.rows });
+  } catch (error) {
+    console.error('Error getBoxIdClaims:', error);
+    return res.status(500).json({ success: false, error: 'Error al obtener reclamaciones' });
+  }
+};
+
+// 👮 ADMIN: Resolver claim
+export const resolveBoxIdClaim = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureClaimsTable();
+    const { id } = req.params;
+    const { status, admin_notes } = req.body || {};
+    const userId = (req as any).user?.userId;
+    const allowed = ['pending', 'in_review', 'resolved', 'rejected'];
+    if (!status || !allowed.includes(status)) {
+      return res.status(400).json({ success: false, error: 'Estado inválido' });
+    }
+    const isFinal = status === 'resolved' || status === 'rejected';
+    await pool.query(
+      `UPDATE box_id_claims
+          SET status = $1,
+              admin_notes = COALESCE($2, admin_notes),
+              resolved_by_user_id = CASE WHEN $3::boolean THEN $4 ELSE resolved_by_user_id END,
+              resolved_at = CASE WHEN $3::boolean THEN NOW() ELSE resolved_at END
+        WHERE id = $5`,
+      [status, admin_notes || null, isFinal, userId, id]
+    );
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Error resolveBoxIdClaim:', error);
+    return res.status(500).json({ success: false, error: 'Error al actualizar reclamación' });
+  }
+};

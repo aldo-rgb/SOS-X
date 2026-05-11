@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import SignatureScreen from 'react-native-signature-canvas';
@@ -34,13 +35,21 @@ type Props = {
 
 const { width, height } = Dimensions.get('window');
 
-const STEPS = [
+const buildSteps = (isAdvisor: boolean) => ([
     { id: 1, title: 'ID Oficial', icon: 'card-outline', instruction: 'Toma una foto del frente de tu ID' },
     { id: 2, title: 'INE Reverso', icon: 'card-outline', instruction: 'Toma una foto del reverso de tu ID' },
-    { id: 3, title: 'Selfie', icon: 'camera-outline', instruction: 'Toma una selfie clara de tu rostro' },
-    { id: 4, title: 'Términos y Condiciones', icon: 'document-text-outline', instruction: 'Lea y acepte los términos de nuestro contrato de prestación de servicios' },
-    { id: 5, title: 'Firma Digital', icon: 'create-outline', instruction: 'Dibuja tu firma en el recuadro' },
-];
+    {
+        id: 3,
+        title: 'Constancia Fiscal',
+        icon: 'receipt-outline',
+        instruction: isAdvisor
+            ? 'Sube tu Constancia de Situación Fiscal (obligatoria para el cobro de comisiones)'
+            : 'Sube tu Constancia de Situación Fiscal (opcional, recomendada si vas a solicitar facturas)',
+    },
+    { id: 4, title: 'Selfie', icon: 'camera-outline', instruction: 'Toma una selfie clara de tu rostro' },
+    { id: 5, title: 'Términos y Condiciones', icon: 'document-text-outline', instruction: 'Lea y acepte los términos de nuestro contrato de prestación de servicios' },
+    { id: 6, title: 'Firma Digital', icon: 'create-outline', instruction: 'Dibuja tu firma en el recuadro' },
+]);
 
 // Términos y Condiciones
 const TERMS_AND_CONDITIONS = `LOGISTI-K SYSTEMS DEVELOPMENT S.A. DE C.V. (en adelante como "LSD") y EL CLIENTE, acuerdan que la aceptación y ejecución del presente contrato (el "Contrato") en la que se incluye el presente clausulado constituye el consentimiento de EL CLIENTE para sujetarse a los siguientes términos y condiciones:
@@ -73,8 +82,19 @@ FECHA DE FIRMA Y JURISDICCIÓN. Las partes acuerdan celebrar el presente Contrat
 
 export default function VerificationScreen({ navigation, route }: Props) {
     const { token, user } = route.params;
+    const userRole = String(user?.role || '').toLowerCase();
+    const isAdvisor = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'].includes(userRole);
+    const STEPS = React.useMemo(() => buildSteps(isAdvisor), [isAdvisor]);
+    const STEP_INE_FRONT = 1;
+    const STEP_INE_BACK = 2;
+    const STEP_CSF = 3;
+    const STEP_SELFIE = 4;
+    const STEP_TERMS = 5;
+    const STEP_SIGNATURE = 6;
+    const PHOTO_STEPS = [STEP_INE_FRONT, STEP_INE_BACK, STEP_SELFIE];
     const [currentStep, setCurrentStep] = useState(1);
     const [images, setImages] = useState<{ [key: number]: string }>({});
+    const [constanciaFiscal, setConstanciaFiscal] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
     const [signature, setSignature] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [verifying, setVerifying] = useState(false);
@@ -202,14 +222,22 @@ export default function VerificationScreen({ navigation, route }: Props) {
     };
 
     const handleNext = () => {
-        if (currentStep < 5) {
-            // Validar pasos de fotos (1, 2, 3)
-            if (currentStep <= 3 && !images[currentStep]) {
+        if (currentStep < STEPS.length) {
+            // Validar pasos de fotos (INE front/back y selfie)
+            if (PHOTO_STEPS.includes(currentStep) && !images[currentStep]) {
                 Alert.alert('Falta documento', 'Por favor, toma la foto antes de continuar.');
                 return;
             }
-            // Validar términos (paso 4)
-            if (currentStep === 4 && !termsAccepted) {
+            // Validar Constancia Fiscal solo si es asesor (obligatoria)
+            if (currentStep === STEP_CSF && isAdvisor && !constanciaFiscal) {
+                Alert.alert(
+                    'Constancia Fiscal requerida',
+                    'Como asesor comercial necesitas adjuntar tu Constancia de Situación Fiscal para poder cobrar comisiones.'
+                );
+                return;
+            }
+            // Validar términos
+            if (currentStep === STEP_TERMS && !termsAccepted) {
                 Alert.alert('Términos requeridos', 'Debes aceptar los términos y condiciones para continuar.');
                 return;
             }
@@ -225,8 +253,12 @@ export default function VerificationScreen({ navigation, route }: Props) {
 
     const handleSubmit = async () => {
         // Validar que tenemos todos los documentos
-        if (!images[1] || !images[2] || !images[3]) {
+        if (!images[STEP_INE_FRONT] || !images[STEP_INE_BACK] || !images[STEP_SELFIE]) {
             Alert.alert('Faltan documentos', 'Por favor completa todos los pasos de verificación.');
+            return;
+        }
+        if (isAdvisor && !constanciaFiscal) {
+            Alert.alert('Constancia Fiscal requerida', 'Como asesor necesitas adjuntar tu Constancia de Situación Fiscal.');
             return;
         }
 
@@ -239,15 +271,23 @@ export default function VerificationScreen({ navigation, route }: Props) {
 
         try {
             // Convertir imágenes a base64
-            const ineFrontBase64 = await FileSystem.readAsStringAsync(images[1], {
+            const ineFrontBase64 = await FileSystem.readAsStringAsync(images[STEP_INE_FRONT], {
                 encoding: 'base64',
             });
-            const ineBackBase64 = await FileSystem.readAsStringAsync(images[2], {
+            const ineBackBase64 = await FileSystem.readAsStringAsync(images[STEP_INE_BACK], {
                 encoding: 'base64',
             });
-            const selfieBase64 = await FileSystem.readAsStringAsync(images[3], {
+            const selfieBase64 = await FileSystem.readAsStringAsync(images[STEP_SELFIE], {
                 encoding: 'base64',
             });
+
+            // Constancia Fiscal (PDF o imagen) — opcional para clientes, obligatoria para asesores
+            let constanciaFiscalBase64: string | undefined;
+            if (constanciaFiscal) {
+                const csfRaw = await FileSystem.readAsStringAsync(constanciaFiscal.uri, { encoding: 'base64' });
+                const mime = constanciaFiscal.mimeType || (constanciaFiscal.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+                constanciaFiscalBase64 = `data:${mime};base64,${csfRaw}`;
+            }
 
             // Enviar a verificación con IA (con token de autenticación)
             const response = await fetch(`${API_URL}/api/verify/documents`, {
@@ -261,6 +301,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                     ineBackBase64: `data:image/jpeg;base64,${ineBackBase64}`,
                     selfieBase64: `data:image/jpeg;base64,${selfieBase64}`,
                     signatureBase64: signature || 'signature_data',
+                    constanciaFiscalBase64,
                 }),
             });
 
@@ -473,7 +514,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                 <CameraView
                     ref={cameraRef}
                     style={styles.camera}
-                    facing={cameraStep === 3 ? 'front' : 'back'}
+                    facing={cameraStep === STEP_SELFIE ? 'front' : 'back'}
                 >
                     {/* Overlay con guía */}
                     <View style={styles.cameraOverlay}>
@@ -482,15 +523,15 @@ export default function VerificationScreen({ navigation, route }: Props) {
                                 <Ionicons name="close" size={32} color="#FFF" />
                             </TouchableOpacity>
                             <Text style={styles.cameraTitle}>
-                                {cameraStep === 1 ? 'Frente de ID' : 
-                                 cameraStep === 2 ? 'Reverso de ID' : 'Selfie'}
+                                {cameraStep === STEP_INE_FRONT ? 'Frente de ID' :
+                                 cameraStep === STEP_INE_BACK ? 'Reverso de ID' : 'Selfie'}
                             </Text>
                             <View style={{ width: 32 }} />
                         </View>
 
                         {/* Guía de encuadre */}
                         <View style={styles.guideContainer}>
-                            {cameraStep === 3 ? (
+                            {cameraStep === STEP_SELFIE ? (
                                 // Guía circular para selfie
                                 <View style={styles.selfieGuide}>
                                     <Text style={styles.guideText}>Centra tu rostro</Text>
@@ -503,7 +544,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                                     <View style={styles.cornerBL} />
                                     <View style={styles.cornerBR} />
                                     <Text style={styles.guideText}>
-                                        Centra tu {cameraStep === 1 ? 'ID (frente)' : 'ID (reverso)'}
+                                        Centra tu {cameraStep === STEP_INE_FRONT ? 'ID (frente)' : 'ID (reverso)'}
                                     </Text>
                                 </View>
                             )}
@@ -521,11 +562,100 @@ export default function VerificationScreen({ navigation, route }: Props) {
         </Modal>
     );
 
+    const pickConstanciaFiscal = async () => {
+        try {
+            const r = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'image/*'],
+                copyToCacheDirectory: true,
+                multiple: false,
+            });
+            if (r.canceled || !r.assets || !r.assets[0]) return;
+            const a = r.assets[0];
+            setConstanciaFiscal({
+                uri: a.uri,
+                name: a.name || 'constancia.pdf',
+                mimeType: a.mimeType || (a.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+            });
+        } catch (e) {
+            console.error('Error picking CSF:', e);
+            Alert.alert('Error', 'No se pudo seleccionar el archivo');
+        }
+    };
+
     const renderCurrentStep = () => {
         const step = STEPS[currentStep - 1];
 
-        // Paso 4: Términos y condiciones
-        if (currentStep === 4) {
+        // Paso 3: Constancia de Situación Fiscal
+        if (currentStep === STEP_CSF) {
+            return (
+                <View style={styles.stepContent}>
+                    <View style={styles.iconContainer}>
+                        <Ionicons name={step.icon as any} size={60} color="#0A2540" />
+                    </View>
+                    <Text style={styles.stepTitle}>{step.title}</Text>
+                    <Text style={styles.stepInstruction}>{step.instruction}</Text>
+
+                    <View style={{
+                        backgroundColor: isAdvisor ? '#FEE2E2' : '#FEF3C7',
+                        borderLeftWidth: 4,
+                        borderLeftColor: isAdvisor ? '#DC2626' : '#F59E0B',
+                        padding: 12,
+                        borderRadius: 8,
+                        marginVertical: 12,
+                        marginHorizontal: 4,
+                    }}>
+                        <Text style={{ fontWeight: '700', color: isAdvisor ? '#991B1B' : '#92400E', marginBottom: 4 }}>
+                            {isAdvisor ? '⚠️ Documento obligatorio' : '💡 Recomendado'}
+                        </Text>
+                        <Text style={{ color: isAdvisor ? '#7F1D1D' : '#78350F', fontSize: 13, lineHeight: 18 }}>
+                            {isAdvisor
+                                ? 'Como asesor comercial, tu Constancia de Situación Fiscal es indispensable para que podamos pagarte tus comisiones y emitir los CFDI correspondientes.'
+                                : 'Si vas a solicitar facturas (CFDI) por nuestros servicios, te recomendamos subir tu Constancia de Situación Fiscal ahora. Así evitas pedirla cada vez. Si no necesitas facturas, puedes omitir este paso.'}
+                        </Text>
+                    </View>
+
+                    {constanciaFiscal ? (
+                        <View style={{
+                            borderWidth: 1,
+                            borderColor: '#22C55E',
+                            backgroundColor: '#F0FDF4',
+                            borderRadius: 10,
+                            padding: 14,
+                            marginTop: 8,
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 10,
+                        }}>
+                            <Ionicons
+                                name={constanciaFiscal.mimeType?.includes('pdf') ? 'document-text' : 'image'}
+                                size={36}
+                                color="#16A34A"
+                            />
+                            <View style={{ flex: 1 }}>
+                                <Text style={{ fontWeight: '700', color: '#14532D' }} numberOfLines={1}>
+                                    {constanciaFiscal.name}
+                                </Text>
+                                <Text style={{ color: '#15803D', fontSize: 12 }}>Listo para enviar</Text>
+                            </View>
+                            <TouchableOpacity onPress={() => setConstanciaFiscal(null)}>
+                                <Ionicons name="trash-outline" size={22} color="#DC2626" />
+                            </TouchableOpacity>
+                        </View>
+                    ) : (
+                        <TouchableOpacity
+                            style={[styles.captureButton, { width: '100%', marginTop: 8 }]}
+                            onPress={pickConstanciaFiscal}
+                        >
+                            <Ionicons name="cloud-upload-outline" size={40} color="#FFF" />
+                            <Text style={styles.captureText}>Subir Constancia (PDF o imagen)</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
+            );
+        }
+
+        // Paso Términos
+        if (currentStep === STEP_TERMS) {
             return (
                 <View style={styles.stepContent}>
                     <View style={styles.iconContainer}>
@@ -538,8 +668,8 @@ export default function VerificationScreen({ navigation, route }: Props) {
             );
         }
 
-        // Paso 5: Firma digital
-        if (currentStep === 5) {
+        // Paso Firma digital
+        if (currentStep === STEP_SIGNATURE) {
             return (
                 <View style={styles.stepContent}>
                     <View style={styles.iconContainer}>
@@ -635,16 +765,19 @@ export default function VerificationScreen({ navigation, route }: Props) {
                     </TouchableOpacity>
                 )}
 
-                {currentStep < 5 ? (
+                {currentStep < STEPS.length ? (
                     <TouchableOpacity
                         style={[
                             styles.nextButton,
-                            (currentStep <= 3 && !images[currentStep]) && styles.nextButtonDisabled,
-                            (currentStep === 4 && !termsAccepted) && styles.nextButtonDisabled,
+                            (PHOTO_STEPS.includes(currentStep) && !images[currentStep]) && styles.nextButtonDisabled,
+                            (currentStep === STEP_CSF && isAdvisor && !constanciaFiscal) && styles.nextButtonDisabled,
+                            (currentStep === STEP_TERMS && !termsAccepted) && styles.nextButtonDisabled,
                         ]}
                         onPress={handleNext}
                     >
-                        <Text style={styles.nextText}>Siguiente</Text>
+                        <Text style={styles.nextText}>
+                            {currentStep === STEP_CSF && !isAdvisor && !constanciaFiscal ? 'Omitir' : 'Siguiente'}
+                        </Text>
                         <Ionicons name="arrow-forward" size={24} color="#FFF" />
                     </TouchableOpacity>
                 ) : (

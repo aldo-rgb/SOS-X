@@ -122,11 +122,20 @@ export const uploadVerificationDocuments = async (req: Request, res: Response): 
             return;
         }
 
-        const { ineFrontBase64, ineBackBase64, selfieBase64, signatureBase64 } = req.body;
+        const { ineFrontBase64, ineBackBase64, selfieBase64, signatureBase64, constanciaFiscalBase64 } = req.body;
 
         // Validar que todos los documentos estén presentes
         if (!ineFrontBase64 || !ineBackBase64 || !selfieBase64 || !signatureBase64) {
             res.status(400).json({ error: 'Todos los documentos son requeridos (ID frente, ID reverso, selfie y firma)' });
+            return;
+        }
+
+        // Determinar si es asesor para validar Constancia obligatoria
+        const roleQ = await pool.query(`SELECT role FROM users WHERE id = $1`, [userId]);
+        const userRole = String(roleQ.rows[0]?.role || '').toLowerCase();
+        const isAdvisor = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'].includes(userRole);
+        if (isAdvisor && !constanciaFiscalBase64) {
+            res.status(400).json({ error: 'La Constancia de Situación Fiscal es obligatoria para asesores (requerida para cobro de comisiones).' });
             return;
         }
 
@@ -174,6 +183,71 @@ export const uploadVerificationDocuments = async (req: Request, res: Response): 
                 aiAnalysis.reason
             ]
         );
+
+        // Guardar Constancia de Situación Fiscal (si la subieron)
+        if (constanciaFiscalBase64) {
+            try {
+                const { uploadToS3, isS3Configured } = await import('./s3Service');
+                const fs = await import('fs');
+                const pathMod = await import('path');
+
+                // Extraer mime/base64
+                const m = String(constanciaFiscalBase64).match(/^data:([^;]+);base64,(.+)$/);
+                const mime: string = m && m[1] ? m[1] : 'application/pdf';
+                const raw: string = m && m[2] ? m[2] : String(constanciaFiscalBase64);
+                const buffer = Buffer.from(raw, 'base64');
+                const ext = mime.includes('pdf') ? 'pdf' : (mime.split('/')[1] || 'bin');
+                const filename = `constancia-fiscal-${userId}-${timestamp}.${ext}`;
+
+                let fileUrl: string;
+                if (isS3Configured()) {
+                    fileUrl = await uploadToS3(buffer, `users/${userId}/constancia-fiscal/${filename}`, mime);
+                } else {
+                    const dir = pathMod.join(process.cwd(), 'uploads', 'users', String(userId), 'constancia-fiscal');
+                    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+                    fs.writeFileSync(pathMod.join(dir, filename), buffer);
+                    fileUrl = `/uploads/users/${userId}/constancia-fiscal/${filename}`;
+                }
+
+                // Guardar en user_saved_documents (para auto-rellenar en facturación)
+                await pool.query(
+                    `INSERT INTO user_saved_documents (user_id, document_type, file_url, original_filename)
+                     VALUES ($1, 'constancia_fiscal', $2, $3)
+                     ON CONFLICT (user_id, document_type) DO UPDATE SET
+                       file_url = EXCLUDED.file_url,
+                       original_filename = EXCLUDED.original_filename,
+                       updated_at = CURRENT_TIMESTAMP`,
+                    [userId, fileUrl, filename]
+                );
+
+                // Si es asesor, mirror al expediente HR como doc_type='rfc'
+                if (isAdvisor) {
+                    try {
+                        await pool.query(
+                            `INSERT INTO employee_documents
+                               (user_id, doc_type, filename, url, storage_key, mime_type, size_bytes, notes, uploaded_by)
+                             VALUES ($1, 'rfc', $2, $3, $4, $5, $6, $7, $1)`,
+                            [
+                                userId,
+                                filename,
+                                fileUrl,
+                                `users/${userId}/constancia-fiscal/${filename}`,
+                                mime,
+                                buffer.length,
+                                'Subido durante verificación de identidad (asesor)',
+                            ]
+                        );
+                    } catch (e) {
+                        console.warn('No se pudo mirror a employee_documents:', (e as any)?.message);
+                    }
+                }
+
+                console.log(`💾 Constancia Fiscal guardada para usuario ${userId}: ${fileUrl}`);
+            } catch (csfErr: any) {
+                console.error('Error guardando Constancia Fiscal:', csfErr);
+                // No bloqueamos la verificación si solo falla la CSF (a menos que sea asesor — ya validado arriba)
+            }
+        }
 
         if (isVerified) {
             res.json({ 

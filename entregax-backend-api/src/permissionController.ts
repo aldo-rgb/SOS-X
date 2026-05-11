@@ -445,33 +445,42 @@ export const listUsersWithPanelPermissions = async (req: Request, res: Response)
 // ============================================
 // 13. OBTENER MÓDULOS DE UN PANEL
 // ============================================
-// Seed lazy de los módulos del panel "admin_branches" (Sucursales).
-// La migración SQL ya los define, pero en environments donde no se
-// corrió la migración después del último deploy, los insertamos en
-// el primer hit al endpoint para que el dialog de permisos no
-// muestre "Este panel no tiene módulos configurados".
-const BRANCHES_PANEL_KEY = 'admin_branches';
-const BRANCHES_MODULES: Array<[string, string, string, string, number]> = [
-  ['sucursales',         'Sucursales',           'Alta y edición de CEDIS / mostradores',       'Business',  1],
-  ['asignaciones',       'Asignaciones',         'Empleados asignados a cada sucursal',         'Group',     2],
-  ['sin_asignar',        'Sin Asignar',          'Empleados pendientes de asignación',          'GroupAdd',  3],
-  ['inventario_activos', 'Inventario de Activos','Control patrimonial de equipos por sucursal', 'Inventory', 4],
-];
-let branchesModulesSeeded = false;
-const seedBranchesModules = async (): Promise<void> => {
-  if (branchesModulesSeeded) return;
+// Seed lazy de módulos por panel. En environments donde la migración
+// SQL no se corrió después del último deploy, los insertamos en el
+// primer hit a cualquiera de los endpoints de permisos para que el
+// dialog no muestre "Este panel no tiene módulos configurados".
+// Formato: [module_key, module_name, description, icon, sort_order]
+const PANEL_MODULE_SEEDS: Record<string, Array<[string, string, string, string, number]>> = {
+  admin_branches: [
+    ['sucursales',         'Sucursales',           'Alta y edición de CEDIS / mostradores',       'Business',  1],
+    ['asignaciones',       'Asignaciones',         'Empleados asignados a cada sucursal',         'Group',     2],
+    ['sin_asignar',        'Sin Asignar',          'Empleados pendientes de asignación',          'GroupAdd',  3],
+    ['inventario_activos', 'Inventario de Activos','Control patrimonial de equipos por sucursal', 'Inventory', 4],
+  ],
+  admin_hr: [
+    ['personal',     'Personal',        'Lista de empleados y altas',           'People',     1],
+    ['asistencias',  'Asistencias',     'Registro de check-in / check-out',     'AccessTime', 2],
+    ['rastreo_vivo', 'Rastreo en Vivo', 'Mapa de choferes en tiempo real',      'Map',        3],
+    ['estadisticas', 'Estadísticas',    'Reportes y métricas de RH',            'TrendingUp', 4],
+  ],
+};
+const seededPanels = new Set<string>();
+const ensurePanelModules = async (panelKey: string): Promise<void> => {
+  if (seededPanels.has(panelKey)) return;
+  const seeds = PANEL_MODULE_SEEDS[panelKey];
+  if (!seeds) return;
   try {
-    for (const [key, name, desc, icon, order] of BRANCHES_MODULES) {
+    for (const [key, name, desc, icon, order] of seeds) {
       await pool.query(
         `INSERT INTO admin_panel_modules (panel_key, module_key, module_name, description, icon, sort_order)
          VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (panel_key, module_key) DO NOTHING`,
-        [BRANCHES_PANEL_KEY, key, name, desc, icon, order]
+        [panelKey, key, name, desc, icon, order]
       );
     }
-    branchesModulesSeeded = true;
+    seededPanels.add(panelKey);
   } catch (err) {
-    console.error('[permissions] seedBranchesModules error:', err);
+    console.error('[permissions] ensurePanelModules error:', err);
   }
 };
 
@@ -479,9 +488,7 @@ export const getPanelModules = async (req: Request, res: Response): Promise<any>
   const { panelKey } = req.params;
 
   try {
-    if (panelKey === BRANCHES_PANEL_KEY) {
-      await seedBranchesModules();
-    }
+    await ensurePanelModules(String(panelKey || ''));
     const result = await pool.query(`
       SELECT module_key, module_name, description, icon, sort_order
       FROM admin_panel_modules
@@ -503,6 +510,9 @@ export const getUserModulePermissions = async (req: Request, res: Response): Pro
   const { userId, panelKey } = req.params;
 
   try {
+    // Asegurar que los módulos del panel existen (seed lazy)
+    await ensurePanelModules(String(panelKey || ''));
+
     // Obtener info del usuario
     const userResult = await pool.query(
       'SELECT id, full_name, email, role FROM users WHERE id = $1',

@@ -11,6 +11,46 @@ function getAdvisorId(req: Request): number | null {
   return (req as any).user?.userId || (req as any).user?.id || null;
 }
 
+// ─── Helper: verificar que el asesor esté completamente onboardeado
+// (identidad verificada + aviso de privacidad / términos firmados).
+// Si NO está completo, responde 403 con detalle del bloqueo y retorna false.
+async function ensureAdvisorOnboarded(req: Request, res: Response): Promise<boolean> {
+  const advisorId = getAdvisorId(req);
+  if (!advisorId) {
+    res.status(401).json({ error: 'No autenticado' });
+    return false;
+  }
+  const q = await pool.query(
+    `SELECT is_verified, verification_status, privacy_accepted_at, privacy_signature_url, role
+       FROM users WHERE id = $1`,
+    [advisorId]
+  );
+  if (q.rowCount === 0) {
+    res.status(404).json({ error: 'Usuario no encontrado' });
+    return false;
+  }
+  const u = q.rows[0];
+  const isVerified = !!u.is_verified && u.verification_status === 'verified';
+  const hasTerms = !!u.privacy_accepted_at && !!u.privacy_signature_url;
+  if (!isVerified || !hasTerms) {
+    res.status(403).json({
+      error: 'Onboarding incompleto',
+      code: 'ADVISOR_ONBOARDING_REQUIRED',
+      onboarding: {
+        isVerified,
+        verificationStatus: u.verification_status || 'not_started',
+        privacyAccepted: !!u.privacy_accepted_at,
+        hasPrivacySignature: !!u.privacy_signature_url,
+      },
+      message: !isVerified
+        ? 'Tu cuenta está pendiente de verificación de identidad. Completa la verificación desde la app móvil para acceder a tu panel.'
+        : 'Debes aceptar el aviso de privacidad y firmar el contrato de asesor desde la app móvil para continuar.',
+    });
+    return false;
+  }
+  return true;
+}
+
 // ─── 1. DASHBOARD STATS ───
 export const getAdvisorDashboard = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -19,7 +59,9 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
 
     // Obtener info del asesor
     const advisorRes = await pool.query(
-      `SELECT id, full_name, email, referral_code, box_id, role, created_at 
+      `SELECT id, full_name, email, referral_code, box_id, role, created_at,
+              is_verified, verification_status,
+              privacy_accepted_at, privacy_signature_url
        FROM users WHERE id = $1`, [advisorId]
     );
     if (advisorRes.rows.length === 0) return res.status(404).json({ error: 'Asesor no encontrado' });
@@ -116,6 +158,11 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         boxId: advisor.box_id,
         role: advisor.role,
         joinedAt: advisor.created_at,
+        isVerified: !!advisor.is_verified,
+        verificationStatus: advisor.verification_status || 'not_started',
+        privacyAccepted: !!advisor.privacy_accepted_at,
+        privacyAcceptedAt: advisor.privacy_accepted_at,
+        hasPrivacySignature: !!advisor.privacy_signature_url,
       },
       clients: {
         total: parseInt(clientStats.total_clients) || 0,
@@ -147,6 +194,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
 // ─── 2. MIS CLIENTES ───
 export const getAdvisorClients = async (req: Request, res: Response): Promise<any> => {
   try {
+    if (!(await ensureAdvisorOnboarded(req, res))) return;
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
@@ -298,6 +346,7 @@ export const saveAdvisorNote = async (req: Request, res: Response): Promise<any>
 // Combina packages (AIR_CHN_MX, POBOX_USA), maritime_orders (SEA_CHN_MX) y dhl_shipments (AA_DHL)
 export const getAdvisorShipments = async (req: Request, res: Response): Promise<any> => {
   try {
+    if (!(await ensureAdvisorOnboarded(req, res))) return;
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
@@ -520,6 +569,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
 // ─── 4. MIS COMISIONES ───
 export const getAdvisorCommissions = async (req: Request, res: Response): Promise<any> => {
   try {
+    if (!(await ensureAdvisorOnboarded(req, res))) return;
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
@@ -674,6 +724,7 @@ export const getAdvisorCommissions = async (req: Request, res: Response): Promis
 // ─── 5. OBTENER GUÍAS HIJAS DE UN REPACK ───
 export const getRepackChildren = async (req: Request, res: Response): Promise<any> => {
   try {
+    if (!(await ensureAdvisorOnboarded(req, res))) return;
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
@@ -727,6 +778,7 @@ export const getRepackChildren = async (req: Request, res: Response): Promise<an
 // ─── 6. VER CARTERA DEL CLIENTE (para asesor) ───
 export const getClientWallet = async (req: Request, res: Response): Promise<any> => {
   try {
+    if (!(await ensureAdvisorOnboarded(req, res))) return;
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
@@ -854,6 +906,7 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
 // ─── 7. VER EQUIPO (para asesor líder) ───
 export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> => {
   try {
+    if (!(await ensureAdvisorOnboarded(req, res))) return;
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 

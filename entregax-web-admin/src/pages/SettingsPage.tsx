@@ -34,6 +34,8 @@ import PercentIcon from '@mui/icons-material/Percent';
 import PaymentIcon from '@mui/icons-material/Payment';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
 import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import BrandAssetsManager from '../components/BrandAssetsManager';
+import CommissionRatesTable from '../components/CommissionRatesTable';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
@@ -385,7 +387,24 @@ export default function SettingsPage() {
                 </Card>
             )}
 
-            {/* Tipos de Servicio */}
+            {/* Identidad Visual / Logos (solo super_admin) */}
+            {isSuperAdmin && <BrandAssetsManager />}
+
+            {/* Tarifas de Comisión por Servicio (incluye GEX con comisión fija) */}
+            <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
+                <Button
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => setDialogOpen(true)}
+                    sx={{ borderRadius: 2 }}
+                >
+                    Nuevo Tipo de Servicio
+                </Button>
+            </Box>
+            <CommissionRatesTable />
+
+            {/* Bloque legacy oculto — preservado para evitar romper estado */}
+            {false && (
             <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3 }}>
                 <CardContent>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
@@ -537,6 +556,7 @@ export default function SettingsPage() {
                     </TableContainer>
                 </CardContent>
             </Card>
+            )}
 
             {/* Dialog para nuevo servicio */}
             <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="sm" fullWidth>

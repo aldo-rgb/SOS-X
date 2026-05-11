@@ -493,7 +493,11 @@ import {
   resolveTicket,
   assignTicket,
   uploadSupportImages,
-  validateTracking
+  validateTracking,
+  submitBoxIdClaim,
+  uploadBoxIdClaimFiles,
+  getBoxIdClaims,
+  resolveBoxIdClaim
 } from './supportController';
 import {
   getMyNotifications,
@@ -4285,6 +4289,13 @@ app.put('/api/admin/support/ticket/:id/resolve', authenticateToken, requireMinLe
 // Admin: Asignar ticket a agente
 app.put('/api/admin/support/ticket/:id/assign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignTicket);
 
+// 🆘 Público: Reclamación de número de cliente (sin auth)
+app.post('/api/support/public/claim-box-id', uploadBoxIdClaimFiles, submitBoxIdClaim);
+
+// Admin: Listar / resolver reclamaciones de box_id
+app.get('/api/admin/support/box-id-claims', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBoxIdClaims);
+app.put('/api/admin/support/box-id-claims/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resolveBoxIdClaim);
+
 // ========== NOTIFICACIONES ==========
 
 // App: Obtener mis notificaciones
@@ -7353,6 +7364,10 @@ app.get('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.
 app.post('/api/admin/hr/employees', authenticateToken, requireMinLevel(ROLES.ADMIN), createEmployee);
 app.put('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateEmployee);
 app.delete('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteEmployee);
+app.post('/api/admin/hr/employees/:id/reactivate', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req, res) => {
+  const mod = await import('./hrController');
+  return mod.reactivateEmployee(req, res);
+});
 app.get('/api/admin/hr/attendance', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAttendanceHistory);
 app.get('/api/admin/hr/attendance/stats', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAttendanceStats);
 app.get('/api/admin/hr/drivers/live', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getDriversLiveLocation);
@@ -7360,6 +7375,58 @@ app.get('/api/admin/hr/drivers/live', authenticateToken, requireMinLevel(ROLES.C
 // Ubicaciones de trabajo (geocercas)
 app.get('/api/admin/hr/locations', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getWorkLocations);
 app.post('/api/admin/hr/locations', authenticateToken, requireMinLevel(ROLES.ADMIN), createWorkLocation);
+
+// ========== HR EXPANSION: Expediente Digital, Nómina, Préstamos, Pagaré ==========
+import {
+  getEmployeeFullProfile,
+  uploadEmployeeDocument,
+  deleteEmployeeDocument,
+  upsertPayroll,
+  createLoan,
+  addLoanPayment,
+  cancelLoan,
+  getPagareInterno,
+  getHRDashboardSummary,
+  listVacationRequests,
+  createVacationRequest,
+  cancelVacationRequest,
+  listQuintaBookings,
+  createQuintaBooking,
+  cancelQuintaBooking,
+  updateQuintaPayment,
+  getQuintaCalendar,
+  generateAdvisorContract,
+} from './hrExpansionController';
+
+const hrDocUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
+});
+
+app.get('/api/admin/hr/dashboard-summary', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getHRDashboardSummary);
+app.get('/api/admin/hr/employees/:id/full-profile', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getEmployeeFullProfile);
+app.post('/api/admin/hr/employees/:id/documents', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), hrDocUpload.single('file'), uploadEmployeeDocument);
+app.delete('/api/admin/hr/documents/:docId', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteEmployeeDocument);
+app.put('/api/admin/hr/employees/:id/payroll', authenticateToken, requireMinLevel(ROLES.ADMIN), upsertPayroll);
+app.post('/api/admin/hr/employees/:id/loans', authenticateToken, requireMinLevel(ROLES.ADMIN), createLoan);
+app.post('/api/admin/hr/loans/:loanId/payments', authenticateToken, requireMinLevel(ROLES.ADMIN), addLoanPayment);
+app.post('/api/admin/hr/loans/:loanId/cancel', authenticateToken, requireMinLevel(ROLES.ADMIN), cancelLoan);
+app.get('/api/admin/hr/loans/:loanId/pagare', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getPagareInterno);
+
+// Vacaciones
+app.get('/api/admin/hr/employees/:id/vacations', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), listVacationRequests);
+app.post('/api/admin/hr/employees/:id/vacations', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createVacationRequest);
+app.delete('/api/admin/hr/vacations/:requestId', authenticateToken, requireMinLevel(ROLES.ADMIN), cancelVacationRequest);
+
+// Quinta (prestación 1 vez al año)
+app.get('/api/admin/hr/quinta/calendar', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getQuintaCalendar);
+app.get('/api/admin/hr/employees/:id/quinta', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), listQuintaBookings);
+app.post('/api/admin/hr/employees/:id/quinta', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createQuintaBooking);
+app.patch('/api/admin/hr/quinta/:bookingId/payment', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), updateQuintaPayment);
+app.delete('/api/admin/hr/quinta/:bookingId', authenticateToken, requireMinLevel(ROLES.ADMIN), cancelQuintaBooking);
+
+// Generar contrato firmado para asesores (usa firma digital del aviso de privacidad)
+app.post('/api/admin/hr/employees/:id/generate-advisor-contract', authenticateToken, requireMinLevel(ROLES.ADMIN), generateAdvisorContract);
 
 // ========== MÓDULO DE GESTIÓN DE FLOTILLA ==========
 // Vehículos - Admin
