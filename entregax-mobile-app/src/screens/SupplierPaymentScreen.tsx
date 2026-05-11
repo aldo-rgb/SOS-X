@@ -190,6 +190,29 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [lastReferencia, setLastReferencia] = useState<string | null>(null);
   const [lastEmpresas, setLastEmpresas] = useState<Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>>([]);
   const [lastTransaccionId, setLastTransaccionId] = useState<string | null>(null);
+  // Snapshot del form al crear la solicitud — necesario porque
+  // después del submit limpiamos el form, y el PDF que se descarga
+  // desde el modal de éxito (o desde Últimos envíos para esta misma
+  // sesión) necesita todos los datos para llenar Detalle de la
+  // operación + Beneficiario final + Total a pagar.
+  type FormSnapshot = {
+    requiereFactura: boolean;
+    divisa: string;
+    monto: number;
+    razon: string;
+    rfc: string;
+    tcFinal: number;
+    comision: number;
+    total: number;
+    benefName: string;
+    benefNameZh: string;
+    benefBankName: string;
+    benefAccount: string;
+    benefIban: string;
+    benefSwift: string;
+    benefAba: string;
+  };
+  const [lastFormSnapshot, setLastFormSnapshot] = useState<FormSnapshot | null>(null);
 
   // Comprobante v2: archivo elegido en wizard antes de submit
   const [comprobanteAsset, setComprobanteAsset] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
@@ -656,6 +679,21 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         setLastReferencia(data?.referencia_pago || (rid ? `XP${String(rid).padStart(6, '0')}` : null));
         setLastEmpresas(Array.isArray(data?.empresas_asignadas) ? data.empresas_asignadas : []);
         setLastTransaccionId(data?.entangled_transaccion_id || data?.request?.entangled_transaccion_id || null);
+        // CAPTURAR snapshot del form ANTES de limpiarlo. Sin esto el
+        // PDF que se descarga desde el modal de éxito muestra monto=0
+        // y faltan tcFinal/comisión/beneficiario (porque mi código leía
+        // del state actual que ya estaba reseteado).
+        setLastFormSnapshot({
+          requiereFactura,
+          divisa,
+          monto: parseFloat(monto) || 0,
+          razon, rfc,
+          tcFinal: quote?.tipo_cambio || 0,
+          comision: quote?.monto_mxn_comision || 0,
+          total: quote?.monto_mxn_total || 0,
+          benefName, benefNameZh, benefBankName, benefAccount,
+          benefIban, benefSwift, benefAba,
+        });
         setSuccessModalVisible(true);
         setMonto(''); setConceptos('');
         setBenefName(''); setBenefNameZh(''); setBenefAddress('');
@@ -759,27 +797,28 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         minimumFractionDigits: d, maximumFractionDigits: d,
       });
 
-      // Snapshot del formulario actual (no se manda con override —
-      // sólo está disponible cuando se llama justo tras crear la
-      // solicitud, no desde "Últimos envíos").
-      const hasFormSnapshot = !override;
-      const opSnap = hasFormSnapshot ? {
-        requiereFactura,
-        divisa,
-        monto: parseFloat(monto) || 0,
-        razon, rfc,
-        tcFinal: quote?.tipo_cambio || 0,
-        comision: quote?.monto_mxn_comision || 0,
-        total: quote?.monto_mxn_total || 0,
+      // Usamos el snapshot guardado al momento de crear la solicitud.
+      // Si no existe (PDF re-descargado desde Últimos envíos tras
+      // recargar la app), salimos con datos mínimos.
+      const snap = lastFormSnapshot;
+      const opSnap = snap ? {
+        requiereFactura: snap.requiereFactura,
+        divisa: snap.divisa,
+        monto: snap.monto,
+        razon: snap.razon,
+        rfc: snap.rfc,
+        tcFinal: snap.tcFinal,
+        comision: snap.comision,
+        total: snap.total,
       } : null;
-      const benefSnap = hasFormSnapshot ? {
-        nombre: benefName,
-        nombreChino: benefNameZh,
-        banco: benefBankName,
-        cuenta: benefAccount,
-        iban: benefIban,
-        swift: benefSwift,
-        aba: benefAba,
+      const benefSnap = snap ? {
+        nombre: snap.benefName,
+        nombreChino: snap.benefNameZh,
+        banco: snap.benefBankName,
+        cuenta: snap.benefAccount,
+        iban: snap.benefIban,
+        swift: snap.benefSwift,
+        aba: snap.benefAba,
       } : null;
 
       // URL absoluta del logo (Print necesita URLs externas o data:).
