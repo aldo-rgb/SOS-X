@@ -4053,7 +4053,11 @@ app.delete('/api/admin/branches/:id', authenticateToken, requireRole(ROLES.SUPER
 // El GET /:id va sin auth porque alimenta el QR pegado al equipo —
 // un supervisor lo escanea con su celular y debe poder ver la ficha
 // sin necesidad de iniciar sesión.
-app.get('/api/admin/branch-assets', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), listAssets);
+// GET es de sólo lectura — lo abrimos a COUNTER_STAFF para que
+// cualquier personal con acceso al panel admin_branches (otorgado
+// por la matriz de permisos) pueda consultar el inventario.
+// Escrituras siguen restringidas a DIRECTOR.
+app.get('/api/admin/branch-assets', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), listAssets);
 app.post('/api/admin/branch-assets', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createAsset);
 app.put('/api/admin/branch-assets/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateAsset);
 app.delete('/api/admin/branch-assets/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteAsset);
