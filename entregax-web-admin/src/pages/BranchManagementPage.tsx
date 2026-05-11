@@ -304,7 +304,10 @@ export default function BranchManagementPage() {
     'monitoreo',            // Monitoreo (observación)
     'abogado',              // Abogado
     'accountant', 'contador', // Contador
-    'advisor', 'sub_advisor', // Asesores
+    // Asesores NO van en gestión de sucursales — no están adscritos
+    // a una CEDIS, atienden cartera de clientes propios. Se administran
+    // desde el panel de asesores. (Cliente lo solicitó explícitamente.)
+    // 'advisor', 'asesor', 'asesor_lider', 'sub_advisor',
   ];
   const employeeUsers = users.filter(u => EMPLOYEE_ROLES.includes(u.role));
 
@@ -325,28 +328,80 @@ export default function BranchManagementPage() {
 
   return (
     <Box>
-      {/* Header */}
-      <Paper sx={{ p: 3, mb: 3 }}>
-        <Box display="flex" justifyContent="space-between" alignItems="center">
+      {/* Header Corporativo */}
+      <Paper
+        elevation={0}
+        sx={{
+          mb: 3,
+          borderRadius: 2,
+          overflow: 'hidden',
+          border: '1px solid rgba(240,90,40,0.18)',
+          boxShadow: '0 4px 16px rgba(0,0,0,0.06)',
+        }}
+      >
+        <Box
+          sx={{
+            background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)',
+            color: '#fff',
+            p: { xs: 2.5, md: 3 },
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: { xs: 'flex-start', md: 'center' },
+            flexDirection: { xs: 'column', md: 'row' },
+            gap: 2,
+          }}
+        >
           <Box display="flex" alignItems="center" gap={2}>
-            <WarehouseIcon sx={{ fontSize: 40, color: 'primary.main' }} />
+            <Box
+              sx={{
+                width: 52,
+                height: 52,
+                borderRadius: 2,
+                bgcolor: 'rgba(255,255,255,0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backdropFilter: 'blur(4px)',
+              }}
+            >
+              <WarehouseIcon sx={{ fontSize: 30, color: '#fff' }} />
+            </Box>
             <Box>
-              <Typography variant="h5" fontWeight="bold">
-                Gestión de Sucursales (CEDIS)
+              <Typography variant="h5" fontWeight={800} sx={{ letterSpacing: 0.3 }}>
+                Gestión de Sucursales
               </Typography>
-              <Typography variant="body2" color="text.secondary">
-                Crear sucursales y asignar empleados
+              <Typography variant="body2" sx={{ opacity: 0.9 }}>
+                Administra CEDIS, mostradores y asignación de empleados
               </Typography>
             </Box>
           </Box>
-          <Box display="flex" gap={2}>
-            <Button startIcon={<RefreshIcon />} onClick={loadData}>
+          <Box display="flex" gap={1.5} flexWrap="wrap">
+            <Button
+              startIcon={<RefreshIcon />}
+              onClick={loadData}
+              sx={{
+                color: '#fff',
+                borderColor: 'rgba(255,255,255,0.5)',
+                textTransform: 'none',
+                fontWeight: 600,
+                '&:hover': { bgcolor: 'rgba(255,255,255,0.12)', borderColor: '#fff' },
+              }}
+              variant="outlined"
+            >
               Refrescar
             </Button>
-            <Button 
-              variant="contained" 
+            <Button
+              variant="contained"
               startIcon={<AddIcon />}
               onClick={() => handleOpenBranchDialog()}
+              sx={{
+                bgcolor: '#fff',
+                color: '#C1272D',
+                fontWeight: 700,
+                textTransform: 'none',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+                '&:hover': { bgcolor: '#FFF3EE' },
+              }}
             >
               Nueva Sucursal
             </Button>
@@ -354,9 +409,37 @@ export default function BranchManagementPage() {
         </Box>
       </Paper>
 
-      {/* Tabs */}
-      <Paper sx={{ mb: 3 }}>
-        <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)}>
+      {/* Tabs Corporativos */}
+      <Paper
+        elevation={0}
+        sx={{
+          mb: 3,
+          borderRadius: 2,
+          border: '1px solid #EEE',
+          overflow: 'hidden',
+        }}
+      >
+        <Tabs
+          value={tabValue}
+          onChange={(_, v) => setTabValue(v)}
+          variant="scrollable"
+          scrollButtons="auto"
+          sx={{
+            px: 1,
+            '& .MuiTab-root': {
+              textTransform: 'none',
+              fontWeight: 600,
+              minHeight: 52,
+              color: 'text.secondary',
+              '&.Mui-selected': { color: '#F05A28' },
+            },
+            '& .MuiTabs-indicator': {
+              backgroundColor: '#F05A28',
+              height: 3,
+              borderRadius: 2,
+            },
+          }}
+        >
           <Tab label={`Sucursales (${branches.length})`} />
           <Tab label={`Asignaciones (${employeeUsers.filter(u => u.branch_id).length})`} />
           <Tab label={`Sin Asignar (${unassignedUsers.length})`} />
@@ -369,25 +452,49 @@ export default function BranchManagementPage() {
         <Grid container spacing={3}>
           {branches.map((branch) => (
             <Grid size={{ xs: 12, md: 6, lg: 4 }} key={branch.id}>
-              <Card 
-                sx={{ 
+              <Card
+                elevation={0}
+                sx={{
                   height: '100%',
-                  borderLeft: 4,
-                  borderColor: branch.is_active ? 'success.main' : 'grey.400'
+                  position: 'relative',
+                  borderRadius: 2,
+                  border: '1px solid #EEE',
+                  overflow: 'hidden',
+                  transition: 'all 0.2s ease',
+                  '&:hover': {
+                    boxShadow: '0 6px 20px rgba(240,90,40,0.12)',
+                    borderColor: 'rgba(240,90,40,0.35)',
+                    transform: 'translateY(-2px)',
+                  },
+                  '&::before': {
+                    content: '\"\"',
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 3,
+                    background: branch.is_active
+                      ? 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)'
+                      : '#CFCFCF',
+                  },
                 }}
               >
-                <CardContent>
+                <CardContent sx={{ pt: 2.5 }}>
                   <Box display="flex" justifyContent="space-between" alignItems="flex-start">
                     <Box>
-                      <Typography variant="h6" fontWeight="bold">
+                      <Typography variant="h6" fontWeight={800} sx={{ color: '#222' }}>
                         {branch.name}
                       </Typography>
                       <Typography variant="body2" color="text.secondary">
-                        Código: {branch.code} • {branch.city}
+                        Código: <strong style={{ color: '#F05A28' }}>{branch.code}</strong> • {branch.city}
                       </Typography>
                     </Box>
                     <Box>
-                      <IconButton size="small" onClick={() => handleOpenBranchDialog(branch)}>
+                      <IconButton
+                        size="small"
+                        onClick={() => handleOpenBranchDialog(branch)}
+                        sx={{ color: 'text.secondary', '&:hover': { color: '#F05A28', bgcolor: 'rgba(240,90,40,0.08)' } }}
+                      >
                         <EditIcon fontSize="small" />
                       </IconButton>
                       <IconButton size="small" color="error" onClick={() => handleDeleteBranch(branch.id)}>
@@ -397,31 +504,43 @@ export default function BranchManagementPage() {
                   </Box>
                   
                   {/* Indicador de Geocerca */}
-                  <Box mt={1} display="flex" gap={1} flexWrap="wrap">
+                  <Box mt={1.5} display="flex" gap={1} flexWrap="wrap">
                     {branch.latitud && branch.longitud ? (
-                      <Chip 
+                      <Chip
                         icon={<LocationIcon />}
-                        label={`📍 Geocerca: ${branch.radio_geocerca_metros || 100}m`}
+                        label={`Geocerca: ${branch.radio_geocerca_metros || 100}m`}
                         size="small"
-                        color="info"
-                        variant="outlined"
+                        sx={{
+                          bgcolor: 'rgba(33,150,243,0.1)',
+                          color: '#1976D2',
+                          fontWeight: 600,
+                          '& .MuiChip-icon': { color: '#1976D2' },
+                        }}
                       />
                     ) : (
-                      <Chip 
+                      <Chip
                         icon={<LocationIcon />}
-                        label="⚠️ Sin geocerca"
+                        label="Sin geocerca"
                         size="small"
-                        color="warning"
-                        variant="outlined"
+                        sx={{
+                          bgcolor: 'rgba(240,90,40,0.1)',
+                          color: '#F05A28',
+                          fontWeight: 600,
+                          '& .MuiChip-icon': { color: '#F05A28' },
+                        }}
                       />
                     )}
                     {branch.wifi_validation_enabled && branch.wifi_ssid && (
-                      <Chip 
+                      <Chip
                         icon={<WifiIcon />}
                         label={`WiFi: ${branch.wifi_ssid}`}
                         size="small"
-                        color="secondary"
-                        variant="outlined"
+                        sx={{
+                          bgcolor: 'rgba(193,39,45,0.08)',
+                          color: '#C1272D',
+                          fontWeight: 600,
+                          '& .MuiChip-icon': { color: '#C1272D' },
+                        }}
                       />
                     )}
                   </Box>
@@ -459,29 +578,44 @@ export default function BranchManagementPage() {
                     </Box>
                   </Box>
 
-                  <Box mt={2} display="flex" justifyContent="space-between" alignItems="center">
-                    <Box display="flex" gap={1} alignItems="center">
-                      <Chip 
+                  <Box mt={2} pt={2} sx={{ borderTop: '1px dashed #EEE' }} display="flex" justifyContent="space-between" alignItems="center">
+                    <Box display="flex" gap={1} alignItems="center" flexWrap="wrap">
+                      <Chip
                         icon={branch.is_active ? <ActiveIcon /> : <InactiveIcon />}
                         label={branch.is_active ? 'Activa' : 'Inactiva'}
                         color={branch.is_active ? 'success' : 'default'}
                         size="small"
+                        sx={{ fontWeight: 600 }}
                       />
-                      <Chip 
+                      <Chip
                         icon={<PaymentIcon />}
                         label={branch.recibe_pagos ? 'Recibe Pagos' : 'Sin Pagos'}
-                        color={branch.recibe_pagos ? 'info' : 'default'}
                         size="small"
                         onClick={() => handleToggleRecibePagos(branch)}
-                        sx={{ cursor: 'pointer' }}
+                        sx={{
+                          cursor: 'pointer',
+                          fontWeight: 600,
+                          bgcolor: branch.recibe_pagos ? 'rgba(240,90,40,0.1)' : 'grey.200',
+                          color: branch.recibe_pagos ? '#F05A28' : 'text.secondary',
+                          '& .MuiChip-icon': { color: 'inherit' },
+                          '&:hover': {
+                            bgcolor: branch.recibe_pagos ? 'rgba(240,90,40,0.18)' : 'grey.300',
+                          },
+                        }}
                       />
                     </Box>
-                    <Button 
-                      size="small" 
+                    <Button
+                      size="small"
                       startIcon={<AssignIcon />}
                       onClick={() => {
                         setSelectedBranch(branch.id);
                         setOpenAssignDialog(true);
+                      }}
+                      sx={{
+                        color: '#F05A28',
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        '&:hover': { bgcolor: 'rgba(240,90,40,0.08)' },
                       }}
                     >
                       Asignar
@@ -615,8 +749,24 @@ export default function BranchManagementPage() {
       )}
 
       {/* Dialog: Crear/Editar Sucursal */}
-      <Dialog open={openBranchDialog} onClose={() => setOpenBranchDialog(false)} maxWidth="md" fullWidth>
-        <DialogTitle>
+      <Dialog
+        open={openBranchDialog}
+        onClose={() => setOpenBranchDialog(false)}
+        maxWidth="md"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+      >
+        <DialogTitle
+          sx={{
+            background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)',
+            color: '#fff',
+            fontWeight: 800,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+          }}
+        >
+          <WarehouseIcon sx={{ color: '#fff' }} />
           {editingBranch ? 'Editar Sucursal' : 'Nueva Sucursal'}
         </DialogTitle>
         <DialogContent>
@@ -848,8 +998,24 @@ export default function BranchManagementPage() {
       </Dialog>
 
       {/* Dialog: Asignar Empleado */}
-      <Dialog open={openAssignDialog} onClose={() => setOpenAssignDialog(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>
+      <Dialog
+        open={openAssignDialog}
+        onClose={() => setOpenAssignDialog(false)}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 2, overflow: 'hidden' } }}
+      >
+        <DialogTitle
+          sx={{
+            background: 'linear-gradient(135deg, #C1272D 0%, #F05A28 100%)',
+            color: '#fff',
+            fontWeight: 800,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1.5,
+          }}
+        >
+          <AssignIcon sx={{ color: '#fff' }} />
           Asignar Empleado a Sucursal
         </DialogTitle>
         <DialogContent>
