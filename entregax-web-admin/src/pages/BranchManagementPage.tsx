@@ -52,6 +52,7 @@ import {
   Payment as PaymentIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
+import BranchAssetsInventory from '../components/BranchAssetsInventory';
 
 interface Branch {
   id: number;
@@ -359,6 +360,7 @@ export default function BranchManagementPage() {
           <Tab label={`Sucursales (${branches.length})`} />
           <Tab label={`Asignaciones (${employeeUsers.filter(u => u.branch_id).length})`} />
           <Tab label={`Sin Asignar (${unassignedUsers.length})`} />
+          <Tab label="Inventario de Activos" />
         </Tabs>
       </Paper>
 
@@ -891,9 +893,14 @@ export default function BranchManagementPage() {
         </DialogActions>
       </Dialog>
 
+      {/* Tab 3: Inventario de activos por sucursal */}
+      {tabValue === 3 && (
+        <BranchAssetsInventory branches={branches} users={users} />
+      )}
+
       {/* Snackbar */}
       {snackbar.open && (
-        <Alert 
+        <Alert
           severity={snackbar.severity}
           onClose={() => setSnackbar({ ...snackbar, open: false })}
           sx={{ position: 'fixed', bottom: 20, right: 20, zIndex: 9999 }}

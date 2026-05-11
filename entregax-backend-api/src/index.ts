@@ -350,6 +350,14 @@ import {
   getSupervisorAuthorizations
 } from './warehouseController';
 import {
+  listAssets,
+  getAssetById,
+  createAsset,
+  updateAsset,
+  deleteAsset,
+  uploadAssetFile,
+} from './branchAssetsController';
+import {
   scanPackageToLoad,
   getDriverRouteToday,
   scanPackageReturn,
@@ -4034,6 +4042,16 @@ app.get('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.COUNTER_
 app.post('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createBranch);
 app.put('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateBranch);
 app.delete('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBranch);
+// Inventario de activos por sucursal (módulo de control patrimonial).
+// El GET /:id va sin auth porque alimenta el QR pegado al equipo —
+// un supervisor lo escanea con su celular y debe poder ver la ficha
+// sin necesidad de iniciar sesión.
+app.get('/api/admin/branch-assets', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), listAssets);
+app.post('/api/admin/branch-assets', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createAsset);
+app.put('/api/admin/branch-assets/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateAsset);
+app.delete('/api/admin/branch-assets/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteAsset);
+app.post('/api/admin/branch-assets/upload', authenticateToken, requireMinLevel(ROLES.DIRECTOR), uploadAssetFile);
+app.get('/api/branch-assets/:id', getAssetById);
 // Asignación de empleados
 app.post('/api/admin/assign-branch', authenticateToken, requireMinLevel(ROLES.ADMIN), assignWorkerToBranch);
 // Geocerca de sucursales

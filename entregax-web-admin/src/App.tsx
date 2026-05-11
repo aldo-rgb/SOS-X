@@ -46,6 +46,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 // PaymentsIcon removido - Pago Proveedores ahora en Paneles > Admin
 import LoginPage from './pages/LoginPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import AssetDetailPage from './pages/AssetDetailPage';
 import ClientsPage from './pages/ClientsPage';
 // QuotesPage removido - ahora se accede desde PanelsHubPage > Nacional México
 // ConsolidationsPage removido - ahora se accede desde PanelsHubPage > PO Box USA > Salida
@@ -876,6 +877,18 @@ function App() {
           isAuthenticated={isAuthenticated}
           forcePreview={isLocalXPayPreview}
         />
+      </ThemeProvider>
+    );
+  }
+
+  // /asset/:id — ficha pública del activo (QR landing). Va antes del
+  // check de auth para que el QR pegado al equipo se pueda escanear
+  // sin necesidad de iniciar sesión.
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/asset/')) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <AssetDetailPage />
       </ThemeProvider>
     );
   }
