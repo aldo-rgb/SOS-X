@@ -186,6 +186,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   // selección de factura quedaba escondida en step 3.
   const [wizardStep, setWizardStep] = useState<0 | 1 | 2 | 3 | 4>(0);
   const [successModalVisible, setSuccessModalVisible] = useState(false);
+  // lastRequestId quedó sin lectores tras quitar el botón "Subir
+  // comprobante ahora" del modal de éxito; lo dejamos por si más
+  // adelante volvemos a leer el id (ej. para deep-link a Últimos
+  // envíos resaltando la fila recién creada).
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const [lastRequestId, setLastRequestId] = useState<number | null>(null);
   const [lastReferencia, setLastReferencia] = useState<string | null>(null);
   const [lastEmpresas, setLastEmpresas] = useState<Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>>([]);
@@ -2415,17 +2420,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                 </View>
               </ScrollView>
             )}
-            {lastRequestId != null && (
-              <TouchableOpacity
-                style={[styles.successBtn, { backgroundColor: ORANGE, marginBottom: 8 }]}
-                onPress={() => {
-                  setSuccessModalVisible(false);
-                  uploadComprobante(lastRequestId);
-                }}
-              >
-                <Text style={[styles.successBtnText, { color: '#fff' }]}>📎 Subir comprobante ahora</Text>
-              </TouchableOpacity>
-            )}
+            {/* Botón "Subir comprobante ahora" removido — al cerrar el
+                modal e invocar uploadComprobante el picker se quedaba
+                colgado/cerraba la pantalla. El usuario sube su
+                comprobante desde "Últimos envíos" (donde sí funciona)
+                cuando cierra este modal. */}
             {lastReferencia && (
               <TouchableOpacity
                 // El estilo base successBtn tiene fondo naranja; lo
