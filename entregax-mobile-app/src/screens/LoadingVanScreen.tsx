@@ -178,6 +178,62 @@ const normalizeScanCode = (rawCode: string): string => {
   return code;
 };
 
+// Lista compacta de scans recientes (sesi\u00f3n actual). Verde = ok,
+// naranja = duplicado en sesi\u00f3n, rojo = rechazado por backend.
+type ScanRecordView = {
+  id: string;
+  tracking: string;
+  status: 'ok' | 'duplicate' | 'error';
+  message: string;
+  at: number;
+};
+function RecentScansList({ scans, compact }: { scans: ScanRecordView[]; compact?: boolean }) {
+  if (!scans || scans.length === 0) return null;
+  const okCount = scans.filter((s) => s.status === 'ok').length;
+  return (
+    <View style={[styles.recentScansWrap, compact && styles.recentScansWrapCompact]}>
+      <View style={styles.recentScansHeader}>
+        <Text style={styles.recentScansTitle}>📋 Escaneadas en esta sesión</Text>
+        <Text style={styles.recentScansCounter}>{okCount} ok · {scans.length} total</Text>
+      </View>
+      <ScrollView style={{ maxHeight: 260 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+        {scans.map((s) => {
+          const isOk = s.status === 'ok';
+          const isDup = s.status === 'duplicate';
+          const accent = isOk ? '#16A34A' : isDup ? '#F59E0B' : '#DC2626';
+          const soft = isOk ? '#E8F7EE' : isDup ? '#FFF5E0' : '#FDECEC';
+          const iconName: keyof typeof MaterialIcons.glyphMap = isOk
+            ? 'check-circle'
+            : isDup
+            ? 'replay'
+            : 'cancel';
+          const time = new Date(s.at).toLocaleTimeString('es-MX', {
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit',
+          });
+          return (
+            <View key={s.id} style={styles.recentScanItem}>
+              <View style={[styles.recentScanIconWrap, { backgroundColor: soft }]}>
+                <MaterialIcons name={iconName} size={18} color={accent} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.recentScanTracking} numberOfLines={1}>
+                  {s.tracking}
+                </Text>
+                <Text style={styles.recentScanMessage} numberOfLines={1}>
+                  {s.message}
+                </Text>
+              </View>
+              <Text style={styles.recentScanTime}>{time}</Text>
+            </View>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
+
 export default function LoadingVanScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const initialScanMode: ScanMode = route?.params?.scanMode === 'scanner' ? 'scanner' : 'camera';
@@ -195,6 +251,17 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
   const [scanMode, setScanMode] = useState<ScanMode>(initialScanMode);
   const [manualCode, setManualCode] = useState('');
+  // Historial visible de las guías que el chofer escaneó en esta sesión.
+  // Status: 'ok' = aceptado por el backend, 'duplicate' = ya escaneada
+  // localmente en esta misma sesión, 'error' = rechazada por el backend.
+  type ScanRecord = {
+    id: string;
+    tracking: string;
+    status: 'ok' | 'duplicate' | 'error';
+    message: string;
+    at: number;
+  };
+  const [recentScans, setRecentScans] = useState<ScanRecord[]>([]);
   
   const [permission, requestPermission] = useCameraPermissions();
   
@@ -391,6 +458,48 @@ export default function LoadingVanScreen({ navigation, route }: any) {
       return;
     }
 
+    // Detección local de duplicados: si esta guía ya se aceptó (status='ok')
+    // en esta misma sesión, evitamos llamar al backend y avisamos al chofer
+    // con sonido de error + entrada en la lista marcada como duplicada.
+    const alreadyScanned = recentScans.find(
+      (r) => r.tracking === data && r.status === 'ok'
+    );
+    if (alreadyScanned) {
+      Vibration.vibrate([0, 200, 100, 200]);
+      const dupMsg = 'Esta guía ya la escaneaste en esta carga';
+      setRecentScans((prev) => [
+        {
+          id: `${Date.now()}-${data}`,
+          tracking: data,
+          status: 'duplicate',
+          message: dupMsg,
+          at: Date.now(),
+        },
+        ...prev,
+      ].slice(0, 50));
+      showFeedback({
+        type: 'error',
+        message: dupMsg,
+        details: data,
+        scannedCode: data,
+      });
+      setLastScannedCode(data);
+      setTimeout(() => {
+        setIsScanning(false);
+        if (source === 'camera') {
+          setScannerActive(true);
+        } else if (scanMode === 'scanner') {
+          Keyboard.dismiss();
+          manualInputRef.current?.focus();
+        }
+        setLastScannedCode('');
+      }, source === 'camera' ? 1500 : 500);
+      // Cortocircuito: no enviamos al backend ni entramos al try/catch.
+      // (setIsScanning=true ya se aplicará abajo, pero como ya volvimos
+      // aquí, lo manejamos manualmente.)
+      return;
+    }
+
     setIsScanning(true);
     if (source === 'camera') {
       setScannerActive(false);
@@ -425,6 +534,20 @@ export default function LoadingVanScreen({ navigation, route }: any) {
           message: res.data.message || '✅ Paquete cargado',
           details: res.data.package?.trackingNumber,
         });
+
+        // Registrar éxito en la lista visible. Preferimos el tracking que
+        // devolvió el backend (canónico) sobre el escaneado en bruto.
+        const okTracking = res.data.package?.trackingNumber || data;
+        setRecentScans((prev) => [
+          {
+            id: `${Date.now()}-${okTracking}`,
+            tracking: okTracking,
+            status: 'ok',
+            message: res.data.message || 'Paquete cargado',
+            at: Date.now(),
+          },
+          ...prev,
+        ].slice(0, 50));
         
         // Refrescar datos
         loadRouteData();
@@ -435,6 +558,16 @@ export default function LoadingVanScreen({ navigation, route }: any) {
       
       const respData = error?.response?.data;
       const errorMsg = respData?.error || error?.message || 'Error al escanear';
+      setRecentScans((prev) => [
+        {
+          id: `${Date.now()}-${data}`,
+          tracking: data,
+          status: 'error',
+          message: errorMsg,
+          at: Date.now(),
+        },
+        ...prev,
+      ].slice(0, 50));
       showFeedback({
         type: 'error',
         message: errorMsg,
@@ -456,7 +589,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
         setLastScannedCode('');
       }, source === 'camera' ? 1500 : 500);
     }
-  }, [scannerActive, isScanning, lastScannedCode, scannedCount, routeData, token, scanMode]);
+  }, [scannerActive, isScanning, lastScannedCode, scannedCount, routeData, token, scanMode, recentScans]);
 
   const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
     const { data } = result;
@@ -774,6 +907,9 @@ export default function LoadingVanScreen({ navigation, route }: any) {
               <Text style={styles.helperText}>
                 📷 Apunta al código de barras de la caja
               </Text>
+
+              {/* Misma lista de scans recientes que en modo escáner. */}
+              <RecentScansList scans={recentScans} compact />
             </>
           ) : (
             <View style={styles.scannerInputCard}>
@@ -818,6 +954,11 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                   </>
                 )}
               </TouchableOpacity>
+
+              {/* Lista de guías escaneadas en esta sesión. Aparece debajo
+                  del botón Validar y permite ver lo que ya pasó por el
+                  scanner (verde=ok, naranja=duplicado, rojo=error). */}
+              <RecentScansList scans={recentScans} />
             </View>
           )}
         </View>
@@ -1412,12 +1553,10 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   scannerInputCard: {
-    flex: 1,
     backgroundColor: '#fff',
     borderRadius: 14,
     padding: 20,
     alignItems: 'center',
-    justifyContent: 'center',
   },
   scannerInputTitle: {
     fontSize: 22,
@@ -1463,6 +1602,69 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontSize: 15,
     fontWeight: '700',
+  },
+
+  // Recent scans list (sesión)
+  recentScansWrap: {
+    width: '100%',
+    marginTop: 16,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingTop: 10,
+    paddingBottom: 4,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: '#eee',
+  },
+  recentScansWrapCompact: {
+    marginTop: 10,
+    maxHeight: 180,
+  },
+  recentScansHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  recentScansTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#333',
+  },
+  recentScansCounter: {
+    fontSize: 12,
+    color: '#666',
+  },
+  recentScanItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f1f1',
+  },
+  recentScanIconWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  recentScanTracking: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#222',
+  },
+  recentScanMessage: {
+    fontSize: 11,
+    color: '#666',
+    marginTop: 1,
+  },
+  recentScanTime: {
+    fontSize: 10,
+    color: '#999',
+    marginLeft: 8,
   },
   
   // Success Section

@@ -396,6 +396,10 @@ const CajaChicaPage: React.FC = () => {
           reasonNoCount = 'Aún no llega a MTY';
         }
 
+        // Reporte solo muestra guías 'A PAGAR' — se ocultan FALTANTE,
+        // EN TRÁNSITO, PERDIDA y YA PAGADA porque no aplican al pago actual.
+        if (statusLabel !== 'A PAGAR') return;
+
         rows.push({
           consolidacion_id: c.id,
           supplier_name: c.supplier_name,
@@ -433,8 +437,6 @@ const CajaChicaPage: React.FC = () => {
       setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' });
       return;
     }
-    const countableCount = rows.filter(r => r.countsToTotal).length;
-    const nonCountableCount = rows.length - countableCount;
     const fecha = new Date().toLocaleString('es-MX');
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><title>Reporte Pagos Proveedor</title>
@@ -455,7 +457,7 @@ const CajaChicaPage: React.FC = () => {
   .footer { margin-top: 12px; font-size: 9px; color: #999; text-align: center; }
 </style></head><body>
 <h1>🚚 EntregaX · Reporte de Pagos a Proveedores</h1>
-<div class="sub">Generado: ${fecha} · ${selectedCount} consolidación(es) · ${rows.length} guía(s) · ${countableCount} suma(n), ${nonCountableCount} no suma(n) al total</div>
+<div class="sub">Generado: ${fecha} · ${selectedCount} consolidación(es) · ${rows.length} guía(s) a pagar</div>
 <table>
   <thead>
     <tr>
@@ -467,43 +469,28 @@ const CajaChicaPage: React.FC = () => {
       <th class="num">USD</th>
       <th class="num">TC</th>
       <th class="num">MXN</th>
-      <th>Status</th>
     </tr>
   </thead>
   <tbody>
-    ${rows.map(r => {
-      const rowStyle = r.countsToTotal
-        ? ''
-        : r.statusLabel === 'PERDIDA' ? 'background:#ffebee;color:#999;'
-        : r.statusLabel === 'EN TRÁNSITO' ? 'background:#e3f2fd;color:#1565c0;'
-        : 'background:#fff3e0;color:#999;';
-      const tachado = r.statusLabel === 'PERDIDA' ? 'text-decoration:line-through;' : '';
-      const statusColor = r.statusLabel === 'YA PAGADA' ? '#2e7d32'
-        : r.statusLabel === 'EN TRÁNSITO' ? '#1565c0'
-        : r.statusLabel === 'PERDIDA' ? '#c62828'
-        : r.statusLabel === 'FALTANTE' ? '#ef6c00'
-        : '#2e7d32';
-      return `
-      <tr style="${rowStyle}">
+    ${rows.map(r => `
+      <tr>
         <td>#${r.consolidacion_id}</td>
         <td style="font-family:monospace;font-weight:600">${r.client_box_id || '—'}</td>
-        <td style="font-family:monospace;font-weight:600;${tachado}">${r.tracking}</td>
+        <td style="font-family:monospace;font-weight:600">${r.tracking}</td>
         <td class="num center">${r.weight.toFixed(2)}</td>
         <td>${r.dims}</td>
         <td class="num">$${r.usd.toFixed(2)}</td>
         <td class="num">${r.tc.toFixed(2)}</td>
         <td class="num">$${r.mxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-        <td style="color:${statusColor};font-weight:700">${r.statusLabel}</td>
-      </tr>`;
-    }).join('')}
+      </tr>`).join('')}
   </tbody>
 </table>
 <div class="totals">
-  <div>Guías que suman: <strong>${countableCount}</strong> de ${rows.length}</div>
+  <div>Guías a pagar: <strong>${rows.length}</strong></div>
   <div>Total USD: <span class="big">$${totalUsd.toFixed(2)}</span></div>
   <div>Total MXN: <span class="big">$${totalMxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>
 </div>
-<div class="footer">Las guías marcadas como FALTANTE o PERDIDA NO se suman al total de este reporte.</div>
+<div class="footer">Reporte muestra únicamente guías con estado A PAGAR. Las FALTANTE, EN TRÁNSITO, PERDIDA y YA PAGADA quedan fuera de este reporte.</div>
 <script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });</script>
 </body></html>`;
     const w = window.open('', '_blank', 'width=1200,height=800');
@@ -526,7 +513,6 @@ const CajaChicaPage: React.FC = () => {
       setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' });
       return;
     }
-    const countableCount = rows.filter(r => r.countsToTotal).length;
     const fecha = new Date().toLocaleDateString('es-MX');
     const byCons = new Map<number, typeof rows>();
     rows.forEach(r => {
@@ -540,19 +526,15 @@ const CajaChicaPage: React.FC = () => {
       const supplier = items[0]?.supplier_name || '—';
       msg += `*Consolidación #${consId}* — ${supplier}\n`;
       items.forEach(r => {
-        const marker = r.countsToTotal ? '✅'
-          : r.statusLabel === 'PERDIDA' ? '❌'
-          : '⚠️';
-        const suffix = r.countsToTotal ? '' : ` _(${r.statusLabel} — no suma)_`;
-        msg += `${marker} \`${r.tracking}\` · ${r.weight.toFixed(1)}lb · $${r.usd.toFixed(2)} USD · $${r.mxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})} MXN${suffix}\n`;
+        msg += `✅ \`${r.tracking}\` · ${r.weight.toFixed(1)}lb · $${r.usd.toFixed(2)} USD · $${r.mxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})} MXN\n`;
       });
       msg += `\n`;
     });
     msg += `━━━━━━━━━━━━━━━━\n`;
-    msg += `*Guías que suman:* ${countableCount} de ${rows.length}\n`;
+    msg += `*Guías a pagar:* ${rows.length}\n`;
     msg += `*Total USD:* $${totalUsd.toFixed(2)}\n`;
     msg += `*Total MXN:* $${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}\n\n`;
-    msg += `_Las guías faltantes o perdidas NO se suman al total._`;
+    msg += `_Reporte solo incluye guías con estado A PAGAR._`;
     const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank');
   };
