@@ -456,18 +456,23 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         const isPaid = String(pkg.payment_status || '').toLowerCase() === 'paid';
         const carrierLower = String(pkg.national_carrier || '').toLowerCase();
         const isLocalDelivery = carrierLower.includes('entregax') || carrierLower.includes('local') || carrierLower.includes('pick up') || carrierLower.includes('pickup');
-        // Etiqueta IMPRESA requerida siempre — no aceptamos como sustituto que
-        // la guía tenga dirección asignada (instrucciones de entrega), porque
-        // sin etiqueta física en la caja el chofer no sabe a dónde la va a
-        // dejar ni queda evidencia trazable. Esta regla aplica también para
-        // entregas locales/EntregaX: se les genera su manifest/etiqueta.
-        const hasPrintedLabel = Boolean(
+        const hasInstructions = Boolean(pkg.assigned_address_id);
+        // Etiqueta IMPRESA:
+        // - Para paqueterías externas (DHL, Skydropx, Paquete Express, etc.) se
+        //   requiere uno de los campos generados al comprar la guía (URL de
+        //   etiqueta / número de guía nacional / id Skydropx / AWB DHL).
+        // - Para entregas locales (EntregaX Local / Pickup) NO existe una guía
+        //   de courier externo; nuestra propia etiqueta interna se imprime en
+        //   la bodega junto con las instrucciones de entrega. Por tanto, en
+        //   ese flujo la presencia de `assigned_address_id` (instrucciones
+        //   asignadas) implica que la etiqueta interna ya fue generada.
+        const hasExternalLabel = Boolean(
             pkg.national_label_url ||
             pkg.national_tracking ||
             pkg.skydropx_label_id ||
             pkg.dhl_awb
         );
-        const hasInstructions = Boolean(pkg.assigned_address_id);
+        const hasPrintedLabel = hasExternalLabel || (isLocalDelivery && hasInstructions);
 
         if (!isPaid || !hasPrintedLabel) {
             const missing: string[] = [];

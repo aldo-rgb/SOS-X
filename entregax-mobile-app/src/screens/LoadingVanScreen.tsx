@@ -200,6 +200,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   
   // Animaciones
   const feedbackOpacity = useRef(new Animated.Value(0)).current;
+  const feedbackTranslate = useRef(new Animated.Value(40)).current;
   const progressWidth = useRef(new Animated.Value(0)).current;
   const successScale = useRef(new Animated.Value(1)).current;
   
@@ -253,10 +254,36 @@ export default function LoadingVanScreen({ navigation, route }: any) {
 
   const loadSounds = async () => {
     try {
-      // En producción, cargarías archivos de sonido reales
-      // Por ahora, usamos el sistema de vibración como feedback
+      // Permite que los sonidos suenen aun con el iPhone en modo silencio
+      // (modo "playback") y se mezclen con cualquier audio en curso.
+      await Audio.setAudioModeAsync({
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+      const { sound: ok } = await Audio.Sound.createAsync(
+        require('../../assets/sounds/success.wav'),
+        { volume: 1.0 }
+      );
+      successSound.current = ok;
+      const { sound: err } = await Audio.Sound.createAsync(
+        require('../../assets/sounds/error.wav'),
+        { volume: 1.0 }
+      );
+      errorSound.current = err;
     } catch (error) {
-      console.log('Audio no disponible');
+      console.log('Audio no disponible', error);
+    }
+  };
+
+  const playFeedbackSound = async (type: 'success' | 'error' | 'warning') => {
+    try {
+      const ref = type === 'success' ? successSound.current : errorSound.current;
+      if (!ref) return;
+      await ref.setPositionAsync(0);
+      await ref.playAsync();
+    } catch (e) {
+      // silencioso: el sonido es opcional
     }
   };
 
@@ -302,20 +329,38 @@ export default function LoadingVanScreen({ navigation, route }: any) {
 
   const showFeedback = (fb: FeedbackMessage) => {
     setFeedback(fb);
+    // Sonido: éxito (afirmación) vs error/warning (rechazo)
+    playFeedbackSound(fb.type);
     // Errores y advertencias permanecen visibles más tiempo para poder tocarlos
     const dismissDelay = fb.type === 'success' ? 2500 : 6000;
+    feedbackTranslate.setValue(40);
     Animated.sequence([
-      Animated.timing(feedbackOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
+      Animated.parallel([
+        Animated.timing(feedbackOpacity, {
+          toValue: 1,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+        Animated.spring(feedbackTranslate, {
+          toValue: 0,
+          friction: 7,
+          tension: 80,
+          useNativeDriver: true,
+        }),
+      ]),
       Animated.delay(dismissDelay),
-      Animated.timing(feedbackOpacity, {
-        toValue: 0,
-        duration: 300,
-        useNativeDriver: true,
-      }),
+      Animated.parallel([
+        Animated.timing(feedbackOpacity, {
+          toValue: 0,
+          duration: 280,
+          useNativeDriver: true,
+        }),
+        Animated.timing(feedbackTranslate, {
+          toValue: 40,
+          duration: 280,
+          useNativeDriver: true,
+        }),
+      ]),
     ]).start(() => setFeedback(null));
   };
 
@@ -794,43 +839,100 @@ export default function LoadingVanScreen({ navigation, route }: any) {
       )}
 
       {/* Feedback Message */}
-      {feedback && (
-        <Animated.View 
-          style={[
-            styles.feedbackBox,
-            feedback.type === 'error' && styles.feedbackError,
-            feedback.type === 'success' && styles.feedbackSuccess,
-            feedback.type === 'warning' && styles.feedbackWarning,
-            { opacity: feedbackOpacity }
-          ]}
-        >
-          <TouchableOpacity
-            activeOpacity={feedback.type === 'error' || feedback.type === 'warning' ? 0.7 : 1}
-            disabled={feedback.type === 'success'}
-            onPress={() => {
-              if (feedback.type === 'error' || feedback.type === 'warning') {
-                setErrorDetail(feedback);
-              }
-            }}
-            style={styles.feedbackTouchable}
+      {feedback && (() => {
+        const isErr = feedback.type === 'error';
+        const isWarn = feedback.type === 'warning';
+        const isOk = feedback.type === 'success';
+        const accent = isOk ? '#16A34A' : isErr ? '#DC2626' : '#F59E0B';
+        const accentSoft = isOk ? '#E8F7EE' : isErr ? '#FDECEC' : '#FFF5E0';
+        const iconName: keyof typeof MaterialIcons.glyphMap = isOk ? 'check-circle' : isErr ? 'cancel' : 'warning-amber';
+        const titleText = isOk ? '¡Cargado!' : isErr ? 'No se puede cargar' : 'Atención';
+        const cleanMessage = String(feedback.message || '').replace(/[⚠️✅❌📦⛔ℹ️🎉]/g, '').trim();
+        const e = feedback.errorData || {};
+        const hasPills = typeof e.isPaid === 'boolean'
+          || typeof e.hasPrintedLabel === 'boolean'
+          || typeof e.hasInstructions === 'boolean';
+        return (
+          <Animated.View
+            pointerEvents="box-none"
+            style={[
+              styles.feedbackBox,
+              {
+                opacity: feedbackOpacity,
+                transform: [{ translateY: feedbackTranslate }],
+              },
+            ]}
           >
-            <MaterialIcons 
-              name={feedback.type === 'success' ? 'check-circle' : feedback.type === 'error' ? 'error' : 'warning'} 
-              size={24} 
-              color="#fff" 
-            />
-            <View style={styles.feedbackContent}>
-              <Text style={styles.feedbackText}>{feedback.message}</Text>
-              {feedback.details ? (
-                <Text style={styles.feedbackDetails}>{feedback.details}</Text>
-              ) : null}
-              {(feedback.type === 'error' || feedback.type === 'warning') ? (
-                <Text style={styles.feedbackHint}>Toca para ver detalles ▸</Text>
-              ) : null}
-            </View>
-          </TouchableOpacity>
-        </Animated.View>
-      )}
+            <TouchableOpacity
+              activeOpacity={isOk ? 1 : 0.85}
+              disabled={isOk}
+              onPress={() => {
+                if (!isOk) setErrorDetail(feedback);
+              }}
+              style={styles.feedbackCard}
+            >
+              {/* Barra de color a la izquierda */}
+              <View style={[styles.feedbackAccentBar, { backgroundColor: accent }]} />
+
+              <View style={styles.feedbackCardInner}>
+                {/* Header: icono circular + título + estado */}
+                <View style={styles.feedbackHeaderRow}>
+                  <View style={[styles.feedbackIconCircle, { backgroundColor: accentSoft }]}>
+                    <MaterialIcons name={iconName} size={22} color={accent} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.feedbackTitle}>{titleText}</Text>
+                    {feedback.scannedCode || feedback.details ? (
+                      <Text style={styles.feedbackTracking} numberOfLines={1}>
+                        {feedback.scannedCode || feedback.details}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+
+                {/* Motivo */}
+                {cleanMessage ? (
+                  <Text style={styles.feedbackReason} numberOfLines={3}>
+                    {cleanMessage}
+                  </Text>
+                ) : null}
+
+                {/* Pills de estado (sólo si el backend mandó banderas) */}
+                {hasPills ? (
+                  <View style={styles.feedbackPillsRow}>
+                    {typeof e.isPaid === 'boolean' ? (
+                      <View style={[styles.feedbackPill, e.isPaid ? styles.feedbackPillOk : styles.feedbackPillFail]}>
+                        <MaterialIcons name={e.isPaid ? 'check-circle' : 'cancel'} size={14} color={e.isPaid ? '#16A34A' : '#DC2626'} />
+                        <Text style={[styles.feedbackPillText, { color: e.isPaid ? '#16A34A' : '#DC2626' }]}>Pago</Text>
+                      </View>
+                    ) : null}
+                    {typeof e.hasPrintedLabel === 'boolean' ? (
+                      <View style={[styles.feedbackPill, e.hasPrintedLabel ? styles.feedbackPillOk : styles.feedbackPillFail]}>
+                        <MaterialIcons name={e.hasPrintedLabel ? 'check-circle' : 'cancel'} size={14} color={e.hasPrintedLabel ? '#16A34A' : '#DC2626'} />
+                        <Text style={[styles.feedbackPillText, { color: e.hasPrintedLabel ? '#16A34A' : '#DC2626' }]}>Etiqueta</Text>
+                      </View>
+                    ) : null}
+                    {typeof e.hasInstructions === 'boolean' ? (
+                      <View style={[styles.feedbackPill, e.hasInstructions ? styles.feedbackPillOk : styles.feedbackPillFail]}>
+                        <MaterialIcons name={e.hasInstructions ? 'check-circle' : 'cancel'} size={14} color={e.hasInstructions ? '#16A34A' : '#DC2626'} />
+                        <Text style={[styles.feedbackPillText, { color: e.hasInstructions ? '#16A34A' : '#DC2626' }]}>Instrucciones</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                ) : null}
+
+                {/* CTA inferior */}
+                {!isOk ? (
+                  <View style={styles.feedbackCtaRow}>
+                    <Text style={[styles.feedbackCtaText, { color: accent }]}>Toca para ver detalles</Text>
+                    <MaterialIcons name="chevron-right" size={18} color={accent} />
+                  </View>
+                ) : null}
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        );
+      })()}
 
       {/* Modal: Detalle del Error */}
       <Modal
@@ -1405,53 +1507,100 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   
-  // Feedback
+  // Feedback (toast premium tipo card)
   feedbackBox: {
     position: 'absolute',
     bottom: 100,
-    left: 20,
-    right: 20,
-    borderRadius: 10,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    left: 16,
+    right: 16,
   },
-  feedbackTouchable: {
+  feedbackCard: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    overflow: 'hidden',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 14,
+  },
+  feedbackAccentBar: {
+    width: 5,
+  },
+  feedbackCardInner: {
+    flex: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+  feedbackHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 15,
+    gap: 12,
   },
-  feedbackSuccess: {
-    backgroundColor: '#4CAF50',
+  feedbackIconCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  feedbackError: {
-    backgroundColor: '#F44336',
+  feedbackTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#111',
+    letterSpacing: 0.2,
   },
-  feedbackWarning: {
-    backgroundColor: '#FF9800',
-  },
-  feedbackContent: {
-    flex: 1,
-    marginLeft: 10,
-  },
-  feedbackText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  feedbackDetails: {
-    color: 'rgba(255,255,255,0.8)',
+  feedbackTracking: {
     fontSize: 12,
-    marginTop: 2,
-  },
-  feedbackHint: {
-    color: 'rgba(255,255,255,0.95)',
-    fontSize: 12,
-    marginTop: 6,
     fontWeight: '600',
-    textDecorationLine: 'underline',
+    color: '#6B7280',
+    marginTop: 1,
+    fontVariant: ['tabular-nums'],
+  },
+  feedbackReason: {
+    marginTop: 10,
+    fontSize: 13.5,
+    lineHeight: 19,
+    color: '#374151',
+  },
+  feedbackPillsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 10,
+  },
+  feedbackPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  feedbackPillOk: {
+    backgroundColor: '#E8F7EE',
+    borderColor: '#BBE5C7',
+  },
+  feedbackPillFail: {
+    backgroundColor: '#FDECEC',
+    borderColor: '#F5C2C2',
+  },
+  feedbackPillText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  feedbackCtaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 10,
+  },
+  feedbackCtaText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
 
   // Error detail modal
