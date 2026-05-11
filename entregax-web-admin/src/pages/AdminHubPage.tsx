@@ -1650,8 +1650,10 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 </Grid>
                 )}
 
-                {/* Tarjeta especial: Gestión de Sucursales - VERDE */}
-                {isSuperAdmin && (
+                {/* Tarjeta especial: Gestión de Sucursales — visible para
+                    super_admin o cualquier usuario con permiso explícito
+                    al panel admin_branches (antes solo super_admin). */}
+                {hasPermission('admin_branches') && (
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
