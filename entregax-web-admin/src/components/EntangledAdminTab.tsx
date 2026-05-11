@@ -108,6 +108,7 @@ export default function EntangledAdminTab() {
                 <TableCell>Divisa</TableCell>
                 <TableCell align="right">Util. XPAY (MXN)</TableCell>
                 <TableCell>Global</TableCell>
+                <TableCell align="center">Procesando</TableCell>
                 <TableCell>Factura</TableCell>
                 <TableCell>Proveedor</TableCell>
                 <TableCell>ID transacción</TableCell>
@@ -169,6 +170,37 @@ export default function EntangledAdminTab() {
                     )}
                   </TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_global)} label={r.estatus_global || '-'} /></TableCell>
+                  {/* Días procesando: empieza al recibir el comprobante del
+                      cliente, deja de contar cuando AMBOS factura_emitida_at
+                      y proveedor_pagado_at están registrados. */}
+                  <TableCell align="center">
+                    {(() => {
+                      const start = r.comprobante_subido_at ? new Date(r.comprobante_subido_at) : null;
+                      if (!start) return <Typography variant="caption" color="text.disabled">—</Typography>;
+                      const facturaAt = (r as any).factura_emitida_at ? new Date((r as any).factura_emitida_at) : null;
+                      const pagoAt = (r as any).proveedor_pagado_at ? new Date((r as any).proveedor_pagado_at) : null;
+                      const completo = !!facturaAt && !!pagoAt;
+                      const endTs = completo
+                        ? Math.max(facturaAt!.getTime(), pagoAt!.getTime())
+                        : Date.now();
+                      const elapsedMs = Math.max(0, endTs - start.getTime());
+                      const days = Math.floor(elapsedMs / 86_400_000);
+                      const hours = Math.floor((elapsedMs % 86_400_000) / 3_600_000);
+                      const mins = Math.floor((elapsedMs % 3_600_000) / 60_000);
+                      const label = days > 0
+                        ? `${days}d ${hours}h`
+                        : hours > 0 ? `${hours}h ${mins}m` : `${mins}m`;
+                      return (
+                        <Chip
+                          size="small"
+                          label={label}
+                          color={completo ? 'success' : days >= 2 ? 'error' : days >= 1 ? 'warning' : 'default'}
+                          variant={completo ? 'filled' : 'outlined'}
+                          sx={{ fontFamily: 'monospace', fontWeight: 700 }}
+                        />
+                      );
+                    })()}
+                  </TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_factura)} label={r.estatus_factura || '-'} /></TableCell>
                   <TableCell><Chip size="small" color={statusColor(r.estatus_proveedor)} label={r.estatus_proveedor || '-'} /></TableCell>
                   <TableCell>
@@ -211,7 +243,7 @@ export default function EntangledAdminTab() {
               })}
               {rows.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={14} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">Sin solicitudes registradas</Typography>
                   </TableCell>
                 </TableRow>

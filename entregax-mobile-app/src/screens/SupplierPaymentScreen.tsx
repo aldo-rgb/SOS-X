@@ -225,12 +225,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   // Comprobante upload + live chronometer
   const [uploadingId, setUploadingId] = useState<number | null>(null);
   const [uploadSuccessModal, setUploadSuccessModal] = useState<{ visible: boolean; referencia: string }>({ visible: false, referencia: '' });
-  const [now, setNow] = useState(() => new Date());
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  useEffect(() => {
-    tickRef.current = setInterval(() => setNow(new Date()), 1000);
-    return () => { if (tickRef.current) clearInterval(tickRef.current); };
-  }, []);
+  // Tick de 1s eliminado — sólo lo usaba formatElapsed para el
+  // cronómetro verde "Procesando..." que ya quitamos.
 
   // Dashboard state
   const [viewMode, setViewMode] = useState<'dashboard' | 'wizard'>('dashboard');
@@ -1136,17 +1132,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     setUploadingId(null);
   };
 
-  const formatElapsed = (fromIso: string) => {
-    const from = parseApiDate(fromIso) || new Date();
-    const secs = Math.floor((now.getTime() - from.getTime()) / 1000);
-    const d = Math.floor(secs / 86400);
-    const h = Math.floor((secs % 86400) / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = secs % 60;
-    if (d > 0) return `${d}d ${h}h ${m}m`;
-    if (h > 0) return `${h}h ${m}m ${s}s`;
-    return `${m}m ${s}s`;
-  };
+  // formatElapsed eliminado — el cronómetro "Procesando: Xd Xh" se
+  // movió al panel admin web (decisión de producto).
 
   // ── RENDER ──────────────────────────────────────────────────────────────────
 
@@ -1391,14 +1378,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                     </Text>
                   </View>
                 )}
-                {r.comprobante_subido_at && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 6, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: 'rgba(74,222,128,0.08)', alignSelf: 'flex-start', borderWidth: 1, borderColor: 'rgba(74,222,128,0.25)' }}>
-                    <Ionicons name="stopwatch-outline" size={11} color="#4ade80" />
-                    <Text style={{ color: '#4ade80', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>
-                      Procesando: {formatElapsed(r.comprobante_subido_at)}
-                    </Text>
-                  </View>
-                )}
+                {/* Cliente pidió quitar el cronómetro verde "Procesando: Xd Xh"
+                    de las cards mobile — los días transcurridos viven en el
+                    panel admin web, no aquí. */}
 
                 <View style={{ flexDirection: 'row', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
                   <View style={[styles.statusPill, { borderColor: `${statusColor(r.estatus_factura)}60` }]}>
