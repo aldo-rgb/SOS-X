@@ -469,10 +469,24 @@ const CajaChicaPage: React.FC = () => {
       <th class="num">USD</th>
       <th class="num">TC</th>
       <th class="num">MXN</th>
+      <th>Último Status</th>
     </tr>
   </thead>
   <tbody>
-    ${rows.map(r => `
+    ${rows.map(r => {
+      // Mapeo de status técnico de DB a etiqueta legible para el reporte.
+      const statusMap: Record<string, string> = {
+        'received': 'Recibido (USA)',
+        'received_china': 'Recibido (China)',
+        'received_mty': 'En MTY',
+        'received_cdmx': 'En CDMX',
+        'in_transit': 'En tránsito',
+        'out_for_delivery': 'En reparto',
+        'delivered': 'Entregado',
+        'returned_to_warehouse': 'Regresó a bodega',
+      };
+      const lastStatus = statusMap[r.status] || r.status || '—';
+      return `
       <tr>
         <td>#${r.consolidacion_id}</td>
         <td style="font-family:monospace;font-weight:600">${r.client_box_id || '—'}</td>
@@ -482,7 +496,9 @@ const CajaChicaPage: React.FC = () => {
         <td class="num">$${r.usd.toFixed(2)}</td>
         <td class="num">${r.tc.toFixed(2)}</td>
         <td class="num">$${r.mxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-      </tr>`).join('')}
+        <td style="color:#2e7d32;font-weight:600">${lastStatus}</td>
+      </tr>`;
+    }).join('')}
   </tbody>
 </table>
 <div class="totals">

@@ -232,10 +232,11 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                         COALESCE(p.is_lost, FALSE) AS is_lost,
                         COALESCE(p.is_master, FALSE) AS is_master,
                         COALESCE(p.total_boxes, 1) AS total_boxes,
-                        u.full_name as client_name,
-                        u.box_id as client_box_id
+                        COALESCE(u.full_name, lc.full_name) as client_name,
+                        COALESCE(u.box_id, p.box_id, lc.box_id) as client_box_id
                     FROM packages p
                     LEFT JOIN users u ON p.user_id = u.id
+                    LEFT JOIN legacy_clients lc ON UPPER(lc.box_id) = UPPER(p.box_id)
                     WHERE p.consolidation_id = $1 
                     AND p.supplier_id = $2
                     AND NOT (COALESCE(p.is_master, FALSE) = TRUE AND COALESCE(p.total_boxes, 1) > 1)
@@ -302,10 +303,11 @@ export const getSupplierConsolidations = async (req: Request, res: Response): Pr
                         p.pobox_cost_usd,
                         p.costing_paid,
                         p.received_at,
-                        u.full_name as client_name,
-                        u.box_id as client_box_id
+                        COALESCE(u.full_name, lc.full_name) as client_name,
+                        COALESCE(u.box_id, p.box_id, lc.box_id) as client_box_id
                     FROM packages p
                     LEFT JOIN users u ON p.user_id = u.id
+                    LEFT JOIN legacy_clients lc ON UPPER(lc.box_id) = UPPER(p.box_id)
                     WHERE p.consolidation_id = $1 AND p.supplier_id = $2
                     ORDER BY p.tracking_internal
                 `, [consolidation.id, id]);
