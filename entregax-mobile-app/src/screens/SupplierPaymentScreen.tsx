@@ -275,6 +275,65 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     setConceptos(next);
   };
 
+  const removeClave = (clave: string) => {
+    const list = conceptos.split(',').map(s => s.trim()).filter(Boolean);
+    const next = list.filter(c => c.split('|')[0].trim() !== clave);
+    setConceptos(next.join(', '));
+  };
+
+  const addClaveFromSearch = (opt: { clave_prodserv: string; descripcion: string }) => {
+    const existing = conceptos.split(',').map(s => s.trim().split('|')[0].trim()).filter(Boolean);
+    if (existing.includes(opt.clave_prodserv)) return;
+    // Guardamos clave|descripcion para que el chip muestre la descripción
+    // aunque aún no haya pasado por la validación de /asignacion.
+    const piece = `${opt.clave_prodserv}|${opt.descripcion}`;
+    setConceptos(existing.length ? `${conceptos}, ${piece}` : piece);
+  };
+
+  // Autocomplete del catálogo SAT (mismo flujo que web: input de
+  // texto + dropdown debounced contra /api/entangled/conceptos/search).
+  type ConceptoOption = { clave_prodserv: string; descripcion: string };
+  const [conceptoSearchInput, setConceptoSearchInput] = useState('');
+  const [conceptoOptions, setConceptoOptions] = useState<ConceptoOption[]>([]);
+  const [conceptoSearching, setConceptoSearching] = useState(false);
+  const [conceptoSearchError, setConceptoSearchError] = useState<string | null>(null);
+  useEffect(() => {
+    const q = conceptoSearchInput.trim();
+    // Si está vacío o el usuario ya escribió un código numérico completo,
+    // no buscamos en catálogo (probablemente lo va a pegar como texto).
+    if (q.length < 2 || /^\d{6,10}$/.test(q)) {
+      setConceptoOptions([]);
+      setConceptoSearching(false);
+      setConceptoSearchError(null);
+      return;
+    }
+    setConceptoSearching(true);
+    setConceptoSearchError(null);
+    const handle = setTimeout(async () => {
+      try {
+        const r = await fetch(
+          `${API_URL}/api/entangled/conceptos/search?q=${encodeURIComponent(q)}&limit=10`,
+          { headers: authHeaders }
+        );
+        const data = await r.json();
+        const list: ConceptoOption[] = Array.isArray(data?.results)
+          ? data.results.map((x: any) => ({
+              clave_prodserv: String(x.clave_prodserv),
+              descripcion: String(x.descripcion || ''),
+            }))
+          : [];
+        setConceptoOptions(list);
+      } catch (e: any) {
+        setConceptoOptions([]);
+        setConceptoSearchError('No se pudo buscar el concepto');
+      } finally {
+        setConceptoSearching(false);
+      }
+    }, 400);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conceptoSearchInput, token]);
+
   // Validación + ASIGNACIÓN de claves SAT contra ENTANGLED (debounced).
   //
   // ⚠️ ANTES llamábamos a /api/entangled/conceptos/search (catálogo SAT
@@ -692,73 +751,293 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       const referencia = override?.referencia || lastReferencia;
       const empresas = override?.empresas || lastEmpresas;
       if (!referencia) return;
-      const totalAmount = empresas.reduce((sum, e) => sum + (Number(e.monto) || 0), 0);
-      const empresasHtml = empresas.map((emp) => {
+
+      const esc = (s: any) => String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+      const fmt = (n: number, d = 2) => Number(n || 0).toLocaleString('es-MX', {
+        minimumFractionDigits: d, maximumFractionDigits: d,
+      });
+
+      // Snapshot del formulario actual (no se manda con override —
+      // sólo está disponible cuando se llama justo tras crear la
+      // solicitud, no desde "Últimos envíos").
+      const hasFormSnapshot = !override;
+      const opSnap = hasFormSnapshot ? {
+        requiereFactura,
+        divisa,
+        monto: parseFloat(monto) || 0,
+        razon, rfc,
+        tcFinal: quote?.tipo_cambio || 0,
+        comision: quote?.monto_mxn_comision || 0,
+        total: quote?.monto_mxn_total || 0,
+      } : null;
+      const benefSnap = hasFormSnapshot ? {
+        nombre: benefName,
+        nombreChino: benefNameZh,
+        banco: benefBankName,
+        cuenta: benefAccount,
+        iban: benefIban,
+        swift: benefSwift,
+        aba: benefAba,
+      } : null;
+
+      // URL absoluta del logo (Print necesita URLs externas o data:).
+      // Servido desde entregax.app/public — los mismos PNG que usa el web admin.
+      const baseUrl = 'https://entregax.app';
+      const logoXpay = `${baseUrl}/logo-completo-xpay-t.png`;
+      const logoSquare = `${baseUrl}/logo-xpay-square.png`;
+
+      const detalleRows: string[] = [];
+      if (opSnap) {
+        detalleRows.push(`<tr><td class="lbl">Servicio</td><td>${opSnap.requiereFactura ? 'Pago con factura' : 'Pago sin factura'}</td></tr>`);
+        detalleRows.push(`<tr><td class="lbl">Divisa destino</td><td>${esc(opSnap.divisa)}</td></tr>`);
+        detalleRows.push(`<tr><td class="lbl">Monto al proveedor</td><td><b>$${fmt(opSnap.monto)} ${esc(opSnap.divisa)}</b></td></tr>`);
+        if (opSnap.requiereFactura && opSnap.razon) {
+          detalleRows.push(`<tr><td class="lbl">Razón social</td><td>${esc(opSnap.razon)}</td></tr>`);
+        }
+        if (opSnap.requiereFactura && opSnap.rfc) {
+          detalleRows.push(`<tr><td class="lbl">RFC</td><td class="mono">${esc(opSnap.rfc)}</td></tr>`);
+        }
+        if (opSnap.tcFinal > 0) {
+          detalleRows.push(`<tr><td class="lbl">Tipo de cambio</td><td>$${fmt(opSnap.tcFinal, 4)} MXN / ${esc(opSnap.divisa)}</td></tr>`);
+        }
+        if (opSnap.comision > 0) {
+          detalleRows.push(`<tr><td class="lbl">Comisión</td><td>$${fmt(opSnap.comision)} MXN</td></tr>`);
+        }
+      }
+
+      const totalBar = opSnap && opSnap.total > 0 ? `
+        <div class="total-bar">
+          <div class="total-bar-left">
+            <div class="total-label">TOTAL A PAGAR</div>
+            <div class="total-sub">Importe a transferir desde la cuenta del cliente.</div>
+          </div>
+          <div class="total-amount">$${fmt(opSnap.total)} MXN</div>
+        </div>
+      ` : '';
+
+      const depositarRows = empresas.length > 0 ? empresas.map((emp) => {
         const cb: any = emp.cuenta_bancaria || {};
         const banco = cb.banco || cb.bank || '';
         const titular = cb.titular || cb.holder || emp.empresa || '';
         const cuenta = cb.cuenta || cb.account || cb.numero_cuenta || '';
         const clabe = cb.clabe || cb.CLABE || '';
         const sucursal = cb.sucursal || cb.branch || '';
-        return `
-          <div class="emp">
-            ${emp.clave_prodserv ? `<div class="muted">SAT <b>${emp.clave_prodserv}</b>${emp.monto != null ? ` · ${Number(emp.monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${emp.divisa || ''}` : ''}</div>` : ''}
-            ${banco ? `<div><span class="lbl">Banco:</span> <b>${banco}</b></div>` : ''}
-            ${titular ? `<div><span class="lbl">Titular:</span> <b>${titular}</b></div>` : ''}
-            ${cuenta ? `<div><span class="lbl">Cuenta:</span> <b>${cuenta}</b></div>` : ''}
-            ${clabe ? `<div><span class="lbl">CLABE:</span> <b>${clabe}</b></div>` : ''}
-            ${sucursal ? `<div><span class="lbl">Sucursal:</span> ${sucursal}</div>` : ''}
-          </div>
-        `;
-      }).join('');
+        const moneda = cb.moneda || cb.currency || '';
+        const rows: string[] = [];
+        if (titular) rows.push(`<tr><td class="lbl">Empresa receptora</td><td><b>${esc(titular)}</b></td></tr>`);
+        if (banco) rows.push(`<tr><td class="lbl">Banco</td><td>${esc(banco)}${moneda ? ` (${esc(moneda)})` : ''}</td></tr>`);
+        if (clabe) rows.push(`<tr><td class="lbl">CLABE</td><td class="mono">${esc(clabe)}</td></tr>`);
+        if (cuenta) rows.push(`<tr><td class="lbl">Cuenta</td><td class="mono">${esc(cuenta)}</td></tr>`);
+        if (sucursal) rows.push(`<tr><td class="lbl">Sucursal</td><td>${esc(sucursal)}</td></tr>`);
+        if (emp.clave_prodserv) rows.push(`<tr><td class="lbl">Clave(s) SAT</td><td class="mono">${esc(emp.clave_prodserv)}</td></tr>`);
+        return rows.join('');
+      }).join('<tr><td colspan="2" style="height:6px;border:0;"></td></tr>') : '';
 
-      const html = `
-        <!DOCTYPE html>
-        <html><head><meta charset="utf-8" />
-        <style>
-          * { box-sizing: border-box; }
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', sans-serif; color: #111827; padding: 24px; margin: 0; }
-          .header { background: #0a0a0a; color: #fff; padding: 18px 24px; border-bottom: 4px solid #F05A28; margin: -24px -24px 18px -24px; }
-          .header .title { font-size: 22px; font-weight: 800; letter-spacing: 1px; }
-          .header .title .x { color: #F05A28; }
-          .header .sub { font-size: 11px; color: #b3b3b3; margin-top: 4px; letter-spacing: 0.6px; }
-          .ref-card { border: 1.5px solid #F05A28; border-left: 5px solid #F05A28; border-radius: 8px; padding: 14px 18px; margin: 0 0 18px 0; background: #fff; }
-          .ref-card .ref-label { font-size: 10px; color: #6B7280; font-weight: 700; letter-spacing: 1px; }
-          .ref-card .ref-code { font-family: 'Courier New', monospace; font-weight: 800; font-size: 22px; color: #0a0a0a; margin-top: 4px; }
-          .ref-card .total { font-size: 14px; color: #0a0a0a; margin-top: 6px; }
-          h2 { color: #F05A28; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; margin: 18px 0 10px 0; }
-          .emp { border: 1px solid #e5e7eb; border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; background: #fafafa; font-size: 12px; line-height: 1.6; }
-          .emp .lbl { color: #6B7280; }
-          .emp .muted { color: #6B7280; font-size: 11px; margin-bottom: 4px; }
-          .warn { background: #fff8e1; border: 1px solid #ffc107; border-radius: 6px; padding: 10px 12px; font-size: 12px; color: #5d4037; margin-top: 14px; }
-          .footer { margin-top: 24px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #6B7280; text-align: center; }
-        </style></head>
-        <body>
-          <div class="header">
-            <div class="title">Entrega<span class="x">X</span> · X-PAY</div>
-            <div class="sub">INSTRUCCIONES DE PAGO · Confirmación de solicitud de triangulación internacional</div>
-          </div>
+      const benefRows: string[] = [];
+      if (benefSnap?.nombre) {
+        benefRows.push(`<tr><td class="lbl">Nombre</td><td><b>${esc(benefSnap.nombre)}</b></td></tr>`);
+        if (benefSnap.nombreChino) benefRows.push(`<tr><td class="lbl">Nombre (chino)</td><td>${esc(benefSnap.nombreChino)}</td></tr>`);
+        if (benefSnap.banco) benefRows.push(`<tr><td class="lbl">Banco</td><td>${esc(benefSnap.banco)}</td></tr>`);
+        if (benefSnap.cuenta) benefRows.push(`<tr><td class="lbl">Cuenta</td><td class="mono">${esc(benefSnap.cuenta)}</td></tr>`);
+        if (benefSnap.iban) benefRows.push(`<tr><td class="lbl">IBAN</td><td class="mono">${esc(benefSnap.iban)}</td></tr>`);
+        if (benefSnap.swift) benefRows.push(`<tr><td class="lbl">SWIFT/BIC</td><td class="mono">${esc(benefSnap.swift)}</td></tr>`);
+        if (benefSnap.aba) benefRows.push(`<tr><td class="lbl">ABA</td><td class="mono">${esc(benefSnap.aba)}</td></tr>`);
+      }
 
-          <div class="ref-card">
-            <div class="ref-label">REFERENCIA DE PAGO</div>
-            <div class="ref-code">${referencia}</div>
-            ${totalAmount > 0 ? `<div class="total">Total a depositar: <b>${totalAmount.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</b></div>` : ''}
-            <div class="total" style="font-size:12px;color:#6B7280;margin-top:4px;">Emitido: ${new Date().toLocaleString('es-MX')}</div>
-          </div>
+      // Template HTML que replica el PDF corporativo del web
+      // (EntangledPaymentRequest.tsx:1216 generateInstructionsPDF).
+      const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8" />
+<style>
+  @page { margin: 36px 32px; size: letter; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    color: #111827; margin: 0; padding: 0; font-size: 11px;
+    position: relative;
+  }
+  /* Watermark X-PAY rotado */
+  .watermark {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(-50%, -50%) rotate(-30deg);
+    font-size: 160px; font-weight: 900; color: rgba(10,10,10,0.04);
+    letter-spacing: 8px; z-index: -1; pointer-events: none;
+    white-space: nowrap;
+  }
+  /* HEADER negro con logo + trust seal */
+  .header {
+    background: #0a0a0a; color: #fff; padding: 14px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 3px solid #F05A28;
+  }
+  .header .logo { display: flex; align-items: center; gap: 16px; }
+  .header .logo img { height: 36px; }
+  .header .logo .title-block { line-height: 1.3; }
+  .header .logo .eyebrow { font-size: 7px; color: #b3b3b3; letter-spacing: 1.5px; font-weight: 600; }
+  .header .logo .title { font-size: 10px; color: #fff; font-weight: 700; }
+  .header .meta { text-align: right; }
+  .trust-seal {
+    display: inline-block; border: 1px solid #fff; color: #fff;
+    padding: 3px 10px; border-radius: 12px; font-size: 6.5px;
+    letter-spacing: 1.5px; font-weight: 700;
+  }
+  .header .meta .emitido { color: #aaa; font-size: 7px; margin-top: 5px; }
+  .container { padding: 18px 24px; }
 
-          <h2>💳 Depositar / Transferir a</h2>
-          ${empresasHtml || '<div class="emp">Sin información bancaria disponible.</div>'}
+  /* REFERENCIA DE PAGO card */
+  .ref {
+    border: 1.5px solid #F05A28; border-left: 5px solid #F05A28;
+    border-radius: 8px; padding: 14px 18px; background: #fff;
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .ref .ref-info .ref-label {
+    font-size: 8px; color: #6B7280; font-weight: 700; letter-spacing: 1.5px;
+  }
+  .ref .ref-info .ref-code {
+    font-family: 'Courier New', Courier, monospace; font-weight: 900;
+    font-size: 26px; color: #F05A28; margin-top: 4px; letter-spacing: 1px;
+  }
+  .ref .ref-info .ref-help {
+    font-size: 8px; color: #6B7280; margin-top: 6px; line-height: 1.5;
+  }
+  .ref .ref-logo { display: flex; align-items: center; }
+  .ref .ref-logo img { height: 56px; width: 56px; object-fit: contain; }
 
-          <div class="warn">
-            ⚠ Incluye la referencia <b>${referencia}</b> en el concepto de tu transferencia para que podamos identificarla.
-          </div>
+  /* Panel header (label naranja con barrita) */
+  .panel-title {
+    font-size: 8px; color: #F05A28; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 1.5px;
+    margin: 14px 0 0 0; padding-bottom: 3px;
+    border-bottom: 1.2px solid #F05A28; display: inline-block;
+  }
+  .panel {
+    border: 0.6px solid #E5E7EB; border-radius: 4px;
+    padding: 8px 10px; margin-top: 6px; margin-bottom: 4px;
+  }
+  table.panel-table {
+    width: 100%; border-collapse: collapse;
+  }
+  table.panel-table td {
+    padding: 5px 0; vertical-align: top; font-size: 10px;
+    border-bottom: 0.3px solid #E5E7EB;
+  }
+  table.panel-table tr:last-child td { border-bottom: 0; }
+  table.panel-table td.lbl { color: #6B7280; width: 35%; font-size: 9.5px; }
+  table.panel-table td.mono { font-family: 'Courier New', Courier, monospace; }
 
-          <div class="footer">
-            Una vez realizada la transferencia, sube tu comprobante desde "Últimos envíos" para procesar la solicitud.<br />
-            EntregaX Paquetería · X-PAY · Triangulación SAT
-          </div>
-        </body></html>
-      `;
+  /* TOTAL A PAGAR barra negra */
+  .total-bar {
+    background: #0a0a0a; color: #fff;
+    border-left: 4px solid #F05A28;
+    border-radius: 4px; padding: 10px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    margin: 12px 0;
+  }
+  .total-bar .total-label {
+    font-size: 8px; color: #b3b3b3; letter-spacing: 1px; font-weight: 600;
+  }
+  .total-bar .total-sub {
+    font-size: 7.5px; color: #8a8a8a; margin-top: 2px;
+  }
+  .total-bar .total-amount {
+    font-size: 20px; font-weight: 900; color: #F05A28;
+  }
+
+  /* Aviso importante */
+  .important {
+    background: #FFFBEB; border: 1px solid #F59E0B; border-radius: 4px;
+    padding: 10px 14px; margin-top: 14px;
+  }
+  .important .imp-title {
+    font-size: 8.5px; font-weight: 700; color: #92400E; letter-spacing: 1px;
+  }
+  .important .imp-body {
+    font-size: 9px; color: #78350F; line-height: 1.5; margin-top: 4px;
+  }
+
+  /* Footer fijo abajo */
+  .footer {
+    margin-top: 24px; padding-top: 10px; border-top: 0.4px solid #E5E7EB;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    font-size: 7.5px; color: #6B7280;
+  }
+  .footer .left .brand { font-weight: 800; color: #0a0a0a; font-size: 8px; }
+  .footer .left .sub { margin-top: 2px; }
+</style></head>
+<body>
+  <div class="watermark">X-PAY</div>
+  <div class="header">
+    <div class="logo">
+      <img src="${logoXpay}" alt="X-PAY" onerror="this.style.display='none'" />
+      <div class="title-block">
+        <div class="eyebrow">INSTRUCCIONES DE PAGO</div>
+        <div class="title">Confirmación de solicitud de triangulación internacional</div>
+      </div>
+    </div>
+    <div class="meta">
+      <span class="trust-seal">SEGURO · CIFRADO · NIVEL BANCARIO</span>
+      <div class="emitido">Emitido: ${esc(new Date().toLocaleString('es-MX'))}</div>
+    </div>
+  </div>
+
+  <div class="container">
+    <div class="ref">
+      <div class="ref-info">
+        <div class="ref-label">REFERENCIA DE PAGO</div>
+        <div class="ref-code">${esc(referencia)}</div>
+        <div class="ref-help">
+          Incluye esta referencia en el concepto de tu<br />
+          transferencia para conciliar tu pago automáticamente.
+        </div>
+      </div>
+      <div class="ref-logo">
+        <img src="${logoSquare}" alt="X-Pay" onerror="this.style.display='none'" />
+      </div>
+    </div>
+
+    ${detalleRows.length > 0 ? `
+      <div class="panel-title">Detalle de la operación</div>
+      <div class="panel">
+        <table class="panel-table">${detalleRows.join('')}</table>
+      </div>
+    ` : ''}
+
+    ${totalBar}
+
+    ${depositarRows ? `
+      <div class="panel-title">Depositar / Transferir a</div>
+      <div class="panel">
+        <table class="panel-table">${depositarRows}</table>
+      </div>
+    ` : ''}
+
+    ${benefRows.length > 0 ? `
+      <div class="panel-title">Beneficiario final</div>
+      <div class="panel">
+        <table class="panel-table">${benefRows.join('')}</table>
+      </div>
+    ` : ''}
+
+    <div class="important">
+      <div class="imp-title">IMPORTANTE</div>
+      <div class="imp-body">
+        Incluye la referencia <b>${esc(referencia)}</b> en el concepto de tu transferencia.<br />
+        Una vez realizado el depósito, sube tu comprobante desde "Últimos envíos" para procesar tu solicitud.
+      </div>
+    </div>
+
+    <div class="footer">
+      <div class="left">
+        <div class="brand">X-PAY DIRECT</div>
+        <div class="sub">Operación protegida por cifrado bancario AES-256</div>
+      </div>
+      <div class="right">EntregaX Paquetería · ${esc(new Date().toLocaleString('es-MX'))}</div>
+    </div>
+  </div>
+</body></html>`;
 
       const { uri } = await Print.printToFileAsync({ html, base64: false });
       const canShare = await Sharing.isAvailableAsync();
@@ -1553,14 +1832,144 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                       </ScrollView>
                     </>
                   )}
+                  {/* Chips de claves seleccionadas (multi-producto) */}
+                  {(() => {
+                    const selected = conceptos
+                      .split(',')
+                      .map(s => s.trim())
+                      .filter(Boolean)
+                      .map(c => {
+                        const clave = c.split('|')[0].trim();
+                        const descFromPipe = c.split('|')[1]?.trim() || '';
+                        const v = claveValidations.find(x => x.clave === clave);
+                        return { clave, descripcion: v?.descripcion || descFromPipe };
+                      });
+                    if (selected.length === 0) return null;
+                    return (
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                        {selected.map(s => (
+                          <View
+                            key={s.clave}
+                            style={{
+                              flexDirection: 'row', alignItems: 'center',
+                              backgroundColor: '#FFF', borderRadius: 16,
+                              borderWidth: 1, borderColor: ORANGE,
+                              paddingLeft: 10, paddingRight: 4, paddingVertical: 4,
+                              gap: 6, maxWidth: '100%',
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: '800', color: '#111', fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }}>
+                              {s.clave}
+                            </Text>
+                            {!!s.descripcion && (
+                              <Text numberOfLines={1} style={{ fontSize: 11, color: TEXT_DIM, maxWidth: 140 }}>
+                                · {s.descripcion}
+                              </Text>
+                            )}
+                            <TouchableOpacity
+                              onPress={() => removeClave(s.clave)}
+                              hitSlop={{ top: 6, left: 6, right: 6, bottom: 6 }}
+                              style={{
+                                width: 20, height: 20, borderRadius: 10,
+                                backgroundColor: '#FFE0D0',
+                                alignItems: 'center', justifyContent: 'center',
+                              }}
+                            >
+                              <Text style={{ fontSize: 13, color: ORANGE, fontWeight: '900', lineHeight: 16 }}>×</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </View>
+                    );
+                  })()}
+
+                  {/* Buscador de productos SAT (autocomplete por nombre) */}
+                  <Text style={{ fontSize: 11, color: TEXT_DIM, marginBottom: 4 }}>
+                    Buscar producto o ingresar clave SAT
+                  </Text>
                   <TextInput
-                    style={[styles.input, { minHeight: 60 }]}
-                    value={conceptos}
-                    onChangeText={setConceptos}
-                    placeholder="84111506, 90121800"
+                    style={styles.input}
+                    value={conceptoSearchInput}
+                    onChangeText={setConceptoSearchInput}
+                    placeholder="Ej: focos, ropa, 25172203"
                     placeholderTextColor={TEXT_MUTED}
-                    multiline
+                    autoCapitalize="none"
+                    autoCorrect={false}
                   />
+
+                  {/* Dropdown de resultados */}
+                  {conceptoSearchInput.trim().length >= 2 && !/^\d{6,10}$/.test(conceptoSearchInput.trim()) && (
+                    <View style={{ marginTop: 6, borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 8, backgroundColor: '#fff', maxHeight: 240 }}>
+                      {conceptoSearching && (
+                        <View style={{ padding: 10, flexDirection: 'row', alignItems: 'center' }}>
+                          <ActivityIndicator size="small" color={ORANGE} />
+                          <Text style={{ marginLeft: 8, fontSize: 12, color: TEXT_DIM }}>Buscando en catálogo SAT…</Text>
+                        </View>
+                      )}
+                      {!conceptoSearching && conceptoSearchError && (
+                        <Text style={{ padding: 10, fontSize: 12, color: '#D32F2F' }}>⚠️ {conceptoSearchError}</Text>
+                      )}
+                      {!conceptoSearching && !conceptoSearchError && conceptoOptions.length === 0 && (
+                        <Text style={{ padding: 10, fontSize: 12, color: TEXT_DIM }}>Sin resultados</Text>
+                      )}
+                      {!conceptoSearching && conceptoOptions.length > 0 && (
+                        <ScrollView nestedScrollEnabled style={{ maxHeight: 240 }}>
+                          {conceptoOptions.map(opt => {
+                            const ya = conceptos.split(',').map(s => s.trim().split('|')[0].trim()).includes(opt.clave_prodserv);
+                            return (
+                              <TouchableOpacity
+                                key={opt.clave_prodserv}
+                                disabled={ya}
+                                onPress={() => {
+                                  addClaveFromSearch(opt);
+                                  setConceptoSearchInput('');
+                                  setConceptoOptions([]);
+                                }}
+                                style={{
+                                  paddingVertical: 10, paddingHorizontal: 12,
+                                  borderBottomWidth: 1, borderBottomColor: '#F3F4F6',
+                                  opacity: ya ? 0.4 : 1,
+                                  flexDirection: 'row', alignItems: 'center', gap: 8,
+                                }}
+                              >
+                                <Text style={{ fontSize: 11, fontWeight: '800', color: ORANGE, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', minWidth: 70 }}>
+                                  {opt.clave_prodserv}
+                                </Text>
+                                <Text style={{ flex: 1, fontSize: 12, color: '#111' }} numberOfLines={2}>
+                                  {opt.descripcion}
+                                </Text>
+                                {ya
+                                  ? <Text style={{ fontSize: 10, color: TEXT_DIM }}>Agregada</Text>
+                                  : <Text style={{ fontSize: 18, color: ORANGE, fontWeight: '700' }}>＋</Text>}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Input legacy: aceptar clave numérica directa también
+                      (para usuarios que copian/pegan una clave precisa) */}
+                  {conceptoSearchInput.trim() !== '' && /^\d{6,10}$/.test(conceptoSearchInput.trim()) && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        addClaveFromSearch({ clave_prodserv: conceptoSearchInput.trim(), descripcion: '' });
+                        setConceptoSearchInput('');
+                      }}
+                      style={{
+                        marginTop: 6, padding: 10,
+                        borderWidth: 1, borderColor: ORANGE, borderRadius: 8,
+                        backgroundColor: '#FFF6F0',
+                        flexDirection: 'row', alignItems: 'center', gap: 8,
+                      }}
+                    >
+                      <Text style={{ color: ORANGE, fontSize: 18, fontWeight: '700' }}>＋</Text>
+                      <Text style={{ flex: 1, fontSize: 12, color: '#111' }}>
+                        Agregar clave <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontWeight: '800' }}>{conceptoSearchInput.trim()}</Text>
+                      </Text>
+                    </TouchableOpacity>
+                  )}
 
                   {/* Validación inline contra catálogo SAT ENTANGLED */}
                   {claveValidations.length > 0 && (
@@ -1979,7 +2388,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             )}
             {lastReferencia && (
               <TouchableOpacity
-                style={[styles.successBtn, { borderColor: ORANGE, borderWidth: 1, marginBottom: 8 }]}
+                // El estilo base successBtn tiene fondo naranja; lo
+                // forzamos a transparente para que el texto naranja se
+                // vea (antes quedaba naranja sobre naranja = invisible)
+                style={[styles.successBtn, { backgroundColor: 'transparent', borderColor: ORANGE, borderWidth: 1, marginBottom: 8 }]}
                 onPress={() => downloadInstructionsPDF()}
               >
                 <Text style={[styles.successBtnText, { color: ORANGE }]}>📄 Descargar PDF de instrucciones</Text>
