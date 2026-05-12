@@ -275,15 +275,40 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                 tariffType = 'S';
             }
             
-            // Buscar precio: primero verificar Start Up, luego personalizada, luego general
+            // Buscar precio: primero verificar si el cliente tiene tarifa custom (Logo/Genérico/Flat).
+            // Si la tiene, NO aplicar Startup (los clientes con tarifa personalizada usan per-kg siempre).
+            // Sino, verificar Start Up para paquetes pequeños, luego tarifa general.
             const itemWeight = parseFloat(String(item.weight || 0)) || 0;
             let pricePerKg = 0;
             let isCustomTariff = false;
             let salePrice = 0;
             let isStartup = false;
-            
-            // Check Start Up tier (flat price by weight bracket, ≤15kg)
-            if (airRouteId && itemWeight > 0 && itemWeight <= 15) {
+
+            // 1️⃣ ¿Cliente tiene tarifa custom para este tipo?
+            let hasCustomTariff = false;
+            if (airRouteId && userId) {
+                const userBoxRes = await client.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
+                const userBox = userBoxRes.rows[0]?.box_id || null;
+                let legacyId: number | null = null;
+                if (userBox) {
+                    const lcRes = await client.query(`SELECT id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) LIMIT 1`, [userBox]);
+                    if (lcRes.rows[0]) legacyId = lcRes.rows[0].id;
+                }
+                const customTariffRes = await client.query(`
+                    SELECT price_per_kg FROM air_client_tariffs
+                    WHERE (user_id = $1 OR ($4::int IS NOT NULL AND legacy_client_id = $4::int))
+                      AND route_id = $2 AND tariff_type = $3 AND is_active = true
+                    ORDER BY (user_id = $1) DESC LIMIT 1
+                `, [userId, airRouteId, tariffType, legacyId]);
+                if (customTariffRes.rows.length > 0) {
+                    pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
+                    isCustomTariff = true;
+                    hasCustomTariff = true;
+                }
+            }
+
+            // 2️⃣ Si NO tiene tarifa custom y peso ≤15kg → aplicar Startup
+            if (!hasCustomTariff && airRouteId && itemWeight > 0 && itemWeight <= 15) {
                 const startupRes = await client.query(`
                     SELECT price_usd FROM air_startup_tiers
                     WHERE route_id = $1 AND is_active = true AND $2 >= min_weight AND $2 <= max_weight
@@ -296,31 +321,9 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
                     tariffType = 'SU';
                 }
             }
-            
-            // If not startup, use per-kg pricing
+
+            // 3️⃣ Si no es startup, calcular per-kg (custom o general)
             if (!isStartup) {
-                if (airRouteId && userId) {
-                    // Buscar legacy_client_id ligado al box_id del usuario
-                    const userBoxRes = await client.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
-                    const userBox = userBoxRes.rows[0]?.box_id || null;
-                    let legacyId: number | null = null;
-                    if (userBox) {
-                        const lcRes = await client.query(`SELECT id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) LIMIT 1`, [userBox]);
-                        if (lcRes.rows[0]) legacyId = lcRes.rows[0].id;
-                    }
-                    const customTariffRes = await client.query(`
-                        SELECT price_per_kg FROM air_client_tariffs 
-                        WHERE (user_id = $1 OR ($4::int IS NOT NULL AND legacy_client_id = $4::int))
-                          AND route_id = $2 AND tariff_type = $3 AND is_active = true
-                        ORDER BY (user_id = $1) DESC LIMIT 1
-                    `, [userId, airRouteId, tariffType, legacyId]);
-                    
-                    if (customTariffRes.rows.length > 0) {
-                        pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
-                        isCustomTariff = true;
-                    }
-                }
-                
                 if (pricePerKg === 0 && airRouteId) {
                     const generalTariffRes = await client.query(`
                         SELECT price_per_kg FROM air_tariffs 

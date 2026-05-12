@@ -10416,7 +10416,7 @@ export default function DashboardClient() {
                       costoUSD = Number(selectedPackage.air_sale_price);
                       montoMXN = costoUSD * tcConfig;
                       tcToShow = tcConfig;
-                      detailLine = `${Number(selectedPackage.weight || 0).toFixed(1)} kg × $${airPricePerKg.toFixed(0)} USD/kg (${tariffLabel})`;
+                      detailLine = `${Number(selectedPackage.weight || 0).toFixed(1)} kg × $${airPricePerKg.toFixed(2)} USD/kg (${tariffLabel})`;
                     } else if (isAirChina && selectedPackage.weight && Number(selectedPackage.weight) > 0) {
                       // AÉREO CHINA estimado
                       costoUSD = Number(selectedPackage.weight) * 21;

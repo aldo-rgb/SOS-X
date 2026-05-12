@@ -49,15 +49,26 @@ const ONLY_USER = userIdx > -1 ? Number(process.argv[userIdx + 1]) : null;
         [userId, legacyId]
       );
       const map = { ...BASE };
+      const customTypes = new Set();
       const seen = new Set();
       for (const r of ct.rows) {
         if (!seen.has(r.tariff_type)) {
           map[r.tariff_type] = parseFloat(r.price_per_kg);
           seen.add(r.tariff_type);
+          customTypes.add(r.tariff_type);
         }
       }
-      tariffCache.set(k, map);
-      return map;
+      const result = { map, customTypes };
+      tariffCache.set(k, result);
+      return result;
+    }
+
+    // Reclasifica un proName al tipo natural L/G/S/F (misma lógica que chinaController)
+    function classifyByProName(proName) {
+      const s = String(proName || '').toLowerCase();
+      if (s.includes('logo') || s.includes('鞋') || s.includes('zapato') || s.includes('shoes')) return 'L';
+      if (s.includes('medical') || s.includes('sensible') || s.includes('medicina')) return 'S';
+      return 'G';
     }
 
     const filterUser = ONLY_USER ? `AND cr.user_id = ${ONLY_USER}` : '';
@@ -81,10 +92,10 @@ const ONLY_USER = userIdx > -1 ? Number(process.argv[userIdx + 1]) : null;
       const recIsPaid = r.payment_status === 'paid' || paid > 0;
       if (recIsPaid) { recPaid++; continue; }
 
-      const tariffs = await getTariffs(r.user_id, r.box_id);
+      const { map: tariffs, customTypes } = await getTariffs(r.user_id, r.box_id);
       const pkgs = (await c.query(
         `SELECT id, weight, air_tariff_type, air_price_per_kg, air_sale_price,
-                monto_pagado, payment_status
+                monto_pagado, payment_status, pro_name
          FROM packages
          WHERE china_receipt_id = $1 AND weight IS NOT NULL AND weight::numeric > 0`,
         [r.id]
@@ -100,8 +111,13 @@ const ONLY_USER = userIdx > -1 ? Number(process.argv[userIdx + 1]) : null;
           totalUsd += parseFloat(p.air_sale_price || 0);
           continue;
         }
-        const tt = p.air_tariff_type;
-        // SU (Startup) y S (Sensible) usan precios manuales / por rango → no recalcular
+        let tt = p.air_tariff_type;
+        // 🎯 Si es SU (Startup) y el cliente tiene tarifas custom L/G/F → reclasificar por pro_name
+        // (los clientes con tarifa personalizada NO deben pagar Startup en paquetes pequeños)
+        if (tt === 'SU' && customTypes.size > 0) {
+          tt = classifyByProName(p.pro_name);
+        }
+        // S (Sensible) y NULL siguen como están
         if (tt === 'SU' || tt === 'S' || !tt) {
           pkgSU++;
           totalUsd += parseFloat(p.air_sale_price || 0);
@@ -113,11 +129,11 @@ const ONLY_USER = userIdx > -1 ? Number(process.argv[userIdx + 1]) : null;
         const newSale = +(w * perKg).toFixed(2);
         const oldSale = parseFloat(p.air_sale_price || 0);
         totalUsd += newSale;
-        if (Math.abs(oldSale - newSale) < 0.01) { pkgSkip++; continue; }
+        if (Math.abs(oldSale - newSale) < 0.01 && p.air_tariff_type === tt) { pkgSkip++; continue; }
         if (APPLY) {
           await c.query(
-            `UPDATE packages SET air_price_per_kg=$1, air_sale_price=$2 WHERE id=$3`,
-            [perKg, newSale, p.id]
+            `UPDATE packages SET air_tariff_type=$1, air_price_per_kg=$2, air_sale_price=$3 WHERE id=$4`,
+            [tt, perKg, newSale, p.id]
           );
         }
         pkgUpd++;
