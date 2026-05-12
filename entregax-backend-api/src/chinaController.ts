@@ -62,6 +62,33 @@ export async function resolveAirPricePerKg(
     }
 }
 
+/**
+ * 🏠 Auto-asigna la dirección predeterminada del cliente para servicio "air".
+ * Busca en `addresses` filtrando por `default_for_service` que contenga 'air' o 'all'
+ * (priorizando `is_default`). Devuelve `null` si el usuario no tiene dirección configurada.
+ * Acepta `pool` o `client` transaccional.
+ */
+export async function resolveDefaultAirAddress(
+    db: { query: (q: string, p?: any[]) => Promise<any> },
+    userId: number | null
+): Promise<number | null> {
+    if (!userId) return null;
+    try {
+        const r = await db.query(
+            `SELECT id FROM addresses
+             WHERE user_id = $1
+               AND (default_for_service ILIKE '%air%' OR default_for_service ILIKE '%all%')
+             ORDER BY is_default DESC, id ASC
+             LIMIT 1`,
+            [userId]
+        );
+        return r.rows[0]?.id || null;
+    } catch (e) {
+        console.error('[resolveDefaultAirAddress] Error:', e);
+        return null;
+    }
+}
+
 // INTERFACES DEL JSON DE LA API CHINA
 interface ChinaApiPayload {
     fno: string;           // "AIR2609..." - Identificador único del envío
@@ -186,17 +213,24 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
         
         console.log(`  → Cliente identificado: ${userName} (ID: ${userId || 'N/A'})`);
 
+        // 🏠 Auto-asignar dirección predeterminada para servicio 'air'
+        const defaultAirAddressId = await resolveDefaultAirAddress(client, userId);
+        if (defaultAirAddressId) {
+            console.log(`  → Dirección predeterminada 'air' asignada automáticamente: ID ${defaultAirAddressId}`);
+        }
+
         // 2. INSERTAR O ACTUALIZAR RECIBO CHINA (FNO)
         const receiptQuery = await client.query(`
             INSERT INTO china_receipts 
-            (fno, user_id, shipping_mark, total_qty, total_weight, total_volume, total_cbm, evidence_urls)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            (fno, user_id, shipping_mark, total_qty, total_weight, total_volume, total_cbm, evidence_urls, delivery_address_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
             ON CONFLICT (fno) DO UPDATE SET
                 total_qty = EXCLUDED.total_qty,
                 total_weight = EXCLUDED.total_weight,
                 total_volume = EXCLUDED.total_volume,
                 total_cbm = EXCLUDED.total_cbm,
                 evidence_urls = EXCLUDED.evidence_urls,
+                delivery_address_id = COALESCE(china_receipts.delivery_address_id, EXCLUDED.delivery_address_id),
                 updated_at = CURRENT_TIMESTAMP
             RETURNING id
         `, [
@@ -207,7 +241,8 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
             payload.totalWeight,
             payload.totalVolume,
             payload.totalCbm,
-            payload.file || []
+            payload.file || [],
+            defaultAirAddressId
         ]);
 
         const receiptId = receiptQuery.rows[0].id;
@@ -607,13 +642,19 @@ export const createChinaReceipt = async (req: Request, res: Response): Promise<a
         // Insertar recepción
         // Calcular costo estimado basado en peso × $21/kg (tarifa estándar)
         const estimatedCost = (total_weight || 0) * 21;
-        
+
+        // 🏠 Auto-asignar dirección predeterminada para servicio 'air'
+        const defaultAirAddressId = await resolveDefaultAirAddress(pool, userId);
+        if (defaultAirAddressId) {
+            console.log(`  → Dirección predeterminada 'air' asignada automáticamente: ID ${defaultAirAddressId}`);
+        }
+
         const result = await pool.query(`
             INSERT INTO china_receipts 
-            (fno, user_id, shipping_mark, total_qty, total_weight, total_cbm, notes, status, assigned_cost_mxn, saldo_pendiente)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 'received_origin', $8, $8)
+            (fno, user_id, shipping_mark, total_qty, total_weight, total_cbm, notes, status, assigned_cost_mxn, saldo_pendiente, delivery_address_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, 'received_origin', $8, $8, $9)
             RETURNING *
-        `, [fno, userId, shipping_mark, total_qty || 1, total_weight || 0, total_cbm || 0, notes || 'Captura manual', estimatedCost]);
+        `, [fno, userId, shipping_mark, total_qty || 1, total_weight || 0, total_cbm || 0, notes || 'Captura manual', estimatedCost, defaultAirAddressId]);
 
         console.log(`✅ Recepción manual creada: ${fno} - $${estimatedCost.toFixed(2)} USD (${total_weight || 0}kg × $21/kg)`);
 
@@ -2240,17 +2281,21 @@ export const pullFromMJCustomer = async (req: Request, res: Response): Promise<a
             }
             console.log(`  → URLs de evidencia (${evidenceUrls.length}):`, evidenceUrls);
 
+            // 🏠 Auto-asignar dirección predeterminada para servicio 'air'
+            const defaultAirAddressId = await resolveDefaultAirAddress(client, userId);
+
             // Insertar o actualizar recibo
             const receiptResult = await client.query(`
                 INSERT INTO china_receipts 
                 (fno, user_id, shipping_mark, total_qty, total_weight, total_volume, total_cbm, 
-                 evidence_urls, notes)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                 evidence_urls, notes, delivery_address_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (fno) DO UPDATE SET
                     total_qty = COALESCE(EXCLUDED.total_qty, china_receipts.total_qty),
                     total_weight = COALESCE(EXCLUDED.total_weight, china_receipts.total_weight),
                     total_cbm = COALESCE(EXCLUDED.total_cbm, china_receipts.total_cbm),
                     evidence_urls = COALESCE(EXCLUDED.evidence_urls, china_receipts.evidence_urls),
+                    delivery_address_id = COALESCE(china_receipts.delivery_address_id, EXCLUDED.delivery_address_id),
                     updated_at = CURRENT_TIMESTAMP
                 RETURNING id
             `, [
@@ -2262,7 +2307,8 @@ export const pullFromMJCustomer = async (req: Request, res: Response): Promise<a
                 order.totalVolume || 0,
                 order.totalCbm || 0,
                 evidenceUrls,  // node-postgres maneja arrays nativamente
-                `Sincronizado desde MJCustomer: ${new Date().toISOString()}`
+                `Sincronizado desde MJCustomer: ${new Date().toISOString()}`,
+                defaultAirAddressId
             ]);
 
             const receiptId = receiptResult.rows[0].id;
@@ -2885,18 +2931,25 @@ async function processCallbackPayload(
         
         console.log(`   → Cliente: ${userName} (ID: ${userId || 'N/A'})`);
         
+        // 🏠 Auto-asignar dirección predeterminada para servicio 'air'
+        const defaultAirAddressId = await resolveDefaultAirAddress(client, userId);
+        if (defaultAirAddressId) {
+            console.log(`   → Dirección predeterminada 'air' asignada automáticamente: ID ${defaultAirAddressId}`);
+        }
+
         // 2. Insertar o actualizar recibo principal
         const receiptResult = await client.query(`
             INSERT INTO china_receipts 
             (fno, user_id, shipping_mark, total_qty, total_weight, total_volume, total_cbm, 
-             evidence_urls, notes, source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+             evidence_urls, notes, source, delivery_address_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
             ON CONFLICT (fno) DO UPDATE SET
                 total_qty = EXCLUDED.total_qty,
                 total_weight = EXCLUDED.total_weight,
                 total_volume = EXCLUDED.total_volume,
                 total_cbm = EXCLUDED.total_cbm,
                 evidence_urls = COALESCE(EXCLUDED.evidence_urls, china_receipts.evidence_urls),
+                delivery_address_id = COALESCE(china_receipts.delivery_address_id, EXCLUDED.delivery_address_id),
                 updated_at = CURRENT_TIMESTAMP
             RETURNING id
         `, [
@@ -2909,7 +2962,8 @@ async function processCallbackPayload(
             payload.totalCbm || 0,
             payload.file || [],
             `Callback MoJie ${new Date().toISOString()}`,
-            'mojie_callback'
+            'mojie_callback',
+            defaultAirAddressId
         ]);
         
         const receiptId = receiptResult.rows[0].id;

@@ -205,7 +205,6 @@ export default function AirPricingPage() {
     const [clientTariffsLoading, setClientTariffsLoading] = useState(false);
     const [clientTariffsSaving, setClientTariffsSaving] = useState(false);
     const [clientsWithTariffs, setClientsWithTariffs] = useState<ClientWithTariffs[]>([]);
-    const [editingClientTariffs, setEditingClientTariffs] = useState<Record<string, string>>({});
     // 🅰️🅱️🅲 Nivel A/B/C por ruta para el cliente seleccionado.
     // A = precio base, B = base - $1 USD/kg, C = base - $2 USD/kg.
     const [editingClientLevels, setEditingClientLevels] = useState<Record<number, 'A' | 'B' | 'C' | ''>>({});
@@ -261,7 +260,7 @@ export default function AirPricingPage() {
                                 const stored = parseFloat(baseRow[t.key as keyof EditableRow] as string) || 0;
                                 const expectedNum = parseFloat(expected);
                                 if (Math.abs(stored - expectedNum) > 0.005) {
-                                    (baseRow as Record<string, string | number | boolean>)[t.key] = expected;
+                                    (baseRow as unknown as Record<string, string | number | boolean>)[t.key] = expected;
                                     baseRow.dirty = true;
                                 }
                             }
@@ -558,7 +557,7 @@ export default function AirPricingPage() {
     // Devuelve el precio base efectivo (USD/kg) para un (ruta, tipo), respetando
     // los overrides de márgenes ya recalculados en `editableRows`. Si no hay
     // recálculo, cae al valor crudo guardado en BD (`route.tariffs[type].price_per_kg`).
-    const getEffectiveBasePrice = (route: AirRoute, type: 'L' | 'G' | 'S' | 'F'): number => {
+    const getEffectiveBasePrice = (route: RouteTariff, type: 'L' | 'G' | 'S' | 'F'): number => {
         const er = editableRows[route.id];
         if (er) {
             const v = parseFloat(er[type as keyof EditableRow] as string);
@@ -618,20 +617,12 @@ export default function AirPricingPage() {
             loadClientTariffs(client);
         } else {
             setClientTariffs([]);
-            setEditingClientTariffs({});
             setEditingClientLevels({});
         }
     };
 
     const handleClientLevelChange = (routeId: number, level: 'A' | 'B' | 'C' | '') => {
         setEditingClientLevels((prev) => ({ ...prev, [routeId]: level }));
-    };
-
-    const handleClientTariffChange = (routeId: number, tariffType: string, value: string) => {
-        setEditingClientTariffs((prev) => ({
-            ...prev,
-            [`${routeId}_${tariffType}`]: value,
-        }));
     };
 
     const saveClientTariffs = async () => {
@@ -714,7 +705,6 @@ export default function AirPricingPage() {
         setClientTab(0);
         setSelectedClient(null);
         setClientTariffs([]);
-        setEditingClientTariffs({});
         setEditingClientLevels({});
         setClientSearch('');
         setClientOptions([]);
