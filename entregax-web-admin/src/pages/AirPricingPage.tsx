@@ -86,6 +86,14 @@ const loadStoredMarkups = (): Record<string, number | null> => {
     }
 };
 
+// 🅰️🅱️🅲 Niveles de tarifa por cliente sobre el costo asignado (USD/kg).
+// A = costo asignado · B = costo asignado − $1 · C = costo asignado − $2
+const CLIENT_LEVELS: { key: 'A' | 'B' | 'C'; label: string; discount: number; color: string; bgColor: string }[] = [
+    { key: 'A', label: 'A', discount: 0, color: '#1B5E20', bgColor: '#E8F5E9' },
+    { key: 'B', label: 'B', discount: 1, color: '#0D47A1', bgColor: '#E3F2FD' },
+    { key: 'C', label: 'C', discount: 2, color: '#4A148C', bgColor: '#F3E5F5' },
+];
+
 // Brackets default (kg)
 const DEFAULT_BRACKETS_KG = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000];
 
@@ -198,6 +206,9 @@ export default function AirPricingPage() {
     const [clientTariffsSaving, setClientTariffsSaving] = useState(false);
     const [clientsWithTariffs, setClientsWithTariffs] = useState<ClientWithTariffs[]>([]);
     const [editingClientTariffs, setEditingClientTariffs] = useState<Record<string, string>>({});
+    // 🅰️🅱️🅲 Nivel A/B/C por ruta para el cliente seleccionado.
+    // A = precio base, B = base - $1 USD/kg, C = base - $2 USD/kg.
+    const [editingClientLevels, setEditingClientLevels] = useState<Record<number, 'A' | 'B' | 'C' | ''>>({});
     const [clientTab, setClientTab] = useState(0); // 0 = buscar, 1 = ver clientes con tarifas
 
     // Price history dialog state
@@ -536,22 +547,34 @@ export default function AirPricingPage() {
             });
             const data = await res.json();
             if (data.success) {
-                setClientTariffs(data.tariffs || []);
-                // Initialize editing values
-                const editValues: Record<string, string> = {};
-                for (const t of data.tariffs || []) {
-                    editValues[`${t.route_id}_${t.tariff_type}`] = t.price_per_kg?.toString() || '';
-                }
-                // Also add default prices for routes not yet configured
+                const list: ClientTariff[] = data.tariffs || [];
+                setClientTariffs(list);
+
+                // 🅰️🅱️🅲 Detectar nivel A/B/C por ruta inspeccionando el descuento
+                // promedio respecto al costo asignado (price_per_kg base) de cada tipo.
+                const levels: Record<number, 'A' | 'B' | 'C' | ''> = {};
                 for (const route of routes) {
-                    for (const type of ['L', 'G', 'S', 'F']) {
-                        const key = `${route.id}_${type}`;
-                        if (!editValues[key]) {
-                            editValues[key] = '';
+                    const rTariffs = list.filter(t => t.route_id === route.id);
+                    if (rTariffs.length === 0) { levels[route.id] = ''; continue; }
+                    let bestLevel: 'A' | 'B' | 'C' | '' = '';
+                    let bestDiff = Infinity;
+                    for (const lv of CLIENT_LEVELS) {
+                        let diff = 0;
+                        let count = 0;
+                        for (const ct of rTariffs) {
+                            const base = Number(route.tariffs[ct.tariff_type as keyof typeof route.tariffs]?.price_per_kg || 0);
+                            if (base <= 0) continue;
+                            const expected = Math.max(0, base - lv.discount);
+                            diff += Math.abs(expected - Number(ct.price_per_kg || 0));
+                            count++;
                         }
+                        const avg = count > 0 ? diff / count : Infinity;
+                        if (avg < bestDiff) { bestDiff = avg; bestLevel = lv.key; }
                     }
+                    // Tolerancia de 0.05 USD para considerar match
+                    levels[route.id] = bestDiff <= 0.05 ? bestLevel : '';
                 }
-                setEditingClientTariffs(editValues);
+                setEditingClientLevels(levels);
             }
         } catch (error) {
             console.error('Error cargando tarifas del cliente:', error);
@@ -567,7 +590,12 @@ export default function AirPricingPage() {
         } else {
             setClientTariffs([]);
             setEditingClientTariffs({});
+            setEditingClientLevels({});
         }
+    };
+
+    const handleClientLevelChange = (routeId: number, level: 'A' | 'B' | 'C' | '') => {
+        setEditingClientLevels((prev) => ({ ...prev, [routeId]: level }));
     };
 
     const handleClientTariffChange = (routeId: number, tariffType: string, value: string) => {
@@ -581,22 +609,24 @@ export default function AirPricingPage() {
         if (!selectedClient) return;
         setClientTariffsSaving(true);
         try {
-            // Build array of tariffs to save
+            // 🅰️🅱️🅲 Construir tarifas a partir del nivel A/B/C elegido por ruta:
+            // por cada ruta con nivel seleccionado, se generan 4 entradas (L/G/S/F)
+            // = base_price - discount, omitiendo tipos sin precio base.
             const tariffsToSave: { route_id: number; tariff_type: string; price_per_kg: number }[] = [];
-            for (const [key, value] of Object.entries(editingClientTariffs)) {
-                const [routeId, tariffType] = key.split('_');
-                const price = parseFloat(value);
-                if (!isNaN(price) && price > 0) {
-                    tariffsToSave.push({
-                        route_id: parseInt(routeId),
-                        tariff_type: tariffType,
-                        price_per_kg: price,
-                    });
+            for (const route of routes) {
+                const lv = editingClientLevels[route.id];
+                if (!lv) continue;
+                const discount = CLIENT_LEVELS.find(l => l.key === lv)?.discount ?? 0;
+                for (const type of ['L', 'G', 'S', 'F']) {
+                    const base = Number(route.tariffs[type as keyof typeof route.tariffs]?.price_per_kg || 0);
+                    if (base <= 0) continue; // sin precio base = no aplica
+                    const price = Math.max(0, +(base - discount).toFixed(2));
+                    tariffsToSave.push({ route_id: route.id, tariff_type: type, price_per_kg: price });
                 }
             }
 
             if (tariffsToSave.length === 0) {
-                setSnackbar({ open: true, message: 'No hay tarifas para guardar', severity: 'error' });
+                setSnackbar({ open: true, message: 'Selecciona un nivel A/B/C en al menos una ruta', severity: 'error' });
                 setClientTariffsSaving(false);
                 return;
             }
@@ -656,6 +686,7 @@ export default function AirPricingPage() {
         setSelectedClient(null);
         setClientTariffs([]);
         setEditingClientTariffs({});
+        setEditingClientLevels({});
         setClientSearch('');
         setClientOptions([]);
         loadClientsWithTariffs();
@@ -1469,80 +1500,129 @@ export default function AirPricingPage() {
                                     ) : (
                                         <>
                                             <Alert severity="info" sx={{ mb: 2 }}>
-                                                Configura el precio por KG para cada ruta y tipo. Deja vacío para usar la tarifa estándar.
+                                                <strong>Selecciona el nivel de tarifa</strong> para cada ruta. El sistema aplica automáticamente el descuento sobre el costo asignado de cada tipo (L/G/S/F):
+                                                <br />· <strong>A</strong> = costo asignado · <strong>B</strong> = costo asignado − $1 USD/kg · <strong>C</strong> = costo asignado − $2 USD/kg.
+                                                <br />Deja en blanco para usar la tarifa estándar.
                                             </Alert>
                                             <TableContainer component={Paper}>
                                                 <Table size="small">
                                                     <TableHead>
                                                         <TableRow sx={{ bgcolor: '#263238' }}>
                                                             <TableCell sx={{ color: 'white', fontWeight: 700 }}>Ruta</TableCell>
-                                                            <TableCell align="center" sx={{ color: 'white', fontWeight: 700, bgcolor: '#1565C0' }}>
-                                                                L (Logo)
+                                                            <TableCell align="center" sx={{ color: 'white', fontWeight: 700 }}>
+                                                                Nivel de Tarifa
                                                             </TableCell>
-                                                            <TableCell align="center" sx={{ color: 'white', fontWeight: 700, bgcolor: '#2E7D32' }}>
-                                                                G (Genérico)
+                                                            <TableCell align="center" sx={{ color: 'white', fontWeight: 700 }}>
+                                                                Precios resultantes (USD/kg)
                                                             </TableCell>
-                                                            <TableCell align="center" sx={{ color: 'white', fontWeight: 700, bgcolor: '#E65100' }}>
-                                                                S (Sensible)
-                                                            </TableCell>
-                                                            <TableCell align="center" sx={{ color: 'white', fontWeight: 700, bgcolor: '#6A1B9A' }}>
-                                                                F (Flat)
+                                                            <TableCell align="center" sx={{ color: 'white', fontWeight: 700 }}>
+                                                                Acciones
                                                             </TableCell>
                                                         </TableRow>
                                                     </TableHead>
                                                     <TableBody>
-                                                        {routes.map((route) => (
-                                                            <TableRow key={route.id} hover>
-                                                                <TableCell>
-                                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                                                        <FlightIcon sx={{ color: AIR_COLOR, fontSize: 18 }} />
-                                                                        <Box>
-                                                                            <Typography fontWeight={700} sx={{ fontFamily: 'monospace' }}>
-                                                                                {route.code}
-                                                                            </Typography>
-                                                                            <Typography variant="caption" color="text.secondary">
-                                                                                {route.origin_airport} → {route.destination_airport}
-                                                                            </Typography>
+                                                        {routes.map((route) => {
+                                                            const selectedLevel = editingClientLevels[route.id] || '';
+                                                            const discount = CLIENT_LEVELS.find(l => l.key === selectedLevel)?.discount ?? 0;
+                                                            const hasAny = !!clientTariffs.find(t => t.route_id === route.id);
+                                                            return (
+                                                                <TableRow key={route.id} hover>
+                                                                    <TableCell>
+                                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                                            <FlightIcon sx={{ color: AIR_COLOR, fontSize: 18 }} />
+                                                                            <Box>
+                                                                                <Typography fontWeight={700} sx={{ fontFamily: 'monospace' }}>
+                                                                                    {route.code}
+                                                                                </Typography>
+                                                                                <Typography variant="caption" color="text.secondary">
+                                                                                    {route.origin_airport} → {route.destination_airport}
+                                                                                </Typography>
+                                                                            </Box>
                                                                         </Box>
-                                                                    </Box>
-                                                                </TableCell>
-                                                                {['L', 'G', 'S', 'F'].map((type) => {
-                                                                    const key = `${route.id}_${type}`;
-                                                                    const defaultPrice = route.tariffs[type as keyof typeof route.tariffs]?.price_per_kg || 0;
-                                                                    const currentTariff = clientTariffs.find(t => t.route_id === route.id && t.tariff_type === type);
-                                                                    return (
-                                                                        <TableCell key={type} align="center">
-                                                                            <TextField
-                                                                                value={editingClientTariffs[key] || ''}
-                                                                                onChange={(e) => handleClientTariffChange(route.id, type, e.target.value)}
-                                                                                type="number"
-                                                                                size="small"
-                                                                                placeholder={defaultPrice ? `$${defaultPrice}` : '-'}
-                                                                                sx={{
-                                                                                    width: 90,
-                                                                                    '& .MuiOutlinedInput-root': {
-                                                                                        bgcolor: currentTariff ? '#F3E5F5' : 'white',
-                                                                                    },
-                                                                                }}
-                                                                                InputProps={{
-                                                                                    startAdornment: <InputAdornment position="start">$</InputAdornment>,
-                                                                                    inputProps: { step: '0.01', style: { textAlign: 'center', fontWeight: 600 } },
-                                                                                }}
-                                                                            />
-                                                                            {currentTariff && (
+                                                                    </TableCell>
+                                                                    <TableCell align="center">
+                                                                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                                                            {CLIENT_LEVELS.map((lv) => {
+                                                                                const active = selectedLevel === lv.key;
+                                                                                return (
+                                                                                    <Chip
+                                                                                        key={lv.key}
+                                                                                        label={`${lv.label} ${lv.discount === 0 ? '(base)' : `(-$${lv.discount})`}`}
+                                                                                        clickable
+                                                                                        onClick={() => handleClientLevelChange(route.id, active ? '' : lv.key)}
+                                                                                        sx={{
+                                                                                            fontWeight: 700,
+                                                                                            bgcolor: active ? lv.color : lv.bgColor,
+                                                                                            color: active ? 'white' : lv.color,
+                                                                                            border: `1.5px solid ${lv.color}`,
+                                                                                            '&:hover': { bgcolor: active ? lv.color : `${lv.color}30` },
+                                                                                        }}
+                                                                                    />
+                                                                                );
+                                                                            })}
+                                                                        </Box>
+                                                                    </TableCell>
+                                                                    <TableCell align="center">
+                                                                        {selectedLevel ? (
+                                                                            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
+                                                                                {(['L', 'G', 'S', 'F'] as const).map((type) => {
+                                                                                    const t = TARIFF_TYPES.find(x => x.key === type)!;
+                                                                                    const base = Number(route.tariffs[type]?.price_per_kg || 0);
+                                                                                    if (base <= 0) {
+                                                                                        return (
+                                                                                            <Chip
+                                                                                                key={type}
+                                                                                                label={`${type} —`}
+                                                                                                size="small"
+                                                                                                sx={{ bgcolor: '#F5F5F5', color: '#9E9E9E', fontWeight: 600 }}
+                                                                                            />
+                                                                                        );
+                                                                                    }
+                                                                                    const finalPrice = Math.max(0, base - discount);
+                                                                                    return (
+                                                                                        <Chip
+                                                                                            key={type}
+                                                                                            label={`${type}: $${finalPrice.toFixed(2)}`}
+                                                                                            size="small"
+                                                                                            sx={{
+                                                                                                bgcolor: t.bgColor,
+                                                                                                color: t.color,
+                                                                                                fontWeight: 700,
+                                                                                                border: `1px solid ${t.color}40`,
+                                                                                            }}
+                                                                                        />
+                                                                                    );
+                                                                                })}
+                                                                            </Box>
+                                                                        ) : (
+                                                                            <Typography variant="caption" color="text.secondary">
+                                                                                Sin nivel asignado · usa tarifa estándar
+                                                                            </Typography>
+                                                                        )}
+                                                                    </TableCell>
+                                                                    <TableCell align="center">
+                                                                        {hasAny && (
+                                                                            <Tooltip title="Eliminar todas las tarifas personalizadas de esta ruta">
                                                                                 <IconButton
                                                                                     size="small"
-                                                                                    onClick={() => deleteClientTariff(currentTariff.id)}
-                                                                                    sx={{ ml: 0.5, color: '#C62828' }}
+                                                                                    sx={{ color: '#C62828' }}
+                                                                                    onClick={async () => {
+                                                                                        const ids = clientTariffs.filter(t => t.route_id === route.id).map(t => t.id);
+                                                                                        for (const id of ids) {
+                                                                                            // eslint-disable-next-line no-await-in-loop
+                                                                                            await deleteClientTariff(id);
+                                                                                        }
+                                                                                        handleClientLevelChange(route.id, '');
+                                                                                    }}
                                                                                 >
-                                                                                    <DeleteIcon sx={{ fontSize: 16 }} />
+                                                                                    <DeleteIcon sx={{ fontSize: 18 }} />
                                                                                 </IconButton>
-                                                                            )}
-                                                                        </TableCell>
-                                                                    );
-                                                                })}
-                                                            </TableRow>
-                                                        ))}
+                                                                            </Tooltip>
+                                                                        )}
+                                                                    </TableCell>
+                                                                </TableRow>
+                                                            );
+                                                        })}
                                                     </TableBody>
                                                 </Table>
                                             </TableContainer>
