@@ -239,10 +239,11 @@ export default function AirPricingPage() {
             const data = await res.json();
             if (data.success) {
                 setRoutes(data.routes || []);
-                // Initialize editable rows
+                // Initialize editable rows (aplicando markups override si están configurados)
                 const rows: Record<number, EditableRow> = {};
                 for (const r of data.routes || []) {
-                    rows[r.id] = {
+                    const cost = parseFloat(r.cost_per_kg_usd) || 0;
+                    const baseRow: EditableRow = {
                         routeId: r.id,
                         costPerKg: r.cost_per_kg_usd?.toString() || '',
                         L: r.tariffs.L.price_per_kg?.toString() || '0',
@@ -251,6 +252,22 @@ export default function AirPricingPage() {
                         F: r.tariffs.F.price_per_kg?.toString() || '0',
                         dirty: false,
                     };
+                    // Si hay markups configurados y costo válido, recalcular L/G/F (S es manual)
+                    if (cost > 0) {
+                        for (const t of TARIFF_TYPES) {
+                            const mk = tariffMarkups[t.key];
+                            if (mk !== null && !isNaN(mk)) {
+                                const expected = (cost + mk).toFixed(2).replace(/\.00$/, '');
+                                const stored = parseFloat(baseRow[t.key as keyof EditableRow] as string) || 0;
+                                const expectedNum = parseFloat(expected);
+                                if (Math.abs(stored - expectedNum) > 0.005) {
+                                    (baseRow as Record<string, string | number | boolean>)[t.key] = expected;
+                                    baseRow.dirty = true;
+                                }
+                            }
+                        }
+                    }
+                    rows[r.id] = baseRow;
                 }
                 setEditableRows(rows);
 
@@ -273,7 +290,7 @@ export default function AirPricingPage() {
         } finally {
             setLoading(false);
         }
-    }, [token]);
+    }, [token, tariffMarkups]);
 
     // ========== LOAD PRICE HISTORY ==========
     const loadPriceHistory = useCallback(async (routeId: number) => {
@@ -538,6 +555,18 @@ export default function AirPricingPage() {
         }
     };
 
+    // Devuelve el precio base efectivo (USD/kg) para un (ruta, tipo), respetando
+    // los overrides de márgenes ya recalculados en `editableRows`. Si no hay
+    // recálculo, cae al valor crudo guardado en BD (`route.tariffs[type].price_per_kg`).
+    const getEffectiveBasePrice = (route: AirRoute, type: 'L' | 'G' | 'S' | 'F'): number => {
+        const er = editableRows[route.id];
+        if (er) {
+            const v = parseFloat(er[type as keyof EditableRow] as string);
+            if (!isNaN(v) && v > 0) return v;
+        }
+        return Number(route.tariffs[type]?.price_per_kg || 0);
+    };
+
     const loadClientTariffs = async (client: ClientOption) => {
         setClientTariffsLoading(true);
         try {
@@ -562,7 +591,7 @@ export default function AirPricingPage() {
                         let diff = 0;
                         let count = 0;
                         for (const ct of rTariffs) {
-                            const base = Number(route.tariffs[ct.tariff_type as keyof typeof route.tariffs]?.price_per_kg || 0);
+                            const base = getEffectiveBasePrice(route, ct.tariff_type as 'L' | 'G' | 'S' | 'F');
                             if (base <= 0) continue;
                             const expected = Math.max(0, base - lv.discount);
                             diff += Math.abs(expected - Number(ct.price_per_kg || 0));
@@ -617,8 +646,8 @@ export default function AirPricingPage() {
                 const lv = editingClientLevels[route.id];
                 if (!lv) continue;
                 const discount = CLIENT_LEVELS.find(l => l.key === lv)?.discount ?? 0;
-                for (const type of ['L', 'G', 'S', 'F']) {
-                    const base = Number(route.tariffs[type as keyof typeof route.tariffs]?.price_per_kg || 0);
+                for (const type of ['L', 'G', 'S', 'F'] as const) {
+                    const base = getEffectiveBasePrice(route, type);
                     if (base <= 0) continue; // sin precio base = no aplica
                     const price = Math.max(0, +(base - discount).toFixed(2));
                     tariffsToSave.push({ route_id: route.id, tariff_type: type, price_per_kg: price });
@@ -1567,7 +1596,7 @@ export default function AirPricingPage() {
                                                                             <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', flexWrap: 'wrap' }}>
                                                                                 {(['L', 'G', 'S', 'F'] as const).map((type) => {
                                                                                     const t = TARIFF_TYPES.find(x => x.key === type)!;
-                                                                                    const base = Number(route.tariffs[type]?.price_per_kg || 0);
+                                                                                    const base = getEffectiveBasePrice(route, type);
                                                                                     if (base <= 0) {
                                                                                         return (
                                                                                             <Chip
@@ -1950,8 +1979,28 @@ export default function AirPricingPage() {
                             }
                             setTariffMarkups(next);
                             try { localStorage.setItem(MARKUPS_STORAGE_KEY, JSON.stringify(next)); } catch { /* noop */ }
+                            // Recalcular automáticamente todas las filas editables aplicando los nuevos márgenes
+                            setEditableRows((prev) => {
+                                const updated: typeof prev = {};
+                                for (const [routeIdStr, row] of Object.entries(prev)) {
+                                    const cost = parseFloat(row.costPerKg);
+                                    if (isNaN(cost) || cost <= 0) {
+                                        updated[Number(routeIdStr)] = row;
+                                        continue;
+                                    }
+                                    const newRow = { ...row, dirty: true };
+                                    for (const t of TARIFF_TYPES) {
+                                        const mk = next[t.key];
+                                        if (mk !== null && !isNaN(mk)) {
+                                            (newRow as Record<string, string | number | boolean>)[t.key] = (cost + mk).toFixed(2).replace(/\.00$/, '');
+                                        }
+                                    }
+                                    updated[Number(routeIdStr)] = newRow;
+                                }
+                                return updated;
+                            });
                             setMarkupDialogOpen(false);
-                            setSnackbar({ open: true, message: 'Márgenes actualizados. Edita Costo Ruta para recalcular.', severity: 'success' });
+                            setSnackbar({ open: true, message: 'Márgenes aplicados a todas las rutas. Revisa y guarda cada una.', severity: 'success' });
                         }}
                     >
                         Guardar

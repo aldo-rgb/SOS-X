@@ -184,10 +184,17 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
     switch (status) {
       case 'received_china':
         return { label: 'Recibido CEDIS GZ CHINA', color: '#FF9800', icon: 'package-variant' };
+      case 'received_origin':
+        return { label: 'Recibido en Origen', color: '#FF9800', icon: 'package-variant' };
       case 'in_transit':
         return { label: 'Ya Zarpó', color: '#E53935', icon: 'ferry' };
+      case 'in_transit_transfer':
+        return { label: 'En Tránsito', color: '#E53935', icon: 'airplane' };
+      case 'arrived_mx':
+        return { label: 'Arribado a México', color: '#2196F3', icon: 'airplane-landing' };
       case 'at_port':
         return { label: 'En Puerto MX', color: '#2196F3', icon: 'anchor' };
+      case 'at_customs':
       case 'customs':
         return { label: 'En Aduana', color: '#9C27B0', icon: 'file-document' };
       case 'delivered':

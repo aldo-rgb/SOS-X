@@ -2847,6 +2847,46 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             }
         } catch (e) { /* ignore */ }
 
+        // 🎯 TARIFARIO OFICIAL: precios USD/kg desde air_client_tariffs (cliente) → air_tariffs (default ruta).
+        // Estructura: tariffPriceMap[tariffType] = price_per_kg (ruta default = AIFA HKG-MEX, id=1).
+        // Se prefieren tarifas personalizadas: por user_id directo, o por legacy_client_id vinculado al box_id.
+        const tariffPriceMap: Record<string, number> = {};
+        try {
+            // 1. Resolver legacy_client_id si el box_id del usuario coincide con uno
+            let legacyClientId: number | null = null;
+            if (userBoxId) {
+                const lcRes = await pool.query(
+                    `SELECT id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) LIMIT 1`,
+                    [userBoxId]
+                );
+                if (lcRes.rows[0]) legacyClientId = lcRes.rows[0].id;
+            }
+            // 2. Cargar tarifas personalizadas del cliente (cualquier ruta) priorizando user_id
+            const ctRes = await pool.query(
+                `SELECT tariff_type, price_per_kg
+                 FROM air_client_tariffs
+                 WHERE user_id = $1 OR ($2::int IS NOT NULL AND legacy_client_id = $2::int)
+                 ORDER BY (user_id = $1) DESC, route_id ASC`,
+                [userId, legacyClientId]
+            );
+            for (const row of ctRes.rows) {
+                if (!tariffPriceMap[row.tariff_type]) {
+                    tariffPriceMap[row.tariff_type] = parseFloat(row.price_per_kg);
+                }
+            }
+            // 3. Rellenar con tarifa estándar de la ruta default (id=1) para tipos faltantes
+            const baseRes = await pool.query(
+                `SELECT tariff_type, price_per_kg FROM air_tariffs WHERE route_id = 1`
+            );
+            for (const row of baseRes.rows) {
+                if (!tariffPriceMap[row.tariff_type] && row.price_per_kg != null) {
+                    tariffPriceMap[row.tariff_type] = parseFloat(row.price_per_kg);
+                }
+            }
+        } catch (e) {
+            console.error('[chinaAir] Error cargando tarifario:', e);
+        }
+
         const chinaAirPackages = chinaAirResult.rows.map(pkg => {
             const agg = airAggMap[String(pkg.fno || '').toLowerCase()] || { usd: 0, perKg: null, tariff: null };
             // china_receipts.assigned_cost_mxn históricamente almacena el valor en USD.
@@ -2864,6 +2904,15 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             const saldoMxn = legacyPaid > 0
                 ? legacySaldo
                 : (assignedMxn - legacyPaid);
+            // 🎯 Tarifa: agg.tariff (mode de packages) → fallback usuario.
+            const tariffType: string | null = agg.tariff || userTariffFallback.tariff;
+            // 💰 USD/kg: SIEMPRE del tarifario oficial (air_client_tariffs > air_tariffs).
+            // Nunca dividir USD/peso porque el total puede incluir cargos extras (GEX, etc.).
+            const perKgFromTarifa = tariffType && tariffPriceMap[tariffType] ? tariffPriceMap[tariffType] : null;
+            const finalPerKg = perKgFromTarifa
+                || agg.perKg                                  // valor guardado en packages
+                || userTariffFallback.perKg                   // último valor histórico del usuario
+                || null;
             return ({
             id: pkg.id + 200000, // Offset para evitar colisión de IDs
             tracking_internal: pkg.fno,
@@ -2905,14 +2954,9 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             assigned_cost_usd: assignedUsd,
             registered_exchange_rate: fx > 0 ? fx : null,
             // Tarifa aérea (para detalle de cálculo "kg × USD/kg")
-            // Si no hay packages bajo este FNO, calculamos per_kg implícito
-            // (USD asignado / peso total) y usamos la tarifa más usada del usuario
-            // como etiqueta de fallback.
-            air_tariff_type: agg.tariff || userTariffFallback.tariff,
-            air_price_per_kg: agg.perKg
-                || (assignedUsd > 0 && pkg.total_weight && parseFloat(pkg.total_weight) > 0
-                    ? Math.round((assignedUsd / parseFloat(pkg.total_weight)) * 100) / 100
-                    : userTariffFallback.perKg),
+            // Fuente única de verdad: tarifario oficial (air_client_tariffs / air_tariffs).
+            air_tariff_type: tariffType,
+            air_price_per_kg: finalPerKg,
             air_sale_price: assignedUsd,
             saldo_pendiente: saldoMxn,
             monto_pagado: legacyPaid,

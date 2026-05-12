@@ -9,6 +9,59 @@ import { createNotification } from './notificationController';
 import crypto from 'crypto';
 import { sm2 } from 'sm-crypto';
 
+/**
+ * 🎯 Resuelve el precio USD/kg para un (user_id, tariff_type) consultando:
+ *   1. air_client_tariffs (priorizando user_id, luego legacy_client_id vía box_id)
+ *   2. air_tariffs (precio general de la ruta activa)
+ * Devuelve 0 si no encuentra (jamás usar fallback hardcodeado).
+ * Acepta `pool` o un `client` ya conectado.
+ */
+export async function resolveAirPricePerKg(
+    db: { query: (q: string, p?: any[]) => Promise<any> },
+    userId: number | null,
+    tariffType: string,
+    routeId?: number | null
+): Promise<number> {
+    try {
+        // Resolver ruta activa si no se pasó
+        let rid = routeId || null;
+        if (!rid) {
+            const r = await db.query(`SELECT id FROM air_routes WHERE is_active = true ORDER BY id LIMIT 1`);
+            rid = r.rows[0]?.id || null;
+        }
+        if (!rid) return 0;
+
+        // 1. Tarifa personalizada por cliente (user_id directo, o legacy_client_id vía box_id)
+        if (userId) {
+            const ub = await db.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
+            const boxId = ub.rows[0]?.box_id || null;
+            let legacyId: number | null = null;
+            if (boxId) {
+                const lc = await db.query(`SELECT id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) LIMIT 1`, [boxId]);
+                if (lc.rows[0]) legacyId = lc.rows[0].id;
+            }
+            const ct = await db.query(
+                `SELECT price_per_kg FROM air_client_tariffs
+                 WHERE (user_id = $1 OR ($4::int IS NOT NULL AND legacy_client_id = $4::int))
+                   AND route_id = $2 AND tariff_type = $3 AND is_active = true
+                 ORDER BY (user_id = $1) DESC LIMIT 1`,
+                [userId, rid, tariffType, legacyId]
+            );
+            if (ct.rows[0]?.price_per_kg) return parseFloat(ct.rows[0].price_per_kg);
+        }
+        // 2. Tarifa general
+        const gt = await db.query(
+            `SELECT price_per_kg FROM air_tariffs
+             WHERE route_id = $1 AND tariff_type = $2 AND is_active = true LIMIT 1`,
+            [rid, tariffType]
+        );
+        return gt.rows[0]?.price_per_kg ? parseFloat(gt.rows[0].price_per_kg) : 0;
+    } catch (e) {
+        console.error('[resolveAirPricePerKg] Error:', e);
+        return 0;
+    }
+}
+
 // INTERFACES DEL JSON DE LA API CHINA
 interface ChinaApiPayload {
     fno: string;           // "AIR2609..." - Identificador único del envío
@@ -212,11 +265,20 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
             // If not startup, use per-kg pricing
             if (!isStartup) {
                 if (airRouteId && userId) {
+                    // Buscar legacy_client_id ligado al box_id del usuario
+                    const userBoxRes = await client.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
+                    const userBox = userBoxRes.rows[0]?.box_id || null;
+                    let legacyId: number | null = null;
+                    if (userBox) {
+                        const lcRes = await client.query(`SELECT id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) LIMIT 1`, [userBox]);
+                        if (lcRes.rows[0]) legacyId = lcRes.rows[0].id;
+                    }
                     const customTariffRes = await client.query(`
                         SELECT price_per_kg FROM air_client_tariffs 
-                        WHERE user_id = $1 AND route_id = $2 AND tariff_type = $3 AND is_active = true
-                        LIMIT 1
-                    `, [userId, airRouteId, tariffType]);
+                        WHERE (user_id = $1 OR ($4::int IS NOT NULL AND legacy_client_id = $4::int))
+                          AND route_id = $2 AND tariff_type = $3 AND is_active = true
+                        ORDER BY (user_id = $1) DESC LIMIT 1
+                    `, [userId, airRouteId, tariffType, legacyId]);
                     
                     if (customTariffRes.rows.length > 0) {
                         pricePerKg = parseFloat(customTariffRes.rows[0].price_per_kg);
@@ -373,14 +435,16 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
             `, [totalSale, receiptId]);
             console.log(`  💰 Saldo asignado: $${totalSale.toFixed(2)} USD`);
         } else if (payload.totalWeight > 0) {
-            // Usar tarifa general $21/kg si no hay paquetes con precio
-            const estimatedCost = payload.totalWeight * 21;
+            // Sin packages con precio: aplicar tarifario oficial (cliente → general).
+            // Default tariff_type = 'L' (Logo) si el usuario no tiene preferencia.
+            const estPerKg = await resolveAirPricePerKg(pool, userId, 'L');
+            const estimatedCost = payload.totalWeight * estPerKg;
             await pool.query(`
                 UPDATE china_receipts 
                 SET assigned_cost_mxn = $1, saldo_pendiente = $1, updated_at = CURRENT_TIMESTAMP
                 WHERE id = $2 AND assigned_cost_mxn IS NULL
             `, [estimatedCost, receiptId]);
-            console.log(`  💰 Saldo estimado: $${estimatedCost.toFixed(2)} USD (${payload.totalWeight}kg × $21/kg)`);
+            console.log(`  💰 Saldo estimado: $${estimatedCost.toFixed(2)} USD (${payload.totalWeight}kg × $${estPerKg.toFixed(2)}/kg tarifario)`);
         }
 
         // Marcar log como exitoso
@@ -2281,7 +2345,9 @@ export const pullFromMJCustomer = async (req: Request, res: Response): Promise<a
             // === ACTUALIZAR SALDO EN CHINA_RECEIPTS ===
             const totalWeight = parseFloat(String(order.totalWeight || 0)) || 0;
             if (totalWeight > 0) {
-                const estimatedCost = totalWeight * 21; // $21 USD/kg tarifa estándar
+                // Tarifario oficial (cliente → general). Default tariff_type='L'.
+                const estPerKg = await resolveAirPricePerKg(client, userId, 'L');
+                const estimatedCost = totalWeight * estPerKg;
                 await client.query(`
                     UPDATE china_receipts 
                     SET assigned_cost_mxn = $1, saldo_pendiente = $1, updated_at = CURRENT_TIMESTAMP
