@@ -2780,7 +2780,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
             estimated_cost: pkg.estimated_cost ? parseFloat(pkg.estimated_cost) : 0,
             saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
-            monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0
+            monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
+            // Clasificación de mercancía (necesario para reglas GEX/precio)
+            brand_type: pkg.brand_type || null,
+            merchandise_type: pkg.merchandise_type || null
         }));
 
         // 3. Paquetes TDI AÉREO China (china_receipts) - Buscar por user_id O por shipping_mark
@@ -2792,7 +2795,76 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             ORDER BY cr.id, cr.created_at DESC
         `, [userId, userBoxId]);
 
-        const chinaAirPackages = chinaAirResult.rows.map(pkg => ({
+        // ✈️🇨🇳 Tipo de cambio (compartido con marítimo) y agregación de tarifa
+        // por FNO desde packages (donde sí viven air_tariff_type y air_price_per_kg).
+        let chinaAirFx = 0;
+        try {
+            const fxRow = await pool.query(`SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio='maritimo' LIMIT 1`);
+            chinaAirFx = fxRow.rows[0]?.tipo_cambio_final ? parseFloat(fxRow.rows[0].tipo_cambio_final) : 0;
+        } catch (e) { /* ignore */ }
+        const fnoList: string[] = chinaAirResult.rows.map((r: any) => String(r.fno || '')).filter(Boolean);
+        const airAggMap: Record<string, { usd: number; perKg: number | null; tariff: string | null }> = {};
+        if (fnoList.length > 0) {
+            try {
+                const aggRes = await pool.query(`
+                    SELECT split_part(tracking_internal, '-', 1) AS prefix,
+                           SUM(air_sale_price::numeric) AS sum_usd,
+                           MODE() WITHIN GROUP (ORDER BY air_price_per_kg) AS per_kg,
+                           MODE() WITHIN GROUP (ORDER BY air_tariff_type) AS tariff
+                    FROM packages
+                    WHERE air_sale_price IS NOT NULL
+                      AND split_part(tracking_internal, '-', 1) ILIKE ANY($1::text[])
+                    GROUP BY split_part(tracking_internal, '-', 1)
+                `, [fnoList]);
+                aggRes.rows.forEach((r: any) => {
+                    airAggMap[String(r.prefix).toLowerCase()] = {
+                        usd: r.sum_usd ? parseFloat(r.sum_usd) : 0,
+                        perKg: r.per_kg ? parseFloat(r.per_kg) : null,
+                        tariff: r.tariff || null,
+                    };
+                });
+            } catch (e) { /* ignore */ }
+        }
+
+        // 🪂 Fallback de tarifa por usuario: si un FNO no tiene packages asociados
+        // (recibos manuales sin desglose por caja), tomamos la tarifa más usada
+        // por el mismo user_id en histórico para etiquetar el desglose.
+        let userTariffFallback: { tariff: string | null; perKg: number | null } = { tariff: null, perKg: null };
+        try {
+            const tarRes = await pool.query(`
+                SELECT air_tariff_type AS tariff, air_price_per_kg AS per_kg, COUNT(*) AS cnt
+                FROM packages
+                WHERE user_id = $1 AND air_tariff_type IS NOT NULL
+                GROUP BY air_tariff_type, air_price_per_kg
+                ORDER BY cnt DESC
+                LIMIT 1
+            `, [userId]);
+            if (tarRes.rows[0]) {
+                userTariffFallback = {
+                    tariff: tarRes.rows[0].tariff || null,
+                    perKg: tarRes.rows[0].per_kg ? parseFloat(tarRes.rows[0].per_kg) : null,
+                };
+            }
+        } catch (e) { /* ignore */ }
+
+        const chinaAirPackages = chinaAirResult.rows.map(pkg => {
+            const agg = airAggMap[String(pkg.fno || '').toLowerCase()] || { usd: 0, perKg: null, tariff: null };
+            // china_receipts.assigned_cost_mxn históricamente almacena el valor en USD.
+            // Preferimos la suma real desde packages (USD); si no, usamos el legacy.
+            const assignedUsd = agg.usd > 0
+                ? agg.usd
+                : (pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0);
+            const fx = chinaAirFx || 0;
+            const assignedMxn = fx > 0 ? assignedUsd * fx : assignedUsd;
+            // Saldo / pagado vienen de china_receipts en MXN reales (post-pago).
+            // Si saldo_pendiente legacy == assigned_cost_mxn legacy (USD) y monto_pagado=0,
+            // recalcular saldo en MXN.
+            const legacySaldo = pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0;
+            const legacyPaid = pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0;
+            const saldoMxn = legacyPaid > 0
+                ? legacySaldo
+                : (assignedMxn - legacyPaid);
+            return ({
             id: pkg.id + 200000, // Offset para evitar colisión de IDs
             tracking_internal: pkg.fno,
             tracking_provider: pkg.international_tracking || null,
@@ -2829,13 +2901,26 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             delivery_instructions: pkg.delivery_instructions || null,
             // Paquetería asignada y costos
             national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,
-            assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : 0,
-            saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
-            monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
+            assigned_cost_mxn: assignedMxn,
+            assigned_cost_usd: assignedUsd,
+            registered_exchange_rate: fx > 0 ? fx : null,
+            // Tarifa aérea (para detalle de cálculo "kg × USD/kg")
+            // Si no hay packages bajo este FNO, calculamos per_kg implícito
+            // (USD asignado / peso total) y usamos la tarifa más usada del usuario
+            // como etiqueta de fallback.
+            air_tariff_type: agg.tariff || userTariffFallback.tariff,
+            air_price_per_kg: agg.perKg
+                || (assignedUsd > 0 && pkg.total_weight && parseFloat(pkg.total_weight) > 0
+                    ? Math.round((assignedUsd / parseFloat(pkg.total_weight)) * 100) / 100
+                    : userTariffFallback.perKg),
+            air_sale_price: assignedUsd,
+            saldo_pendiente: saldoMxn,
+            monto_pagado: legacyPaid,
             // Estado de pago del cliente
             client_paid: pkg.payment_status === 'paid' || (pkg.saldo_pendiente !== null && parseFloat(pkg.saldo_pendiente) === 0 && parseFloat(pkg.assigned_cost_mxn || 0) > 0),
             payment_status: pkg.payment_status || null
-        }));
+        });
+        });
 
         // 4. Paquetes DHL (dhl_shipments)
         const dhlResult = await pool.query(`

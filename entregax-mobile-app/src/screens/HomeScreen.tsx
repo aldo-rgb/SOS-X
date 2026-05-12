@@ -831,7 +831,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // gexEnabled: toggle global del super_admin. Si está apagado, ocultamos
     // la opción de contratar (pero seguimos mostrando el badge "Activa"
     // cuando el paquete ya tenía la garantía contratada antes).
-    const canContractGEX = item.has_gex || (gexEnabled && (isMaritime
+    // 🚫 Mercancía Logotipo NO permite contratar GEX en marítimo/aéreo
+    // (en PO Box no hay clasificación, así que no aplica).
+    const brandKey = String((item as any).brand_type || '').toLowerCase();
+    const merchKey = String((item as any).merchandise_type || '').toLowerCase();
+    // Para aéreo China, el tipo viene en air_tariff_type ('L' = Logo).
+    const airTariff = String((item as any).air_tariff_type || '').toUpperCase();
+    const isLogoMerch = brandKey === 'logo' || brandKey === 'branded'
+      || merchKey === 'logo' || merchKey === 'branded'
+      || airTariff === 'L';
+    const canContractGEX = item.has_gex || (gexEnabled && !((isMaritime || isChinaAir) && isLogoMerch) && (isMaritime
       ? (item.status === 'received_china') // Marítimo: puede contratar antes de zarpar
       : isChinaAir
         ? (item.status === 'received_origin') // ✈️🇨🇳 China Air: puede contratar en bodega China
@@ -2139,34 +2148,40 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               />
             )}
 
-            {/* 🎯 Filtros de Servicio — solo aparecen los servicios
-                con paquetes activos del cliente. Si tiene 0 de un
-                servicio (ej. nadie tiene DHL), se oculta el chip. */}
+            {/* 🎯 Filtros de Servicio — Aéreo, Marítimo y PO Box
+                siempre visibles. MTY (DHL) solo aparece si el cliente
+                tiene paquetes DHL en ruta. */}
             <View style={styles.serviceFilters}>
-              {serviceCounts.air > 0 && (
-                <Pressable
-                  style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
-                  onPress={() => {
-                    setSelectedIds([]);
-                    setServiceFilter(serviceFilter === 'air' ? null : 'air');
-                  }}
-                >
-                  <Text style={styles.filterIcon}>✈️</Text>
-                  <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
-                </Pressable>
-              )}
-              {serviceCounts.maritime > 0 && (
-                <Pressable
-                  style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
-                  onPress={() => {
-                    setSelectedIds([]);
-                    setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime');
-                  }}
-                >
-                  <Text style={styles.filterIcon}>🚢</Text>
-                  <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
-                </Pressable>
-              )}
+              <Pressable
+                style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
+                onPress={() => {
+                  setSelectedIds([]);
+                  setServiceFilter(serviceFilter === 'air' ? null : 'air');
+                }}
+              >
+                <Text style={styles.filterIcon}>✈️</Text>
+                <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
+                onPress={() => {
+                  setSelectedIds([]);
+                  setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime');
+                }}
+              >
+                <Text style={styles.filterIcon}>🚢</Text>
+                <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
+                onPress={() => {
+                  setSelectedIds([]);
+                  setServiceFilter(serviceFilter === 'usa' ? null : 'usa');
+                }}
+              >
+                <Text style={styles.filterIcon}>📦</Text>
+                <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>PO Box</Text>
+              </Pressable>
               {serviceCounts.dhl > 0 && (
                 <Pressable
                   style={[styles.filterChip, serviceFilter === 'dhl' && styles.filterChipActive]}
@@ -2177,18 +2192,6 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 >
                   <Text style={styles.filterIcon}>🚚</Text>
                   <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>MTY</Text>
-                </Pressable>
-              )}
-              {serviceCounts.usa > 0 && (
-                <Pressable
-                  style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
-                  onPress={() => {
-                    setSelectedIds([]);
-                    setServiceFilter(serviceFilter === 'usa' ? null : 'usa');
-                  }}
-                >
-                  <Text style={styles.filterIcon}>📦</Text>
-                  <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>PO Box</Text>
                 </Pressable>
               )}
             </View>

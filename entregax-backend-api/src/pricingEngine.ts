@@ -919,8 +919,25 @@ export const assignPriceToMaritimeOrder = async (
     }
 
     // 2. Obtener tipo de cambio
-    const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
-    const fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+    //    Fuente principal: exchange_rate_config (servicio='maritimo')
+    //    — es la misma fuente que usa la web admin y el detalle al cliente.
+    //    Fallback: tabla exchange_rates si no hay configuración activa.
+    let fxRate = 18.00;
+    try {
+        const fxCfgRes = await pool.query(
+            `SELECT tipo_cambio_final FROM exchange_rate_config
+             WHERE servicio = 'maritimo' AND estado = true LIMIT 1`
+        );
+        if (fxCfgRes.rows.length > 0) {
+            fxRate = parseFloat(fxCfgRes.rows[0].tipo_cambio_final) || 18.00;
+        } else {
+            const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+            fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+        }
+    } catch {
+        const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+        fxRate = parseFloat(fxRes.rows[0]?.rate || '20.50');
+    }
 
     const containerType = (order.container_type || 'LCL').toUpperCase();
 
@@ -1007,14 +1024,21 @@ export const assignPriceToMaritimeOrder = async (
         const volumetricCbm = weightKg / 600;
         chargeableCbm = Math.max(cbm, volumetricCbm);
 
-        // Mapear merchandise_type → categoría de pricing
+        // Mapear tipo de mercancía → categoría de pricing.
+        // ⚠️ FUENTE DE VERDAD: brand_type (configurado al clasificar la
+        // mercancía en bodega) tiene PRIORIDAD sobre merchandise_type
+        // (que viene del cliente al crear la orden). Es el mismo criterio
+        // que usa la tabla de Consolidaciones Marítimas para mostrar "Tipo".
         const typeMap: Record<string, string> = {
             'generic': 'Generico',
             'sensitive': 'Sensible',
             'logo': 'Logotipo',
+            'branded': 'Logotipo',
             'startup': 'StartUp'
         };
-        let categoryName = typeMap[order.merchandise_type || 'generic'] || 'Generico';
+        const brandKey = String(order.brand_type || '').toLowerCase();
+        const merchKey = String(order.merchandise_type || '').toLowerCase();
+        let categoryName = typeMap[brandKey] || typeMap[merchKey] || 'Generico';
 
         // StartUp rule: ≤ 0.75 CBM
         if (chargeableCbm <= 0.75) {

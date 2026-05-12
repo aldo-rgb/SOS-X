@@ -763,8 +763,19 @@ export default function DashboardClient() {
     if (!gexEnabled) return false;
     if (pkg.client_paid || pkg.has_gex) return false;
 
+    // 🚫 Mercancía clasificada como Logotipo NO permite contratar GEX.
+    // Aplica solo a marítimo/aéreo (en PO Box no hay clasificación).
+    const brandKey = String((pkg as any).brand_type || '').toLowerCase();
+    const merchKey = String((pkg as any).merchandise_type || '').toLowerCase();
+    // Para aéreo China, el tipo viene en air_tariff_type ('L' = Logo).
+    const airTariff = String((pkg as any).air_tariff_type || '').toUpperCase();
+    const isLogoMerch = brandKey === 'logo' || brandKey === 'branded'
+      || merchKey === 'logo' || merchKey === 'branded'
+      || airTariff === 'L';
+
     const isChinaAir = pkg.servicio === 'AIR_CHN_MX' || pkg.shipment_type === 'china_air';
     if (isChinaAir) {
+      if (isLogoMerch) return false;
       return [
         'received_china',
         'received_origin',
@@ -782,6 +793,8 @@ export default function DashboardClient() {
       if (pkg.status === 'in_transit') return true;
       return pkg.status === 'received' && label.includes('RECIBIDO CEDIS');
     }
+    // Resto (marítimo y otros) — bloquear si es Logotipo
+    if (isLogoMerch) return false;
     return [
       'received',
       'in_transit',
@@ -895,6 +908,21 @@ export default function DashboardClient() {
 
   // Opciones de paquetería dinámicas desde la API
   const [carrierServices, setCarrierServices] = useState<{ id: string; name: string; description: string; price: string; subtext?: string; icon: string; allowsCollect?: boolean; isDynamic?: boolean; isTotalPrice?: boolean; isCollect?: boolean }[]>([]);
+  // 🎨 Logo "X" de EntregaX (brand asset activo) para sobreescribir el
+  // ícono de cualquier paquetería interna (carrier_key empezando con "entregax_").
+  const [entregaxLogoUrl, setEntregaxLogoUrl] = useState<string>('');
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/brand-assets/active`);
+        const data = await res.json();
+        const url = data?.assets?.entregax_x_only?.url || '';
+        if (!cancelled && url) setEntregaxLogoUrl(url);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
   // Cache de carriers por tipo de servicio para el formulario de direcciones
   const [carriersPerService, setCarriersPerService] = useState<Record<string, { id: string; name: string; icon: string }[]>>({});
   const fetchCarriersForService = async (serviceType: string) => {
@@ -2708,6 +2736,12 @@ export default function DashboardClient() {
       const sumCbm = sorted.reduce((s, k) => s + (Number(k.cbm) || 0), 0);
       const sumDeclared = sorted.reduce((s, k) => s + (Number(k.declared_value) || 0), 0);
       const sumMonto = sorted.reduce((s, k) => s + (Number(k.monto) || 0), 0);
+      // 💵 Aéreo: el master debe mostrar el precio total (suma de hijos).
+      // El representante (sorted[0]) tiene el precio de UNA caja, no del embarque.
+      const sumAirSaleUsd = sorted.reduce((s, k) => s + (Number((k as any).air_sale_price) || 0), 0);
+      const sumAssignedMxn = sorted.reduce((s, k) => s + (Number((k as any).assigned_cost_mxn) || 0), 0);
+      const sumSaldoPendiente = sorted.reduce((s, k) => s + (Number((k as any).saldo_pendiente) || 0), 0);
+      const sumMontoPagado = sorted.reduce((s, k) => s + (Number((k as any).monto_pagado) || 0), 0);
       const allPaid = sorted.every(k => k.client_paid === true);
       // Status del master agregado: NO podemos heredar el de sorted[0] tal cual,
       // porque si la caja -001 ya está entregada pero el resto sigue en
@@ -2734,6 +2768,12 @@ export default function DashboardClient() {
         cbm: sumCbm,
         declared_value: sumDeclared,
         monto: sumMonto,
+        // Sobreescribir campos de precio para que el master muestre el total
+        // del embarque, no el de una sola caja.
+        air_sale_price: sumAirSaleUsd > 0 ? sumAirSaleUsd : (repr as any).air_sale_price,
+        assigned_cost_mxn: sumAssignedMxn > 0 ? sumAssignedMxn : (repr as any).assigned_cost_mxn,
+        saldo_pendiente: sumSaldoPendiente,
+        monto_pagado: sumMontoPagado,
         client_paid: allPaid,
         is_master: true,
         status: masterStatus,
@@ -10210,7 +10250,13 @@ export default function DashboardClient() {
                               {(() => {
                                 const carrierCode = selectedPackage.national_carrier || selectedPackage.carrier || '';
                                 const carrierMatch = carrierServices.find(s => s.id === carrierCode);
-                                const iconSrc = carrierMatch?.icon;
+                                // 🎨 Cualquier paquetería EntregaX interna usa el logo X
+                                // activo (configurado en Settings → Brand Assets).
+                                const isEntregax = String(carrierCode).toLowerCase().startsWith('entregax_')
+                                  || String(carrierCode).toLowerCase() === 'local';
+                                const iconSrc = (isEntregax && entregaxLogoUrl)
+                                  ? entregaxLogoUrl
+                                  : carrierMatch?.icon;
                                 const isUrl = iconSrc && (iconSrc.startsWith('http') || iconSrc.startsWith('/'));
                                 if (isUrl) return <img src={iconSrc} alt={carrierCode} style={{ width: 36, height: 36, objectFit: 'contain', borderRadius: 4 }} />;
                                 return <Box sx={{ fontSize: '1.5rem' }}>{iconSrc || '🚚'}</Box>;
@@ -10259,7 +10305,8 @@ export default function DashboardClient() {
                   );
                 })()}
 
-                {/* Estado y Costo */}
+                {/* Estado y Costo — oculto si Pagos EntregaX está desactivado */}
+                {entregaxPaymentsEnabled && (
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
                     💰 {t('cd.detail.serviceCost')}
@@ -10283,11 +10330,23 @@ export default function DashboardClient() {
                     tcToShow = tcConfig; // Por defecto usar el TC de configuración
 
                     // Determinar labels
-                    const merchLabel = selectedPackage.merchandise_type === 'sensitive' ? 'Sensible' 
-                      : selectedPackage.merchandise_type === 'logo' ? 'Logotipo' 
-                      : selectedPackage.merchandise_type === 'startup' ? 'StartUp'
-                      : selectedPackage.merchandise_type === 'FCL' ? 'FCL'
-                      : 'Genérico';
+                    // ⚠️ Para marítimo, el tipo de mercancía real viene de `brand_type`
+                    // (campo que el staff captura en Consolidaciones Marítimas).
+                    // `merchandise_type` es metadata legada que casi siempre es "generic".
+                    // Si la orden viene con applied_category (backend ya resolvió), usar esa.
+                    const appliedCategory = (selectedPackage as any).applied_category;
+                    const brandKey = String((selectedPackage as any).brand_type || '').toLowerCase();
+                    const merchKey = String(selectedPackage.merchandise_type || '').toLowerCase();
+                    const resolveLabel = (k: string) => k === 'sensitive' ? 'Sensible'
+                      : k === 'logo' || k === 'branded' ? 'Logotipo'
+                      : k === 'startup' ? 'StartUp'
+                      : k === 'fcl' ? 'FCL'
+                      : k === 'generic' ? 'Genérico'
+                      : '';
+                    const merchLabel = appliedCategory
+                      || resolveLabel(brandKey)
+                      || resolveLabel(merchKey)
+                      || 'Genérico';
                     const airPricePerKg = selectedPackage.air_price_per_kg ? Number(selectedPackage.air_price_per_kg) : 0;
                     const airTariffType = selectedPackage.air_tariff_type || '';
                     const tariffLabel = airTariffType === 'L' ? 'Logo' : airTariffType === 'G' ? 'Genérico' : airTariffType === 'S' ? 'Sensible' : airTariffType === 'F' ? 'Flat' : airTariffType === 'SU' ? 'Start Up' : '';
@@ -10312,7 +10371,18 @@ export default function DashboardClient() {
                       }
                       detailLine = isFCL 
                         ? `Contenedor completo · ${merchLabel}`
-                        : `${Number(selectedPackage.cbm || 0).toFixed(3)} m³ · ${merchLabel}`;
+                        : (() => {
+                            const cbm = Number(selectedPackage.cbm || 0);
+                            // Preferir applied_rate_per_cbm_usd del backend; si no,
+                            // derivar la tarifa efectiva costoUSD / cbm.
+                            const appliedRate = Number((selectedPackage as any).applied_rate_per_cbm_usd || 0);
+                            const ratePerCbm = appliedRate > 0
+                              ? appliedRate
+                              : (cbm > 0 && costoUSD > 0 ? costoUSD / cbm : 0);
+                            return ratePerCbm > 0
+                              ? `${cbm.toFixed(2)} m³ × $${ratePerCbm.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD/m³ · ${merchLabel}`
+                              : `${cbm.toFixed(3)} m³ · ${merchLabel}`;
+                          })();
                     } else if (isPobox) {
                       // 📦 PO BOX — fuente única: helper canónico packageCosts.
                       // Lee pobox_service_cost (MXN) / pobox_venta_usd / pobox_tarifa_nivel /
@@ -10356,22 +10426,40 @@ export default function DashboardClient() {
                       isEstimated = true;
                     } else if (isMaritime && !isFCL && selectedPackage.cbm && Number(selectedPackage.cbm) > 0) {
                       // MARÍTIMO estimado por CBM (tarifas USD basadas en pricing_tiers)
-                      const cbm = Number(selectedPackage.cbm);
-                      // < 1 m³: StartUp flat fees (USD)
-                      if (cbm <= 0.25) costoUSD = 399;
-                      else if (cbm <= 0.50) costoUSD = 549;
-                      else if (cbm <= 0.75) costoUSD = 699;
-                      else if (cbm < 1) costoUSD = cbm * 899;
-                      // >= 1 m³: Genérico por CBM (USD)
-                      else if (cbm <= 3) costoUSD = cbm * 899;
-                      else if (cbm <= 6) costoUSD = cbm * 849;
-                      else if (cbm <= 10) costoUSD = cbm * 799;
-                      else if (cbm <= 20) costoUSD = cbm * 749;
-                      else costoUSD = cbm * 649;
-                      montoMXN = costoUSD * tcConfig;
-                      tcToShow = tcConfig;
-                      detailLine = `${cbm.toFixed(4)} m³ · ${merchLabel} (estimado)`;
-                      isEstimated = true;
+                      // ⚠️ Solo si la mercancía ya fue recibida/clasificada.
+                      // Mientras esté pendiente, NO mostramos costo (depende de la clasificación).
+                      const classifiedStatuses = ['received_china','received','in_transit','customs_mx','customs','consolidated','at_port','delivered'];
+                      const isClassified = classifiedStatuses.includes(String(selectedPackage.status || ''));
+                      if (!isClassified) {
+                        // Marcar como pendiente de clasificación
+                        costoUSD = 0;
+                        montoMXN = 0;
+                        tcToShow = tcConfig;
+                        detailLine = '';
+                        isEstimated = true;
+                        (selectedPackage as any).__pending_classification = true;
+                      } else {
+                        const cbm = Number(selectedPackage.cbm);
+                        let ratePerCbm = 0;
+                        let isFlatFee = false;
+                        // < 1 m³: StartUp flat fees (USD)
+                        if (cbm <= 0.25) { costoUSD = 399; isFlatFee = true; }
+                        else if (cbm <= 0.50) { costoUSD = 549; isFlatFee = true; }
+                        else if (cbm <= 0.75) { costoUSD = 699; isFlatFee = true; }
+                        else if (cbm < 1) { ratePerCbm = 899; costoUSD = cbm * ratePerCbm; }
+                        // >= 1 m³: Genérico por CBM (USD)
+                        else if (cbm <= 3) { ratePerCbm = 899; costoUSD = cbm * ratePerCbm; }
+                        else if (cbm <= 6) { ratePerCbm = 849; costoUSD = cbm * ratePerCbm; }
+                        else if (cbm <= 10) { ratePerCbm = 799; costoUSD = cbm * ratePerCbm; }
+                        else if (cbm <= 20) { ratePerCbm = 749; costoUSD = cbm * ratePerCbm; }
+                        else { ratePerCbm = 649; costoUSD = cbm * ratePerCbm; }
+                        montoMXN = costoUSD * tcConfig;
+                        tcToShow = tcConfig;
+                        detailLine = (ratePerCbm > 0 && !isFlatFee)
+                          ? `${cbm.toFixed(2)} m³ × $${ratePerCbm.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD/m³ · ${merchLabel} (estimado)`
+                          : `${cbm.toFixed(4)} m³ · ${merchLabel} (estimado)`;
+                        isEstimated = true;
+                      }
                     } else if (isDhl && displayMonto > 0) {
                       // DHL MTY: monto es MXN
                       montoMXN = displayMonto;
@@ -10405,6 +10493,22 @@ export default function DashboardClient() {
 
                     const isPaid = isPaidPackage(selectedPackage);
                     const accentColor = isPaid ? 'success.main' : 'warning.main';
+                    const isPendingClassification = !!(selectedPackage as any).__pending_classification;
+
+                    // 🕐 Mercancía pendiente de clasificación: NO mostrar costo
+                    if (isPendingClassification) {
+                      return (
+                        <Paper sx={{ p: 2, bgcolor: '#fff3e0', textAlign: 'center' }}>
+                          <Typography variant="h6" sx={{ color: ORANGE, mb: 1 }}>🕐</Typography>
+                          <Typography variant="body1" fontWeight="bold" sx={{ mb: 0.5 }}>
+                            Pendiente de recibir clasificación
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            El costo se asignará una vez que la mercancía sea recibida y clasificada en bodega China.
+                          </Typography>
+                        </Paper>
+                      );
+                    }
 
                     return (
                       <Paper sx={{ p: 2, bgcolor: isPaid ? '#e8f5e9' : '#fff3e0' }}>
@@ -10429,7 +10533,7 @@ export default function DashboardClient() {
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                           <Typography variant="body2" color="text.secondary">💱 Tipo de cambio:</Typography>
                           <Typography variant="body2" fontWeight="medium">
-                            $1 USD = ${tcToShow.toFixed(2)} MXN
+                            ${tcToShow.toFixed(2)} MXN
                           </Typography>
                         </Box>
 
@@ -10505,6 +10609,7 @@ export default function DashboardClient() {
                     );
                   })()}
                 </Box>
+                )}
 
                 {/* Fechas */}
                 <Box>

@@ -115,7 +115,7 @@ const TARIFAS_POBOX_USD: Record<number, number> = { 1: 39, 2: 79, 3: 750 };
 
 export default function PackageDetailScreen({ navigation, route }: Props) {
   const { package: pkg, user, token } = route.params;
-  const { gexEnabled } = usePaymentStatus();
+  const { gexEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
   const [loading, setLoading] = useState(true);
   const [details, setDetails] = useState<PackageDetails | null>(null);
   const [childPackages, setChildPackages] = useState<ChildPackage[]>([]);
@@ -746,7 +746,8 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
           </Card.Content>
         </Card>
 
-        {/* Costos */}
+        {/* Costos — oculto si Pagos EntregaX está desactivado */}
+        {entregaxPaymentsEnabled && (
         <Card style={styles.costsCard}>
           <Card.Content>
             <Text style={styles.sectionTitle}>💰 Desglose de Costos</Text>
@@ -867,6 +868,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             )}
           </Card.Content>
         </Card>
+        )}
 
         {/* Fechas */}
         <Card style={styles.datesCard}>

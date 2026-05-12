@@ -1671,14 +1671,14 @@ export const getMyMaritimeOrderDetail = async (req: Request, res: Response) => {
         const userBoxId: string | null = userResult.rows[0]?.box_id || null;
         const upperBox = userBoxId ? userBoxId.toUpperCase() : null;
 
-        const result = await pool.query(`
+        const fetchOrder = async () => pool.query(`
             SELECT 
                 mo.*,
                 a.alias as delivery_address_alias,
                 a.street as delivery_street,
                 a.city as delivery_city,
                 a.state as delivery_state,
-                c.name as container_name,
+                c.container_number as container_name,
                 c.eta as container_eta
             FROM maritime_orders mo
             LEFT JOIN addresses a ON mo.delivery_address_id = a.id
@@ -1691,6 +1691,8 @@ export const getMyMaritimeOrderDetail = async (req: Request, res: Response) => {
               )
         `, [id, userId, upperBox]);
 
+        let result = await fetchOrder();
+
         if (result.rows.length === 0) {
             return res.status(404).json({ 
                 success: false, 
@@ -1698,9 +1700,236 @@ export const getMyMaritimeOrderDetail = async (req: Request, res: Response) => {
             });
         }
 
+        // 💰 Si la orden ya tiene contenedor asignado pero aún no tiene
+        // costo calculado, intentamos calcularlo automáticamente para que el
+        // cliente vea el desglose en el detalle.
+        const ord = result.rows[0];
+        const hasAssignedCost = ord.assigned_cost_mxn != null && parseFloat(ord.assigned_cost_mxn) > 0;
+        if (!hasAssignedCost && ord.container_id) {
+            try {
+                const priceRes = await assignPriceToMaritimeOrder(Number(id), userId);
+                if (priceRes) {
+                    result = await fetchOrder();
+                }
+            } catch (e: any) {
+                console.warn(`No se pudo calcular precio on-demand para orden ${id}:`, e?.message);
+            }
+        }
+
+        // 📏 Normalizar peso/volumen efectivos:
+        //   - Prefiere summary_* cuando exista (totales consolidados desde BL)
+        //   - Si solo hay `weight` por pieza (China API a veces lo trae por caja),
+        //     multiplica por goods_num cuando weight × goods_num es más coherente
+        //     con el volumen (más de 30 kg/m³ es lo normal).
+        const finalOrder: any = { ...result.rows[0] };
+        const numGoods = Number(finalOrder.goods_num || finalOrder.summary_boxes || 0);
+        const rawWeight = Number(finalOrder.weight || 0);
+        const rawVolume = Number(finalOrder.volume || 0);
+        const summaryWeight = finalOrder.summary_weight != null ? Number(finalOrder.summary_weight) : null;
+        const summaryVolume = finalOrder.summary_volume != null ? Number(finalOrder.summary_volume) : null;
+
+        let effectiveWeight = summaryWeight && summaryWeight > 0 ? summaryWeight : rawWeight;
+        const effectiveVolume = summaryVolume && summaryVolume > 0 ? summaryVolume : rawVolume;
+
+        // Si el peso parece ser "por caja" (weight × goods_num da una densidad
+        // razonable >= 30 kg/m³), interpretarlo como total
+        if ((!summaryWeight || summaryWeight <= 0) && numGoods > 1 && rawWeight > 0 && effectiveVolume > 0) {
+            const asTotal = rawWeight;
+            const asPerPiece = rawWeight * numGoods;
+            const densityTotal = asTotal / effectiveVolume;
+            const densityPerPiece = asPerPiece / effectiveVolume;
+            // Heurística: si tratar como total da densidad implausible (< 5 kg/m³),
+            // y multiplicar por cajas da algo razonable (5..800 kg/m³),
+            // asumir que weight era por caja y usar el total.
+            if (densityTotal < 5 && densityPerPiece >= 5 && densityPerPiece <= 800) {
+                effectiveWeight = asPerPiece;
+            }
+        }
+
+        finalOrder.weight = effectiveWeight;
+        finalOrder.volume = effectiveVolume;
+        finalOrder.summary_weight = effectiveWeight;
+        finalOrder.summary_volume = effectiveVolume;
+
+        // 🏷️ Para órdenes YA COTIZADAS: derivar categoría aplicada y tarifa USD/m³
+        // mediante reverse-lookup en pricing_tiers (fuente de verdad).
+        const assignedUsd = finalOrder.assigned_cost_usd != null ? parseFloat(finalOrder.assigned_cost_usd) : 0;
+        if (assignedUsd > 0) {
+            // CBM cobrable (factor marítimo: kg ÷ 600)
+            const volumetricCbm = effectiveWeight / 600;
+            let chargeableCbm = Math.max(effectiveVolume, volumetricCbm);
+            if (chargeableCbm >= 0.76 && chargeableCbm < 1) chargeableCbm = 1;
+
+            // Tarifa real = costo USD / CBM cobrable
+            const ratePerCbm = chargeableCbm > 0 ? assignedUsd / chargeableCbm : 0;
+
+            // Reverse-lookup: encontrar categoría cuyo tier matchee (precio, rango cbm)
+            let appliedCategory = 'Generico';
+            let isFlatFee = false;
+            try {
+                const tierMatch = await pool.query(
+                    `SELECT pc.name, pt.is_flat_fee
+                     FROM pricing_tiers pt
+                     JOIN pricing_categories pc ON pt.category_id = pc.id
+                     WHERE pt.is_active = TRUE
+                       AND $1 >= pt.min_cbm AND $1 <= pt.max_cbm
+                       AND ABS(pt.price - $2) < 1
+                     LIMIT 1`,
+                    [chargeableCbm, ratePerCbm]
+                );
+                if (tierMatch.rows.length > 0) {
+                    appliedCategory = tierMatch.rows[0].name;
+                    isFlatFee = !!tierMatch.rows[0].is_flat_fee;
+                } else {
+                    // Fallback: brand_type / merchandise_type
+                    const brand = String(finalOrder.brand_type || '').toLowerCase();
+                    const merch = String(finalOrder.merchandise_type || '').toLowerCase();
+                    if (brand === 'logo' || merch === 'branded' || merch === 'logo') appliedCategory = 'Logotipo';
+                    else if (brand === 'sensitive' || merch === 'sensitive') appliedCategory = 'Sensible';
+                    else if (merch === 'startup') appliedCategory = 'StartUp';
+                    else if (merch === 'fcl') appliedCategory = 'FCL';
+                }
+            } catch (e: any) {
+                console.warn('No se pudo hacer reverse-lookup de tier:', e?.message);
+            }
+
+            finalOrder.applied_category = appliedCategory;
+            finalOrder.applied_chargeable_cbm = parseFloat(chargeableCbm.toFixed(4));
+            finalOrder.applied_rate_per_cbm_usd = parseFloat(ratePerCbm.toFixed(2));
+            finalOrder.applied_is_flat_fee = isFlatFee;
+
+            // 💱 TC vigente del sistema: si la orden NO está pagada todavía,
+            // mostrar el TC actual (exchange_rate_config) y recalcular MXN para
+            // que el cliente vea el TC correcto en lugar de uno frozen viejo.
+            const isPaid = String(finalOrder.payment_status || '') === 'paid';
+            const isPartiallyPaid = parseFloat(finalOrder.monto_pagado || 0) > 0;
+            if (!isPaid && !isPartiallyPaid) {
+                try {
+                    const fxCfgRes = await pool.query(
+                        `SELECT tipo_cambio_final FROM exchange_rate_config
+                         WHERE servicio = 'maritimo' AND estado = true LIMIT 1`
+                    );
+                    if (fxCfgRes.rows.length > 0) {
+                        const currentFx = parseFloat(fxCfgRes.rows[0].tipo_cambio_final);
+                        if (currentFx > 0) {
+                            const newMxn = assignedUsd * currentFx;
+                            finalOrder.assigned_cost_mxn = parseFloat(newMxn.toFixed(2));
+                            finalOrder.saldo_pendiente = parseFloat(newMxn.toFixed(2));
+                            finalOrder.registered_exchange_rate = parseFloat(currentFx.toFixed(4));
+                        }
+                    }
+                } catch (e: any) {
+                    console.warn('No se pudo refrescar TC vigente:', e?.message);
+                }
+            }
+        }
+
+        // 💵 Cálculo de costo estimado para órdenes sin contenedor asignado
+        // (cuando todavía no se sabe la ruta/contenedor, mostramos un estimado
+        // usando la tarifa LCL Genérico para que el cliente sepa el costo aprox).
+        //
+        // ⚠️ REGLA: el costo estimado SOLO se calcula cuando la mercancía ya
+        // fue recibida/clasificada. Mientras la orden esté en estado previo a
+        // recepción, NO devolvemos costo (porque el precio depende de la
+        // clasificación: Genérico/Logotipo/Sensible/StartUp).
+        const classifiedStatuses = [
+            'received_china', 'received', 'in_transit',
+            'customs_mx', 'customs', 'consolidated', 'at_port', 'delivered'
+        ];
+        // Para estar realmente "clasificada" la orden necesita:
+        //  1) Status >= received_china
+        //  2) Resumen de recepción registrado (summary_weight/volume/boxes)
+        //     porque ahí es cuando staff confirma tipo/peso/volumen/cajas.
+        // Si el status es received_china pero NO hay summary_*, la mercancía
+        // físicamente llegó pero aún no se inspeccionó/clasificó.
+        const statusOk = classifiedStatuses.includes(String(finalOrder.status || ''));
+        const hasReceptionSummary = (
+            finalOrder.summary_weight != null && parseFloat(finalOrder.summary_weight) > 0
+        ) || (
+            finalOrder.summary_volume != null && parseFloat(finalOrder.summary_volume) > 0
+        ) || (
+            finalOrder.summary_boxes != null && parseInt(finalOrder.summary_boxes) > 0
+        );
+        const isClassified = statusOk && hasReceptionSummary;
+        const stillNoCost = (finalOrder.assigned_cost_mxn == null || parseFloat(finalOrder.assigned_cost_mxn) <= 0);
+
+        if (stillNoCost && !isClassified) {
+            // Marcar como pendiente de clasificación para que el frontend
+            // muestre el mensaje correcto y NO un costo provisional.
+            finalOrder.pending_classification = true;
+        }
+
+        if (stillNoCost && isClassified && effectiveVolume > 0) {
+            try {
+                // Tipo de cambio: preferir exchange_rate_config (servicio='maritimo')
+                // que es el TC que muestra la web admin/cliente. Fallback a
+                // exchange_rates si no existe la config.
+                let fxRate = 18.00;
+                try {
+                    const fxCfgRes = await pool.query(
+                        `SELECT tipo_cambio_final FROM exchange_rate_config
+                         WHERE servicio = 'maritimo' AND estado = true LIMIT 1`
+                    );
+                    if (fxCfgRes.rows.length > 0) {
+                        fxRate = parseFloat(fxCfgRes.rows[0].tipo_cambio_final) || 18.00;
+                    } else {
+                        const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+                        fxRate = parseFloat(fxRes.rows[0]?.rate || '18.00');
+                    }
+                } catch {
+                    const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+                    fxRate = parseFloat(fxRes.rows[0]?.rate || '18.00');
+                }
+
+                // CBM cobrable (factor marítimo: kg ÷ 600)
+                const volumetricCbm = effectiveWeight / 600;
+                let chargeableCbm = Math.max(effectiveVolume, volumetricCbm);
+
+                // Reglas StartUp / redondeo
+                let categoryName = 'Generico';
+                if (chargeableCbm <= 0.75) {
+                    categoryName = 'StartUp';
+                } else if (chargeableCbm >= 0.76 && chargeableCbm < 1) {
+                    chargeableCbm = 1;
+                }
+
+                const catRes = await pool.query(
+                    'SELECT id FROM pricing_categories WHERE name = $1',
+                    [categoryName]
+                );
+
+                if (catRes.rows.length > 0) {
+                    const categoryId = catRes.rows[0].id;
+                    const tierRes = await pool.query(
+                        `SELECT price, is_flat_fee FROM pricing_tiers
+                         WHERE category_id = $1 AND is_active = TRUE
+                           AND $2 >= min_cbm AND $2 <= max_cbm
+                         LIMIT 1`,
+                        [categoryId, chargeableCbm]
+                    );
+                    if (tierRes.rows.length > 0) {
+                        const tier = tierRes.rows[0];
+                        const ratePerCbm = parseFloat(tier.price);
+                        // Tarifas en pricing_tiers están en USD/CBM
+                        const estimatedUsd = tier.is_flat_fee ? ratePerCbm : chargeableCbm * ratePerCbm;
+                        const estimatedMxn = estimatedUsd * fxRate;
+                        finalOrder.estimated_cost = parseFloat(estimatedMxn.toFixed(2));
+                        finalOrder.estimated_cost_usd = parseFloat(estimatedUsd.toFixed(2));
+                        finalOrder.estimated_fx_rate = parseFloat(fxRate.toFixed(4));
+                        finalOrder.estimated_category = categoryName;
+                        finalOrder.estimated_chargeable_cbm = parseFloat(chargeableCbm.toFixed(4));
+                        finalOrder.estimated_rate_per_cbm_usd = parseFloat(ratePerCbm.toFixed(2));
+                        finalOrder.estimated_is_flat_fee = !!tier.is_flat_fee;
+                    }
+                }
+            } catch (e: any) {
+                console.warn(`No se pudo calcular costo estimado para orden ${id}:`, e?.message);
+            }
+        }
+
         res.json({
             success: true,
-            order: result.rows[0]
+            order: finalOrder
         });
 
     } catch (error: any) {

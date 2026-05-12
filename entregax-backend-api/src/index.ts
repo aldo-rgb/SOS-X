@@ -2250,6 +2250,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         gex_folio,
         assigned_cost_usd as maritime_sale_price_usd,
         merchandise_type,
+        brand_type,
         'MXN' as monto_currency,
         registered_exchange_rate,
         national_carrier,

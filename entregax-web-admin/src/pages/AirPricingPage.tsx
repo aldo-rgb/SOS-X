@@ -66,12 +66,24 @@ const TARIFF_TYPES = [
     { key: 'F', label: 'Flat', color: '#6A1B9A', bgColor: '#F3E5F5', description: 'Tarifa plana' },
 ];
 
-// Márgenes automáticos sobre Costo Ruta (null = manual)
-const TARIFF_MARKUPS: Record<string, number | null> = {
+// Márgenes automáticos sobre Costo Ruta (null = manual). Default; el admin
+// puede sobrescribirlos desde el panel y se persisten en localStorage.
+const DEFAULT_TARIFF_MARKUPS: Record<string, number | null> = {
     L: 9,   // Logo = Costo Ruta + $9
     G: 8,   // Genérico = Costo Ruta + $8
     S: null, // Sensible = manual
     F: 7,   // Flat = Costo Ruta + $7
+};
+const MARKUPS_STORAGE_KEY = 'air_tariff_markups_v1';
+const loadStoredMarkups = (): Record<string, number | null> => {
+    try {
+        const raw = localStorage.getItem(MARKUPS_STORAGE_KEY);
+        if (!raw) return { ...DEFAULT_TARIFF_MARKUPS };
+        const parsed = JSON.parse(raw);
+        return { ...DEFAULT_TARIFF_MARKUPS, ...parsed };
+    } catch {
+        return { ...DEFAULT_TARIFF_MARKUPS };
+    }
 };
 
 // Brackets default (kg)
@@ -199,6 +211,11 @@ export default function AirPricingPage() {
     const [startupSaving, setStartupSaving] = useState<number | null>(null);
     const [startupDirty, setStartupDirty] = useState<Record<number, boolean>>({});
 
+    // ✏️ Markups editables (override sobre Costo Ruta)
+    const [tariffMarkups, setTariffMarkups] = useState<Record<string, number | null>>(() => loadStoredMarkups());
+    const [markupDialogOpen, setMarkupDialogOpen] = useState(false);
+    const [markupDraft, setMarkupDraft] = useState<Record<string, string>>({ L: '', G: '', S: '', F: '' });
+
     const token = localStorage.getItem('token');
 
     // ========== LOAD DATA ==========
@@ -287,8 +304,8 @@ export default function AirPricingPage() {
             if (field === 'costPerKg') {
                 const cost = parseFloat(value);
                 if (!isNaN(cost) && cost > 0) {
-                    for (const [type, markup] of Object.entries(TARIFF_MARKUPS)) {
-                        if (markup !== null) {
+                    for (const [type, markup] of Object.entries(tariffMarkups)) {
+                        if (markup !== null && !isNaN(markup)) {
                             updated[type as keyof EditableRow] = (cost + markup).toFixed(2).replace(/\.00$/, '') as never;
                         }
                     }
@@ -762,24 +779,50 @@ export default function AirPricingPage() {
             </Paper>
 
             {/* Leyenda tariff types */}
-            <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
-                {TARIFF_TYPES.map((t) => (
-                    <Chip
-                        key={t.key}
-                        label={`${t.key} — ${t.label}`}
-                        sx={{
-                            bgcolor: t.bgColor,
-                            color: t.color,
-                            fontWeight: 700,
-                            fontSize: '0.85rem',
-                            border: `1px solid ${t.color}30`,
-                        }}
-                    />
-                ))}
+            <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap', alignItems: 'center' }}>
+                {TARIFF_TYPES.map((t) => {
+                    const mk = tariffMarkups[t.key];
+                    const suffix = mk === null ? ' (manual)' : ` (+$${mk})`;
+                    return (
+                        <Chip
+                            key={t.key}
+                            label={`${t.key} — ${t.label}${suffix}`}
+                            sx={{
+                                bgcolor: t.bgColor,
+                                color: t.color,
+                                fontWeight: 700,
+                                fontSize: '0.85rem',
+                                border: `1px solid ${t.color}30`,
+                            }}
+                        />
+                    );
+                })}
+                <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<EditIcon />}
+                    onClick={() => {
+                        setMarkupDraft({
+                            L: tariffMarkups.L === null ? '' : String(tariffMarkups.L),
+                            G: tariffMarkups.G === null ? '' : String(tariffMarkups.G),
+                            S: tariffMarkups.S === null ? '' : String(tariffMarkups.S),
+                            F: tariffMarkups.F === null ? '' : String(tariffMarkups.F),
+                        });
+                        setMarkupDialogOpen(true);
+                    }}
+                    sx={{ ml: 'auto', borderColor: AIR_COLOR, color: AIR_COLOR, fontWeight: 600 }}
+                >
+                    Editar márgenes (override)
+                </Button>
             </Box>
 
             <Alert severity="info" sx={{ mb: 3 }}>
-                <strong>Costo Ruta:</strong> precio base/costo de la ruta (USD). Al modificarlo se calculan automáticamente: <strong>Logo (L):</strong> Costo + $9 · <strong>Genérico (G):</strong> Costo + $8 · <strong>Flat (F):</strong> Costo + $7 · <strong>Sensible (S):</strong> se configura manualmente. Tarifas en USD. Costos proveedor (⚙️) en MXN.
+                <strong>Costo Ruta:</strong> precio base/costo de la ruta (USD). Al modificarlo se calculan automáticamente:
+                {' '}<strong>Logo (L):</strong> Costo {tariffMarkups.L === null ? '— manual' : `+ $${tariffMarkups.L}`} ·
+                {' '}<strong>Genérico (G):</strong> Costo {tariffMarkups.G === null ? '— manual' : `+ $${tariffMarkups.G}`} ·
+                {' '}<strong>Flat (F):</strong> Costo {tariffMarkups.F === null ? '— manual' : `+ $${tariffMarkups.F}`} ·
+                {' '}<strong>Sensible (S):</strong> {tariffMarkups.S === null ? 'se configura manualmente' : `Costo + $${tariffMarkups.S}`}.
+                {' '}Tarifas en USD. Costos proveedor (⚙️) en MXN.
             </Alert>
 
             {/* Tabla */}
@@ -810,7 +853,7 @@ export default function AirPricingPage() {
                                     </Box>
                                 </TableCell>
                                 {TARIFF_TYPES.map((t) => {
-                                    const markup = TARIFF_MARKUPS[t.key];
+                                    const markup = tariffMarkups[t.key];
                                     return (
                                         <TableCell
                                             key={t.key}
@@ -947,7 +990,7 @@ export default function AirPricingPage() {
                                         {TARIFF_TYPES.map((t) => {
                                             const val = row[t.key as keyof EditableRow] as string;
                                             const isZero = !val || parseFloat(val) === 0;
-                                            const markup = TARIFF_MARKUPS[t.key];
+                                            const markup = tariffMarkups[t.key];
                                             const isAuto = markup !== null;
                                             return (
                                                 <TableCell key={t.key} align="center" sx={{ bgcolor: isZero ? '#F5F5F5' : `${t.bgColor}80`, position: 'relative' }}>
@@ -1759,6 +1802,80 @@ export default function AirPricingPage() {
                 </DialogContent>
                 <DialogActions>
                     <Button onClick={() => setHistoryDialogOpen(false)}>Cerrar</Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* ✏️ Dialog: editar márgenes (override) */}
+            <Dialog open={markupDialogOpen} onClose={() => setMarkupDialogOpen(false)} maxWidth="xs" fullWidth>
+                <DialogTitle sx={{ bgcolor: AIR_COLOR, color: 'white', fontWeight: 700 }}>
+                    Editar márgenes sobre Costo Ruta
+                </DialogTitle>
+                <DialogContent sx={{ pt: 3 }}>
+                    <Alert severity="info" sx={{ mb: 2 }}>
+                        Define el sobreprecio (USD) que se suma automáticamente al Costo Ruta para cada tarifa. Deja vacío para que la tarifa quede en modo manual.
+                    </Alert>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {TARIFF_TYPES.map((t) => (
+                            <TextField
+                                key={t.key}
+                                label={`${t.key} — ${t.label}`}
+                                type="number"
+                                value={markupDraft[t.key] ?? ''}
+                                onChange={(e) => setMarkupDraft((prev) => ({ ...prev, [t.key]: e.target.value }))}
+                                placeholder="Manual"
+                                fullWidth
+                                InputProps={{
+                                    startAdornment: <InputAdornment position="start">+ $</InputAdornment>,
+                                }}
+                                inputProps={{ step: '0.01' }}
+                                helperText={markupDraft[t.key] === '' ? 'Vacío = manual' : `Precio = Costo Ruta + $${markupDraft[t.key]}`}
+                                sx={{
+                                    '& .MuiInputLabel-root': { color: t.color, fontWeight: 700 },
+                                    '& .MuiOutlinedInput-root.Mui-focused fieldset': { borderColor: t.color },
+                                }}
+                            />
+                        ))}
+                    </Box>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button
+                        onClick={() => {
+                            setMarkupDraft({
+                                L: String(DEFAULT_TARIFF_MARKUPS.L ?? ''),
+                                G: String(DEFAULT_TARIFF_MARKUPS.G ?? ''),
+                                S: DEFAULT_TARIFF_MARKUPS.S === null ? '' : String(DEFAULT_TARIFF_MARKUPS.S),
+                                F: String(DEFAULT_TARIFF_MARKUPS.F ?? ''),
+                            });
+                        }}
+                        color="inherit"
+                    >
+                        Restaurar defaults
+                    </Button>
+                    <Box sx={{ flex: 1 }} />
+                    <Button onClick={() => setMarkupDialogOpen(false)}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        startIcon={<SaveIcon />}
+                        sx={{ bgcolor: AIR_COLOR, '&:hover': { bgcolor: '#C62828' } }}
+                        onClick={() => {
+                            const next: Record<string, number | null> = {};
+                            for (const t of TARIFF_TYPES) {
+                                const raw = (markupDraft[t.key] ?? '').trim();
+                                if (raw === '') {
+                                    next[t.key] = null;
+                                } else {
+                                    const n = parseFloat(raw);
+                                    next[t.key] = isNaN(n) ? null : n;
+                                }
+                            }
+                            setTariffMarkups(next);
+                            try { localStorage.setItem(MARKUPS_STORAGE_KEY, JSON.stringify(next)); } catch { /* noop */ }
+                            setMarkupDialogOpen(false);
+                            setSnackbar({ open: true, message: 'Márgenes actualizados. Edita Costo Ruta para recalcular.', severity: 'success' });
+                        }}
+                    >
+                        Guardar
+                    </Button>
                 </DialogActions>
             </Dialog>
 

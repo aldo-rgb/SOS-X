@@ -106,7 +106,25 @@ export const getCarrierOptionsByService = async (req: Request, res: Response) =>
       ORDER BY co.priority ASC
     `, [serviceType]);
 
-    res.json({ success: true, data: result.rows });
+    // 🎨 Sobreescribir icon de paqueterías EntregaX con el brand asset activo
+    // del slot 'entregax_x_only' (logo X configurado en Settings → Brand Assets).
+    let entregaxLogoUrl: string | null = null;
+    try {
+      const brandRes = await pool.query(
+        `SELECT url FROM brand_assets WHERE slot = 'entregax_x_only' AND is_active = TRUE
+         ORDER BY created_at DESC LIMIT 1`
+      );
+      if (brandRes.rows.length > 0) entregaxLogoUrl = brandRes.rows[0].url;
+    } catch { /* tabla puede no existir todavía */ }
+
+    const rows = result.rows.map((r: any) => {
+      if (entregaxLogoUrl && typeof r.carrier_key === 'string' && r.carrier_key.startsWith('entregax_')) {
+        return { ...r, icon: entregaxLogoUrl };
+      }
+      return r;
+    });
+
+    res.json({ success: true, data: rows });
   } catch (error) {
     console.error('Error fetching carrier options by service:', error);
     res.status(500).json({ success: false, error: 'Error al obtener paqueterías' });

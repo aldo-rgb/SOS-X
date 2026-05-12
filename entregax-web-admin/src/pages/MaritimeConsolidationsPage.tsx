@@ -796,23 +796,32 @@ const MaritimeConsolidationsPage: React.FC = () => {
                   )}
                 </TableCell>
                 <TableCell>
-                  <Chip 
-                    size="small" 
-                    label={
-                      order.brand_type === 'logo' ? 'Logotipo' : 
-                      order.brand_type === 'sensitive' ? 'Sensible' : 
-                      order.merchandise_type === 'branded' ? 'Logotipo' : 
-                      order.merchandise_type === 'sensitive' ? 'Sensible' : 
-                      'Genérico'
+                  {(() => {
+                    const arrivedStatuses = ['received_china', 'received', 'in_transit', 'customs_mx', 'customs', 'consolidated', 'at_port', 'delivered'];
+                    const hasArrived = arrivedStatuses.includes(order.status);
+                    if (!hasArrived) {
+                      return <Chip size="small" label="Pendiente" color="warning" />;
                     }
-                    color={
-                      order.brand_type === 'logo' ? 'primary' : 
-                      order.brand_type === 'sensitive' ? 'default' :
-                      order.merchandise_type === 'branded' ? 'primary' : 
-                      order.merchandise_type === 'sensitive' ? 'default' :
-                      'success'
-                    }
-                  />
+                    return (
+                      <Chip
+                        size="small"
+                        label={
+                          order.brand_type === 'logo' ? 'Logotipo' :
+                          order.brand_type === 'sensitive' ? 'Sensible' :
+                          order.merchandise_type === 'branded' ? 'Logotipo' :
+                          order.merchandise_type === 'sensitive' ? 'Sensible' :
+                          'Genérico'
+                        }
+                        color={
+                          order.brand_type === 'logo' ? 'primary' :
+                          order.brand_type === 'sensitive' ? 'default' :
+                          order.merchandise_type === 'branded' ? 'primary' :
+                          order.merchandise_type === 'sensitive' ? 'default' :
+                          'success'
+                        }
+                      />
+                    );
+                  })()}
                 </TableCell>
                 <TableCell>
                   <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>

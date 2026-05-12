@@ -29,6 +29,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { API_URL, Package } from '../services/api';
+import { usePaymentStatus } from '../hooks/usePaymentStatus';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
@@ -39,6 +40,7 @@ type RootStackParamList = {
   Home: { user: any; token: string };
   MaritimeDetail: { package: Package; user: any; token: string };
   DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
+  GEXContract: { package: Package; user: any; token: string };
 };
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MaritimeDetail'>;
@@ -59,6 +61,7 @@ interface Address {
 
 export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const { package: pkg, user, token } = route.params;
+  const { gexEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
   const [loading, setLoading] = useState(true);
   const [currentPkg, setCurrentPkg] = useState<any>(pkg as any);
   const [address, setAddress] = useState<Address | null>(null);
@@ -110,8 +113,12 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               tracking_internal: order.ordersn || (pkg as any).tracking_internal,
               description: order.goods_name || (pkg as any).description || 'Envío Marítimo',
               status: order.status || (pkg as any).status,
-              weight: order.weight != null ? parseFloat(order.weight) : (pkg as any).weight,
-              volume: order.volume != null ? parseFloat(order.volume) : (pkg as any).volume,
+              weight: (order.summary_weight != null && parseFloat(order.summary_weight) > 0)
+                ? parseFloat(order.summary_weight)
+                : (order.weight != null ? parseFloat(order.weight) : (pkg as any).weight),
+              volume: (order.summary_volume != null && parseFloat(order.summary_volume) > 0)
+                ? parseFloat(order.summary_volume)
+                : (order.volume != null ? parseFloat(order.volume) : (pkg as any).volume),
               total_boxes: order.summary_boxes || order.goods_num || (pkg as any).total_boxes || 1,
               container_number: order.container_name || order.container_number || (pkg as any).container_number,
               bl_number: order.bl_number || (pkg as any).bl_number,
@@ -125,6 +132,19 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               saldo_pendiente: order.saldo_pendiente != null ? parseFloat(order.saldo_pendiente) : (pkg as any).saldo_pendiente,
               monto_pagado: order.monto_pagado != null ? parseFloat(order.monto_pagado) : (pkg as any).monto_pagado,
               estimated_cost: order.estimated_cost != null ? parseFloat(order.estimated_cost) : (pkg as any).estimated_cost,
+              estimated_cost_usd: order.estimated_cost_usd != null ? parseFloat(order.estimated_cost_usd) : (pkg as any).estimated_cost_usd,
+              estimated_fx_rate: order.estimated_fx_rate != null ? parseFloat(order.estimated_fx_rate) : (pkg as any).estimated_fx_rate,
+              estimated_category: order.estimated_category || (pkg as any).estimated_category,
+              estimated_chargeable_cbm: order.estimated_chargeable_cbm != null ? parseFloat(order.estimated_chargeable_cbm) : (pkg as any).estimated_chargeable_cbm,
+              estimated_rate_per_cbm_usd: order.estimated_rate_per_cbm_usd != null ? parseFloat(order.estimated_rate_per_cbm_usd) : (pkg as any).estimated_rate_per_cbm_usd,
+              estimated_is_flat_fee: order.estimated_is_flat_fee != null ? !!order.estimated_is_flat_fee : (pkg as any).estimated_is_flat_fee,
+              assigned_cost_usd: order.assigned_cost_usd != null ? parseFloat(order.assigned_cost_usd) : (pkg as any).assigned_cost_usd,
+              registered_exchange_rate: order.registered_exchange_rate != null ? parseFloat(order.registered_exchange_rate) : (pkg as any).registered_exchange_rate,
+              applied_category: order.applied_category || (pkg as any).applied_category,
+              applied_chargeable_cbm: order.applied_chargeable_cbm != null ? parseFloat(order.applied_chargeable_cbm) : (pkg as any).applied_chargeable_cbm,
+              applied_rate_per_cbm_usd: order.applied_rate_per_cbm_usd != null ? parseFloat(order.applied_rate_per_cbm_usd) : (pkg as any).applied_rate_per_cbm_usd,
+              applied_is_flat_fee: order.applied_is_flat_fee != null ? !!order.applied_is_flat_fee : (pkg as any).applied_is_flat_fee,
+              pending_classification: !!order.pending_classification,
             };
           }
         }
@@ -430,7 +450,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
         </Card>
 
         {/* Garantía extendida (visible arriba del desglose) */}
-        {currentPkg.has_gex && (
+        {currentPkg.has_gex ? (
           <Card style={styles.gexCard}>
             <Card.Content style={styles.gexContent}>
               <MaterialCommunityIcons name="shield-check" size={24} color="#10B981" />
@@ -440,9 +460,59 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               </View>
             </Card.Content>
           </Card>
+        ) : (
+          // 🛡️ CTA para contratar GEX cuando aún es posible.
+          // Marítimo: solo antes de zarpar (status received_china).
+          // China Air: en bodega China (received_origin).
+          // DHL/PO Box: en bodega/processing.
+          (() => {
+            const status = String(currentPkg?.status || '');
+            const shipmentType = (currentPkg as any)?.shipment_type;
+            const isMaritime = shipmentType === 'maritime' || !!currentPkg?.ordersn;
+            const isChinaAir = shipmentType === 'china_air';
+            // 🚫 Mercancía Logotipo NO permite contratar GEX en marítimo/aéreo.
+            const brandKey = String((currentPkg as any)?.brand_type || '').toLowerCase();
+            const merchKey = String((currentPkg as any)?.merchandise_type || '').toLowerCase();
+            // Para aéreo China, el tipo viene en air_tariff_type ('L' = Logo).
+            const airTariff = String((currentPkg as any)?.air_tariff_type || '').toUpperCase();
+            const isLogoMerch = brandKey === 'logo' || brandKey === 'branded'
+              || merchKey === 'logo' || merchKey === 'branded'
+              || airTariff === 'L';
+            const canContract = gexEnabled && !((isMaritime || isChinaAir) && isLogoMerch) && (
+              isMaritime ? ['received_china', 'in_transit'].includes(status)
+              : isChinaAir ? status === 'received_origin'
+              : ['received', 'processing'].includes(status)
+            );
+            if (!canContract) return null;
+            return (
+              <Card style={[styles.gexCard, { backgroundColor: '#FFF8E1', borderColor: ORANGE, borderWidth: 1 }]}>
+                <Card.Content>
+                  <View style={[styles.gexContent, { marginBottom: 8 }]}>
+                    <MaterialCommunityIcons name="shield-plus-outline" size={26} color={ORANGE} />
+                    <View style={styles.gexInfo}>
+                      <Text style={[styles.gexTitle, { color: BLACK }]}>Protege tu mercancía con GEX</Text>
+                      <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>
+                        Contrata la Garantía Extendida antes de que zarpe el contenedor.
+                      </Text>
+                    </View>
+                  </View>
+                  <Button
+                    mode="contained"
+                    icon="shield-check"
+                    buttonColor={ORANGE}
+                    textColor="#FFF"
+                    onPress={() => navigation.navigate('GEXContract', { package: currentPkg as Package, user, token })}
+                  >
+                    Contratar Garantía Extendida
+                  </Button>
+                </Card.Content>
+              </Card>
+            );
+          })()
         )}
 
-        {/* Desglose de Costos */}
+        {/* Desglose de Costos — oculto si Pagos EntregaX está desactivado */}
+        {entregaxPaymentsEnabled && (
         <Card style={styles.costsCard}>
           <Card.Content>
             <View style={styles.sectionHeader}>
@@ -452,7 +522,26 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             <Divider style={styles.divider} />
 
             {/* Costo del servicio marítimo */}
-            {(assignedCost > 0 || estimatedCost > 0 || shippingCost > 0 || paidAmount > 0 || pendingAmount > 0) ? (() => {
+            {(() => {
+              const pendingClassification = !!(currentPkg as any)?.pending_classification;
+              const hasAnyCost = assignedCost > 0 || estimatedCost > 0 || shippingCost > 0 || paidAmount > 0 || pendingAmount > 0;
+
+              // 🕐 Pendiente de clasificación: mostrar mensaje, NO costo provisional
+              if (pendingClassification || !hasAnyCost) {
+                return (
+                  <View style={{ alignItems: 'center', paddingVertical: 16, paddingHorizontal: 8 }}>
+                    <MaterialCommunityIcons name="clock-outline" size={36} color={ORANGE} />
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: BLACK, marginTop: 8, textAlign: 'center' }}>
+                      Pendiente de recibir clasificación
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 4, textAlign: 'center', lineHeight: 18 }}>
+                      El costo se asignará una vez que la mercancía sea recibida y clasificada en bodega China.
+                    </Text>
+                  </View>
+                );
+              }
+
+              return (() => {
               // El costo del servicio marítimo es:
               //   - Si ya hay cost asignado: assignedCost - shippingCost
               //   - Si solo hay estimado:    estimatedCost
@@ -468,14 +557,80 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                 : isDHL
                   ? '📦 Servicio DHL'
                   : '🚢 Servicio Marítimo';
+
+              // Datos USD / TC (estilo web)
+              const assignedUsd = Number((currentPkg as any)?.assigned_cost_usd || 0);
+              const estimatedUsd = Number((currentPkg as any)?.estimated_cost_usd || 0);
+              const fxFromAssigned = Number((currentPkg as any)?.registered_exchange_rate || 0);
+              const fxFromEstimated = Number((currentPkg as any)?.estimated_fx_rate || 0);
+              const costoUSD = assignedUsd > 0 ? assignedUsd : estimatedUsd;
+              const tcToShow = fxFromAssigned > 0 ? fxFromAssigned : (fxFromEstimated > 0 ? fxFromEstimated : 0);
+
+              // Si ya hay costo asignado, preferir applied_*; si no, usar estimated_*
+              const cbm = assignedUsd > 0
+                ? Number((currentPkg as any)?.applied_chargeable_cbm || 0)
+                : Number((currentPkg as any)?.estimated_chargeable_cbm || 0);
+              const category = assignedUsd > 0
+                ? ((currentPkg as any)?.applied_category || '')
+                : ((currentPkg as any)?.estimated_category || '');
+              const ratePerCbm = assignedUsd > 0
+                ? Number((currentPkg as any)?.applied_rate_per_cbm_usd || 0)
+                : Number((currentPkg as any)?.estimated_rate_per_cbm_usd || 0);
+              const isFlatFee = assignedUsd > 0
+                ? !!(currentPkg as any)?.applied_is_flat_fee
+                : !!(currentPkg as any)?.estimated_is_flat_fee;
+              // ✈️🇨🇳 Aéreo China: usa kg × USD/kg (Logo/Sensible/Genérico)
+              const airPerKg = Number((currentPkg as any)?.air_price_per_kg || 0);
+              const airTariff = String((currentPkg as any)?.air_tariff_type || '').toUpperCase();
+              const airTariffLabel = ({ L: 'Logo', S: 'Sensible', G: 'Genérico', F: 'Flat', SU: 'StartUp' } as Record<string, string>)[airTariff] || '';
+              const weightKg = Number((currentPkg as any)?.weight || 0);
+              const detailLine = isChinaAir && airPerKg > 0 && weightKg > 0
+                ? `${weightKg.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 2 })} kg × $${airPerKg.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD/kg${airTariffLabel ? ` (${airTariffLabel})` : ''}`
+                : (cbm > 0 && category
+                  ? (ratePerCbm > 0 && !isFlatFee
+                      ? `${cbm.toFixed(2)} m³ × $${ratePerCbm.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD/m³ · ${category}${isEstimated ? ' (estimado)' : ''}`
+                      : `${cbm.toFixed(2)} m³ · ${category}${isEstimated ? ' (estimado)' : ''}`)
+                  : '');
+
               return (
               <>
-                <View style={styles.costRow}>
-                  <Text style={styles.costLabel}>
-                    {serviceLabel}{isEstimated ? ' (estimado)' : ''}
-                  </Text>
-                  <Text style={styles.costValue}>${maritimeBase.toFixed(2)} MXN</Text>
-                </View>
+                {/* Costo en USD (estilo web) */}
+                {costoUSD > 0 && (
+                  <>
+                    <View style={styles.costRow}>
+                      <Text style={styles.costLabel}>
+                        {serviceLabel}:
+                      </Text>
+                      <Text style={[styles.costValue, { color: ORANGE, fontWeight: '700', fontSize: 16 }]}>
+                        ${costoUSD.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD
+                      </Text>
+                    </View>
+                    {!!detailLine && (
+                      <Text style={[styles.costLabel, { textAlign: 'right', fontSize: 11, color: '#888', marginBottom: 2 }]}>
+                        {detailLine}
+                      </Text>
+                    )}
+                    {tcToShow > 0 && (
+                      <>
+                        <Divider style={styles.divider} />
+                        <View style={styles.costRow}>
+                          <Text style={styles.costLabel}>💱 Tipo de cambio:</Text>
+                          <Text style={styles.costValue}>${tcToShow.toFixed(2)} MXN</Text>
+                        </View>
+                      </>
+                    )}
+                  </>
+                )}
+
+                {/* Si no tenemos USD, mostrar solo MXN */}
+                {costoUSD <= 0 && (
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>
+                      {serviceLabel}{isEstimated ? ' (estimado)' : ''}
+                    </Text>
+                    <Text style={styles.costValue}>${maritimeBase.toFixed(2)} MXN</Text>
+                  </View>
+                )}
 
                 {shippingCost > 0 && (
                   <View style={styles.costRow}>
@@ -507,14 +662,14 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                   </View>
                 ) : null}
 
-                {/* Total general (marítimo + envío nacional) */}
+                {/* Total en pesos (estilo web) */}
                 <Divider style={styles.divider} />
                 <View style={styles.costRow}>
                   <Text style={[styles.costLabel, { fontWeight: '700' }]}>
-                    💰 Total {isEstimated ? 'estimado' : ''}
+                    🇲🇽 Total en pesos:
                   </Text>
-                  <Text style={[styles.costValue, { fontWeight: '700' }]}>
-                    ${grandTotal.toFixed(2)} MXN
+                  <Text style={[styles.costValue, { fontWeight: '700', fontSize: 18, color: ORANGE }]}>
+                    ${grandTotal.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                   </Text>
                 </View>
 
@@ -526,35 +681,39 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                   </View>
                 )}
 
-                <Divider style={styles.divider} />
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>
-                    {pendingAmount > 0 ? 'SALDO PENDIENTE' : 'PAGADO'}
-                  </Text>
-                  <Text style={[
-                    styles.totalValue,
-                    { color: pendingAmount > 0 ? ORANGE : '#4CAF50' }
-                  ]}>
-                    ${(pendingAmount > 0
-                        ? pendingAmount
-                        : (paidAmount > 0 ? paidAmount : grandTotal)
-                      ).toFixed(2)} MXN
-                  </Text>
-                </View>
+                {/* Estado: solo mostrar si aporta info nueva (pago parcial o pagado total).
+                    Si el saldo pendiente == grandTotal y no hay pagos, omitir para no duplicar. */}
+                {!isEstimated && paidAmount > 0 && (
+                  <>
+                    <Divider style={styles.divider} />
+                    <View style={styles.totalRow}>
+                      <Text style={styles.totalLabel}>
+                        {pendingAmount > 0 ? 'SALDO PENDIENTE' : 'PAGADO'}
+                      </Text>
+                      <Text style={[
+                        styles.totalValue,
+                        { color: pendingAmount > 0 ? ORANGE : '#4CAF50' }
+                      ]}>
+                        ${(pendingAmount > 0 ? pendingAmount : paidAmount)
+                          .toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                      </Text>
+                    </View>
+                  </>
+                )}
+
+                {/* Chip de Pendiente de Cotización (sin monto, no redundante) */}
+                {isEstimated && (
+                  <View style={{ alignSelf: 'flex-start', marginTop: 6, backgroundColor: '#FFE0B2', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                    <Text style={{ color: ORANGE, fontWeight: '600', fontSize: 11 }}>Pendiente de Cotización</Text>
+                  </View>
+                )}
               </>
               );
-            })() : (
-              <View style={styles.noCostsContainer}>
-                <MaterialCommunityIcons name="information-outline" size={24} color="#666" />
-                <Text style={styles.noCostsText}>
-                  Los costos se calcularán cuando el embarque sea procesado
-                </Text>
-              </View>
-            )}
+            })();
+            })()}
           </Card.Content>
         </Card>
-
-        {/* Garantía extendida (también renderizada arriba del desglose) */}
+        )}
 
         <Modal
           visible={movementsOpen}
@@ -694,7 +853,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   divider: {
-    marginVertical: 16,
+    marginVertical: 8,
   },
   dataGrid: {
     flexDirection: 'row',
@@ -742,7 +901,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   sectionTitle: {
     fontSize: 16,
@@ -817,7 +976,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   costLabel: {
     fontSize: 14,
@@ -832,17 +991,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4,
+    flexWrap: 'wrap',
+    gap: 6,
   },
   totalLabel: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 'bold',
     color: BLACK,
+    flexShrink: 1,
   },
   totalValue: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
     color: ORANGE,
+    flexShrink: 0,
   },
   noCostsContainer: {
     flexDirection: 'row',
