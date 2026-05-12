@@ -85,6 +85,7 @@ import {
 } from '@mui/icons-material';
 import api from '../services/api';
 import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
+import AdvisorTermsSignatureDialog from '../components/AdvisorTermsSignatureDialog';
 
 // ─── Types ───
 
@@ -305,6 +306,7 @@ export default function DashboardAdvisor() {
   const [loading, setLoading] = useState(true);
   const [dashboardData, setDashboardData] = useState<AdvisorDashboardData | null>(null);
   const [verifyWizardOpen, setVerifyWizardOpen] = useState(false);
+  const [termsDialogOpen, setTermsDialogOpen] = useState(false);
 
   // Clients tab
   const [clients, setClients] = useState<AdvisorClient[]>([]);
@@ -1803,14 +1805,26 @@ export default function DashboardAdvisor() {
           </Box>
 
           <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Button
-              variant="contained"
-              startIcon={<BadgeIcon />}
-              onClick={() => setVerifyWizardOpen(true)}
-              sx={{ bgcolor: '#0A2540', '&:hover': { bgcolor: '#0d2f54' } }}
-            >
-              Completar verificación aquí
-            </Button>
+            {verifPending && (
+              <Button
+                variant="contained"
+                startIcon={<BadgeIcon />}
+                onClick={() => setVerifyWizardOpen(true)}
+                sx={{ bgcolor: '#0A2540', '&:hover': { bgcolor: '#0d2f54' } }}
+              >
+                Completar verificación aquí
+              </Button>
+            )}
+            {termsPending && (
+              <Button
+                variant="contained"
+                startIcon={<SecurityIcon />}
+                onClick={() => setTermsDialogOpen(true)}
+                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#d94d20' } }}
+              >
+                Firmar términos aquí
+              </Button>
+            )}
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
@@ -1837,6 +1851,11 @@ export default function DashboardAdvisor() {
           open={verifyWizardOpen}
           onClose={() => setVerifyWizardOpen(false)}
           onComplete={() => { setVerifyWizardOpen(false); fetchDashboard(); }}
+        />
+        <AdvisorTermsSignatureDialog
+          open={termsDialogOpen}
+          onClose={() => setTermsDialogOpen(false)}
+          onAccepted={() => { setTermsDialogOpen(false); fetchDashboard(); }}
         />
       </Box>
     );
