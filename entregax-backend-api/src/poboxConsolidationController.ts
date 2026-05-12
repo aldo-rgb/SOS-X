@@ -85,8 +85,21 @@ export const getConsolidationPackages = async (req: AuthRequest, res: Response):
          p.id, p.tracking_internal, p.status, p.received_at, p.dispatched_at,
          p.missing_on_arrival, p.missing_reported_at,
          p.description, p.weight, p.declared_value, p.service_type,
-         p.is_master, p.master_id, p.total_boxes
+         p.is_master, p.master_id, p.total_boxes,
+         p.box_id AS pkg_box_id,
+         COALESCE(NULLIF(u.box_id, ''), NULLIF(lc.box_id, ''), NULLIF(p.box_id, '')) AS client_box_id,
+         COALESCE(NULLIF(u.full_name, ''), NULLIF(lc.full_name, '')) AS client_name,
+         CASE
+           WHEN u.id IS NOT NULL THEN 'users'
+           WHEN lc.id IS NOT NULL THEN 'legacy'
+           ELSE NULL
+         END AS client_source
        FROM packages p
+       LEFT JOIN users u ON u.id = p.user_id
+       LEFT JOIN legacy_clients lc
+         ON p.user_id IS NULL
+        AND p.box_id IS NOT NULL
+        AND UPPER(p.box_id) = UPPER(lc.box_id)
        WHERE p.consolidation_id = $1
          AND NOT EXISTS (
            SELECT 1 FROM packages c WHERE c.master_id = p.id

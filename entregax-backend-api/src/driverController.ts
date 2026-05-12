@@ -304,18 +304,44 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         // y existe una hija con `<MASTER>-<n a 4 dígitos>`, usar ese tracking. Esto evita falsos
         // "es MASTER" cuando el operador escribe `LOG26CNMX00077-001` en lugar de `-0001`.
         try {
-            const m = String(barcode).trim().match(/^(.+?)-(\d{1,4})$/);
+            const original = String(barcode).trim();
+            const m = original.match(/^(.+?)-(\d+)$/);
             if (m) {
                 const prefix = m[1] as string;
-                const n = parseInt(m[2] as string, 10);
-                const padded = `${prefix}-${String(n).padStart(4, '0')}`;
-                if (padded.toUpperCase() !== String(barcode).toUpperCase()) {
-                    const probe = await pool.query(
-                        `SELECT 1 FROM packages WHERE UPPER(tracking_internal) = UPPER($1) LIMIT 1`,
-                        [padded]
+                const rawSuffix = m[2] as string;
+                const n = parseInt(rawSuffix, 10);
+                // 1) Probar variantes con padding exacto (1-4 dígitos).
+                if (rawSuffix.length <= 4) {
+                    const padded = `${prefix}-${String(n).padStart(4, '0')}`;
+                    if (padded.toUpperCase() !== original.toUpperCase()) {
+                        const probe = await pool.query(
+                            `SELECT 1 FROM packages WHERE UPPER(tracking_internal) = UPPER($1) LIMIT 1`,
+                            [padded]
+                        );
+                        if (probe.rows.length > 0) {
+                            barcode = padded;
+                        }
+                    }
+                }
+                // 2) Si seguimos sin match (sufijo largo o no había hija exacta),
+                //    intentar LIKE: cualquier hija cuyo número empiece por lo
+                //    tipeado. Cubre casos como "US-3180293332-000" (falta el
+                //    último dígito) que debe resolver a "US-3180293332-0001".
+                if (String(barcode).trim().toUpperCase() === original.toUpperCase()) {
+                    const fuzzy = await pool.query(
+                        `SELECT tracking_internal FROM packages
+                         WHERE UPPER(tracking_internal) LIKE UPPER($1)
+                         LIMIT 6`,
+                        [`${prefix}-${rawSuffix}%`]
                     );
-                    if (probe.rows.length > 0) {
-                        barcode = padded;
+                    if (fuzzy.rows.length === 1) {
+                        barcode = fuzzy.rows[0].tracking_internal;
+                    } else if (fuzzy.rows.length > 1) {
+                        return res.status(400).json({
+                            error: `⚠️ Código truncado: hay ${fuzzy.rows.length}${fuzzy.rows.length >= 6 ? '+' : ''} cajas de "${prefix}" cuyo número empieza por "${rawSuffix}". Escanea el QR o captura el código completo manualmente.`,
+                            barcode,
+                            possibleMatches: fuzzy.rows.map((r: any) => r.tracking_internal),
+                        });
                     }
                 }
             }
@@ -391,6 +417,38 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                                 barcode,
                                 possibleMatches: fuzzy.rows.map((r: any) => r.tracking_internal),
                             });
+                        } else if (suffix.length >= 5) {
+                            // Caso peor: la pistola perdió el guion separador
+                            // entre master y child (y posiblemente el último
+                            // dígito). Ej.: tracking real
+                            // "US-3180293332-0001" → escaneado como
+                            // "US3180293332000" (falta guion y un dígito).
+                            // Probamos varios puntos de corte:
+                            //   prefix-<master_part>-<child_part>%
+                            // donde master_part + child_part = suffix.
+                            const splitPatterns: string[] = [];
+                            for (let k = Math.max(4, suffix.length - 6); k <= suffix.length - 1; k++) {
+                                const masterPart = suffix.slice(0, k);
+                                const childPart = suffix.slice(k);
+                                splitPatterns.push(`${masterPrefix}-${masterPart}-${childPart}%`);
+                            }
+                            if (splitPatterns.length > 0) {
+                                const splitRes = await pool.query(
+                                    `SELECT tracking_internal FROM packages
+                                     WHERE UPPER(tracking_internal) LIKE ANY($1::text[])
+                                     LIMIT 6`,
+                                    [splitPatterns.map(p => p.toUpperCase())]
+                                );
+                                if (splitRes.rows.length === 1) {
+                                    barcode = splitRes.rows[0].tracking_internal;
+                                } else if (splitRes.rows.length > 1) {
+                                    return res.status(400).json({
+                                        error: `⚠️ Código truncado / ambiguo: hay ${splitRes.rows.length}${splitRes.rows.length >= 6 ? '+' : ''} posibles cajas. Escanea el QR o captura el código completo manualmente.`,
+                                        barcode,
+                                        possibleMatches: splitRes.rows.map((r: any) => r.tracking_internal),
+                                    });
+                                }
+                            }
                         }
                     }
                 }
@@ -657,7 +715,13 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 WHERE ${packageBranchSql} = $1
                   AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                   AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
-                  AND COALESCE(LOWER(to_jsonb(p)->>'payment_status'), LOWER(to_jsonb(m)->>'payment_status'), 'paid') = 'paid'
+                  AND (
+                        -- Pago directo en la hija
+                        LOWER(COALESCE(to_jsonb(p)->>'payment_status', '')) = 'paid'
+                        -- O herencia del master (cuando la hija quedó en 'pending'
+                        -- por desincronización, alineado con scanPackageToLoad).
+                     OR LOWER(COALESCE(to_jsonb(m)->>'payment_status', '')) = 'paid'
+                  )
                   AND (
                         to_jsonb(p)->>'national_label_url' IS NOT NULL
                      OR to_jsonb(p)->>'national_tracking' IS NOT NULL

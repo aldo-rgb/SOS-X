@@ -54,6 +54,9 @@ interface Pkg {
     description: string | null;
     weight: string | number | null;
     missing_on_arrival: boolean;
+    client_box_id?: string | null;
+    client_name?: string | null;
+    client_source?: 'users' | 'legacy' | null;
 }
 
 interface Props {
@@ -504,10 +507,24 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
                                         </ListItemIcon>
                                         <ListItemText
                                             primary={
-                                                <Stack direction="row" spacing={1} alignItems="center">
+                                                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                                                     <Typography sx={{ fontWeight: 600, fontFamily: 'monospace' }}>
                                                         {p.tracking_internal}
                                                     </Typography>
+                                                    {p.client_box_id && (
+                                                        <Chip
+                                                            label={`📦 ${p.client_box_id}${p.client_source === 'legacy' ? ' (legacy)' : ''}`}
+                                                            size="small"
+                                                            color={p.client_source === 'legacy' ? 'default' : 'primary'}
+                                                            variant="outlined"
+                                                            sx={{ fontFamily: 'monospace', fontWeight: 600 }}
+                                                        />
+                                                    )}
+                                                    {p.client_name && (
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {p.client_name}
+                                                        </Typography>
+                                                    )}
                                                     {alreadyReceived && (
                                                         <Chip label="✓ YA RECIBIDO" size="small" color="success" variant="outlined" />
                                                     )}

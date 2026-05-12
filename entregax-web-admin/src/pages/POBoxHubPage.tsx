@@ -378,9 +378,18 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     }, [bulkBoxId]);
     // Master incremental: id del master creado al definir la cantidad esperada
     const [bulkMasterId, setBulkMasterId] = useState<number | null>(null);
-    const [, setBulkMasterTracking] = useState<string>('');
+    const [bulkMasterTracking, setBulkMasterTracking] = useState<string>('');
     // Acumula etiquetas de las hijas creadas (para futura impresión masiva)
     const [, setSessionLabels] = useState<any[]>([]);
+    // Diálogo de confirmación final al terminar la captura en serie
+    const [bulkSuccessDialog, setBulkSuccessDialog] = useState<{
+        open: boolean;
+        count: number;
+        masterTracking: string;
+        childTrackings: string[];
+        boxId: string;
+        clientName: string;
+    }>({ open: false, count: 0, masterTracking: '', childTrackings: [], boxId: '', clientName: '' });
     const [paquetesRegistrados, setPaquetesRegistrados] = useState<PaqueteRegistrado[]>([]);
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
     
@@ -718,9 +727,18 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         await printAllLabelsAtOnce([label], true);
         const totalAfter = bulkBoxes.length + 1;
         setSnackbar({ open: true, message: `🖨️ Etiqueta enviada a impresión — ${totalAfter}${expected > 0 ? `/${expected}` : ''}`, severity: 'success' });
-        // Si ya se completó el total esperado, cerrar automáticamente el wizard
+        // Si ya se completó el total esperado, mostrar diálogo de confirmación con el resumen
         if (expected > 0 && totalAfter >= expected) {
-            setTimeout(() => { handleCloseBulkReceive(); }, 800);
+            const allBoxes = [...bulkBoxes, newBox];
+            const childTrackings = allBoxes.map(b => b.dbTracking || '').filter(Boolean);
+            setBulkSuccessDialog({
+                open: true,
+                count: totalAfter,
+                masterTracking: bulkMasterTracking || '',
+                childTrackings,
+                boxId: bulkBoxId || 'SIN CLIENTE',
+                clientName: bulkClientLookup.fullName || '',
+            });
             return;
         }
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
@@ -774,11 +792,20 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         // Imprimir TODAS las etiquetas de este bloque en un solo archivo (multi-página) - SIN QR para recepción PO BOX
         if (batchLabels.length > 0) await printAllLabelsAtOnce(batchLabels, true);
         setSnackbar({ open: true, message: `🖨️ ${batchLabels.length} etiqueta(s) enviada(s) a impresión en un solo archivo`, severity: 'success' });
-        // Auto-cerrar si ya se completó el total esperado
+        // Si ya se completó el total esperado, mostrar diálogo de confirmación con el resumen
         const expectedTotal = parseInt(bulkExpectedBoxes) || 0;
-        const totalAfterMulti = bulkBoxes.length + newBoxes.length;
+        const totalAfterMulti = bulkBoxes.length + successfulBoxes.length;
         if (expectedTotal > 0 && totalAfterMulti >= expectedTotal) {
-            setTimeout(() => { handleCloseBulkReceive(); }, 800);
+            const allBoxes = [...bulkBoxes, ...successfulBoxes];
+            const childTrackings = allBoxes.map(b => b.dbTracking || '').filter(Boolean);
+            setBulkSuccessDialog({
+                open: true,
+                count: totalAfterMulti,
+                masterTracking: bulkMasterTracking || '',
+                childTrackings,
+                boxId: bulkBoxId || 'SIN CLIENTE',
+                clientName: bulkClientLookup.fullName || '',
+            });
             return;
         }
         setTimeout(() => bulkGuideInputRef.current?.focus(), 50);
@@ -2356,6 +2383,106 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                 onClose={() => setBulkMultiScanOpen(false)}
                 onComplete={handleBulkMultiScanComplete}
             />
+
+            {/* =========== DIÁLOGO DE CONFIRMACIÓN FINAL (al terminar última captura) =========== */}
+            <Dialog
+                open={bulkSuccessDialog.open}
+                onClose={() => {
+                    setBulkSuccessDialog(prev => ({ ...prev, open: false }));
+                    handleCloseBulkReceive();
+                }}
+                maxWidth="sm"
+                fullWidth
+                PaperProps={{ sx: { borderRadius: 3 } }}
+            >
+                <DialogTitle sx={{
+                    bgcolor: '#4CAF50',
+                    color: 'white',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 1,
+                }}>
+                    <CheckCircleIcon />
+                    <Box>
+                        <Typography variant="h6" fontWeight="bold">Recepción completada</Typography>
+                        <Typography variant="caption" sx={{ opacity: 0.9 }}>
+                            Todas las cajas fueron registradas e impresas
+                        </Typography>
+                    </Box>
+                </DialogTitle>
+                <DialogContent sx={{ pt: 3 }}>
+                    <Box sx={{ textAlign: 'center', mb: 3 }}>
+                        <Typography variant="h2" fontWeight="bold" sx={{ color: '#4CAF50', lineHeight: 1 }}>
+                            {bulkSuccessDialog.count}
+                        </Typography>
+                        <Typography variant="body1" color="text.secondary">
+                            caja(s) registrada(s)
+                        </Typography>
+                    </Box>
+
+                    <Paper variant="outlined" sx={{ p: 2, mb: 2, bgcolor: '#FFF8F0', borderColor: ORANGE }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            CASILLERO
+                        </Typography>
+                        <Typography variant="h6" fontWeight="bold" sx={{ color: ORANGE }}>
+                            {bulkSuccessDialog.boxId}
+                            {bulkSuccessDialog.clientName && (
+                                <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                                    — {bulkSuccessDialog.clientName}
+                                </Typography>
+                            )}
+                        </Typography>
+                    </Paper>
+
+                    <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                            GUÍA MASTER
+                        </Typography>
+                        <Typography variant="h6" fontWeight="bold" fontFamily="monospace">
+                            {bulkSuccessDialog.masterTracking || '—'}
+                        </Typography>
+                    </Paper>
+
+                    <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
+                        Guías hijas ({bulkSuccessDialog.childTrackings.length})
+                    </Typography>
+                    <Paper variant="outlined" sx={{ maxHeight: 240, overflow: 'auto' }}>
+                        <List dense>
+                            {bulkSuccessDialog.childTrackings.map((tr, idx) => (
+                                <ListItem key={tr + idx} divider={idx < bulkSuccessDialog.childTrackings.length - 1}>
+                                    <ListItemText
+                                        primary={
+                                            <Typography fontFamily="monospace" fontWeight={600}>
+                                                {idx + 1}. {tr}
+                                            </Typography>
+                                        }
+                                    />
+                                </ListItem>
+                            ))}
+                            {bulkSuccessDialog.childTrackings.length === 0 && (
+                                <ListItem>
+                                    <ListItemText primary={<Typography color="text.secondary">Sin guías registradas</Typography>} />
+                                </ListItem>
+                            )}
+                        </List>
+                    </Paper>
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2 }}>
+                    <Button
+                        variant="contained"
+                        size="large"
+                        startIcon={<CheckCircleIcon />}
+                        onClick={() => {
+                            setBulkSuccessDialog(prev => ({ ...prev, open: false }));
+                            handleCloseBulkReceive();
+                        }}
+                        sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' }, fontWeight: 'bold' }}
+                        fullWidth
+                    >
+                        Aceptar y cerrar
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {/* =========== MODAL DE INVENTARIO =========== */}
             <Dialog 

@@ -289,9 +289,16 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                             <TableCell>
                                                 {(() => {
                                                     const raw = p.statusDate || p.receivedAt;
-                                                    return raw
-                                                        ? new Date(raw).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
-                                                        : '—';
+                                                    if (!raw) return '—';
+                                                    const d = new Date(raw);
+                                                    const fecha = d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+                                                    const hora = d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: false });
+                                                    return (
+                                                        <Box>
+                                                            <Typography variant="body2" sx={{ fontWeight: 600, lineHeight: 1.2 }}>{fecha}</Typography>
+                                                            <Typography variant="caption" sx={{ color: '#666', fontFamily: 'monospace' }}>{hora} hrs</Typography>
+                                                        </Box>
+                                                    );
                                                 })()}
                                             </TableCell>
                                         </TableRow>
