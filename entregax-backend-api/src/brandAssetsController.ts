@@ -8,7 +8,27 @@ import { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { pool } from './db';
-import { uploadToS3, isS3Configured } from './s3Service';
+import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
+
+// ============================================
+// Helper: si la URL apunta a S3 (bucket privado), generar URL firmada
+// ============================================
+const SIGNED_URL_TTL = 60 * 60 * 6; // 6 horas
+const resolveAssetUrl = async (row: { url?: string | null; storage_key?: string | null }) => {
+  const url = row?.url || '';
+  // Solo firmamos si tenemos storage_key (key dentro del bucket) y la URL apunta a S3
+  if (row?.storage_key && /amazonaws\.com/.test(url)) {
+    try {
+      // storage_key local es '/uploads/...' — descartamos esos casos
+      if (row.storage_key.startsWith('/uploads/')) return url;
+      return await getSignedUrlForKey(row.storage_key, SIGNED_URL_TTL);
+    } catch (e) {
+      console.warn('⚠️ resolveAssetUrl: no se pudo firmar', row.storage_key, e);
+      return url;
+    }
+  }
+  return url;
+};
 
 // ============================================
 // Slots permitidos (categorías de logo)
@@ -87,9 +107,12 @@ export const listBrandAssets = async (_req: Request, res: Response) => {
       if (!grouped[row.slot]) {
         grouped[row.slot] = { slot: row.slot, label: row.slot, active: null, history: [] };
       }
-      grouped[row.slot].history.push(row);
+      // Reemplazar url por una versión firmada si está en S3
+      const signed = await resolveAssetUrl(row);
+      const enriched = { ...row, url: signed };
+      grouped[row.slot].history.push(enriched);
       if (row.is_active && !grouped[row.slot].active) {
-        grouped[row.slot].active = row;
+        grouped[row.slot].active = enriched;
       }
     }
 
@@ -113,14 +136,15 @@ export const getActiveBrandAssets = async (_req: Request, res: Response) => {
   try {
     await ensureTable();
     const result = await pool.query(
-      `SELECT DISTINCT ON (slot) id, slot, url, filename, created_at
+      `SELECT DISTINCT ON (slot) id, slot, url, storage_key, filename, created_at
          FROM brand_assets
          WHERE is_active = TRUE
          ORDER BY slot ASC, created_at DESC`
     );
     const assets: Record<string, any> = {};
     for (const row of result.rows) {
-      assets[row.slot] = { id: row.id, url: row.url, filename: row.filename, updated_at: row.created_at };
+      const signed = await resolveAssetUrl(row);
+      assets[row.slot] = { id: row.id, url: signed, filename: row.filename, updated_at: row.created_at };
     }
     return res.json({ success: true, assets });
   } catch (err: any) {
