@@ -8,10 +8,12 @@ import { pool } from './db';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import { uploadToS3, isS3Configured } from './s3Service';
 
 // ============================================================
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES DE SOPORTE
 // ============================================================
+// Estrategia: memoria + S3 (con fallback a disco si S3 no está configurado)
 const supportUploadsDir = path.join(__dirname, '..', 'uploads', 'support');
 try {
   if (!fs.existsSync(supportUploadsDir)) {
@@ -21,18 +23,8 @@ try {
   console.warn('⚠️ No se pudo crear directorio de uploads de soporte:', e);
 }
 
-const supportStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, supportUploadsDir);
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `support-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-
 const multerUpload = multer({
-  storage: supportStorage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB por imagen
   fileFilter: (_req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif|webp/;
@@ -376,11 +368,27 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     let currentTicketId = ticketId;
     let ticketFolio = '';
     
-    // Procesar URLs de imágenes adjuntas
+    // Procesar URLs de imágenes adjuntas (S3 con fallback a disco)
     let imageUrls: string[] = [];
     if (files && files.length > 0) {
-      const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
-      imageUrls = files.map(f => `${baseUrl}/uploads/support/${f.filename}`);
+      for (const f of files) {
+        const ext = path.extname(f.originalname) || '.jpg';
+        const filename = `support-${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+        try {
+          if (isS3Configured()) {
+            const url = await uploadToS3(f.buffer, `support/${filename}`, f.mimetype);
+            imageUrls.push(url);
+          } else {
+            // Fallback: guardar a disco local
+            const filePath = path.join(supportUploadsDir, filename);
+            fs.writeFileSync(filePath, f.buffer);
+            const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+            imageUrls.push(`${baseUrl}/uploads/support/${filename}`);
+          }
+        } catch (err) {
+          console.error('⚠️ Error subiendo imagen de soporte:', err);
+        }
+      }
     }
 
     // A. CREAR NUEVO TICKET SI NO EXISTE
@@ -773,16 +781,8 @@ try {
   console.warn('⚠️ No se pudo crear directorio de claims:', e);
 }
 
-const claimsStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, claimsUploadsDir),
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `claim-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-
 const claimsMulter = multer({
-  storage: claimsStorage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
   fileFilter: (_req, file, cb) => {
     const allowed = /jpeg|jpg|png|webp|pdf/;
@@ -879,9 +879,21 @@ export const submitBoxIdClaim = async (req: Request, res: Response): Promise<any
       return res.status(400).json({ success: false, error: 'Foto de INE (frente) requerida' });
     }
 
-    const apiBase = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
-    const ineFrontUrl = `${apiBase}/uploads/support/claims/${ineFrontFile.filename}`;
-    const ineBackUrl = ineBackFile ? `${apiBase}/uploads/support/claims/${ineBackFile.filename}` : null;
+    // Subir INE a S3 (con fallback a disco)
+    const uploadClaimFile = async (f: Express.Multer.File, prefix: string): Promise<string> => {
+      const ext = path.extname(f.originalname) || '.jpg';
+      const filename = `${prefix}-${Date.now()}-${Math.round(Math.random() * 1E9)}${ext}`;
+      if (isS3Configured()) {
+        return await uploadToS3(f.buffer, `support/claims/${filename}`, f.mimetype);
+      }
+      const filePath = path.join(claimsUploadsDir, filename);
+      fs.writeFileSync(filePath, f.buffer);
+      const apiBase = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+      return `${apiBase}/uploads/support/claims/${filename}`;
+    };
+
+    const ineFrontUrl = await uploadClaimFile(ineFrontFile, 'claim-front');
+    const ineBackUrl = ineBackFile ? await uploadClaimFile(ineBackFile, 'claim-back') : null;
 
     const folio = generateClaimFolio();
     const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || '';
