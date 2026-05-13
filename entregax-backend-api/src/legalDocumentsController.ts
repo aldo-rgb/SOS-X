@@ -798,7 +798,7 @@ export async function renderAccountDeletionPage(_req: Request, res: Response) {
         <h2>Opción 2 · Eliminar por correo (si no tienes acceso a la app)</h2>
         <p>Si no puedes ingresar a la aplicación, envía un correo desde la dirección registrada en tu cuenta a:</p>
         <div class="contact">
-          📧 <a href="mailto:privacidad@entregax.com?subject=Solicitud%20de%20eliminaci%C3%B3n%20de%20cuenta">privacidad@entregax.com</a>
+          📧 <a href="mailto:contacto@entregax.com?subject=Solicitud%20de%20eliminaci%C3%B3n%20de%20cuenta">privacidad@entregax.com</a>
         </div>
         <h3>Incluye en tu correo:</h3>
         <ul>
@@ -854,9 +854,9 @@ export async function renderAccountDeletionPage(_req: Request, res: Response) {
 
       <div class="card">
         <h2>Contacto del responsable</h2>
-        <p><strong>Logística System Development S.A. de C.V.</strong> (EntregaX)<br/>
+        <p><strong>Entregax Paqueteria Internacional</strong> <br/>
         Departamento de Privacidad y Protección de Datos<br/>
-        📧 <a href="mailto:privacidad@entregax.com">privacidad@entregax.com</a></p>
+        📧 <a href="mailto:contacto@entregax.com">privacidad@entregax.com</a></p>
       </div>
 
       <p class="footer">© ${new Date().getFullYear()} EntregaX · Última actualización: ${new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
