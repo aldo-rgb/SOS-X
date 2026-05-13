@@ -4110,6 +4110,15 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
             res.status(400).json({ error: 'Todos los paquetes deben pertenecer al mismo cliente' });
             return;
         }
+
+        // IDOR guard: si el caller es cliente, el dueño de los paquetes debe ser él mismo.
+        const packagesOwner = Number(packagesResult.rows[0]?.user_id || 0);
+        const callerRole = String((req as any).user?.role || '').toLowerCase();
+        const isCallerClient = ['client', 'customer', 'usuario', 'user', ''].includes(callerRole);
+        if (isCallerClient && packagesOwner !== Number(userId)) {
+            res.status(403).json({ error: 'No autorizado para reempacar paquetes de otro usuario' });
+            return;
+        }
         
         const packages = packagesResult.rows;
         const firstPkg = packages[0];

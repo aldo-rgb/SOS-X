@@ -21,6 +21,11 @@ import {
   payPoboxInternalSchema,
   applyCreditPoboxSchema,
   applyWalletPoboxSchema,
+  createMyAddressSchema,
+  updateMyAddressSchema,
+  setDefaultForServiceSchema,
+  createClientAddressSchema,
+  requestRepackSchema,
 } from './validation/schemas';
 import { paymentLimiter, verifyLimiter } from './rateLimiter';
 
@@ -3143,7 +3148,7 @@ app.get('/api/packages/lookup-client/:boxId', authenticateToken, requireMinLevel
 });
 
 // Solicitar reempaque/consolidación de paquetes (Usuario autenticado)
-app.post('/api/packages/repack', authenticateToken, requestRepack);
+app.post('/api/packages/repack', authenticateToken, validateBody(requestRepackSchema), requestRepack);
 
 // 🔍 Rastreo de paquete por tracking
 app.get('/api/packages/track/:tracking', authenticateToken, async (req: Request, res: Response) => {
@@ -3384,7 +3389,7 @@ app.post('/api/verify/address', authenticateToken, verifyLimiter, registerAddres
 
 // --- RUTAS DE DIRECCIONES Y PREFERENCIAS ---
 app.get('/api/client/addresses/:userId', authenticateToken, getAddresses);
-app.post('/api/client/addresses', authenticateToken, createAddress);
+app.post('/api/client/addresses', authenticateToken, validateBody(createClientAddressSchema), createAddress);
 app.put('/api/client/addresses/:id', authenticateToken, updateAddress);
 app.delete('/api/client/addresses/:id', authenticateToken, deleteAddress);
 app.put('/api/client/addresses/default', authenticateToken, setDefaultAddress);
@@ -3392,11 +3397,11 @@ app.put('/api/client/preferences', authenticateToken, savePreferences);
 
 // --- RUTAS PARA APP MÓVIL: MIS DIRECCIONES (con token) ---
 app.get('/api/addresses', authenticateToken, getMyAddresses);
-app.post('/api/addresses', authenticateToken, createMyAddress);
-app.put('/api/addresses/:id', authenticateToken, updateMyAddress);
+app.post('/api/addresses', authenticateToken, validateBody(createMyAddressSchema), createMyAddress);
+app.put('/api/addresses/:id', authenticateToken, validateBody(updateMyAddressSchema), updateMyAddress);
 app.delete('/api/addresses/:id', authenticateToken, deleteMyAddress);
 app.put('/api/addresses/:id/default', authenticateToken, setMyDefaultAddress);
-app.put('/api/addresses/:id/default-for-service', authenticateToken, setMyDefaultForService);
+app.put('/api/addresses/:id/default-for-service', authenticateToken, validateBody(setDefaultForServiceSchema), setMyDefaultForService);
 app.get('/api/addresses/default-for/:service', authenticateToken, getDefaultAddressForService);
 
 // --- RUTA DE BÚSQUEDA DE CÓDIGO POSTAL (SEPOMEX) ---

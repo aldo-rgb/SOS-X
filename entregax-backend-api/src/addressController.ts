@@ -99,20 +99,39 @@ export const createAddress = async (req: Request, res: Response): Promise<void> 
 export const updateAddress = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
+        const authReq = req as AuthRequest;
+        const authUserId = authReq.user?.userId;
+        const authRole = String(authReq.user?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
+
+        if (!authUserId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+
+        // IDOR guard: la dirección debe pertenecer al caller (clientes). Staff puede tocar cualquiera.
+        const currentAddr = await pool.query('SELECT user_id FROM addresses WHERE id = $1', [id]);
+        if (currentAddr.rows.length === 0) {
+            res.status(404).json({ error: 'Dirección no encontrada' });
+            return;
+        }
+        const ownerId = Number(currentAddr.rows[0].user_id);
+        if (isClient && ownerId !== Number(authUserId)) {
+            res.status(403).json({ error: 'No autorizado para esta dirección' });
+            return;
+        }
+
         const { 
             alias, recipientName, street, exteriorNumber, interiorNumber,
             neighborhood, city, state, zipCode, phone, reference, isDefault 
         } = req.body;
 
-        // Si es default, quitar el default a las demás
+        // Si es default, quitar el default a las demás del MISMO dueño.
         if (isDefault) {
-            const currentAddr = await pool.query('SELECT user_id FROM addresses WHERE id = $1', [id]);
-            if (currentAddr.rows.length > 0) {
-                await pool.query(
-                    'UPDATE addresses SET is_default = FALSE WHERE user_id = $1',
-                    [currentAddr.rows[0].user_id]
-                );
-            }
+            await pool.query(
+                'UPDATE addresses SET is_default = FALSE WHERE user_id = $1',
+                [ownerId]
+            );
         }
 
         const result = await pool.query(
@@ -129,9 +148,9 @@ export const updateAddress = async (req: Request, res: Response): Promise<void> 
              phone = COALESCE($10, phone),
              reference = COALESCE($11, reference),
              is_default = COALESCE($12, is_default)
-             WHERE id = $13 RETURNING *`,
+             WHERE id = $13 AND user_id = $14 RETURNING *`,
             [alias, recipientName, street, exteriorNumber, interiorNumber,
-             neighborhood, city, state, zipCode, phone, reference, isDefault, id]
+             neighborhood, city, state, zipCode, phone, reference, isDefault, id, ownerId]
         );
 
         if (result.rows.length === 0) {
@@ -153,8 +172,20 @@ export const updateAddress = async (req: Request, res: Response): Promise<void> 
 export const deleteAddress = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
+        const authReq = req as AuthRequest;
+        const authUserId = authReq.user?.userId;
+        const authRole = String(authReq.user?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
 
-        const result = await pool.query('DELETE FROM addresses WHERE id = $1 RETURNING *', [id]);
+        if (!authUserId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+
+        // IDOR guard
+        const result = isClient
+            ? await pool.query('DELETE FROM addresses WHERE id = $1 AND user_id = $2 RETURNING *', [id, authUserId])
+            : await pool.query('DELETE FROM addresses WHERE id = $1 RETURNING *', [id]);
 
         if (result.rows.length === 0) {
             res.status(404).json({ error: 'Dirección no encontrada' });
@@ -171,13 +202,39 @@ export const deleteAddress = async (req: Request, res: Response): Promise<void> 
 // ============ ESTABLECER DIRECCIÓN POR DEFECTO ============
 export const setDefaultAddress = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { userId, addressId } = req.body;
+        const authReq = req as AuthRequest;
+        const authUserId = authReq.user?.userId;
+        const authRole = String(authReq.user?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
+
+        if (!authUserId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+
+        const { userId: bodyUserId, addressId } = req.body;
+        if (!addressId) {
+            res.status(400).json({ error: 'addressId requerido' });
+            return;
+        }
+        // Cliente: solo puede setear default para sí mismo; staff: puede para cualquiera.
+        const userId = isClient ? authUserId : (bodyUserId ?? authUserId);
+
+        // Validar ownership real de la dirección.
+        const ownCheck = await pool.query('SELECT user_id FROM addresses WHERE id = $1', [addressId]);
+        if (ownCheck.rows.length === 0) {
+            res.status(404).json({ error: 'Dirección no encontrada' });
+            return;
+        }
+        if (Number(ownCheck.rows[0].user_id) !== Number(userId)) {
+            res.status(403).json({ error: 'Dirección no pertenece al usuario' });
+            return;
+        }
 
         // Quitar default a todas
         await pool.query('UPDATE addresses SET is_default = FALSE WHERE user_id = $1', [userId]);
-
-        // Poner default a la seleccionada
-        await pool.query('UPDATE addresses SET is_default = TRUE WHERE id = $1', [addressId]);
+        // Poner default a la seleccionada (con guarda extra de user_id)
+        await pool.query('UPDATE addresses SET is_default = TRUE WHERE id = $1 AND user_id = $2', [addressId, userId]);
 
         res.json({ message: 'Dirección predeterminada actualizada' });
     } catch (error) {
@@ -189,7 +246,19 @@ export const setDefaultAddress = async (req: Request, res: Response): Promise<vo
 // ============ GUARDAR PREFERENCIAS DE ENVÍO ============
 export const savePreferences = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { userId, transport, carrier } = req.body;
+        const authReq = req as AuthRequest;
+        const authUserId = authReq.user?.userId;
+        const authRole = String(authReq.user?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
+
+        if (!authUserId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+
+        const { userId: bodyUserId, transport, carrier } = req.body;
+        // Cliente: forzado su propio userId. Staff: puede setear el de otro.
+        const userId = isClient ? authUserId : (bodyUserId ?? authUserId);
 
         await pool.query(
             `UPDATE users SET default_transport = $1, default_carrier = $2 WHERE id = $3`,

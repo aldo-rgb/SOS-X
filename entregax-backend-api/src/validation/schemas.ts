@@ -122,3 +122,90 @@ export const applyWalletPoboxSchema = z
     wallet_amount: z.number().positive().max(1_000_000),
   })
   .strict();
+
+// ============================================================
+// SCHEMAS — ADDRESSES
+// ============================================================
+
+/** Campos comunes para crear/actualizar dirección (formato app móvil). */
+const addressBaseFields = {
+  alias: z.string().trim().max(80).optional(),
+  contact_name: z.string().trim().max(120).optional(),
+  recipient_name: z.string().trim().max(120).optional(),
+  street: z.string().trim().min(1).max(200),
+  exterior_number: z.string().trim().max(30).optional().nullable(),
+  interior_number: z.string().trim().max(30).optional().nullable(),
+  colony: z.string().trim().max(120).optional().nullable(),
+  neighborhood: z.string().trim().max(120).optional().nullable(),
+  city: z.string().trim().min(1).max(120),
+  state: z.string().trim().min(1).max(120),
+  zip_code: z.string().trim().min(3).max(15),
+  phone: z.string().trim().max(30).optional().nullable(),
+  reference: z.string().trim().max(500).optional().nullable(),
+  reception_hours: z.string().trim().max(120).optional().nullable(),
+  default_for_service: z.string().trim().max(200).optional().nullable(),
+  is_default: z.boolean().optional(),
+};
+
+/** POST /api/addresses (app móvil) */
+export const createMyAddressSchema = z.object(addressBaseFields).strict();
+
+/** PUT /api/addresses/:id (app móvil) */
+export const updateMyAddressSchema = z
+  .object({
+    ...addressBaseFields,
+    street: addressBaseFields.street.optional(),
+    city: addressBaseFields.city.optional(),
+    state: addressBaseFields.state.optional(),
+    zip_code: addressBaseFields.zip_code.optional(),
+  })
+  .strict();
+
+/** PUT /api/addresses/:id/default-for-service */
+export const setDefaultForServiceSchema = z
+  .object({
+    services: z.array(z.string().trim().max(40)).max(20).optional(),
+    carrier_config: z.record(z.string(), z.string().max(60)).optional(),
+  })
+  .strict();
+
+/** POST /api/client/addresses (formato web admin / legado, camelCase) */
+export const createClientAddressSchema = z
+  .object({
+    userId: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]).optional(),
+    alias: z.string().trim().max(80).optional(),
+    recipientName: z.string().trim().max(120).optional(),
+    street: z.string().trim().min(1).max(200),
+    exteriorNumber: z.string().trim().max(30).optional().nullable(),
+    interiorNumber: z.string().trim().max(30).optional().nullable(),
+    neighborhood: z.string().trim().max(120).optional().nullable(),
+    city: z.string().trim().min(1).max(120),
+    state: z.string().trim().min(1).max(120),
+    zipCode: z.string().trim().min(3).max(15),
+    phone: z.string().trim().max(30).optional().nullable(),
+    reference: z.string().trim().max(500).optional().nullable(),
+    isDefault: z.boolean().optional(),
+  })
+  .strict();
+
+// ============================================================
+// SCHEMAS — PACKAGES
+// ============================================================
+
+/** POST /api/packages/repack */
+export const requestRepackSchema = z
+  .object({
+    packageIds: z.array(z.number().int().positive()).min(2).max(200),
+    repackBox: z
+      .object({
+        length: z.number().positive().max(500),
+        width: z.number().positive().max(500),
+        height: z.number().positive().max(500),
+        volume: z.number().positive().max(5_000_000),
+        maxWeight: z.number().positive().max(5000),
+      })
+      .strict(),
+    totalWeight: z.number().nonnegative().max(5000),
+    totalVolume: z.number().nonnegative().max(5_000_000),
+  })
+  .strict();
