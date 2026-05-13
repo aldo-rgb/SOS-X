@@ -635,11 +635,12 @@ export default function MaritimePricingEnginePage() {
                             <TextField
                               size="small"
                               type="number"
-                              value={parseFloat(tier.max_cbm) >= 9999 ? '∞' : tier.max_cbm}
-                              onChange={(e) => handlePriceChange(tier.id, 'max_cbm', e.target.value)}
-                              sx={{ width: 100 }}
+                              value={parseFloat(tier.max_cbm) >= 9999 ? '' : tier.max_cbm}
+                              onChange={(e) => handlePriceChange(tier.id, 'max_cbm', e.target.value === '' ? '9999' : e.target.value)}
+                              sx={{ width: 110 }}
                               inputProps={{ step: '0.01' }}
-                              disabled={parseFloat(tier.max_cbm) >= 9999}
+                              placeholder={parseFloat(tier.max_cbm) >= 9999 ? '∞ (sin límite)' : ''}
+                              helperText={parseFloat(tier.max_cbm) >= 9999 ? 'Sin límite' : ''}
                             />
                           </TableCell>
                           <TableCell>
@@ -692,9 +693,44 @@ export default function MaritimePricingEnginePage() {
                     </TableBody>
                   </Table>
                 </TableContainer>
+                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 2 }}>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      setNewTier({
+                        category_id: category.id,
+                        min_cbm: '',
+                        max_cbm: '',
+                        price: '',
+                        is_flat_fee: false,
+                        notes: '',
+                      });
+                      setNewTierDialog(true);
+                    }}
+                    sx={{ borderColor: SEA_COLOR, color: SEA_COLOR }}
+                  >
+                    Agregar tarifa a {category.name}
+                  </Button>
+                </Box>
               </AccordionDetails>
             </Accordion>
           ))}
+
+          <Box sx={{ display: 'flex', justifyContent: 'center', mt: 3 }}>
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => {
+                setNewTier({ category_id: 0, min_cbm: '', max_cbm: '', price: '', is_flat_fee: false, notes: '' });
+                setNewTierDialog(true);
+              }}
+              sx={{ bgcolor: SEA_COLOR, '&:hover': { bgcolor: SEA_COLOR } }}
+            >
+              Nueva tarifa (elegir categoría)
+            </Button>
+          </Box>
         </Box>
       )}
 

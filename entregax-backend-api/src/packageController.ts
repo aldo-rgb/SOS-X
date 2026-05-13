@@ -2783,7 +2783,20 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
             // Clasificación de mercancía (necesario para reglas GEX/precio)
             brand_type: pkg.brand_type || null,
-            merchandise_type: pkg.merchandise_type || null
+            merchandise_type: pkg.merchandise_type || null,
+            // 🚩 Bandera explícita: mercancía aún sin clasificar (logo/sensitive/generic/startup).
+            // El frontend NO debe mostrar costos ni permitir pagos cuando esto es true.
+            pending_classification: (
+                String(pkg.brand_type || '').toLowerCase() === 'pending'
+                || String(pkg.brand_type || '').toLowerCase() === 'pending_classification'
+                || (
+                    !pkg.brand_type
+                    && (
+                        String(pkg.merchandise_type || '').toLowerCase() === 'pending'
+                        || String(pkg.merchandise_type || '').toLowerCase() === 'pending_classification'
+                    )
+                )
+            )
         }));
 
         // 3. Paquetes TDI AÉREO China (china_receipts) - Buscar por user_id O por shipping_mark

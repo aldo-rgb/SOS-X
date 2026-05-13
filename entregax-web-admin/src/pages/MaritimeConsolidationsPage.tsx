@@ -808,15 +808,21 @@ const MaritimeConsolidationsPage: React.FC = () => {
                         label={
                           order.brand_type === 'logo' ? 'Logotipo' :
                           order.brand_type === 'sensitive' ? 'Sensible' :
+                          (order.brand_type === 'pending' || order.brand_type === 'pending_classification') ? 'Pendiente' :
                           order.merchandise_type === 'branded' ? 'Logotipo' :
                           order.merchandise_type === 'sensitive' ? 'Sensible' :
+                          (order.merchandise_type === 'pending' || order.merchandise_type === 'pending_classification') ? 'Pendiente' :
+                          (!order.brand_type && !order.merchandise_type) ? 'Pendiente' :
                           'Genérico'
                         }
                         color={
                           order.brand_type === 'logo' ? 'primary' :
                           order.brand_type === 'sensitive' ? 'default' :
+                          (order.brand_type === 'pending' || order.brand_type === 'pending_classification') ? 'warning' :
                           order.merchandise_type === 'branded' ? 'primary' :
                           order.merchandise_type === 'sensitive' ? 'default' :
+                          (order.merchandise_type === 'pending' || order.merchandise_type === 'pending_classification') ? 'warning' :
+                          (!order.brand_type && !order.merchandise_type) ? 'warning' :
                           'success'
                         }
                       />

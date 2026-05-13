@@ -1038,6 +1038,12 @@ export const assignPriceToMaritimeOrder = async (
         };
         const brandKey = String(order.brand_type || '').toLowerCase();
         const merchKey = String(order.merchandise_type || '').toLowerCase();
+        // ⚠️ Si la mercancía aún no fue clasificada en bodega, NO calcular costo.
+        // El staff debe clasificar (logo / sensitive / generic / startup) antes de cotizar.
+        if (brandKey === 'pending' || brandKey === 'pending_classification'
+            || (brandKey === '' && (merchKey === 'pending' || merchKey === 'pending_classification'))) {
+            return null;
+        }
         let categoryName = typeMap[brandKey] || typeMap[merchKey] || 'Generico';
 
         // StartUp rule: ≤ 0.75 CBM

@@ -717,17 +717,17 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
         // Verificar que los paquetes existen y pertenecen al usuario
         // (por user_id, o por box_id/shipping_mark si son legacy).
         const packagesCheck = await pool.query(
-            `SELECT id, tracking_internal, status::text, service_type, assigned_cost_mxn, 'package' as source
+            `SELECT id, tracking_internal, status::text, service_type, assigned_cost_mxn, NULL::text as brand_type, NULL::text as merchandise_type, 'package' as source
              FROM packages
              WHERE id = ANY($1)
                AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(box_id, '')) = UPPER($3::text)))
             UNION ALL
-            SELECT id, ordersn as tracking_internal, status::text, 'maritime' as service_type, assigned_cost_mxn, 'maritime' as source
+            SELECT id, ordersn as tracking_internal, status::text, 'maritime' as service_type, assigned_cost_mxn, brand_type::text, merchandise_type::text, 'maritime' as source
              FROM maritime_orders
              WHERE id = ANY($1)
                AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(shipping_mark, '')) = UPPER($3::text)))
             UNION ALL
-            SELECT id, inbound_tracking as tracking_internal, status::text, 'AA_DHL' as service_type, total_cost_mxn as assigned_cost_mxn, 'dhl' as source
+            SELECT id, inbound_tracking as tracking_internal, status::text, 'AA_DHL' as service_type, total_cost_mxn as assigned_cost_mxn, NULL::text as brand_type, NULL::text as merchandise_type, 'dhl' as source
              FROM dhl_shipments
              WHERE id = ANY($1)
                AND (user_id = $2 OR ($3::text IS NOT NULL AND UPPER(COALESCE(box_id, '')) = UPPER($3::text)))`,
@@ -759,6 +759,24 @@ export const createPoboxCashPayment = async (req: AuthRequest, res: Response): P
             return res.status(400).json({
                 error: 'Algunos paquetes no existen o no pertenecen al usuario',
                 missing_ids: missing,
+            });
+        }
+
+        // 🚧 BLOQUEAR pago de órdenes marítimas con mercancía SIN clasificar.
+        // Mientras brand_type/merchandise_type esté 'pending', no hay tarifa
+        // válida y no se debe cobrar. El staff debe clasificar primero.
+        const pendingClassif = checkedRows.filter((r: any) => {
+            if (r.source !== 'maritime') return false;
+            const b = String(r.brand_type || '').toLowerCase();
+            const m = String(r.merchandise_type || '').toLowerCase();
+            return b === 'pending' || b === 'pending_classification'
+                || (b === '' && (m === 'pending' || m === 'pending_classification'));
+        });
+        if (pendingClassif.length > 0) {
+            return res.status(400).json({
+                error: 'Mercancía pendiente de clasificación',
+                message: `No se puede cobrar carga sin clasificar. Espera a que el staff clasifique la mercancía (logo / sensible / genérico / startup) para generar la tarifa.`,
+                pending_orders: pendingClassif.map((r: any) => ({ id: r.id, tracking: r.tracking_internal })),
             });
         }
 

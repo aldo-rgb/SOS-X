@@ -1742,7 +1742,9 @@ app.get('/api/migrate/orders-summary', async (_req: Request, res: Response) => {
     // Columnas para maritime_orders (datos del SUMMARY)
     await pool.query(`
       ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS container_id INTEGER REFERENCES containers(id);
-      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS brand_type VARCHAR(50) DEFAULT 'generic';
+      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS brand_type VARCHAR(50) DEFAULT 'pending';
+      ALTER TABLE maritime_orders ALTER COLUMN brand_type SET DEFAULT 'pending';
+      ALTER TABLE maritime_orders ALTER COLUMN merchandise_type SET DEFAULT 'pending';
       ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS has_battery BOOLEAN DEFAULT false;
       ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS has_liquid BOOLEAN DEFAULT false;
       ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS is_pickup BOOLEAN DEFAULT false;

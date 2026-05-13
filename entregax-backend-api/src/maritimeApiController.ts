@@ -261,8 +261,10 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
         INSERT INTO maritime_orders 
         (ordersn, user_id, shipping_mark, goods_type, goods_name, goods_num, 
          weight, volume, api_raw_data, sync_source, synced_at,
-         delivery_address_id, instructions_assigned_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'api', NOW(), $10, $11)
+         delivery_address_id, instructions_assigned_at,
+         brand_type, merchandise_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'api', NOW(), $10, $11,
+                'pending', 'pending')
         ON CONFLICT (ordersn) DO UPDATE SET
             goods_type = EXCLUDED.goods_type,
             goods_name = EXCLUDED.goods_name,
@@ -275,6 +277,7 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
             -- Solo actualizar dirección si no tiene una asignada manualmente
             delivery_address_id = COALESCE(maritime_orders.delivery_address_id, EXCLUDED.delivery_address_id),
             instructions_assigned_at = COALESCE(maritime_orders.instructions_assigned_at, EXCLUDED.instructions_assigned_at)
+            -- ⚠️ NO sobrescribir brand_type / merchandise_type si ya fue clasificado
     `, [
         order.ordersn,
         userId,
@@ -1850,7 +1853,13 @@ export const getMyMaritimeOrderDetail = async (req: Request, res: Response) => {
         ) || (
             finalOrder.summary_boxes != null && parseInt(finalOrder.summary_boxes) > 0
         );
-        const isClassified = statusOk && hasReceptionSummary;
+        // 🚩 Pendiente de clasificación de mercancía (logo / sensitive / generic / startup).
+        // Mientras esté 'pending', NO se puede calcular costo (depende del tipo).
+        const brandKeyDet = String(finalOrder.brand_type || '').toLowerCase();
+        const merchKeyDet = String(finalOrder.merchandise_type || '').toLowerCase();
+        const isPendingType = brandKeyDet === 'pending' || brandKeyDet === 'pending_classification'
+            || (brandKeyDet === '' && (merchKeyDet === 'pending' || merchKeyDet === 'pending_classification'));
+        const isClassified = statusOk && hasReceptionSummary && !isPendingType;
         const stillNoCost = (finalOrder.assigned_cost_mxn == null || parseFloat(finalOrder.assigned_cost_mxn) <= 0);
 
         if (stillNoCost && !isClassified) {

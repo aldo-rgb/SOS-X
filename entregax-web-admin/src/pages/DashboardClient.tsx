@@ -767,6 +767,11 @@ export default function DashboardClient() {
     // Aplica solo a marítimo/aéreo (en PO Box no hay clasificación).
     const brandKey = String((pkg as any).brand_type || '').toLowerCase();
     const merchKey = String((pkg as any).merchandise_type || '').toLowerCase();
+    // 🚧 Pendiente de clasificación → no se puede contratar GEX hasta clasificar.
+    const isPendingClass = !!(pkg as any).pending_classification
+      || brandKey === 'pending' || brandKey === 'pending_classification'
+      || (brandKey === '' && (merchKey === 'pending' || merchKey === 'pending_classification'));
+    if (isPendingClass) return false;
     // Para aéreo China, el tipo viene en air_tariff_type ('L' = Logo).
     const airTariff = String((pkg as any).air_tariff_type || '').toUpperCase();
     const isLogoMerch = brandKey === 'logo' || brandKey === 'branded'
@@ -4544,6 +4549,8 @@ export default function DashboardClient() {
       bgcolor: '#f5f5f5', 
       minHeight: 'calc(100vh - 64px)',
       pb: isMobile ? 10 : 4, // Space for bottom nav
+      overflowX: 'hidden',
+      maxWidth: '100vw',
     }}>
       {/* Header de Bienvenida - Mobile optimized */}
       <Paper 
@@ -4808,7 +4815,7 @@ export default function DashboardClient() {
           <Box sx={{ 
             overflow: 'hidden', 
             py: 2,
-            px: { xs: 2, md: 4 },
+            px: { xs: 0, md: 4 },
           }}>
             <Box 
               sx={{ 
@@ -4825,7 +4832,8 @@ export default function DashboardClient() {
                 const isActive = index === currentSlide;
                 const isPrev = index === (currentSlide - 1 + carouselSlides.length) % carouselSlides.length;
                 const isNext = index === (currentSlide + 1) % carouselSlides.length;
-                const isVisible = isActive || isPrev || isNext;
+                // En mobile solo se muestra la tarjeta activa para evitar overflow
+                const isVisible = isMobile ? isActive : (isActive || isPrev || isNext);
                 
                 const handleSlideClick = () => {
                   if (isActive && ctaUrl) {
@@ -4850,19 +4858,19 @@ export default function DashboardClient() {
                   scale = 1;
                   opacity = 1;
                   zIndex = 10;
-                } else if (isPrev) {
+                } else if (!isMobile && isPrev) {
                   translateX = -85;
                   scale = 0.8;
                   opacity = 0.6;
                   zIndex = 5;
-                } else if (isNext) {
+                } else if (!isMobile && isNext) {
                   translateX = 85;
                   scale = 0.8;
                   opacity = 0.6;
                   zIndex = 5;
                 }
                 
-                if (!isVisible && carouselSlides.length > 3) return null;
+                if (!isVisible) return null;
                 
                 return (
                   <Box 
@@ -4870,7 +4878,7 @@ export default function DashboardClient() {
                     onClick={handleSlideClick}
                     sx={{ 
                       position: isActive ? 'relative' : 'absolute',
-                      width: { xs: '85%', sm: '75%', md: '65%' },
+                      width: { xs: '100%', sm: '75%', md: '65%' },
                       maxWidth: 800,
                       cursor: 'pointer',
                       transition: 'all 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
@@ -10342,11 +10350,12 @@ export default function DashboardClient() {
                       : k === 'startup' ? 'StartUp'
                       : k === 'fcl' ? 'FCL'
                       : k === 'generic' ? 'Genérico'
+                      : k === 'pending' || k === 'pending_classification' ? 'Pendiente clasificación'
                       : '';
                     const merchLabel = appliedCategory
                       || resolveLabel(brandKey)
                       || resolveLabel(merchKey)
-                      || 'Genérico';
+                      || 'Pendiente clasificación';
                     const airPricePerKg = selectedPackage.air_price_per_kg ? Number(selectedPackage.air_price_per_kg) : 0;
                     const airTariffType = selectedPackage.air_tariff_type || '';
                     const tariffLabel = airTariffType === 'L' ? 'Logo' : airTariffType === 'G' ? 'Genérico' : airTariffType === 'S' ? 'Sensible' : airTariffType === 'F' ? 'Flat' : airTariffType === 'SU' ? 'Start Up' : '';
@@ -10430,7 +10439,14 @@ export default function DashboardClient() {
                       // Mientras esté pendiente, NO mostramos costo (depende de la clasificación).
                       const classifiedStatuses = ['received_china','received','in_transit','customs_mx','customs','consolidated','at_port','delivered'];
                       const isClassified = classifiedStatuses.includes(String(selectedPackage.status || ''));
-                      if (!isClassified) {
+                      // ⚠️ Además: si brand_type/merchandise_type es 'pending_classification' o 'pending',
+                      // o el backend explícitamente lo marcó pending_classification,
+                      // tampoco mostrar estimado — el staff aún no clasificó la mercancía.
+                      const backendPending = !!(selectedPackage as any).pending_classification;
+                      const isPendingByType = backendPending
+                        || brandKey === 'pending' || brandKey === 'pending_classification'
+                        || (brandKey === '' && (merchKey === 'pending' || merchKey === 'pending_classification'));
+                      if (!isClassified || isPendingByType) {
                         // Marcar como pendiente de clasificación
                         costoUSD = 0;
                         montoMXN = 0;

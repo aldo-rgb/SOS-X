@@ -1612,7 +1612,10 @@ export const getContainerProfitBreakdown = async (req: AuthRequest, res: Respons
         case 'sensitive': return 'Sensible';
         case 'logo': return 'Logotipo';
         case 'startup': return 'StartUp';
-        default: return 'Generico';
+        case 'pending':
+        case 'pending_classification':
+          return 'Pendiente clasificación';
+        default: return 'Pendiente clasificación';
       }
     };
 

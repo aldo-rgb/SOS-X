@@ -64,14 +64,39 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      if (!response.ok) throw new Error('Error al cargar clientes');
+      if (!response.ok) {
+        let detail = '';
+        try {
+          const errBody = await response.json();
+          detail = errBody?.message || errBody?.error || '';
+        } catch {}
+        throw new Error(detail || `Error al cargar clientes (HTTP ${response.status})`);
+      }
       
       const data = await response.json();
-      
+
+      // Backend devuelve camelCase; normalizamos a snake_case que usa la UI
+      const normalize = (c: any): Client => ({
+        id: c.id,
+        full_name: c.full_name ?? c.fullName ?? '',
+        email: c.email ?? '',
+        phone: c.phone ?? '',
+        box_id: c.box_id ?? c.boxId ?? '',
+        is_verified: c.is_verified ?? c.identityVerified ?? false,
+        verification_status: c.verification_status ?? c.verificationStatus ?? '',
+        created_at: c.created_at ?? c.createdAt ?? '',
+        last_shipment_at: c.last_shipment_at ?? c.lastShipmentAt ?? null,
+        total_packages: c.total_packages ?? c.totalPackages ?? 0,
+        in_transit_count: c.in_transit_count ?? c.inTransitCount ?? 0,
+        pending_payment_count: c.pending_payment_count ?? c.pendingPaymentCount ?? 0,
+        total_pending: c.total_pending ?? c.pendingPaymentTotal ?? 0,
+      });
+      const list: Client[] = (data.clients || []).map(normalize);
+
       if (reset) {
-        setClients(data.clients || []);
+        setClients(list);
       } else {
-        setClients(prev => [...prev, ...(data.clients || [])]);
+        setClients(prev => [...prev, ...list]);
       }
       
       setHasMore((data.clients || []).length === 20);
@@ -137,8 +162,9 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
             <Chip 
               icon="check-circle" 
               mode="flat" 
-              textStyle={{ fontSize: 10, color: '#4CAF50' }}
-              style={{ backgroundColor: '#E8F5E9', height: 24 }}
+              compact
+              textStyle={{ fontSize: 10, color: '#4CAF50', marginVertical: 0, marginHorizontal: 2 }}
+              style={{ backgroundColor: '#E8F5E9', alignSelf: 'flex-start' }}
             >
               Verificado
             </Chip>
@@ -146,8 +172,9 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
             <Chip 
               icon="clock" 
               mode="flat" 
-              textStyle={{ fontSize: 10, color: '#FF9800' }}
-              style={{ backgroundColor: '#FFF3E0', height: 24 }}
+              compact
+              textStyle={{ fontSize: 10, color: '#FF9800', marginVertical: 0, marginHorizontal: 2 }}
+              style={{ backgroundColor: '#FFF3E0', alignSelf: 'flex-start' }}
             >
               Pendiente
             </Chip>

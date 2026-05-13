@@ -554,6 +554,40 @@ export const createWarrantyByUser = async (req: AuthRequest, res: Response): Pro
                     res.status(400).json({ error: 'GEX en PO Box solo se puede contratar en estatus RECIBIDO CEDIS o EN TRANSITO' });
                     return;
                 }
+            } else {
+                // 🚢 Posible orden marítima (id offset por mobile/web).
+                // Buscar como maritime_order y bloquear si está pendiente de clasificación.
+                const moCheck = await pool.query(
+                    `SELECT id, user_id, brand_type, merchandise_type
+                     FROM maritime_orders WHERE id = $1`,
+                    [packageId]
+                );
+                if (moCheck.rows.length > 0) {
+                    const mo = moCheck.rows[0];
+                    if (mo.user_id !== userId) {
+                        res.status(403).json({ error: 'No tienes permiso para contratar GEX en este embarque' });
+                        return;
+                    }
+                    const b = String(mo.brand_type || '').toLowerCase();
+                    const m = String(mo.merchandise_type || '').toLowerCase();
+                    const isPending = b === 'pending' || b === 'pending_classification'
+                        || (b === '' && (m === 'pending' || m === 'pending_classification'));
+                    if (isPending) {
+                        res.status(400).json({
+                            error: 'Mercancía pendiente de clasificación',
+                            message: 'No se puede contratar Garantía Extendida hasta que el staff clasifique la mercancía.'
+                        });
+                        return;
+                    }
+                    // 🚫 Logotipo no permite GEX en marítimo.
+                    if (b === 'logo' || b === 'branded' || m === 'logo' || m === 'branded') {
+                        res.status(400).json({
+                            error: 'Mercancía Logotipo',
+                            message: 'La mercancía con logotipo no es elegible para Garantía Extendida.'
+                        });
+                        return;
+                    }
+                }
             }
         }
         

@@ -840,7 +840,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const isLogoMerch = brandKey === 'logo' || brandKey === 'branded'
       || merchKey === 'logo' || merchKey === 'branded'
       || airTariff === 'L';
-    const canContractGEX = item.has_gex || (gexEnabled && !((isMaritime || isChinaAir) && isLogoMerch) && (isMaritime
+    // 🚧 Pendiente de clasificación → no se puede contratar GEX hasta clasificar.
+    const isPendingClass = !!(item as any).pending_classification
+      || brandKey === 'pending' || brandKey === 'pending_classification'
+      || (brandKey === '' && (merchKey === 'pending' || merchKey === 'pending_classification'));
+    const canContractGEX = item.has_gex || (gexEnabled && !isPendingClass && !((isMaritime || isChinaAir) && isLogoMerch) && (isMaritime
       ? (item.status === 'received_china') // Marítimo: puede contratar antes de zarpar
       : isChinaAir
         ? (item.status === 'received_origin') // ✈️🇨🇳 China Air: puede contratar en bodega China

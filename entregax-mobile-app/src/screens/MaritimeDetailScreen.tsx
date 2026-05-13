@@ -485,7 +485,11 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             const isLogoMerch = brandKey === 'logo' || brandKey === 'branded'
               || merchKey === 'logo' || merchKey === 'branded'
               || airTariff === 'L';
-            const canContract = gexEnabled && !((isMaritime || isChinaAir) && isLogoMerch) && (
+            // 🚧 Pendiente de clasificación → no se puede contratar GEX hasta clasificar.
+            const isPendingClass = !!(currentPkg as any)?.pending_classification
+              || brandKey === 'pending' || brandKey === 'pending_classification'
+              || (brandKey === '' && (merchKey === 'pending' || merchKey === 'pending_classification'));
+            const canContract = gexEnabled && !isPendingClass && !((isMaritime || isChinaAir) && isLogoMerch) && (
               isMaritime ? ['received_china', 'in_transit'].includes(status)
               : isChinaAir ? status === 'received_origin'
               : ['received', 'processing'].includes(status)
