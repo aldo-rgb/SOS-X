@@ -1,7 +1,7 @@
 /**
  * SupportBoardPage.tsx
  * Panel de Soporte al Cliente tipo Kanban
- * Integra IA (automático) + Agentes Humanos
+ * Integra IA (automático) + Agentes
  */
 
 import React, { useState, useEffect, useCallback } from 'react';

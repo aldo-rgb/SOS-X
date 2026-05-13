@@ -155,7 +155,7 @@ export const validateTracking = async (req: Request, res: Response): Promise<any
 
     // 2) Buscar en maritime_orders (Marítimo)
     const marRes = await pool.query(
-      `SELECT id, ordersn, user_id, goods_name, summary_description, status, expresscom, ship_number, container_number, bl_number
+      `SELECT id, ordersn, user_id, shipping_mark, goods_name, summary_description, status, expresscom, ship_number, container_number, bl_number
        FROM maritime_orders
        WHERE ordersn ILIKE $1
           OR expresscom ILIKE $1
@@ -168,7 +168,10 @@ export const validateTracking = async (req: Request, res: Response): Promise<any
 
     if (marRes.rows.length > 0) {
       const m = marRes.rows[0];
-      if (m.user_id && m.user_id !== userId) {
+      const belongsToUser =
+        (m.user_id && m.user_id === userId) ||
+        (m.shipping_mark && (m.shipping_mark || '').toUpperCase() === (userBoxId || '').toUpperCase());
+      if (!belongsToUser) {
         return res.json({
           success: false,
           valid: false,
