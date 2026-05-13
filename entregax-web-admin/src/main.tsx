@@ -13,6 +13,11 @@ const PrivacyPolicyRedirect = () => {
   return null;
 };
 
+const AccountDeletionRedirect = () => {
+  window.location.replace('https://sos-x-production.up.railway.app/eliminar-cuenta');
+  return null;
+};
+
 if (import.meta.env.PROD) {
   console.log = () => {};
   console.info = () => {};
@@ -31,6 +36,9 @@ createRoot(document.getElementById('root')!).render(
         <Route path="/cotizador" element={<CotizadorPublico />} />
         {/* Política de privacidad - redirige al backend */}
         <Route path="/privacy-policy" element={<PrivacyPolicyRedirect />} />
+        {/* Eliminación de cuenta (Google Play / App Store) - redirige al backend */}
+        <Route path="/eliminar-cuenta" element={<AccountDeletionRedirect />} />
+        <Route path="/account-deletion" element={<AccountDeletionRedirect />} />
         {/* App principal */}
         <Route path="/*" element={<App />} />
       </Routes>

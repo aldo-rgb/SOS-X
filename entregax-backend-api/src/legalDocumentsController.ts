@@ -726,3 +726,145 @@ export async function renderPublicPrivacyPoliciesPage(req: Request, res: Respons
     res.status(500).send('Error al cargar políticas de privacidad');
   }
 }
+
+/**
+ * Página pública HTML con instrucciones para eliminar cuenta de EntregaX.
+ * Requisito de Google Play Data Safety y App Store App Privacy: debe existir
+ * una URL pública (sin login) accesible desde fuera de la app que explique
+ * el procedimiento de eliminación de cuenta y qué datos se eliminan/retienen.
+ *
+ * GET /eliminar-cuenta
+ * GET /legal/account-deletion
+ */
+export async function renderAccountDeletionPage(_req: Request, res: Response) {
+  const html = `<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Eliminar mi cuenta | EntregaX</title>
+    <meta name="description" content="Cómo eliminar tu cuenta de EntregaX y qué datos se eliminan o se conservan por obligaciones legales." />
+    <meta name="robots" content="index, follow" />
+    <style>
+      :root { --brand:#f05a28; --ink:#111827; --muted:#6b7280; --line:#e5e7eb; --bg:#f5f7fb; --warn:#b91c1c; --warnBg:#fef2f2; }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background: var(--bg); color: var(--ink); }
+      .wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 56px; }
+      .header { background: var(--ink); color:#fff; border-radius: 12px; padding: 28px 24px; margin-bottom: 20px; }
+      .header h1 { margin: 0 0 8px; font-size: 28px; }
+      .header p { margin: 0; opacity: .9; }
+      .card { background:#fff; border:1px solid var(--line); border-radius: 12px; padding: 22px; margin-bottom: 16px; }
+      .card h2 { margin: 0 0 12px; font-size: 20px; color: var(--brand); }
+      .card h3 { margin: 18px 0 8px; font-size: 16px; }
+      .card p, .card li { line-height: 1.65; color: #1f2937; }
+      .card ul, .card ol { padding-left: 22px; }
+      .meta { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+      .alert { background: var(--warnBg); border: 1px solid #fecaca; color: var(--warn); padding: 14px 16px; border-radius: 10px; margin-bottom: 14px; }
+      .steps { counter-reset: step; list-style: none; padding: 0; }
+      .steps li { position: relative; padding: 10px 12px 10px 44px; border-bottom: 1px solid var(--line); }
+      .steps li:last-child { border-bottom: 0; }
+      .steps li::before { counter-increment: step; content: counter(step); position: absolute; left: 12px; top: 12px; background: var(--brand); color:#fff; width: 24px; height: 24px; border-radius: 50%; text-align: center; line-height: 24px; font-size: 13px; font-weight: 600; }
+      table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+      th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); font-size: 14px; vertical-align: top; }
+      th { background: #f9fafb; color: var(--muted); font-weight: 600; }
+      .contact { background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 10px; padding: 14px 16px; }
+      .contact a { color: #0369a1; text-decoration: none; font-weight: 600; }
+      .footer { color: var(--muted); font-size: 12px; text-align: center; margin-top: 18px; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="header">
+        <h1>Eliminar mi cuenta de EntregaX</h1>
+        <p>Información oficial sobre cómo solicitar la eliminación de tu cuenta y de tus datos personales.</p>
+      </div>
+
+      <div class="card">
+        <h2>¿Quién puede solicitar la eliminación?</h2>
+        <p>Cualquier persona titular de una cuenta de EntregaX (clientes, asesores y usuarios registrados en la aplicación móvil o el portal web) puede solicitar la eliminación de su cuenta y de los datos personales asociados, en cualquier momento y sin costo.</p>
+      </div>
+
+      <div class="card">
+        <h2>Opción 1 · Eliminar desde la app (recomendado)</h2>
+        <ol class="steps">
+          <li>Abre la aplicación <strong>EntregaX</strong> en tu teléfono e inicia sesión.</li>
+          <li>Ve a <strong>Mi Perfil → Seguridad → Eliminar mi cuenta</strong>.</li>
+          <li>Confirma con tu contraseña actual y escribe la palabra <code>ELIMINAR</code> para validar.</li>
+          <li>Recibirás confirmación inmediata y tu sesión se cerrará automáticamente.</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>Opción 2 · Eliminar por correo (si no tienes acceso a la app)</h2>
+        <p>Si no puedes ingresar a la aplicación, envía un correo desde la dirección registrada en tu cuenta a:</p>
+        <div class="contact">
+          📧 <a href="mailto:privacidad@entregax.com?subject=Solicitud%20de%20eliminaci%C3%B3n%20de%20cuenta">privacidad@entregax.com</a>
+        </div>
+        <h3>Incluye en tu correo:</h3>
+        <ul>
+          <li>Nombre completo registrado.</li>
+          <li>Correo electrónico y/o teléfono asociado a la cuenta.</li>
+          <li>Tu suite/box (si aplica) o número de cliente.</li>
+          <li>Asunto: <em>"Solicitud de eliminación de cuenta"</em>.</li>
+        </ul>
+        <p>Atenderemos tu solicitud en un plazo máximo de <strong>30 días naturales</strong> conforme a la Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP) de México.</p>
+      </div>
+
+      <div class="card">
+        <h2>¿Qué datos se eliminan?</h2>
+        <p>Al confirmar la eliminación, se borran o anonimizan de forma irreversible los siguientes datos personales:</p>
+        <ul>
+          <li>Nombre, correo electrónico, teléfono y foto de perfil.</li>
+          <li>Direcciones, contactos y preferencias guardadas.</li>
+          <li>Tokens de sesión, dispositivos vinculados y notificaciones push.</li>
+          <li>Anticipos pendientes (se cancelan automáticamente).</li>
+          <li>Mensajes de soporte y conversaciones no esenciales para auditoría.</li>
+        </ul>
+      </div>
+
+      <div class="card">
+        <h2>¿Qué datos se conservan y por cuánto tiempo?</h2>
+        <p>Por obligaciones fiscales, contables y de cumplimiento aduanal y antilavado, EntregaX está obligada a retener cierta información, aun después de la eliminación de la cuenta:</p>
+        <table>
+          <thead>
+            <tr><th>Tipo de dato</th><th>Plazo de retención</th><th>Fundamento legal</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Comprobantes fiscales (CFDI), facturas y notas de crédito</td><td>5 años</td><td>Art. 30 Código Fiscal de la Federación (CFF)</td></tr>
+            <tr><td>Pedimentos aduanales y guías de envío internacional</td><td>5 años</td><td>Ley Aduanera</td></tr>
+            <tr><td>Registros de pagos y movimientos contables</td><td>5 años</td><td>Art. 28 CFF</td></tr>
+            <tr><td>Bitácora de auditoría (audit log) anonimizada</td><td>5 años</td><td>LFPDPPP, prevención de fraude</td></tr>
+            <tr><td>Datos para reportes a autoridades (PLD/UIF, SAT)</td><td>10 años</td><td>Ley Federal para la Prevención e Identificación de Operaciones con Recursos de Procedencia Ilícita</td></tr>
+          </tbody>
+        </table>
+        <p style="margin-top:14px">Estos datos se mantienen <strong>disociados de tu identidad activa</strong> y solo son accesibles ante requerimiento de autoridad competente.</p>
+      </div>
+
+      <div class="card">
+        <h2>¿La eliminación es reversible?</h2>
+        <div class="alert">
+          ⚠️ <strong>No.</strong> Una vez confirmada la solicitud, la cuenta no puede recuperarse. Si en el futuro deseas volver a usar EntregaX, deberás registrarte como un usuario nuevo.
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Derechos ARCO</h2>
+        <p>Antes de eliminar tu cuenta, también puedes ejercer cualquiera de tus derechos ARCO (Acceso, Rectificación, Cancelación y Oposición) o limitar el uso o divulgación de tus datos. Consulta nuestro <a href="/legal/privacy-policy">Aviso de Privacidad completo</a> o escríbenos a <a href="mailto:privacidad@entregax.com">privacidad@entregax.com</a>.</p>
+      </div>
+
+      <div class="card">
+        <h2>Contacto del responsable</h2>
+        <p><strong>Logística System Development S.A. de C.V.</strong> (EntregaX)<br/>
+        Departamento de Privacidad y Protección de Datos<br/>
+        📧 <a href="mailto:privacidad@entregax.com">privacidad@entregax.com</a></p>
+      </div>
+
+      <p class="footer">© ${new Date().getFullYear()} EntregaX · Última actualización: ${new Date().toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+    </div>
+  </body>
+</html>`;
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.status(200).send(html);
+}

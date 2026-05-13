@@ -993,7 +993,8 @@ import {
   getPublicServiceContract,
   getPublicPrivacyNotice,
   getPublicAdvisorPrivacyNotice,
-  renderPublicPrivacyPoliciesPage
+  renderPublicPrivacyPoliciesPage,
+  renderAccountDeletionPage
 } from './legalDocumentsController';
 import {
   createPoboxPaypalPayment,
@@ -8260,6 +8261,11 @@ app.get('/api/public/legal/advisor-privacy-notice', getPublicAdvisorPrivacyNotic
 // URL pública web (entregax.app) para políticas de privacidad
 app.get('/legal/privacy-policy', renderPublicPrivacyPoliciesPage);
 app.get('/privacy-policy', renderPublicPrivacyPoliciesPage);
+
+// URL pública para eliminación de cuenta (Google Play / App Store compliance)
+app.get('/legal/account-deletion', renderAccountDeletionPage);
+app.get('/eliminar-cuenta', renderAccountDeletionPage);
+app.get('/account-deletion', renderAccountDeletionPage);
 
 // NOTA: el manejador 404 (catchall) y el error handler global se MOVIERON
 // al final del archivo (justo antes de httpServer.listen) para que las

@@ -5,6 +5,14 @@
       "destination": "https://sos-x-production.up.railway.app/legal/privacy-policy"
     },
     {
+      "source": "/eliminar-cuenta",
+      "destination": "https://sos-x-production.up.railway.app/eliminar-cuenta"
+    },
+    {
+      "source": "/account-deletion",
+      "destination": "https://sos-x-production.up.railway.app/account-deletion"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
