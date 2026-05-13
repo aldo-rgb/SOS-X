@@ -118,7 +118,7 @@ export const validateTracking = async (req: Request, res: Response): Promise<any
     }
     const userBoxId = userRes.rows[0].box_id;
 
-    // Buscar la guía en packages por múltiples campos de tracking
+    // 1) Buscar en packages (Aéreo China/USA + PoBox)
     const pkgRes = await pool.query(
       `SELECT id, tracking_internal, child_no, box_id, user_id, description, status
        FROM packages 
@@ -129,37 +129,98 @@ export const validateTracking = async (req: Request, res: Response): Promise<any
       [tracking]
     );
 
-    if (pkgRes.rows.length === 0) {
-      return res.json({ 
-        success: false, 
-        valid: false,
-        error: `Guía "${tracking}" no encontrada. Verifica el número e intenta de nuevo.`
-      });
-    }
-
-    const pkg = pkgRes.rows[0];
-
-    // Verificar que pertenezca al usuario (por box_id o user_id)
-    const belongsToUser = 
-      (pkg.box_id && pkg.box_id.toUpperCase() === (userBoxId || '').toUpperCase()) ||
-      (pkg.user_id && pkg.user_id === userId);
-
-    if (!belongsToUser) {
-      return res.json({ 
-        success: false, 
-        valid: false,
-        error: `Guía no encontrada para tu número de cliente ${userBoxId}. Solo puedes crear tickets sobre tus propias guías.`
-      });
-    }
-
-    return res.json({ 
-      success: true, 
-      valid: true,
-      package: {
-        tracking: pkg.tracking_internal,
-        description: pkg.description,
-        status: pkg.status,
+    if (pkgRes.rows.length > 0) {
+      const pkg = pkgRes.rows[0];
+      const belongsToUser =
+        (pkg.box_id && pkg.box_id.toUpperCase() === (userBoxId || '').toUpperCase()) ||
+        (pkg.user_id && pkg.user_id === userId);
+      if (!belongsToUser) {
+        return res.json({
+          success: false,
+          valid: false,
+          error: `Guía no encontrada para tu número de cliente ${userBoxId}. Solo puedes crear tickets sobre tus propias guías.`,
+        });
       }
+      return res.json({
+        success: true,
+        valid: true,
+        package: {
+          tracking: pkg.tracking_internal,
+          description: pkg.description,
+          status: pkg.status,
+          service: 'AEREO/POBOX',
+        },
+      });
+    }
+
+    // 2) Buscar en maritime_orders (Marítimo)
+    const marRes = await pool.query(
+      `SELECT id, ordersn, user_id, goods_name, summary_description, status, expresscom, ship_number, container_number, bl_number
+       FROM maritime_orders
+       WHERE ordersn ILIKE $1
+          OR expresscom ILIKE $1
+          OR ship_number ILIKE $1
+          OR container_number ILIKE $1
+          OR bl_number ILIKE $1
+       LIMIT 1`,
+      [tracking]
+    );
+
+    if (marRes.rows.length > 0) {
+      const m = marRes.rows[0];
+      if (m.user_id && m.user_id !== userId) {
+        return res.json({
+          success: false,
+          valid: false,
+          error: `Guía no encontrada para tu número de cliente ${userBoxId}. Solo puedes crear tickets sobre tus propias guías.`,
+        });
+      }
+      return res.json({
+        success: true,
+        valid: true,
+        package: {
+          tracking: m.ordersn,
+          description: m.summary_description || m.goods_name,
+          status: m.status,
+          service: 'MARITIMO',
+        },
+      });
+    }
+
+    // 3) Buscar en dhl_packages (DHL)
+    const dhlRes = await pool.query(
+      `SELECT id, tracking_number, user_id, description, status, client_name
+       FROM dhl_packages
+       WHERE tracking_number ILIKE $1
+       LIMIT 1`,
+      [tracking]
+    );
+
+    if (dhlRes.rows.length > 0) {
+      const d = dhlRes.rows[0];
+      if (d.user_id && d.user_id !== userId) {
+        return res.json({
+          success: false,
+          valid: false,
+          error: `Guía no encontrada para tu número de cliente ${userBoxId}. Solo puedes crear tickets sobre tus propias guías.`,
+        });
+      }
+      return res.json({
+        success: true,
+        valid: true,
+        package: {
+          tracking: d.tracking_number,
+          description: d.description || d.client_name,
+          status: d.status,
+          service: 'DHL',
+        },
+      });
+    }
+
+    return res.json({
+      success: false,
+      valid: false,
+      error: `Guía "${tracking}" no encontrada. Verifica el número e intenta de nuevo.`,
     });
   } catch (error) {
     console.error('Error validando tracking:', error);

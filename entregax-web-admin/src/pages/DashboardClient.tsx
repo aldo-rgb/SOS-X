@@ -2971,6 +2971,7 @@ export default function DashboardClient() {
   };
 
   // Inicializar Chat Virtual con Orlando
+  // @ts-ignore - reservado para futura activación del chat en vivo
   const initSupportChat = () => {
     const now = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     const userNamePart = userName?.split(' ')[0] || t('cd.chat.clientFallback');
