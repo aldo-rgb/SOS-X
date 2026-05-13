@@ -6,6 +6,10 @@ import { PaperProvider, MD3LightTheme } from 'react-native-paper';
 // Inicializar i18n
 import './src/i18n';
 
+// Inicializar Sentry antes de cualquier render (no-op si no hay DSN)
+import { initSentry, wrapAppWithSentry } from './src/sentry';
+initSentry();
+
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import ExistingClientScreen from './src/screens/ExistingClientScreen';
@@ -186,7 +190,7 @@ const theme = {
   },
 };
 
-export default function App() {
+function App() {
   return (
     <PaperProvider theme={theme}>
       <NavigationContainer>
@@ -443,3 +447,5 @@ export default function App() {
     </PaperProvider>
   );
 }
+
+export default wrapAppWithSentry(App);
