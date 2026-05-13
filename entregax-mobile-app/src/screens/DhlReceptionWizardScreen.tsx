@@ -25,6 +25,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { API_URL } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecure } from '../services/secureStorage';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -325,7 +326,7 @@ export default function DhlReceptionWizardScreen({ navigation, route }: Props) {
       setPhotoTaken(true);
 
       // Send to AI backend
-      const token = authToken || (await AsyncStorage.getItem('token'));
+      const token = authToken || (await getSecure('token'));
       const measureResponse = await fetch(`${API_URL}/api/admin/dhl/measure-box`, {
         method: 'POST',
         headers: { 
@@ -364,7 +365,7 @@ export default function DhlReceptionWizardScreen({ navigation, route }: Props) {
     setLoading(true);
 
     try {
-      const token = authToken || (await AsyncStorage.getItem('token'));
+      const token = authToken || (await getSecure('token'));
       const response = await fetch(`${API_URL}/api/admin/dhl/receive`, {
         method: 'POST',
         headers: { 
@@ -486,7 +487,7 @@ export default function DhlReceptionWizardScreen({ navigation, route }: Props) {
 
     setSearchingClient(true);
     try {
-      const token = authToken || (await AsyncStorage.getItem('token'));
+      const token = authToken || (await getSecure('token'));
       const response = await fetch(
         `${API_URL}/api/admin/users/search?q=${encodeURIComponent(query)}`,
         { headers: { Authorization: `Bearer ${token}` } }

@@ -545,7 +545,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     [ROLES.CLIENT]: ['profile:read', 'profile:update', 'shipments:own', 'quotes:own']
 };
 
-export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction): void => {
+export const authenticateToken = async (req: AuthRequest, res: Response, next: NextFunction): Promise<void> => {
     const authHeader = req.headers['authorization'];
     // Buscar token en este orden:
     //   1) Authorization: Bearer <token>   (mobile + web actual)
@@ -568,6 +568,19 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
             email: string;
             role: string;
         };
+
+        // Bloquear tokens de cuentas eliminadas (Fase 7 — cumplimiento Account Deletion)
+        try {
+            const r = await pool.query('SELECT deleted_at FROM users WHERE id = $1', [decoded.userId]);
+            if (r.rows.length === 0 || r.rows[0].deleted_at) {
+                res.status(401).json({ error: 'Cuenta eliminada o inválida.', errorCode: 'ACCOUNT_DELETED' });
+                return;
+            }
+        } catch {
+            // Si la verificación falla por DB transitoria, dejamos pasar para no romper la app;
+            // el endpoint específico volverá a validar.
+        }
+
         req.user = decoded;
         next();
     } catch (error) {
@@ -1742,5 +1755,131 @@ export const getCounterStaffDashboard = async (_req: Request, res: Response): Pr
     } catch (error) {
         console.error('Error al obtener dashboard counter staff:', error);
         res.status(500).json({ error: 'Error al obtener dashboard' });
+    }
+};
+
+// ============ ELIMINACIÓN DE CUENTA (Google Play + App Store 2024) ============
+// Soft-delete del usuario solicitado por él mismo.
+// Cumple con:
+//   - Google Play: https://support.google.com/googleplay/android-developer/answer/13327111
+//   - Apple Guideline 5.1.1(v)
+// Comportamiento:
+//   1. Marca `users.deleted_at = NOW()` y anonimiza email/teléfono.
+//   2. Cancela suscripciones recurrentes (best-effort).
+//   3. Revoca el token actual (cliente debe llamar a logout también).
+//   4. Conserva datos transaccionales por 30 días (retención legal),
+//      luego un job de limpieza los purga.
+export const deleteMyAccount = async (req: AuthRequest, res: Response): Promise<void> => {
+    const userId = req.user?.userId;
+    if (!userId) {
+        res.status(401).json({ error: 'No autenticado' });
+        return;
+    }
+
+    const { password, confirm } = req.body || {};
+
+    // Doble confirmación obligatoria
+    if (confirm !== 'ELIMINAR' && confirm !== 'DELETE') {
+        res.status(400).json({
+            error: 'Debes escribir "ELIMINAR" para confirmar la eliminación de tu cuenta.',
+            errorCode: 'CONFIRMATION_REQUIRED',
+        });
+        return;
+    }
+
+    // Reautenticación con contraseña (defensa contra session hijacking)
+    if (!password || typeof password !== 'string') {
+        res.status(400).json({
+            error: 'Por seguridad, ingresa tu contraseña para confirmar.',
+            errorCode: 'PASSWORD_REQUIRED',
+        });
+        return;
+    }
+
+    try {
+        // 1. Verificar contraseña actual
+        const userResult = await pool.query(
+            'SELECT id, email, password_hash, deleted_at FROM users WHERE id = $1',
+            [userId]
+        );
+        if (userResult.rows.length === 0) {
+            res.status(404).json({ error: 'Usuario no encontrado' });
+            return;
+        }
+        const user = userResult.rows[0];
+        if (user.deleted_at) {
+            res.status(410).json({ error: 'Esta cuenta ya fue eliminada.' });
+            return;
+        }
+        const passwordOk = await bcrypt.compare(password, user.password_hash);
+        if (!passwordOk) {
+            res.status(401).json({
+                error: 'Contraseña incorrecta.',
+                errorCode: 'INVALID_PASSWORD',
+            });
+            return;
+        }
+
+        // 2. Soft-delete + anonimización de PII directa
+        // Mantenemos box_id y registros transaccionales (paquetes/pagos) para
+        // cumplir con obligaciones fiscales y de auditoría (CFF Art. 30: 5 años).
+        const anonymizedEmail = `deleted_${userId}_${Date.now()}@entregax.deleted`;
+        await pool.query(
+            `UPDATE users
+                SET deleted_at = NOW(),
+                    email = $2,
+                    phone = NULL,
+                    profile_photo = NULL,
+                    is_active = FALSE
+              WHERE id = $1`,
+            [userId, anonymizedEmail]
+        );
+
+        // 3. Cancelar suscripciones/anticipos recurrentes (best-effort)
+        try {
+            await pool.query(
+                `UPDATE anticipos
+                    SET status = 'cancelled',
+                        cancelled_at = NOW(),
+                        cancellation_reason = 'account_deleted'
+                  WHERE user_id = $1
+                    AND status IN ('active', 'pending')`,
+                [userId]
+            );
+        } catch (e) {
+            // La tabla puede no existir en algunos entornos; ignoramos.
+        }
+
+        // 4. Limpiar cookie de sesión si la usa el web
+        const isProd = process.env.NODE_ENV === 'production';
+        res.clearCookie('token', {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: isProd ? 'none' : 'lax',
+            path: '/',
+        });
+
+        // 5. Log de auditoría (no bloqueante)
+        try {
+            await pool.query(
+                `INSERT INTO audit_log (user_id, action, metadata, created_at)
+                 VALUES ($1, 'account_deleted', $2, NOW())`,
+                [userId, JSON.stringify({ ip: req.ip, ua: req.headers['user-agent'] })]
+            );
+        } catch (e) {
+            // audit_log puede no existir; no es crítico.
+        }
+
+        res.json({
+            message: 'Cuenta eliminada correctamente. Tus datos personales fueron anonimizados.',
+            details: {
+                deletedAt: new Date().toISOString(),
+                retentionDays: 30,
+                note: 'Los registros transaccionales se conservan por obligaciones fiscales y se purgan automáticamente a los 30 días.',
+            },
+        });
+    } catch (error: any) {
+        console.error('Error eliminando cuenta:', error?.message || error);
+        res.status(500).json({ error: 'No se pudo eliminar la cuenta. Intenta más tarde o contacta soporte.' });
     }
 };

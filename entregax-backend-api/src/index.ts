@@ -61,7 +61,8 @@ import {
   updateUser,
   ROLES,
   AuthRequest,
-  logoutUser
+  logoutUser,
+  deleteMyAccount
 } from './authController';
 import {
   createPackage,
@@ -1849,6 +1850,8 @@ app.get('/api/auth/profile', authenticateToken, getProfile);
 app.post('/api/auth/change-password', authenticateToken, validateBody(changePasswordSchema), changePassword);
 app.put('/api/auth/update-profile', authenticateToken, updateProfile);
 app.put('/api/auth/profile-photo', authenticateToken, updateProfilePhoto);
+// Account Deletion (Google Play + App Store 2024) — requiere password + confirm="ELIMINAR"
+app.delete('/api/auth/account', authenticateToken, deleteMyAccount);
 
 // --- RUTAS DE CLIENTES LEGACY (Migración) ---
 // Públicas (para registro)

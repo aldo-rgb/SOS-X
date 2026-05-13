@@ -19,7 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getSecure } from '../services/secureStorage';
 import { API_URL } from '../services/api';
 
 // Colores
@@ -70,7 +70,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
 
   const fetchWalletData = useCallback(async () => {
     try {
-      const token = await AsyncStorage.getItem('token');
+      const token = await getSecure('token');
       if (!token) {
         Alert.alert('Error', 'Sesión expirada');
         return;

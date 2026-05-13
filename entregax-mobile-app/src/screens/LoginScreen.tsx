@@ -21,6 +21,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { loginApi, api, API_URL } from '../services/api';
 import { EMPLOYEE_ROLES } from '../constants/roles';
+import { setSecure } from '../services/secureStorage';
 
 // Colores de marca
 const ORANGE = '#F05A28';
@@ -111,7 +112,18 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       };
       
       const token = response.access.token;
-      
+
+      // Persistir el JWT en almacenamiento seguro nativo (Keychain/Keystore).
+      // Esto permite que pantallas como Wallet/Saldo a Favor/Referidos lo lean
+      // sin necesidad de pasarlo por route.params en cada navegación.
+      try {
+        await setSecure('token', token);
+        await setSecure('user', JSON.stringify(userData));
+      } catch (e) {
+        // No bloqueamos el login si SecureStore falla; el token sigue en memoria.
+        if (__DEV__) console.warn('[Login] No se pudo persistir el token en SecureStore');
+      }
+
       // Verificar si debe cambiar contraseña
       if (response.access.mustChangePassword) {
         navigation.replace('ChangePassword', {
@@ -150,7 +162,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
             }
           } catch (verifyError) {
             // Si falla, continuar al Home
-            console.log('Error verificando estado:', verifyError);
+            if (__DEV__) console.warn('Error verificando estado de cuenta');
           }
         }
         

@@ -40,6 +40,7 @@ type RootStackParamList = {
   MyProfile: { user: any; token: string };
   Verification: { user: any; token: string };
   EmployeeOnboarding: { user: any; token: string };
+  DeleteAccount: { user: any; token: string };
 };
 
 type Props = NativeStackScreenProps<RootStackParamList, 'MyProfile'>;
@@ -356,20 +357,14 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const refreshVerificationStatus = async () => {
     setRefreshingStatus(true);
     try {
-      console.log('🔄 Refreshing verification status...');
-      console.log('API_URL:', API_URL);
-      console.log('Token:', token?.substring(0, 20) + '...');
-      
+      // Sin logs de token ni URL para no filtrar PII en producción.
       const response = await fetch(`${API_URL}/api/verify/status`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
-      console.log('Response status:', response.status);
-      
+
       if (response.ok) {
         const data = await response.json();
-        console.log('Response data:', data);
-        
+
         setUser((prevUser: any) => ({
           ...prevUser,
           isVerified: data.isVerified,
@@ -383,12 +378,12 @@ export default function MyProfileScreen({ navigation, route }: Props) {
           Alert.alert(t('profile.statusUpdated'), t('profile.stillInReview'));
         }
       } else {
-        const errorData = await response.json();
-        console.log('Error response:', errorData);
+        const errorData = await response.json().catch(() => ({}));
+        if (__DEV__) console.warn('[Profile] verify/status non-ok');
         Alert.alert('Error', errorData.error || 'Error al actualizar');
       }
     } catch (error) {
-      console.log('Fetch error:', error);
+      if (__DEV__) console.warn('[Profile] verify/status fetch error');
       Alert.alert(t('common.error'), t('profile.couldNotUpdate'));
     } finally {
       setRefreshingStatus(false);
@@ -977,6 +972,23 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 thumbColor={twoFactorEnabled ? ORANGE : '#f4f3f4'}
               />
             </View>
+
+            <Divider style={styles.divider} />
+
+            {/* Eliminar cuenta (Google Play + App Store 2024) */}
+            <TouchableOpacity
+              style={styles.menuItem}
+              onPress={() => navigation.navigate('DeleteAccount', { user, token })}
+            >
+              <Ionicons name="trash-outline" size={24} color="#D32F2F" />
+              <View style={styles.menuItemContent}>
+                <Text style={[styles.menuItemTitle, { color: '#D32F2F' }]}>Eliminar mi cuenta</Text>
+                <Text style={styles.menuItemSubtitle}>
+                  Anonimiza tus datos personales de forma permanente
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#D32F2F" />
+            </TouchableOpacity>
 
             <Divider style={styles.divider} />
 

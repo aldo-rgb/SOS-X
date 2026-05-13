@@ -35,6 +35,7 @@ import {
   RadioButton,
 } from 'react-native-paper';
 import { WebView } from 'react-native-webview';
+import { isAllowedUrl } from '../utils/webviewSafety';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { API_URL, Package } from '../services/api';
@@ -509,6 +510,10 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
             <WebView
               source={{ uri: approvalUrl }}
               onNavigationStateChange={handleWebViewNavigation}
+              originWhitelist={['https://*.paypal.com', 'https://paypal.com', 'https://*.openpay.mx', 'https://openpay.mx', 'https://sos-x-production.up.railway.app']}
+              onShouldStartLoadWithRequest={(req) => isAllowedUrl(req.url)}
+              setSupportMultipleWindows={false}
+              allowsLinkPreview={false}
               startInLoadingState
               renderLoading={() => (
                 <View style={styles.loadingOverlay}>

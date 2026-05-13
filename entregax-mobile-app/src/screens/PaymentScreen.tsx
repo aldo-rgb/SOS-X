@@ -19,6 +19,7 @@ import {
   Surface
 } from 'react-native-paper';
 import { WebView } from 'react-native-webview';
+import { isAllowedUrl } from '../utils/webviewSafety';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { API_URL } from '../services/api';
@@ -218,6 +219,12 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
             <WebView
               source={{ uri: approvalUrl }}
               onNavigationStateChange={handleWebViewNavigation}
+              originWhitelist={['https://*.paypal.com', 'https://paypal.com', 'https://sos-x-production.up.railway.app']}
+              onShouldStartLoadWithRequest={(req) => isAllowedUrl(req.url)}
+              setSupportMultipleWindows={false}
+              allowsLinkPreview={false}
+              javaScriptEnabled
+              domStorageEnabled
               startInLoadingState
               renderLoading={() => (
                 <View style={styles.loadingOverlay}>

@@ -17,6 +17,7 @@ import VerificationScreen from './src/screens/VerificationScreen';
 import MyAddressesScreen from './src/screens/MyAddressesScreen';
 import MyPaymentMethodsScreen from './src/screens/MyPaymentMethodsScreen';
 import MyProfileScreen from './src/screens/MyProfileScreen';
+import DeleteAccountScreen from './src/screens/DeleteAccountScreen';
 import GEXContractScreen from './src/screens/GEXContractScreen';
 import RequestAdvisorScreen from './src/screens/RequestAdvisorScreen';
 import SupportChatScreen from './src/screens/SupportChatScreen';
@@ -95,6 +96,7 @@ export type RootStackParamList = {
   MyAddresses: { user: any; token: string };
   MyPaymentMethods: { user: any; token: string };
   MyProfile: { user: any; token: string };
+  DeleteAccount: { user: any; token: string };
   GEXContract: { package: Package; user: any; token: string };
   RequestAdvisor: { user: any; token: string };
   HelpCenter: { user: any; token: string };
@@ -225,6 +227,10 @@ export default function App() {
           <Stack.Screen 
             name="MyProfile" 
             component={MyProfileScreen}
+          />
+          <Stack.Screen
+            name="DeleteAccount"
+            component={DeleteAccountScreen}
           />
           <Stack.Screen 
             name="GEXContract" 
