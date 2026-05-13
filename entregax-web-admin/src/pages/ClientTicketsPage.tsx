@@ -50,7 +50,7 @@ interface TicketMessage {
 
 const statusConfig: Record<string, { label: string; color: 'warning' | 'info' | 'success' | 'error' | 'default'; icon: React.ReactNode }> = {
   open_ai: { label: 'En atención IA', color: 'info', icon: <SmartToyIcon sx={{ fontSize: 16 }} /> },
-  escalated_human: { label: 'Atención Humana', color: 'warning', icon: <SupportAgentIcon sx={{ fontSize: 16 }} /> },
+  escalated_human: { label: 'Atención Personalizada', color: 'warning', icon: <SupportAgentIcon sx={{ fontSize: 16 }} /> },
   resolved: { label: 'Resuelto', color: 'success', icon: <CheckCircleIcon sx={{ fontSize: 16 }} /> },
   closed: { label: 'Cerrado', color: 'default', icon: <CheckCircleIcon sx={{ fontSize: 16 }} /> },
 };

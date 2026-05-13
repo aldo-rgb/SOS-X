@@ -27,7 +27,6 @@ import {
   InputAdornment,
 } from '@mui/material';
 import {
-  SmartToy as AIIcon,
   SupportAgent as AgentIcon,
   CheckCircle as ResolvedIcon,
   Send as SendIcon,
@@ -294,7 +293,6 @@ export default function SupportBoardPage() {
       {stats && (
         <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
           <Paper sx={{ p: 2, flex: '1 1 150px', textAlign: 'center', bgcolor: '#E3F2FD' }}>
-            <AIIcon sx={{ color: '#1976d2', fontSize: 32 }} />
             <Typography variant="h4" fontWeight="bold">{stats.ai_handling}</Typography>
             <Typography variant="body2" color="text.secondary">{t('support.aiHandling')}</Typography>
           </Paper>
@@ -323,12 +321,11 @@ export default function SupportBoardPage() {
 
       {/* Kanban Board */}
       <Box sx={{ display: 'flex', gap: 2, flex: 1, overflow: 'hidden' }}>
-        {/* Columna 1: IA Gestionando */}
+        {/* Columna 1: Gestionado */}
         <Paper sx={{ flex: 1, p: 2, bgcolor: '#E3F2FD', overflow: 'auto', borderRadius: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-            <AIIcon color="primary" />
             <Typography variant="h6" fontWeight="bold">
-              {t('support.aiHandling')} 🤖
+              {t('support.aiHandling')}
             </Typography>
             <Badge badgeContent={getTicketsByStatus('open_ai').length} color="primary" sx={{ ml: 'auto' }} />
           </Box>
@@ -437,7 +434,6 @@ export default function SupportBoardPage() {
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                         {msg.sender_type === 'client' && <PersonIcon fontSize="small" color="action" />}
-                        {msg.sender_type === 'ai' && <AIIcon fontSize="small" color="primary" />}
                         {msg.sender_type === 'agent' && <AgentIcon fontSize="small" sx={{ color: '#4caf50' }} />}
                         <Typography variant="caption" color="text.secondary">
                           {msg.sender_type === 'client' ? t('support.client') : msg.sender_type === 'ai' ? t('support.ai') : t('support.agent')} •{' '}
