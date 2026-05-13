@@ -4865,6 +4865,8 @@ export const getSavedConstancia = async (req: Request, res: Response): Promise<a
 // ENDPOINT: ELIMINAR PAQUETE (SUPER ADMIN ONLY)
 // ============================================
 // Borra un paquete y todas sus relaciones en cascada manual.
+// Si el paquete es MASTER (multi-piece), elimina TAMBIÉN todas las cajas hijas
+// (caso contrario quedaban huérfanas en la lista del cliente).
 export const deletePackage = async (req: Request, res: Response): Promise<any> => {
   const client = await pool.connect();
   try {
@@ -4877,7 +4879,7 @@ export const deletePackage = async (req: Request, res: Response): Promise<any> =
     await client.query('BEGIN');
 
     const exists = await client.query(
-      'SELECT id, tracking_internal FROM packages WHERE id = $1',
+      'SELECT id, tracking_internal, is_master FROM packages WHERE id = $1',
       [packageId]
     );
     if (exists.rows.length === 0) {
@@ -4885,7 +4887,19 @@ export const deletePackage = async (req: Request, res: Response): Promise<any> =
       return res.status(404).json({ error: 'Paquete no encontrado' });
     }
 
-    // 1) Borrar relaciones en otras tablas
+    const isMaster = !!exists.rows[0].is_master;
+
+    // 1) Si es master, recolectar IDs de las cajas hijas para borrarlas en cascada
+    const idsToDelete: number[] = [packageId];
+    if (isMaster) {
+      const children = await client.query<{ id: number }>(
+        'SELECT id FROM packages WHERE master_id = $1',
+        [packageId]
+      );
+      for (const c of children.rows) idsToDelete.push(c.id);
+    }
+
+    // 2) Borrar relaciones en otras tablas para TODOS los IDs (master + hijas)
     const relatedTables = [
       'caja_chica_aplicacion_pagos',
       'delivery_documents',
@@ -4894,22 +4908,23 @@ export const deletePackage = async (req: Request, res: Response): Promise<any> =
     ];
     for (const t of relatedTables) {
       try {
-        await client.query(`DELETE FROM ${t} WHERE package_id = $1`, [packageId]);
+        await client.query(`DELETE FROM ${t} WHERE package_id = ANY($1::int[])`, [idsToDelete]);
       } catch {
         // Si la tabla no existe en algún ambiente, continuar
       }
     }
 
-    // 2) Limpiar referencias master/child donde este paquete sea master
-    await client.query('UPDATE packages SET master_id = NULL WHERE master_id = $1', [packageId]);
-
-    // 3) Borrar el paquete
+    // 3) Borrar primero las hijas (si las hay) y luego el master/paquete
+    if (isMaster && idsToDelete.length > 1) {
+      await client.query('DELETE FROM packages WHERE master_id = $1', [packageId]);
+    }
     await client.query('DELETE FROM packages WHERE id = $1', [packageId]);
 
     await client.query('COMMIT');
     return res.json({
       success: true,
-      message: `Paquete ${exists.rows[0].tracking_internal || packageId} eliminado correctamente`,
+      message: `Paquete ${exists.rows[0].tracking_internal || packageId} eliminado correctamente${isMaster ? ` (incluyendo ${idsToDelete.length - 1} cajas hijas)` : ''}`,
+      deleted_count: idsToDelete.length,
     });
   } catch (error: any) {
     await client.query('ROLLBACK').catch(() => {});
