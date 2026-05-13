@@ -67,9 +67,10 @@ const categoryLabels: Record<string, string> = {
 
 interface ClientTicketsPageProps {
   onBack: () => void;
+  onCreateTicket?: () => void;
 }
 
-export default function ClientTicketsPage({ onBack }: ClientTicketsPageProps) {
+export default function ClientTicketsPage({ onBack, onCreateTicket }: ClientTicketsPageProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -181,13 +182,23 @@ export default function ClientTicketsPage({ onBack }: ClientTicketsPageProps) {
           <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
             Cuando crees un ticket desde el Centro de Ayuda, aparecerá aquí.
           </Typography>
-          <Button
-            variant="outlined"
-            onClick={onBack}
-            sx={{ mt: 3, color: ORANGE, borderColor: ORANGE, borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
-          >
-            Volver al Dashboard
-          </Button>
+          {onCreateTicket ? (
+            <Button
+              variant="contained"
+              onClick={onCreateTicket}
+              sx={{ mt: 3, bgcolor: ORANGE, borderRadius: 2, textTransform: 'none', fontWeight: 600, '&:hover': { bgcolor: '#d94d1f' } }}
+            >
+              + Levantar Ticket
+            </Button>
+          ) : (
+            <Button
+              variant="outlined"
+              onClick={onBack}
+              sx={{ mt: 3, color: ORANGE, borderColor: ORANGE, borderRadius: 2, textTransform: 'none', fontWeight: 600 }}
+            >
+              Volver al Dashboard
+            </Button>
+          )}
         </Paper>
       ) : (
         <>

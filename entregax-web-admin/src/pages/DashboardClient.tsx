@@ -4008,9 +4008,14 @@ export default function DashboardClient() {
       if (res.data) {
         const { city, state, colonies } = res.data;
         setColonyOptions(colonies || []);
+        // Heurística: Zippopotam (fallback) regresa la colonia en `city`.
+        // Lo detectamos cuando `city` aparece dentro de la lista de colonias.
+        // En ese caso NO autorrellenamos `city` (el usuario escribe el municipio).
+        const cityIsActuallyColony =
+          city && Array.isArray(colonies) && colonies.includes(city);
         setAddressForm(prev => ({
           ...prev,
-          city: city || prev.city,
+          city: cityIsActuallyColony ? prev.city : (city || prev.city),
           state: state || prev.state,
           colony: colonies?.length === 1 ? colonies[0] : prev.colony,
         }));
@@ -7507,7 +7512,7 @@ export default function DashboardClient() {
           {/* Tab: Mis Tickets */}
           {activeTab === 7 && (
             <Box>
-              <ClientTicketsPage onBack={() => setActiveTab(0)} />
+              <ClientTicketsPage onBack={() => setActiveTab(0)} onCreateTicket={() => setSupportOpen(true)} />
             </Box>
           )}
 
@@ -8780,6 +8785,20 @@ export default function DashboardClient() {
                     {t('cd.delivery.carrierService')}
                   </Typography>
                 </Box>
+                {!selectedDeliveryAddress ? (
+                  <Box sx={{
+                    p: 2,
+                    bgcolor: '#fff3e0',
+                    borderRadius: 1,
+                    border: '1px dashed #ff9800',
+                    textAlign: 'center',
+                  }}>
+                    <Typography variant="body2" color="text.secondary">
+                      📍 Primero agrega y selecciona una <b>Dirección de Entrega</b> para ver las paqueterías disponibles en tu zona.
+                    </Typography>
+                  </Box>
+                ) : (
+                <>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                   {t('cd.delivery.selectCarrier')}
                 </Typography>
@@ -9159,6 +9178,8 @@ export default function DashboardClient() {
                     </Box>
                   </Box>
                 </Box>
+                </>
+                )}
               </Paper>
 
               {/* Notas Adicionales */}
@@ -9387,20 +9408,33 @@ export default function DashboardClient() {
               />
             </Grid>
             <Grid size={4}>
-              <TextField
-                fullWidth
-                size="small"
-                label="Ciudad *"
-                required
-                value={addressForm.city}
-                onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
-                slotProps={{
-                  input: {
-                    readOnly: !!addressForm.city && colonyOptions.length > 0,
-                  }
-                }}
-                sx={addressForm.city && colonyOptions.length > 0 ? { '& .MuiInputBase-root': { bgcolor: '#f5f5f5' } } : {}}
-              />
+              {colonyOptions.length > 0 ? (
+                <Autocomplete
+                  freeSolo
+                  size="small"
+                  options={colonyOptions}
+                  value={addressForm.colony}
+                  onChange={(_e, newValue) => setAddressForm({ ...addressForm, colony: newValue || '' })}
+                  onInputChange={(_e, newInput) => setAddressForm({ ...addressForm, colony: newInput })}
+                  renderInput={(params) => (
+                    <TextField
+                      {...params}
+                      label="Colonia *"
+                      required
+                      placeholder="Selecciona la colonia"
+                    />
+                  )}
+                />
+              ) : (
+                <TextField
+                  fullWidth
+                  size="small"
+                  label="Colonia *"
+                  value={addressForm.colony}
+                  onChange={(e) => setAddressForm({ ...addressForm, colony: e.target.value })}
+                  placeholder="Ingresa el C.P."
+                />
+              )}
             </Grid>
             <Grid size={4}>
               <TextField
@@ -9419,35 +9453,17 @@ export default function DashboardClient() {
               />
             </Grid>
 
-            {/* Colonia (Autocomplete si hay opciones) */}
+            {/* Ciudad / Municipio */}
             <Grid size={12}>
-              {colonyOptions.length > 0 ? (
-                <Autocomplete
-                  freeSolo
-                  size="small"
-                  options={colonyOptions}
-                  value={addressForm.colony}
-                  onChange={(_e, newValue) => setAddressForm({ ...addressForm, colony: newValue || '' })}
-                  onInputChange={(_e, newInput) => setAddressForm({ ...addressForm, colony: newInput })}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      label="Colonia *"
-                      required
-                      placeholder="Selecciona o escribe la colonia"
-                    />
-                  )}
-                />
-              ) : (
-                <TextField
-                  fullWidth
-                  size="small"
-                  label="Colonia *"
-                  value={addressForm.colony}
-                  onChange={(e) => setAddressForm({ ...addressForm, colony: e.target.value })}
-                  placeholder="Ingresa el C.P. para ver opciones"
-                />
-              )}
+              <TextField
+                fullWidth
+                size="small"
+                label="Ciudad / Municipio *"
+                required
+                value={addressForm.city}
+                onChange={(e) => setAddressForm({ ...addressForm, city: e.target.value })}
+                placeholder="Ej: Monterrey, Guadalajara, Ciudad de México"
+              />
             </Grid>
 
             {/* Calle + Número Ext + Int */}
@@ -10920,7 +10936,14 @@ export default function DashboardClient() {
         <DialogContent sx={{ p: 0 }}>
           {/* Opción 1: Hablar Ahora */}
           <Box
-            onClick={() => initSupportChat()}
+            onClick={() => {
+              setHelpCenterOpen(false);
+              setSnackbar({
+                open: true,
+                message: '🚧 Función en desarrollo. Esta opción aún no está disponible.',
+                severity: 'info',
+              });
+            }}
             sx={{
               display: 'flex',
               alignItems: 'center',
