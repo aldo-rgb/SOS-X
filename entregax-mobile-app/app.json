@@ -96,8 +96,7 @@
       ],
       "expo-web-browser",
       "expo-video",
-      "expo-audio",
-      "@sentry/react-native"
+      "expo-audio"
     ],
     "extra": {
       "eas": {
