@@ -379,7 +379,7 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     // Procesar URLs de imágenes adjuntas
     let imageUrls: string[] = [];
     if (files && files.length > 0) {
-      const baseUrl = process.env.API_URL || 'http://localhost:3001';
+      const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
       imageUrls = files.map(f => `${baseUrl}/uploads/support/${f.filename}`);
     }
 
@@ -548,7 +548,7 @@ export const getTicketMessages = async (req: Request, res: Response): Promise<an
     const { id } = req.params;
     
     const result = await pool.query(
-      `SELECT id, sender_type, message, attachment_url, created_at
+      `SELECT id, sender_type, message, attachment_url, attachments, created_at
        FROM ticket_messages 
        WHERE ticket_id = $1 
        ORDER BY created_at ASC`,

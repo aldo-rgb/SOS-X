@@ -67,6 +67,7 @@ interface TicketMessage {
   sender_type: 'client' | 'ai' | 'agent';
   message: string;
   attachment_url?: string;
+  attachments?: string[] | string | null;
   created_at: string;
 }
 
@@ -443,6 +444,34 @@ export default function SupportBoardPage() {
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                         {msg.message}
                       </Typography>
+                      {(() => {
+                        let urls: string[] = [];
+                        if (Array.isArray(msg.attachments)) urls = msg.attachments as string[];
+                        else if (typeof msg.attachments === 'string') {
+                          try { const p = JSON.parse(msg.attachments); if (Array.isArray(p)) urls = p; } catch { /* ignore */ }
+                        }
+                        // Fallback: extraer URLs del propio mensaje
+                        if (urls.length === 0 && msg.message) {
+                          const re = /(https?:\/\/[^\s)\]]+\.(?:png|jpe?g|gif|webp))/gi;
+                          urls = msg.message.match(re) || [];
+                        }
+                        if (urls.length === 0 && msg.attachment_url) urls = [msg.attachment_url];
+                        if (urls.length === 0) return null;
+                        return (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+                            {urls.map((u, i) => (
+                              <a key={i} href={u} target="_blank" rel="noreferrer">
+                                <Box
+                                  component="img"
+                                  src={u}
+                                  alt={`adjunto-${i+1}`}
+                                  sx={{ width: 120, height: 120, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
+                                />
+                              </a>
+                            ))}
+                          </Box>
+                        );
+                      })()}
                     </Box>
                   </Box>
                 ))}
