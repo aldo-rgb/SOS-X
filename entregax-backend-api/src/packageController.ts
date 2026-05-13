@@ -2508,7 +2508,23 @@ const getChinaAirStatusLabel = (status: string): string => {
 // ============ MIS PAQUETES (APP MÓVIL) ============
 export const getMyPackages = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { userId } = req.params;
+        const authUser = (req as any).user;
+        const authUserId = Number(authUser?.userId || 0);
+        const authRole = String(authUser?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
+
+        if (!authUserId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+
+        const paramUserId = req.params.userId ? Number(req.params.userId) : authUserId;
+        // Cliente solo puede consultar sus propios paquetes; staff puede consultar a otros.
+        if (isClient && paramUserId !== authUserId) {
+            res.status(403).json({ error: 'No autorizado para ver paquetes de otro usuario' });
+            return;
+        }
+        const userId = isClient ? authUserId : paramUserId;
         
         // Obtener box_id del usuario para búsqueda extendida
         const userResult = await pool.query(`SELECT box_id FROM users WHERE id = $1`, [userId]);
@@ -3810,12 +3826,27 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
         const pkg = result.rows[0];
 
         // Verificar que el usuario puede ver este paquete
-        // (es el dueño o es empleado con nivel suficiente)
-        if (user.role_level < 50 && pkg.user_id !== user.id) {
-            return res.status(403).json({ 
-                success: false, 
-                error: 'No tienes permiso para ver este paquete' 
-            });
+        // El JWT contiene { userId, email, role }. Para clientes exigimos ownership por user_id
+        // o por box_id (consolidaciones legacy). Staff (cualquier rol no-cliente) puede ver todo.
+        const requesterId = Number(user?.userId || 0);
+        const requesterRole = String(user?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(requesterRole);
+        if (isClient) {
+            let allowed = pkg.user_id && Number(pkg.user_id) === requesterId;
+            if (!allowed) {
+                try {
+                    const ur = await pool.query('SELECT box_id FROM users WHERE id = $1', [requesterId]);
+                    const userBox = String(ur.rows?.[0]?.box_id || '').toUpperCase().trim();
+                    const pkgBox = String(pkg.box_id || '').toUpperCase().trim();
+                    if (userBox && pkgBox && userBox === pkgBox) allowed = true;
+                } catch {}
+            }
+            if (!allowed) {
+                return res.status(403).json({ 
+                    success: false, 
+                    error: 'No tienes permiso para ver este paquete' 
+                });
+            }
         }
 
         // Construir dimensiones desde columnas individuales si no hay JSON

@@ -38,14 +38,19 @@ export const calculateShippingCost = (weightKg: number): number => {
 export const createPaymentOrder = async (req: Request, res: Response): Promise<any> => {
     try {
         const { consolidationId } = req.body;
+        const authUser = (req as any).user;
+        const authUserId = Number(authUser?.userId || 0);
+        const authRole = String(authUser?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
 
+        if (!authUserId) return res.status(401).json({ error: 'No autenticado' });
         if (!consolidationId) {
             return res.status(400).json({ error: 'consolidationId es requerido' });
         }
 
-        // A. Obtener datos de la consolidación
+        // A. Obtener datos de la consolidación (incluye user_id para ownership)
         const orderCheck = await pool.query(
-            'SELECT id, total_weight, payment_status FROM consolidations WHERE id = $1',
+            'SELECT id, total_weight, payment_status, user_id FROM consolidations WHERE id = $1',
             [consolidationId]
         );
 
@@ -54,6 +59,11 @@ export const createPaymentOrder = async (req: Request, res: Response): Promise<a
         }
 
         const consolidation = orderCheck.rows[0];
+
+        // IDOR guard: cliente solo paga sus propias consolidaciones.
+        if (isClient && Number(consolidation.user_id) !== authUserId) {
+            return res.status(403).json({ error: 'No autorizado para esta consolidación' });
+        }
 
         // Verificar si ya está pagada
         if (consolidation.payment_status === 'paid') {
@@ -129,9 +139,26 @@ export const createPaymentOrder = async (req: Request, res: Response): Promise<a
 export const capturePaymentOrder = async (req: Request, res: Response): Promise<any> => {
     try {
         const { paypalOrderId, consolidationId } = req.body;
+        const authUser = (req as any).user;
+        const authUserId = Number(authUser?.userId || 0);
+        const authRole = String(authUser?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
 
+        if (!authUserId) return res.status(401).json({ error: 'No autenticado' });
         if (!paypalOrderId || !consolidationId) {
             return res.status(400).json({ error: 'paypalOrderId y consolidationId son requeridos' });
+        }
+
+        // IDOR guard: cliente solo captura pagos de sus propias consolidaciones.
+        if (isClient) {
+            const own = await pool.query(
+                'SELECT user_id FROM consolidations WHERE id = $1',
+                [consolidationId]
+            );
+            if (own.rows.length === 0) return res.status(404).json({ error: 'Consolidación no encontrada' });
+            if (Number(own.rows[0].user_id) !== authUserId) {
+                return res.status(403).json({ error: 'No autorizado para esta consolidación' });
+            }
         }
 
         // A. Obtener token de PayPal
@@ -198,9 +225,17 @@ export const capturePaymentOrder = async (req: Request, res: Response): Promise<
 export const getPaymentStatus = async (req: Request, res: Response): Promise<any> => {
     try {
         const { consolidationId } = req.params;
+        const authUser = (req as any).user;
+        const authUserId = Number(authUser?.userId || 0);
+        const authRole = String(authUser?.role || '').toLowerCase();
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
+
+        if (!authUserId) {
+            return res.status(401).json({ error: 'No autenticado' });
+        }
 
         const result = await pool.query(
-            `SELECT id, shipping_cost, payment_status, paypal_order_id, total_weight 
+            `SELECT id, shipping_cost, payment_status, paypal_order_id, total_weight, user_id
              FROM consolidations WHERE id = $1`,
             [consolidationId]
         );
@@ -210,6 +245,10 @@ export const getPaymentStatus = async (req: Request, res: Response): Promise<any
         }
 
         const consolidation = result.rows[0];
+        // IDOR guard: cliente solo puede consultar sus propias consolidaciones.
+        if (isClient && Number(consolidation.user_id) !== authUserId) {
+            return res.status(403).json({ error: 'No autorizado para esta consolidación' });
+        }
         const weight = parseFloat(consolidation.total_weight) || 0;
         const shippingCost = consolidation.shipping_cost 
             ? parseFloat(consolidation.shipping_cost) 

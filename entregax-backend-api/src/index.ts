@@ -16,7 +16,13 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  createPaymentOrderSchema,
+  capturePaymentOrderSchema,
+  payPoboxInternalSchema,
+  applyCreditPoboxSchema,
+  applyWalletPoboxSchema,
 } from './validation/schemas';
+import { paymentLimiter, verifyLimiter } from './rateLimiter';
 
 // En producción se silencian logs de depuración/info para evitar exponer PII o payloads sensibles.
 // Se conservan console.warn y console.error para operaciones.
@@ -3252,8 +3258,8 @@ app.get('/api/admin/consolidations', authenticateToken, requireMinLevel(ROLES.CO
 app.put('/api/admin/consolidations/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchConsolidation);
 
 // --- RUTAS DE PAGOS (PayPal) ---
-app.post('/api/payments/create', authenticateToken, createPaymentOrder);
-app.post('/api/payments/capture', authenticateToken, capturePaymentOrder);
+app.post('/api/payments/create', authenticateToken, paymentLimiter, validateBody(createPaymentOrderSchema), createPaymentOrder);
+app.post('/api/payments/capture', authenticateToken, paymentLimiter, validateBody(capturePaymentOrderSchema), capturePaymentOrder);
 app.get('/api/payments/status/:consolidationId', authenticateToken, getPaymentStatus);
 
 // --- RUTAS DE PAGOS NUEVAS - GATEWAY INTEGRATIONS ---
@@ -3295,11 +3301,11 @@ app.post('/api/pobox/payment/capture', authenticateToken, capturePoboxPaypalPaym
 app.post('/api/pobox/payment/openpay/create', authenticateToken, createPoboxOpenpayPayment);  // OpenPay tarjeta
 app.post('/api/pobox/payment/cash/create', authenticateToken, createPoboxCashPayment);   // Efectivo/Transferencia
 app.delete('/api/pobox/payment/order/:id', authenticateToken, cancelPoboxPaymentOrder); // Cancelar orden de pago
-app.post('/api/pobox/payment/order/:id/pay-internal', authenticateToken, payPoboxOrderInternal); // Pago con saldo/crédito
-app.post('/api/pobox/payment/order/:id/apply-credit', authenticateToken, applyCreditToPoboxOrder); // Aplicar crédito parcial
-app.post('/api/pobox/payment/order/:id/revert-credit', authenticateToken, revertCreditFromPoboxOrder); // Revertir crédito parcial
-app.post('/api/pobox/payment/order/:id/apply-wallet', authenticateToken, applyWalletToPoboxOrder); // Aplicar saldo a favor parcial
-app.post('/api/pobox/payment/order/:id/revert-wallet', authenticateToken, revertWalletFromPoboxOrder); // Revertir saldo a favor
+app.post('/api/pobox/payment/order/:id/pay-internal', authenticateToken, paymentLimiter, validateBody(payPoboxInternalSchema), payPoboxOrderInternal); // Pago con saldo/crédito
+app.post('/api/pobox/payment/order/:id/apply-credit', authenticateToken, paymentLimiter, validateBody(applyCreditPoboxSchema), applyCreditToPoboxOrder); // Aplicar crédito parcial
+app.post('/api/pobox/payment/order/:id/revert-credit', authenticateToken, paymentLimiter, revertCreditFromPoboxOrder); // Revertir crédito parcial
+app.post('/api/pobox/payment/order/:id/apply-wallet', authenticateToken, paymentLimiter, validateBody(applyWalletPoboxSchema), applyWalletToPoboxOrder); // Aplicar saldo a favor parcial
+app.post('/api/pobox/payment/order/:id/revert-wallet', authenticateToken, paymentLimiter, revertWalletFromPoboxOrder); // Revertir saldo a favor
 
 // ========== PORTAL CONTABLE (Multi-Empresa) ==========
 app.get('/api/accounting/my-emitters', authenticateToken, getMyEmitters);
@@ -3371,10 +3377,10 @@ app.post('/api/admin/voucher/approve/:id', authenticateToken, requireMinLevel(RO
 app.post('/api/admin/voucher/reject/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), rejectVoucher);
 
 // --- RUTAS DE VERIFICACIÓN KYC ---
-app.post('/api/verify/documents', authenticateToken, uploadVerificationDocuments);
+app.post('/api/verify/documents', authenticateToken, verifyLimiter, uploadVerificationDocuments);
 app.get('/api/verify/status', authenticateToken, getVerificationStatus);
 app.get('/api/verify/address', authenticateToken, checkAddress);
-app.post('/api/verify/address', authenticateToken, registerAddress);
+app.post('/api/verify/address', authenticateToken, verifyLimiter, registerAddress);
 
 // --- RUTAS DE DIRECCIONES Y PREFERENCIAS ---
 app.get('/api/client/addresses/:userId', authenticateToken, getAddresses);

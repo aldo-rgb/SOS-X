@@ -79,3 +79,46 @@ export const changePasswordSchema = z
     newPassword: z.string().min(8).max(200),
   })
   .strict();
+
+// ============================================================
+// SCHEMAS — PAYMENTS / CONSOLIDATIONS
+// ============================================================
+
+/** POST /api/payments/create — PayPal consolidaciones aéreo */
+export const createPaymentOrderSchema = z
+  .object({
+    consolidationId: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]),
+  })
+  .strict();
+
+/** POST /api/payments/capture */
+export const capturePaymentOrderSchema = z
+  .object({
+    paypalOrderId: z.string().trim().min(5).max(120),
+    consolidationId: z.union([z.number().int().positive(), z.string().regex(/^\d+$/)]),
+  })
+  .strict();
+
+/** POST /api/pobox/payment/order/:id/pay-internal */
+export const payPoboxInternalSchema = z
+  .object({
+    method: z.enum(['wallet', 'credit']),
+    service: z.string().trim().max(40).optional(),
+    requiere_factura: z.boolean().optional(),
+  })
+  .strict();
+
+/** POST /api/pobox/payment/order/:id/apply-credit */
+export const applyCreditPoboxSchema = z
+  .object({
+    service: z.string().trim().max(40),
+    credit_amount: z.number().positive().max(1_000_000),
+  })
+  .strict();
+
+/** POST /api/pobox/payment/order/:id/apply-wallet */
+export const applyWalletPoboxSchema = z
+  .object({
+    wallet_amount: z.number().positive().max(1_000_000),
+  })
+  .strict();

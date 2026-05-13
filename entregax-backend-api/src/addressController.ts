@@ -3,13 +3,32 @@ import { pool } from './db';
 import { AuthRequest } from './authController';
 
 // ============ OBTENER DIRECCIONES DEL CLIENTE ============
+// IDOR-safe: ignora :userId del path; usa el userId del token. Staff (role !== client/customer/user)
+// puede consultar a otro usuario explícitamente vía param para soporte/back-office.
 export const getAddresses = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { userId } = req.params;
+        const authReq = req as AuthRequest;
+        const authUserId = authReq.user?.userId;
+        const authRole = String(authReq.user?.role || '').toLowerCase();
+
+        if (!authUserId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
+        const paramUserId = req.params.userId ? Number(req.params.userId) : authUserId;
+
+        // Cliente solo puede ver sus propias direcciones
+        const targetUserId = isClient ? authUserId : paramUserId;
+        if (isClient && paramUserId && Number(paramUserId) !== Number(authUserId)) {
+            res.status(403).json({ error: 'No autorizado para ver direcciones de otro usuario' });
+            return;
+        }
 
         const result = await pool.query(
             `SELECT * FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC`,
-            [userId]
+            [targetUserId]
         );
 
         res.json(result.rows);
@@ -20,15 +39,31 @@ export const getAddresses = async (req: Request, res: Response): Promise<void> =
 };
 
 // ============ CREAR DIRECCIÓN ============
+// IDOR-safe: el userId siempre proviene del token. Staff puede crear para otro usuario
+// pasando body.userId explícitamente.
 export const createAddress = async (req: Request, res: Response): Promise<void> => {
     try {
+        const authReq = req as AuthRequest;
+        const authUserId = authReq.user?.userId;
+        const authRole = String(authReq.user?.role || '').toLowerCase();
+
+        if (!authUserId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+
+        const isClient = ['client', 'customer', 'usuario', 'user', ''].includes(authRole);
+        const bodyUserId = req.body?.userId ? Number(req.body.userId) : null;
+        // Cliente: forzar su propio userId. Staff: puede asignar otro userId si lo manda en body.
+        const userId = isClient ? authUserId : (bodyUserId || authUserId);
+
         const { 
-            userId, alias, recipientName, street, exteriorNumber, interiorNumber,
+            alias, recipientName, street, exteriorNumber, interiorNumber,
             neighborhood, city, state, zipCode, phone, reference, isDefault 
         } = req.body;
 
-        if (!userId || !street || !city || !state || !zipCode) {
-            res.status(400).json({ error: 'Faltan campos requeridos: userId, street, city, state, zipCode' });
+        if (!street || !city || !state || !zipCode) {
+            res.status(400).json({ error: 'Faltan campos requeridos: street, city, state, zipCode' });
             return;
         }
 
