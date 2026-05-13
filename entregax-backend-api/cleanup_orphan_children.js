@@ -25,25 +25,41 @@ const pool = new Pool({
 (async () => {
   const client = await pool.connect();
   try {
-    console.log(`\n🔍 Buscando paquetes huérfanos (master_id apunta a un master inexistente)...\n`);
+    console.log(`\n🔍 Buscando paquetes huérfanos de multi-piece...\n`);
 
-    // Huérfanos: tienen master_id pero ese master_id ya no existe en packages
-    // O su master existe pero NO tiene is_master = true (master fue alterado)
+    // Dos tipos de huérfanos:
+    // (a) master_id apunta a un id que ya no existe o que ya no es master
+    // (b) total_boxes > 1, box_number > 1, master_id IS NULL  (bug previo: UPDATE SET master_id=NULL)
+    //     y no existe ningún master_id válido para esa caja
     const orphans = await client.query(`
-      SELECT
-        p.id,
-        p.tracking_internal,
-        p.master_id,
-        p.client_id,
-        p.status,
-        p.created_at,
-        m.id AS master_exists,
-        m.is_master AS master_is_master_flag
-      FROM packages p
-      LEFT JOIN packages m ON m.id = p.master_id
-      WHERE p.master_id IS NOT NULL
-        AND (m.id IS NULL OR m.is_master = false)
-      ORDER BY p.created_at DESC
+      WITH multi AS (
+        SELECT
+          p.id,
+          p.tracking_internal,
+          p.master_id,
+          p.user_id,
+          p.status,
+          p.is_master,
+          p.box_number,
+          p.total_boxes,
+          p.created_at,
+          m.id AS master_exists,
+          m.is_master AS master_is_master_flag
+        FROM packages p
+        LEFT JOIN packages m ON m.id = p.master_id
+        WHERE
+          -- Caso A: master_id apunta a algo inválido
+          (p.master_id IS NOT NULL AND (m.id IS NULL OR m.is_master = false))
+          OR
+          -- Caso B: multi-piece (total_boxes>1) que NO es master y NO tiene master_id
+          (
+            COALESCE(p.total_boxes, 1) > 1
+            AND COALESCE(p.is_master, false) = false
+            AND p.master_id IS NULL
+          )
+      )
+      SELECT * FROM multi
+      ORDER BY tracking_internal, box_number
     `);
 
     if (orphans.rows.length === 0) {
@@ -57,9 +73,10 @@ const pool = new Pool({
         id: r.id,
         tracking: r.tracking_internal,
         master_id: r.master_id,
-        master_existe: r.master_exists ? 'sí (pero is_master=false)' : 'NO',
-        client_id: r.client_id,
+        box: `${r.box_number}/${r.total_boxes}`,
+        user_id: r.user_id,
         status: r.status,
+        razon: r.master_id ? (r.master_exists ? 'master no es master' : 'master borrado') : 'huerfana sin master_id',
         created: r.created_at?.toISOString?.()?.slice(0, 10),
       }))
     );

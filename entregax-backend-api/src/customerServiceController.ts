@@ -1465,7 +1465,7 @@ export const getAbandonosListosProceso = async (_req: Request, res: Response) =>
         cvl.servicio,
         cvl.cliente_id,
         cvl.dias_en_almacen,
-        cvl.saldo_pendiente,
+        cvl.saldo_deudor AS saldo_pendiente,
         cvl.firma_token,
         cvl.firma_fecha,
         u.full_name AS cliente_nombre,
