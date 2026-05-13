@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Typography,
@@ -14,6 +14,8 @@ import {
   DialogContent,
   TextField,
   Avatar,
+  Snackbar,
+  Alert,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
@@ -80,6 +82,12 @@ export default function ClientTicketsPage({ onBack, onCreateTicket }: ClientTick
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
+  const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success' | 'error' | 'info' }>({
+    open: false,
+    msg: '',
+    sev: 'success',
+  });
 
   const loadTickets = async () => {
     setLoading(true);
@@ -106,22 +114,29 @@ export default function ClientTicketsPage({ onBack, onCreateTicket }: ClientTick
   };
 
   const handleSendMessage = async () => {
+    if (sendingRef.current) return; // bloqueo síncrono contra dobles envíos
     if (!newMessage.trim() || !selectedTicket) return;
+    sendingRef.current = true;
     setSending(true);
+    const textToSend = newMessage.trim();
+    setNewMessage(''); // limpiar input inmediatamente
     try {
       const resp = await api.post(`/support/ticket/${selectedTicket.id}/message`, {
-        message: newMessage.trim(),
+        message: textToSend,
       });
-      setNewMessage('');
       await loadMessages(selectedTicket.id);
       // Si el ticket fue reabierto, actualizar estado local
       if (resp.data?.reopened || selectedTicket.status === 'resolved' || selectedTicket.status === 'closed') {
         setSelectedTicket({ ...selectedTicket, status: 'waiting_agent' });
         setTickets(prev => prev.map(t => t.id === selectedTicket.id ? { ...t, status: 'waiting_agent' } : t));
       }
+      setSnack({ open: true, msg: '✅ Mensaje enviado', sev: 'success' });
     } catch (error) {
       console.error('Error enviando mensaje:', error);
+      setNewMessage(textToSend); // restaurar para que pueda reintentar
+      setSnack({ open: true, msg: '❌ No se pudo enviar el mensaje. Intenta de nuevo.', sev: 'error' });
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   };
@@ -405,7 +420,12 @@ export default function ClientTicketsPage({ onBack, onCreateTicket }: ClientTick
                 placeholder="Escribe un mensaje..."
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSendMessage()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey && !sending) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
                 disabled={sending}
                 sx={{ '& .MuiOutlinedInput-root': { borderRadius: 2 } }}
               />
@@ -420,6 +440,16 @@ export default function ClientTicketsPage({ onBack, onCreateTicket }: ClientTick
           </>
         )}
       </Dialog>
+      <Snackbar
+        open={snack.open}
+        autoHideDuration={2500}
+        onClose={() => setSnack(s => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity={snack.sev} variant="filled" onClose={() => setSnack(s => ({ ...s, open: false }))}>
+          {snack.msg}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
