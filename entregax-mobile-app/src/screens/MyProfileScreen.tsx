@@ -973,25 +973,6 @@ export default function MyProfileScreen({ navigation, route }: Props) {
               />
             </View>
 
-            <Divider style={styles.divider} />
-
-            {/* Eliminar cuenta (Google Play + App Store 2024) */}
-            <TouchableOpacity
-              style={styles.menuItem}
-              onPress={() => navigation.navigate('DeleteAccount', { user, token })}
-            >
-              <Ionicons name="trash-outline" size={24} color="#D32F2F" />
-              <View style={styles.menuItemContent}>
-                <Text style={[styles.menuItemTitle, { color: '#D32F2F' }]}>Eliminar mi cuenta</Text>
-                <Text style={styles.menuItemSubtitle}>
-                  Anonimiza tus datos personales de forma permanente
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#D32F2F" />
-            </TouchableOpacity>
-
-            <Divider style={styles.divider} />
-
             {/* GEX Automático — solo si el sistema GEX está activo a nivel
                 global (toggle del super_admin). Si ya estaba activo en la
                 cuenta del cliente, lo dejamos visible para que pueda
@@ -1091,6 +1072,16 @@ export default function MyProfileScreen({ navigation, route }: Props) {
             </TouchableOpacity>
           </Card.Content>
         </Card>
+
+        {/* Eliminar cuenta — acceso discreto (requisito Google Play / App Store) */}
+        <TouchableOpacity
+          style={{ alignItems: 'center', paddingVertical: 24, paddingHorizontal: 20 }}
+          onPress={() => navigation.navigate('DeleteAccount', { user, token })}
+        >
+          <Text style={{ fontSize: 12, color: '#9CA3AF', textDecorationLine: 'underline' }}>
+            Eliminar mi cuenta
+          </Text>
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Modal Editar Teléfono */}

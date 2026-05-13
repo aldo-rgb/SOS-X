@@ -32,6 +32,7 @@ import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { getMyPackagesApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
+import { useBrandAsset } from '../hooks/useBrandAssets';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useTranslation } from 'react-i18next';
@@ -82,7 +83,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const { t } = useTranslation();
   const { user: initialUser, token } = route.params;
   const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled } = usePaymentStatus();
-  const [user, setUser] = useState(initialUser); // Estado local para actualizar usuario
+  // Logos remotos (configurables desde Ajustes del Sistema > Brand Assets).
+  const entregaxLogoUrl = useBrandAsset('entregax_full_white'); // appbar oscuro
+  const xpayLogoUrl = useBrandAsset('xpay_full_white');
+  const entregaxXOnlyUrl = useBrandAsset('entregax_x_only'); // botón Enviar
+  const [user, setUser] = useState(initialUser);
   const [packages, setPackages] = useState<Package[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]); // 🔥 IDs seleccionados
   const [loading, setLoading] = useState(true);
@@ -1284,7 +1289,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       <Appbar.Header style={styles.appbar}>
         <View style={{ paddingLeft: 16, justifyContent: 'center' }}>
           <Image 
-            source={require('../../assets/logo.png')} 
+            source={entregaxLogoUrl ? { uri: entregaxLogoUrl } : require('../../assets/logo.png')} 
             style={{ width: 120, height: 36, resizeMode: 'contain' }}
           />
         </View>
@@ -1805,7 +1810,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           <View style={styles.headerButtonsRow}>
             {/* 💰 Botón X-Pay */}
             <TouchableOpacity
-              style={[styles.supplierPaymentButton, !xpayEnabled && { opacity: 0.4 }]}
+              style={[styles.supplierPaymentButton, !xpayEnabled && styles.supplierPaymentButtonDisabled]}
               disabled={!xpayEnabled}
               onPress={() => {
                 if (!xpayEnabled) return;
@@ -1817,7 +1822,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 });
               }}
             >
-              <Image source={require('../../assets/logo-completo-xpay-t.png')} style={[styles.supplierPaymentLogo, !xpayEnabled && { tintColor: '#999' }]} />
+              <Image
+                source={xpayLogoUrl ? { uri: xpayLogoUrl } : require('../../assets/logo-completo-xpay-t.png')}
+                style={[styles.supplierPaymentLogo, !xpayEnabled && { opacity: 0.55 }]}
+              />
             </TouchableOpacity>
             {/* 🧮 Botón Cotizar — mismo estilo negro que "¿Cómo enviar?" */}
             <TouchableOpacity
@@ -1859,7 +1867,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 <Ionicons name="swap-horizontal" size={16} color="white" />
               ) : (
                 <Image
-                  source={require('../../assets/x-logo-entregax.png')}
+                  source={entregaxXOnlyUrl ? { uri: entregaxXOnlyUrl } : require('../../assets/x-logo-entregax.png')}
                   style={styles.requestShipmentLogo}
                   resizeMode="contain"
                 />
@@ -2988,6 +2996,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 3,
     elevation: 3,
+  },
+  // Estado deshabilitado: fondo gris claro pero el logo se sigue viendo.
+  supplierPaymentButtonDisabled: {
+    backgroundColor: '#D1D5DB',
+    borderColor: '#D1D5DB',
+    shadowOpacity: 0,
+    elevation: 0,
   },
   supplierPaymentLogo: {
     width: 70,
