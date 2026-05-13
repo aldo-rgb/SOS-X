@@ -340,6 +340,22 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
         // 3. Generar token JWT
         const token = generateToken(user.id, user.email, user.role);
 
+        // 3.1 Emitir el token también como cookie HttpOnly (Fase 2 hardening).
+        // - HttpOnly: JS del navegador NO puede leerla → mitiga XSS robando el token.
+        // - Secure: solo HTTPS en producción.
+        // - SameSite=None requerido en prod para cross-site (admin.entregax.app -> api.…)
+        // - SameSite=Lax en dev (localhost ↔ localhost).
+        // El token sigue viajando también en el body para no romper la app móvil ni
+        // sesiones web ya activas; el frontend web puede dejar de leerlo poco a poco.
+        const isProd = process.env.NODE_ENV === 'production';
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: isProd,
+            sameSite: isProd ? 'none' : 'lax',
+            maxAge: 7 * 24 * 60 * 60 * 1000, // 7 días, mismo expires del JWT
+            path: '/',
+        });
+
         // 4. Determinar permisos y nivel de acceso
         const permissions = ROLE_PERMISSIONS[user.role] || [];
         const isAdmin = ['super_admin', 'admin', 'branch_manager', 'director'].includes(user.role);
@@ -531,8 +547,15 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
 
 export const authenticateToken = (req: AuthRequest, res: Response, next: NextFunction): void => {
     const authHeader = req.headers['authorization'];
-    // Buscar token en header o en query string (para descargas de archivos)
-    const token = (authHeader && authHeader.split(' ')[1]) || (req.query.token as string);
+    // Buscar token en este orden:
+    //   1) Authorization: Bearer <token>   (mobile + web actual)
+    //   2) ?token=...                       (descargas de archivos en <a href>)
+    //   3) Cookie HttpOnly 'token'          (web tras Fase 2)
+    const cookieToken = (req as any).cookies?.token;
+    const token =
+        (authHeader && authHeader.split(' ')[1]) ||
+        (req.query.token as string) ||
+        cookieToken;
 
     if (!token) {
         res.status(401).json({ error: 'Token de acceso requerido' });
@@ -550,6 +573,20 @@ export const authenticateToken = (req: AuthRequest, res: Response, next: NextFun
     } catch (error) {
         res.status(403).json({ error: 'Token inválido o expirado' });
     }
+};
+
+// ============ LOGOUT ============
+// Limpia la cookie HttpOnly. La app móvil/web que use Bearer simplemente borra
+// el token de su almacenamiento local; este endpoint es necesario para el modo cookie.
+export const logoutUser = (_req: Request, res: Response): void => {
+    const isProd = process.env.NODE_ENV === 'production';
+    res.clearCookie('token', {
+        httpOnly: true,
+        secure: isProd,
+        sameSite: isProd ? 'none' : 'lax',
+        path: '/',
+    });
+    res.json({ message: 'Sesión cerrada' });
 };
 
 // ============ MIDDLEWARE DE AUTORIZACIÓN POR ROL ============

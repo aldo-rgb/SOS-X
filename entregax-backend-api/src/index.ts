@@ -2,6 +2,8 @@
 import express, { NextFunction, Request, Response } from 'express';
 import http from 'http';
 import cors from 'cors';
+import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'path';
@@ -38,7 +40,8 @@ import {
   assignAdvisor,
   updateUser,
   ROLES,
-  AuthRequest
+  AuthRequest,
+  logoutUser
 } from './authController';
 import {
   createPackage,
@@ -1163,6 +1166,23 @@ setInterval(() => {
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
+// Helmet: CSP + headers de seguridad estandarizados.
+// crossOriginResourcePolicy 'cross-origin' permite servir /uploads desde otros orígenes.
+// CSP en "report-only" inicialmente para no romper inline-styles de MUI/Recharts.
+app.use(helmet({
+  contentSecurityPolicy: false, // habilitar gradualmente cuando todo esté nonce-ificado
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  crossOriginEmbedderPolicy: false,
+  hsts: process.env.NODE_ENV === 'production'
+    ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+    : false,
+}));
+
+// cookie-parser: necesario para leer la cookie HttpOnly 'token' como fallback
+// cuando el cliente web ya migró a sesión por cookie. La app móvil sigue usando
+// Bearer header (no envía cookies), así que ambos mundos conviven.
+app.use(cookieParser(process.env.COOKIE_SECRET || process.env.JWT_SECRET || 'fallback_cookie_secret'));
+
 app.use((req: Request, res: Response, next: NextFunction) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -1197,7 +1217,8 @@ app.use(cors({
   },
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: false,
+  exposedHeaders: ['Set-Cookie'],
+  credentials: true,
 }));
 
 app.use(express.json({
@@ -1796,6 +1817,7 @@ app.get('/', (_req: Request, res: Response) => {
 // --- RUTAS DE AUTENTICACIÓN ---
 app.post('/api/auth/register', authRateLimit, registerUser);
 app.post('/api/auth/login', authRateLimit, loginUser);
+app.post('/api/auth/logout', logoutUser);
 // Password recovery — rate limit es importante porque si alguien
 // pega un email a /forgot-password en bucle, mandaríamos N correos.
 app.post('/api/auth/forgot-password', authRateLimit, forgotPassword);

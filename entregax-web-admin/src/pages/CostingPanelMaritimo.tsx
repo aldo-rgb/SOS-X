@@ -3389,7 +3389,7 @@ export default function CostingPanelMaritimo() {
                             <Box sx={{ p: 3, height: '600px', overflow: 'auto' }}>
                                 <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                     <AutoAwesomeIcon sx={{ color: '#E65100' }} />
-                                    Datos Extraídos con IA
+                                    Datos Extraídos
                                 </Typography>
                                 <Divider sx={{ mb: 2 }} />
 
