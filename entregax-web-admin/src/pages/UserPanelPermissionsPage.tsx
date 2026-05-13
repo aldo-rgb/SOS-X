@@ -138,9 +138,6 @@ export default function UserPanelPermissionsPage() {
       if (searchTerm) params.append('search', searchTerm);
       if (roleFilter) params.append('role', roleFilter);
 
-      console.log('[PermissionsPage] Fetching users from:', `${API_URL}/api/admin/panels/users?${params}`);
-      console.log('[PermissionsPage] Token exists:', !!token);
-
       const res = await fetch(`${API_URL}/api/admin/panels/users?${params}`, {
         headers: { Authorization: `Bearer ${token}` },
       });

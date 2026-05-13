@@ -130,9 +130,7 @@ export default function RepackPage() {
     setLoading(true);
     try {
       const token = localStorage.getItem('token');
-      console.log('🔍 Cargando instrucciones de reempaque...');
-      console.log('🔑 Token disponible:', !!token);
-      
+
       const res = await axios.get(`${API_URL}/api/packages/repack-instructions`, {
         headers: { Authorization: `Bearer ${token}` }
       });
