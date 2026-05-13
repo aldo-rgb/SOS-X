@@ -1279,6 +1279,30 @@ app.get('/api/health', (_req: Request, res: Response) => {
   });
 });
 
+// Diagnóstico de Sentry: revela si el SDK está activo + dispara error de prueba.
+// Protegido por header X-Sentry-Test-Token = process.env.SENTRY_TEST_TOKEN
+app.get('/api/_sentry-diagnostic', (req: Request, res: Response) => {
+  const token = req.header('x-sentry-test-token');
+  const expected = process.env.SENTRY_TEST_TOKEN;
+  if (!expected || token !== expected) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  const dsnConfigured = Boolean(process.env.SENTRY_DSN);
+  const mode = req.query.mode as string | undefined;
+  if (mode === 'throw') {
+    // Forzar error no manejado -> debe llegar a Sentry vía setupExpressErrorHandler
+    throw new Error('SENTRY_DIAGNOSTIC_TEST_ERROR: este error es de prueba, debe aparecer en Sentry');
+  }
+  return res.status(200).json({
+    sentry_dsn_configured: dsnConfigured,
+    node_env: process.env.NODE_ENV || 'development',
+    sentry_release: process.env.SENTRY_RELEASE || null,
+    hint: dsnConfigured
+      ? 'Sentry SDK debería estar activo. Llama de nuevo con ?mode=throw para forzar un evento de prueba.'
+      : 'SENTRY_DSN no está configurado. Agrégalo en Railway → Variables.',
+  });
+});
+
 // DEBUG: Verificar conexión a base de datos
 app.get('/health/db', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
   try {
