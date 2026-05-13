@@ -793,12 +793,12 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                         <BadgeIcon fontSize="small" /> INE Frente
                       </Typography>
-                      <Paper sx={{ p: 1, bgcolor: 'grey.50', minHeight: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2 }}>
+                      <Paper sx={{ p: 0.5, bgcolor: 'grey.50', borderRadius: 2, overflow: 'hidden' }}>
                         {ineFront ? (
                           <img
                             src={ineFront}
                             alt="INE Frente"
-                            style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 6, cursor: 'pointer' }}
+                            style={{ width: '100%', aspectRatio: '1.6 / 1', objectFit: 'cover', objectPosition: 'center', borderRadius: 6, cursor: 'zoom-in', display: 'block' }}
                             onClick={() => window.open(ineFront, '_blank')}
                           />
                         ) : (
@@ -812,12 +812,12 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                         <BadgeIcon fontSize="small" /> INE Reverso
                       </Typography>
-                      <Paper sx={{ p: 1, bgcolor: 'grey.50', minHeight: 130, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 2 }}>
+                      <Paper sx={{ p: 0.5, bgcolor: 'grey.50', borderRadius: 2, overflow: 'hidden' }}>
                         {ineBack ? (
                           <img
                             src={ineBack}
                             alt="INE Reverso"
-                            style={{ maxWidth: '100%', maxHeight: 120, objectFit: 'contain', borderRadius: 6, cursor: 'pointer' }}
+                            style={{ width: '100%', aspectRatio: '1.6 / 1', objectFit: 'cover', objectPosition: 'center', borderRadius: 6, cursor: 'zoom-in', display: 'block' }}
                             onClick={() => window.open(ineBack, '_blank')}
                           />
                         ) : (

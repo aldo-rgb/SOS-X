@@ -801,14 +801,17 @@ export default function VerificationsPage() {
                   <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <BadgeIcon fontSize="small" /> ID Frente
                   </Typography>
-                  <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Paper sx={{ p: 0.5, bgcolor: 'grey.50', borderRadius: 1, overflow: 'hidden' }}>
                     {loadingDetail && !selectedUser.ine_front_url ? (
-                      <CircularProgress size={28} sx={{ color: ORANGE }} />
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+                        <CircularProgress size={28} sx={{ color: ORANGE }} />
+                      </Box>
                     ) : resolveImageSrc(selectedUser.ine_front_url) ? (
                       <img 
                         src={resolveImageSrc(selectedUser.ine_front_url) as string} 
                         alt="INE Frente" 
-                        style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
+                        style={{ width: '100%', aspectRatio: '1.6 / 1', objectFit: 'cover', objectPosition: 'center', borderRadius: 8, display: 'block', cursor: 'zoom-in' }}
+                        onClick={() => window.open(resolveImageSrc(selectedUser.ine_front_url) as string, '_blank')}
                       />
                     ) : (
                       <Box sx={{ py: 4, color: 'text.secondary' }}>
@@ -824,14 +827,17 @@ export default function VerificationsPage() {
                   <Typography variant="subtitle2" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1 }}>
                     <BadgeIcon fontSize="small" /> ID Reverso
                   </Typography>
-                  <Paper sx={{ p: 1, bgcolor: 'grey.50', textAlign: 'center', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Paper sx={{ p: 0.5, bgcolor: 'grey.50', borderRadius: 1, overflow: 'hidden' }}>
                     {loadingDetail && !selectedUser.ine_back_url ? (
-                      <CircularProgress size={28} sx={{ color: ORANGE }} />
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200 }}>
+                        <CircularProgress size={28} sx={{ color: ORANGE }} />
+                      </Box>
                     ) : resolveImageSrc(selectedUser.ine_back_url) ? (
                       <img 
                         src={resolveImageSrc(selectedUser.ine_back_url) as string} 
                         alt="INE Reverso" 
-                        style={{ maxWidth: '100%', maxHeight: 200, objectFit: 'contain', borderRadius: 8 }}
+                        style={{ width: '100%', aspectRatio: '1.6 / 1', objectFit: 'cover', objectPosition: 'center', borderRadius: 8, display: 'block', cursor: 'zoom-in' }}
+                        onClick={() => window.open(resolveImageSrc(selectedUser.ine_back_url) as string, '_blank')}
                       />
                     ) : (
                       <Box sx={{ py: 4, color: 'text.secondary' }}>
