@@ -35,10 +35,33 @@ const API_URL = import.meta.env.VITE_API_URL
   : 'http://localhost:3001/api';
 
 export default function ResetPasswordPage() {
+  // Lee el token de varias fuentes para ser robusto frente a:
+  //  - rewrites de Vercel/Cloudflare que pudieran tocar el query string
+  //  - clientes de correo que convierten ?token=... en #token=...
+  //  - caches de SW que pudieran cargar el SPA antes de que la URL esté lista
   const token = useMemo(() => {
-    const p = new URLSearchParams(window.location.search);
-    return p.get('token') || '';
+    try {
+      const search = window.location.search || '';
+      const hash = window.location.hash || '';
+      const fromSearch = new URLSearchParams(search).get('token');
+      if (fromSearch) return fromSearch.trim();
+      // Fallback: ?token=... convertido a #token=... (algunos clientes lo hacen)
+      const hashClean = hash.startsWith('#') ? hash.slice(1) : hash;
+      const fromHash = new URLSearchParams(
+        hashClean.includes('=') ? hashClean : `token=${hashClean}`
+      ).get('token');
+      if (fromHash) return fromHash.trim();
+      // Último intento: regex sobre el href completo
+      const m = window.location.href.match(/[?&#]token=([A-Za-z0-9._-]+)/);
+      return m ? m[1] : '';
+    } catch {
+      return '';
+    }
   }, []);
+
+  // Debug — visible solo si NO hay token, para que el usuario nos pueda
+  // copiar la info en lugar de "el link no funciona".
+  const debugInfo = !token ? window.location.href : '';
 
   const [pass, setPass] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -108,6 +131,11 @@ export default function ResetPasswordPage() {
         {!token && (
           <Alert severity="error" sx={{ mb: 2 }}>
             El link no es válido. Solicita uno nuevo desde "¿Olvidaste tu contraseña?".
+            {debugInfo && (
+              <Box sx={{ mt: 1, fontSize: 11, color: '#666', wordBreak: 'break-all' }}>
+                URL recibida: {debugInfo}
+              </Box>
+            )}
           </Alert>
         )}
 
