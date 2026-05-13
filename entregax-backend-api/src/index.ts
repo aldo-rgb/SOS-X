@@ -8,6 +8,15 @@ import dotenv from 'dotenv';
 import multer from 'multer';
 import path from 'path';
 import axios from 'axios';
+import { initSentry, errorReporter } from './sentry';
+import {
+  validateBody,
+  loginSchema,
+  registerSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
+  changePasswordSchema,
+} from './validation/schemas';
 
 // En producción se silencian logs de depuración/info para evitar exponer PII o payloads sensibles.
 // Se conservan console.warn y console.error para operaciones.
@@ -1093,6 +1102,9 @@ async function activateGexForPaidPackages(packageIds: number[]): Promise<void> {
 const app = express();
 const PORT = parseInt(process.env.PORT || '3001', 10);
 
+// Sentry: capturar errores no manejados (no-op si no hay SENTRY_DSN)
+initSentry(app);
+
 const allowedOrigins = [
   ...(process.env.CORS_ALLOWED_ORIGINS || '')
     .split(',')
@@ -1815,15 +1827,15 @@ app.get('/', (_req: Request, res: Response) => {
 });
 
 // --- RUTAS DE AUTENTICACIÓN ---
-app.post('/api/auth/register', authRateLimit, registerUser);
-app.post('/api/auth/login', authRateLimit, loginUser);
+app.post('/api/auth/register', authRateLimit, validateBody(registerSchema), registerUser);
+app.post('/api/auth/login', authRateLimit, validateBody(loginSchema), loginUser);
 app.post('/api/auth/logout', logoutUser);
 // Password recovery — rate limit es importante porque si alguien
 // pega un email a /forgot-password en bucle, mandaríamos N correos.
-app.post('/api/auth/forgot-password', authRateLimit, forgotPassword);
-app.post('/api/auth/reset-password', authRateLimit, resetPassword);
+app.post('/api/auth/forgot-password', authRateLimit, validateBody(forgotPasswordSchema), forgotPassword);
+app.post('/api/auth/reset-password', authRateLimit, validateBody(resetPasswordSchema), resetPassword);
 app.get('/api/auth/profile', authenticateToken, getProfile);
-app.post('/api/auth/change-password', authenticateToken, changePassword);
+app.post('/api/auth/change-password', authenticateToken, validateBody(changePasswordSchema), changePassword);
 app.put('/api/auth/update-profile', authenticateToken, updateProfile);
 app.put('/api/auth/profile-photo', authenticateToken, updateProfilePhoto);
 
@@ -8698,21 +8710,29 @@ app.use((_req: Request, res: Response) => {
 });
 
 // Manejador de errores global - Siempre devolver JSON
-app.use((err: Error, req: Request, res: Response, _next: any) => {
+app.use((err: Error, req: Request, res: Response, next: any) => {
   // CORS: responder 403 sin stack trace (no es un "error interno")
   if (err && err.message === 'Not allowed by CORS') {
     console.warn(`[CORS] Rechazado: origin=${req.headers.origin} path=${req.path}`);
     return res.status(403).json({ error: 'Origen no permitido' });
   }
-  console.error('Error no manejado:', err);
-  console.error('Error stack:', (err as any)?.stack);
-  console.error('Error path:', req.path, 'method:', req.method);
-  res.status(500).json({
-    error: 'Error interno del servidor',
-    message: err.message || 'Algo salió mal',
-    code: (err as any).code,
-    type: (err as any).type
-  });
+  // Reportar a Sentry (no-op si no hay DSN). Hace scrubbing automático.
+  try {
+    errorReporter(err, req, res, next);
+  } catch {
+    // Si Sentry falla, seguimos al handler legacy
+    console.error('Error no manejado:', err);
+    console.error('Error stack:', (err as any)?.stack);
+    console.error('Error path:', req.path, 'method:', req.method);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Error interno del servidor',
+        message: err.message || 'Algo salió mal',
+        code: (err as any).code,
+        type: (err as any).type,
+      });
+    }
+  }
 });
 
 // Iniciar servidor (escuchar en todas las interfaces para acceso desde móvil)
