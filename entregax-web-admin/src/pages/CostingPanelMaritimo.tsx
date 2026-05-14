@@ -73,6 +73,7 @@ import {
     CloudUpload as CloudUploadIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import FCLBulkUpdateDialog from '../components/FCLBulkUpdateDialog';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // Colores del tema marítimo
@@ -267,6 +268,7 @@ const formatCurrency = (value: number | string | null | undefined): string => {
 export default function CostingPanelMaritimo() {
     const { t, i18n } = useTranslation();
     const [containers, setContainers] = useState<Container[]>([]);
+    const [bulkOpen, setBulkOpen] = useState(false);
     const [routes, setRoutes] = useState<MaritimeRoute[]>([]);
     const [legacyClients, setLegacyClients] = useState<{ id: number; box_id: string; full_name: string }[]>([]);
     const [stats, setStats] = useState<MaritimeStats | null>(null);
@@ -1280,11 +1282,11 @@ export default function CostingPanelMaritimo() {
                 </Box>
                 <Box sx={{ display: 'flex', gap: 1 }}>
                     <Button
-                        variant="outlined"
-                        startIcon={<RefreshIcon />}
-                        onClick={fetchContainers}
+                        variant="contained"
+                        onClick={() => setBulkOpen(true)}
+                        sx={{ bgcolor: '#FF6F35', '&:hover': { bgcolor: '#E64A19' }, fontWeight: 700 }}
                     >
-                        {t('common.refresh')}
+                        🚀 Actualización en serie
                     </Button>
                 </Box>
             </Box>
@@ -3189,6 +3191,18 @@ export default function CostingPanelMaritimo() {
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            {/* Actualización en serie de status FCL */}
+            <FCLBulkUpdateDialog
+                open={bulkOpen}
+                onClose={() => setBulkOpen(false)}
+                containers={containers}
+                onUpdated={(successIds, newStatus) => {
+                    setContainers((prev) => prev.map((c) => (successIds.includes(c.id) ? { ...c, status: newStatus } : c)));
+                    setSnackbar({ open: true, message: `✅ ${successIds.length} contenedor(es) actualizado(s) a ${newStatus}`, severity: 'success' });
+                    fetchContainers();
+                }}
+            />
 
             {/* Snackbar */}
             <Snackbar
