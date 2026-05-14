@@ -35,6 +35,9 @@ import {
     MenuItem,
     InputLabel,
     Grid,
+    ToggleButton,
+    ToggleButtonGroup,
+    Autocomplete,
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
@@ -194,6 +197,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     };
     const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
+    // Modo de viaje: 'sencillo' (1 contenedor) o 'full' (2 contenedores con mismo operador)
+    const [truckMode, setTruckMode] = useState<'sencillo' | 'full'>('sencillo');
+    const [secondContainerId, setSecondContainerId] = useState<number | null>(null);
 
     const loadHistory = async (containerId: number) => {
         setLoadingHistory(true);
@@ -223,13 +229,18 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         setFclSaving(true);
         setError(null);
         try {
-            await api.put(`/maritime/containers/${selected.id}/status`, {
+            const payload = {
                 status: fclStatus,
                 driver_name: driverName.trim() || undefined,
                 driver_plates: driverPlates.trim() || undefined,
                 driver_phone: driverPhone.trim() || undefined,
                 notes: driverNotes.trim() || undefined,
-            });
+            };
+            await api.put(`/maritime/containers/${selected.id}/status`, payload);
+            // Si es viaje FULL y hay un segundo contenedor, replicar la misma actualización
+            if (truckMode === 'full' && secondContainerId) {
+                await api.put(`/maritime/containers/${secondContainerId}/status`, payload);
+            }
             setResult({
                 new_status: fclStatus,
                 received: orders.length,
@@ -667,6 +678,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setDriverPlates((c as any).driver_plates || '');
             setDriverPhone((c as any).driver_phone || '');
             setDriverNotes('');
+            setTruckMode('sencillo');
+            setSecondContainerId(null);
             // Preseleccionar "En tránsito a destino" por ser el flujo más común
             setFclStatus('in_transit_clientfinal');
             // Cargar historial en paralelo
@@ -1139,12 +1152,55 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
                         {/* Info de la ruta hacia destino (operador / placas / teléfono) */}
                         <Box sx={{ mt: 2, p: 2, bgcolor: '#FFF8E1', borderRadius: 2, border: `1px dashed ${ORANGE}` }}>
-                            <Typography sx={{ fontWeight: 700, color: ORANGE, mb: 1 }}>
-                                🚛 Información de ruta hacia destino
-                            </Typography>
+                            <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 1, flexWrap: 'wrap' }}>
+                                <Typography sx={{ fontWeight: 700, color: ORANGE }}>
+                                    🚛 Información de ruta hacia destino
+                                </Typography>
+                                <ToggleButtonGroup
+                                    value={truckMode}
+                                    exclusive
+                                    size="small"
+                                    onChange={(_, v) => { if (v) { setTruckMode(v); if (v === 'sencillo') setSecondContainerId(null); } }}
+                                >
+                                    <ToggleButton value="sencillo" sx={{ fontWeight: 700, '&.Mui-selected': { bgcolor: TEAL, color: '#FFF', '&:hover': { bgcolor: '#00838F' } } }}>
+                                        🚚 Sencillo
+                                    </ToggleButton>
+                                    <ToggleButton value="full" sx={{ fontWeight: 700, '&.Mui-selected': { bgcolor: ORANGE, color: '#FFF', '&:hover': { bgcolor: '#E64A19' } } }}>
+                                        🚛 Full (2 contenedores)
+                                    </ToggleButton>
+                                </ToggleButtonGroup>
+                            </Stack>
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
                                 Captura los datos del operador y la unidad. Quedan registrados en el historial del contenedor para consulta posterior.
+                                {truckMode === 'full' && ' En modo Full la misma actualización se aplica a ambos contenedores.'}
                             </Typography>
+
+                            {truckMode === 'full' && (
+                                <Box sx={{ mb: 2, p: 1.5, bgcolor: '#FFF', borderRadius: 1, border: `1px solid ${ORANGE}` }}>
+                                    <Typography variant="caption" sx={{ fontWeight: 700, color: ORANGE, display: 'block', mb: 1 }}>
+                                        Segundo contenedor en la misma unidad (solo "Liberado de aduana"):
+                                    </Typography>
+                                    {(() => {
+                                        const opts = containers.filter((c) => c.status === 'customs_cleared' && c.id !== selected.id);
+                                        const value = opts.find((c) => c.id === secondContainerId) || null;
+                                        return (
+                                            <Autocomplete
+                                                size="small"
+                                                options={opts}
+                                                value={value}
+                                                onChange={(_, v) => setSecondContainerId(v?.id || null)}
+                                                getOptionLabel={(o) => `${o.reference_code || '—'} · ${o.container_number || '—'}${o.bl_number ? ` · BL ${o.bl_number}` : ''}`}
+                                                isOptionEqualToValue={(a, b) => a.id === b.id}
+                                                renderInput={(params) => (
+                                                    <TextField {...params} label="Buscar contenedor (ref / número / BL)" placeholder="Ej. WHSU8715901" />
+                                                )}
+                                                noOptionsText={opts.length === 0 ? 'No hay contenedores con status "Liberado de aduana"' : 'Sin coincidencias'}
+                                            />
+                                        );
+                                    })()}
+                                </Box>
+                            )}
+
                             <Grid container spacing={2}>
                                 <Grid size={{ xs: 12, sm: 6 }}>
                                     <TextField
