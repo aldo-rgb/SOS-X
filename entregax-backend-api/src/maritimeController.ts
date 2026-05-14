@@ -341,22 +341,25 @@ export const getContainerStatusHistory = async (req: AuthRequest, res: Response)
     // 'maritimo' o 'fcl', si no usa la default general (is_default), y como
     // último recurso la más reciente.
     let destinationAddress: any = null;
-    const cRes = await pool.query('SELECT client_user_id FROM containers WHERE id = $1', [id]);
-    const clientUserId = cRes.rows[0]?.client_user_id;
-    if (clientUserId) {
-      const addrRes = await pool.query(
-        `SELECT id, label, recipient_name, phone, street, exterior_number, interior_number,
-                neighborhood, city, state, zip_code, country, references_text, default_for_service, is_default
-           FROM addresses
-          WHERE user_id = $1
-          ORDER BY
-            (COALESCE(default_for_service,'') ILIKE '%maritimo%' OR COALESCE(default_for_service,'') ILIKE '%fcl%') DESC,
-            is_default DESC,
-            created_at DESC
-          LIMIT 1`,
-        [clientUserId]
-      );
-      destinationAddress = addrRes.rows[0] || null;
+    try {
+      const cRes = await pool.query('SELECT client_user_id FROM containers WHERE id = $1', [id]);
+      const clientUserId = cRes.rows[0]?.client_user_id;
+      if (clientUserId) {
+        const addrRes = await pool.query(
+          `SELECT *
+             FROM addresses
+            WHERE user_id = $1
+            ORDER BY
+              (COALESCE(default_for_service,'') ILIKE '%maritimo%' OR COALESCE(default_for_service,'') ILIKE '%fcl%') DESC,
+              is_default DESC,
+              created_at DESC
+            LIMIT 1`,
+          [clientUserId]
+        );
+        destinationAddress = addrRes.rows[0] || null;
+      }
+    } catch (addrErr) {
+      console.warn('[getContainerStatusHistory] No se pudo cargar dirección:', (addrErr as Error).message);
     }
 
     res.json({ history: result.rows, destinationAddress });

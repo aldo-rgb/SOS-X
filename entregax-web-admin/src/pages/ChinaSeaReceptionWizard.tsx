@@ -206,6 +206,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [loadingHistory, setLoadingHistory] = useState(false);
     type DestinationAddress = {
         id?: number;
+        alias?: string | null;
         label?: string | null;
         recipient_name?: string | null;
         phone?: string | null;
@@ -217,6 +218,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         state?: string | null;
         zip_code?: string | null;
         country?: string | null;
+        reference?: string | null;
         references_text?: string | null;
     };
     const [destinationAddress, setDestinationAddress] = useState<DestinationAddress | null>(null);
@@ -1215,8 +1217,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                     <Typography sx={{ fontWeight: 700, color: '#1976D2' }}>
                                         📍 Dirección de envío
                                     </Typography>
-                                    {destinationAddress.label && (
-                                        <Chip label={destinationAddress.label} size="small" sx={{ bgcolor: '#1976D2', color: '#FFF', fontWeight: 700 }} />
+                                    {(destinationAddress.alias || destinationAddress.label) && (
+                                        <Chip label={destinationAddress.alias || destinationAddress.label} size="small" sx={{ bgcolor: '#1976D2', color: '#FFF', fontWeight: 700 }} />
                                     )}
                                 </Stack>
                                 {destinationAddress.recipient_name && (
@@ -1231,9 +1233,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                     {[destinationAddress.city, destinationAddress.state, destinationAddress.zip_code].filter(Boolean).join(', ')}
                                     {destinationAddress.country ? ` · ${destinationAddress.country}` : ''}
                                 </Typography>
-                                {destinationAddress.references_text && (
+                                {(destinationAddress.reference || destinationAddress.references_text) && (
                                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                        Ref.: {destinationAddress.references_text}
+                                        Ref.: {destinationAddress.reference || destinationAddress.references_text}
                                     </Typography>
                                 )}
                             </Box>
