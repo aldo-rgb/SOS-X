@@ -4535,6 +4535,22 @@ app.put('/api/maritime/containers/:id/status', authenticateToken, requireMinLeve
 app.get('/api/maritime/containers/:id/status-history', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getContainerStatusHistory);
 app.delete('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteContainer);
 
+// 👁️ Lista de monitoristas disponibles para asignar a contenedores FCL
+app.get('/api/maritime/monitors', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (_req: AuthRequest, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, full_name, email, phone
+      FROM users
+      WHERE LOWER(role) = 'monitoreo' AND COALESCE(is_active, true) = true
+      ORDER BY full_name ASC
+    `);
+    res.json({ monitors: result.rows });
+  } catch (error) {
+    console.error('Error listando monitoristas:', error);
+    res.status(500).json({ error: 'Error al obtener monitoristas' });
+  }
+});
+
 // Costos de contenedor
 app.get('/api/maritime/containers/:containerId/costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getContainerCosts);
 app.put('/api/maritime/containers/:containerId/costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateContainerCosts);
@@ -7635,11 +7651,11 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
       return res.status(403).json({ error: 'Acceso denegado' });
     }
     const userId = Number(req.user?.id || req.user?.userId);
-    // 🚛 Monitoreo: incluir todos los contenedores "en ruta" — listos para coordinar
-    // (liberados de aduana) + ya despachados al cliente final.
+    // 🚛 Monitoreo: "Contenedores en Ruta" = solo los que ya van rumbo al cliente final
+    // (in_transit_clientfinal). Los liberados de aduana aún no están en ruta.
     const result = await pool.query(
       `SELECT
-         COUNT(*) FILTER (WHERE status IN ('customs_cleared','in_transit_clientfinal'))::int AS liberados,
+         COUNT(*) FILTER (WHERE status = 'in_transit_clientfinal')::int AS liberados,
          COUNT(*) FILTER (WHERE status = 'customs_cleared')::int AS customs_cleared,
          COUNT(*) FILTER (WHERE status = 'in_transit_clientfinal')::int AS in_transit_clientfinal
        FROM containers`
@@ -7669,6 +7685,116 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
     });
   } catch (error) {
     console.error('Error obteniendo stats monitoreo:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// 📋 Listado de contenedores en ruta para rol Monitoreo
+app.get('/api/monitoreo/containers', authenticateToken, async (req: any, res) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!['monitoreo', 'admin', 'super_admin', 'director'].includes(role)) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+    const status = String(req.query.status || 'in_transit_clientfinal');
+    const allowed = ['customs_cleared', 'in_transit_clientfinal', 'all'];
+    if (!allowed.includes(status)) {
+      return res.status(400).json({ error: 'Status no permitido' });
+    }
+    const statusClause = status === 'all'
+      ? `c.status IN ('customs_cleared','in_transit_clientfinal')`
+      : `c.status = $1`;
+    const params = status === 'all' ? [] : [status];
+    const result = await pool.query(`
+      SELECT
+        c.id, c.container_number, c.bl_number, c.reference_code,
+        c.week_number, c.vessel_name, c.voyage_number, c.status,
+        c.eta, c.total_weight_kg, c.total_cbm, c.total_packages,
+        c.driver_name, c.driver_plates, c.driver_phone, c.driver_company,
+        c.route_dispatched_at, c.created_at,
+        u.id AS client_user_id,
+        u.full_name AS client_name,
+        u.box_id AS client_box_id,
+        u.phone AS client_phone
+      FROM containers c
+      LEFT JOIN users u ON u.id = c.client_user_id
+      WHERE ${statusClause}
+      ORDER BY
+        CASE WHEN c.status = 'in_transit_clientfinal' THEN 0 ELSE 1 END,
+        c.route_dispatched_at DESC NULLS LAST,
+        c.created_at DESC
+    `, params);
+    res.json({ containers: result.rows });
+  } catch (error) {
+    console.error('Error listando contenedores monitoreo:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+});
+
+// 🔍 Detalle de contenedor para rol Monitoreo (incluye dirección de destino e historial)
+app.get('/api/monitoreo/containers/:id', authenticateToken, async (req: any, res) => {
+  try {
+    const role = String(req.user?.role || '').toLowerCase();
+    if (!['monitoreo', 'admin', 'super_admin', 'director'].includes(role)) {
+      return res.status(403).json({ error: 'Acceso denegado' });
+    }
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+
+    const containerRes = await pool.query(`
+      SELECT
+        c.*,
+        u.full_name AS client_name,
+        u.box_id AS client_box_id,
+        u.phone AS client_phone,
+        u.email AS client_email
+      FROM containers c
+      LEFT JOIN users u ON u.id = c.client_user_id
+      WHERE c.id = $1
+      LIMIT 1
+    `, [id]);
+    if (containerRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Contenedor no encontrado' });
+    }
+    const container = containerRes.rows[0];
+
+    // Historial de status
+    let history: any[] = [];
+    try {
+      const h = await pool.query(`
+        SELECT id, status, notes, driver_name, driver_plates, driver_phone, driver_company,
+               changed_by_name, created_at
+        FROM container_status_history
+        WHERE container_id = $1
+        ORDER BY created_at DESC
+      `, [id]);
+      history = h.rows;
+    } catch (e) {
+      console.warn('No se pudo cargar historial:', (e as Error).message);
+    }
+
+    // Dirección de destino preferida del cliente
+    let destinationAddress: any = null;
+    if (container.client_user_id) {
+      try {
+        const a = await pool.query(`
+          SELECT * FROM addresses
+          WHERE user_id = $1
+          ORDER BY
+            (default_for_service ILIKE '%maritimo%' OR default_for_service ILIKE '%fcl%') DESC,
+            is_default DESC,
+            created_at DESC
+          LIMIT 1
+        `, [container.client_user_id]);
+        destinationAddress = a.rows[0] || null;
+      } catch (e) {
+        console.warn('No se pudo cargar dirección:', (e as Error).message);
+      }
+    }
+
+    res.json({ container, history, destinationAddress });
+  } catch (error) {
+    console.error('Error obteniendo detalle monitoreo:', error);
     res.status(500).json({ error: 'Error interno' });
   }
 });
@@ -8417,6 +8543,9 @@ async function ensureRequiredColumns() {
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_phone TEXT;
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_company TEXT;
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS route_dispatched_at TIMESTAMP;
+      -- 👁️ Monitorista asignado al contenedor (rol monitoreo)
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS monitor_user_id INTEGER REFERENCES users(id);
+      CREATE INDEX IF NOT EXISTS idx_containers_monitor_user_id ON containers(monitor_user_id);
 
       -- 📜 Historial de cambios de status del contenedor (auditoría completa)
       CREATE TABLE IF NOT EXISTS container_status_history (

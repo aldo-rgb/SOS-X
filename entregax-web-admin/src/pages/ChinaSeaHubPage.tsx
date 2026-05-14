@@ -23,6 +23,9 @@ import {
 } from '@mui/icons-material';
 import ChinaSeaReceptionWizard from './ChinaSeaReceptionWizard';
 import ChinaSeaInventoryPage from './ChinaSeaInventoryPage';
+import useModulePermissions from '../hooks/useModulePermissions';
+
+const CHINA_SEA_HUB_MODULES = ['reception', 'reception_fcl', 'inventory'];
 
 interface Props {
     onBack: () => void;
@@ -60,6 +63,8 @@ const OPTIONS = [
 
 export default function ChinaSeaHubPage({ onBack }: Props) {
     const [panel, setPanel] = useState<Panel>('menu');
+    const { allowedModules, loading: permLoading } = useModulePermissions('ops_china_sea', CHINA_SEA_HUB_MODULES);
+    const visibleOptions = OPTIONS.filter((o) => allowedModules.includes(o.key));
 
     if (panel === 'reception') {
         return <ChinaSeaReceptionWizard onBack={() => setPanel('menu')} mode="LCL" />;
@@ -104,7 +109,16 @@ export default function ChinaSeaHubPage({ onBack }: Props) {
             </Paper>
 
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 3 }}>
-                {OPTIONS.map((opt) => (
+                {permLoading ? (
+                    <Typography sx={{ gridColumn: '1 / -1', textAlign: 'center', color: '#666' }}>Cargando permisos…</Typography>
+                ) : visibleOptions.length === 0 ? (
+                    <Paper sx={{ gridColumn: '1 / -1', p: 4, textAlign: 'center', bgcolor: '#FFF8E1', border: '1px dashed #F5A623' }}>
+                        <Typography sx={{ fontWeight: 700, color: '#8B6914' }}>Sin permisos asignados</Typography>
+                        <Typography variant="body2" sx={{ color: '#8B6914', mt: 1 }}>
+                            Tu usuario no tiene módulos habilitados para el panel <strong>Marítimo China</strong>. Solicita acceso a tu administrador.
+                        </Typography>
+                    </Paper>
+                ) : visibleOptions.map((opt) => (
                     <Card
                         key={opt.key}
                         elevation={3}

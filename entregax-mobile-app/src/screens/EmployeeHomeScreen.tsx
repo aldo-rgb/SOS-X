@@ -161,6 +161,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     roles: ['warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
     hideIfPOBox: true, // Ocultar si tiene permisos PO Box (usa Entrada/Salida)
+    panelKey: 'ops_scanner',
   },
   {
     id: 'warehouse_inventory',
@@ -173,6 +174,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     roles: ['warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
     hideIfPOBox: true, // Usar módulo 'inventory' de PO Box
+    panelKey: 'ops_inventory',
   },
   
   // === MOSTRADOR (counter_staff) - Hub PO Box USA ===
@@ -288,6 +290,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     roles: ['branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
     hideIfPOBox: true, // Ocultar si tiene permisos PO Box
+    panelKey: 'ops_mx_cedis',
   },
   {
     id: 'counter_reception',
@@ -300,6 +303,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     roles: ['branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: true,
     hideIfPOBox: true, // Ocultar si tiene permisos PO Box
+    panelKey: 'ops_mx_cedis',
   },
   
   // === SERVICIO A CLIENTE ===
@@ -313,6 +317,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     screen: 'SupportTickets',
     roles: ['customer_service', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: false,
+    panelKey: 'ops_mx_cedis',
   },
   {
     id: 'client_lookup',
@@ -325,6 +330,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     roles: ['customer_service', 'branch_manager', 'admin', 'super_admin'],
     requiresOnboarding: false,
     hideIfPOBox: true, // El personal de mostrador usa los módulos PO Box
+    panelKey: 'ops_mx_cedis',
   },
   
   // === GERENTE DE SUCURSAL ===
@@ -610,7 +616,11 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     return true;
   });
 
-  const isOnboarded = user.isEmployeeOnboarded === true;
+  // Un usuario está "onboardeado" si el flag explícito es true, O bien si su
+  // verificación ya fue aprobada (verification_status === 'verified'). Esto
+  // evita falsos positivos cuando el estado local quedó stale después de que
+  // un admin aprobó la verificación.
+  const isOnboarded = user.isEmployeeOnboarded === true || user.verificationStatus === 'verified';
 
   // Refrescar datos del usuario
   const refreshUserData = useCallback(async () => {

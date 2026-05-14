@@ -126,7 +126,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   // 👷 Detectar si es empleado (no requiere verificación de cliente)
   const employeeRoles = ['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'admin', 'super_admin'];
   const isEmployee = employeeRoles.includes(user.role);
-  const isEmployeeOnboarded = user.isEmployeeOnboarded === true;
+  // Considerar onboardeado si el flag est\u00e1 true o si la verificaci\u00f3n ya fue
+  // aprobada por un admin (estado local pudo quedar stale).
+  const isEmployeeOnboarded = user.isEmployeeOnboarded === true || verificationStatus === 'verified';
   
   // Los empleados no necesitan verificación de cliente, solo onboarding de empleado
   // Si ya completó el onboarding pero está en verificación pendiente, no mostrar banner de alta

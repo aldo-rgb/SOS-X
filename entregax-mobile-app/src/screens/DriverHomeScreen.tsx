@@ -364,7 +364,13 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   };
 
   const handleAssignedTodayPress = () => {
-    if (!inspectionDone && !isMonitoreo) {
+    // 👁️ Rol Monitoreo: abrir lista navegable de contenedores en ruta
+    if (isMonitoreo) {
+      navigation.navigate('MonitorContainers', { user, token });
+      return;
+    }
+
+    if (!inspectionDone) {
       Alert.alert(
         'Inspección requerida',
         'Primero debes realizar la inspección de tu vehículo para poder cargar tu unidad.'

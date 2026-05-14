@@ -188,6 +188,16 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     // mostramos un resumen de "ya asignado" y solo entramos en modo edición
     // cuando el usuario explicitamente pulsa "Editar / Reasignar".
     const [editingRoute, setEditingRoute] = useState(false);
+    // Indica si el contenedor TRAÍA ruta persistida al abrirse. No se actualiza
+    // mientras el usuario teclea: así evitamos que el form se cierre al escribir
+    // la primera letra. Se recalcula solo al abrir contenedor o cargar historial.
+    const [hasPersistedRoute, setHasPersistedRoute] = useState(false);
+
+    // Monitorista asignado (usuarios con rol 'monitoreo')
+    type Monitor = { id: number; full_name: string; phone?: string | null; email?: string | null };
+    const [monitors, setMonitors] = useState<Monitor[]>([]);
+    const [monitorUserId, setMonitorUserId] = useState<number | null>(null);
+    const [monitorName, setMonitorName] = useState<string>('');
 
     // Historial de cambios de status
     type HistoryEntry = {
@@ -230,8 +240,25 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         setLoadingHistory(true);
         try {
             const r = await api.get(`/maritime/containers/${containerId}/status-history`);
-            setHistory(r.data?.history || []);
+            const hist: HistoryEntry[] = r.data?.history || [];
+            setHistory(hist);
             setDestinationAddress(r.data?.destinationAddress || null);
+            // 🔄 Si el contenedor no tiene driver_* persistido pero el historial sí
+            // (caso típico de status avanzado fuera del wizard), rellenar desde el
+            // último registro con datos para evitar mostrar el formulario en blanco.
+            const lastName = hist.find((h) => h.driver_name)?.driver_name || '';
+            const lastPlates = hist.find((h) => h.driver_plates)?.driver_plates || '';
+            const lastPhone = hist.find((h) => h.driver_phone)?.driver_phone || '';
+            const lastCompany = hist.find((h) => h.driver_company)?.driver_company || '';
+            setDriverName((prev) => prev || lastName);
+            setDriverPlates((prev) => prev || lastPlates);
+            setDriverPhone((prev) => prev || lastPhone);
+            setDriverCompany((prev) => prev || lastCompany);
+            // Si el historial tenía datos de ruta, considerar el contenedor como
+            // "con ruta persistida" (aunque no estuviera en las columnas actuales).
+            if (lastName || lastPlates || lastPhone || lastCompany) {
+                setHasPersistedRoute(true);
+            }
         } catch {
             setHistory([]);
             setDestinationAddress(null);
@@ -262,6 +289,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 driver_plates: driverPlates.trim() || undefined,
                 driver_phone: driverPhone.trim() || undefined,
                 driver_company: driverCompany.trim() || undefined,
+                monitor_user_id: monitorUserId ?? undefined,
                 notes: driverNotes.trim() || undefined,
             };
             await api.put(`/maritime/containers/${selected.id}/status`, payload);
@@ -669,6 +697,14 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
     useEffect(() => { loadContainers(); }, []);
     useEffect(() => {
+        (async () => {
+            try {
+                const r = await api.get('/maritime/monitors');
+                setMonitors(r.data?.monitors || []);
+            } catch { /* noop */ }
+        })();
+    }, []);
+    useEffect(() => {
         if (step === 1 && inputRef.current) inputRef.current.focus();
     }, [step, orders.length]);
 
@@ -702,10 +738,17 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setExpandedOrderId(null);
             setReceivedByOrder({});
             // Pre-cargar info de ruta (si existe en el contenedor)
-            setDriverName((c as any).driver_name || '');
-            setDriverPlates((c as any).driver_plates || '');
-            setDriverPhone((c as any).driver_phone || '');
-            setDriverCompany((c as any).driver_company || '');
+            const dn = (c as any).driver_name || '';
+            const dp = (c as any).driver_plates || '';
+            const dph = (c as any).driver_phone || '';
+            const dc = (c as any).driver_company || '';
+            setDriverName(dn);
+            setDriverPlates(dp);
+            setDriverPhone(dph);
+            setDriverCompany(dc);
+            setHasPersistedRoute(!!(dn || dp || dph || dc));
+            setMonitorUserId((c as any).monitor_user_id || null);
+            setMonitorName((c as any).monitor_name || '');
             setDriverNotes('');
             setEditingRoute(false);
             setTruckMode('sencillo');
@@ -1243,8 +1286,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
                         {/* Info de la ruta hacia destino (operador / placas / teléfono) */}
                         {(() => {
-                            const hasAssignedRoute = !!((driverName && driverName.trim()) || (driverPlates && driverPlates.trim()) || (driverPhone && driverPhone.trim()) || (driverCompany && driverCompany.trim()));
-                            if (hasAssignedRoute && !editingRoute) {
+                            if (hasPersistedRoute && !editingRoute) {
                                 return (
                                     <Box sx={{ mt: 2, p: 2, bgcolor: '#E8F5E9', borderRadius: 2, border: `1px solid #4CAF50` }}>
                                         <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 1, flexWrap: 'wrap' }}>
@@ -1288,6 +1330,14 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                     <Typography sx={{ fontWeight: 700 }}>{driverPhone}</Typography>
                                                 </Grid>
                                             )}
+                                            <Grid size={{ xs: 12 }}>
+                                                <Typography variant="caption" color="text.secondary">Monitorista asignado</Typography>
+                                                <Typography sx={{ fontWeight: 700, color: monitorUserId ? BLACK : '#999' }}>
+                                                    {monitorUserId
+                                                        ? (monitors.find((m) => m.id === monitorUserId)?.full_name || monitorName || `ID ${monitorUserId}`)
+                                                        : '— Sin asignar —'}
+                                                </Typography>
+                                            </Grid>
                                         </Grid>
                                     </Box>
                                 );
@@ -1393,6 +1443,27 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                         value={driverNotes}
                                         onChange={(e) => setDriverNotes(e.target.value)}
                                         placeholder="Observaciones del despacho…"
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12 }}>
+                                    <Autocomplete
+                                        size="small"
+                                        options={monitors}
+                                        value={monitors.find((m) => m.id === monitorUserId) || null}
+                                        onChange={(_, v) => setMonitorUserId(v?.id || null)}
+                                        getOptionLabel={(o) => o.full_name + (o.phone ? ` · ${o.phone}` : '')}
+                                        isOptionEqualToValue={(a, b) => a.id === b.id}
+                                        renderInput={(params) => (
+                                            <TextField
+                                                {...params}
+                                                label="👁️ Monitorista asignado"
+                                                placeholder="Selecciona un monitorista…"
+                                                helperText={truckMode === 'full'
+                                                    ? 'En modo Full se asignará a ambos contenedores automáticamente.'
+                                                    : 'Se notificará al monitorista para dar seguimiento al contenedor.'}
+                                            />
+                                        )}
+                                        noOptionsText={monitors.length === 0 ? 'No hay monitoristas activos en el sistema' : 'Sin coincidencias'}
                                     />
                                 </Grid>
                             </Grid>

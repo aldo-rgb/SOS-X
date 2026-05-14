@@ -1144,7 +1144,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           ) : (
             <Box sx={{ pt: 1 }}>
               <Typography variant="body2" sx={{ color: '#444', mb: 2 }}>
-                Ingresa tu correo registrado y te mandaremos un link
+                Ingresa tu correo registrado y te mandaremos un enlace
                 para restablecer tu contraseña.
               </Typography>
               <TextField

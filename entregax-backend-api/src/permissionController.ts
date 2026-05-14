@@ -463,6 +463,14 @@ const PANEL_MODULE_SEEDS: Record<string, Array<[string, string, string, string, 
     ['rastreo_vivo', 'Rastreo en Vivo', 'Mapa de choferes en tiempo real',      'Map',        3],
     ['estadisticas', 'Estadísticas',    'Reportes y métricas de RH',            'TrendingUp', 4],
   ],
+  // Hub TDI Marítimo China (ChinaSeaHubPage). Los módulos reflejan EXACTAMENTE
+  // las tarjetas que ve el usuario: Recibir Contenedor (LCL), Actualizar Status
+  // Full Conteiner (FCL) e Inventario.
+  ops_china_sea: [
+    ['reception',     'Recibir Contenedor',              'Recepción LCL: escanea órdenes por referencia / BL / número de contenedor', 'Scanner',   1],
+    ['reception_fcl', 'Actualizar Status Full Conteiner','Actualiza el status de contenedores FCL (un solo cliente) y confirma llegada a CEDIS', 'Scanner',   2],
+    ['inventory',     'Inventario',                      'Consulta las órdenes marítimas en bodega, su contenedor y estado',          'Inventory', 3],
+  ],
 };
 const seededPanels = new Set<string>();
 const ensurePanelModules = async (panelKey: string): Promise<void> => {

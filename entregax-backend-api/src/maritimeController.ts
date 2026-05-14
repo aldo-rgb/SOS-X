@@ -24,6 +24,8 @@ export const getContainers = async (req: AuthRequest, res: Response): Promise<an
         mr.name as route_name,
         lc.box_id as client_box_id,
         lc.full_name as client_name,
+        mu.full_name as monitor_name,
+        mu.phone as monitor_phone,
         (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.container_id = c.id) as shipment_count,
         cc.is_fully_costed,
         cc.calculated_release_cost
@@ -31,6 +33,7 @@ export const getContainers = async (req: AuthRequest, res: Response): Promise<an
       LEFT JOIN container_costs cc ON cc.container_id = c.id
       LEFT JOIN maritime_routes mr ON mr.id = c.route_id
       LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
+      LEFT JOIN users mu ON mu.id = c.monitor_user_id
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -64,7 +67,13 @@ export const getContainerDetail = async (req: AuthRequest, res: Response): Promi
     const { id } = req.params;
 
     // Contenedor
-    const containerRes = await pool.query('SELECT * FROM containers WHERE id = $1', [id]);
+    const containerRes = await pool.query(
+      `SELECT c.*, mu.full_name as monitor_name, mu.phone as monitor_phone
+         FROM containers c
+         LEFT JOIN users mu ON mu.id = c.monitor_user_id
+        WHERE c.id = $1`,
+      [id]
+    );
     if (containerRes.rows.length === 0) {
       return res.status(404).json({ error: 'Contenedor no encontrado' });
     }
@@ -209,7 +218,7 @@ export const updateContainer = async (req: AuthRequest, res: Response): Promise<
 export const updateContainerStatus = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
-    const { status, driver_name, driver_plates, driver_phone, driver_company, notes } = req.body;
+    const { status, driver_name, driver_plates, driver_phone, driver_company, monitor_user_id, notes } = req.body;
 
     const validStatuses = ['received_origin', 'consolidated', 'in_transit', 'arrived_port', 'customs_cleared', 'in_transit_clientfinal', 'delivered'];
     if (!validStatuses.includes(status)) {
@@ -231,6 +240,9 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
     // Si hay info de ruta (operador/placas/teléfono/empresa), guardarla en containers
     // y marcar route_dispatched_at cuando se transiciona a in_transit_clientfinal
     const hasRouteInfo = !!(driver_name || driver_plates || driver_phone || driver_company);
+    const monitorClause = (monitor_user_id !== undefined && monitor_user_id !== null)
+      ? `, monitor_user_id = ${Number(monitor_user_id) || 'NULL'}`
+      : '';
     if (hasRouteInfo) {
       const dispatchedAtClause = status === 'in_transit_clientfinal' ? ', route_dispatched_at = NOW()' : '';
       await pool.query(
@@ -242,11 +254,12 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
                 driver_company = COALESCE(NULLIF($5,''), driver_company),
                 updated_at = NOW()
                 ${dispatchedAtClause}
+                ${monitorClause}
           WHERE id = $6`,
         [status, driver_name || '', driver_plates || '', driver_phone || '', driver_company || '', id]
       );
     } else {
-      await pool.query('UPDATE containers SET status = $1, updated_at = NOW() WHERE id = $2', [status, id]);
+      await pool.query(`UPDATE containers SET status = $1, updated_at = NOW() ${monitorClause} WHERE id = $2`, [status, id]);
     }
 
     // Actualizar todos los envíos del contenedor

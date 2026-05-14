@@ -115,6 +115,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         phone: response.user.phone,
         isVerified: response.user.isVerified,
         verificationStatus: response.user.verificationStatus,
+        isEmployeeOnboarded: response.user.isEmployeeOnboarded === true || response.user.is_employee_onboarded === true,
       };
       
       const token = response.access.token;
@@ -226,6 +227,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       phone: user.phone,
       isVerified: user.isVerified,
       verificationStatus: user.verificationStatus,
+      isEmployeeOnboarded: user.isEmployeeOnboarded === true || user.is_employee_onboarded === true,
     };
     const token = access.token;
     try {
@@ -383,7 +385,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
             ) : (
               <>
                 <Text style={styles.modalBody}>
-                  Ingresa tu correo registrado y te mandaremos un link
+                  Ingresa tu correo registrado y te mandaremos un enlace
                   para restablecer tu contraseña.
                 </Text>
                 <TextInput
@@ -415,7 +417,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                 >
                   {forgotSubmitting
                     ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={styles.modalSubmitText}>Enviar link</Text>}
+                    : <Text style={styles.modalSubmitText}>Enviar enlace</Text>}
                 </TouchableOpacity>
               )}
             </View>

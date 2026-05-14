@@ -31,7 +31,8 @@ export default function useModulePermissions(panelKey: string, allModuleKeys: st
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token || !panelKey) {
-      setAllowedModules(allModuleKeys);
+      // Sin token o sin panel → fail-closed (no permisos)
+      setAllowedModules([]);
       setEditableModules([]);
       setLoading(false);
       return;
@@ -79,13 +80,16 @@ export default function useModulePermissions(panelKey: string, allModuleKeys: st
           setAllowedModules(viewable);
           setEditableModules(editable);
         } else {
-          // Sin endpoint, mostrar todo por defecto
-          setAllowedModules(allModuleKeys);
+          // Endpoint falló (403, 500, etc.) → fail-closed para no exponer
+          // módulos por accidente. Mejor mostrar "sin permisos" que filtrar mal.
+          console.warn(`⚠️ No se pudieron cargar permisos de [${panelKey}] (status ${modulesRes.status}). Aplicando fail-closed.`);
+          setAllowedModules([]);
           setEditableModules([]);
         }
       } catch (err) {
         console.error(`Error cargando permisos [${panelKey}]:`, err);
-        setAllowedModules(allModuleKeys);
+        // Fail-closed ante cualquier error de red
+        setAllowedModules([]);
         setEditableModules([]);
       } finally {
         setLoading(false);

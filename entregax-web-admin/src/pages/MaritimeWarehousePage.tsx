@@ -160,7 +160,11 @@ function TabPanel(props: TabPanelProps) {
   );
 }
 
-const CHINA_SEA_MODULES = ['reception', 'container_unload', 'processing', 'customs_release', 'distribution', 'scanning', 'photos', 'damage_report'];
+// Módulos vigentes del panel ops_china_sea (alineados con ChinaSeaHubPage).
+// Los antiguos sub-pasos (container_unload, processing, customs_release,
+// distribution, scanning, photos, damage_report) quedaron deprecados; se
+// mantienen como inactivos en BD para preservar historial de permisos.
+const CHINA_SEA_MODULES = ['reception', 'reception_fcl', 'inventory'];
 
 export default function MaritimeWarehousePage() {
   useTranslation(); // Para futuras traducciones
