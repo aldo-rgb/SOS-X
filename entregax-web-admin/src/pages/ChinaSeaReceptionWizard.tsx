@@ -915,16 +915,6 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 <Typography variant="h5" sx={{ fontWeight: 700, color: TEAL, flex: 1 }}>
                     {mode === 'FCL' ? 'Actualizar Status Full Conteiner' : 'Recibir Contenedor'} · TDI Marítimo China
                 </Typography>
-                {step === 0 && mode === 'FCL' && (
-                    <Button
-                        variant="contained"
-                        size="small"
-                        onClick={() => setBulkOpen(true)}
-                        sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E64A19' }, mr: 1 }}
-                    >
-                        🚀 Actualización en serie
-                    </Button>
-                )}
                 {step === 0 && <IconButton onClick={loadContainers} size="small"><RefreshIcon /></IconButton>}
             </Stack>
 
