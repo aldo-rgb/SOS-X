@@ -167,7 +167,7 @@ const upsertSocialUser = async (params: {
     if (byEmail.rows.length > 0) {
         const existing = byEmail.rows[0];
         const updated = await pool.query(
-            `UPDATE users SET ${subColumn} = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+            `UPDATE users SET ${subColumn} = $1 WHERE id = $2 RETURNING *`,
             [sub, existing.id]
         );
         return { user: updated.rows[0], created: false };
