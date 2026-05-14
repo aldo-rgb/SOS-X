@@ -1591,7 +1591,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 <Paper sx={{ p: 4, textAlign: 'center' }}>
                     <CheckCircleIcon sx={{ fontSize: 80, color: result.missing === 0 ? '#2E7D32' : ORANGE }} />
                     <Typography variant="h5" sx={{ mt: 2, fontWeight: 700, color: BLACK }}>
-                        {result.missing === 0 ? 'Recepción completa' : 'Recepción parcial registrada'}
+                        {mode === 'FCL' ? 'Status actualizado' : (result.missing === 0 ? 'Recepción completa' : 'Recepción parcial registrada')}
                     </Typography>
                     <Typography color="text.secondary" sx={{ mt: 1 }}>
                         {selected?.reference_code} · {selected?.container_number}
