@@ -25,9 +25,14 @@ import axios from 'axios';
 import { GoogleOAuthProvider, GoogleLogin } from '@react-oauth/google';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
-const APPLE_SERVICES_ID = import.meta.env.VITE_APPLE_SERVICES_ID as string | undefined;
-const APPLE_REDIRECT_URI = import.meta.env.VITE_APPLE_REDIRECT_URI as string | undefined;
+const trimEnv = (v: unknown): string | undefined => {
+  if (typeof v !== 'string') return undefined;
+  const t = v.trim();
+  return t.length > 0 ? t : undefined;
+};
+const GOOGLE_CLIENT_ID = trimEnv(import.meta.env.VITE_GOOGLE_CLIENT_ID);
+const APPLE_SERVICES_ID = trimEnv(import.meta.env.VITE_APPLE_SERVICES_ID);
+const APPLE_REDIRECT_URI = trimEnv(import.meta.env.VITE_APPLE_REDIRECT_URI);
 
 interface Props {
   onSuccess: (data: { user: any; access: any }) => void;

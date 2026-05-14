@@ -285,8 +285,23 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
         res.status(created ? 201 : 200).json(buildLoginResponse(user, token, message));
     } catch (err: any) {
         console.error('[SOCIAL AUTH] Google error:', err?.message || err);
+        // Diagnostico: decodifica el JWT sin verificar para ver el 'aud' que mandó el cliente
+        let receivedAud: string | string[] | undefined;
+        try {
+            const raw = (req.body as any)?.idToken;
+            if (typeof raw === 'string' && raw.includes('.')) {
+                const payloadB64 = raw.split('.')[1] || '';
+                const json = Buffer.from(payloadB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
+                const decoded = JSON.parse(json);
+                receivedAud = decoded?.aud;
+                console.error('[SOCIAL AUTH] Google token aud:', receivedAud, 'expected (csv):', getGoogleAudiences());
+            }
+        } catch { /* ignore */ }
         res.status(401).json({
             error: 'No se pudo validar el token de Google',
+            errorCode: 'GOOGLE_TOKEN_INVALID',
+            receivedAud,
+            expectedAudiences: getGoogleAudiences(),
             details: process.env.NODE_ENV !== 'production' ? String(err?.message || err) : undefined,
         });
     }
