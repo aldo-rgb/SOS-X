@@ -1,11 +1,11 @@
 /**
  * PhoneVerificationBanner — Banner sticky en dashboard de cliente cuando
- * a\u00fan no ha verificado su WhatsApp.
+ * aún no ha verificado su WhatsApp.
  *
- * Se le pasa el user actual (con phone + phoneVerified). Si est\u00e1 verificado
+ * Se le pasa el user actual (con phone + phoneVerified). Si está verificado
  * o no es client, no renderiza nada.
  *
- * Bot\u00f3n "Verificar ahora" abre PhoneVerificationDialog.
+ * Botón "Verificar ahora" abre PhoneVerificationDialog.
  */
 import { useState } from 'react';
 import { Alert, Button, Box } from '@mui/material';
@@ -61,8 +61,8 @@ const PhoneVerificationBanner: React.FC<Props> = ({ user, onVerified }) => {
         }
       >
         <Box>
-          <strong>Verificaci\u00f3n de WhatsApp pendiente.</strong>{' '}
-          No podr\u00e1s pagar ni ver costos hasta confirmar tu n\u00famero.
+          <strong>Verificación de WhatsApp pendiente.</strong>{' '}
+          No podrás pagar ni ver costos hasta confirmar tu número.
         </Box>
       </Alert>
 
