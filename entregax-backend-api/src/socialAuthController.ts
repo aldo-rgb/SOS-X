@@ -287,6 +287,9 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
         console.error('[SOCIAL AUTH] Google error:', err?.message || err);
         // Diagnostico: decodifica el JWT sin verificar para ver el 'aud' que mandó el cliente
         let receivedAud: string | string[] | undefined;
+        let issuer: string | undefined;
+        let expDelta: number | undefined;
+        let iatDelta: number | undefined;
         try {
             const raw = (req.body as any)?.idToken;
             if (typeof raw === 'string' && raw.includes('.')) {
@@ -294,7 +297,11 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
                 const json = Buffer.from(payloadB64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8');
                 const decoded = JSON.parse(json);
                 receivedAud = decoded?.aud;
-                console.error('[SOCIAL AUTH] Google token aud:', receivedAud, 'expected (csv):', getGoogleAudiences());
+                issuer = decoded?.iss;
+                const nowSec = Math.floor(Date.now() / 1000);
+                if (typeof decoded?.exp === 'number') expDelta = decoded.exp - nowSec;
+                if (typeof decoded?.iat === 'number') iatDelta = nowSec - decoded.iat;
+                console.error('[SOCIAL AUTH] Google token aud:', receivedAud, 'expected (csv):', getGoogleAudiences(), 'iss:', issuer, 'expIn(s):', expDelta, 'tokenAge(s):', iatDelta);
             }
         } catch { /* ignore */ }
         res.status(401).json({
@@ -302,7 +309,11 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
             errorCode: 'GOOGLE_TOKEN_INVALID',
             receivedAud,
             expectedAudiences: getGoogleAudiences(),
-            details: process.env.NODE_ENV !== 'production' ? String(err?.message || err) : undefined,
+            issuer,
+            expIn: expDelta,
+            tokenAge: iatDelta,
+            // Siempre devolver details para poder diagnosticar (no expone secretos)
+            details: String(err?.message || err),
         });
     }
 };
