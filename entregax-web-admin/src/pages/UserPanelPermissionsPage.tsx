@@ -290,7 +290,7 @@ export default function UserPanelPermissionsPage() {
       'director': 'Director',
       'advisor': 'Asesor',
       'sub_advisor': 'Sub-Asesor',
-      'branch_manager': 'Gerente Sucursal',
+      'branch_manager': 'Operaciones',
       'counter_staff': 'Mostrador',
       'customer_service': 'Servicio Cliente',
       'warehouse_ops': 'Bodega',
@@ -364,7 +364,7 @@ export default function UserPanelPermissionsPage() {
               <MenuItem value="director">Director</MenuItem>
               <MenuItem value="advisor">Asesor</MenuItem>
               <MenuItem value="sub_advisor">Sub-Asesor</MenuItem>
-              <MenuItem value="branch_manager">Gerente Sucursal</MenuItem>
+              <MenuItem value="branch_manager">Operaciones</MenuItem>
               <MenuItem value="counter_staff">Mostrador</MenuItem>
               <MenuItem value="customer_service">Servicio Cliente</MenuItem>
               <MenuItem value="warehouse_ops">Bodega</MenuItem>

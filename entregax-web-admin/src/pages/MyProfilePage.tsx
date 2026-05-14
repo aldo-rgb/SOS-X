@@ -58,7 +58,7 @@ const roleLabels: Record<string, string> = {
   super_admin: 'Super Admin',
   admin: 'Administrador',
   director: 'Director',
-  branch_manager: 'Gerente de Sucursal',
+  branch_manager: 'Operaciones',
   finanzas: 'Finanzas',
   customer_service: 'Servicio al Cliente',
   counter_staff: 'Mostrador',
