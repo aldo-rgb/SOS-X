@@ -94,9 +94,9 @@ const CountryPhoneInput: React.FC<Props> = ({
   // Si el padre cambia value externamente (reset), sincronizamos
   useEffect(() => {
     const s = splitValue(value || '');
+    // eslint-disable-next-line react-you-might-not-need-an-effect/you-might-not-need-an-effect
     setCode(s.code);
     setLocal(s.local);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
 
   const propagate = (newCode: string, newLocal: string) => {
@@ -146,20 +146,6 @@ const CountryPhoneInput: React.FC<Props> = ({
           </MenuItem>
         ))}
       </TextField>
-
-      {/* C\u00f3digo de pa\u00eds editable (si no encuentra el suyo) */}
-      <TextField
-        size={size}
-        disabled={disabled}
-        label="C\u00f3digo"
-        value={code}
-        onChange={(e) => propagate(e.target.value, local)}
-        sx={{ width: 80 }}
-        inputProps={{ inputMode: 'numeric', pattern: '[0-9]*', maxLength: 4 }}
-        InputProps={{
-          startAdornment: <InputAdornment position="start">+</InputAdornment>,
-        }}
-      />
 
       {/* N\u00famero local */}
       <TextField
