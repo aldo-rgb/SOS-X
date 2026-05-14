@@ -163,6 +163,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
     const [containers, setContainers] = useState<Container[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState<string>('all');
     const [selected, setSelected] = useState<Container | null>(null);
 
     const [orders, setOrders] = useState<Order[]>([]);
@@ -942,15 +943,24 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             {/* STEP 0 */}
             {step === 0 && !loading && (() => {
                 const q = searchQuery.trim().toLowerCase();
+                const byStatus = statusFilter === 'all'
+                    ? containers
+                    : containers.filter((c) => (c.status || '') === statusFilter);
                 const filteredContainers = q
-                    ? containers.filter((c) =>
+                    ? byStatus.filter((c) =>
                         (c.reference_code || '').toLowerCase().includes(q) ||
                         (c.week_number || '').toLowerCase().includes(q) ||
                         (c.container_number || '').toLowerCase().includes(q) ||
                         (c.vessel_name || '').toLowerCase().includes(q) ||
                         (c.voyage_number || '').toLowerCase().includes(q)
                     )
-                    : containers;
+                    : byStatus;
+                // Conteo por status sobre el universo completo (sin texto, sin filtro)
+                const statusCounts: Record<string, number> = containers.reduce((acc, c) => {
+                    const k = c.status || 'unknown';
+                    acc[k] = (acc[k] || 0) + 1;
+                    return acc;
+                }, {} as Record<string, number>);
                 return (
                 <>
                     <TextField
@@ -962,6 +972,37 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         InputProps={{ startAdornment: <SearchIcon sx={{ color: TEAL, mr: 1 }} /> }}
                         sx={{ mb: 2, bgcolor: '#FFF' }}
                     />
+                    <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap', gap: 1 }}>
+                        <Chip
+                            label={`Todos (${containers.length})`}
+                            onClick={() => setStatusFilter('all')}
+                            sx={{
+                                fontWeight: 700,
+                                bgcolor: statusFilter === 'all' ? TEAL : '#ECEFF1',
+                                color: statusFilter === 'all' ? '#FFF' : BLACK,
+                                '&:hover': { bgcolor: statusFilter === 'all' ? '#00838F' : '#CFD8DC' },
+                            }}
+                        />
+                        {FCL_STATUSES.map((s) => {
+                            const count = statusCounts[s.value] || 0;
+                            const isActive = statusFilter === s.value;
+                            return (
+                                <Chip
+                                    key={s.value}
+                                    label={`${s.icon} ${s.label} (${count})`}
+                                    onClick={() => setStatusFilter(s.value)}
+                                    disabled={count === 0}
+                                    sx={{
+                                        fontWeight: 700,
+                                        bgcolor: isActive ? ORANGE : '#FFF',
+                                        color: isActive ? '#FFF' : BLACK,
+                                        border: `1px solid ${isActive ? ORANGE : '#CFD8DC'}`,
+                                        '&:hover': { bgcolor: isActive ? '#E64A19' : '#FFF3E0' },
+                                    }}
+                                />
+                            );
+                        })}
+                    </Stack>
                     <Paper variant="outlined">
                     {filteredContainers.length === 0 ? (
                         <Box sx={{ p: 4, textAlign: 'center' }}>
