@@ -173,6 +173,7 @@ const addressBaseFields = {
   city: z.string().trim().min(1).max(120),
   state: z.string().trim().min(1).max(120),
   zip_code: z.string().trim().min(3).max(15),
+  country: z.string().trim().max(60).optional().nullable(),
   phone: z.string().trim().max(30).optional().nullable(),
   reference: z.string().trim().max(500).optional().nullable(),
   reception_hours: z.string().trim().max(120).optional().nullable(),
