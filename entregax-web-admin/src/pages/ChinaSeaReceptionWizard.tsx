@@ -184,6 +184,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [driverPhone, setDriverPhone] = useState('');
     const [driverCompany, setDriverCompany] = useState('');
     const [driverNotes, setDriverNotes] = useState('');
+    // Cuando un contenedor ya tiene ruta asignada (placas / operador / empresa),
+    // mostramos un resumen de "ya asignado" y solo entramos en modo edición
+    // cuando el usuario explicitamente pulsa "Editar / Reasignar".
+    const [editingRoute, setEditingRoute] = useState(false);
 
     // Historial de cambios de status
     type HistoryEntry = {
@@ -193,6 +197,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         driver_name: string | null;
         driver_plates: string | null;
         driver_phone: string | null;
+        driver_company: string | null;
         notes: string | null;
         changed_by_name: string | null;
         changed_at: string;
@@ -682,6 +687,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setDriverPhone((c as any).driver_phone || '');
             setDriverCompany((c as any).driver_company || '');
             setDriverNotes('');
+            setEditingRoute(false);
             setTruckMode('sencillo');
             setSecondContainerId(null);
             // Preseleccionar "En tránsito a destino" por ser el flujo más común
@@ -1185,6 +1191,57 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         )}
 
                         {/* Info de la ruta hacia destino (operador / placas / teléfono) */}
+                        {(() => {
+                            const hasAssignedRoute = !!((driverName && driverName.trim()) || (driverPlates && driverPlates.trim()) || (driverPhone && driverPhone.trim()) || (driverCompany && driverCompany.trim()));
+                            if (hasAssignedRoute && !editingRoute) {
+                                return (
+                                    <Box sx={{ mt: 2, p: 2, bgcolor: '#E8F5E9', borderRadius: 2, border: `1px solid #4CAF50` }}>
+                                        <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 1, flexWrap: 'wrap' }}>
+                                            <Typography sx={{ fontWeight: 700, color: '#2E7D32' }}>
+                                                ✅ Ruta ya asignada
+                                            </Typography>
+                                            <Button
+                                                size="small"
+                                                variant="outlined"
+                                                onClick={() => setEditingRoute(true)}
+                                                sx={{ borderColor: ORANGE, color: ORANGE, fontWeight: 700, '&:hover': { borderColor: '#E64A19', bgcolor: '#FFF3E0' } }}
+                                            >
+                                                ✏️ Editar / Reasignar
+                                            </Button>
+                                        </Stack>
+                                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                                            Este contenedor ya cuenta con datos de operador y unidad. Si necesitas cambiarlos, pulsa "Editar / Reasignar".
+                                        </Typography>
+                                        <Grid container spacing={1.5}>
+                                            {driverCompany && (
+                                                <Grid size={{ xs: 12 }}>
+                                                    <Typography variant="caption" color="text.secondary">Empresa transportista</Typography>
+                                                    <Typography sx={{ fontWeight: 700 }}>{driverCompany}</Typography>
+                                                </Grid>
+                                            )}
+                                            {driverName && (
+                                                <Grid size={{ xs: 12, sm: 6 }}>
+                                                    <Typography variant="caption" color="text.secondary">Operador</Typography>
+                                                    <Typography sx={{ fontWeight: 700 }}>{driverName}</Typography>
+                                                </Grid>
+                                            )}
+                                            {driverPlates && (
+                                                <Grid size={{ xs: 12, sm: 6 }}>
+                                                    <Typography variant="caption" color="text.secondary">Placas</Typography>
+                                                    <Typography sx={{ fontWeight: 700, fontFamily: 'monospace' }}>{driverPlates}</Typography>
+                                                </Grid>
+                                            )}
+                                            {driverPhone && (
+                                                <Grid size={{ xs: 12, sm: 6 }}>
+                                                    <Typography variant="caption" color="text.secondary">Teléfono</Typography>
+                                                    <Typography sx={{ fontWeight: 700 }}>{driverPhone}</Typography>
+                                                </Grid>
+                                            )}
+                                        </Grid>
+                                    </Box>
+                                );
+                            }
+                            return (
                         <Box sx={{ mt: 2, p: 2, bgcolor: '#FFF8E1', borderRadius: 2, border: `1px dashed ${ORANGE}` }}>
                             <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 1, flexWrap: 'wrap' }}>
                                 <Typography sx={{ fontWeight: 700, color: ORANGE }}>
@@ -1289,6 +1346,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 </Grid>
                             </Grid>
                         </Box>
+                            );
+                        })()}
 
                         {/* Historial de cambios */}
                         <Box sx={{ mt: 3 }}>
