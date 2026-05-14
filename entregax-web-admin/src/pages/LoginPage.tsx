@@ -35,6 +35,8 @@ import GroupAddIcon from '@mui/icons-material/GroupAdd';
 import PhoneIcon from '@mui/icons-material/Phone';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import SocialAuthButtons from '../components/SocialAuthButtons';
+import CountryPhoneInput from '../components/CountryPhoneInput';
+import PhoneVerificationDialog from '../components/PhoneVerificationDialog';
 
 interface LoginPageProps {
   onLoginSuccess: (userData: any) => void;
@@ -95,9 +97,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   } | null>(null);
 
   // Existing client dialog state
-  const [existingClientDialog, setExistingClientDialog] = useState(false);
-  const [activationQuestionDialog, setActivationQuestionDialog] = useState(false);
+  const [existingClientDialog, setExistingClientDialog] = useState(false);  const [activationQuestionDialog, setActivationQuestionDialog] = useState(false);
   const [activationFlowSelected, setActivationFlowSelected] = useState(false);
+
+  // Phone verification (post-registro / post-claim)
+  const [phoneVerifyOpen, setPhoneVerifyOpen] = useState(false);
+  const [pendingPhone, setPendingPhone] = useState('');
+  const [pendingUserData, setPendingUserData] = useState<any>(null);
   const [existingClientStep, setExistingClientStep] = useState(0);
   const [existingBoxId, setExistingBoxId] = useState('');
   const [existingName, setExistingName] = useState('');
@@ -379,8 +385,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       return;
     }
 
-    if (registerPhone && registerPhone.length < 10) {
-      setError('El número de WhatsApp debe tener al menos 10 dígitos');
+    // Tel\u00e9fono ahora es OBLIGATORIO (debe traer ya c\u00f3digo de pa\u00eds)
+    if (!registerPhone || registerPhone.length < 11) {
+      setError('Ingresa tu n\u00famero de WhatsApp con c\u00f3digo de pa\u00eds.');
       return;
     }
 
@@ -390,31 +397,26 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       const response = await axios.post(`${API_URL}/auth/register`, {
         fullName: registerName,
         email: registerEmail,
-        phone: registerPhone || undefined,
+        phone: registerPhone,
         password: registerPassword,
         referralCodeInput: referralCode.trim().toUpperCase() || undefined,
       });
 
-      const advisorMsg = response.data.user.hasAdvisor ? '\n¡Tu asesor ha sido asignado!' : '';
-      const referralMsg = response.data.user.referredBy ? '\n¡Recibirás tu bono de bienvenida!' : '';
-      
-      setSuccess(`¡Registro exitoso! Tu casillero es ${response.data.user.boxId}.${advisorMsg}${referralMsg} Ahora puedes iniciar sesión.`);
-      
-      // Limpiar formulario y cambiar a login
-      setRegisterName('');
-      setRegisterEmail('');
-      setRegisterPhone('');
-      setRegisterPassword('');
-      setRegisterConfirmPassword('');
-      setReferralCode('');
-      setCodeValidation(null);
-      
-      setTimeout(() => {
-        setTabValue(0);
-        setLoginEmail(registerEmail);
-        setSuccess('');
-      }, 4000);
+      const advisorMsg = response.data.user.hasAdvisor ? '\n\u00a1Tu asesor ha sido asignado!' : '';
+      const referralMsg = response.data.user.referredBy ? '\n\u00a1Recibir\u00e1s tu bono de bienvenida!' : '';
 
+      // Guardar token y user para que el dialog de OTP pueda usarlos
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+      }
+      if (response.data.user) {
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+      }
+      setPendingUserData(response.data);
+      setPendingPhone(registerPhone);
+      setPhoneVerifyOpen(true);
+
+      setSuccess(`\u00a1Registro exitoso! Tu casillero es ${response.data.user.boxId}.${advisorMsg}${referralMsg}`);
     } catch (err: any) {
       const data = err.response?.data;
       // Si el correo corresponde a un cliente anterior (legacy), redirigir
@@ -510,8 +512,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       setError('Ingresa un correo electrónico válido');
       return;
     }
-    if (!existingPhone || existingPhone.length < 10) {
-      setError('Ingresa un número de WhatsApp válido (10 dígitos)');
+    if (!existingPhone || existingPhone.length < 11) {
+      setError('Ingresa tu número de WhatsApp con código de país.');
       return;
     }
 
@@ -529,13 +531,21 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
 
       const advisorMsg = response.data.user?.hasAdvisor ? '\n¡Tu asesor ha sido asignado!' : '';
       const referralMsg = response.data.user?.referredBy ? '\n¡Recibirás tu bono de bienvenida!' : '';
-      setSuccess(`¡Cuenta activada! Tu casillero es ${response.data.user.box_id}.${advisorMsg}${referralMsg} Ahora puedes iniciar sesión.`);
+
+      // Persistir token + user para que el OTP dialog pueda autenticarse
+      if (response.data.token) {
+        localStorage.setItem('token', response.data.token);
+      }
+      if (response.data.user) {
+        localStorage.setItem('user', JSON.stringify(response.data.user));
+      }
+      setPendingUserData(response.data);
+      setPendingPhone(existingPhone);
       setExistingClientDialog(false);
-      resetExistingClientForm();
-      setTabValue(0);
+      setPhoneVerifyOpen(true);
+      setSuccess(`¡Cuenta activada! Tu casillero es ${response.data.user.box_id}.${advisorMsg}${referralMsg}`);
       setLoginEmail(existingEmail);
-      
-      setTimeout(() => setSuccess(''), 5000);
+      setTimeout(() => setSuccess(''), 6000);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Error al activar cuenta');
     } finally {
@@ -838,22 +848,15 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     ),
                   }}
                 />
-                <TextField
-                  fullWidth
-                  label="WhatsApp (10 dígitos)"
-                  value={registerPhone}
-                  onChange={(e) => setRegisterPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                  placeholder="55 1234 5678"
-                  sx={{ mb: 2.5 }}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <PhoneIcon sx={{ color: 'text.secondary' }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                  helperText="Opcional - Para notificaciones"
-                />
+                <Box sx={{ mb: 2.5 }}>
+                  <CountryPhoneInput
+                    value={registerPhone}
+                    onChange={setRegisterPhone}
+                    label="WhatsApp"
+                    required
+                    helperText="Recibir\u00e1s un c\u00f3digo de verificaci\u00f3n por WhatsApp"
+                  />
+                </Box>
 
                 {/* Referral Code Section */}
                 {refFromUrl && codeValidation?.valid ? (
@@ -1295,21 +1298,15 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 }}
                 sx={{ mb: 2 }}
               />
-              <TextField
-                fullWidth
-                label="WhatsApp (10 dígitos)"
-                value={existingPhone}
-                onChange={(e) => setExistingPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                required
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <PhoneIcon sx={{ color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
-                sx={{ mb: 2 }}
-              />
+              <Box sx={{ mb: 2 }}>
+                <CountryPhoneInput
+                  value={existingPhone}
+                  onChange={setExistingPhone}
+                  label="WhatsApp"
+                  required
+                  helperText="Recibirás un código de verificación por WhatsApp"
+                />
+              </Box>
 
               {/* Referral Code Section in Step 2 */}
               <Divider sx={{ my: 2 }}>
@@ -1412,7 +1409,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 variant="contained"
                 fullWidth
                 onClick={() => setExistingClientStep(3)}
-                disabled={!existingEmail || !existingPhone || existingPhone.length < 10}
+                disabled={!existingEmail || !existingPhone || existingPhone.length < 11}
                 sx={{
                   mt: 2,
                   background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)',
@@ -1741,6 +1738,47 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           )}
         </DialogActions>
       </Dialog>
+
+      {/* OTP de verificación de WhatsApp tras registro / activación */}
+      <PhoneVerificationDialog
+        open={phoneVerifyOpen}
+        phone={pendingPhone}
+        token={pendingUserData?.token}
+        onVerified={() => {
+          setPhoneVerifyOpen(false);
+          setSuccess('¡WhatsApp verificado! Ya puedes iniciar sesión.');
+          // Limpiar formularios y volver a tab de login
+          setRegisterName('');
+          setRegisterEmail('');
+          setRegisterPhone('');
+          setRegisterPassword('');
+          setRegisterConfirmPassword('');
+          resetExistingClientForm();
+          setTabValue(0);
+          // Cerrar sesión local: el usuario debe iniciar sesión normalmente
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setPendingUserData(null);
+          setPendingPhone('');
+          setTimeout(() => setSuccess(''), 6000);
+        }}
+        onSkip={() => {
+          setPhoneVerifyOpen(false);
+          setSuccess('Tu cuenta fue creada. Recuerda verificar tu WhatsApp para poder pagar y ver costos.');
+          setRegisterName('');
+          setRegisterEmail('');
+          setRegisterPhone('');
+          setRegisterPassword('');
+          setRegisterConfirmPassword('');
+          resetExistingClientForm();
+          setTabValue(0);
+          localStorage.removeItem('token');
+          localStorage.removeItem('user');
+          setPendingUserData(null);
+          setPendingPhone('');
+          setTimeout(() => setSuccess(''), 8000);
+        }}
+      />
     </Box>
   );
 }

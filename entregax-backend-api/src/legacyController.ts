@@ -399,6 +399,14 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             });
         }
 
+        // Tel\u00e9fono ahora es obligatorio (verificaci\u00f3n WhatsApp)
+        if (!phone || String(phone).replace(/\D/g, '').length < 10) {
+            return res.status(400).json({
+                error: 'El n\u00famero de WhatsApp es obligatorio (con c\u00f3digo de pa\u00eds).',
+                code: 'PHONE_REQUIRED'
+            });
+        }
+
         await client.query('BEGIN');
 
         // 1. Buscar en la base de datos legacy
@@ -566,6 +574,8 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             token,
             user: {
                 ...newUser.rows[0],
+                phone: phone || null,
+                phoneVerified: false,
                 hasAdvisor,
                 referredBy
             }

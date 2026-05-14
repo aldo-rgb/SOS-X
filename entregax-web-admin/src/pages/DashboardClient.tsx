@@ -114,6 +114,7 @@ import { Collapse } from '@mui/material';
 import api from '../services/api';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
+import PhoneVerificationBanner from '../components/PhoneVerificationBanner';
 import ClientTicketsPage from './ClientTicketsPage';
 import EntangledPaymentRequest from '../components/EntangledPaymentRequest';
 import ExternalProviderPage from './ExternalProviderPage';
@@ -369,8 +370,22 @@ export default function DashboardClient() {
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled } = usePaymentStatus();
-  const paymentsEnabled = xpayEnabled; // alias para el botón X-Pay; entregaxPaymentsEnabled disponible para el flujo nativo
+  const { xpayEnabled, entregaxPaymentsEnabled: rawEntregaxPaymentsEnabled, gexEnabled } = usePaymentStatus();
+  // Lee user del localStorage (puede haber sido actualizado tras OTP)
+  const currentUser = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('user');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+    // re-evaluar al cambiar tab/foco
+  }, []);
+  const isPhoneVerified = currentUser?.phoneVerified === true || currentUser?.phone_verified === true;
+  // X-Pay solo habilitado si feature flag + WhatsApp verificado
+  const paymentsEnabled = xpayEnabled && isPhoneVerified;
+  // Pagos nativos EntregaX también requieren teléfono verificado
+  const entregaxPaymentsEnabled = rawEntregaxPaymentsEnabled && isPhoneVerified;
 
   const SERVICE_CONFIG = useMemo<ServiceConfigItem[]>(() => [
     { type: 'china_air', name: t('cd.services.china_air'), icon: '✈️', timeframe: t('cd.services.china_air_time'), tutorial: t('cd.services.china_air_tutorial') },
@@ -4366,6 +4381,10 @@ export default function DashboardClient() {
   };
 
   const formatCurrency = (amount: number, currency = 'MXN') => {
+    // Si el cliente no ha verificado WhatsApp, ocultamos los costos.
+    if (!isPhoneVerified) {
+      return '🔒 Verifica WhatsApp';
+    }
     return new Intl.NumberFormat('es-MX', {
       style: 'currency',
       currency: currency,
@@ -4558,6 +4577,8 @@ export default function DashboardClient() {
       overflowX: 'hidden',
       maxWidth: '100vw',
     }}>
+      {/* Banner de verificación de WhatsApp pendiente */}
+      <PhoneVerificationBanner user={currentUser} onVerified={() => window.location.reload()} />
       {/* Header de Bienvenida - Mobile optimized */}
       <Paper 
         sx={{ 

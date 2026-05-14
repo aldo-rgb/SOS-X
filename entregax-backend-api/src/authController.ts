@@ -306,6 +306,8 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
                 email: savedUser.email,
                 boxId: savedUser.box_id,
                 role: savedUser.role,
+                phone: savedUser.phone,
+                phoneVerified: false,
                 referralCode: savedUser.referral_code,
                 referredBy: referidoPorId ? true : false,
                 hasAdvisor: advisorId ? true : false
@@ -385,6 +387,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
                 rfc: user.rfc || null,
                 isVerified: user.is_verified || false,
                 verificationStatus: user.verification_status || 'not_started',
+                phoneVerified: user.phone_verified === true,
                 // 👷 Campo para onboarding de empleados
                 isEmployeeOnboarded: user.is_employee_onboarded || false,
                 // 📋 Aceptación de aviso de privacidad
@@ -686,7 +689,7 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
         const userQuery = await pool.query(
             `SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.warehouse_location, u.created_at,
                     u.is_verified, u.verification_status, u.is_employee_onboarded, u.profile_photo_url,
-                    u.phone, u.rfc, u.referred_by_id, u.privacy_accepted_at,
+                    u.phone, u.phone_verified, u.rfc, u.referred_by_id, u.privacy_accepted_at,
                     u.gex_auto_enabled,
                     u.advisor_id,
                     a.full_name as advisor_name,

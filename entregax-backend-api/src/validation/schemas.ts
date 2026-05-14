@@ -53,7 +53,9 @@ export const registerSchema = z
     fullName: z.string().trim().min(2).max(120),
     email: z.string().trim().toLowerCase().email().max(255),
     password: z.string().min(8).max(200).optional(),
-    phone: z.string().trim().max(30).optional(),
+    // Teléfono ahora es obligatorio (excepto cuando isAdminCreated=true que ya valida en controller).
+    // Formato esperado: con código de país (ej. 5215512345678).
+    phone: z.string().trim().min(7).max(20),
     isAdminCreated: z.boolean().optional(),
     referralCodeInput: z.string().trim().max(50).optional(),
     existingBoxId: z.string().trim().max(20).optional(),
