@@ -997,7 +997,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 '&:hover': { bgcolor: statusFilter === 'all' ? '#00838F' : '#CFD8DC' },
                             }}
                         />
-                        {FCL_STATUSES.map((s) => {
+                        {FCL_STATUSES.filter((s) => s.value !== 'received_origin' && s.value !== 'consolidated').map((s) => {
                             const count = statusCounts[s.value] || 0;
                             const isActive = statusFilter === s.value;
                             return (
