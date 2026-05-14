@@ -204,6 +204,22 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     };
     const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
+    type DestinationAddress = {
+        id?: number;
+        label?: string | null;
+        recipient_name?: string | null;
+        phone?: string | null;
+        street?: string | null;
+        exterior_number?: string | null;
+        interior_number?: string | null;
+        neighborhood?: string | null;
+        city?: string | null;
+        state?: string | null;
+        zip_code?: string | null;
+        country?: string | null;
+        references_text?: string | null;
+    };
+    const [destinationAddress, setDestinationAddress] = useState<DestinationAddress | null>(null);
     // Modo de viaje: 'sencillo' (1 contenedor) o 'full' (2 contenedores con mismo operador)
     const [truckMode, setTruckMode] = useState<'sencillo' | 'full'>('sencillo');
     const [secondContainerId, setSecondContainerId] = useState<number | null>(null);
@@ -213,8 +229,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         try {
             const r = await api.get(`/maritime/containers/${containerId}/status-history`);
             setHistory(r.data?.history || []);
+            setDestinationAddress(r.data?.destinationAddress || null);
         } catch {
             setHistory([]);
+            setDestinationAddress(null);
         } finally {
             setLoadingHistory(false);
         }
@@ -1188,6 +1206,37 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             <Alert severity="info" sx={{ mb: 2 }}>
                                 {FCL_STATUSES.find((s) => s.value === fclStatus)?.description}
                             </Alert>
+                        )}
+
+                        {/* 📍 Dirección de envío del cliente final */}
+                        {destinationAddress && (
+                            <Box sx={{ mt: 2, p: 2, bgcolor: '#E3F2FD', borderRadius: 2, border: '1px solid #1976D2' }}>
+                                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                                    <Typography sx={{ fontWeight: 700, color: '#1976D2' }}>
+                                        📍 Dirección de envío
+                                    </Typography>
+                                    {destinationAddress.label && (
+                                        <Chip label={destinationAddress.label} size="small" sx={{ bgcolor: '#1976D2', color: '#FFF', fontWeight: 700 }} />
+                                    )}
+                                </Stack>
+                                {destinationAddress.recipient_name && (
+                                    <Typography sx={{ fontWeight: 700 }}>{destinationAddress.recipient_name}{destinationAddress.phone ? ` · ${destinationAddress.phone}` : ''}</Typography>
+                                )}
+                                <Typography variant="body2" sx={{ color: BLACK }}>
+                                    {[destinationAddress.street, destinationAddress.exterior_number].filter(Boolean).join(' ')}
+                                    {destinationAddress.interior_number ? ` Int. ${destinationAddress.interior_number}` : ''}
+                                    {destinationAddress.neighborhood ? `, Col. ${destinationAddress.neighborhood}` : ''}
+                                </Typography>
+                                <Typography variant="body2" sx={{ color: BLACK }}>
+                                    {[destinationAddress.city, destinationAddress.state, destinationAddress.zip_code].filter(Boolean).join(', ')}
+                                    {destinationAddress.country ? ` · ${destinationAddress.country}` : ''}
+                                </Typography>
+                                {destinationAddress.references_text && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                        Ref.: {destinationAddress.references_text}
+                                    </Typography>
+                                )}
+                            </Box>
                         )}
 
                         {/* Info de la ruta hacia destino (operador / placas / teléfono) */}

@@ -335,7 +335,31 @@ export const getContainerStatusHistory = async (req: AuthRequest, res: Response)
         ORDER BY changed_at DESC`,
       [id]
     );
-    res.json({ history: result.rows });
+
+    // 📍 Dirección de envío (destino) del cliente del contenedor.
+    // Prioriza la dirección marcada como default_for_service que incluya
+    // 'maritimo' o 'fcl', si no usa la default general (is_default), y como
+    // último recurso la más reciente.
+    let destinationAddress: any = null;
+    const cRes = await pool.query('SELECT client_user_id FROM containers WHERE id = $1', [id]);
+    const clientUserId = cRes.rows[0]?.client_user_id;
+    if (clientUserId) {
+      const addrRes = await pool.query(
+        `SELECT id, label, recipient_name, phone, street, exterior_number, interior_number,
+                neighborhood, city, state, zip_code, country, references_text, default_for_service, is_default
+           FROM addresses
+          WHERE user_id = $1
+          ORDER BY
+            (COALESCE(default_for_service,'') ILIKE '%maritimo%' OR COALESCE(default_for_service,'') ILIKE '%fcl%') DESC,
+            is_default DESC,
+            created_at DESC
+          LIMIT 1`,
+        [clientUserId]
+      );
+      destinationAddress = addrRes.rows[0] || null;
+    }
+
+    res.json({ history: result.rows, destinationAddress });
   } catch (error) {
     console.error('Error getting container status history:', error);
     res.status(500).json({ error: 'Error al obtener historial' });
