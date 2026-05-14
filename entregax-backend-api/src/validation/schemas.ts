@@ -80,6 +80,22 @@ export const changePasswordSchema = z
   })
   .strict();
 
+/** POST /api/auth/google — idToken JWT firmado por Google */
+export const googleAuthSchema = z
+  .object({
+    idToken: z.string().min(20).max(8000),
+  })
+  .strict();
+
+/** POST /api/auth/apple — idToken JWT firmado por Apple + nombre opcional
+ * (Apple sólo envía el nombre la primera vez en el cliente). */
+export const appleAuthSchema = z
+  .object({
+    idToken: z.string().min(20).max(8000),
+    fullName: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
 // ============================================================
 // SCHEMAS — PAYMENTS / CONSOLIDATIONS
 // ============================================================

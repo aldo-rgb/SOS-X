@@ -16,6 +16,8 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  googleAuthSchema,
+  appleAuthSchema,
   createPaymentOrderSchema,
   capturePaymentOrderSchema,
   payPoboxInternalSchema,
@@ -64,6 +66,7 @@ import {
   logoutUser,
   deleteMyAccount
 } from './authController';
+import { googleAuth, appleAuth, socialAuthStatus } from './socialAuthController';
 import {
   createPackage,
   getPackages,
@@ -1877,6 +1880,13 @@ app.put('/api/auth/update-profile', authenticateToken, updateProfile);
 app.put('/api/auth/profile-photo', authenticateToken, updateProfilePhoto);
 // Account Deletion (Google Play + App Store 2024) — requiere password + confirm="ELIMINAR"
 app.delete('/api/auth/account', authenticateToken, deleteMyAccount);
+
+// --- SIGN IN WITH GOOGLE / APPLE (feature flags via env) ---
+// Si GOOGLE_OAUTH_CLIENT_IDS / APPLE_AUDIENCES no están configuradas,
+// los handlers responden 503 y el frontend simplemente no muestra el botón.
+app.get('/api/auth/social/status', socialAuthStatus);
+app.post('/api/auth/google', authRateLimit, validateBody(googleAuthSchema), googleAuth);
+app.post('/api/auth/apple', authRateLimit, validateBody(appleAuthSchema), appleAuth);
 
 // --- RUTAS DE CLIENTES LEGACY (Migración) ---
 // Públicas (para registro)

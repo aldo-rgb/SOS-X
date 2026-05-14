@@ -34,6 +34,7 @@ import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import GroupAddIcon from '@mui/icons-material/GroupAdd';
 import PhoneIcon from '@mui/icons-material/Phone';
 import InventoryIcon from '@mui/icons-material/Inventory';
+import SocialAuthButtons from '../components/SocialAuthButtons';
 
 interface LoginPageProps {
   onLoginSuccess: (userData: any) => void;
@@ -749,6 +750,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     ¿Olvidaste tu contraseña?
                   </Button>
                 </Box>
+
+                {/* Sign in with Google / Apple (feature-flagged via VITE envs) */}
+                <SocialAuthButtons
+                  onSuccess={({ user, access }) => onLoginSuccess({ user, access })}
+                  onError={(msg) => setError(msg)}
+                  disabled={loading}
+                />
               </form>
             </TabPanel>
 
@@ -1023,6 +1031,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   )}
                 </Button>
 
+                {/* Sign up with Google / Apple (feature-flagged via VITE envs) */}
+                <SocialAuthButtons
+                  onSuccess={({ user, access }) => onLoginSuccess({ user, access })}
+                  onError={(msg) => setError(msg)}
+                  disabled={loading}
+                />
+
               </form>
             </TabPanel>
 
@@ -1045,7 +1060,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           {forgotSent ? (
             <Box sx={{ pt: 1 }}>
               <Typography variant="body2" sx={{ color: '#444' }}>
-                Te enviamos un link a <strong>{forgotEmail}</strong> para
+                Te enviamos un enlace a <strong>{forgotEmail}</strong> para
                 restablecer tu contraseña. Es válido por <strong>1 hora</strong>.
                 Revisa también tu carpeta de spam.
               </Typography>
