@@ -1744,7 +1744,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                         Status a aplicar a los {bulkResults.matched.length} contenedor(es):
                                     </FormLabel>
                                     <RadioGroup value={bulkStatus} onChange={(e) => setBulkStatus(e.target.value)}>
-                                        {FCL_STATUSES.map((s) => (
+                                        {FCL_STATUSES
+                                            .filter((s) => !['received_origin', 'consolidated'].includes(s.value))
+                                            .map((s) => (
                                             <FormControlLabel
                                                 key={s.value}
                                                 value={s.value}
