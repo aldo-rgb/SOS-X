@@ -8403,10 +8403,11 @@ async function ensureRequiredColumns() {
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS pqtx_shipment_id INTEGER;
       CREATE INDEX IF NOT EXISTS idx_packages_pqtx_shipment_id ON packages(pqtx_shipment_id);
 
-      -- 🚛 Info de la ruta hacia destino (operador, placas, teléfono) para contenedores FCL
+      -- 🚛 Info de la ruta hacia destino (operador, placas, teléfono, empresa) para contenedores FCL
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_name TEXT;
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_plates TEXT;
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_phone TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_company TEXT;
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS route_dispatched_at TIMESTAMP;
 
       -- 📜 Historial de cambios de status del contenedor (auditoría completa)
@@ -8423,6 +8424,7 @@ async function ensureRequiredColumns() {
         changed_by_name TEXT,
         changed_at TIMESTAMP DEFAULT NOW()
       );
+      ALTER TABLE container_status_history ADD COLUMN IF NOT EXISTS driver_company TEXT;
       CREATE INDEX IF NOT EXISTS idx_container_status_history_container ON container_status_history(container_id);
       CREATE INDEX IF NOT EXISTS idx_container_status_history_changed_at ON container_status_history(changed_at DESC);
     `);

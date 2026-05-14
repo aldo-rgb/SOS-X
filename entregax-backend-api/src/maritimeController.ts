@@ -209,7 +209,7 @@ export const updateContainer = async (req: AuthRequest, res: Response): Promise<
 export const updateContainerStatus = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
-    const { status, driver_name, driver_plates, driver_phone, notes } = req.body;
+    const { status, driver_name, driver_plates, driver_phone, driver_company, notes } = req.body;
 
     const validStatuses = ['received_origin', 'consolidated', 'in_transit', 'arrived_port', 'customs_cleared', 'in_transit_clientfinal', 'delivered'];
     if (!validStatuses.includes(status)) {
@@ -228,9 +228,9 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
       WHERE ms.container_id = $1 AND ms.user_id IS NOT NULL
     `, [id]);
 
-    // Si hay info de ruta (operador/placas/teléfono), guardarla en containers
+    // Si hay info de ruta (operador/placas/teléfono/empresa), guardarla en containers
     // y marcar route_dispatched_at cuando se transiciona a in_transit_clientfinal
-    const hasRouteInfo = !!(driver_name || driver_plates || driver_phone);
+    const hasRouteInfo = !!(driver_name || driver_plates || driver_phone || driver_company);
     if (hasRouteInfo) {
       const dispatchedAtClause = status === 'in_transit_clientfinal' ? ', route_dispatched_at = NOW()' : '';
       await pool.query(
@@ -239,10 +239,11 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
                 driver_name = COALESCE(NULLIF($2,''), driver_name),
                 driver_plates = COALESCE(NULLIF($3,''), driver_plates),
                 driver_phone = COALESCE(NULLIF($4,''), driver_phone),
+                driver_company = COALESCE(NULLIF($5,''), driver_company),
                 updated_at = NOW()
                 ${dispatchedAtClause}
-          WHERE id = $5`,
-        [status, driver_name || '', driver_plates || '', driver_phone || '', id]
+          WHERE id = $6`,
+        [status, driver_name || '', driver_plates || '', driver_phone || '', driver_company || '', id]
       );
     } else {
       await pool.query('UPDATE containers SET status = $1, updated_at = NOW() WHERE id = $2', [status, id]);
@@ -255,8 +256,8 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
     try {
       await pool.query(
         `INSERT INTO container_status_history
-           (container_id, previous_status, new_status, driver_name, driver_plates, driver_phone, notes, changed_by_user_id, changed_by_name)
-         VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), $8, $9)`,
+           (container_id, previous_status, new_status, driver_name, driver_plates, driver_phone, driver_company, notes, changed_by_user_id, changed_by_name)
+         VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), $9, $10)`,
         [
           id,
           previousStatus,
@@ -264,6 +265,7 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
           driver_name || '',
           driver_plates || '',
           driver_phone || '',
+          driver_company || '',
           notes || '',
           req.user?.userId || null,
           req.user?.email || null,
@@ -326,7 +328,7 @@ export const getContainerStatusHistory = async (req: AuthRequest, res: Response)
   try {
     const { id } = req.params;
     const result = await pool.query(
-      `SELECT id, previous_status, new_status, driver_name, driver_plates, driver_phone,
+      `SELECT id, previous_status, new_status, driver_name, driver_plates, driver_phone, driver_company,
               notes, changed_by_user_id, changed_by_name, changed_at
          FROM container_status_history
         WHERE container_id = $1

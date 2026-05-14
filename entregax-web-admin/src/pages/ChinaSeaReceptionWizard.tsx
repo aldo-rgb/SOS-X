@@ -181,6 +181,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [driverName, setDriverName] = useState('');
     const [driverPlates, setDriverPlates] = useState('');
     const [driverPhone, setDriverPhone] = useState('');
+    const [driverCompany, setDriverCompany] = useState('');
     const [driverNotes, setDriverNotes] = useState('');
 
     // Historial de cambios de status
@@ -234,6 +235,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 driver_name: driverName.trim() || undefined,
                 driver_plates: driverPlates.trim() || undefined,
                 driver_phone: driverPhone.trim() || undefined,
+                driver_company: driverCompany.trim() || undefined,
                 notes: driverNotes.trim() || undefined,
             };
             await api.put(`/maritime/containers/${selected.id}/status`, payload);
@@ -677,6 +679,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setDriverName((c as any).driver_name || '');
             setDriverPlates((c as any).driver_plates || '');
             setDriverPhone((c as any).driver_phone || '');
+            setDriverCompany((c as any).driver_company || '');
             setDriverNotes('');
             setTruckMode('sencillo');
             setSecondContainerId(null);
@@ -1202,6 +1205,16 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             )}
 
                             <Grid container spacing={2}>
+                                <Grid size={{ xs: 12 }}>
+                                    <TextField
+                                        fullWidth
+                                        size="small"
+                                        label="Empresa transportista"
+                                        value={driverCompany}
+                                        onChange={(e) => setDriverCompany(e.target.value)}
+                                        placeholder="Ej. Transportes del Norte S.A. de C.V."
+                                    />
+                                </Grid>
                                 <Grid size={{ xs: 12, sm: 6 }}>
                                     <TextField
                                         fullWidth
