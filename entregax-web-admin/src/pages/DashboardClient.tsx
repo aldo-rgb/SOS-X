@@ -921,6 +921,18 @@ export default function DashboardClient() {
     return selected.reduce((sum, p) => sum + (p.total_boxes && p.total_boxes > 1 ? p.total_boxes : 1), 0);
   }, [packages, selectedPackageIds]);
 
+  // ¿Todos los paquetes seleccionados son FCL? En ese caso no se pide paquetería
+  // (la mercancía se mueve por trailer dedicado), solo dirección de entrega.
+  const isFCLSelection = useMemo(() => {
+    const selected = packages.filter(p => selectedPackageIds.includes(p.id));
+    if (selected.length === 0) return false;
+    return selected.every((p) => {
+      const svc = String(p.servicio || '').toUpperCase();
+      const merch = String((p as unknown as { merchandise_type?: string }).merchandise_type || '').toUpperCase();
+      return svc === 'FCL_CHN_MX' || svc === 'FCL' || merch === 'FCL';
+    });
+  }, [packages, selectedPackageIds]);
+
   // Siempre aplica a todo el embarque (preseleccionado)
   // const hasMultiBoxShipment = useMemo(() => {
   //   const selected = packages.filter(p => selectedPackageIds.includes(p.id));
@@ -3474,7 +3486,10 @@ export default function DashboardClient() {
         setDeliveryLoading(false);
         return;
       }
-      const actualCarrier = selectedCarrierService === 'por_cobrar' ? selectedCollectCarrier : selectedCarrierService;
+      // Para FCL no se asigna paquetería externa (se mueve por trailer dedicado)
+      const actualCarrier = isFCLSelection
+        ? 'fcl_trailer'
+        : (selectedCarrierService === 'por_cobrar' ? selectedCollectCarrier : selectedCarrierService);
 
       // Use FormData to send files along with data
       const formData = new FormData();
@@ -8801,7 +8816,21 @@ export default function DashboardClient() {
 
             {/* Columna Derecha - Paquetería y Notas */}
             <Grid size={{ xs: 12, md: 6 }}>
-              {/* Paquetería de Entrega */}
+              {/* Paquetería de Entrega — Oculto para FCL (se mueve por trailer dedicado) */}
+              {isFCLSelection ? (
+                <Paper sx={{ p: 2, mb: 3, bgcolor: '#FFF8E1', border: '1px dashed #FF6F35' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
+                    <Box sx={{ fontSize: '1.5rem', mr: 1 }}>🚛</Box>
+                    <Typography variant="subtitle1" fontWeight="bold" sx={{ color: '#E64A19' }}>
+                      Envío FCL (Trailer dedicado)
+                    </Typography>
+                  </Box>
+                  <Typography variant="body2" color="text.secondary">
+                    Tu carga FCL se mueve en un trailer/contenedor completo asignado por EntregaX hacia la dirección
+                    que indiques. <strong>No se requiere seleccionar paquetería externa.</strong>
+                  </Typography>
+                </Paper>
+              ) : (
               <Paper sx={{ p: 2, mb: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
                   <Box sx={{ fontSize: '1.5rem', mr: 1 }}>🚛</Box>
@@ -9205,6 +9234,7 @@ export default function DashboardClient() {
                 </>
                 )}
               </Paper>
+              )}
 
               {/* Notas Adicionales */}
               <Paper sx={{ p: 2 }}>
@@ -9239,7 +9269,7 @@ export default function DashboardClient() {
             variant="contained" 
             size="large"
             onClick={handleAssignDelivery}
-            disabled={deliveryLoading || !selectedDeliveryAddress || (selectedCarrierService === 'por_cobrar' && !selectedCollectCarrier)}
+            disabled={deliveryLoading || !selectedDeliveryAddress || (!isFCLSelection && selectedCarrierService === 'por_cobrar' && !selectedCollectCarrier)}
             startIcon={deliveryLoading ? <CircularProgress size={20} /> : <Box sx={{ fontSize: '1.2rem' }}>✅</Box>}
             sx={{ 
               bgcolor: ORANGE, 
