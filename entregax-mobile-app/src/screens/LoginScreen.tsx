@@ -22,6 +22,11 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { loginApi, api, API_URL } from '../services/api';
 import { EMPLOYEE_ROLES } from '../constants/roles';
 import { setSecure } from '../services/secureStorage';
+import {
+  checkBiometricSupport,
+  isBiometricEnabled,
+  setBiometricEnabled,
+} from '../services/biometricAuth';
 
 // Colores de marca
 const ORANGE = '#F05A28';
@@ -122,6 +127,33 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       } catch (e) {
         // No bloqueamos el login si SecureStore falla; el token sigue en memoria.
         if (__DEV__) console.warn('[Login] No se pudo persistir el token en SecureStore');
+      }
+
+      // Si el dispositivo tiene Face ID / Touch ID disponible y el usuario no
+      // lo ha habilitado todavía, ofrecemos activarlo una sola vez.
+      try {
+        const already = await isBiometricEnabled();
+        if (!already) {
+          const support = await checkBiometricSupport();
+          if (support.available && support.enrolled) {
+            const labelMap = support.faceId
+              ? 'Face ID'
+              : support.touchId
+              ? Platform.OS === 'ios' ? 'Touch ID' : 'huella'
+              : 'biometría';
+            Alert.alert(
+              `Activar ${labelMap}`,
+              `¿Quieres usar ${labelMap} para entrar más rápido la próxima vez?`,
+              [
+                { text: 'Ahora no', style: 'cancel', onPress: () => setBiometricEnabled(false) },
+                { text: 'Activar', onPress: () => setBiometricEnabled(true) },
+              ],
+              { cancelable: false }
+            );
+          }
+        }
+      } catch {
+        // ignore — no bloqueamos el flujo de login por esto
       }
 
       // Verificar si debe cambiar contraseña

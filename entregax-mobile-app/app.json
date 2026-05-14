@@ -25,6 +25,7 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "EntregaX solo usa tu ubicación cuando la app está abierta; no realiza seguimiento en segundo plano.",
         "NSBluetoothAlwaysUsageDescription": "EntregaX usa Bluetooth para conectar impresoras de guías.",
         "NSBluetoothPeripheralUsageDescription": "EntregaX usa Bluetooth para conectar impresoras térmicas de guías.",
+        "NSFaceIDUsageDescription": "EntregaX usa Face ID para que entres más rápido sin escribir tu contraseña.",
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -62,6 +63,12 @@
     "plugins": [
       "expo-asset",
       "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "EntregaX usa Face ID para que entres más rápido sin escribir tu contraseña."
+        }
+      ],
       [
         "expo-build-properties",
         {

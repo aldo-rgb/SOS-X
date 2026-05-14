@@ -11,6 +11,7 @@ import { initSentry, wrapAppWithSentry } from './src/sentry';
 initSentry();
 
 import LoginScreen from './src/screens/LoginScreen';
+import BootstrapScreen from './src/screens/BootstrapScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import ExistingClientScreen from './src/screens/ExistingClientScreen';
 import HomeScreen from './src/screens/HomeScreen';
@@ -88,6 +89,7 @@ export { EMPLOYEE_ROLES };
 
 // Tipos para navegación
 export type RootStackParamList = {
+  Bootstrap: undefined;
   Login: undefined;
   Register: undefined;
   ExistingClient: undefined;
@@ -195,12 +197,13 @@ function App() {
     <PaperProvider theme={theme}>
       <NavigationContainer>
         <Stack.Navigator
-          initialRouteName="Login"
+          initialRouteName="Bootstrap"
           screenOptions={{
             headerShown: false,
             animation: 'slide_from_right',
           }}
         >
+          <Stack.Screen name="Bootstrap" component={BootstrapScreen} options={{ animation: 'fade' }} />
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
           <Stack.Screen name="ExistingClient" component={ExistingClientScreen} />
