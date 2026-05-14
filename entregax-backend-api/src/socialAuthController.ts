@@ -259,7 +259,7 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
         // Si no existe el usuario, NO lo creamos en silencio. Pedimos que se registre.
         if (!user) {
             res.status(404).json({
-                error: 'No encontramos una cuenta con este correo. Regístrate primero para crear tu casillero.',
+                error: 'No encontramos una cuenta con este correo. Regístrate primero para crear tu Número Cliente.',
                 errorCode: 'SOCIAL_USER_NOT_REGISTERED',
                 prefill: {
                     email: payload.email,
@@ -366,7 +366,7 @@ export const appleAuth = async (req: Request, res: Response): Promise<void> => {
 
         if (!user) {
             res.status(404).json({
-                error: 'No encontramos una cuenta con este correo. Regístrate primero para crear tu casillero.',
+                error: 'No encontramos una cuenta con este correo. Regístrate primero para crear tu Número Cliente.',
                 errorCode: 'SOCIAL_USER_NOT_REGISTERED',
                 prefill: {
                     email: effectiveEmail,

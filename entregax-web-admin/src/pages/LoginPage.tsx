@@ -770,7 +770,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     setRegisterEmail(prefill.email || '');
                     setTabValue(1);
                     setError('');
-                    setSuccess(`Aún no tienes cuenta con ${prefill.provider === 'google' ? 'Google' : 'Apple'}. Completa tu registro para crear tu casillero.`);
+                    setSuccess(`Aún no tienes cuenta con ${prefill.provider === 'google' ? 'Google' : 'Apple'}. Completa tu registro para crear tu Número Cliente.`);
                     setTimeout(() => setSuccess(''), 8000);
                   }}
                   disabled={loading}
@@ -1050,7 +1050,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     setRegisterName(prefill.fullName || '');
                     setRegisterEmail(prefill.email || '');
                     setError('');
-                    setSuccess(`Completa tu registro para crear tu casillero. Tu cuenta de ${prefill.provider === 'google' ? 'Google' : 'Apple'} quedará vinculada al iniciar sesión.`);
+                    setSuccess(`Completa tu registro para crear tu Número Cliente. Tu cuenta de ${prefill.provider === 'google' ? 'Google' : 'Apple'} quedará vinculada al iniciar sesión.`);
                     setTimeout(() => setSuccess(''), 8000);
                   }}
                   disabled={loading}
