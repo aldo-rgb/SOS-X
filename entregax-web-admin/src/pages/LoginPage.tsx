@@ -543,7 +543,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       setPendingPhone(existingPhone);
       setExistingClientDialog(false);
       setPhoneVerifyOpen(true);
-      setSuccess(`¡Cuenta activada! Tu casillero es ${response.data.user.box_id}.${advisorMsg}${referralMsg}`);
+      setSuccess(`¡Cuenta activada! Tu Número Cliente es ${response.data.user.box_id}.${advisorMsg}${referralMsg}`);
       setLoginEmail(existingEmail);
       setTimeout(() => setSuccess(''), 6000);
     } catch (err: any) {
@@ -775,6 +775,35 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   }}
                   disabled={loading}
                 />
+
+                {/* Botón para clientes legacy con Número Cliente existente */}
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={() => {
+                    setActivationFlowSelected(true);
+                    setExistingClientStep(0);
+                    setExistingClientDialog(true);
+                  }}
+                  sx={{
+                    mt: 2,
+                    py: 1.25,
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    borderColor: '#F05A28',
+                    color: '#C1272D',
+                    background: '#fff',
+                    '&:hover': {
+                      borderColor: '#C1272D',
+                      background: '#FFF5F0',
+                      boxShadow: '0 2px 8px rgba(193,39,45,0.12)',
+                    },
+                  }}
+                >
+                  Si ya tienes Número Cliente, da click aquí
+                </Button>
               </form>
             </TabPanel>
 
@@ -1056,6 +1085,35 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   disabled={loading}
                 />
 
+                {/* Botón para clientes legacy con Número Cliente existente */}
+                <Button
+                  fullWidth
+                  variant="outlined"
+                  onClick={() => {
+                    setActivationFlowSelected(true);
+                    setExistingClientStep(0);
+                    setExistingClientDialog(true);
+                  }}
+                  sx={{
+                    mt: 2,
+                    py: 1.25,
+                    borderRadius: 2,
+                    textTransform: 'none',
+                    fontSize: '0.9rem',
+                    fontWeight: 600,
+                    borderColor: '#F05A28',
+                    color: '#C1272D',
+                    background: '#fff',
+                    '&:hover': {
+                      borderColor: '#C1272D',
+                      background: '#FFF5F0',
+                      boxShadow: '0 2px 8px rgba(193,39,45,0.12)',
+                    },
+                  }}
+                >
+                  Si ya tienes Número Cliente, da click aquí
+                </Button>
+
               </form>
             </TabPanel>
 
@@ -1200,12 +1258,12 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       >
         <DialogTitle sx={{ bgcolor: '#111', color: 'white', textAlign: 'center', py: isMobile ? 2 : undefined }}>
           <InventoryIcon sx={{ fontSize: 40, mb: 1, color: '#F05A28' }} />
-          <Typography variant="h6">Activar Cuenta Existente</Typography>
+          <Typography variant="h6">Activar Cliente Existente</Typography>
         </DialogTitle>
         <DialogContent sx={{ pt: 3, px: isMobile ? 2 : 3 }}>
           <Stepper activeStep={existingClientStep} sx={{ mb: 4, mt: 2 }} alternativeLabel={isMobile}>
             <Step>
-              <StepLabel>Casillero</StepLabel>
+              <StepLabel>Número Cliente</StepLabel>
             </Step>
             <Step>
               <StepLabel>Verificar</StepLabel>
@@ -1244,7 +1302,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
           {existingClientStep === 0 && (
             <Box>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 2, textAlign: 'center' }}>
-                Ingresa tu número de cliente (casillero) para comenzar
+                Ingresa tu Número Cliente para comenzar
               </Typography>
               <TextField
                 fullWidth
