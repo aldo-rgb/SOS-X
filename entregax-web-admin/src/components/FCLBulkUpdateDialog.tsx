@@ -73,7 +73,7 @@ export default function FCLBulkUpdateDialog({
     hiddenStatuses = ['received_origin', 'consolidated'],
 }: Props) {
     const [bulkInput, setBulkInput] = useState('');
-    const [bulkStatus, setBulkStatus] = useState('');
+    const [bulkStatus, setBulkStatus] = useState('customs_cleared');
     const [bulkRunning, setBulkRunning] = useState(false);
     const [bulkResults, setBulkResults] = useState<{
         matched: BulkContainerLike[];
@@ -149,7 +149,7 @@ export default function FCLBulkUpdateDialog({
 
     const resetAndClose = () => {
         setBulkInput('');
-        setBulkStatus('');
+        setBulkStatus('customs_cleared');
         setBulkResults(null);
         setBulkRunning(false);
         onClose();
