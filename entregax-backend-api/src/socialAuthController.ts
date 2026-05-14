@@ -135,7 +135,8 @@ const buildLoginResponse = (user: any, token: string, message: string) => {
 
 /**
  * Upsert por (provider, sub, email). Si crea, marca auth_provider y is_verified=email_verified.
- * @returns row de users
+ * Si `allowCreate=false` y no existe match por sub ni por email, devuelve { user: null, created: false }.
+ * @returns row de users (o null si no existe y no se permitió crear)
  */
 const upsertSocialUser = async (params: {
     provider: 'google' | 'apple';
@@ -143,8 +144,9 @@ const upsertSocialUser = async (params: {
     email: string;
     fullName: string;
     emailVerified: boolean;
+    allowCreate?: boolean;
 }) => {
-    const { provider, sub, email, fullName, emailVerified } = params;
+    const { provider, sub, email, fullName, emailVerified, allowCreate = true } = params;
     const subColumn = provider === 'google' ? 'google_sub' : 'apple_sub';
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -171,7 +173,12 @@ const upsertSocialUser = async (params: {
         return { user: updated.rows[0], created: false };
     }
 
-    // 3) Crear usuario nuevo (cliente). Password aleatoria hasheada (no se usará).
+    // 3) Si no se permite crear, devolver null (el caller decide qué hacer)
+    if (!allowCreate) {
+        return { user: null as any, created: false };
+    }
+
+    // 3b) Crear usuario nuevo (cliente). Password aleatoria hasheada (no se usará).
     const randomPassword = crypto.randomBytes(24).toString('hex');
     const hashed = await bcrypt.hash(randomPassword, 10);
     const newBoxId = await generateBoxId();
@@ -246,7 +253,22 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
             email: payload.email,
             fullName: payload.name || '',
             emailVerified: payload.email_verified === true,
+            allowCreate: false,
         });
+
+        // Si no existe el usuario, NO lo creamos en silencio. Pedimos que se registre.
+        if (!user) {
+            res.status(404).json({
+                error: 'No encontramos una cuenta con este correo. Regístrate primero para crear tu casillero.',
+                errorCode: 'SOCIAL_USER_NOT_REGISTERED',
+                prefill: {
+                    email: payload.email,
+                    fullName: payload.name || '',
+                    provider: 'google',
+                },
+            });
+            return;
+        }
 
         const token = signJwt(user.id, user.email, user.role);
         setAuthCookie(res, token);
@@ -339,7 +361,21 @@ export const appleAuth = async (req: Request, res: Response): Promise<void> => {
             email: effectiveEmail,
             fullName: fullName || '',
             emailVerified: payload.email_verified === true || payload.email_verified === 'true',
+            allowCreate: false,
         });
+
+        if (!user) {
+            res.status(404).json({
+                error: 'No encontramos una cuenta con este correo. Regístrate primero para crear tu casillero.',
+                errorCode: 'SOCIAL_USER_NOT_REGISTERED',
+                prefill: {
+                    email: effectiveEmail,
+                    fullName: fullName || '',
+                    provider: 'apple',
+                },
+            });
+            return;
+        }
 
         const token = signJwt(user.id, user.email, user.role);
         setAuthCookie(res, token);

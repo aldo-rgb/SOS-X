@@ -32,6 +32,8 @@ const APPLE_REDIRECT_URI = import.meta.env.VITE_APPLE_REDIRECT_URI as string | u
 interface Props {
   onSuccess: (data: { user: any; access: any }) => void;
   onError: (msg: string) => void;
+  /** Callback cuando el usuario social no está registrado aún. Recibe email + nombre para prellenar el formulario de registro. */
+  onNotRegistered?: (prefill: { email: string; fullName: string; provider: 'google' | 'apple' }) => void;
   disabled?: boolean;
 }
 
@@ -73,7 +75,7 @@ const loadAppleScript = (): Promise<void> => {
 // Componente
 // ============================================================
 
-const InnerButtons: React.FC<Props> = ({ onSuccess, onError, disabled }) => {
+const InnerButtons: React.FC<Props> = ({ onSuccess, onError, onNotRegistered, disabled }) => {
   const appleInitDone = useRef(false);
 
   useEffect(() => {
@@ -108,7 +110,16 @@ const InnerButtons: React.FC<Props> = ({ onSuccess, onError, disabled }) => {
       localStorage.setItem('permissions', JSON.stringify(data.access.permissions));
       onSuccess({ user: data.user, access: data.access });
     } catch (err: any) {
-      onError(err.response?.data?.error || 'No se pudo iniciar sesión con Google');
+      const data = err.response?.data;
+      if (data?.errorCode === 'SOCIAL_USER_NOT_REGISTERED' && data?.prefill && onNotRegistered) {
+        onNotRegistered({
+          email: data.prefill.email || '',
+          fullName: data.prefill.fullName || '',
+          provider: 'google',
+        });
+        return;
+      }
+      onError(data?.error || 'No se pudo iniciar sesión con Google');
     }
   };
 
@@ -141,7 +152,16 @@ const InnerButtons: React.FC<Props> = ({ onSuccess, onError, disabled }) => {
       if (err?.error === 'popup_closed_by_user' || err?.error === 'user_cancelled_authorize') {
         return; // silencioso
       }
-      onError(err.response?.data?.error || 'No se pudo iniciar sesión con Apple');
+      const data = err.response?.data;
+      if (data?.errorCode === 'SOCIAL_USER_NOT_REGISTERED' && data?.prefill && onNotRegistered) {
+        onNotRegistered({
+          email: data.prefill.email || '',
+          fullName: data.prefill.fullName || '',
+          provider: 'apple',
+        });
+        return;
+      }
+      onError(data?.error || 'No se pudo iniciar sesión con Apple');
     }
   };
 
