@@ -158,20 +158,65 @@ const InnerButtons: React.FC<Props> = ({ onSuccess, onError, disabled }) => {
         </Typography>
       </Divider>
 
-      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+      <Box sx={{ display: 'flex', flexDirection: 'row', gap: 1.5, alignItems: 'stretch' }}>
         {showGoogle && (
           <Box
             sx={{
-              display: 'flex',
-              justifyContent: 'center',
+              flex: 1,
+              minWidth: 0,
+              position: 'relative',
               opacity: disabled ? 0.6 : 1,
               pointerEvents: disabled ? 'none' : 'auto',
-              '& > div': { width: '100% !important' },
+              borderRadius: 2,
+              border: '1.5px solid #DADCE0',
+              background: '#fff',
+              overflow: 'hidden',
+              transition: 'all 0.2s ease',
+              '&:hover': {
+                borderColor: '#C1272D',
+                boxShadow: '0 2px 8px rgba(193,39,45,0.12)',
+                transform: 'translateY(-1px)',
+              },
+              // Estilizamos el iframe interno de GoogleLogin para que se vea como un bot\u00f3n bonito
+              '& > div, & iframe, & > div > div': {
+                width: '100% !important',
+                minWidth: '100% !important',
+              },
+              // Overlay con icono + label custom encima del iframe transparente de Google
+              '&::before': {
+                content: '"Google"',
+                position: 'absolute',
+                inset: 0,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '8px',
+                fontFamily: 'Roboto, sans-serif',
+                fontWeight: 600,
+                fontSize: '0.95rem',
+                color: '#3c4043',
+                background: '#fff',
+                pointerEvents: 'none',
+                zIndex: 2,
+                paddingLeft: '28px',
+              },
+              '&::after': {
+                content: '""',
+                position: 'absolute',
+                left: '50%',
+                top: '50%',
+                transform: 'translate(-72px, -50%)',
+                width: 18,
+                height: 18,
+                background: 'url("data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 48 48%22><path fill=%22%23FFC107%22 d=%22M43.611 20.083H42V20H24v8h11.303c-1.649 4.657-6.08 8-11.303 8-6.627 0-12-5.373-12-12s5.373-12 12-12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 12.955 4 4 12.955 4 24s8.955 20 20 20 20-8.955 20-20c0-1.341-.138-2.65-.389-3.917z%22/><path fill=%22%23FF3D00%22 d=%22M6.306 14.691l6.571 4.819C14.655 15.108 18.961 12 24 12c3.059 0 5.842 1.154 7.961 3.039l5.657-5.657C34.046 6.053 29.268 4 24 4 16.318 4 9.656 8.337 6.306 14.691z%22/><path fill=%22%234CAF50%22 d=%22M24 44c5.166 0 9.86-1.977 13.409-5.192l-6.19-5.238C29.211 35.091 26.715 36 24 36c-5.202 0-9.619-3.317-11.283-7.946l-6.522 5.025C9.505 39.556 16.227 44 24 44z%22/><path fill=%22%231976D2%22 d=%22M43.611 20.083H42V20H24v8h11.303c-.792 2.237-2.231 4.166-4.087 5.571.001-.001.002-.001.003-.002l6.19 5.238C36.971 39.205 44 34 44 24c0-1.341-.138-2.65-.389-3.917z%22/></svg>") center/contain no-repeat',
+                pointerEvents: 'none',
+                zIndex: 3,
+              },
             }}
           >
             <GoogleLogin
               onSuccess={handleGoogleCredential}
-              onError={() => onError('Falló el inicio de sesión con Google')}
+              onError={() => onError('Fall\u00f3 el inicio de sesi\u00f3n con Google')}
               text="continue_with"
               shape="rectangular"
               size="large"
@@ -183,27 +228,32 @@ const InnerButtons: React.FC<Props> = ({ onSuccess, onError, disabled }) => {
 
         {showApple && (
           <Button
-            fullWidth
-            variant="outlined"
-            startIcon={<AppleIcon />}
+            variant="contained"
+            startIcon={<AppleIcon sx={{ fontSize: '1.25rem !important' }} />}
             onClick={handleAppleClick}
             disabled={disabled}
             sx={{
-              py: 1.25,
+              flex: 1,
+              minWidth: 0,
+              py: 1.2,
               borderRadius: 2,
               textTransform: 'none',
               fontSize: '0.95rem',
               fontWeight: 600,
-              color: '#000',
-              borderColor: '#000',
-              background: '#fff',
+              color: '#fff',
+              background: '#000',
+              border: '1.5px solid #000',
+              boxShadow: 'none',
+              transition: 'all 0.2s ease',
               '&:hover': {
-                borderColor: '#000',
-                background: '#f5f5f5',
+                background: '#1a1a1a',
+                borderColor: '#1a1a1a',
+                boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+                transform: 'translateY(-1px)',
               },
             }}
           >
-            Continuar con Apple
+            Apple
           </Button>
         )}
       </Box>
