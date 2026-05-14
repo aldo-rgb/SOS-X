@@ -439,7 +439,7 @@ export default function DashboardClient() {
     'Ya Zarpó',
     'Arribo a Puerto',
     'En Tránsito MX',
-    'EN RUTA',
+    'En ruta a destino',
     'Entregado',
   ], []);
 
@@ -747,7 +747,8 @@ export default function DashboardClient() {
         'in_transit_mx': 'En Tránsito MX',
         'customs_cleared': 'En Tránsito MX',
         'customs_mx': 'En Tránsito MX',
-        'out_for_delivery': 'EN RUTA',
+        'in_transit_clientfinal': 'En ruta a destino',
+        'out_for_delivery': 'En ruta a destino',
         'shipped': 'Entregado',
         'shiped': 'Entregado',
         'sent': 'Entregado',
@@ -4234,6 +4235,7 @@ export default function DashboardClient() {
         case 'customs_cleared':
         case 'customs_mx':
         case 'in_customs': return 3;
+        case 'in_transit_clientfinal':
         case 'out_for_delivery': return 4;
         case 'shipped':
         case 'shiped':
