@@ -667,7 +667,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setDriverPlates((c as any).driver_plates || '');
             setDriverPhone((c as any).driver_phone || '');
             setDriverNotes('');
-            setFclStatus('');
+            // Preseleccionar "En tránsito a destino" por ser el flujo más común
+            setFclStatus('in_transit_clientfinal');
             // Cargar historial en paralelo
             loadHistory(c.id);
             setStep(1);
@@ -1250,7 +1251,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     </Paper>
 
                     <Stack direction="row" spacing={2} sx={{ mt: 3 }} justifyContent="flex-end">
-                        <Button onClick={() => { setStep(0); setFclStatus(''); }} disabled={fclSaving} sx={{ color: BLACK }}>
+                        <Button onClick={() => { setStep(0); setFclStatus('in_transit_clientfinal'); }} disabled={fclSaving} sx={{ color: BLACK }}>
                             Cancelar
                         </Button>
                         <Button
