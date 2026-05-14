@@ -893,10 +893,14 @@ function App() {
     );
   }
 
-  // /reset-password?token=... — landing del email de recuperación.
-  // Se atiende ANTES del check de auth para que el link funcione
-  // aunque haya sesión previa.
-  if (typeof window !== 'undefined' && window.location.pathname === '/reset-password') {
+  // /reset-password?token=... o /reset-password/TOKEN — landing del email
+  // de recuperación. Se atiende ANTES del check de auth para que el link
+  // funcione aunque haya sesión previa.
+  if (
+    typeof window !== 'undefined' &&
+    (window.location.pathname === '/reset-password' ||
+      window.location.pathname.startsWith('/reset-password/'))
+  ) {
     return (
       <ThemeProvider theme={theme}>
         <CssBaseline />

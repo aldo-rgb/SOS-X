@@ -93,8 +93,12 @@ export const sendPasswordResetEmail = async (
   recipientName: string,
   token: string
 ): Promise<SendEmailResult> => {
-  const baseUrl = (process.env.WEB_BASE_URL || 'https://entregax.app').replace(/\/$/, '');
-  const resetUrl = `${baseUrl}/reset-password?token=${encodeURIComponent(token)}`;
+  const baseUrl = (process.env.WEB_BASE_URL || 'https://www.entregax.app').replace(/\/$/, '');
+  // Usamos path-based (`/reset-password/TOKEN`) en lugar de query-based.
+  // Razón: Outlook Safelinks, Gmail proxy, algunos antivirus y wrappers de
+  // tracking suelen STRIPEAR el query string. Path-based es bulletproof.
+  // La página SPA acepta ambos formatos por compatibilidad.
+  const resetUrl = `${baseUrl}/reset-password/${encodeURIComponent(token)}`;
   // Logo público servido desde /public del web admin. Versión "Paquetería"
   // (logo nuevo con la marca completa).
   const logoUrl = `${baseUrl}/logo-paqeteria.png`;

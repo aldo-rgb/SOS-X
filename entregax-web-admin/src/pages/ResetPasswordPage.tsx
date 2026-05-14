@@ -43,15 +43,31 @@ export default function ResetPasswordPage() {
     try {
       const search = window.location.search || '';
       const hash = window.location.hash || '';
+      const pathname = window.location.pathname || '';
+
+      // 1) Path-based: /reset-password/TOKEN (formato preferido, bulletproof
+      //    contra wrappers de email que stripean el query string).
+      const pathMatch = pathname.match(/\/reset-password\/([A-Za-z0-9._%-]+)\/?$/);
+      if (pathMatch) {
+        try {
+          return decodeURIComponent(pathMatch[1]).trim();
+        } catch {
+          return pathMatch[1].trim();
+        }
+      }
+
+      // 2) Query string clásico: ?token=...
       const fromSearch = new URLSearchParams(search).get('token');
       if (fromSearch) return fromSearch.trim();
-      // Fallback: ?token=... convertido a #token=... (algunos clientes lo hacen)
+
+      // 3) Fallback: ?token=... convertido a #token=... (algunos clientes lo hacen)
       const hashClean = hash.startsWith('#') ? hash.slice(1) : hash;
       const fromHash = new URLSearchParams(
         hashClean.includes('=') ? hashClean : `token=${hashClean}`
       ).get('token');
       if (fromHash) return fromHash.trim();
-      // Último intento: regex sobre el href completo
+
+      // 4) Último intento: regex sobre el href completo
       const m = window.location.href.match(/[?&#]token=([A-Za-z0-9._-]+)/);
       return m ? m[1] : '';
     } catch {
@@ -130,7 +146,7 @@ export default function ResetPasswordPage() {
 
         {!token && (
           <Alert severity="error" sx={{ mb: 2 }}>
-            El link no es válido. Solicita uno nuevo desde "¿Olvidaste tu contraseña?".
+            El enlace no es válido. Solicita uno nuevo desde "¿Olvidaste tu contraseña?".
             {debugInfo && (
               <Box sx={{ mt: 1, fontSize: 11, color: '#666', wordBreak: 'break-all' }}>
                 URL recibida: {debugInfo}
