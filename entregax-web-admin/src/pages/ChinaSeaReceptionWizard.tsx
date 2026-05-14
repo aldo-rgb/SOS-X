@@ -959,7 +959,6 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             {filteredContainers.map((c) => {
                                 const eta = c.eta;
                                 const daysToEta = eta ? Math.floor((new Date(eta).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
-                                const arrived = daysToEta !== null && daysToEta <= 0;
                                 const isPartial = Number(c.received_orders) > 0 && Number(c.received_orders) < Number(c.total_orders);
 
                                 // Etiqueta y color basados en el status real del contenedor
