@@ -5,6 +5,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { generateReferralCode } from './commissionController';
 import { sendPasswordResetEmail } from './emailService';
+import { sendWelcomeWhatsapp } from './whatsappService';
 
 // Función para generar un ID de Casillero único consecutivo (Ej. S4000, S4001, S4002...)
 const generateBoxId = async (): Promise<string> => {
@@ -285,6 +286,16 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
 
         // 8. Generar token JWT
         const token = generateToken(savedUser.id, savedUser.email, savedUser.role);
+
+        // 8.5 Mensaje de bienvenida por WhatsApp (no bloqueante).
+        // Si WHATSAPP_* envs no están configuradas, la función sólo loggea.
+        if (phone) {
+            sendWelcomeWhatsapp({
+                phone,
+                fullName: savedUser.full_name,
+                boxId: savedUser.box_id,
+            }).catch(err => console.error('[REGISTRO] WhatsApp bienvenida falló:', err));
+        }
 
         // 9. Responder al cliente (App/Web)
         res.status(201).json({

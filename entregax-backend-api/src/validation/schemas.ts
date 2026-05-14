@@ -96,6 +96,21 @@ export const appleAuthSchema = z
   })
   .strict();
 
+/** POST /api/auth/phone/send-code */
+export const sendPhoneCodeSchema = z
+  .object({
+    phone: z.string().trim().min(7).max(20),
+  })
+  .strict();
+
+/** POST /api/auth/phone/verify-code */
+export const verifyPhoneCodeSchema = z
+  .object({
+    phone: z.string().trim().min(7).max(20),
+    code: z.string().trim().regex(/^\d{4,8}$/, 'Código debe ser 4-8 dígitos'),
+  })
+  .strict();
+
 // ============================================================
 // SCHEMAS — PAYMENTS / CONSOLIDATIONS
 // ============================================================

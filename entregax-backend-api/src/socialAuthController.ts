@@ -27,6 +27,7 @@ import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { pool } from './db';
 import { generateReferralCode } from './commissionController';
 import { ROLE_PERMISSIONS } from './authController';
+import { sendWelcomeWhatsapp } from './whatsappService';
 
 // ============================================================
 // Helpers compartidos
@@ -254,6 +255,11 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
             ? `¡Bienvenido a EntregaX! Tu casillero es ${user.box_id}.`
             : `¡Bienvenido de vuelta, ${(user.full_name || '').split(' ')[0]}!`;
 
+        if (created && user.phone) {
+            sendWelcomeWhatsapp({ phone: user.phone, fullName: user.full_name, boxId: user.box_id })
+                .catch(err => console.error('[GOOGLE AUTH] WhatsApp bienvenida falló:', err));
+        }
+
         res.status(created ? 201 : 200).json(buildLoginResponse(user, token, message));
     } catch (err: any) {
         console.error('[SOCIAL AUTH] Google error:', err?.message || err);
@@ -341,6 +347,11 @@ export const appleAuth = async (req: Request, res: Response): Promise<void> => {
         const message = created
             ? `¡Bienvenido a EntregaX! Tu casillero es ${user.box_id}.`
             : `¡Bienvenido de vuelta, ${(user.full_name || '').split(' ')[0]}!`;
+
+        if (created && user.phone) {
+            sendWelcomeWhatsapp({ phone: user.phone, fullName: user.full_name, boxId: user.box_id })
+                .catch(err => console.error('[APPLE AUTH] WhatsApp bienvenida falló:', err));
+        }
 
         res.status(created ? 201 : 200).json(buildLoginResponse(user, token, message));
     } catch (err: any) {

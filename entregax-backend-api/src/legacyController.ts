@@ -5,6 +5,7 @@ import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
+import { sendWelcomeWhatsapp } from './whatsappService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'EntregaX_SuperSecretKey_2026';
 
@@ -537,6 +538,15 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
         }
 
         await client.query('COMMIT');
+
+        // 7.5 Mensaje de bienvenida por WhatsApp (no bloqueante)
+        if (phone) {
+            sendWelcomeWhatsapp({
+                phone,
+                fullName: finalName,
+                boxId: boxId.toUpperCase(),
+            }).catch(err => console.error('[LEGACY CLAIM] WhatsApp bienvenida falló:', err));
+        }
 
         // 8. Generar JWT
         const token = jwt.sign(

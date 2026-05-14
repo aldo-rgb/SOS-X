@@ -18,6 +18,8 @@ import {
   changePasswordSchema,
   googleAuthSchema,
   appleAuthSchema,
+  sendPhoneCodeSchema,
+  verifyPhoneCodeSchema,
   createPaymentOrderSchema,
   capturePaymentOrderSchema,
   payPoboxInternalSchema,
@@ -67,6 +69,40 @@ import {
   deleteMyAccount
 } from './authController';
 import { googleAuth, appleAuth, socialAuthStatus } from './socialAuthController';
+import {
+  sendPhoneVerificationCode,
+  verifyPhoneCode,
+  phoneVerificationStatus,
+} from './phoneVerificationController';
+import { whatsappStatus } from './whatsappService';
+import jsonwebtokenLib from 'jsonwebtoken';
+
+/**
+ * Middleware "optionalAuth" — decodifica JWT si viene, pero no rechaza si falta.
+ * Útil para endpoints que sirven ambos: usuarios logueados (PUT phone) y
+ * usuarios en flujo de registro (sin JWT todavía).
+ */
+const optionalAuth = (req: any, _res: any, next: any) => {
+  try {
+    const auth = req.headers?.authorization || '';
+    let token = auth.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token && req.cookies?.token) token = req.cookies.token;
+    if (token) {
+      const decoded = jsonwebtokenLib.verify(
+        token,
+        process.env.JWT_SECRET || 'fallback_secret'
+      ) as any;
+      req.user = {
+        userId: decoded.userId,
+        email: decoded.email,
+        role: decoded.role,
+      };
+    }
+  } catch {
+    // Token inválido → ignoramos silenciosamente
+  }
+  next();
+};
 import {
   createPackage,
   getPackages,
@@ -1887,6 +1923,27 @@ app.delete('/api/auth/account', authenticateToken, deleteMyAccount);
 app.get('/api/auth/social/status', socialAuthStatus);
 app.post('/api/auth/google', authRateLimit, validateBody(googleAuthSchema), googleAuth);
 app.post('/api/auth/apple', authRateLimit, validateBody(appleAuthSchema), appleAuth);
+
+// --- VERIFICACIÓN DE TELÉFONO POR WHATSAPP (OTP de 6 dígitos) ---
+// send-code y verify-code aceptan request con o sin JWT:
+//   - Sin JWT: para flujo de registro/legacy (usuario recién creado)
+//   - Con JWT: para cambio de teléfono de usuario logueado
+app.get('/api/auth/phone/status', phoneVerificationStatus);
+app.get('/api/whatsapp/status', (_req, res) => res.json(whatsappStatus()));
+app.post(
+  '/api/auth/phone/send-code',
+  authRateLimit,
+  validateBody(sendPhoneCodeSchema),
+  optionalAuth,
+  sendPhoneVerificationCode
+);
+app.post(
+  '/api/auth/phone/verify-code',
+  authRateLimit,
+  validateBody(verifyPhoneCodeSchema),
+  optionalAuth,
+  verifyPhoneCode
+);
 
 // --- RUTAS DE CLIENTES LEGACY (Migración) ---
 // Públicas (para registro)
