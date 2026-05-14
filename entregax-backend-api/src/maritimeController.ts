@@ -211,7 +211,7 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
     const { id } = req.params;
     const { status } = req.body;
 
-    const validStatuses = ['received_origin', 'consolidated', 'in_transit', 'arrived_port', 'customs_cleared', 'in_transit_to_cedis', 'received_cedis'];
+    const validStatuses = ['received_origin', 'consolidated', 'in_transit', 'arrived_port', 'customs_cleared', 'in_transit_clientfinal', 'delivered'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: 'Estado inválido' });
     }
@@ -240,8 +240,8 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
       'in_transit': '🚢 Tu envío marítimo ya zarpó hacia México.',
       'arrived_port': '⚓ Tu envío marítimo ha llegado al puerto en México.',
       'customs_cleared': '🛃 Tu envío marítimo ha sido liberado de aduana.',
-      'in_transit_to_cedis': '🚛 Tu envío marítimo va en ruta hacia nuestro CEDIS.',
-      'received_cedis': '🏭 Tu envío marítimo ha llegado a nuestro CEDIS y está listo para despacho.'
+      'in_transit_clientfinal': '🚛 Tu envío marítimo va en ruta a destino.',
+      'delivered': '✅ Tu envío marítimo ha sido entregado.'
     };
 
     const notificationTypes: Record<string, 'PACKAGE_RECEIVED' | 'PACKAGE_IN_TRANSIT'> = {
@@ -250,8 +250,8 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
       'in_transit': 'PACKAGE_IN_TRANSIT',
       'arrived_port': 'PACKAGE_IN_TRANSIT',
       'customs_cleared': 'PACKAGE_IN_TRANSIT',
-      'in_transit_to_cedis': 'PACKAGE_IN_TRANSIT',
-      'received_cedis': 'PACKAGE_RECEIVED'
+      'in_transit_clientfinal': 'PACKAGE_IN_TRANSIT',
+      'delivered': 'PACKAGE_RECEIVED'
     };
 
     if (statusMessages[status]) {

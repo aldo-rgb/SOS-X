@@ -177,8 +177,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         { value: 'in_transit', label: 'En tránsito (zarpado)', description: 'El buque ya zarpó hacia México', icon: '🚢' },
         { value: 'arrived_port', label: 'Llegó al puerto destino', description: 'El contenedor ya arribó al puerto en México', icon: '⚓' },
         { value: 'customs_cleared', label: 'Liberado de aduana', description: 'Despacho aduanal completado, listo para movilizar', icon: '🛃' },
-        { value: 'in_transit_to_cedis', label: 'En ruta a CEDIS', description: 'El contenedor va en ruta del puerto hacia nuestro CEDIS', icon: '🚛' },
-        { value: 'received_cedis', label: 'Recibido en CEDIS', description: 'Contenedor descargado en CEDIS, listo para despacho', icon: '🏭' },
+        { value: 'in_transit_clientfinal', label: 'En ruta a destino', description: 'El contenedor va en ruta hacia el destino del cliente final', icon: '🚛' },
+        { value: 'delivered', label: 'Entregado', description: 'Contenedor entregado al cliente final', icon: '✅' },
     ];
 
     const updateFCLContainerStatus = async () => {
