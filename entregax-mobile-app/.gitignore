@@ -47,3 +47,4 @@ secrets/
 # generated native folders
 /ios
 /android
+*.swp

@@ -27,6 +27,8 @@ const C = {
   danger: '#dc2626',
 };
 
+const QUINTA_MAINTENANCE_FEE = 1300;
+
 const fmtMXN = (n: number | string | null | undefined) =>
   new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(Number(n || 0));
 
@@ -58,7 +60,6 @@ export default function VacationQuintaDialog({ open, employeeId, employeeName, o
   const today = new Date();
   const [qStart, setQStart] = useState('');
   const [qEnd, setQEnd] = useState('');
-  const [qFee, setQFee] = useState<string>('');
   const [qPaid, setQPaid] = useState(false);
   const [qNotes, setQNotes] = useState('');
   const [qYear] = useState(today.getFullYear());
@@ -66,7 +67,7 @@ export default function VacationQuintaDialog({ open, employeeId, employeeName, o
 
   const reset = () => {
     setVacStart(''); setVacEnd(''); setVacReason('');
-    setQStart(''); setQEnd(''); setQFee(''); setQPaid(false); setQNotes('');
+    setQStart(''); setQEnd(''); setQPaid(false); setQNotes('');
     setMsg(null);
   };
 
