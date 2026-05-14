@@ -322,8 +322,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             successes.includes(c.id) ? { ...c, status: bulkStatus } : c
         );
         setBulkResults({ ...bulkResults, matched: updatedMatched, successes, failures });
+        // También mutar la lista principal para que los chips reflejen el nuevo status sin esperar al refetch
+        setContainers((prev) => prev.map((c) => (successes.includes(c.id) ? { ...c, status: bulkStatus } : c)));
         setBulkRunning(false);
-        // Recargar lista al terminar
+        // Recargar lista al terminar (autoritativa desde backend)
         await loadContainers();
     };
 
