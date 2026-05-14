@@ -274,7 +274,11 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                 });
             }
         }
-        setBulkResults({ ...bulkResults, successes, failures });
+        // Actualizar el status local en los matched para reflejar el nuevo valor en la UI
+        const updatedMatched = bulkResults.matched.map((c) =>
+            successes.includes(c.id) ? { ...c, status: bulkStatus } : c
+        );
+        setBulkResults({ ...bulkResults, matched: updatedMatched, successes, failures });
         setBulkRunning(false);
         // Recargar lista al terminar
         await loadContainers();
