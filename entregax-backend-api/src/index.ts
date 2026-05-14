@@ -7635,8 +7635,14 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
       return res.status(403).json({ error: 'Acceso denegado' });
     }
     const userId = Number(req.user?.id || req.user?.userId);
+    // 🚛 Monitoreo: incluir todos los contenedores "en ruta" — listos para coordinar
+    // (liberados de aduana) + ya despachados al cliente final.
     const result = await pool.query(
-      `SELECT COUNT(*)::int AS liberados FROM containers WHERE status = 'customs_cleared'`
+      `SELECT
+         COUNT(*) FILTER (WHERE status IN ('customs_cleared','in_transit_clientfinal'))::int AS liberados,
+         COUNT(*) FILTER (WHERE status = 'customs_cleared')::int AS customs_cleared,
+         COUNT(*) FILTER (WHERE status = 'in_transit_clientfinal')::int AS in_transit_clientfinal
+       FROM containers`
     );
 
     // Asignación activa del usuario monitoreo (si tiene una unidad recibida)
@@ -7657,6 +7663,8 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
 
     res.json({
       liberados: result.rows[0]?.liberados || 0,
+      customs_cleared: result.rows[0]?.customs_cleared || 0,
+      in_transit_clientfinal: result.rows[0]?.in_transit_clientfinal || 0,
       currentAssignment,
     });
   } catch (error) {

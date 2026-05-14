@@ -100,7 +100,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
 
   const loadDayData = async () => {
     try {
-      // 👁️ Monitoreo: el widget "Asignados Hoy" muestra contenedores liberados (customs_cleared)
+      // 👁️ Monitoreo: el widget "Asignados Hoy" muestra contenedores en ruta
+      // (customs_cleared + in_transit_clientfinal)
       if (isMonitoreo) {
         try {
           const statsRes = await api.get('/api/monitoreo/stats', {
@@ -470,7 +471,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             >
               <MaterialIcons name={isMonitoreo ? 'directions-boat' : 'inventory-2'} size={32} color="#fff" />
               <Text style={styles.statNumber}>{stats.totalAssigned}</Text>
-              <Text style={styles.statLabel}>{isMonitoreo ? 'Contenedores Liberados' : 'Asignados Hoy'}</Text>
+              <Text style={styles.statLabel}>{isMonitoreo ? 'Contenedores en Ruta' : 'Asignados Hoy'}</Text>
             </TouchableOpacity>
             <View style={styles.statCard}>
               <MaterialIcons name="local-shipping" size={28} color="#2196F3" />
