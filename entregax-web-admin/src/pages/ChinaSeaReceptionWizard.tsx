@@ -908,6 +908,18 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 const daysToEta = eta ? Math.floor((new Date(eta).getTime() - Date.now()) / (1000 * 60 * 60 * 24)) : null;
                                 const arrived = daysToEta !== null && daysToEta <= 0;
                                 const isPartial = Number(c.received_orders) > 0 && Number(c.received_orders) < Number(c.total_orders);
+
+                                // Etiqueta y color basados en el status real del contenedor
+                                const statusBadgeMap: Record<string, { label: string; bg: string }> = {
+                                    received_origin: { label: 'EN ORIGEN', bg: '#546E7A' },
+                                    consolidated: { label: 'CONSOLIDADO', bg: '#37474F' },
+                                    in_transit: { label: 'EN TRÁNSITO', bg: BLACK },
+                                    arrived_port: { label: 'YA EN PUERTO', bg: '#2E7D32' },
+                                    customs_cleared: { label: 'LIBERADO ADUANA', bg: '#1565C0' },
+                                    in_transit_clientfinal: { label: 'EN RUTA', bg: '#E65100' },
+                                    delivered: { label: 'ENTREGADO', bg: '#1B5E20' },
+                                };
+                                const statusBadge = statusBadgeMap[c.status] || { label: (c.status || 'SIN STATUS').toUpperCase(), bg: BLACK };
                                 return (
                                     <ListItem
                                         key={c.id}
@@ -915,9 +927,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                         secondaryAction={
                                             <Stack direction="column" spacing={0.5} alignItems="flex-end">
                                                 <Chip
-                                                    label={isPartial ? 'PARCIAL' : (arrived ? 'YA EN PUERTO' : 'EN TRÁNSITO')}
+                                                    label={isPartial ? 'PARCIAL' : statusBadge.label}
                                                     sx={{
-                                                        bgcolor: isPartial ? ORANGE : (arrived ? '#2E7D32' : BLACK),
+                                                        bgcolor: isPartial ? ORANGE : statusBadge.bg,
                                                         color: '#FFF',
                                                         fontWeight: 700,
                                                     }}
