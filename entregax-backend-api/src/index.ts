@@ -622,6 +622,7 @@ import {
   createContainer,
   updateContainer,
   updateContainerStatus,
+  getContainerStatusHistory,
   deleteContainer,
   getContainerCosts,
   updateContainerCosts,
@@ -4531,6 +4532,7 @@ app.get('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES
 app.post('/api/maritime/containers', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), createContainer);
 app.put('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateContainer);
 app.put('/api/maritime/containers/:id/status', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateContainerStatus);
+app.get('/api/maritime/containers/:id/status-history', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getContainerStatusHistory);
 app.delete('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteContainer);
 
 // Costos de contenedor
@@ -8400,6 +8402,29 @@ async function ensureRequiredColumns() {
       -- (sea master multipieza o consolidación de varios envíos en una guía).
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS pqtx_shipment_id INTEGER;
       CREATE INDEX IF NOT EXISTS idx_packages_pqtx_shipment_id ON packages(pqtx_shipment_id);
+
+      -- 🚛 Info de la ruta hacia destino (operador, placas, teléfono) para contenedores FCL
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_name TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_plates TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_phone TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS route_dispatched_at TIMESTAMP;
+
+      -- 📜 Historial de cambios de status del contenedor (auditoría completa)
+      CREATE TABLE IF NOT EXISTS container_status_history (
+        id SERIAL PRIMARY KEY,
+        container_id INTEGER NOT NULL REFERENCES containers(id) ON DELETE CASCADE,
+        previous_status TEXT,
+        new_status TEXT NOT NULL,
+        driver_name TEXT,
+        driver_plates TEXT,
+        driver_phone TEXT,
+        notes TEXT,
+        changed_by_user_id INTEGER,
+        changed_by_name TEXT,
+        changed_at TIMESTAMP DEFAULT NOW()
+      );
+      CREATE INDEX IF NOT EXISTS idx_container_status_history_container ON container_status_history(container_id);
+      CREATE INDEX IF NOT EXISTS idx_container_status_history_changed_at ON container_status_history(changed_at DESC);
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
 

@@ -31,6 +31,10 @@ import {
     RadioGroup,
     FormControlLabel,
     Radio,
+    Select,
+    MenuItem,
+    InputLabel,
+    Grid,
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
@@ -170,6 +174,39 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [fclStatus, setFclStatus] = useState<string>('');
     const [fclSaving, setFclSaving] = useState(false);
 
+    // FCL: info de la ruta (operador, placas, teléfono) — se guarda al actualizar status
+    const [driverName, setDriverName] = useState('');
+    const [driverPlates, setDriverPlates] = useState('');
+    const [driverPhone, setDriverPhone] = useState('');
+    const [driverNotes, setDriverNotes] = useState('');
+
+    // Historial de cambios de status
+    type HistoryEntry = {
+        id: number;
+        previous_status: string | null;
+        new_status: string;
+        driver_name: string | null;
+        driver_plates: string | null;
+        driver_phone: string | null;
+        notes: string | null;
+        changed_by_name: string | null;
+        changed_at: string;
+    };
+    const [history, setHistory] = useState<HistoryEntry[]>([]);
+    const [loadingHistory, setLoadingHistory] = useState(false);
+
+    const loadHistory = async (containerId: number) => {
+        setLoadingHistory(true);
+        try {
+            const r = await api.get(`/maritime/containers/${containerId}/status-history`);
+            setHistory(r.data?.history || []);
+        } catch {
+            setHistory([]);
+        } finally {
+            setLoadingHistory(false);
+        }
+    };
+
     // Catálogo de status válidos para contenedores FCL (debe coincidir con maritimeController.updateContainerStatus)
     const FCL_STATUSES: { value: string; label: string; description: string; icon: string }[] = [
         { value: 'received_origin', label: 'Recibido en origen (China)', description: 'La mercancía fue recibida en bodega de China', icon: '📦' },
@@ -186,7 +223,13 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         setFclSaving(true);
         setError(null);
         try {
-            await api.put(`/maritime/containers/${selected.id}/status`, { status: fclStatus });
+            await api.put(`/maritime/containers/${selected.id}/status`, {
+                status: fclStatus,
+                driver_name: driverName.trim() || undefined,
+                driver_plates: driverPlates.trim() || undefined,
+                driver_phone: driverPhone.trim() || undefined,
+                notes: driverNotes.trim() || undefined,
+            });
             setResult({
                 new_status: fclStatus,
                 received: orders.length,
@@ -617,6 +660,14 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setScannedBoxesByOrder({});
             setExpandedOrderId(null);
             setReceivedByOrder({});
+            // Pre-cargar info de ruta (si existe en el contenedor)
+            setDriverName((c as any).driver_name || '');
+            setDriverPlates((c as any).driver_plates || '');
+            setDriverPhone((c as any).driver_phone || '');
+            setDriverNotes('');
+            setFclStatus('');
+            // Cargar historial en paralelo
+            loadHistory(c.id);
             setStep(1);
         } catch (e) {
             const err = e as { response?: { data?: { error?: string } }; message?: string };
@@ -1051,51 +1102,150 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                             Al actualizar, se notificará al cliente final y se sincronizarán todos los envíos asociados al contenedor.
                         </Typography>
-                        <FormControl component="fieldset" fullWidth>
-                            <FormLabel sx={{ mb: 1, fontWeight: 700, color: BLACK }}>Status disponibles</FormLabel>
-                            <RadioGroup value={fclStatus} onChange={(e) => setFclStatus(e.target.value)}>
+
+                        <FormControl fullWidth size="medium" sx={{ mb: 2 }}>
+                            <InputLabel id="fcl-status-select-label">Status del contenedor</InputLabel>
+                            <Select
+                                labelId="fcl-status-select-label"
+                                value={fclStatus}
+                                label="Status del contenedor"
+                                onChange={(e) => setFclStatus(e.target.value as string)}
+                            >
                                 {FCL_STATUSES.map((s) => {
                                     const isCurrent = selected.status === s.value;
-                                    const isSelected = fclStatus === s.value;
                                     return (
-                                        <Paper
-                                            key={s.value}
-                                            variant="outlined"
-                                            onClick={() => setFclStatus(s.value)}
-                                            sx={{
-                                                p: 1.5,
-                                                mb: 1,
-                                                cursor: 'pointer',
-                                                border: isSelected ? `2px solid ${TEAL}` : '1px solid #E0E0E0',
-                                                bgcolor: isSelected ? '#E0F7FA' : isCurrent ? '#F5F5F5' : 'transparent',
-                                                '&:hover': { bgcolor: isSelected ? '#E0F7FA' : '#FAFAFA' },
-                                            }}
-                                        >
-                                            <FormControlLabel
-                                                value={s.value}
-                                                control={<Radio sx={{ color: TEAL, '&.Mui-checked': { color: TEAL } }} />}
-                                                sx={{ m: 0, width: '100%', alignItems: 'flex-start' }}
-                                                label={
-                                                    <Box sx={{ ml: 1 }}>
-                                                        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
-                                                            <Typography sx={{ fontWeight: 700, color: BLACK }}>
-                                                                {s.icon} {s.label}
-                                                            </Typography>
-                                                            {isCurrent && (
-                                                                <Chip label="Status actual" size="small" sx={{ bgcolor: '#9E9E9E', color: '#FFF', fontWeight: 700, height: 20 }} />
-                                                            )}
-                                                        </Stack>
-                                                        <Typography variant="caption" color="text.secondary">
-                                                            {s.description}
-                                                        </Typography>
-                                                    </Box>
-                                                }
-                                            />
-                                        </Paper>
+                                        <MenuItem key={s.value} value={s.value}>
+                                            <Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%' }}>
+                                                <Typography sx={{ fontWeight: 600 }}>
+                                                    {s.icon} {s.label}
+                                                </Typography>
+                                                {isCurrent && (
+                                                    <Chip label="actual" size="small" sx={{ bgcolor: '#9E9E9E', color: '#FFF', height: 18, fontSize: 10 }} />
+                                                )}
+                                            </Stack>
+                                        </MenuItem>
                                     );
                                 })}
-                            </RadioGroup>
+                            </Select>
                         </FormControl>
+
+                        {fclStatus && (
+                            <Alert severity="info" sx={{ mb: 2 }}>
+                                {FCL_STATUSES.find((s) => s.value === fclStatus)?.description}
+                            </Alert>
+                        )}
+
+                        {/* Info de la ruta hacia destino (operador / placas / teléfono) */}
+                        <Box sx={{ mt: 2, p: 2, bgcolor: '#FFF8E1', borderRadius: 2, border: `1px dashed ${ORANGE}` }}>
+                            <Typography sx={{ fontWeight: 700, color: ORANGE, mb: 1 }}>
+                                🚛 Información de ruta hacia destino
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                                Captura los datos del operador y la unidad. Quedan registrados en el historial del contenedor para consulta posterior.
+                            </Typography>
+                            <Grid container spacing={2}>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                    <TextField
+                                        fullWidth
+                                        size="small"
+                                        label="Nombre del operador"
+                                        value={driverName}
+                                        onChange={(e) => setDriverName(e.target.value)}
+                                        placeholder="Ej. Juan Pérez"
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                    <TextField
+                                        fullWidth
+                                        size="small"
+                                        label="Placas de la unidad"
+                                        value={driverPlates}
+                                        onChange={(e) => setDriverPlates(e.target.value.toUpperCase())}
+                                        placeholder="Ej. ABC-1234"
+                                        InputProps={{ sx: { fontFamily: 'monospace' } }}
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                    <TextField
+                                        fullWidth
+                                        size="small"
+                                        label="Teléfono (opcional)"
+                                        value={driverPhone}
+                                        onChange={(e) => setDriverPhone(e.target.value)}
+                                        placeholder="55 1234 5678"
+                                    />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                    <TextField
+                                        fullWidth
+                                        size="small"
+                                        label="Notas (opcional)"
+                                        value={driverNotes}
+                                        onChange={(e) => setDriverNotes(e.target.value)}
+                                        placeholder="Observaciones del despacho…"
+                                    />
+                                </Grid>
+                            </Grid>
+                        </Box>
+
+                        {/* Historial de cambios */}
+                        <Box sx={{ mt: 3 }}>
+                            <Typography sx={{ fontWeight: 700, color: BLACK, mb: 1 }}>
+                                📜 Historial de cambios ({history.length})
+                            </Typography>
+                            {loadingHistory ? (
+                                <Box sx={{ textAlign: 'center', py: 2 }}><CircularProgress size={20} sx={{ color: TEAL }} /></Box>
+                            ) : history.length === 0 ? (
+                                <Typography variant="caption" color="text.secondary">
+                                    Sin movimientos registrados todavía.
+                                </Typography>
+                            ) : (
+                                <Paper variant="outlined" sx={{ maxHeight: 220, overflow: 'auto' }}>
+                                    <List dense disablePadding>
+                                        {history.map((h) => {
+                                            const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
+                                            return (
+                                                <ListItem key={h.id} sx={{ borderBottom: '1px solid #eee', alignItems: 'flex-start' }}>
+                                                    <ListItemText
+                                                        primary={
+                                                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                                                                <Typography sx={{ fontWeight: 700 }}>
+                                                                    {meta?.icon || '·'} {meta?.label || h.new_status}
+                                                                </Typography>
+                                                                <Chip
+                                                                    label={new Date(h.changed_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                                                                    size="small"
+                                                                    variant="outlined"
+                                                                    sx={{ height: 20, fontSize: 11 }}
+                                                                />
+                                                                {h.changed_by_name && (
+                                                                    <Chip label={`por ${h.changed_by_name}`} size="small" sx={{ height: 20, bgcolor: BLACK, color: '#FFF', fontSize: 11 }} />
+                                                                )}
+                                                            </Stack>
+                                                        }
+                                                        secondary={
+                                                            <Box component="span" sx={{ display: 'block', fontSize: 12, color: '#555', mt: 0.5 }}>
+                                                                {(h.driver_name || h.driver_plates || h.driver_phone) && (
+                                                                    <span>
+                                                                        🚛 {h.driver_name || '—'}
+                                                                        {h.driver_plates ? ` · ${h.driver_plates}` : ''}
+                                                                        {h.driver_phone ? ` · ${h.driver_phone}` : ''}
+                                                                    </span>
+                                                                )}
+                                                                {h.notes && <span style={{ display: 'block' }}>📝 {h.notes}</span>}
+                                                                {h.previous_status && (
+                                                                    <span style={{ display: 'block', color: '#999' }}>(anterior: {h.previous_status})</span>
+                                                                )}
+                                                            </Box>
+                                                        }
+                                                    />
+                                                </ListItem>
+                                            );
+                                        })}
+                                    </List>
+                                </Paper>
+                            )}
+                        </Box>
                     </Paper>
 
                     <Stack direction="row" spacing={2} sx={{ mt: 3 }} justifyContent="flex-end">

@@ -209,7 +209,7 @@ export const updateContainer = async (req: AuthRequest, res: Response): Promise<
 export const updateContainerStatus = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, driver_name, driver_plates, driver_phone, notes } = req.body;
 
     const validStatuses = ['received_origin', 'consolidated', 'in_transit', 'arrived_port', 'customs_cleared', 'in_transit_clientfinal', 'delivered'];
     if (!validStatuses.includes(status)) {
@@ -219,6 +219,7 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
     // Obtener datos del contenedor y sus envíos con usuarios
     const containerResult = await pool.query('SELECT * FROM containers WHERE id = $1', [id]);
     const container = containerResult.rows[0];
+    const previousStatus: string | null = container?.status || null;
 
     // Obtener todos los usuarios con envíos en este contenedor
     const usersResult = await pool.query(`
@@ -227,11 +228,50 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
       WHERE ms.container_id = $1 AND ms.user_id IS NOT NULL
     `, [id]);
 
-    // Actualizar contenedor
-    await pool.query('UPDATE containers SET status = $1, updated_at = NOW() WHERE id = $2', [status, id]);
+    // Si hay info de ruta (operador/placas/teléfono), guardarla en containers
+    // y marcar route_dispatched_at cuando se transiciona a in_transit_clientfinal
+    const hasRouteInfo = !!(driver_name || driver_plates || driver_phone);
+    if (hasRouteInfo) {
+      const dispatchedAtClause = status === 'in_transit_clientfinal' ? ', route_dispatched_at = NOW()' : '';
+      await pool.query(
+        `UPDATE containers
+            SET status = $1,
+                driver_name = COALESCE(NULLIF($2,''), driver_name),
+                driver_plates = COALESCE(NULLIF($3,''), driver_plates),
+                driver_phone = COALESCE(NULLIF($4,''), driver_phone),
+                updated_at = NOW()
+                ${dispatchedAtClause}
+          WHERE id = $5`,
+        [status, driver_name || '', driver_plates || '', driver_phone || '', id]
+      );
+    } else {
+      await pool.query('UPDATE containers SET status = $1, updated_at = NOW() WHERE id = $2', [status, id]);
+    }
 
     // Actualizar todos los envíos del contenedor
     await pool.query('UPDATE maritime_shipments SET status = $1, updated_at = NOW() WHERE container_id = $2', [status, id]);
+
+    // Registrar en historial (auditoría)
+    try {
+      await pool.query(
+        `INSERT INTO container_status_history
+           (container_id, previous_status, new_status, driver_name, driver_plates, driver_phone, notes, changed_by_user_id, changed_by_name)
+         VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), $8, $9)`,
+        [
+          id,
+          previousStatus,
+          status,
+          driver_name || '',
+          driver_plates || '',
+          driver_phone || '',
+          notes || '',
+          req.user?.userId || null,
+          req.user?.email || null,
+        ]
+      );
+    } catch (histErr) {
+      console.warn('[updateContainerStatus] No se pudo escribir historial:', (histErr as Error).message);
+    }
 
     // Enviar notificaciones a todos los usuarios afectados
     const statusMessages: Record<string, string> = {
@@ -277,6 +317,26 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
   } catch (error) {
     console.error('Error updating container status:', error);
     res.status(500).json({ error: 'Error al actualizar estado' });
+  }
+};
+
+// GET /api/maritime/containers/:id/status-history
+// Devuelve el historial completo de cambios de status del contenedor
+export const getContainerStatusHistory = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT id, previous_status, new_status, driver_name, driver_plates, driver_phone,
+              notes, changed_by_user_id, changed_by_name, changed_at
+         FROM container_status_history
+        WHERE container_id = $1
+        ORDER BY changed_at DESC`,
+      [id]
+    );
+    res.json({ history: result.rows });
+  } catch (error) {
+    console.error('Error getting container status history:', error);
+    res.status(500).json({ error: 'Error al obtener historial' });
   }
 };
 
