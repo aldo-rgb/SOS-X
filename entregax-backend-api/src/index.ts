@@ -7559,27 +7559,27 @@ const hrDocUpload = multer({
   limits: { fileSize: 25 * 1024 * 1024 }, // 25MB
 });
 
-app.get('/api/admin/hr/dashboard-summary', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getHRDashboardSummary);
+app.get('/api/admin/hr/dashboard-summary', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getHRDashboardSummary);
 app.get('/api/admin/hr/employees/:id/full-profile', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeeFullProfile);
-app.post('/api/admin/hr/employees/:id/documents', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), hrDocUpload.single('file'), uploadEmployeeDocument);
-app.delete('/api/admin/hr/documents/:docId', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteEmployeeDocument);
-app.put('/api/admin/hr/employees/:id/payroll', authenticateToken, requireMinLevel(ROLES.ADMIN), upsertPayroll);
-app.post('/api/admin/hr/employees/:id/loans', authenticateToken, requireMinLevel(ROLES.ADMIN), createLoan);
-app.post('/api/admin/hr/loans/:loanId/payments', authenticateToken, requireMinLevel(ROLES.ADMIN), addLoanPayment);
-app.post('/api/admin/hr/loans/:loanId/cancel', authenticateToken, requireMinLevel(ROLES.ADMIN), cancelLoan);
-app.get('/api/admin/hr/loans/:loanId/pagare', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getPagareInterno);
+app.post('/api/admin/hr/employees/:id/documents', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), hrDocUpload.single('file'), uploadEmployeeDocument);
+app.delete('/api/admin/hr/documents/:docId', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), deleteEmployeeDocument);
+app.put('/api/admin/hr/employees/:id/payroll', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), upsertPayroll);
+app.post('/api/admin/hr/employees/:id/loans', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), createLoan);
+app.post('/api/admin/hr/loans/:loanId/payments', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), addLoanPayment);
+app.post('/api/admin/hr/loans/:loanId/cancel', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), cancelLoan);
+app.get('/api/admin/hr/loans/:loanId/pagare', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getPagareInterno);
 
 // Vacaciones
-app.get('/api/admin/hr/employees/:id/vacations', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), listVacationRequests);
-app.post('/api/admin/hr/employees/:id/vacations', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createVacationRequest);
-app.delete('/api/admin/hr/vacations/:requestId', authenticateToken, requireMinLevel(ROLES.ADMIN), cancelVacationRequest);
+app.get('/api/admin/hr/employees/:id/vacations', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), listVacationRequests);
+app.post('/api/admin/hr/employees/:id/vacations', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), createVacationRequest);
+app.delete('/api/admin/hr/vacations/:requestId', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), cancelVacationRequest);
 
 // Quinta (prestación 1 vez al año)
-app.get('/api/admin/hr/quinta/calendar', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getQuintaCalendar);
-app.get('/api/admin/hr/employees/:id/quinta', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), listQuintaBookings);
-app.post('/api/admin/hr/employees/:id/quinta', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), createQuintaBooking);
-app.patch('/api/admin/hr/quinta/:bookingId/payment', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), updateQuintaPayment);
-app.delete('/api/admin/hr/quinta/:bookingId', authenticateToken, requireMinLevel(ROLES.ADMIN), cancelQuintaBooking);
+app.get('/api/admin/hr/quinta/calendar', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getQuintaCalendar);
+app.get('/api/admin/hr/employees/:id/quinta', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), listQuintaBookings);
+app.post('/api/admin/hr/employees/:id/quinta', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), createQuintaBooking);
+app.patch('/api/admin/hr/quinta/:bookingId/payment', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), updateQuintaPayment);
+app.delete('/api/admin/hr/quinta/:bookingId', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), cancelQuintaBooking);
 
 // Generar contrato firmado para asesores (usa firma digital del aviso de privacidad)
 app.post('/api/admin/hr/employees/:id/generate-advisor-contract', authenticateToken, requireMinLevel(ROLES.ADMIN), generateAdvisorContract);

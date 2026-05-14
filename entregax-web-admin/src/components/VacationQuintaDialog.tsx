@@ -142,12 +142,12 @@ export default function VacationQuintaDialog({ open, employeeId, employeeName, o
       await api.post(`/admin/hr/employees/${employeeId}/quinta`, {
         start_date: qStart,
         end_date: qEnd,
-        maintenance_fee: qFee ? Number(qFee) : 0,
+        maintenance_fee: QUINTA_MAINTENANCE_FEE,
         maintenance_paid: qPaid,
         notes: qNotes || null,
       });
       setMsg({ sev: 'success', text: 'Reservación de quinta registrada' });
-      setQStart(''); setQEnd(''); setQFee(''); setQPaid(false); setQNotes('');
+      setQStart(''); setQEnd(''); setQPaid(false); setQNotes('');
       await load();
       onChange?.();
     } catch (e: any) {
@@ -386,8 +386,16 @@ export default function VacationQuintaDialog({ open, employeeId, employeeName, o
                   </Grid>
                   <Grid size={{ xs: 12, sm: 4 }}>
                     <TextField
-                      fullWidth size="small" type="number" label="Cuota mantenimiento (MXN)"
-                      value={qFee} onChange={e => setQFee(e.target.value)}
+                      fullWidth
+                      size="small"
+                      label="Cuota mantenimiento (MXN)"
+                      value={fmtMXN(QUINTA_MAINTENANCE_FEE)}
+                      InputLabelProps={{ shrink: true }}
+                      InputProps={{
+                        readOnly: true,
+                        sx: { fontWeight: 700, color: C.text, bgcolor: '#f8fafc' },
+                      }}
+                      helperText="Cuota fija anual"
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 4 }}>

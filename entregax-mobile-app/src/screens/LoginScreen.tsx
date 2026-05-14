@@ -432,15 +432,15 @@ const styles = StyleSheet.create({
     backgroundColor: BLACK,
   },
   header: {
-    flex: 0.45,
+    flex: 0.28,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingBottom: 15,
+    paddingBottom: 10,
   },
   logoImage: {
-    width: 207,
-    height: 207,
-    marginBottom: 8,
+    width: 150,
+    height: 150,
+    marginBottom: 4,
   },
   logoText: {
     fontSize: 42,
@@ -456,30 +456,30 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   formContainer: {
-    flex: 0.55,
+    flex: 0.72,
     backgroundColor: 'white',
     borderTopLeftRadius: 30,
     borderTopRightRadius: 30,
     paddingHorizontal: 24,
-    paddingTop: 30,
+    paddingTop: 22,
   },
   welcomeText: {
-    fontSize: 28,
+    fontSize: 24,
     fontWeight: 'bold',
     color: BLACK,
-    marginBottom: 5,
+    marginBottom: 4,
   },
   instructionText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
-    marginBottom: 25,
+    marginBottom: 16,
   },
   input: {
-    marginBottom: 16,
+    marginBottom: 12,
     backgroundColor: 'white',
   },
   loginButton: {
-    marginTop: 10,
+    marginTop: 6,
     borderRadius: 8,
     backgroundColor: ORANGE,
   },
@@ -491,7 +491,8 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   forgotButton: {
-    marginTop: 15,
+    marginTop: 6,
+    marginBottom: 4,
   },
   // ─── Modal "¿Olvidaste tu contraseña?" ─────────────────────
   modalBackdrop: {

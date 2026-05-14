@@ -166,6 +166,41 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [confirmPartialOpen, setConfirmPartialOpen] = useState(false);
     const [result, setResult] = useState<{ new_status: string; received: number; missing: number; total: number; partial_orders?: number; partial_boxes_missing?: number } | null>(null);
 
+    // FCL: status seleccionado para actualizar el contenedor completo (sin escaneo de cajas)
+    const [fclStatus, setFclStatus] = useState<string>('');
+    const [fclSaving, setFclSaving] = useState(false);
+
+    // Catálogo de status válidos para contenedores FCL (debe coincidir con maritimeController.updateContainerStatus)
+    const FCL_STATUSES: { value: string; label: string; description: string; icon: string }[] = [
+        { value: 'received_origin', label: 'Recibido en origen (China)', description: 'La mercancía fue recibida en bodega de China', icon: '📦' },
+        { value: 'consolidated', label: 'Consolidado', description: 'Carga consolidada en el contenedor, lista para embarque', icon: '🧱' },
+        { value: 'in_transit', label: 'En tránsito (zarpado)', description: 'El buque ya zarpó hacia México', icon: '🚢' },
+        { value: 'arrived_port', label: 'Llegó al puerto destino', description: 'El contenedor ya arribó al puerto en México', icon: '⚓' },
+        { value: 'customs_cleared', label: 'Liberado de aduana', description: 'Despacho aduanal completado, listo para movilizar', icon: '🛃' },
+        { value: 'received_cedis', label: 'Recibido en CEDIS', description: 'Contenedor descargado en CEDIS, listo para despacho', icon: '🏭' },
+    ];
+
+    const updateFCLContainerStatus = async () => {
+        if (!selected || !fclStatus) return;
+        setFclSaving(true);
+        setError(null);
+        try {
+            await api.put(`/maritime/containers/${selected.id}/status`, { status: fclStatus });
+            setResult({
+                new_status: fclStatus,
+                received: orders.length,
+                missing: 0,
+                total: orders.length,
+            });
+            setStep(2);
+        } catch (e) {
+            const err = e as { response?: { data?: { error?: string } }; message?: string };
+            setError(err.response?.data?.error || err.message || 'Error al actualizar status');
+        } finally {
+            setFclSaving(false);
+        }
+    };
+
     // Tracking de cajas escaneadas por orden (orderId -> Set de números de caja en formato '0001')
     const [scannedBoxesByOrder, setScannedBoxesByOrder] = useState<Record<number, Set<string>>>({});
     // Orden actualmente expandida (la última escaneada)
@@ -874,7 +909,100 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             })()}
 
             {/* STEP 1 */}
-            {step === 1 && selected && (
+            {step === 1 && selected && mode === 'FCL' && (
+                <Box>
+                    <Paper sx={{ p: 2, mb: 2, bgcolor: '#E0F7FA', border: `2px solid ${TEAL}` }}>
+                        <Typography variant="subtitle2" color="text.secondary">
+                            {selected.reference_code} · Contenedor {selected.container_number || '—'}
+                            {selected.bl_number && ` · BL ${selected.bl_number}`}
+                        </Typography>
+                        <Typography variant="h6" sx={{ color: BLACK, fontWeight: 700 }}>
+                            {selected.vessel_name || 'Buque sin asignar'}
+                            {selected.voyage_number && ` · Viaje ${selected.voyage_number}`}
+                        </Typography>
+                        <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
+                            <Chip label={`Status actual: ${selected.status || '—'}`} size="small" sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700 }} />
+                            {selected.total_weight_kg && (
+                                <Chip label={`${Number(selected.total_weight_kg).toFixed(2)} kg`} size="small" variant="outlined" />
+                            )}
+                            {selected.total_cbm && (
+                                <Chip label={`${Number(selected.total_cbm).toFixed(2)} CBM`} size="small" variant="outlined" />
+                            )}
+                        </Stack>
+                    </Paper>
+
+                    <Paper sx={{ p: 3, mb: 2 }}>
+                        <Typography variant="h6" sx={{ fontWeight: 700, color: TEAL, mb: 0.5 }}>
+                            Selecciona el nuevo status del contenedor
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            Al actualizar, se notificará al cliente final y se sincronizarán todos los envíos asociados al contenedor.
+                        </Typography>
+                        <FormControl component="fieldset" fullWidth>
+                            <FormLabel sx={{ mb: 1, fontWeight: 700, color: BLACK }}>Status disponibles</FormLabel>
+                            <RadioGroup value={fclStatus} onChange={(e) => setFclStatus(e.target.value)}>
+                                {FCL_STATUSES.map((s) => {
+                                    const isCurrent = selected.status === s.value;
+                                    const isSelected = fclStatus === s.value;
+                                    return (
+                                        <Paper
+                                            key={s.value}
+                                            variant="outlined"
+                                            onClick={() => setFclStatus(s.value)}
+                                            sx={{
+                                                p: 1.5,
+                                                mb: 1,
+                                                cursor: 'pointer',
+                                                border: isSelected ? `2px solid ${TEAL}` : '1px solid #E0E0E0',
+                                                bgcolor: isSelected ? '#E0F7FA' : isCurrent ? '#F5F5F5' : 'transparent',
+                                                '&:hover': { bgcolor: isSelected ? '#E0F7FA' : '#FAFAFA' },
+                                            }}
+                                        >
+                                            <FormControlLabel
+                                                value={s.value}
+                                                control={<Radio sx={{ color: TEAL, '&.Mui-checked': { color: TEAL } }} />}
+                                                sx={{ m: 0, width: '100%', alignItems: 'flex-start' }}
+                                                label={
+                                                    <Box sx={{ ml: 1 }}>
+                                                        <Stack direction="row" spacing={1} alignItems="center" sx={{ flexWrap: 'wrap' }}>
+                                                            <Typography sx={{ fontWeight: 700, color: BLACK }}>
+                                                                {s.icon} {s.label}
+                                                            </Typography>
+                                                            {isCurrent && (
+                                                                <Chip label="Status actual" size="small" sx={{ bgcolor: '#9E9E9E', color: '#FFF', fontWeight: 700, height: 20 }} />
+                                                            )}
+                                                        </Stack>
+                                                        <Typography variant="caption" color="text.secondary">
+                                                            {s.description}
+                                                        </Typography>
+                                                    </Box>
+                                                }
+                                            />
+                                        </Paper>
+                                    );
+                                })}
+                            </RadioGroup>
+                        </FormControl>
+                    </Paper>
+
+                    <Stack direction="row" spacing={2} sx={{ mt: 3 }} justifyContent="flex-end">
+                        <Button onClick={() => { setStep(0); setFclStatus(''); }} disabled={fclSaving} sx={{ color: BLACK }}>
+                            Cancelar
+                        </Button>
+                        <Button
+                            variant="contained"
+                            onClick={updateFCLContainerStatus}
+                            disabled={!fclStatus || fclSaving || fclStatus === selected.status}
+                            sx={{ bgcolor: TEAL, '&:hover': { bgcolor: '#00838F' }, minWidth: 200 }}
+                        >
+                            {fclSaving ? <CircularProgress size={20} sx={{ color: '#FFF' }} /> : 'Actualizar status del contenedor'}
+                        </Button>
+                    </Stack>
+                </Box>
+            )}
+
+            {/* STEP 1 (LCL - escaneo de cajas) */}
+            {step === 1 && selected && mode !== 'FCL' && (
                 <Box>
                     <Paper sx={{ p: 2, mb: 2, bgcolor: '#E0F7FA', border: `2px solid ${TEAL}` }}>
                         <Typography variant="subtitle2" color="text.secondary">
