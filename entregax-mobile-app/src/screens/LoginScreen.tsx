@@ -27,6 +27,7 @@ import {
   isBiometricEnabled,
   setBiometricEnabled,
 } from '../services/biometricAuth';
+import SocialAuthButtons from '../components/SocialAuthButtons';
 
 // Colores de marca
 const ORANGE = '#F05A28';
@@ -211,6 +212,49 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     }
   };
 
+  /**
+   * Maneja el éxito de Google / Apple Sign-In.
+   * Replica la lógica post-login de handleLogin sin tocar password.
+   */
+  const handleSocialLoginSuccess = async (user: any, access: any) => {
+    const userData = {
+      id: user.id,
+      name: user.name || user.full_name,
+      email: user.email,
+      boxId: user.boxId || user.box_id,
+      role: user.role,
+      phone: user.phone,
+      isVerified: user.isVerified,
+      verificationStatus: user.verificationStatus,
+    };
+    const token = access.token;
+    try {
+      await setSecure('token', token);
+      await setSecure('user', JSON.stringify(userData));
+    } catch { /* ignore */ }
+
+    if (userData.role === 'repartidor' || userData.role === 'monitoreo') {
+      navigation.replace('DriverHome', { user: userData, token });
+      return;
+    }
+    if (EMPLOYEE_ROLES.includes(userData.role)) {
+      navigation.replace('EmployeeHome', { user: userData, token });
+      return;
+    }
+    if (userData.role === 'client') {
+      try {
+        const verifyResponse = await api.get('/api/verify/status', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!verifyResponse.data.isVerified) {
+          navigation.replace('Verification', { user: userData, token });
+          return;
+        }
+      } catch { /* fall through to Home */ }
+    }
+    navigation.replace('Home', { user: userData, token });
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -287,6 +331,22 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         >
           ¿Olvidaste tu contraseña?
         </Button>
+
+        {/* Sign in con Google / Apple (feature-flagged) */}
+        <SocialAuthButtons
+          onSuccess={({ user, access }: { user: any; access: any }) => {
+            handleSocialLoginSuccess(user, access);
+          }}
+          onError={(msg: string) => Alert.alert('Error', msg)}
+          onNotRegistered={(prefill: { email: string; fullName: string; provider: 'google' | 'apple' }) => {
+            (navigation as any).navigate('Register', {
+              prefillEmail: prefill.email,
+              prefillName: prefill.fullName,
+              prefillProvider: prefill.provider,
+            });
+          }}
+          disabled={loading}
+        />
       </Surface>
 
       {/* Footer */}

@@ -17,6 +17,7 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.entregax.mobile",
       "buildNumber": "4",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "EntregaX usa la cámara para escanear guías, códigos QR y tomar fotos de paquetes.",
         "NSPhotoLibraryUsageDescription": "EntregaX accede a tu galería para adjuntar fotos de paquetes o comprobantes.",
@@ -62,6 +63,7 @@
     },
     "plugins": [
       "expo-asset",
+      "expo-apple-authentication",
       "expo-secure-store",
       [
         "expo-local-authentication",
@@ -108,7 +110,10 @@
     "extra": {
       "eas": {
         "projectId": "b6043c48-2360-4a21-afa7-3ea091d6c74c"
-      }
+      },
+      "googleIosClientId": "",
+      "googleAndroidClientId": "",
+      "googleWebClientId": "992259567923-bru9cos6eouvc91bbn9a4mpp0ggmh444.apps.googleusercontent.com"
     },
     "owner": "aldozaia"
   }
