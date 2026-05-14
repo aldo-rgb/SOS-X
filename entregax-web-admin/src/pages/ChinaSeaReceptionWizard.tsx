@@ -214,7 +214,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         { value: 'in_transit', label: 'En tránsito (zarpado)', description: 'El buque ya zarpó hacia México', icon: '🚢' },
         { value: 'arrived_port', label: 'Llegó al puerto destino', description: 'El contenedor ya arribó al puerto en México', icon: '⚓' },
         { value: 'customs_cleared', label: 'Liberado de aduana', description: 'Despacho aduanal completado, listo para movilizar', icon: '🛃' },
-        { value: 'in_transit_clientfinal', label: 'En ruta a destino', description: 'El contenedor va en ruta hacia el destino del cliente final', icon: '🚛' },
+        { value: 'in_transit_clientfinal', label: 'En tránsito a destino', description: 'El contenedor va en tránsito hacia el destino del cliente final', icon: '🚛' },
         { value: 'delivered', label: 'Entregado', description: 'Contenedor entregado al cliente final', icon: '✅' },
     ];
 
@@ -968,7 +968,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                     in_transit: { label: 'EN TRÁNSITO', bg: BLACK },
                                     arrived_port: { label: 'YA EN PUERTO', bg: '#2E7D32' },
                                     customs_cleared: { label: 'LIBERADO ADUANA', bg: '#1565C0' },
-                                    in_transit_clientfinal: { label: 'EN RUTA', bg: '#E65100' },
+                                    in_transit_clientfinal: { label: 'EN TRÁNSITO A DESTINO', bg: '#E65100' },
                                     delivered: { label: 'ENTREGADO', bg: '#1B5E20' },
                                 };
                                 const statusBadge = statusBadgeMap[c.status] || { label: (c.status || 'SIN STATUS').toUpperCase(), bg: BLACK };
@@ -1086,7 +1086,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             {selected.voyage_number && ` · Viaje ${selected.voyage_number}`}
                         </Typography>
                         <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-                            <Chip label={`Status actual: ${selected.status || '—'}`} size="small" sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700 }} />
+                            <Chip label={`Status actual: ${FCL_STATUSES.find((s) => s.value === selected.status)?.label || selected.status || '—'}`} size="small" sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700 }} />
                             {selected.total_weight_kg && (
                                 <Chip label={`${Number(selected.total_weight_kg).toFixed(2)} kg`} size="small" variant="outlined" />
                             )}
