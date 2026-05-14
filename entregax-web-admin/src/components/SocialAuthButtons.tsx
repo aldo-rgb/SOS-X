@@ -164,6 +164,7 @@ const InnerButtons: React.FC<Props> = ({ onSuccess, onError, disabled }) => {
             sx={{
               flex: 1,
               minWidth: 0,
+              height: 44,
               position: 'relative',
               opacity: disabled ? 0.6 : 1,
               pointerEvents: disabled ? 'none' : 'auto',
@@ -177,10 +178,11 @@ const InnerButtons: React.FC<Props> = ({ onSuccess, onError, disabled }) => {
                 boxShadow: '0 2px 8px rgba(193,39,45,0.12)',
                 transform: 'translateY(-1px)',
               },
-              // Estilizamos el iframe interno de GoogleLogin para que se vea como un bot\u00f3n bonito
+              // Estilizamos el iframe interno de GoogleLogin para que ocupe todo el contenedor
               '& > div, & iframe, & > div > div': {
                 width: '100% !important',
                 minWidth: '100% !important',
+                height: '100% !important',
               },
               // Overlay con icono + label custom encima del iframe transparente de Google
               '&::before': {
@@ -235,7 +237,8 @@ const InnerButtons: React.FC<Props> = ({ onSuccess, onError, disabled }) => {
             sx={{
               flex: 1,
               minWidth: 0,
-              py: 1.2,
+              height: 44,
+              py: 0,
               borderRadius: 2,
               textTransform: 'none',
               fontSize: '0.95rem',
