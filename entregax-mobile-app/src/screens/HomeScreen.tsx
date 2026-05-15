@@ -201,6 +201,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       received_mty: 'Recibido en MTY',
       out_for_delivery: 'En ruta de entrega',
       en_ruta_entrega: 'En ruta de entrega',
+      reempacado: 'Reempacado',
     };
     return statusLabels[status] || status;
   };

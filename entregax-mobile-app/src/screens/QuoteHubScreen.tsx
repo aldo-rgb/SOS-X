@@ -77,6 +77,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
   const [lengthCm, setLengthCm] = useState('');
   const [widthCm, setWidthCm] = useState('');
   const [heightCm, setHeightCm] = useState('');
+  const [cbmM3, setCbmM3] = useState('');
   const [quantity, setQuantity] = useState('1');
 
   // Cliente solicitó cotizar siempre como Genérico — sin selector de
@@ -112,8 +113,18 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     const h = parseFloat(heightCm) || 0;
     const dv = parseFloat(declaredValueMxn) || 0;
 
+    const cbm = parseFloat(cbmM3) || 0;
     if (w <= 0) { setLoading(false); setError('Captura el peso (kg)'); return; }
-    if (l <= 0 || wd <= 0 || h <= 0) { setLoading(false); setError('Captura las medidas (largo, ancho, alto)'); return; }
+    // Marítimo se cotiza por CBM (m³) + peso, no por medidas.
+    // TDI Aéreo se cotiza por peso (medidas opcionales).
+    // PO Box sí cotiza por volumen y exige medidas.
+    if (selectedService.key === 'maritime') {
+      if (cbm <= 0) { setLoading(false); setError('Captura los metros cúbicos (CBM)'); return; }
+    } else if (selectedService.key === 'pobox') {
+      if (l <= 0 || wd <= 0 || h <= 0) {
+        setLoading(false); setError('Captura las medidas (largo, ancho, alto)'); return;
+      }
+    }
     if (includeGex && dv <= 0) { setLoading(false); setError('Captura el valor declarado para Garantía Extendida'); return; }
 
     let body: Record<string, any> = {
@@ -128,6 +139,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     } else if (selectedService.key === 'maritime') {
       body.userId = user?.id;
       body.category = 'Generico';
+      body.cbm = cbm; // marítimo cotiza por CBM directo
     }
 
     try {
@@ -191,16 +203,31 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
           keyboardType="decimal-pad"
         />
       </View>
-      <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Medidas (cm)</Text>
-        <View style={styles.dimensionsRow}>
-          <TextInput style={[styles.input, styles.dimInput]} placeholder="Largo" value={lengthCm} onChangeText={setLengthCm} keyboardType="decimal-pad" />
-          <Text style={styles.dimX}>×</Text>
-          <TextInput style={[styles.input, styles.dimInput]} placeholder="Ancho" value={widthCm} onChangeText={setWidthCm} keyboardType="decimal-pad" />
-          <Text style={styles.dimX}>×</Text>
-          <TextInput style={[styles.input, styles.dimInput]} placeholder="Alto" value={heightCm} onChangeText={setHeightCm} keyboardType="decimal-pad" />
+      {selectedService?.key === 'maritime' ? (
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Metros cúbicos (CBM · m³)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="0.000"
+            value={cbmM3}
+            onChangeText={setCbmM3}
+            keyboardType="decimal-pad"
+          />
         </View>
-      </View>
+      ) : (
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>
+            Medidas (cm){selectedService?.key === 'air_china' ? ' · opcional' : ''}
+          </Text>
+          <View style={styles.dimensionsRow}>
+            <TextInput style={[styles.input, styles.dimInput]} placeholder="Largo" value={lengthCm} onChangeText={setLengthCm} keyboardType="decimal-pad" />
+            <Text style={styles.dimX}>×</Text>
+            <TextInput style={[styles.input, styles.dimInput]} placeholder="Ancho" value={widthCm} onChangeText={setWidthCm} keyboardType="decimal-pad" />
+            <Text style={styles.dimX}>×</Text>
+            <TextInput style={[styles.input, styles.dimInput]} placeholder="Alto" value={heightCm} onChangeText={setHeightCm} keyboardType="decimal-pad" />
+          </View>
+        </View>
+      )}
     </>
   );
 

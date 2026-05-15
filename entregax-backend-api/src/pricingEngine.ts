@@ -545,7 +545,8 @@ export const calculateMaritimeShippingCost = async (
     widthCm: number,
     heightCm: number,
     weightKg: number,
-    categoryName: string = 'Generico'
+    categoryName: string = 'Generico',
+    directCbm?: number
 ): Promise<{
     physicalCbm: string;
     volumetricCbm: string;
@@ -560,7 +561,11 @@ export const calculateMaritimeShippingCost = async (
     breakdown: string;
 }> => {
     // 1. REGLA DE ORO: CÁLCULO DE CBM vs PESO VOLUMÉTRICO
-    const physicalCbm = (lengthCm * widthCm * heightCm) / 1000000;
+    // Si se provee CBM directo (cotización marítima por m³) se usa tal cual;
+    // de lo contrario se calcula desde las dimensiones.
+    const physicalCbm = (directCbm && directCbm > 0)
+        ? directCbm
+        : (lengthCm * widthCm * heightCm) / 1000000;
     const volumetricCbm = weightKg / 600; // Factor marítimo
     
     // Tomamos el MAYOR de los dos para proteger el margen
@@ -826,21 +831,28 @@ export const updatePricingCategory = async (req: Request, res: Response): Promis
 export const calculateMaritimeCost = async (req: Request, res: Response): Promise<any> => {
     try {
         const {
-            userId, lengthCm, widthCm, heightCm, weightKg, category,
+            userId, lengthCm, widthCm, heightCm, weightKg, cbm, category,
             declaredValueMxn, includeGex,
         } = req.body;
 
-        if (!lengthCm || !widthCm || !heightCm || !weightKg) {
-            return res.status(400).json({ error: 'Dimensiones y peso son requeridos' });
+        const directCbm = parseFloat(cbm) || 0;
+        const hasDims = !!(lengthCm && widthCm && heightCm);
+
+        if (!weightKg) {
+            return res.status(400).json({ error: 'El peso es requerido' });
+        }
+        if (directCbm <= 0 && !hasDims) {
+            return res.status(400).json({ error: 'Captura el CBM (m³) o las dimensiones' });
         }
 
         const result = await calculateMaritimeShippingCost(
             userId || 0,
-            parseFloat(lengthCm),
-            parseFloat(widthCm),
-            parseFloat(heightCm),
+            parseFloat(lengthCm) || 0,
+            parseFloat(widthCm) || 0,
+            parseFloat(heightCm) || 0,
             parseFloat(weightKg),
-            category || 'Generico'
+            category || 'Generico',
+            directCbm > 0 ? directCbm : undefined
         );
 
         // GEX opcional. Si el cliente pide garantía y manda valor declarado,
