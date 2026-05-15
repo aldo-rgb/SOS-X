@@ -35,10 +35,25 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
 
   const load = useCallback(async () => {
     try {
-      const res = await api.get(`/api/monitoreo/containers?status=${filter}`, {
+      // En modo "iniciar monitoreo" siempre se consultan los que están en ruta.
+      const effectiveFilter = startMode ? 'in_transit_clientfinal' : filter;
+      const res = await api.get(`/api/monitoreo/containers?status=${effectiveFilter}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
-      setContainers(Array.isArray(res.data?.containers) ? res.data.containers : []);
+      let list = Array.isArray(res.data?.containers) ? res.data.containers : [];
+      if (startMode) {
+        // Sólo los que aún no han iniciado monitoreo
+        const pending = list.filter((c: any) => !c.monitoring_started_at);
+        list = pending;
+        // Si sólo hay uno pendiente, saltar directo a la pantalla de fotos
+        if (pending.length === 1) {
+          setLoading(false);
+          setRefreshing(false);
+          navigation.replace('StartMonitoring', { user, token, container: pending[0] });
+          return;
+        }
+      }
+      setContainers(list);
     } catch (e: any) {
       console.error('Error cargando contenedores:', e?.response?.data || e.message);
       Alert.alert('Error', 'No se pudieron cargar los contenedores.');
@@ -46,7 +61,7 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [filter, token]);
+  }, [filter, token, startMode, navigation, user]);
 
   useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
 
@@ -131,17 +146,26 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
         <View style={{ width: 24 }} />
       </View>
 
-      <View style={styles.filters}>
-        {FILTERS.map((f) => (
-          <TouchableOpacity
-            key={f.key}
-            onPress={() => { setLoading(true); setFilter(f.key); }}
-            style={[styles.filterChip, filter === f.key && styles.filterChipActive]}
-          >
-            <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {startMode ? (
+        <View style={styles.banner}>
+          <MaterialIcons name="photo-camera" size={20} color="#F05A28" />
+          <Text style={styles.bannerText}>
+            Selecciona un contenedor para subir las 2 fotos requeridas e iniciar el monitoreo.
+          </Text>
+        </View>
+      ) : (
+        <View style={styles.filters}>
+          {FILTERS.map((f) => (
+            <TouchableOpacity
+              key={f.key}
+              onPress={() => { setLoading(true); setFilter(f.key); }}
+              style={[styles.filterChip, filter === f.key && styles.filterChipActive]}
+            >
+              <Text style={[styles.filterText, filter === f.key && styles.filterTextActive]}>{f.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
 
       {loading ? (
         <View style={styles.center}>
@@ -157,7 +181,11 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
           ListEmptyComponent={
             <View style={styles.center}>
               <MaterialIcons name="inbox" size={48} color="#bbb" />
-              <Text style={styles.emptyText}>No hay contenedores en este filtro</Text>
+              <Text style={styles.emptyText}>
+                {startMode
+                  ? 'No hay contenedores pendientes por monitorear.'
+                  : 'No hay contenedores en este filtro'}
+              </Text>
             </View>
           }
         />
@@ -206,4 +234,10 @@ const styles = StyleSheet.create({
   ctaBoxPending: { backgroundColor: '#F05A28' },
   ctaBoxDone: { backgroundColor: '#E8F5E9', borderWidth: 1, borderColor: '#A5D6A7' },
   ctaText: { fontSize: 13, fontWeight: '700' },
+  banner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: '#FFF8E1', padding: 12,
+    borderBottomWidth: 1, borderBottomColor: '#FFE082',
+  },
+  bannerText: { flex: 1, fontSize: 12, color: '#5D4037' },
 });
