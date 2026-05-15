@@ -197,7 +197,6 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     type Monitor = { id: number; full_name: string; phone?: string | null; email?: string | null };
     const [monitors, setMonitors] = useState<Monitor[]>([]);
     const [monitorUserId, setMonitorUserId] = useState<number | null>(null);
-    const [monitorName, setMonitorName] = useState<string>('');
 
     // Historial de cambios de status
     type HistoryEntry = {
@@ -748,7 +747,6 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setDriverCompany(dc);
             setHasPersistedRoute(!!(dn || dp || dph || dc));
             setMonitorUserId((c as any).monitor_user_id || null);
-            setMonitorName((c as any).monitor_name || '');
             setDriverNotes('');
             setEditingRoute(false);
             setTruckMode('sencillo');
@@ -1288,9 +1286,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         {(() => {
                             if (hasPersistedRoute && !editingRoute) {
                                 return (
-                                    <Box sx={{ mt: 2, p: 2, bgcolor: '#E8F5E9', borderRadius: 2, border: `1px solid #4CAF50` }}>
+                                    <Box sx={{ mt: 2, p: 2, bgcolor: '#FFF8E1', borderRadius: 2, border: `1px solid ${ORANGE}` }}>
                                         <Stack direction="row" spacing={2} alignItems="center" justifyContent="space-between" sx={{ mb: 1, flexWrap: 'wrap' }}>
-                                            <Typography sx={{ fontWeight: 700, color: '#2E7D32' }}>
+                                            <Typography sx={{ fontWeight: 700, color: ORANGE }}>
                                                 ✅ Ruta ya asignada
                                             </Typography>
                                             <Button
@@ -1330,14 +1328,6 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                     <Typography sx={{ fontWeight: 700 }}>{driverPhone}</Typography>
                                                 </Grid>
                                             )}
-                                            <Grid size={{ xs: 12 }}>
-                                                <Typography variant="caption" color="text.secondary">Monitorista asignado</Typography>
-                                                <Typography sx={{ fontWeight: 700, color: monitorUserId ? BLACK : '#999' }}>
-                                                    {monitorUserId
-                                                        ? (monitors.find((m) => m.id === monitorUserId)?.full_name || monitorName || `ID ${monitorUserId}`)
-                                                        : '— Sin asignar —'}
-                                                </Typography>
-                                            </Grid>
                                         </Grid>
                                     </Box>
                                 );
@@ -1445,31 +1435,40 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                         placeholder="Observaciones del despacho…"
                                     />
                                 </Grid>
-                                <Grid size={{ xs: 12 }}>
-                                    <Autocomplete
-                                        size="small"
-                                        options={monitors}
-                                        value={monitors.find((m) => m.id === monitorUserId) || null}
-                                        onChange={(_, v) => setMonitorUserId(v?.id || null)}
-                                        getOptionLabel={(o) => o.full_name + (o.phone ? ` · ${o.phone}` : '')}
-                                        isOptionEqualToValue={(a, b) => a.id === b.id}
-                                        renderInput={(params) => (
-                                            <TextField
-                                                {...params}
-                                                label="👁️ Monitorista asignado"
-                                                placeholder="Selecciona un monitorista…"
-                                                helperText={truckMode === 'full'
-                                                    ? 'En modo Full se asignará a ambos contenedores automáticamente.'
-                                                    : 'Se notificará al monitorista para dar seguimiento al contenedor.'}
-                                            />
-                                        )}
-                                        noOptionsText={monitors.length === 0 ? 'No hay monitoristas activos en el sistema' : 'Sin coincidencias'}
-                                    />
-                                </Grid>
                             </Grid>
                         </Box>
                             );
                         })()}
+
+                        {/* 👁️ Monitorista asignado — sección independiente */}
+                        <Box sx={{ mt: 2, p: 2, bgcolor: '#FFF8E1', borderRadius: 2, border: `1px dashed ${BLACK}` }}>
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                                <Typography sx={{ fontWeight: 700, color: BLACK }}>
+                                    👁️ Monitorista asignado
+                                </Typography>
+                            </Stack>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1.5 }}>
+                                Esta asignación la realiza el equipo de monitoreo. Es independiente de la captura de operador y unidad.
+                            </Typography>
+                            <Autocomplete
+                                size="small"
+                                options={monitors}
+                                value={monitors.find((m) => m.id === monitorUserId) || null}
+                                onChange={(_, v) => setMonitorUserId(v?.id || null)}
+                                getOptionLabel={(o) => o.full_name + (o.phone ? ` · ${o.phone}` : '')}
+                                isOptionEqualToValue={(a, b) => a.id === b.id}
+                                renderInput={(params) => (
+                                    <TextField
+                                        {...params}
+                                        label="Selecciona un monitorista…"
+                                        helperText={truckMode === 'full'
+                                            ? 'En modo Full se asignará a ambos contenedores automáticamente.'
+                                            : 'Se notificará al monitorista para dar seguimiento al contenedor.'}
+                                    />
+                                )}
+                                noOptionsText={monitors.length === 0 ? 'No hay monitoristas activos en el sistema' : 'Sin coincidencias'}
+                            />
+                        </Box>
 
                         {/* Historial de cambios */}
                         <Box sx={{ mt: 3 }}>

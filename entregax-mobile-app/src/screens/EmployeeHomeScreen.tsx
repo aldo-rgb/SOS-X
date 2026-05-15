@@ -344,6 +344,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     screen: 'BranchDashboard',
     roles: ['branch_manager', 'director', 'admin', 'super_admin'],
     requiresOnboarding: true,
+    panelKey: 'ops_mx_cedis',
   },
   {
     id: 'team_management',
@@ -355,21 +356,9 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     screen: 'TeamManagement',
     roles: ['branch_manager', 'director', 'admin', 'super_admin'],
     requiresOnboarding: true,
+    panelKey: 'ops_mx_cedis',
   },
-  
-  // === OPERACIONES ===
-  {
-    id: 'dispatch',
-    title: 'Despacho de Rutas',
-    subtitle: 'Asignar paquetes a repartidores',
-    icon: 'git-branch-outline',
-    iconFamily: 'ionicons',
-    color: '#FF5722',
-    screen: 'DispatchRoutes',
-    roles: ['branch_manager', 'director', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-  },
-  
+
   // === ASESORES ===
   // Solo mostramos Panel de Asesor - las demás opciones están dentro del panel
   {

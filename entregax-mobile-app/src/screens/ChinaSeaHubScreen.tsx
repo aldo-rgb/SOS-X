@@ -1,18 +1,24 @@
 /**
  * ChinaSeaHubScreen - TDI Marítimo China
- * Hub con 2 módulos: Recibir Contenedor (LCL) · Inventario
+ * Hub con 3 módulos (filtrados por permisos):
+ *   - Recibir Contenedor (LCL)
+ *   - Actualizar Status Full Conteiner (FCL)
+ *   - Inventario
  */
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
 const BLUE = '#1976D2';
 const BLACK = '#1A1A1A';
 
-interface Module {
-  id: string;
+type ModuleKey = 'reception' | 'reception_fcl' | 'inventory';
+
+interface ModuleDef {
+  key: ModuleKey;
   title: string;
   subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
@@ -21,9 +27,9 @@ interface Module {
   color: string;
 }
 
-const MODULES: Module[] = [
+const MODULES: ModuleDef[] = [
   {
-    id: 'lcl',
+    key: 'reception',
     title: 'Recibir Contenedor',
     subtitle: 'Recepción de carga consolidada (LCL). Escanea las órdenes por referencia (JSM26-XXXX), BL o número de contenedor',
     icon: 'qr-code-outline',
@@ -32,7 +38,16 @@ const MODULES: Module[] = [
     color: ORANGE,
   },
   {
-    id: 'inv',
+    key: 'reception_fcl',
+    title: 'Actualizar Status Full Conteiner',
+    subtitle: 'Actualiza el status de contenedores FCL (un solo cliente) y confirma la llegada a CEDIS',
+    icon: 'qr-code-outline',
+    screen: 'ChinaSeaReception',
+    params: { mode: 'FCL' },
+    color: ORANGE,
+  },
+  {
+    key: 'inventory',
     title: 'Inventario',
     subtitle: 'Consulta las órdenes marítimas en bodega, su contenedor y estado',
     icon: 'archive-outline',
@@ -43,6 +58,43 @@ const MODULES: Module[] = [
 
 export default function ChinaSeaHubScreen({ route, navigation }: any) {
   const { user, token } = route.params;
+  const [allowed, setAllowed] = useState<ModuleKey[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // super_admin ve todo
+      if (user?.role === 'super_admin') {
+        if (!cancelled) {
+          setAllowed(MODULES.map((m) => m.key));
+          setLoading(false);
+        }
+        return;
+      }
+      try {
+        const res = await fetch(`${API_URL}/api/modules/ops_china_sea/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const keys: ModuleKey[] = (data.modules || [])
+          .filter((m: any) => m.can_view)
+          .map((m: any) => m.module_key as ModuleKey);
+        if (!cancelled) setAllowed(keys);
+      } catch (err) {
+        // Fail-closed: si falla el endpoint, no exponer módulos
+        console.warn('[ChinaSeaHub] no se pudieron cargar permisos', err);
+        if (!cancelled) setAllowed([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [token, user?.role]);
+
+  const visible = MODULES.filter((m) => allowed.includes(m.key));
+
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
@@ -60,25 +112,40 @@ export default function ChinaSeaHubScreen({ route, navigation }: any) {
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
-        {MODULES.map((mod) => (
-          <TouchableOpacity
-            key={mod.id}
-            style={styles.card}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate(mod.screen, { user, token, ...(mod.params || {}) })}
-          >
-            <View style={[styles.cardTop, { backgroundColor: mod.color }]}>
-              <Ionicons name={mod.icon} size={48} color="#fff" />
-            </View>
-            <View style={styles.cardBody}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.cardTitle}>{mod.title}</Text>
-                <Text style={styles.cardSubtitle}>{mod.subtitle}</Text>
+        {loading ? (
+          <View style={{ padding: 40, alignItems: 'center' }}>
+            <ActivityIndicator color={ORANGE} />
+            <Text style={{ marginTop: 12, color: '#666' }}>Cargando permisos…</Text>
+          </View>
+        ) : visible.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <Ionicons name="lock-closed-outline" size={32} color="#B07A12" />
+            <Text style={styles.emptyTitle}>Sin módulos asignados</Text>
+            <Text style={styles.emptySubtitle}>
+              Tu usuario no tiene módulos habilitados en Marítimo China. Solicita acceso a tu administrador.
+            </Text>
+          </View>
+        ) : (
+          visible.map((mod) => (
+            <TouchableOpacity
+              key={mod.key}
+              style={styles.card}
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate(mod.screen, { user, token, ...(mod.params || {}) })}
+            >
+              <View style={[styles.cardTop, { backgroundColor: mod.color }]}>
+                <Ionicons name={mod.icon} size={48} color="#fff" />
               </View>
-              <Ionicons name="chevron-forward" size={20} color={ORANGE} />
-            </View>
-          </TouchableOpacity>
-        ))}
+              <View style={styles.cardBody}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{mod.title}</Text>
+                  <Text style={styles.cardSubtitle}>{mod.subtitle}</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color={ORANGE} />
+              </View>
+            </TouchableOpacity>
+          ))
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -96,4 +163,7 @@ const styles = StyleSheet.create({
   cardBody: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 10 },
   cardTitle: { fontSize: 18, fontWeight: '800', color: BLACK },
   cardSubtitle: { fontSize: 12, color: '#666', marginTop: 4, lineHeight: 16 },
+  emptyCard: { backgroundColor: '#FFF8E1', borderRadius: 12, padding: 20, alignItems: 'center', borderWidth: 1, borderColor: '#F5C77E', borderStyle: 'dashed' },
+  emptyTitle: { marginTop: 10, fontSize: 16, fontWeight: '800', color: '#8B6914' },
+  emptySubtitle: { marginTop: 6, fontSize: 13, color: '#8B6914', textAlign: 'center', lineHeight: 18 },
 });

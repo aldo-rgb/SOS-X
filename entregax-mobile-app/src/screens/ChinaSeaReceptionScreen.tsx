@@ -41,6 +41,7 @@ interface Container {
   received_orders: number;
   total_weight_kg: string | number | null;
   total_cbm: string | number | null;
+  status?: string | null;
 }
 
 interface Order {
@@ -81,6 +82,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
 
   const [containers, setContainers] = useState<Container[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selected, setSelected] = useState<Container | null>(null);
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -105,6 +107,128 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
   const [receivedByOrder, setReceivedByOrder] = useState<Record<number, number>>({});
   const [reportingPartial, setReportingPartial] = useState(false);
   const [printing, setPrinting] = useState(false);
+
+  // === FCL: actualizar status del contenedor (mirroring web wizard) ===
+  type FclStatus = { value: string; label: string; description: string; icon: string };
+  const FCL_STATUSES: FclStatus[] = [
+    { value: 'received_origin',         label: 'Recibido en origen (China)',  description: 'La mercancía fue recibida en bodega de China',          icon: '📦' },
+    { value: 'consolidated',            label: 'Consolidado',                  description: 'Carga consolidada en el contenedor, lista para embarque', icon: '🧱' },
+    { value: 'in_transit',              label: 'En tránsito (zarpado)',        description: 'El buque ya zarpó hacia México',                         icon: '🚢' },
+    { value: 'arrived_port',            label: 'Llegó al puerto destino',      description: 'El contenedor ya arribó al puerto en México',            icon: '⚓' },
+    { value: 'customs_cleared',         label: 'Liberado de aduana',           description: 'Despacho aduanal completado, listo para movilizar',      icon: '🛃' },
+    { value: 'in_transit_clientfinal',  label: 'En tránsito a destino',        description: 'El contenedor va en tránsito hacia el destino del cliente final', icon: '🚛' },
+    { value: 'delivered',               label: 'Entregado',                    description: 'Contenedor entregado al cliente final',                   icon: '✅' },
+  ];
+  const [fclStatus, setFclStatus] = useState<string>('');
+  const [fclStatusPickerOpen, setFclStatusPickerOpen] = useState(false);
+  const [fclSaving, setFclSaving] = useState(false);
+  const [driverName, setDriverName] = useState('');
+  const [driverPlates, setDriverPlates] = useState('');
+  const [driverPhone, setDriverPhone] = useState('');
+  const [driverCompany, setDriverCompany] = useState('');
+  const [driverNotes, setDriverNotes] = useState('');
+  const [editingRoute, setEditingRoute] = useState(false);
+  const [hasPersistedRoute, setHasPersistedRoute] = useState(false);
+  const [truckMode, setTruckMode] = useState<'sencillo' | 'full'>('sencillo');
+  const [secondContainerId, setSecondContainerId] = useState<number | null>(null);
+  const [secondPickerOpen, setSecondPickerOpen] = useState(false);
+
+  type Monitor = { id: number; full_name: string; phone?: string | null; email?: string | null };
+  const [monitors, setMonitors] = useState<Monitor[]>([]);
+  const [monitorUserId, setMonitorUserId] = useState<number | null>(null);
+  const [monitorPickerOpen, setMonitorPickerOpen] = useState(false);
+
+  type HistoryEntry = {
+    id: number;
+    previous_status: string | null;
+    new_status: string;
+    driver_name: string | null;
+    driver_plates: string | null;
+    driver_phone: string | null;
+    driver_company: string | null;
+    notes: string | null;
+    changed_by_name: string | null;
+    changed_at: string;
+  };
+  type DestinationAddress = {
+    alias?: string | null; label?: string | null;
+    recipient_name?: string | null; phone?: string | null;
+    street?: string | null; exterior_number?: string | null; interior_number?: string | null;
+    neighborhood?: string | null; city?: string | null; state?: string | null;
+    zip_code?: string | null; country?: string | null;
+    reference?: string | null; references_text?: string | null;
+  };
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [destinationAddress, setDestinationAddress] = useState<DestinationAddress | null>(null);
+  const [loadingFcl, setLoadingFcl] = useState(false);
+
+  const loadFclData = async (containerId: number) => {
+    setLoadingFcl(true);
+    try {
+      const [hRes, mRes] = await Promise.all([
+        fetch(`${API_URL}/api/maritime/containers/${containerId}/status-history`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/maritime/monitors`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      const hData = await hRes.json().catch(() => ({}));
+      const mData = await mRes.json().catch(() => ({}));
+      const hist: HistoryEntry[] = hData?.history || [];
+      setHistory(hist);
+      setDestinationAddress(hData?.destinationAddress || null);
+      setMonitors(mData?.monitors || mData || []);
+
+      const lastName    = hist.find((h) => h.driver_name)?.driver_name || '';
+      const lastPlates  = hist.find((h) => h.driver_plates)?.driver_plates || '';
+      const lastPhone   = hist.find((h) => h.driver_phone)?.driver_phone || '';
+      const lastCompany = hist.find((h) => h.driver_company)?.driver_company || '';
+      setDriverName(lastName);
+      setDriverPlates(lastPlates);
+      setDriverPhone(lastPhone);
+      setDriverCompany(lastCompany);
+      setHasPersistedRoute(Boolean(lastName || lastPlates || lastPhone || lastCompany));
+      setEditingRoute(false);
+    } catch {
+      setHistory([]); setDestinationAddress(null); setMonitors([]);
+    } finally {
+      setLoadingFcl(false);
+    }
+  };
+
+  const updateFCLContainerStatus = async () => {
+    if (!selected || !fclStatus) return;
+    setFclSaving(true); setError(null);
+    try {
+      const payload: any = {
+        status: fclStatus,
+        driver_name:    driverName.trim()    || undefined,
+        driver_plates:  driverPlates.trim()  || undefined,
+        driver_phone:   driverPhone.trim()   || undefined,
+        driver_company: driverCompany.trim() || undefined,
+        monitor_user_id: monitorUserId ?? undefined,
+        notes: driverNotes.trim() || undefined,
+      };
+      const res = await fetch(`${API_URL}/api/maritime/containers/${selected.id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Error al actualizar status');
+
+      if (truckMode === 'full' && secondContainerId) {
+        await fetch(`${API_URL}/api/maritime/containers/${secondContainerId}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify(payload),
+        });
+      }
+      setResult({ received: 1, missing: 0, total: 1 });
+      setStep(2);
+    } catch (e: any) {
+      setError(e.message || 'Error al actualizar status');
+    } finally {
+      setFclSaving(false);
+    }
+  };
 
   const totalBoxesInContainer = orders.reduce(
     (acc, o) => acc + (Number(o.summary_boxes) || Number(o.goods_num) || 0),
@@ -150,11 +274,11 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    if (step === 1) {
+    if (step === 1 && !isFCL) {
       setTimeout(() => inputRef.current?.focus(), 350);
       setTimeout(() => inputRef.current?.focus(), 700);
     }
-  }, [step]);
+  }, [step, isFCL]);
 
   const hydrateScannedFromOrders = (list: Order[]) => {
     setScannedBoxesByOrder((prev) => {
@@ -189,6 +313,16 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       hydrateScannedFromOrders(list);
       setSelected(c);
       setStep(1);
+      if (isFCL) {
+        // Inicializa con el siguiente status sugerido según el actual
+        const idx = FCL_STATUSES.findIndex((s) => s.value === c.status);
+        const next = idx >= 0 && idx < FCL_STATUSES.length - 1 ? FCL_STATUSES[idx + 1].value : '';
+        setFclStatus(next);
+        setDriverName(''); setDriverPlates(''); setDriverPhone(''); setDriverCompany(''); setDriverNotes('');
+        setMonitorUserId(null); setTruckMode('sencillo'); setSecondContainerId(null);
+        setEditingRoute(false); setHasPersistedRoute(false);
+        loadFclData(c.id);
+      }
     } catch (e: any) { setError(e.message || 'Error'); } finally { setLoading(false); }
   };
 
@@ -645,7 +779,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       </View>
 
       <View style={styles.stepper}>
-        {['Seleccionar', 'Escanear', 'Confirmar'].map((label, i) => (
+        {(isFCL ? ['Seleccionar', 'Capturar', 'Confirmar'] : ['Seleccionar', 'Escanear', 'Confirmar']).map((label, i) => (
           <View key={i} style={styles.stepItem}>
             <View style={[styles.stepDot, step >= i && { backgroundColor: accent }]}>
               <Text style={[styles.stepNum, step >= i && { color: '#fff' }]}>{i + 1}</Text>
@@ -673,7 +807,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
             </View>
           ) : (() => {
             const q = searchQuery.trim().toLowerCase();
-            const filtered = q
+            const byText = q
               ? containers.filter((c) =>
                   (c.reference_code || '').toLowerCase().includes(q) ||
                   (c.week_number || '').toLowerCase().includes(q) ||
@@ -682,6 +816,28 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                   (c.voyage_number || '').toLowerCase().includes(q)
                 )
               : containers;
+            const filtered = statusFilter === 'all' ? byText : byText.filter((c) => (c.status || '') === statusFilter);
+
+            // Mapa de status (mismo que web)
+            const statusBadgeMap: Record<string, { label: string; bg: string }> = {
+              received_origin:        { label: 'EN ORIGEN',           bg: '#546E7A' },
+              consolidated:           { label: 'CONSOLIDADO',         bg: '#37474F' },
+              in_transit:             { label: 'EN TRÁNSITO',         bg: BLACK },
+              arrived_port:           { label: 'YA EN PUERTO',        bg: '#2E7D32' },
+              customs_cleared:        { label: 'LIBERADO ADUANA',     bg: '#1565C0' },
+              in_transit_clientfinal: { label: 'EN TRÁNSITO DESTINO', bg: '#E65100' },
+              delivered:              { label: 'ENTREGADO',           bg: '#1B5E20' },
+            };
+            // Chips fijos solicitados: Todos · Liberado aduana · En ruta destino · En puerto
+            const filterOptions: { value: string; label: string }[] = isFCL
+              ? [
+                  { value: 'all', label: 'Todos' },
+                  { value: 'customs_cleared', label: 'Liberado aduana' },
+                  { value: 'in_transit_clientfinal', label: 'En ruta destino' },
+                  { value: 'arrived_port', label: 'En puerto' },
+                ]
+              : [{ value: 'all', label: 'Todos' }];
+
             return (
               <>
                 <View style={styles.searchBox}>
@@ -701,20 +857,51 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                     </TouchableOpacity>
                   )}
                 </View>
+
+                {isFCL && filterOptions.length > 1 && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }} contentContainerStyle={{ gap: 6, paddingRight: 12 }}>
+                    {filterOptions.map((opt) => {
+                      const active = statusFilter === opt.value;
+                      const meta = statusBadgeMap[opt.value];
+                      const bg = active ? (meta?.bg || accent) : '#ECEFF1';
+                      const fg = active ? '#FFF' : BLACK;
+                      const count = opt.value === 'all'
+                        ? containers.length
+                        : containers.filter((c) => (c.status || '') === opt.value).length;
+                      return (
+                        <TouchableOpacity
+                          key={opt.value}
+                          onPress={() => setStatusFilter(opt.value)}
+                          style={[styles.filterChip, { backgroundColor: bg }]}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.filterChipText, { color: fg }]}>{opt.label} · {count}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                )}
+
                 {filtered.length === 0 ? (
                   <View style={styles.emptyState}>
                     <Ionicons name="search-outline" size={36} color="#999" />
-                    <Text style={styles.emptyText}>Sin resultados para "{searchQuery}"</Text>
+                    <Text style={styles.emptyText}>
+                      {q
+                        ? `Sin resultados para "${searchQuery}"`
+                        : statusFilter !== 'all'
+                          ? `No hay contenedores en "${statusBadgeMap[statusFilter]?.label || statusFilter}"`
+                          : 'No hay contenedores'}
+                    </Text>
                   </View>
                 ) : (
                   filtered.map((c) => {
                     const eta = c.eta;
                     const days = eta ? Math.floor((new Date(eta).getTime() - Date.now()) / 86400000) : null;
-                    const arrived = days !== null && days <= 0;
                     const isPartial = Number(c.received_orders) > 0 && Number(c.received_orders) < Number(c.total_orders);
                     const cFCL = (c.type || '').toUpperCase() === 'FCL';
                     const count = cFCL ? 1 : Number(c.total_orders || 0);
                     const lbl = cFCL ? 'CONTENEDOR' : count === 1 ? 'LOG' : 'LOGS';
+                    const badge = statusBadgeMap[c.status || ''] || { label: (c.status || 'SIN STATUS').toUpperCase(), bg: BLACK };
                     return (
                       <TouchableOpacity key={c.id} style={[styles.containerCard, { borderLeftColor: accent }]} onPress={() => open(c)} activeOpacity={0.85}>
                         <View style={[styles.refBadge, { backgroundColor: accent }]}>
@@ -731,6 +918,9 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                               <Text style={[styles.weekChipText, { color: accent }]}>{c.week_number}</Text>
                             </View>
                           )}
+                          {!!c.container_number && (
+                            <Text style={styles.subMini} numberOfLines={1}>🚢 {c.container_number}</Text>
+                          )}
                           {c.received_orders > 0 && (
                             <View style={[styles.miniChip, { backgroundColor: '#E8F5E9' }]}>
                               <Ionicons name="checkmark-circle" size={12} color={GREEN} />
@@ -740,10 +930,10 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                             </View>
                           )}
                         </View>
-                        <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                          <View style={[styles.statusChip, { backgroundColor: isPartial ? ORANGE : arrived ? GREEN : BLACK }]}>
-                            <Text style={styles.statusChipText}>
-                              {isPartial ? 'PARCIAL' : arrived ? 'EN PUERTO' : 'EN TRÁNSITO'}
+                        <View style={{ alignItems: 'flex-end', gap: 4, maxWidth: 110 }}>
+                          <View style={[styles.statusChip, { backgroundColor: isPartial ? ORANGE : badge.bg }]}>
+                            <Text style={styles.statusChipText} numberOfLines={1}>
+                              {isPartial ? 'PARCIAL' : badge.label}
                             </Text>
                           </View>
                           {days !== null && (
@@ -762,7 +952,328 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
         </ScrollView>
       )}
 
-      {step === 1 && selected && (
+      {/* STEP 1 — FCL: actualizar status del contenedor (sin escaneo) */}
+      {step === 1 && selected && isFCL && (() => {
+        const currentMeta = FCL_STATUSES.find((s) => s.value === selected.status);
+        const newMeta = FCL_STATUSES.find((s) => s.value === fclStatus);
+        const selectedMonitor = monitors.find((m) => m.id === monitorUserId);
+        const secondOptions = containers.filter((c) => c.status === 'customs_cleared' && c.id !== selected.id);
+        const secondSelected = secondOptions.find((c) => c.id === secondContainerId) || null;
+        const addr = destinationAddress;
+        return (
+          <View style={{ flex: 1 }}>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 12, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+              {/* Banner contenedor */}
+              <View style={[styles.banner, { borderColor: accent, backgroundColor: accent + '15', marginHorizontal: 0 }]}>
+                <Text style={styles.bannerLbl}>
+                  {selected.reference_code || '—'} · Cont. {selected.container_number || '—'}
+                  {selected.bl_number ? ` · BL ${selected.bl_number}` : ''}
+                </Text>
+                <Text style={styles.bannerTitle}>
+                  {selected.vessel_name || 'Buque sin asignar'}
+                  {selected.voyage_number ? ` · V${selected.voyage_number}` : ''}
+                </Text>
+                <View style={styles.bannerChips}>
+                  <View style={[styles.miniChip, { backgroundColor: BLACK }]}>
+                    <Text style={[styles.miniChipText, { color: '#fff' }]}>
+                      Status: {currentMeta?.label || selected.status || '—'}
+                    </Text>
+                  </View>
+                  {selected.total_weight_kg ? (
+                    <View style={[styles.miniChip, { backgroundColor: '#EEE' }]}>
+                      <Text style={[styles.miniChipText, { color: '#333' }]}>{Number(selected.total_weight_kg).toFixed(2)} kg</Text>
+                    </View>
+                  ) : null}
+                  {selected.total_cbm ? (
+                    <View style={[styles.miniChip, { backgroundColor: '#EEE' }]}>
+                      <Text style={[styles.miniChipText, { color: '#333' }]}>{Number(selected.total_cbm).toFixed(2)} CBM</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+
+              {/* Selección de status */}
+              <Text style={styles.fclSectionTitle}>Selecciona el nuevo status</Text>
+              <Text style={styles.fclSectionHint}>
+                Al actualizar, se notificará al cliente final y se sincronizarán todos los envíos asociados.
+              </Text>
+              <TouchableOpacity
+                style={styles.fclPicker}
+                onPress={() => setFclStatusPickerOpen(true)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.fclPickerText, !newMeta && { color: '#999' }]} numberOfLines={1}>
+                  {newMeta ? `${newMeta.icon} ${newMeta.label}` : 'Selecciona un status…'}
+                </Text>
+                <Ionicons name="chevron-down" size={20} color="#666" />
+              </TouchableOpacity>
+              {newMeta && (
+                <View style={styles.fclInfoBox}>
+                  <Ionicons name="information-circle" size={18} color="#1976D2" />
+                  <Text style={styles.fclInfoText}>{newMeta.description}</Text>
+                </View>
+              )}
+
+              {/* Dirección de envío */}
+              {addr && (
+                <View style={styles.fclAddressBox}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4, flexWrap: 'wrap' }}>
+                    <Text style={styles.fclAddressTitle}>📍 Dirección de envío</Text>
+                    {(addr.alias || addr.label) ? (
+                      <View style={styles.fclAddressTag}>
+                        <Text style={styles.fclAddressTagText}>{addr.alias || addr.label}</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  {addr.recipient_name ? (
+                    <Text style={{ fontWeight: '700', color: BLACK }}>
+                      {addr.recipient_name}{addr.phone ? ` · ${addr.phone}` : ''}
+                    </Text>
+                  ) : null}
+                  <Text style={{ color: BLACK, fontSize: 13 }}>
+                    {[addr.street, addr.exterior_number].filter(Boolean).join(' ')}
+                    {addr.interior_number ? ` Int. ${addr.interior_number}` : ''}
+                    {addr.neighborhood ? `, Col. ${addr.neighborhood}` : ''}
+                  </Text>
+                  <Text style={{ color: BLACK, fontSize: 13 }}>
+                    {[addr.city, addr.state, addr.zip_code].filter(Boolean).join(', ')}
+                    {addr.country ? ` · ${addr.country}` : ''}
+                  </Text>
+                  {(addr.reference || addr.references_text) ? (
+                    <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                      Ref.: {addr.reference || addr.references_text}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+
+              {/* Info de ruta */}
+              {hasPersistedRoute && !editingRoute ? (
+                <View style={styles.fclRouteAssigned}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+                    <Text style={{ fontWeight: '800', color: '#2E7D32' }}>✅ Ruta ya asignada</Text>
+                    <TouchableOpacity onPress={() => setEditingRoute(true)} style={styles.fclEditBtn}>
+                      <Text style={styles.fclEditBtnText}>✏️ Editar / Reasignar</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
+                    Este contenedor ya tiene datos de operador y unidad. Pulsa "Editar / Reasignar" para cambiarlos.
+                  </Text>
+                  {!!driverCompany && (<><Text style={styles.fclLbl}>Empresa transportista</Text><Text style={styles.fclVal}>{driverCompany}</Text></>)}
+                  {!!driverName    && (<><Text style={styles.fclLbl}>Operador</Text><Text style={styles.fclVal}>{driverName}</Text></>)}
+                  {!!driverPlates  && (<><Text style={styles.fclLbl}>Placas</Text><Text style={[styles.fclVal, { fontFamily: 'monospace' }]}>{driverPlates}</Text></>)}
+                  {!!driverPhone   && (<><Text style={styles.fclLbl}>Teléfono</Text><Text style={styles.fclVal}>{driverPhone}</Text></>)}
+                </View>
+              ) : (
+                <View style={styles.fclRouteBox}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                    <Text style={{ fontWeight: '800', color: ORANGE }}>🚛 Información de ruta hacia destino</Text>
+                    <View style={styles.toggleGroup}>
+                      <TouchableOpacity
+                        style={[styles.toggleBtn, truckMode === 'sencillo' && { backgroundColor: TEAL }]}
+                        onPress={() => { setTruckMode('sencillo'); setSecondContainerId(null); }}
+                      >
+                        <Text style={[styles.toggleBtnText, truckMode === 'sencillo' && { color: '#fff' }]}>🚚 Sencillo</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.toggleBtn, truckMode === 'full' && { backgroundColor: ORANGE }]}
+                        onPress={() => setTruckMode('full')}
+                      >
+                        <Text style={[styles.toggleBtnText, truckMode === 'full' && { color: '#fff' }]}>🚛 Full</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                  <Text style={{ fontSize: 11, color: '#666', marginBottom: 10 }}>
+                    Captura datos del operador y la unidad. Quedan registrados en el historial.
+                    {truckMode === 'full' && ' En modo Full la misma actualización se aplica a ambos contenedores.'}
+                  </Text>
+
+                  {truckMode === 'full' && (
+                    <View style={{ marginBottom: 10 }}>
+                      <Text style={styles.fclLbl}>Segundo contenedor (solo "Liberado de aduana")</Text>
+                      <TouchableOpacity style={styles.fclPicker} onPress={() => setSecondPickerOpen(true)}>
+                        <Text style={[styles.fclPickerText, !secondSelected && { color: '#999' }]} numberOfLines={1}>
+                          {secondSelected
+                            ? `${secondSelected.reference_code || '—'} · ${secondSelected.container_number || '—'}${secondSelected.bl_number ? ` · BL ${secondSelected.bl_number}` : ''}`
+                            : (secondOptions.length === 0 ? 'No hay contenedores liberados disponibles' : 'Seleccionar contenedor…')}
+                        </Text>
+                        <Ionicons name="chevron-down" size={20} color="#666" />
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  <Text style={styles.fclLbl}>Empresa transportista</Text>
+                  <TextInput style={styles.fclInput} value={driverCompany} onChangeText={setDriverCompany} placeholder="Ej. Transportes del Norte S.A. de C.V." placeholderTextColor="#999" />
+
+                  <Text style={styles.fclLbl}>Nombre del operador</Text>
+                  <TextInput style={styles.fclInput} value={driverName} onChangeText={setDriverName} placeholder="Ej. Juan Pérez" placeholderTextColor="#999" />
+
+                  <Text style={styles.fclLbl}>Placas de la unidad</Text>
+                  <TextInput style={[styles.fclInput, { fontFamily: 'monospace' }]} value={driverPlates} onChangeText={(t) => setDriverPlates(t.toUpperCase())} placeholder="Ej. ABC-1234" placeholderTextColor="#999" autoCapitalize="characters" />
+
+                  <Text style={styles.fclLbl}>Teléfono (opcional)</Text>
+                  <TextInput style={styles.fclInput} value={driverPhone} onChangeText={setDriverPhone} placeholder="55 1234 5678" placeholderTextColor="#999" keyboardType="phone-pad" />
+
+                  <Text style={styles.fclLbl}>Notas (opcional)</Text>
+                  <TextInput style={styles.fclInput} value={driverNotes} onChangeText={setDriverNotes} placeholder="Observaciones del despacho…" placeholderTextColor="#999" />
+                </View>
+              )}
+
+              {/* 👁️ Monitorista asignado — sección independiente */}
+              <View style={styles.fclMonitorBox}>
+                <Text style={{ fontWeight: '800', color: BLACK, marginBottom: 4 }}>👁️ Monitorista asignado</Text>
+                <Text style={{ fontSize: 11, color: '#666', marginBottom: 8 }}>
+                  Esta asignación la realiza el equipo de monitoreo. Es independiente de la captura de operador y unidad.
+                </Text>
+                <TouchableOpacity style={styles.fclPicker} onPress={() => setMonitorPickerOpen(true)}>
+                  <Text style={[styles.fclPickerText, !selectedMonitor && { color: '#999' }]} numberOfLines={1}>
+                    {selectedMonitor
+                      ? `${selectedMonitor.full_name}${selectedMonitor.phone ? ` · ${selectedMonitor.phone}` : ''}`
+                      : (monitors.length === 0 ? 'No hay monitoristas activos' : 'Selecciona un monitorista…')}
+                  </Text>
+                  <Ionicons name="chevron-down" size={20} color="#666" />
+                </TouchableOpacity>
+                <Text style={{ fontSize: 10, color: '#999', marginTop: 4 }}>
+                  {truckMode === 'full'
+                    ? 'En modo Full se asignará a ambos contenedores automáticamente.'
+                    : 'Se notificará al monitorista para dar seguimiento al contenedor.'}
+                </Text>
+              </View>
+
+              {/* Historial */}
+              <Text style={[styles.fclSectionTitle, { marginTop: 18 }]}>📜 Historial de cambios ({history.length})</Text>
+              {loadingFcl ? (
+                <ActivityIndicator size="small" color={accent} style={{ marginVertical: 10 }} />
+              ) : history.length === 0 ? (
+                <Text style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Sin movimientos registrados todavía.</Text>
+              ) : (
+                <View style={styles.fclHistoryBox}>
+                  {history.map((h) => {
+                    const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
+                    return (
+                      <View key={h.id} style={styles.fclHistoryItem}>
+                        <Text style={{ fontWeight: '700', color: BLACK }}>
+                          {meta?.icon || '·'} {meta?.label || h.new_status}
+                        </Text>
+                        <Text style={{ fontSize: 11, color: '#666' }}>
+                          {new Date(h.changed_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                          {h.changed_by_name ? ` · por ${h.changed_by_name}` : ''}
+                        </Text>
+                        {(h.driver_name || h.driver_plates || h.driver_phone) && (
+                          <Text style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
+                            🚛 {h.driver_name || '—'}
+                            {h.driver_plates ? ` · ${h.driver_plates}` : ''}
+                            {h.driver_phone ? ` · ${h.driver_phone}` : ''}
+                          </Text>
+                        )}
+                        {h.notes ? <Text style={{ fontSize: 11, color: '#555' }}>📝 {h.notes}</Text> : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.footer}>
+              <TouchableOpacity style={styles.btnSecondary} onPress={() => { setStep(0); setFclStatus(''); }} disabled={fclSaving}>
+                <Text style={styles.btnSecondaryText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.btnPrimary, {
+                  backgroundColor: TEAL,
+                  opacity: (!fclStatus || fclSaving || fclStatus === selected.status) ? 0.5 : 1,
+                }]}
+                onPress={updateFCLContainerStatus}
+                disabled={!fclStatus || fclSaving || fclStatus === selected.status}
+              >
+                {fclSaving ? <ActivityIndicator color="#fff" /> : (
+                  <Text style={styles.btnPrimaryText} numberOfLines={1}>Actualizar status</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            {/* Modal: selector de status */}
+            <Modal visible={fclStatusPickerOpen} transparent animationType="fade" onRequestClose={() => setFclStatusPickerOpen(false)}>
+              <TouchableOpacity activeOpacity={1} style={styles.pickerBg} onPress={() => setFclStatusPickerOpen(false)}>
+                <View style={styles.pickerSheet}>
+                  <Text style={styles.pickerTitle}>Status del contenedor</Text>
+                  <ScrollView style={{ maxHeight: 400 }}>
+                    {FCL_STATUSES.map((s) => {
+                      const isCurrent = selected.status === s.value;
+                      const isPicked = fclStatus === s.value;
+                      return (
+                        <TouchableOpacity
+                          key={s.value}
+                          style={[styles.pickerItem, isPicked && { backgroundColor: '#E0F7FA' }]}
+                          onPress={() => { setFclStatus(s.value); setFclStatusPickerOpen(false); }}
+                        >
+                          <Text style={{ fontWeight: '700', color: BLACK }}>{s.icon} {s.label}</Text>
+                          {isCurrent && <Text style={{ fontSize: 10, color: '#666', marginTop: 2 }}>(actual)</Text>}
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+              </TouchableOpacity>
+            </Modal>
+
+            {/* Modal: selector de monitorista */}
+            <Modal visible={monitorPickerOpen} transparent animationType="fade" onRequestClose={() => setMonitorPickerOpen(false)}>
+              <TouchableOpacity activeOpacity={1} style={styles.pickerBg} onPress={() => setMonitorPickerOpen(false)}>
+                <View style={styles.pickerSheet}>
+                  <Text style={styles.pickerTitle}>Selecciona monitorista</Text>
+                  <ScrollView style={{ maxHeight: 400 }}>
+                    <TouchableOpacity style={styles.pickerItem} onPress={() => { setMonitorUserId(null); setMonitorPickerOpen(false); }}>
+                      <Text style={{ color: '#999' }}>— Sin asignar —</Text>
+                    </TouchableOpacity>
+                    {monitors.map((m) => (
+                      <TouchableOpacity
+                        key={m.id}
+                        style={[styles.pickerItem, monitorUserId === m.id && { backgroundColor: '#E0F7FA' }]}
+                        onPress={() => { setMonitorUserId(m.id); setMonitorPickerOpen(false); }}
+                      >
+                        <Text style={{ fontWeight: '700', color: BLACK }}>{m.full_name}</Text>
+                        {m.phone ? <Text style={{ fontSize: 11, color: '#666' }}>{m.phone}</Text> : null}
+                      </TouchableOpacity>
+                    ))}
+                    {monitors.length === 0 && (
+                      <Text style={{ padding: 16, color: '#999', textAlign: 'center' }}>No hay monitoristas activos.</Text>
+                    )}
+                  </ScrollView>
+                </View>
+              </TouchableOpacity>
+            </Modal>
+
+            {/* Modal: segundo contenedor (Full) */}
+            <Modal visible={secondPickerOpen} transparent animationType="fade" onRequestClose={() => setSecondPickerOpen(false)}>
+              <TouchableOpacity activeOpacity={1} style={styles.pickerBg} onPress={() => setSecondPickerOpen(false)}>
+                <View style={styles.pickerSheet}>
+                  <Text style={styles.pickerTitle}>Segundo contenedor</Text>
+                  <ScrollView style={{ maxHeight: 400 }}>
+                    {secondOptions.length === 0 ? (
+                      <Text style={{ padding: 16, color: '#999', textAlign: 'center' }}>
+                        No hay contenedores con status "Liberado de aduana".
+                      </Text>
+                    ) : secondOptions.map((c) => (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={[styles.pickerItem, secondContainerId === c.id && { backgroundColor: '#FFF3E0' }]}
+                        onPress={() => { setSecondContainerId(c.id); setSecondPickerOpen(false); }}
+                      >
+                        <Text style={{ fontWeight: '700', color: BLACK }}>{c.reference_code || '—'} · {c.container_number || '—'}</Text>
+                        {c.bl_number ? <Text style={{ fontSize: 11, color: '#666' }}>BL {c.bl_number}</Text> : null}
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              </TouchableOpacity>
+            </Modal>
+          </View>
+        );
+      })()}
+
+      {/* STEP 1 — LCL: escaneo de cajas */}
+      {step === 1 && selected && !isFCL && (
         <View style={{ flex: 1 }}>
           <View style={[styles.banner, { borderColor: accent, backgroundColor: accent + '15' }]}>
             <Text style={styles.bannerLbl}>
@@ -958,30 +1469,36 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
         <ScrollView contentContainerStyle={{ padding: 24, alignItems: 'center' }}>
           <Ionicons name="checkmark-circle" size={80} color={result.missing === 0 ? GREEN : ORANGE} />
           <Text style={styles.resultTitle}>
-            {result.missing === 0 ? 'Recepción completa' : 'Recepción parcial registrada'}
+            {isFCL
+              ? 'Status actualizado'
+              : (result.missing === 0 ? 'Recepción completa' : 'Recepción parcial registrada')}
           </Text>
           <Text style={styles.resultSub}>
             {selected?.reference_code} · {selected?.container_number}
           </Text>
-          <View style={styles.resultRow}>
-            <View style={styles.resultCell}>
-              <Text style={[styles.resultNum, { color: GREEN }]}>{result.received}</Text>
-              <Text style={styles.resultLbl}>Logs OK</Text>
-            </View>
-            <View style={styles.resultCell}>
-              <Text style={[styles.resultNum, { color: result.missing === 0 ? '#999' : RED }]}>{result.missing}</Text>
-              <Text style={styles.resultLbl}>Logs faltantes</Text>
-            </View>
-            <View style={styles.resultCell}>
-              <Text style={[styles.resultNum, { color: BLACK }]}>{result.total}</Text>
-              <Text style={styles.resultLbl}>Logs total</Text>
-            </View>
-          </View>
-          <Text style={{ marginTop: 12, fontSize: 12, color: '#666', textAlign: 'center', paddingHorizontal: 20 }}>
-            Cada log puede contener múltiples cajas. Un log se cuenta como recibido cuando todas sus cajas son escaneadas.
-          </Text>
+          {!isFCL && (
+            <>
+              <View style={styles.resultRow}>
+                <View style={styles.resultCell}>
+                  <Text style={[styles.resultNum, { color: GREEN }]}>{result.received}</Text>
+                  <Text style={styles.resultLbl}>Logs OK</Text>
+                </View>
+                <View style={styles.resultCell}>
+                  <Text style={[styles.resultNum, { color: result.missing === 0 ? '#999' : RED }]}>{result.missing}</Text>
+                  <Text style={styles.resultLbl}>Logs faltantes</Text>
+                </View>
+                <View style={styles.resultCell}>
+                  <Text style={[styles.resultNum, { color: BLACK }]}>{result.total}</Text>
+                  <Text style={styles.resultLbl}>Logs total</Text>
+                </View>
+              </View>
+              <Text style={{ marginTop: 12, fontSize: 12, color: '#666', textAlign: 'center', paddingHorizontal: 20 }}>
+                Cada log puede contener múltiples cajas. Un log se cuenta como recibido cuando todas sus cajas son escaneadas.
+              </Text>
+            </>
+          )}
           <TouchableOpacity style={[styles.btnPrimary, { marginTop: 24, paddingHorizontal: 30, backgroundColor: accent }]} onPress={reset}>
-            <Text style={styles.btnPrimaryText}>Recibir otro</Text>
+            <Text style={styles.btnPrimaryText}>{isFCL ? 'Actualizar otro' : 'Recibir otro'}</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.btnSecondary, { marginTop: 10 }]} onPress={() => navigation.goBack()}>
             <Text style={styles.btnSecondaryText}>Volver al menú</Text>
@@ -1203,6 +1720,8 @@ const styles = StyleSheet.create({
   weekChipText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
   statusChip: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
   statusChipText: { fontSize: 10, fontWeight: '800', color: '#fff' },
+  filterChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+  filterChipText: { fontSize: 11, fontWeight: '800', letterSpacing: 0.3 },
   dayText: { fontSize: 11, color: '#666', fontWeight: '600' },
   banner: { borderWidth: 2, padding: 12, margin: 10, borderRadius: 10 },
   bannerLbl: { fontSize: 11, color: '#666' },
@@ -1325,4 +1844,55 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: '#EEE',
   },
+
+  // ===== FCL (Actualizar status) =====
+  fclSectionTitle: { fontSize: 14, fontWeight: '800', color: BLACK, marginTop: 6 },
+  fclSectionHint: { fontSize: 11, color: '#666', marginTop: 2, marginBottom: 8 },
+  fclPicker: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    backgroundColor: '#FFF', borderWidth: 1, borderColor: '#DDD', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 12, marginTop: 4,
+  },
+  fclPickerText: { fontSize: 14, fontWeight: '600', color: BLACK, flex: 1, marginRight: 8 },
+  fclInfoBox: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 6,
+    backgroundColor: '#E3F2FD', borderRadius: 8, padding: 10, marginTop: 8,
+  },
+  fclInfoText: { fontSize: 12, color: '#0D47A1', flex: 1 },
+  fclAddressBox: {
+    marginTop: 14, padding: 12, backgroundColor: '#E3F2FD',
+    borderRadius: 10, borderWidth: 1, borderColor: '#1976D2',
+  },
+  fclAddressTitle: { fontWeight: '800', color: '#1976D2' },
+  fclAddressTag: { backgroundColor: '#1976D2', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2 },
+  fclAddressTagText: { color: '#fff', fontWeight: '800', fontSize: 11 },
+  fclRouteBox: {
+    marginTop: 14, padding: 12, backgroundColor: '#FFF8E1',
+    borderRadius: 10, borderWidth: 1, borderColor: ORANGE, borderStyle: 'dashed',
+  },
+  fclRouteAssigned: {
+    marginTop: 14, padding: 12, backgroundColor: '#E8F5E9',
+    borderRadius: 10, borderWidth: 1, borderColor: '#4CAF50',
+  },
+  fclEditBtn: { borderWidth: 1, borderColor: ORANGE, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  fclEditBtnText: { color: ORANGE, fontWeight: '800', fontSize: 12 },
+  fclMonitorBox: {
+    marginTop: 14, padding: 12, backgroundColor: '#FFF8E1',
+    borderRadius: 10, borderWidth: 1, borderColor: BLACK, borderStyle: 'dashed',
+  },
+  fclLbl: { fontSize: 11, color: '#666', marginTop: 8 },
+  fclVal: { fontSize: 14, fontWeight: '700', color: BLACK },
+  fclInput: {
+    backgroundColor: '#FFF', borderWidth: 1, borderColor: '#DDD', borderRadius: 8,
+    paddingHorizontal: 12, paddingVertical: 10, fontSize: 14, color: BLACK, marginTop: 4,
+  },
+  toggleGroup: { flexDirection: 'row', borderWidth: 1, borderColor: '#DDD', borderRadius: 8, overflow: 'hidden' },
+  toggleBtn: { paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#FFF' },
+  toggleBtnText: { fontSize: 12, fontWeight: '800', color: BLACK },
+  fclHistoryBox: { marginTop: 6, borderWidth: 1, borderColor: '#EEE', borderRadius: 10, backgroundColor: '#FFF' },
+  fclHistoryItem: { padding: 10, borderBottomWidth: 1, borderColor: '#F0F0F0' },
+  pickerBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  pickerSheet: { backgroundColor: '#FFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 12, maxHeight: '70%' },
+  pickerTitle: { fontSize: 14, fontWeight: '800', color: BLACK, marginBottom: 8, paddingHorizontal: 4 },
+  pickerItem: { paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderColor: '#F0F0F0' },
 });
