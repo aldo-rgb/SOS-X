@@ -153,6 +153,7 @@ interface POBoxRatesInfo {
 interface ClientInstructions {
   found: boolean;
   hasInstructions: boolean;
+  isLegacy?: boolean;
   client?: {
     id: number;
     name: string;
@@ -613,6 +614,39 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     } catch (error: unknown) {
       const axiosError = error as { response?: { status?: number } };
       if (axiosError.response?.status === 404) {
+        // Fallback: el casillero no está en clientes registrados →
+        // buscar también en clientes legacy (base de datos anterior).
+        try {
+          const lg = await axios.get(
+            `${API_URL}/packages/lookup-client/${encodeURIComponent(searchBoxId)}`,
+            { headers: { Authorization: `Bearer ${getToken()}` } }
+          );
+          if (lg.data?.found) {
+            setClientInstructions({
+              found: true,
+              hasInstructions: false,
+              isLegacy: lg.data.source === 'legacy',
+              client: {
+                id: lg.data.id || 0,
+                name: lg.data.fullName || 'Cliente',
+                email: lg.data.email || '',
+                boxId: lg.data.boxId || searchBoxId,
+              },
+            });
+            // Los clientes legacy no tienen dirección estructurada → destino manual.
+            setManualAddress(true);
+            setSnackbar({
+              open: true,
+              message: lg.data.source === 'legacy'
+                ? '📒 Cliente legacy encontrado. Captura el destino manualmente.'
+                : '✅ Cliente encontrado. Captura el destino.',
+              severity: 'success',
+            });
+            return;
+          }
+        } catch {
+          /* si la búsqueda legacy falla, caemos al mensaje de no encontrado */
+        }
         setClientInstructions({ found: false, hasInstructions: false });
         setSnackbar({ open: true, message: '❌ No se encontró cliente con ese casillero', severity: 'error' });
       }
@@ -2186,7 +2220,12 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                 <Typography fontWeight="bold">{clientInstructions.client?.name}</Typography>
                                 <Typography variant="body2">{clientInstructions.client?.email}</Typography>
                               </Box>
-                              <Chip label={clientInstructions.client?.boxId} size="small" sx={{ ml: 'auto' }} />
+                              <Box sx={{ ml: 'auto', display: 'flex', gap: 1 }}>
+                                {clientInstructions.isLegacy && (
+                                  <Chip label="Legacy" size="small" color="warning" />
+                                )}
+                                <Chip label={clientInstructions.client?.boxId} size="small" />
+                              </Box>
                             </Box>
                           </Alert>
                         ) : (

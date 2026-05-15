@@ -77,7 +77,7 @@ export default function BootstrapScreen({ navigation }: Props) {
         const resp = await api.get('/api/auth/profile', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const fresh = resp.data?.user || userData;
+        const fresh = resp.data?.user || resp.data || userData;
         // Refrescar user con datos actuales (rol pudo cambiar).
         const merged = {
           id: fresh.id ?? userData.id,
@@ -93,10 +93,15 @@ export default function BootstrapScreen({ navigation }: Props) {
       } catch (err: any) {
         const status = err?.response?.status;
         if (status === 401 || status === 403) {
-          // Token inválido o expirado — limpiar y a Login.
+          // Token genuinamente inválido o expirado — limpiar y a Login.
           await clearAllSecure();
+          goToLogin();
+        } else {
+          // Falla transitoria (red lenta al abrir, cold start del servidor,
+          // 5xx): NO mandar al usuario a Login tras un Face ID exitoso.
+          // Entramos con los datos guardados; la pantalla destino revalida.
+          routeByRole(userData, token);
         }
-        goToLogin();
       }
     } catch {
       goToLogin();

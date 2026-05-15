@@ -190,7 +190,7 @@ export const api = {
       });
       const data = await parseJsonResponse(response);
       if (!response.ok) {
-        throw { response: { data } };
+        throw { response: { data, status: response.status } };
       }
       return { data };
     } catch (error: any) {
@@ -210,7 +210,7 @@ export const api = {
       });
       const data = await parseJsonResponse(response);
       if (!response.ok) {
-        throw { response: { data } };
+        throw { response: { data, status: response.status } };
       }
       return { data };
     } catch (error: any) {
