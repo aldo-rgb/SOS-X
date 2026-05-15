@@ -44,6 +44,7 @@ const C = {
 const DOC_GROUPS: { key: string; label: string; icon?: string; optional?: boolean; imssOnly?: boolean; advisorRequired?: boolean }[] = [
   { key: 'ine_front', label: 'INE — Anverso', advisorRequired: true },
   { key: 'ine_back', label: 'INE — Reverso', advisorRequired: true },
+  { key: 'firma_digital', label: 'Firma Digital', advisorRequired: true },
   { key: 'contract', label: 'Contrato Laboral', advisorRequired: true },
   { key: 'comprobante_domicilio', label: 'Comprobante de Domicilio' },
   { key: 'rfc', label: 'RFC / Constancia Fiscal', optional: true, advisorRequired: true },
@@ -129,6 +130,54 @@ export default function EmployeeProfilePage({ employeeId, onBack }: EmployeeProf
   const docsByType: Record<string, any[]> = {};
   (documents || []).forEach((d: any) => {
     (docsByType[d.doc_type] = docsByType[d.doc_type] || []).push(d);
+  });
+
+  // 🔗 Fallback: si el asesor / empleado subió archivos durante su registro
+  // (INE, firma, RFC, etc.) pero aún no se han migrado a employee_documents,
+  // los exponemos como entradas virtuales (sólo lectura) usando users.*_url.
+  const VIRTUAL_DOCS: { key: string; url: string | null; label: string }[] = [
+    { key: 'ine_front',             url: user?.ine_front_url || null,             label: 'INE — Anverso' },
+    { key: 'ine_back',              url: user?.ine_back_url || null,              label: 'INE — Reverso' },
+    { key: 'firma_digital',         url: user?.privacy_signature_url || user?.signature_url || null, label: 'Firma Digital' },
+    { key: 'rfc',                   url: user?.rfc_url || null,                   label: 'RFC / Constancia Fiscal' },
+    { key: 'curp',                  url: user?.curp_url || null,                  label: 'CURP' },
+    { key: 'comprobante_domicilio', url: user?.comprobante_domicilio_url || null, label: 'Comprobante de Domicilio' },
+    { key: 'contract',              url: user?.contract_pdf_url || null,          label: 'Contrato Laboral' },
+  ];
+  VIRTUAL_DOCS.forEach((v) => {
+    if (v.url && !(docsByType[v.key]?.length)) {
+      const raw = String(v.url).trim();
+      // Algunos campos guardan base64 puro (sin prefijo data:) o un data URI completo,
+      // otros guardan una URL http(s) o una ruta /uploads. Normalizamos:
+      const isHttp = /^https?:\/\//i.test(raw);
+      const isDataUri = raw.startsWith('data:');
+      const isPath = raw.startsWith('/');
+      let mime = 'image/jpeg';
+      let renderUrl = raw;
+      if (isHttp || isPath) {
+        const lower = raw.toLowerCase();
+        const ext = (lower.split('?')[0].split('.').pop() || '').toLowerCase();
+        if (ext === 'pdf') mime = 'application/pdf';
+        else if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) mime = `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+      } else if (isDataUri) {
+        const m = raw.match(/^data:([^;]+);/i);
+        if (m) mime = m[1];
+      } else {
+        // base64 puro → envolver como data URI
+        // Heurística: PDFs base64 inician con "JVBER"
+        if (raw.startsWith('JVBER')) mime = 'application/pdf';
+        renderUrl = `data:${mime};base64,${raw}`;
+      }
+      docsByType[v.key] = [{
+        id: `virtual-${v.key}`,
+        doc_type: v.key,
+        filename: v.label,
+        url: renderUrl,
+        mime_type: mime,
+        uploaded_at: user?.privacy_accepted_at || user?.hire_date || null,
+        virtual: true,
+      }];
+    }
   });
 
   return (
@@ -388,9 +437,11 @@ function ExpedienteTab({ profile, docsByType, onChange, onMsg }: any) {
                       >
                         Ver
                       </Button>
-                      <IconButton size="small" color="error" onClick={() => handleDelete(latest.id)}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
+                      {!latest.virtual && (
+                        <IconButton size="small" color="error" onClick={() => handleDelete(latest.id)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      )}
                     </Stack>
                   </>
                 ) : (

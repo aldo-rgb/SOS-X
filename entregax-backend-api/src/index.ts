@@ -7651,6 +7651,11 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
       return res.status(403).json({ error: 'Acceso denegado' });
     }
     const userId = Number(req.user?.id || req.user?.userId);
+    // � Si el usuario es solo "monitoreo", filtra contenedores asignados a él (monitor_user_id).
+    // Admin / super_admin / director ven todos.
+    const onlyAssigned = role === 'monitoreo';
+    const whereOwner = onlyAssigned ? `WHERE monitor_user_id = $1` : '';
+    const ownerParams = onlyAssigned ? [userId] : [];
     // 🚛 Monitoreo: "Contenedores en Ruta" = solo los que ya van rumbo al cliente final
     // (in_transit_clientfinal). Los liberados de aduana aún no están en ruta.
     const result = await pool.query(
@@ -7658,7 +7663,8 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
          COUNT(*) FILTER (WHERE status = 'in_transit_clientfinal')::int AS liberados,
          COUNT(*) FILTER (WHERE status = 'customs_cleared')::int AS customs_cleared,
          COUNT(*) FILTER (WHERE status = 'in_transit_clientfinal')::int AS in_transit_clientfinal
-       FROM containers`
+       FROM containers ${whereOwner}`,
+      ownerParams
     );
 
     // Asignación activa del usuario monitoreo (si tiene una unidad recibida)
@@ -7701,10 +7707,17 @@ app.get('/api/monitoreo/containers', authenticateToken, async (req: any, res) =>
     if (!allowed.includes(status)) {
       return res.status(400).json({ error: 'Status no permitido' });
     }
+    const userId = Number(req.user?.id || req.user?.userId);
+    const onlyAssigned = role === 'monitoreo';
     const statusClause = status === 'all'
       ? `c.status IN ('customs_cleared','in_transit_clientfinal')`
       : `c.status = $1`;
-    const params = status === 'all' ? [] : [status];
+    const params: any[] = status === 'all' ? [] : [status];
+    let ownerClause = '';
+    if (onlyAssigned) {
+      params.push(userId);
+      ownerClause = ` AND c.monitor_user_id = $${params.length}`;
+    }
     const result = await pool.query(`
       SELECT
         c.id, c.container_number, c.bl_number, c.reference_code,
@@ -7718,7 +7731,7 @@ app.get('/api/monitoreo/containers', authenticateToken, async (req: any, res) =>
         u.phone AS client_phone
       FROM containers c
       LEFT JOIN users u ON u.id = c.client_user_id
-      WHERE ${statusClause}
+      WHERE ${statusClause}${ownerClause}
       ORDER BY
         CASE WHEN c.status = 'in_transit_clientfinal' THEN 0 ELSE 1 END,
         c.route_dispatched_at DESC NULLS LAST,
