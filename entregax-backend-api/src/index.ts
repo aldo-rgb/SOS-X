@@ -7744,6 +7744,23 @@ app.get('/api/monitoreo/containers', authenticateToken, async (req: any, res) =>
         c.route_dispatched_at DESC NULLS LAST,
         c.created_at DESC
     `, params);
+    // 🖼️ Firmar URLs S3 (bucket privado) para que img/href funcionen en cliente
+    try {
+      const { signS3UrlIfNeeded } = await import('./s3Service');
+      const containers = await Promise.all(
+        result.rows.map(async (c: any) => ({
+          ...c,
+          monitoring_photo_1_url: await signS3UrlIfNeeded(c.monitoring_photo_1_url),
+          monitoring_photo_2_url: await signS3UrlIfNeeded(c.monitoring_photo_2_url),
+          delivery_photo_1_url: await signS3UrlIfNeeded(c.delivery_photo_1_url),
+          delivery_photo_2_url: await signS3UrlIfNeeded(c.delivery_photo_2_url),
+          delivery_photo_3_url: await signS3UrlIfNeeded(c.delivery_photo_3_url),
+        }))
+      );
+      return res.json({ containers });
+    } catch (signErr) {
+      console.warn('[monitoreo/containers] sign error:', (signErr as Error).message);
+    }
     res.json({ containers: result.rows });
   } catch (error) {
     console.error('Error listando contenedores monitoreo:', error);

@@ -110,13 +110,17 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           const liberados = Number(statsRes.data?.liberados) || 0;
           const cargados = Number(statsRes.data?.cargados) || 0;
           const entregados = Number(statsRes.data?.entregados) || 0;
+          // 🚛 Contenedores en Ruta = todos los activos en tránsito al cliente final
+          // (incluye los que ya están en monitoreo). Así el monitorista sigue
+          // accediendo al detalle aunque ya haya iniciado las 2 fotos.
+          const totalRoute = (Number(statsRes.data?.in_transit_clientfinal) || 0);
           const assignment = statsRes.data?.currentAssignment || null;
           setStats({
-            totalAssigned: liberados,
+            totalAssigned: totalRoute > 0 ? totalRoute : liberados,
             loadedToday: cargados,
             deliveredToday: entregados,
-            pendingToLoad: liberados,
-            pendingDelivery: cargados,
+            pendingToLoad: liberados, // solo los que aún no inician monitoreo
+            pendingDelivery: cargados, // los que están en monitoreo (pendientes de entrega)
             returnedToday: 0,
           });
           setLoadedPackages([]);
@@ -468,8 +472,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           </TouchableOpacity>
         </View>
 
-        {/* Status Badge / Ver Ruta */}
-        {stats.pendingDelivery > 0 ? (
+        {/* Status Badge / Ver Ruta — Ver Ruta solo aplica para repartidores, no para monitoreo */}
+        {!isMonitoreo && stats.pendingDelivery > 0 ? (
           <TouchableOpacity
             style={[styles.statusBadge, { backgroundColor: '#4CAF50' }]}
             onPress={handleViewRoute}

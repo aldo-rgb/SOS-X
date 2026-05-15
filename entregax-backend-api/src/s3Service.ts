@@ -99,6 +99,37 @@ export const getSignedUrlForKey = async (key: string, expiresIn: number = 3600):
 };
 
 /**
+ * Si la URL pertenece a nuestro bucket S3, la convierte en una URL firmada
+ * temporal para acceso desde el navegador (útil cuando el bucket NO es público).
+ * Si no es URL de S3 (data: o cualquier otra), la regresa intacta.
+ */
+export const signS3UrlIfNeeded = async (url: string | null | undefined, expiresIn: number = 3600): Promise<string | null> => {
+  if (!url) return null;
+  // No firmar data: URLs ni rutas locales
+  if (!/^https?:\/\//i.test(url)) return url;
+  // Solo procesar URLs de nuestro bucket
+  const region = process.env.AWS_REGION || 'us-east-1';
+  const patterns = [
+    new RegExp(`^https?://${BUCKET_NAME}\\.s3\\.${region}\\.amazonaws\\.com/(.+)$`),
+    new RegExp(`^https?://${BUCKET_NAME}\\.s3\\.amazonaws\\.com/(.+)$`),
+    new RegExp(`^https?://s3\\.${region}\\.amazonaws\\.com/${BUCKET_NAME}/(.+)$`),
+  ];
+  for (const re of patterns) {
+    const m = url.match(re);
+    if (m) {
+      const key = decodeURIComponent(m[1]);
+      try {
+        return await getSignedUrlForKey(key, expiresIn);
+      } catch (err) {
+        console.warn('[signS3UrlIfNeeded] could not sign', key, (err as Error).message);
+        return url;
+      }
+    }
+  }
+  return url;
+};
+
+/**
  * Eliminar archivo de S3
  * @param key - Ruta del archivo a eliminar
  */

@@ -17,9 +17,9 @@ const GREEN = '#2E7D32';
 
 type SlotKey = 'photo1' | 'photo2' | 'photo3';
 const SLOTS: { key: SlotKey; label: string; hint: string }[] = [
-  { key: 'photo1', label: 'Foto 1 — Contenedor en sitio', hint: 'Toma el contenedor en la dirección de entrega.' },
-  { key: 'photo2', label: 'Foto 2 — Sellos / cierre', hint: 'Foto de los sellos del contenedor antes de descargar.' },
-  { key: 'photo3', label: 'Foto 3 — Cliente / firma', hint: 'Toma evidencia con el cliente que recibe.' },
+  { key: 'photo1', label: 'Foto 1 — Puerta Completa del Contenedor', hint: 'Toma el contenedor en la dirección de entrega.' },
+  { key: 'photo2', label: 'Foto 2 — Sellos / candandos', hint: 'Foto de los sellos del contenedor antes de descargar.' },
+  { key: 'photo3', label: 'Foto 3 — Ingreso Contenedor', hint: 'Toma evidencia con el cliente que recibe.' },
 ];
 
 export default function ConfirmDeliveryScreen({ navigation, route }: any) {

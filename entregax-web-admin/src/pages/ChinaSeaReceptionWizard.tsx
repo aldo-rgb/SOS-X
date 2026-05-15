@@ -2370,23 +2370,28 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         <Grid container spacing={2}>
                             {photosDialog.urls.map((url, idx) => (
                                 <Grid key={idx} size={{ xs: 12, sm: photosDialog.urls.length >= 3 ? 4 : 6 }}>
-                                    <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
-                                        <Box
-                                            component="a"
-                                            href={url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            sx={{ display: 'block', textDecoration: 'none' }}
-                                        >
+                                    <Paper variant="outlined" sx={{ overflow: 'hidden', position: 'relative' }}>
+                                        <Box sx={{ position: 'relative', width: '100%', minHeight: 200, bgcolor: '#000' }}>
                                             <img
                                                 src={url}
                                                 alt={`Foto ${idx + 1}`}
                                                 style={{ width: '100%', height: 'auto', display: 'block', maxHeight: 480, objectFit: 'contain', background: '#000' }}
+                                                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                                             />
                                         </Box>
-                                        <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', py: 0.5, color: '#555' }}>
-                                            Foto {idx + 1} · click para abrir en pestaña nueva
-                                        </Typography>
+                                        <Stack direction="row" spacing={1} sx={{ p: 1, justifyContent: 'space-between', alignItems: 'center', bgcolor: '#FAFAFA' }}>
+                                            <Typography variant="caption" sx={{ color: '#555' }}>
+                                                Foto {idx + 1}
+                                            </Typography>
+                                            <Button
+                                                size="small"
+                                                variant="contained"
+                                                onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+                                                sx={{ bgcolor: TEAL, '&:hover': { bgcolor: '#00838F' }, textTransform: 'none', fontSize: 11 }}
+                                            >
+                                                Abrir en pestaña nueva
+                                            </Button>
+                                        </Stack>
                                     </Paper>
                                 </Grid>
                             ))}

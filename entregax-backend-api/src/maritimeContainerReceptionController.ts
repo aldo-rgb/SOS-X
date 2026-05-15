@@ -127,6 +127,26 @@ export const listInTransitContainers = async (_req: AuthRequest, res: Response):
       ORDER BY c.eta ASC NULLS LAST, c.id DESC
     `);
 
+    // 🖼️ Firmar URLs de fotos S3 (si el bucket no es público) para que el
+    // navegador pueda renderizarlas sin AccessDenied.
+    try {
+      const { signS3UrlIfNeeded } = await import('./s3Service');
+      const containers = await Promise.all(
+        result.rows.map(async (c: any) => ({
+          ...c,
+          monitoring_photo_1_url: await signS3UrlIfNeeded(c.monitoring_photo_1_url),
+          monitoring_photo_2_url: await signS3UrlIfNeeded(c.monitoring_photo_2_url),
+          delivery_photo_1_url: await signS3UrlIfNeeded(c.delivery_photo_1_url),
+          delivery_photo_2_url: await signS3UrlIfNeeded(c.delivery_photo_2_url),
+          delivery_photo_3_url: await signS3UrlIfNeeded(c.delivery_photo_3_url),
+        }))
+      );
+      res.json({ containers });
+      return;
+    } catch (signErr) {
+      console.warn('[listInTransitContainers] sign error:', (signErr as Error).message);
+    }
+
     res.json({ containers: result.rows });
   } catch (err) {
     console.error('listInTransitContainers error:', err);
