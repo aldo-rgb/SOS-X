@@ -423,7 +423,7 @@ export default function InboundEmailsAirPage() {
                 openDetail(selectedDraft.id);
             } else {
                 const err = await resp.json();
-                setSnackbar({ open: true, message: `Error: ${err.error}`, severity: 'error' });
+                setSnackbar({ open: true, message: `Error: ${err.error}${err.details ? ` — ${err.details}` : ''}`, severity: 'error' });
             }
         } catch (err: unknown) {
             setSnackbar({ open: true, message: `Error: ${err instanceof Error ? err.message : 'desconocido'}`, severity: 'error' });

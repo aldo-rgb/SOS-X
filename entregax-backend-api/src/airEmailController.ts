@@ -75,12 +75,35 @@ interface PackingListSummary {
 }
 
 // ========== AI: EXTRACT AWB DATA FROM PDF IMAGE ==========
+/**
+ * Convierte la primera página de un PDF a PNG (base64).
+ * GPT-4o Vision NO acepta PDFs vía image_url: hay que rasterizar primero.
+ * Devuelve null si la conversión falla.
+ */
+async function pdfFirstPageToPngBase64(pdfBuffer: Buffer): Promise<string | null> {
+  try {
+    const { pdfToPng } = await import('pdf-to-png-converter');
+    const arrayBuffer = pdfBuffer.buffer.slice(
+      pdfBuffer.byteOffset,
+      pdfBuffer.byteOffset + pdfBuffer.byteLength
+    ) as ArrayBuffer;
+    const pages = await pdfToPng(arrayBuffer, { viewportScale: 2.0, pagesToProcess: [1] });
+    if (pages?.[0]?.content) {
+      return pages[0].content.toString('base64');
+    }
+    return null;
+  } catch (err: any) {
+    console.error('✈️ [AIR-AI] Error convirtiendo PDF a PNG:', err.message);
+    return null;
+  }
+}
+
 async function extractAwbFromImage(imageInput: string): Promise<{ data: ExtractedAwbData; confidence: string }> {
   console.log('✈️ [AIR-AI] Extrayendo datos de AWB con GPT-4o Vision...');
 
   const isBase64 = !imageInput.startsWith('http');
   const imageContent = isBase64
-    ? { type: 'image_url' as const, image_url: { url: `data:image/jpeg;base64,${imageInput}` } }
+    ? { type: 'image_url' as const, image_url: { url: `data:image/png;base64,${imageInput}` } }
     : { type: 'image_url' as const, image_url: { url: imageInput } };
 
   const response = await openai.chat.completions.create({
@@ -495,16 +518,17 @@ export async function uploadManualAirShipment(req: AuthRequest, res: Response) {
         confidence = textResult.confidence;
       }
 
-      // Si confianza baja o sin MAWB, intentar con imagen
+      // Si confianza baja o sin MAWB, intentar con imagen (PDF → PNG para Vision)
       if (confidence === 'low' || !awbData.mawb) {
         console.log('✈️ [AIR-UPLOAD] Intentando extracción por imagen (Vision)...');
-        const base64 = awbFile.buffer.toString('base64');
-        const imageResult = await extractAwbFromImage(base64);
-        
-        // Usar resultado de imagen si es mejor
-        if (imageResult.confidence !== 'low' || !awbData.mawb) {
-          awbData = imageResult.data;
-          confidence = imageResult.confidence;
+        const pngBase64 = await pdfFirstPageToPngBase64(awbFile.buffer);
+        if (pngBase64) {
+          const imageResult = await extractAwbFromImage(pngBase64);
+          // Usar resultado de imagen si es mejor
+          if (imageResult.confidence !== 'low' || !awbData.mawb) {
+            awbData = imageResult.data;
+            confidence = imageResult.confidence;
+          }
         }
       }
     } catch (aiErr: any) {
@@ -1331,13 +1355,20 @@ export async function reextractAirDraft(req: AuthRequest, res: Response) {
         confidence = textResult.confidence;
       }
 
-      // Fallback a imagen
+      // Fallback a imagen: convertir el PDF a PNG (GPT-4o Vision no acepta PDF).
+      // Si la extracción por imagen falla, no es fatal: se conserva lo que haya.
       if (!awbData?.mawb || confidence === 'low') {
-        const base64 = buffer.toString('base64');
-        const imgResult = await extractAwbFromImage(base64);
-        if (imgResult.confidence !== 'low' || !awbData?.mawb) {
-          awbData = imgResult.data;
-          confidence = imgResult.confidence;
+        try {
+          const pngBase64 = await pdfFirstPageToPngBase64(buffer);
+          if (pngBase64) {
+            const imgResult = await extractAwbFromImage(pngBase64);
+            if (imgResult.confidence !== 'low' || !awbData?.mawb) {
+              awbData = imgResult.data;
+              confidence = imgResult.confidence;
+            }
+          }
+        } catch (imgErr: any) {
+          console.error('✈️ [AIR-REEXTRACT] Extracción por imagen falló:', imgErr.message);
         }
       }
     } catch (err: any) {

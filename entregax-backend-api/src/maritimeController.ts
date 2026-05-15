@@ -229,6 +229,8 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
     const containerResult = await pool.query('SELECT * FROM containers WHERE id = $1', [id]);
     const container = containerResult.rows[0];
     const previousStatus: string | null = container?.status || null;
+    const previousMonitor: number | null = container?.monitor_user_id ?? null;
+    const statusChanged = status !== previousStatus;
 
     // Obtener todos los usuarios con envíos en este contenedor
     const usersResult = await pool.query(`
@@ -240,11 +242,13 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
     // Si hay info de ruta (operador/placas/teléfono/empresa), guardarla en containers
     // y marcar route_dispatched_at cuando se transiciona a in_transit_clientfinal
     const hasRouteInfo = !!(driver_name || driver_plates || driver_phone || driver_company);
+    const monitorChanged = (monitor_user_id !== undefined && monitor_user_id !== null)
+      && Number(monitor_user_id) !== Number(previousMonitor ?? 0);
     const monitorClause = (monitor_user_id !== undefined && monitor_user_id !== null)
       ? `, monitor_user_id = ${Number(monitor_user_id) || 'NULL'}`
       : '';
     if (hasRouteInfo) {
-      const dispatchedAtClause = status === 'in_transit_clientfinal' ? ', route_dispatched_at = NOW()' : '';
+      const dispatchedAtClause = (statusChanged && status === 'in_transit_clientfinal') ? ', route_dispatched_at = NOW()' : '';
       await pool.query(
         `UPDATE containers
             SET status = $1,
@@ -265,27 +269,33 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
     // Actualizar todos los envíos del contenedor
     await pool.query('UPDATE maritime_shipments SET status = $1, updated_at = NOW() WHERE container_id = $2', [status, id]);
 
-    // Registrar en historial (auditoría)
-    try {
-      await pool.query(
-        `INSERT INTO container_status_history
-           (container_id, previous_status, new_status, driver_name, driver_plates, driver_phone, driver_company, notes, changed_by_user_id, changed_by_name)
-         VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), $9, $10)`,
-        [
-          id,
-          previousStatus,
-          status,
-          driver_name || '',
-          driver_plates || '',
-          driver_phone || '',
-          driver_company || '',
-          notes || '',
-          req.user?.userId || null,
-          req.user?.email || null,
-        ]
-      );
-    } catch (histErr) {
-      console.warn('[updateContainerStatus] No se pudo escribir historial:', (histErr as Error).message);
+    // Registrar en historial (auditoría) — solo si hubo un cambio real.
+    // change_type: 'status' (cambió el estatus), 'monitor' (se asignó/cambió
+    // monitorista) o 'route' (datos de operador/unidad).
+    if (statusChanged || monitorChanged || hasRouteInfo) {
+      const changeType = statusChanged ? 'status' : (monitorChanged ? 'monitor' : 'route');
+      try {
+        await pool.query(
+          `INSERT INTO container_status_history
+             (container_id, previous_status, new_status, driver_name, driver_plates, driver_phone, driver_company, notes, changed_by_user_id, changed_by_name, change_type)
+           VALUES ($1, $2, $3, NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), $9, $10, $11)`,
+          [
+            id,
+            previousStatus,
+            status,
+            driver_name || '',
+            driver_plates || '',
+            driver_phone || '',
+            driver_company || '',
+            notes || '',
+            req.user?.userId || null,
+            req.user?.email || null,
+            changeType,
+          ]
+        );
+      } catch (histErr) {
+        console.warn('[updateContainerStatus] No se pudo escribir historial:', (histErr as Error).message);
+      }
     }
 
     // Enviar notificaciones a todos los usuarios afectados
@@ -309,7 +319,7 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
       'delivered': 'PACKAGE_RECEIVED'
     };
 
-    if (statusMessages[status]) {
+    if (statusChanged && statusMessages[status]) {
       for (const shipment of usersResult.rows) {
         const notifType = notificationTypes[status] || 'PACKAGE_IN_TRANSIT';
         await createNotification(
@@ -342,7 +352,7 @@ export const getContainerStatusHistory = async (req: AuthRequest, res: Response)
     const { id } = req.params;
     const result = await pool.query(
       `SELECT id, previous_status, new_status, driver_name, driver_plates, driver_phone, driver_company,
-              notes, changed_by_user_id, changed_by_name, changed_at
+              notes, changed_by_user_id, changed_by_name, changed_at, change_type
          FROM container_status_history
         WHERE container_id = $1
         ORDER BY changed_at DESC`,
@@ -354,9 +364,25 @@ export const getContainerStatusHistory = async (req: AuthRequest, res: Response)
     // 'maritimo' o 'fcl', si no usa la default general (is_default), y como
     // último recurso la más reciente.
     let destinationAddress: any = null;
+    let monitor: any = null;
     try {
-      const cRes = await pool.query('SELECT client_user_id FROM containers WHERE id = $1', [id]);
-      const clientUserId = cRes.rows[0]?.client_user_id;
+      const cRes = await pool.query(
+        `SELECT c.client_user_id, c.monitor_user_id,
+                mu.full_name AS monitor_name, mu.phone AS monitor_phone
+           FROM containers c
+           LEFT JOIN users mu ON mu.id = c.monitor_user_id
+          WHERE c.id = $1`,
+        [id]
+      );
+      const cRow = cRes.rows[0];
+      const clientUserId = cRow?.client_user_id;
+      if (cRow?.monitor_user_id) {
+        monitor = {
+          id: cRow.monitor_user_id,
+          full_name: cRow.monitor_name,
+          phone: cRow.monitor_phone,
+        };
+      }
       if (clientUserId) {
         const addrRes = await pool.query(
           `SELECT *
@@ -375,7 +401,7 @@ export const getContainerStatusHistory = async (req: AuthRequest, res: Response)
       console.warn('[getContainerStatusHistory] No se pudo cargar dirección:', (addrErr as Error).message);
     }
 
-    res.json({ history: result.rows, destinationAddress });
+    res.json({ history: result.rows, destinationAddress, monitor });
   } catch (error) {
     console.error('Error getting container status history:', error);
     res.status(500).json({ error: 'Error al obtener historial' });

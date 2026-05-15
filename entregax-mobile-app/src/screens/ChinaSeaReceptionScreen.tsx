@@ -149,6 +149,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
     notes: string | null;
     changed_by_name: string | null;
     changed_at: string;
+    change_type?: string | null;
   };
   type DestinationAddress = {
     alias?: string | null; label?: string | null;
@@ -174,7 +175,20 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       const hist: HistoryEntry[] = hData?.history || [];
       setHistory(hist);
       setDestinationAddress(hData?.destinationAddress || null);
-      setMonitors(mData?.monitors || mData || []);
+
+      // Monitorista ya asignado al contenedor (viene del endpoint status-history).
+      // Se precarga en el selector para que se vea la info guardada.
+      const mlist: Monitor[] = mData?.monitors || mData || [];
+      const assignedMonitor = hData?.monitor || null;
+      if (assignedMonitor?.id && !mlist.some((m) => m.id === assignedMonitor.id)) {
+        mlist.push({
+          id: assignedMonitor.id,
+          full_name: assignedMonitor.full_name,
+          phone: assignedMonitor.phone,
+        });
+      }
+      setMonitors(mlist);
+      setMonitorUserId(assignedMonitor?.id ?? null);
 
       const lastName    = hist.find((h) => h.driver_name)?.driver_name || '';
       const lastPlates  = hist.find((h) => h.driver_plates)?.driver_plates || '';
@@ -314,10 +328,8 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
       setSelected(c);
       setStep(1);
       if (isFCL) {
-        // Inicializa con el siguiente status sugerido según el actual
-        const idx = FCL_STATUSES.findIndex((s) => s.value === c.status);
-        const next = idx >= 0 && idx < FCL_STATUSES.length - 1 ? FCL_STATUSES[idx + 1].value : '';
-        setFclStatus(next);
+        // Inicializa con el status actual del contenedor
+        setFclStatus(c.status || '');
         setDriverName(''); setDriverPlates(''); setDriverPhone(''); setDriverCompany(''); setDriverNotes('');
         setMonitorUserId(null); setTruckMode('sencillo'); setSecondContainerId(null);
         setEditingRoute(false); setHasPersistedRoute(false);
@@ -1150,10 +1162,15 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                 <View style={styles.fclHistoryBox}>
                   {history.map((h) => {
                     const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
+                    const title = h.change_type === 'monitor'
+                      ? '👁️ Monitorista asignado'
+                      : h.change_type === 'route'
+                        ? '🚛 Datos de ruta actualizados'
+                        : `${meta?.icon || '·'} ${meta?.label || h.new_status}`;
                     return (
                       <View key={h.id} style={styles.fclHistoryItem}>
                         <Text style={{ fontWeight: '700', color: BLACK }}>
-                          {meta?.icon || '·'} {meta?.label || h.new_status}
+                          {title}
                         </Text>
                         <Text style={{ fontSize: 11, color: '#666' }}>
                           {new Date(h.changed_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
@@ -1181,10 +1198,10 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
               <TouchableOpacity
                 style={[styles.btnPrimary, {
                   backgroundColor: TEAL,
-                  opacity: (!fclStatus || fclSaving || fclStatus === selected.status) ? 0.5 : 1,
+                  opacity: (!fclStatus || fclSaving) ? 0.5 : 1,
                 }]}
                 onPress={updateFCLContainerStatus}
-                disabled={!fclStatus || fclSaving || fclStatus === selected.status}
+                disabled={!fclStatus || fclSaving}
               >
                 {fclSaving ? <ActivityIndicator color="#fff" /> : (
                   <Text style={styles.btnPrimaryText} numberOfLines={1}>Actualizar status</Text>
