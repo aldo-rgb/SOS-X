@@ -197,6 +197,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     type Monitor = { id: number; full_name: string; phone?: string | null; email?: string | null };
     const [monitors, setMonitors] = useState<Monitor[]>([]);
     const [monitorUserId, setMonitorUserId] = useState<number | null>(null);
+    const [originalMonitorUserId, setOriginalMonitorUserId] = useState<number | null>(null);
 
     // Historial de cambios de status
     type HistoryEntry = {
@@ -746,13 +747,16 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setDriverPhone(dph);
             setDriverCompany(dc);
             setHasPersistedRoute(!!(dn || dp || dph || dc));
-            setMonitorUserId((c as any).monitor_user_id || null);
+            const initialMonitor = (c as any).monitor_user_id || null;
+            setMonitorUserId(initialMonitor);
+            setOriginalMonitorUserId(initialMonitor);
             setDriverNotes('');
             setEditingRoute(false);
             setTruckMode('sencillo');
             setSecondContainerId(null);
-            // Preseleccionar "En tránsito a destino" por ser el flujo más común
-            setFclStatus('in_transit_clientfinal');
+            // Preseleccionar el status actual del contenedor para no “avanzarlo”
+            // cuando el usuario sólo quiere cambiar monitorista o ruta.
+            setFclStatus(c.status || 'in_transit_clientfinal');
             // Cargar historial en paralelo
             loadHistory(c.id);
             setStep(1);
@@ -1537,10 +1541,19 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         <Button
                             variant="contained"
                             onClick={updateFCLContainerStatus}
-                            disabled={!fclStatus || fclSaving || (fclStatus === selected.status && !editingRoute)}
+                            disabled={
+                                !fclStatus || fclSaving ||
+                                (fclStatus === selected.status && !editingRoute && monitorUserId === originalMonitorUserId)
+                            }
                             sx={{ bgcolor: TEAL, '&:hover': { bgcolor: '#00838F' }, minWidth: 200 }}
                         >
-                            {fclSaving ? <CircularProgress size={20} sx={{ color: '#FFF' }} /> : (editingRoute && fclStatus === selected.status ? 'Guardar cambios de ruta' : 'Actualizar status del contenedor')}
+                            {fclSaving ? <CircularProgress size={20} sx={{ color: '#FFF' }} /> : (
+                                fclStatus === selected.status
+                                    ? (monitorUserId !== originalMonitorUserId && !editingRoute
+                                        ? 'Asignar monitorista'
+                                        : 'Guardar cambios de ruta')
+                                    : 'Actualizar status del contenedor'
+                            )}
                         </Button>
                     </Stack>
                 </Box>
