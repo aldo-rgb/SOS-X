@@ -177,7 +177,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     }
     setBusy(true);
     try {
-      await axios.post(
+      const r = await axios.post(
         `${API_URL}/api/tdi-express/serial/${masterId}/box`,
         {
           originGuide: box.originGuide.trim() || undefined,
@@ -195,6 +195,8 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         { headers: authHeaders }
       );
       await reloadBoxes(masterId);
+      // Imprime las etiquetas del bloque recién agregado.
+      printTdiLabels(r.data?.created || [], box, totalBoxes);
       // Conservar cliente y tipo para la siguiente caja; limpiar el resto
       setBox({ ...emptyBox, clientNumber: box.clientNumber, productType: box.productType });
       setQuantity('1');
@@ -237,6 +239,54 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     setWizardOpen(false);
     loadAll();
     setSnack({ sev: 'success', msg: t('tdiExpress.wizard.done') });
+  };
+
+  // Imprime las etiquetas del bloque de cajas recién agregado (4x6").
+  const printTdiLabels = (
+    created: { id: number; tracking: string; boxNumber: number }[],
+    data: typeof emptyBox,
+    total: number
+  ) => {
+    if (!created.length) return;
+    const w = window.open('', '_blank', 'width=440,height=660');
+    if (!w) return;
+    const pt = productTypes.find((p) => p.key === data.productType);
+    const ptName = pt ? t(`tdiExpress.productTypes.${pt.key}`) : '';
+    const dims = (data.length && data.width && data.height)
+      ? `${data.length}×${data.width}×${data.height} cm` : '—';
+    const esc = (s: string) => String(s || '').replace(/[<>&]/g, '');
+    const labels = created.map((b, i) => `
+      <div class="label">
+        <div class="hdr">✈️ TDI EXPRESS<span>${b.boxNumber} / ${total}</span></div>
+        <div class="trk">${esc(b.tracking)}</div>
+        <svg class="bc" id="bc${i}"></svg>
+        <div class="qr" id="qr${i}"></div>
+        <div class="row"><b>${esc(t('tdiExpress.wizard.clientNumber'))}:</b> ${esc(data.clientNumber) || '—'}</div>
+        <div class="row"><b>${esc(t('tdiExpress.wizard.originGuide'))}:</b> ${esc(data.originGuide) || '—'}</div>
+        <div class="row"><b>GW:</b> ${esc(data.grossWeight) || '—'} kg &nbsp; <b>CW:</b> ${esc(data.chargeableWeight) || '—'} kg</div>
+        <div class="row"><b>${esc(t('tdiExpress.wizard.length'))}:</b> ${dims}</div>
+        <div class="row"><b>${esc(t('tdiExpress.wizard.productType'))}:</b> ${esc(ptName)}</div>
+      </div>`).join('');
+    w.document.write(`<!DOCTYPE html><html><head><title>Etiquetas TDI Express</title>
+      <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
+      <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif;}
+        .label{width:4in;height:6in;padding:0.22in;border:1px solid #000;page-break-after:always;overflow:hidden;}
+        .hdr{background:#1A1A1A;color:#fff;padding:8px 10px;font-weight:bold;font-size:15px;display:flex;justify-content:space-between;border-radius:4px;}
+        .trk{font-size:22px;font-weight:900;text-align:center;letter-spacing:1px;margin:12px 0 2px;}
+        .bc{display:block;width:88%;height:58px;margin:0 auto;}
+        .qr{text-align:center;margin:4px 0 8px;}
+        .qr img{width:120px;height:120px;}
+        .row{font-size:13px;margin:5px 0;border-bottom:1px dashed #ccc;padding-bottom:4px;}
+        @media print{@page{size:4in 6in;margin:0;} .label{border:none;}}
+      </style></head><body>${labels}
+      <script>
+        ${created.map((b, i) => `try{JsBarcode("#bc${i}","${esc(b.tracking)}",{format:"CODE128",displayValue:true,fontSize:12,height:48,margin:0});}catch(e){}
+        try{var q${i}=qrcode(0,'M');q${i}.addData("${esc(b.tracking)}");q${i}.make();document.getElementById("qr${i}").innerHTML=q${i}.createImgTag(4,0);}catch(e){}`).join('\n')}
+        setTimeout(function(){window.print();},700);
+      <\/script></body></html>`);
+    w.document.close();
   };
 
   const deleteShipment = async (id: number) => {
