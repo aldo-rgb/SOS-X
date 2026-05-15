@@ -70,6 +70,7 @@ interface AirDraft {
     subject: string;
     document_type: string;
     confidence: string;
+    reference?: string | null;
     awb_number: string | null;
     shipper_name: string | null;
     consignee: string | null;
@@ -655,6 +656,7 @@ export default function InboundEmailsAirPage() {
                             <Table size="small">
                                 <TableHead>
                                     <TableRow sx={{ bgcolor: '#F5F5F5' }}>
+                                        <TableCell sx={{ fontWeight: 700 }}>Referencia</TableCell>
                                         <TableCell sx={{ fontWeight: 700 }}>MAWB</TableCell>
                                         <TableCell sx={{ fontWeight: 700 }}>Ruta</TableCell>
                                         <TableCell sx={{ fontWeight: 700 }}>Vuelo</TableCell>
@@ -671,6 +673,11 @@ export default function InboundEmailsAirPage() {
                                 <TableBody>
                                     {drafts.map(d => (
                                         <TableRow key={d.id} hover sx={{ '&:hover': { bgcolor: AIR_BG } }}>
+                                            <TableCell>
+                                                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                                    {d.reference || '—'}
+                                                </Typography>
+                                            </TableCell>
                                             <TableCell>
                                                 <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
                                                     {d.awb_number || '—'}

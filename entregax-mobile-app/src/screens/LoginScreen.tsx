@@ -116,6 +116,12 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         isVerified: response.user.isVerified,
         verificationStatus: response.user.verificationStatus,
         isEmployeeOnboarded: response.user.isEmployeeOnboarded === true || response.user.is_employee_onboarded === true,
+        // 📋 Aceptación de aviso de privacidad. Sin esto, el panel de asesor
+        // vuelve a pedir "Aceptar Términos" en cada inicio de sesión.
+        privacyAcceptedAt:
+          response.user.privacyAcceptedAt ||
+          response.user.privacy_accepted_at ||
+          null,
       };
       
       const token = response.access.token;

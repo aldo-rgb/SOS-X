@@ -99,6 +99,7 @@ interface ProfitReportItem {
 
 interface AwbCostListItem {
     id: number;
+    reference: string | null;
     awb_number: string;
     carrier: string | null;
     origin_airport: string | null;
@@ -902,6 +903,7 @@ export default function CostingPanelChinaAir() {
                         <Table>
                             <TableHead>
                                 <TableRow sx={{ bgcolor: 'grey.100' }}>
+                                    <TableCell>Referencia</TableCell>
                                     <TableCell>AWB Number</TableCell>
                                     <TableCell>Carrier</TableCell>
                                     <TableCell>Ruta</TableCell>
@@ -925,6 +927,11 @@ export default function CostingPanelChinaAir() {
                                         sx={{ cursor: 'pointer', '&:hover': { bgcolor: '#f0f7ff' } }}
                                         onClick={() => setAwbCostDialog({ open: true, id: item.id })}
                                     >
+                                        <TableCell>
+                                            {item.reference
+                                                ? <Typography variant="body2" fontWeight="bold">{item.reference}</Typography>
+                                                : <Typography variant="body2" color="text.disabled">-</Typography>}
+                                        </TableCell>
                                         <TableCell>
                                             <Typography variant="body2" fontWeight="bold" color="primary">
                                                 {item.awb_number}
@@ -985,7 +992,7 @@ export default function CostingPanelChinaAir() {
                                 ))}
                                 {awbCostList.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={12} align="center" sx={{ py: 6 }}>
+                                        <TableCell colSpan={13} align="center" sx={{ py: 6 }}>
                                             <FlightIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
                                             <Typography color="text.secondary">
                                                 No hay líneas de costeo AWB registradas.

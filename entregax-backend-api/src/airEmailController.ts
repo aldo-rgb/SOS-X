@@ -684,7 +684,7 @@ export async function getAirDrafts(req: AuthRequest, res: Response) {
     const { status } = req.query;
     let query = `
       SELECT id, from_email, from_name, subject, document_type,
-             confidence, awb_number, shipper_name, consignee, carrier,
+             confidence, reference, awb_number, shipper_name, consignee, carrier,
              origin_airport, destination_airport,
              flight_number, flight_date, pieces, gross_weight_kg,
              total_cost_amount, total_cost_currency,

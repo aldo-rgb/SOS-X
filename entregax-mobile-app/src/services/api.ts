@@ -37,13 +37,23 @@ if (__DEV__) {
 }
 
 export interface LoginResponse {
+  // El backend responde en camelCase (name, boxId, …); se dejan también las
+  // variantes snake_case por compatibilidad con respuestas antiguas.
   user: {
     id: number;
-    full_name: string;
+    name?: string;
+    full_name?: string;
     email: string;
-    box_id: string;
+    boxId?: string;
+    box_id?: string;
     role: string;
     phone?: string;
+    isVerified?: boolean;
+    verificationStatus?: string;
+    isEmployeeOnboarded?: boolean;
+    is_employee_onboarded?: boolean;
+    privacyAcceptedAt?: string | null;
+    privacy_accepted_at?: string | null;
   };
   access: {
     token: string;

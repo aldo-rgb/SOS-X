@@ -97,13 +97,15 @@ export const listAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
     const total = parseInt(countRes.rows[0].count);
 
     const dataQuery = `
-      SELECT 
+      SELECT
         ac.*,
         ar.code as route_code,
+        d.reference as reference,
         (SELECT COUNT(*) FROM packages p WHERE p.international_tracking = ac.awb_number) as packages_s_count,
         (SELECT COUNT(*) FROM cajo_guides cg WHERE cg.mawb = ac.awb_number) as packages_cajo_count
       FROM air_waybill_costs ac
       LEFT JOIN air_routes ar ON ar.id = ac.route_id
+      LEFT JOIN air_reception_drafts d ON d.id = ac.awb_draft_id
       ${whereClause}
       ORDER BY ac.created_at DESC
       LIMIT $${paramIdx++} OFFSET $${paramIdx++}
