@@ -93,6 +93,31 @@ interface EmployeeProfilePageProps {
   onBack: () => void;
 }
 
+// Abre un documento en otra pestaña. Chrome bloquea la navegación top-level
+// a URLs data: — los documentos guardados como base64 se convierten a Blob.
+function openDocument(url?: string | null) {
+  if (!url) return;
+  if (/^data:/i.test(url)) {
+    try {
+      const comma = url.indexOf(',');
+      const meta = url.slice(5, comma); // entre "data:" y ","
+      const payload = url.slice(comma + 1);
+      const mime = (meta.split(';')[0] || 'application/octet-stream').trim();
+      const isB64 = /;base64/i.test(meta);
+      const binary = isB64 ? atob(payload) : decodeURIComponent(payload);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
+      window.open(blobUrl, '_blank');
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+    } catch {
+      window.open(url, '_blank');
+    }
+  } else {
+    window.open(url, '_blank');
+  }
+}
+
 export default function EmployeeProfilePage({ employeeId, onBack }: EmployeeProfilePageProps) {
   const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -179,31 +204,6 @@ export default function EmployeeProfilePage({ employeeId, onBack }: EmployeeProf
       }];
     }
   });
-
-  // Abre un documento en otra pestaña. Chrome bloquea la navegación top-level
-  // a URLs data: — los documentos guardados como base64 se convierten a Blob.
-  const openDocument = (url?: string | null) => {
-    if (!url) return;
-    if (/^data:/i.test(url)) {
-      try {
-        const comma = url.indexOf(',');
-        const meta = url.slice(5, comma); // entre "data:" y ","
-        const payload = url.slice(comma + 1);
-        const mime = (meta.split(';')[0] || 'application/octet-stream').trim();
-        const isB64 = /;base64/i.test(meta);
-        const binary = isB64 ? atob(payload) : decodeURIComponent(payload);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-        const blobUrl = URL.createObjectURL(new Blob([bytes], { type: mime }));
-        window.open(blobUrl, '_blank');
-        setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
-      } catch {
-        window.open(url, '_blank');
-      }
-    } else {
-      window.open(url, '_blank');
-    }
-  };
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: C.bg, minHeight: '100vh' }}>
