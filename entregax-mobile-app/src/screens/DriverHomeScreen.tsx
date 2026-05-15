@@ -108,12 +108,14 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             headers: token ? { Authorization: `Bearer ${token}` } : undefined,
           });
           const liberados = Number(statsRes.data?.liberados) || 0;
+          const cargados = Number(statsRes.data?.cargados) || 0;
+          const entregados = Number(statsRes.data?.entregados) || 0;
           const assignment = statsRes.data?.currentAssignment || null;
           setStats({
             totalAssigned: liberados,
-            loadedToday: 0,
-            deliveredToday: 0,
-            pendingToLoad: 0,
+            loadedToday: cargados,
+            deliveredToday: entregados,
+            pendingToLoad: liberados,
             pendingDelivery: 0,
             returnedToday: 0,
           });
@@ -315,13 +317,15 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     },
     {
       id: 'load',
-      title: 'Cargar Unidad',
-      subtitle: `${stats.pendingToLoad} paquetes pendientes`,
-      icon: 'add-box',
+      title: isMonitoreo ? 'Iniciar Monitoreo' : 'Cargar Unidad',
+      subtitle: isMonitoreo
+        ? `${stats.pendingToLoad} contenedores en ruta`
+        : `${stats.pendingToLoad} paquetes pendientes`,
+      icon: isMonitoreo ? 'photo-camera' : 'add-box',
       color: '#2196F3',
-      screen: 'LoadingVan',
+      screen: isMonitoreo ? 'MonitorContainers' : 'LoadingVan',
       badge: stats.pendingToLoad,
-      enabled: inspectionDone && stats.pendingToLoad > 0,
+      enabled: isMonitoreo ? stats.pendingToLoad > 0 : (inspectionDone && stats.pendingToLoad > 0),
     },
     {
       id: 'delivery',
@@ -346,6 +350,12 @@ export default function DriverHomeScreen({ navigation, route }: any) {
 
   const handleQuickActionPress = async (action: QuickAction) => {
     if (!action.enabled) return;
+
+    // Monitoreo: el botón "Iniciar Monitoreo" abre directo la lista de contenedores.
+    if (isMonitoreo && action.id === 'load') {
+      navigation.navigate(action.screen, { user, token, mode: 'start-monitoring' });
+      return;
+    }
 
     if (action.id === 'load' || action.id === 'delivery' || action.id === 'return') {
       // Si ya guardó preferencia, ir directo

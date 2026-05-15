@@ -7658,11 +7658,14 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
     const ownerParams = onlyAssigned ? [userId] : [];
     // 🚛 Monitoreo: "Contenedores en Ruta" = solo los que ya van rumbo al cliente final
     // (in_transit_clientfinal). Los liberados de aduana aún no están en ruta.
+    // “Cargados” = el monitorista ya inició monitoreo (subió las 2 fotos).
     const result = await pool.query(
       `SELECT
-         COUNT(*) FILTER (WHERE status = 'in_transit_clientfinal')::int AS liberados,
+         COUNT(*) FILTER (WHERE status = 'in_transit_clientfinal' AND monitoring_started_at IS NULL)::int AS liberados,
          COUNT(*) FILTER (WHERE status = 'customs_cleared')::int AS customs_cleared,
-         COUNT(*) FILTER (WHERE status = 'in_transit_clientfinal')::int AS in_transit_clientfinal
+         COUNT(*) FILTER (WHERE status = 'in_transit_clientfinal')::int AS in_transit_clientfinal,
+         COUNT(*) FILTER (WHERE monitoring_started_at IS NOT NULL AND status <> 'delivered')::int AS cargados,
+         COUNT(*) FILTER (WHERE status = 'delivered')::int AS entregados
        FROM containers ${whereOwner}`,
       ownerParams
     );
@@ -7687,6 +7690,8 @@ app.get('/api/monitoreo/stats', authenticateToken, async (req: any, res) => {
       liberados: result.rows[0]?.liberados || 0,
       customs_cleared: result.rows[0]?.customs_cleared || 0,
       in_transit_clientfinal: result.rows[0]?.in_transit_clientfinal || 0,
+      cargados: result.rows[0]?.cargados || 0,
+      entregados: result.rows[0]?.entregados || 0,
       currentAssignment,
     });
   } catch (error) {
@@ -7725,6 +7730,7 @@ app.get('/api/monitoreo/containers', authenticateToken, async (req: any, res) =>
         c.eta, c.total_weight_kg, c.total_cbm, c.total_packages,
         c.driver_name, c.driver_plates, c.driver_phone, c.driver_company,
         c.route_dispatched_at, c.created_at,
+        c.monitoring_started_at, c.monitoring_photo_1_url, c.monitoring_photo_2_url,
         u.id AS client_user_id,
         u.full_name AS client_name,
         u.box_id AS client_box_id,
@@ -7811,6 +7817,90 @@ app.get('/api/monitoreo/containers/:id', authenticateToken, async (req: any, res
     res.status(500).json({ error: 'Error interno' });
   }
 });
+
+// 📸 Iniciar monitoreo: el monitorista sube 2 fotos (operador + unidad).
+// Esto marca el contenedor como "Cargado" en su tablero.
+const monitoringUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+app.post(
+  '/api/monitoreo/containers/:id/start-monitoring',
+  authenticateToken,
+  monitoringUpload.fields([{ name: 'photo1', maxCount: 1 }, { name: 'photo2', maxCount: 1 }]),
+  async (req: any, res) => {
+    try {
+      const role = String(req.user?.role || '').toLowerCase();
+      if (!['monitoreo', 'admin', 'super_admin', 'director'].includes(role)) {
+        return res.status(403).json({ error: 'Acceso denegado' });
+      }
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+
+      const userId = Number(req.user?.id || req.user?.userId);
+      const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
+      const f1 = files.photo1?.[0];
+      const f2 = files.photo2?.[0];
+      if (!f1 || !f2) {
+        return res.status(400).json({ error: 'Se requieren ambas fotos (photo1 y photo2)' });
+      }
+
+      // Validar permisos sobre el contenedor (monitoreo solo puede sobre los suyos)
+      const owner = await pool.query(
+        'SELECT id, monitor_user_id, status, monitoring_started_at FROM containers WHERE id = $1',
+        [id]
+      );
+      if (owner.rows.length === 0) return res.status(404).json({ error: 'Contenedor no encontrado' });
+      const cRow = owner.rows[0];
+      if (role === 'monitoreo' && Number(cRow.monitor_user_id) !== userId) {
+        return res.status(403).json({ error: 'No estás asignado a este contenedor' });
+      }
+      if (cRow.monitoring_started_at) {
+        return res.status(409).json({ error: 'El monitoreo ya fue iniciado para este contenedor' });
+      }
+
+      const { uploadToS3, isS3Configured } = await import('./s3Service');
+      const ts = Date.now();
+      let url1: string;
+      let url2: string;
+      if (isS3Configured()) {
+        const ext1 = (f1.mimetype.split('/')[1] || 'jpg').toLowerCase();
+        const ext2 = (f2.mimetype.split('/')[1] || 'jpg').toLowerCase();
+        url1 = await uploadToS3(f1.buffer, `monitoring/${id}/${ts}_1.${ext1}`, f1.mimetype);
+        url2 = await uploadToS3(f2.buffer, `monitoring/${id}/${ts}_2.${ext2}`, f2.mimetype);
+      } else {
+        url1 = `data:${f1.mimetype};base64,${f1.buffer.toString('base64')}`;
+        url2 = `data:${f2.mimetype};base64,${f2.buffer.toString('base64')}`;
+      }
+
+      const notes = (req.body?.notes || '').toString().trim() || null;
+      const updated = await pool.query(
+        `UPDATE containers
+           SET monitoring_started_at = NOW(),
+               monitoring_started_by = $1,
+               monitoring_photo_1_url = $2,
+               monitoring_photo_2_url = $3,
+               monitoring_notes = COALESCE($4, monitoring_notes)
+         WHERE id = $5
+         RETURNING id, monitoring_started_at, monitoring_photo_1_url, monitoring_photo_2_url`,
+        [userId, url1, url2, notes, id]
+      );
+
+      // Registrar en historial (si la tabla existe)
+      try {
+        await pool.query(
+          `INSERT INTO container_status_history (container_id, new_status, changed_by, notes, changed_at)
+           VALUES ($1, $2, $3, $4, NOW())`,
+          [id, cRow.status, userId, '📸 Monitoreo iniciado por monitorista']
+        );
+      } catch (e) {
+        // tabla puede tener un esquema distinto; no es crítico
+      }
+
+      return res.json({ ok: true, container: updated.rows[0] });
+    } catch (error: any) {
+      console.error('Error iniciando monitoreo:', error);
+      res.status(500).json({ error: 'Error interno', details: error?.message });
+    }
+  }
+);
 
 // ========== MÓDULO DE CHAT INTERNO ==========
 import {

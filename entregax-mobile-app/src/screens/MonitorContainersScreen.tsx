@@ -26,7 +26,8 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
 ];
 
 export default function MonitorContainersScreen({ navigation, route }: any) {
-  const { user, token } = route.params || {};
+  const { user, token, mode } = route.params || {};
+  const startMode = mode === 'start-monitoring';
   const [filter, setFilter] = useState<FilterKey>('in_transit_clientfinal');
   const [containers, setContainers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,10 +54,22 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
 
   const renderItem = ({ item }: { item: any }) => {
     const meta = STATUS_META[item.status] || { label: item.status, icon: 'directions-boat', color: '#666' };
+    const monitoringStarted = !!item.monitoring_started_at;
+    const handlePress = () => {
+      if (startMode) {
+        if (monitoringStarted) {
+          Alert.alert('Monitoreo iniciado', 'Este contenedor ya tiene el monitoreo iniciado.');
+          return;
+        }
+        navigation.navigate('StartMonitoring', { user, token, container: item });
+        return;
+      }
+      navigation.navigate('MonitorContainerDetail', { user, token, containerId: item.id });
+    };
     return (
       <TouchableOpacity
         style={styles.card}
-        onPress={() => navigation.navigate('MonitorContainerDetail', { user, token, containerId: item.id })}
+        onPress={handlePress}
         activeOpacity={0.7}
       >
         <View style={styles.cardHeader}>
@@ -92,6 +105,18 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
             <Text style={[styles.rowText, { color: '#999' }]}>Sin ruta asignada</Text>
           </View>
         )}
+        {startMode && (
+          <View style={[styles.ctaBox, monitoringStarted ? styles.ctaBoxDone : styles.ctaBoxPending]}>
+            <MaterialIcons
+              name={monitoringStarted ? 'check-circle' : 'photo-camera'}
+              size={18}
+              color={monitoringStarted ? '#2E7D32' : '#fff'}
+            />
+            <Text style={[styles.ctaText, { color: monitoringStarted ? '#2E7D32' : '#fff' }]}>
+              {monitoringStarted ? 'Monitoreo iniciado' : 'Iniciar monitoreo (subir 2 fotos)'}
+            </Text>
+          </View>
+        )}
       </TouchableOpacity>
     );
   };
@@ -102,7 +127,7 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={24} color="#111" />
         </TouchableOpacity>
-        <Text style={styles.title}>Contenedores en Ruta</Text>
+        <Text style={styles.title}>{startMode ? 'Iniciar Monitoreo' : 'Contenedores en Ruta'}</Text>
         <View style={{ width: 24 }} />
       </View>
 
@@ -174,4 +199,11 @@ const styles = StyleSheet.create({
   rowText: { fontSize: 13, color: '#555', flex: 1 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
   emptyText: { marginTop: 12, color: '#888', fontSize: 14 },
+  ctaBox: {
+    marginTop: 10, flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 6, paddingVertical: 10, borderRadius: 8,
+  },
+  ctaBoxPending: { backgroundColor: '#F05A28' },
+  ctaBoxDone: { backgroundColor: '#E8F5E9', borderWidth: 1, borderColor: '#A5D6A7' },
+  ctaText: { fontSize: 13, fontWeight: '700' },
 });
