@@ -1348,7 +1348,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                         🚚 Sencillo
                                     </ToggleButton>
                                     <ToggleButton value="full" sx={{ fontWeight: 700, '&.Mui-selected': { bgcolor: ORANGE, color: '#FFF', '&:hover': { bgcolor: '#E64A19' } } }}>
-                                        🚛 Full (2 contenedores)
+                                        🚛 Full
                                     </ToggleButton>
                                 </ToggleButtonGroup>
                             </Stack>
@@ -1537,10 +1537,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         <Button
                             variant="contained"
                             onClick={updateFCLContainerStatus}
-                            disabled={!fclStatus || fclSaving || fclStatus === selected.status}
+                            disabled={!fclStatus || fclSaving || (fclStatus === selected.status && !editingRoute)}
                             sx={{ bgcolor: TEAL, '&:hover': { bgcolor: '#00838F' }, minWidth: 200 }}
                         >
-                            {fclSaving ? <CircularProgress size={20} sx={{ color: '#FFF' }} /> : 'Actualizar status del contenedor'}
+                            {fclSaving ? <CircularProgress size={20} sx={{ color: '#FFF' }} /> : (editingRoute && fclStatus === selected.status ? 'Guardar cambios de ruta' : 'Actualizar status del contenedor')}
                         </Button>
                     </Stack>
                 </Box>
