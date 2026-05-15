@@ -490,9 +490,9 @@ export default function DriverHomeScreen({ navigation, route }: any) {
               <Text style={styles.statLabel}>{isMonitoreo ? 'Contenedores en Ruta' : 'Asignados Hoy'}</Text>
             </TouchableOpacity>
             <View style={styles.statCard}>
-              <MaterialIcons name="local-shipping" size={28} color="#2196F3" />
+              <MaterialIcons name={isMonitoreo ? 'visibility' : 'local-shipping'} size={28} color="#2196F3" />
               <Text style={[styles.statNumber, { color: '#2196F3' }]}>{stats.loadedToday}</Text>
-              <Text style={styles.statLabel}>Cargados</Text>
+              <Text style={styles.statLabel}>{isMonitoreo ? 'Monitoreando' : 'Cargados'}</Text>
             </View>
           </View>
           
