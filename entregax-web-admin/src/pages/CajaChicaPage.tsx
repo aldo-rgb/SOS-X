@@ -863,68 +863,29 @@ const CajaChicaPage: React.FC = () => {
         </Box>
       </Box>
 
-      {/* Stats Cards */}
+      {/* Stats Cards — diseño corporativo: tarjetas blancas con acento de marca */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ bgcolor: 'primary.main', color: 'white' }}>
-            <CardContent>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Box>
-                  <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>Saldo Actual</Typography>
-                  <Typography variant="h4" fontWeight="bold">
-                    {formatCurrency(stats?.saldo_actual || 0)}
-                  </Typography>
+        {[
+          { accent: '#F05A28', label: 'Saldo Actual', value: formatCurrency(stats?.saldo_actual || 0), icon: <AccountBalanceIcon /> },
+          { accent: '#F05A28', label: 'Ingresos Hoy', value: formatCurrency(stats?.ingresos_hoy || 0), icon: <TrendingUpIcon /> },
+          { accent: '#C1272D', label: 'Egresos Hoy', value: formatCurrency(stats?.egresos_hoy || 0), icon: <TrendingDownIcon /> },
+          { accent: '#1A1A1A', label: 'Transacciones Hoy', value: stats?.cantidad_transacciones_hoy || 0, icon: <ReceiptIcon /> },
+        ].map((c) => (
+          <Grid size={{ xs: 12, sm: 6, md: 3 }} key={c.label}>
+            <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', overflow: 'hidden' }}>
+              <Box sx={{ height: 4, bgcolor: c.accent }} />
+              <CardContent>
+                <Box display="flex" justifyContent="space-between" alignItems="center">
+                  <Box>
+                    <Typography variant="subtitle2" sx={{ color: '#6B7280', fontWeight: 600 }}>{c.label}</Typography>
+                    <Typography variant="h4" fontWeight="bold" sx={{ color: c.accent }}>{c.value}</Typography>
+                  </Box>
+                  <Box sx={{ color: c.accent, display: 'flex', '& svg': { fontSize: 44, opacity: 0.9 } }}>{c.icon}</Box>
                 </Box>
-                <AccountBalanceIcon sx={{ fontSize: 48, opacity: 0.3 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ bgcolor: 'success.main', color: 'white' }}>
-            <CardContent>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Box>
-                  <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>Ingresos Hoy</Typography>
-                  <Typography variant="h4" fontWeight="bold">
-                    {formatCurrency(stats?.ingresos_hoy || 0)}
-                  </Typography>
-                </Box>
-                <TrendingUpIcon sx={{ fontSize: 48, opacity: 0.3 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ bgcolor: 'error.main', color: 'white' }}>
-            <CardContent>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Box>
-                  <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>Egresos Hoy</Typography>
-                  <Typography variant="h4" fontWeight="bold">
-                    {formatCurrency(stats?.egresos_hoy || 0)}
-                  </Typography>
-                </Box>
-                <TrendingDownIcon sx={{ fontSize: 48, opacity: 0.3 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-        <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Card sx={{ bgcolor: 'info.main', color: 'white' }}>
-            <CardContent>
-              <Box display="flex" justifyContent="space-between" alignItems="center">
-                <Box>
-                  <Typography variant="subtitle2" sx={{ opacity: 0.8 }}>Transacciones Hoy</Typography>
-                  <Typography variant="h4" fontWeight="bold">
-                    {stats?.cantidad_transacciones_hoy || 0}
-                  </Typography>
-                </Box>
-                <ReceiptIcon sx={{ fontSize: 48, opacity: 0.3 }} />
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
+              </CardContent>
+            </Card>
+          </Grid>
+        ))}
       </Grid>
 
       {/* Tabs */}
@@ -1277,7 +1238,7 @@ const CajaChicaPage: React.FC = () => {
 
       {/* Dialog: Ingreso General */}
       <Dialog open={ingresoGeneralDialogOpen} onClose={() => setIngresoGeneralDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ bgcolor: 'success.main', color: 'white' }}>
+        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white' }}>
           <AddIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
           Registrar Ingreso
         </DialogTitle>
@@ -1344,7 +1305,7 @@ const CajaChicaPage: React.FC = () => {
 
       {/* Dialog: Corte de Caja */}
       <Dialog open={corteDialogOpen} onClose={() => setCorteDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle sx={{ bgcolor: 'info.main', color: 'white' }}>
+        <DialogTitle sx={{ bgcolor: '#1A1A1A', color: 'white' }}>
           <AssignmentIcon sx={{ mr: 1, verticalAlign: 'middle' }} />
           Realizar Corte de Caja
         </DialogTitle>
@@ -1751,7 +1712,7 @@ const CajaChicaPage: React.FC = () => {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle sx={{ bgcolor: 'warning.main', color: 'white' }}>
+        <DialogTitle sx={{ bgcolor: 'primary.main', color: 'white' }}>
           💰 Pagar múltiples consolidaciones
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>

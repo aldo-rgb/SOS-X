@@ -171,6 +171,8 @@ export default function PettyCashHubPage() {
   const [fundBranchId, setFundBranchId] = useState<number | ''>('');
   const [fundAmount, setFundAmount] = useState('');
   const [fundConcept, setFundConcept] = useState('');
+  const [fundOrigin, setFundOrigin] = useState<'caja_cc' | 'otro'>('caja_cc');
+  const [fundOriginDetail, setFundOriginDetail] = useState('');
   const [fundBusy, setFundBusy] = useState(false);
 
   // Modal Anticipo a Chofer
@@ -230,6 +232,8 @@ export default function PettyCashHubPage() {
     setFundBranchId('');
     setFundAmount('');
     setFundConcept('');
+    setFundOrigin('caja_cc');
+    setFundOriginDetail('');
     try {
       const r = await fetch(`${API_URL}/api/admin/petty-cash/branches`, { headers });
       const d = await r.json();
@@ -247,7 +251,9 @@ export default function PettyCashHubPage() {
         body: JSON.stringify({
           branch_id: fundBranchId,
           amount_mxn: Number(fundAmount),
-          concept: fundConcept || undefined
+          concept: fundConcept || undefined,
+          funds_origin: fundOrigin,
+          funds_origin_detail: fundOrigin === 'otro' ? fundOriginDetail.trim() : undefined
         })
       });
       const d = await r.json();
@@ -708,7 +714,9 @@ export default function PettyCashHubPage() {
         <DialogTitle>💰 Fondear Caja Chica de Sucursal</DialogTitle>
         <DialogContent>
           <Alert severity="info" sx={{ mb: 2 }}>
-            Este movimiento se registrará como egreso en Caja CC y entrará al saldo de la sucursal.
+            {fundOrigin === 'caja_cc'
+              ? 'Este movimiento se registrará como egreso en Caja CC y entrará al saldo de la sucursal.'
+              : 'Como el origen no es Caja CC, se registrará automáticamente un ingreso (origen externo) y un egreso (fondeo) en Caja CC.'}
           </Alert>
           <TextField
             select fullWidth margin="normal" label="Sucursal"
@@ -722,6 +730,22 @@ export default function PettyCashHubPage() {
             ))}
           </TextField>
           <TextField
+            select fullWidth margin="normal" label="Origen de los fondos"
+            value={fundOrigin}
+            onChange={e => setFundOrigin(e.target.value as 'caja_cc' | 'otro')}
+          >
+            <MenuItem value="caja_cc">Caja CC</MenuItem>
+            <MenuItem value="otro">Otro</MenuItem>
+          </TextField>
+          {fundOrigin === 'otro' && (
+            <TextField
+              fullWidth margin="normal" label="¿De dónde vienen los fondos?"
+              placeholder="Ej. Depósito del director, venta de activo, etc."
+              value={fundOriginDetail}
+              onChange={e => setFundOriginDetail(e.target.value)}
+            />
+          )}
+          <TextField
             fullWidth margin="normal" label="Monto (MXN)" type="number"
             value={fundAmount} onChange={e => setFundAmount(e.target.value)}
             InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
@@ -734,7 +758,11 @@ export default function PettyCashHubPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setFundOpen(false)} disabled={fundBusy}>Cancelar</Button>
-          <Button variant="contained" onClick={handleFund} disabled={fundBusy || !fundBranchId || !fundAmount}>
+          <Button
+            variant="contained"
+            onClick={handleFund}
+            disabled={fundBusy || !fundBranchId || !fundAmount || (fundOrigin === 'otro' && !fundOriginDetail.trim())}
+          >
             {fundBusy ? <CircularProgress size={20} /> : 'Fondear'}
           </Button>
         </DialogActions>

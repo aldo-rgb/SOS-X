@@ -278,7 +278,7 @@ export const fundBranch = async (req: Request, res: Response): Promise<any> => {
     return res.status(403).json({ error: 'Sin permisos para fondear sucursales' });
   }
   const adminId = getUserId(req);
-  const { branch_id, amount_mxn, concept } = req.body || {};
+  const { branch_id, amount_mxn, concept, funds_origin, funds_origin_detail } = req.body || {};
   const branchId = Number(branch_id);
   const amount = Number(amount_mxn);
   if (!Number.isFinite(branchId) || branchId <= 0) {
@@ -286,6 +286,12 @@ export const fundBranch = async (req: Request, res: Response): Promise<any> => {
   }
   if (!Number.isFinite(amount) || amount <= 0) {
     return res.status(400).json({ error: 'amount_mxn inválido' });
+  }
+  // Origen de los fondos: 'caja_cc' (default) u 'otro' (fuente externa).
+  const fundsOrigin = funds_origin === 'otro' ? 'otro' : 'caja_cc';
+  const originDetail = String(funds_origin_detail || '').trim();
+  if (fundsOrigin === 'otro' && !originDetail) {
+    return res.status(400).json({ error: 'Indica el origen de los fondos' });
   }
 
   const client = await pool.connect();
@@ -311,7 +317,31 @@ export const fundBranch = async (req: Request, res: Response): Promise<any> => {
       FROM caja_chica_transacciones
     `);
     const saldoActual = Number(saldoRes.rows[0]?.saldo || 0);
-    const nuevoSaldo = saldoActual - amount;
+
+    // Si el origen NO es Caja CC, primero registramos el INGRESO del dinero
+    // externo a Caja CC (trazabilidad); el egreso del fondeo sale después.
+    let saldoTrasIngreso = saldoActual;
+    if (fundsOrigin === 'otro') {
+      saldoTrasIngreso = saldoActual + amount;
+      await client.query(`
+        INSERT INTO caja_chica_transacciones (
+          tipo, monto, concepto, admin_id, admin_name,
+          saldo_despues_movimiento, categoria, notas, currency, branch_id
+        ) VALUES (
+          'ingreso', $1, $2, $3, $4, $5, 'ingreso_fondeo_externo', $6, 'MXN', $7
+        )
+      `, [
+        amount,
+        `Ingreso a Caja CC — origen: ${originDetail} [PCASH-FUND-${Date.now()}]`,
+        adminId,
+        adminName,
+        saldoTrasIngreso,
+        `Fondos externos para fondear sucursal ${br.rows[0].name}. Origen: ${originDetail}`,
+        branchId
+      ]);
+    }
+
+    const nuevoSaldo = saldoTrasIngreso - amount;
 
     // 1. Registrar egreso en caja_chica_transacciones
     const ccIns = await client.query(`
