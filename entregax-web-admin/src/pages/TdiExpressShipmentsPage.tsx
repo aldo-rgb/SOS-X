@@ -239,6 +239,16 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     setSnack({ sev: 'success', msg: t('tdiExpress.wizard.done') });
   };
 
+  const deleteShipment = async (id: number) => {
+    if (!window.confirm(t('tdiExpress.confirmDelete'))) return;
+    try {
+      await axios.delete(`${API_URL}/api/tdi-express/shipments/${id}`, { headers: authHeaders });
+      loadAll();
+    } catch (e: any) {
+      window.alert(e?.response?.data?.error || 'Error');
+    }
+  };
+
   const STATUSES = ['received_china', 'in_transit', 'received_mty', 'dispatched_national', 'delivered'];
   const remaining = Math.max(0, totalBoxes - captured.length);
   const qtyNum = Math.max(1, parseInt(quantity, 10) || 1);
@@ -304,12 +314,13 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
               {['tracking', 'client', 'boxes', 'weight', 'price', 'status', 'received'].map((c) => (
                 <TableCell key={c} sx={{ color: '#FFF', fontWeight: 700 }}>{t(`tdiExpress.table.${c}`)}</TableCell>
               ))}
+              <TableCell align="center" sx={{ color: '#FFF', fontWeight: 700 }}>{t('tdiExpress.table.actions')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={7} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
             {!loading && shipments.length === 0 && (
-              <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: '#999' }}>
+              <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4, color: '#999' }}>
                 {t('tdiExpress.noShipments')}
               </TableCell></TableRow>
             )}
@@ -325,6 +336,11 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                     sx={{ bgcolor: STATUS_COLOR[s.status] || '#999', color: '#FFF', fontWeight: 600 }} />
                 </TableCell>
                 <TableCell>{fmtDate(s.received_at)}</TableCell>
+                <TableCell align="center">
+                  <IconButton size="small" color="error" onClick={() => deleteShipment(s.id)}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

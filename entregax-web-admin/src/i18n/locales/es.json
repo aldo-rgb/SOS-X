@@ -2107,7 +2107,8 @@
       "weight": "Peso (kg)",
       "price": "Precio",
       "status": "Estado",
-      "received": "Recibido"
+      "received": "Recibido",
+      "actions": "Acciones"
     },
     "wizard": {
       "title": "Recepción en serie — TDI Express",
@@ -2160,6 +2161,7 @@
       "received_mty": "Recibido en MTY",
       "dispatched_national": "En reenvío nacional",
       "delivered": "Entregado"
-    }
+    },
+    "confirmDelete": "¿Eliminar este envío y todas sus cajas? Esta acción no se puede deshacer."
   }
 }

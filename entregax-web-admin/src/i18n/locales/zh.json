@@ -1761,7 +1761,8 @@
       "weight": "重量 (公斤)",
       "price": "价格",
       "status": "状态",
-      "received": "收货时间"
+      "received": "收货时间",
+      "actions": "操作"
     },
     "wizard": {
       "title": "批量收货 — TDI Express",
@@ -1814,6 +1815,7 @@
       "received_mty": "已在蒙特雷收货",
       "dispatched_national": "国内转运中",
       "delivered": "已送达"
-    }
+    },
+    "confirmDelete": "删除此货件及其所有箱子？此操作无法撤销。"
   }
 }

@@ -259,6 +259,33 @@ export const startTdiSerial = async (req: Request, res: Response): Promise<any> 
 };
 
 // =====================================================================
+// ELIMINAR un envío TDI Express completo (master + cajas)
+// =====================================================================
+export const deleteTdiShipment = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const m = await client.query(
+      `SELECT id FROM packages WHERE id = $1 AND air_source = 'tdi_express'`,
+      [id]
+    );
+    if (!m.rows[0]) return res.status(404).json({ error: 'Envío no encontrado' });
+    await client.query('BEGIN');
+    await client.query(`DELETE FROM packages WHERE master_id = $1`, [id]);
+    await client.query(`DELETE FROM packages WHERE id = $1`, [id]);
+    await client.query('COMMIT');
+    return res.json({ success: true });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('deleteTdiShipment error', err);
+    return res.status(500).json({ error: 'Error al eliminar envío', details: err.message });
+  } finally {
+    client.release();
+  }
+};
+
+// =====================================================================
 // RECEPCIÓN EN SERIE — agregar caja al master
 // Body: { originGuide, boxId, grossWeight, chargeableWeight, length, width,
 //         height, productType, description, comments }

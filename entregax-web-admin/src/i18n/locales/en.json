@@ -1894,7 +1894,8 @@
       "weight": "Weight (kg)",
       "price": "Price",
       "status": "Status",
-      "received": "Received"
+      "received": "Received",
+      "actions": "Actions"
     },
     "wizard": {
       "title": "Batch reception — TDI Express",
@@ -1947,6 +1948,7 @@
       "received_mty": "Received in MTY",
       "dispatched_national": "In national re-ship",
       "delivered": "Delivered"
-    }
+    },
+    "confirmDelete": "Delete this shipment and all its boxes? This cannot be undone."
   }
 }
