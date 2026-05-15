@@ -286,6 +286,47 @@ export const deleteTdiShipment = async (req: Request, res: Response): Promise<an
 };
 
 // =====================================================================
+// EDITAR el número de cliente de un envío (master + todas sus cajas)
+// =====================================================================
+export const updateTdiShipmentClient = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
+    const bid = String((req.body || {}).boxId || '').trim().toUpperCase();
+    if (!bid) return res.status(400).json({ error: 'Número de cliente requerido' });
+
+    // Resolver usuario por casillero (users → legacy)
+    let userId: number | null = null;
+    const u = await client.query('SELECT id FROM users WHERE UPPER(box_id) = $1 LIMIT 1', [bid]);
+    if (u.rows[0]) userId = u.rows[0].id;
+
+    await client.query('BEGIN');
+    const m = await client.query(
+      `SELECT id FROM packages WHERE id = $1 AND air_source = 'tdi_express'`,
+      [id]
+    );
+    if (!m.rows[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Envío no encontrado' });
+    }
+    await client.query(
+      `UPDATE packages SET box_id = $1, user_id = $2, updated_at = NOW()
+       WHERE id = $3 OR master_id = $3`,
+      [bid, userId, id]
+    );
+    await client.query('COMMIT');
+    return res.json({ success: true });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('updateTdiShipmentClient error', err);
+    return res.status(500).json({ error: 'Error al actualizar cliente', details: err.message });
+  } finally {
+    client.release();
+  }
+};
+
+// =====================================================================
 // RECEPCIÓN EN SERIE — agregar caja al master
 // Body: { originGuide, boxId, grossWeight, chargeableWeight, length, width,
 //         height, productType, description, comments }

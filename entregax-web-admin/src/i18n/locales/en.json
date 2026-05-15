@@ -1949,6 +1949,9 @@
       "dispatched_national": "In national re-ship",
       "delivered": "Delivered"
     },
-    "confirmDelete": "Delete this shipment and all its boxes? This cannot be undone."
+    "confirmDelete": "Delete this shipment and all its boxes? This cannot be undone.",
+    "reprintLabels": "Reprint labels",
+    "editClient": "Edit client number",
+    "save": "Save"
   }
 }

@@ -728,6 +728,7 @@ import {
   listTdiShipments,
   getTdiShipmentDetail,
   deleteTdiShipment,
+  updateTdiShipmentClient,
   startTdiSerial,
   addTdiBox,
   removeTdiBox,
@@ -7590,6 +7591,7 @@ app.get('/api/tdi-express/stats', authenticateToken, requireMinLevel(ROLES.WAREH
 app.get('/api/tdi-express/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listTdiShipments);
 app.get('/api/tdi-express/shipments/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getTdiShipmentDetail);
 app.delete('/api/tdi-express/shipments/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), deleteTdiShipment);
+app.patch('/api/tdi-express/shipments/:id/client', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateTdiShipmentClient);
 app.post('/api/tdi-express/serial/start', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), startTdiSerial);
 app.post('/api/tdi-express/serial/:masterId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addTdiBox);
 app.delete('/api/tdi-express/serial/:masterId/child/:childId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), removeTdiBox);

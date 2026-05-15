@@ -1816,6 +1816,9 @@
       "dispatched_national": "国内转运中",
       "delivered": "已送达"
     },
-    "confirmDelete": "删除此货件及其所有箱子？此操作无法撤销。"
+    "confirmDelete": "删除此货件及其所有箱子？此操作无法撤销。",
+    "reprintLabels": "重新打印标签",
+    "editClient": "编辑客户编号",
+    "save": "保存"
   }
 }

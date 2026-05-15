@@ -23,6 +23,8 @@ import {
   CheckCircle as CheckIcon,
   Delete as DeleteIcon,
   ContentCopy as CopyIcon,
+  Print as PrintIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -98,6 +100,10 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [box, setBox] = useState({ ...emptyBox });
   const [quantity, setQuantity] = useState('1');
   const [busy, setBusy] = useState(false);
+  // Editar número de cliente de un envío
+  const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string }>(
+    { open: false, id: null, value: '' }
+  );
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -196,7 +202,16 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       );
       await reloadBoxes(masterId);
       // Imprime las etiquetas del bloque recién agregado.
-      printTdiLabels(r.data?.created || [], box, totalBoxes);
+      {
+        const dims0 = (box.length && box.width && box.height)
+          ? `${box.length}×${box.width}×${box.height} cm` : '—';
+        const ptName0 = box.productType ? t(`tdiExpress.productTypes.${box.productType}`) : '';
+        printLabels((r.data?.created || []).map((b: any) => ({
+          tracking: b.tracking, boxNumber: b.boxNumber, total: totalBoxes,
+          clientNumber: box.clientNumber, originGuide: box.originGuide,
+          gw: box.grossWeight, cw: box.chargeableWeight, dims: dims0, productType: ptName0,
+        })));
+      }
       // Conservar cliente y tipo para la siguiente caja; limpiar el resto
       setBox({ ...emptyBox, clientNumber: box.clientNumber, productType: box.productType });
       setQuantity('1');
@@ -241,31 +256,30 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     setSnack({ sev: 'success', msg: t('tdiExpress.wizard.done') });
   };
 
-  // Imprime las etiquetas del bloque de cajas recién agregado (4x6").
-  const printTdiLabels = (
-    created: { id: number; tracking: string; boxNumber: number }[],
-    data: typeof emptyBox,
-    total: number
+  // Imprime etiquetas TDI Express (4x6"), una por caja.
+  const printLabels = (
+    items: {
+      tracking: string; boxNumber: number; total: number;
+      clientNumber: string; originGuide: string;
+      gw: string | number | null; cw: string | number | null;
+      dims: string; productType: string;
+    }[]
   ) => {
-    if (!created.length) return;
+    if (!items.length) return;
     const w = window.open('', '_blank', 'width=440,height=660');
     if (!w) return;
-    const pt = productTypes.find((p) => p.key === data.productType);
-    const ptName = pt ? t(`tdiExpress.productTypes.${pt.key}`) : '';
-    const dims = (data.length && data.width && data.height)
-      ? `${data.length}×${data.width}×${data.height} cm` : '—';
-    const esc = (s: string) => String(s || '').replace(/[<>&]/g, '');
-    const labels = created.map((b, i) => `
+    const esc = (s: any) => String(s ?? '').replace(/[<>&]/g, '');
+    const labels = items.map((it, i) => `
       <div class="label">
-        <div class="hdr">✈️ TDI EXPRESS<span>${b.boxNumber} / ${total}</span></div>
-        <div class="trk">${esc(b.tracking)}</div>
+        <div class="hdr">✈️ TDI EXPRESS<span>${it.boxNumber} / ${it.total}</span></div>
+        <div class="trk">${esc(it.tracking)}</div>
         <svg class="bc" id="bc${i}"></svg>
         <div class="qr" id="qr${i}"></div>
-        <div class="row"><b>${esc(t('tdiExpress.wizard.clientNumber'))}:</b> ${esc(data.clientNumber) || '—'}</div>
-        <div class="row"><b>${esc(t('tdiExpress.wizard.originGuide'))}:</b> ${esc(data.originGuide) || '—'}</div>
-        <div class="row"><b>GW:</b> ${esc(data.grossWeight) || '—'} kg &nbsp; <b>CW:</b> ${esc(data.chargeableWeight) || '—'} kg</div>
-        <div class="row"><b>${esc(t('tdiExpress.wizard.length'))}:</b> ${dims}</div>
-        <div class="row"><b>${esc(t('tdiExpress.wizard.productType'))}:</b> ${esc(ptName)}</div>
+        <div class="row"><b>${esc(t('tdiExpress.wizard.clientNumber'))}:</b> ${esc(it.clientNumber) || '—'}</div>
+        <div class="row"><b>${esc(t('tdiExpress.wizard.originGuide'))}:</b> ${esc(it.originGuide) || '—'}</div>
+        <div class="row"><b>GW:</b> ${esc(it.gw) || '—'} kg &nbsp; <b>CW:</b> ${esc(it.cw) || '—'} kg</div>
+        <div class="row"><b>${esc(t('tdiExpress.wizard.length'))}:</b> ${esc(it.dims)}</div>
+        <div class="row"><b>${esc(t('tdiExpress.wizard.productType'))}:</b> ${esc(it.productType)}</div>
       </div>`).join('');
     w.document.write(`<!DOCTYPE html><html><head><title>Etiquetas TDI Express</title>
       <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
@@ -282,17 +296,53 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         @media print{@page{size:4in 6in;margin:0;} .label{border:none;}}
       </style></head><body>${labels}
       <script>
-        ${created.map((b, i) => `try{JsBarcode("#bc${i}","${esc(b.tracking)}",{format:"CODE128",displayValue:true,fontSize:12,height:48,margin:0});}catch(e){}
-        try{var q${i}=qrcode(0,'M');q${i}.addData("${esc(b.tracking)}");q${i}.make();document.getElementById("qr${i}").innerHTML=q${i}.createImgTag(4,0);}catch(e){}`).join('\n')}
+        ${items.map((it, i) => `try{JsBarcode("#bc${i}","${esc(it.tracking)}",{format:"CODE128",displayValue:true,fontSize:12,height:48,margin:0});}catch(e){}
+        try{var q${i}=qrcode(0,'M');q${i}.addData("${esc(it.tracking)}");q${i}.make();document.getElementById("qr${i}").innerHTML=q${i}.createImgTag(4,0);}catch(e){}`).join('\n')}
         setTimeout(function(){window.print();},700);
       <\/script></body></html>`);
     w.document.close();
+  };
+
+  // Reimprime las etiquetas de un envío ya capturado.
+  const reprintLabels = async (s: Shipment) => {
+    try {
+      const det = await axios.get(`${API_URL}/api/tdi-express/shipments/${s.id}`, { headers: authHeaders });
+      const boxes: BoxRow[] = det.data.boxes || [];
+      if (!boxes.length) { window.alert(t('tdiExpress.wizard.noBoxes')); return; }
+      const total = s.total_boxes || boxes.length;
+      printLabels(boxes.map((b) => ({
+        tracking: b.tracking_internal, boxNumber: b.box_number, total,
+        clientNumber: b.box_id || '', originGuide: b.tracking_provider || '',
+        gw: b.weight, cw: b.air_chargeable_weight,
+        dims: (b.pkg_length && b.pkg_width && b.pkg_height)
+          ? `${b.pkg_length}×${b.pkg_width}×${b.pkg_height} cm` : '—',
+        productType: b.air_tariff_type
+          ? t(`tdiExpress.productTypes.${TARIFF_TO_PRODUCT[b.air_tariff_type] || 'generico'}`) : '',
+      })));
+    } catch (e: any) {
+      window.alert(e?.response?.data?.error || 'Error');
+    }
   };
 
   const deleteShipment = async (id: number) => {
     if (!window.confirm(t('tdiExpress.confirmDelete'))) return;
     try {
       await axios.delete(`${API_URL}/api/tdi-express/shipments/${id}`, { headers: authHeaders });
+      loadAll();
+    } catch (e: any) {
+      window.alert(e?.response?.data?.error || 'Error');
+    }
+  };
+
+  const saveClient = async () => {
+    if (!editClient.id || !editClient.value.trim()) return;
+    try {
+      await axios.patch(
+        `${API_URL}/api/tdi-express/shipments/${editClient.id}/client`,
+        { boxId: editClient.value.trim() },
+        { headers: authHeaders }
+      );
+      setEditClient({ open: false, id: null, value: '' });
       loadAll();
     } catch (e: any) {
       window.alert(e?.response?.data?.error || 'Error');
@@ -386,8 +436,18 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                     sx={{ bgcolor: STATUS_COLOR[s.status] || '#999', color: '#FFF', fontWeight: 600 }} />
                 </TableCell>
                 <TableCell>{fmtDate(s.received_at)}</TableCell>
-                <TableCell align="center">
-                  <IconButton size="small" color="error" onClick={() => deleteShipment(s.id)}>
+                <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
+                  <IconButton size="small" title={t('tdiExpress.reprintLabels')}
+                    onClick={() => reprintLabels(s)} sx={{ color: ORANGE }}>
+                    <PrintIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton size="small" title={t('tdiExpress.editClient')}
+                    onClick={() => setEditClient({ open: true, id: s.id, value: s.box_id || '' })}
+                    sx={{ color: '#1976D2' }}>
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton size="small" color="error" title={t('tdiExpress.table.actions')}
+                    onClick={() => deleteShipment(s.id)}>
                     <DeleteIcon fontSize="small" />
                   </IconButton>
                 </TableCell>
@@ -576,6 +636,27 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
               {t('tdiExpress.wizard.close')}
             </Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* ===== Editar número de cliente ===== */}
+      <Dialog open={editClient.open} onClose={() => setEditClient({ open: false, id: null, value: '' })} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ bgcolor: BLACK, color: '#FFF' }}>{t('tdiExpress.editClient')}</DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <TextField
+            autoFocus fullWidth label={t('tdiExpress.wizard.clientNumber')}
+            value={editClient.value}
+            onChange={(e) => setEditClient({ ...editClient, value: e.target.value.toUpperCase() })}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => setEditClient({ open: false, id: null, value: '' })}>
+            {t('tdiExpress.wizard.cancel')}
+          </Button>
+          <Button variant="contained" onClick={saveClient} disabled={!editClient.value.trim()}
+            sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' } }}>
+            {t('tdiExpress.save')}
+          </Button>
         </DialogActions>
       </Dialog>
     </Box>

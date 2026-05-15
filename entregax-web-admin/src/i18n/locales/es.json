@@ -2162,6 +2162,9 @@
       "dispatched_national": "En reenvío nacional",
       "delivered": "Entregado"
     },
-    "confirmDelete": "¿Eliminar este envío y todas sus cajas? Esta acción no se puede deshacer."
+    "confirmDelete": "¿Eliminar este envío y todas sus cajas? Esta acción no se puede deshacer.",
+    "reprintLabels": "Reimprimir etiquetas",
+    "editClient": "Editar número de cliente",
+    "save": "Guardar"
   }
 }
