@@ -871,7 +871,15 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
         },
         body: JSON.stringify({
           packageIds,
-          repackBox: REPACK_BOX,
+          // El backend valida repackBox con un esquema .strict(): solo acepta
+          // estos 5 campos. No mandar los extras (efficiency, serviceCostUSD, etc.)
+          repackBox: {
+            length: REPACK_BOX.length,
+            width: REPACK_BOX.width,
+            height: REPACK_BOX.height,
+            volume: REPACK_BOX.volume,
+            maxWeight: REPACK_BOX.maxWeight,
+          },
           totalWeight: repackValidation.totals.weight,
           totalVolume: repackValidation.totals.volume,
         }),

@@ -4123,8 +4123,20 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
         const packages = packagesResult.rows;
         const firstPkg = packages[0];
         
-        // Generar tracking para el paquete consolidado
-        const consolidatedTracking = `US-REPACK-${Date.now().toString(36).toUpperCase().slice(-4)}`;
+        // Generar tracking para el paquete consolidado: US-REPACK- + 4 dígitos numéricos
+        let consolidatedTracking = '';
+        for (let attempt = 0; attempt < 25; attempt++) {
+            const candidate = `US-REPACK-${Math.floor(1000 + Math.random() * 9000)}`;
+            const exists = await pool.query(
+                'SELECT 1 FROM packages WHERE tracking_internal = $1 LIMIT 1',
+                [candidate]
+            );
+            if (exists.rowCount === 0) { consolidatedTracking = candidate; break; }
+        }
+        if (!consolidatedTracking) {
+            res.status(500).json({ error: 'No se pudo generar la guía de reempaque, intenta de nuevo' });
+            return;
+        }
         
         // Calcular peso volumétrico de la caja de reempaque
         const volumetricWeight = repackBox.volume / 5000; // 16 kg para 40x40x50

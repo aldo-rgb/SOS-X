@@ -171,17 +171,23 @@ export default function POBoxRepackScreen({ route, navigation }: any) {
   };
 
   // ============ ESCANEO ============
+  // Normaliza una guía para comparar: quita guiones/espacios y pasa a mayúsculas.
+  // El lector de código de barras suele devolver la guía sin guion (US3985802484)
+  // mientras que en BD se guarda con guion (US-3985802484).
+  const normTracking = (s: string) => (s || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
   const tryAddTracking = (raw: string) => {
     const tracking = raw.trim().toUpperCase();
     if (!tracking) return;
+    const norm = normTracking(tracking);
 
-    if (tracking.startsWith('US-REPACK')) {
+    if (norm.startsWith('USREPACK')) {
       Alert.alert('❌ Guía incorrecta', 'Escanea las guías contenidas, no la guía de reempaque');
       Vibration.vibrate(150);
       return;
     }
 
-    if (scannedPackages.some((p) => p.tracking === tracking)) {
+    if (scannedPackages.some((p) => normTracking(p.tracking) === norm)) {
       Alert.alert('⚠️ Ya escaneado', `${tracking} ya fue agregado`);
       Vibration.vibrate(80);
       return;
@@ -190,7 +196,7 @@ export default function POBoxRepackScreen({ route, navigation }: any) {
     let foundInstr: RepackInstruction | null = null;
     let foundChild: ChildPackage | undefined;
     for (const instr of instructions) {
-      foundChild = instr.child_packages?.find((cp) => cp.tracking_internal === tracking);
+      foundChild = instr.child_packages?.find((cp) => normTracking(cp.tracking_internal) === norm);
       if (foundChild) {
         foundInstr = instr;
         break;

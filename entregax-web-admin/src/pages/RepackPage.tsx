@@ -97,6 +97,11 @@ interface PackageLabel {
 
 const WIZARD_STEPS = ['Escanear Guías Contenidas', 'Tomar Foto', 'Confirmar e Imprimir'];
 
+// Normaliza una guía para comparar: quita guiones/espacios y pasa a mayúsculas.
+// El lector de código de barras suele devolver la guía sin guion (US3985802484)
+// mientras que en BD se guarda con guion (US-3985802484).
+const normTracking = (s: string) => (s || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+
 export default function RepackPage() {
   const { i18n } = useTranslation();
   const [instructions, setInstructions] = useState<RepackInstruction[]>([]);
@@ -218,9 +223,10 @@ export default function RepackPage() {
     if (e.key !== 'Enter' || !scanInput.trim()) return;
     
     const tracking = scanInput.trim().toUpperCase();
-    
+    const norm = normTracking(tracking);
+
     // No permitir escanear guías US-REPACK directamente
-    if (tracking.startsWith('US-REPACK')) {
+    if (norm.startsWith('USREPACK')) {
       setSnackbar({ 
         open: true, 
         message: '❌ Escanea las guías contenidas, no la guía de reempaque', 
@@ -231,7 +237,7 @@ export default function RepackPage() {
     }
     
     // Verificar si ya está escaneado
-    if (scannedPackages.some(p => p.tracking === tracking)) {
+    if (scannedPackages.some(p => normTracking(p.tracking) === norm)) {
       setSnackbar({ 
         open: true, 
         message: `⚠️ La guía ${tracking} ya fue escaneada`, 
@@ -246,7 +252,7 @@ export default function RepackPage() {
     let foundChild: ChildPackage | undefined;
     
     for (const instruction of instructions) {
-      foundChild = instruction.child_packages?.find(cp => cp.tracking_internal === tracking);
+      foundChild = instruction.child_packages?.find(cp => normTracking(cp.tracking_internal) === norm);
       if (foundChild) {
         foundInInstruction = instruction;
         break;
@@ -470,15 +476,16 @@ export default function RepackPage() {
       <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Arial', sans-serif; }
-        .label { 
-          width: 4in; 
-          height: 6in; 
-          padding: 0.25in; 
-          border: 2px solid #000; 
-          display: flex; 
-          flex-direction: column; 
-          margin: 0 auto; 
+        .label {
+          width: 4in;
+          height: 6in;
+          padding: 0.25in;
+          border: 2px solid #000;
+          display: flex;
+          flex-direction: column;
+          margin: 0 auto;
           position: relative;
+          overflow: hidden;
         }
         .header { 
           display: flex; 
@@ -494,15 +501,12 @@ export default function RepackPage() {
           font-weight: bold; 
           border-radius: 4px;
         }
-        .repack-badge { 
-          background: #9C27B0; 
-          color: white; 
-          text-align: center; 
-          padding: 8px; 
-          font-weight: bold; 
+        .repack-badge {
+          color: #000;
+          text-align: center;
+          font-weight: bold;
           font-size: 16px;
-          margin-bottom: 8px; 
-          border-radius: 4px;
+          margin-bottom: 8px;
         }
         .tracking-main { text-align: center; margin: 4px 0; }
         .tracking-code { font-size: 24px; font-weight: 900; letter-spacing: 1px; }
@@ -537,8 +541,7 @@ export default function RepackPage() {
           background: #f9f9f9;
           border-radius: 4px;
         }
-        .footer { font-size: 8px; text-align: center; color: #999; margin-top: auto; padding-top: 3px; }
-        @media print { 
+        @media print {
           @page { size: 4in 6in; margin: 0; }
           body { margin: 0; }
           .label { border: none; }
@@ -577,10 +580,6 @@ export default function RepackPage() {
         
         <div class="packages-list">
           <strong>Contiene:</strong> ${packagesInfo}
-        </div>
-        
-        <div class="footer">
-          <small>Impreso: ${new Date().toLocaleString('es-MX')} | Escanea el QR para rastrear</small>
         </div>
       </div>
       

@@ -130,6 +130,15 @@ export default function POBoxInventoryPage({ onBack }: Props) {
         return s;
     }, [packages]);
 
+    // Cuántas cajas/paquetes agrupa cada master (consolidación)
+    const consolidationCounts = useMemo(() => {
+        const m: Record<number, number> = {};
+        for (const p of packages) {
+            if (p.consolidationId) m[p.consolidationId] = (m[p.consolidationId] || 0) + 1;
+        }
+        return m;
+    }, [packages]);
+
     // Filtrado client-side
     const filtered = useMemo(() => {
         const term = search.trim().toLowerCase();
@@ -283,7 +292,15 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                             </TableCell>
                                             <TableCell>
                                                 {p.consolidationId ? (
-                                                    <Chip label={`#${p.consolidationId}`} size="small" variant="outlined" sx={{ borderColor: ORANGE, color: ORANGE, fontWeight: 700 }} />
+                                                    <Box>
+                                                        <Chip label={`#${p.consolidationId}`} size="small" variant="outlined" sx={{ borderColor: ORANGE, color: ORANGE, fontWeight: 700 }} />
+                                                        <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', mt: 0.3 }}>
+                                                            {(() => {
+                                                                const n = consolidationCounts[p.consolidationId] || 1;
+                                                                return `${n} ${n === 1 ? 'caja' : 'cajas'}`;
+                                                            })()}
+                                                        </Typography>
+                                                    </Box>
                                                 ) : '—'}
                                             </TableCell>
                                             <TableCell>
