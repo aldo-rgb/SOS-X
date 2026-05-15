@@ -205,6 +205,20 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     panelKey: 'admin_fleet',
   },
 
+  // === CAJA CHICA SUCURSALES ===
+  {
+    id: 'petty_cash_admin',
+    title: 'Control de Gastos',
+    subtitle: 'Anticipos, aprobaciones y movimientos',
+    icon: 'account-balance-wallet',
+    iconFamily: 'material',
+    color: '#00B894',
+    screen: 'PettyCashAdmin',
+    roles: ['branch_manager', 'operaciones', 'accountant', 'director', 'admin', 'super_admin'],
+    requiresOnboarding: false,
+    panelKey: 'admin_petty_cash',
+  },
+
   // === PANELES DE OPERACIONES (panelKey - permisos por panel) ===
   {
     id: 'panel_china_air',

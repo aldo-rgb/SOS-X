@@ -81,6 +81,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const [inspectionDone, setInspectionDone] = useState(false);
   const [monitorAssignment, setMonitorAssignment] = useState<any | null>(null);
   const [attendance, setAttendance] = useState<{ check_in_time: string | null; check_out_time: string | null } | null>(null);
+  const [walletInfo, setWalletInfo] = useState<{ balance: number; pending_advances: number } | null>(null);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [scanModal, setScanModal] = useState<{ visible: boolean; action: QuickAction | null }>({ visible: false, action: null });
   const [rememberChoice, setRememberChoice] = useState(false);
@@ -100,6 +101,19 @@ export default function DriverHomeScreen({ navigation, route }: any) {
 
   const loadDayData = async () => {
     try {
+      // Cargar caja chica del chofer (saldo + anticipos pendientes de aceptar).
+      // Va primero porque el flujo de monitoreo hace return temprano más abajo.
+      try {
+        const wRes = await api.get('/api/petty-cash/my-wallet', {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
+        const balance = Number(wRes.data?.wallet?.balance_mxn) || 0;
+        const pendingAdv = Array.isArray(wRes.data?.pending_advances) ? wRes.data.pending_advances.length : 0;
+        setWalletInfo({ balance, pending_advances: pendingAdv });
+      } catch {
+        setWalletInfo({ balance: 0, pending_advances: 0 });
+      }
+
       // 👁️ Monitoreo: el widget "Asignados Hoy" muestra contenedores en ruta
       // (customs_cleared + in_transit_clientfinal)
       if (isMonitoreo) {
@@ -524,11 +538,24 @@ export default function DriverHomeScreen({ navigation, route }: any) {
               <Text style={[styles.statNumber, { color: '#4CAF50' }]}>{stats.deliveredToday}</Text>
               <Text style={styles.statLabel}>Entregados</Text>
             </View>
-            <View style={styles.statCard}>
-              <MaterialIcons name="pending" size={28} color="#FF9800" />
-              <Text style={[styles.statNumber, { color: '#FF9800' }]}>{stats.pendingDelivery}</Text>
-              <Text style={styles.statLabel}>Pendientes</Text>
-            </View>
+            <TouchableOpacity
+              style={styles.statCard}
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('PettyCash', { user, token })}
+            >
+              {walletInfo && walletInfo.pending_advances > 0 && (
+                <View style={styles.statBadge}>
+                  <Text style={styles.statBadgeText}>{walletInfo.pending_advances}</Text>
+                </View>
+              )}
+              <MaterialIcons name="account-balance-wallet" size={28} color="#00B894" />
+              <Text style={[styles.statNumber, { color: '#00B894', fontSize: 18 }]} numberOfLines={1}>
+                ${Number(walletInfo?.balance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Text>
+              <Text style={styles.statLabel}>
+                {walletInfo && walletInfo.pending_advances > 0 ? 'Vale por aceptar' : 'Fondo Caja'}
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -803,6 +830,24 @@ const styles = StyleSheet.create({
   },
   statCardPrimary: {
     backgroundColor: '#F05A28',
+  },
+  statBadge: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    backgroundColor: '#E53935',
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
+  statBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: 'bold',
   },
   statNumber: {
     fontSize: 28,

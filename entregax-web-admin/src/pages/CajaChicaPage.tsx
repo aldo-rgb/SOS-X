@@ -1207,6 +1207,7 @@ const CajaChicaPage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
+
       {/* Dialog: Egreso */}
       <Dialog open={egresoDialogOpen} onClose={() => setEgresoDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ bgcolor: 'error.main', color: 'white' }}>

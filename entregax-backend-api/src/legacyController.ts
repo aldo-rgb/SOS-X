@@ -274,13 +274,13 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 30000);
 
-        let response: Response;
+        let response: any;
         try {
-            response = await fetch(EXTERNAL_URL, {
+            response = await (globalThis as any).fetch(EXTERNAL_URL, {
                 method: 'GET',
                 headers: { 'Accept': 'application/json' },
                 signal: controller.signal as any
-            }) as any;
+            });
         } finally {
             clearTimeout(timeout);
         }

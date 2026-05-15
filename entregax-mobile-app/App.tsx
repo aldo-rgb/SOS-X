@@ -36,6 +36,8 @@ import PaymentSummaryScreen from './src/screens/PaymentSummaryScreen';
 import EmployeeOnboardingScreen from './src/screens/EmployeeOnboardingScreen';
 import VehicleInspectionScreen from './src/screens/VehicleInspectionScreen';
 import DriverHomeScreen from './src/screens/DriverHomeScreen';
+import PettyCashScreen from './src/screens/PettyCashScreen';
+import PettyCashAdminScreen from './src/screens/PettyCashAdminScreen';
 import MonitorContainersScreen from './src/screens/MonitorContainersScreen';
 import MonitorContainerDetailScreen from './src/screens/MonitorContainerDetailScreen';
 import MonitorIncidentsScreen from './src/screens/MonitorIncidentsScreen';
@@ -124,6 +126,8 @@ export type RootStackParamList = {
   // Pantallas del Chofer
   VehicleInspection: { user: any; token: string };
   DriverHome: { user: any; token: string };
+  PettyCash: { user: any; token: string };
+  PettyCashAdmin: { user: any; token: string };
   MonitorContainers: { user: any; token: string; mode?: 'start-monitoring' | 'confirm-delivery' };
   MonitorContainerDetail: { user: any; token: string; containerId: number };
   MonitorIncidents: { user: any; token: string };
@@ -305,6 +309,14 @@ function App() {
           <Stack.Screen 
             name="DriverHome" 
             component={DriverHomeScreen}
+          />
+          <Stack.Screen
+            name="PettyCash"
+            component={PettyCashScreen}
+          />
+          <Stack.Screen
+            name="PettyCashAdmin"
+            component={PettyCashAdminScreen}
           />
           <Stack.Screen name="MonitorContainers" component={MonitorContainersScreen} />
           <Stack.Screen name="MonitorContainerDetail" component={MonitorContainerDetailScreen} />

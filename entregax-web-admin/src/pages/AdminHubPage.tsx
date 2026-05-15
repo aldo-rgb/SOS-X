@@ -93,6 +93,7 @@ import {
 // Importar páginas de HR y Fleet
 import HRManagementPage from './HRManagementPage';
 import FleetManagementPage from './FleetManagementPage';
+import PettyCashHubPage from './PettyCashHubPage';
 import CajaChicaPage from './CajaChicaPage';
 import FinanceDashboardPage from './FinanceDashboardPage';
 import SuppliersPage from './SuppliersPage';
@@ -248,6 +249,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
     const [showBranches, setShowBranches] = useState(false);
     const [showHR, setShowHR] = useState(false);
     const [showFleet, setShowFleet] = useState(false);
+    const [showPettyCash, setShowPettyCash] = useState(false);
     const [showExchangeRates, setShowExchangeRates] = useState(false);
     const [showCarousel, setShowCarousel] = useState(false);
     const [showCajaChica, setShowCajaChica] = useState(false);
@@ -434,6 +436,24 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                     />
                 </Box>
                 <FleetManagementPage />
+            </Box>
+        );
+    }
+
+    // ============================================
+    // RENDER: Caja Chica Sucursales (Petty Cash)
+    // ============================================
+    if (showPettyCash) {
+        return (
+            <Box>
+                <Box sx={{ mb: 2 }}>
+                    <Chip
+                        label={t('panels.backToAdmin')}
+                        onClick={() => setShowPettyCash(false)}
+                        sx={{ cursor: 'pointer' }}
+                    />
+                </Box>
+                <PettyCashHubPage />
             </Box>
         );
     }
@@ -1899,6 +1919,42 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                                 </Typography>
                                 <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
                                     Vehículos, mantenimiento y combustible
+                                </Typography>
+                            </CardContent>
+                        </CardActionArea>
+                    </Card>
+                </Grid>
+                )}
+
+                {/* Tarjeta especial: Caja Chica Sucursales - NARANJA */}
+                {hasPermission('admin_petty_cash') && (
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
+                        <CardActionArea
+                            onClick={() => setShowPettyCash(true)}
+                            sx={{ height: '100%' }}
+                        >
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                <Box sx={{
+                                    width: 48,
+                                    height: 48,
+                                    borderRadius: 1.5,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    bgcolor: '#F05A2815',
+                                    color: '#1A1A1A',
+                                    '& svg': { fontSize: 26 }
+                                }}><LocalAtmIcon /></Box>
+                                <Typography sx={{ fontSize: 28, lineHeight: 1, opacity: 0.85 }}>💼</Typography>
+                            </Box>
+                            <CardContent>
+                                <Typography sx={{ fontWeight: 700, fontSize: 17, color: '#1A1A1A', mb: 0.5 }}>
+                                    Caja Chica Sucursales
+                                </Typography>
+                                <Typography sx={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.5 }}>
+                                    Fondeo, anticipos, viáticos y comprobaciones
                                 </Typography>
                             </CardContent>
                         </CardActionArea>

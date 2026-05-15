@@ -810,6 +810,25 @@ import {
   syncExternalLegacyClients
 } from './legacyController';
 import {
+  listWallets as pcListWallets,
+  getWalletDetail as pcGetWalletDetail,
+  fundBranch as pcFundBranch,
+  advanceDriver as pcAdvanceDriver,
+  acceptAdvance as pcAcceptAdvance,
+  listMyAdvances as pcListMyAdvances,
+  registerExpense as pcRegisterExpense,
+  getMyWallet as pcGetMyWallet,
+  listPendingExpenses as pcListPendingExpenses,
+  approveExpense as pcApproveExpense,
+  rejectExpense as pcRejectExpense,
+  closeRouteSettlement as pcCloseRouteSettlement,
+  listSettlements as pcListSettlements,
+  listAssignableDrivers as pcListDrivers,
+  listBranchesWithBalance as pcListBranches,
+  getPettyCashStats as pcGetStats,
+  getCategories as pcGetCategories
+} from './pettyCashController';
+import {
   getWalletStatus,
   getTransactionHistory,
   handleOpenpayWebhook,
@@ -1958,6 +1977,71 @@ app.post('/api/legacy/sync-external', authenticateToken, requireRole(ROLES.SUPER
 app.get('/api/legacy/clients', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.WAREHOUSE_OPS), getLegacyClients);
 app.get('/api/legacy/stats', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getLegacyStats);
 app.delete('/api/legacy/clients/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteLegacyClient);
+
+// Multer + S3 upload helper para registrar gastos desde la app
+const pcExpenseUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } })
+  .fields([
+    { name: 'evidence', maxCount: 1 },
+    { name: 'odometer_photo', maxCount: 1 },
+    { name: 'xml', maxCount: 1 }
+  ]);
+
+const handlePettyCashExpenseUpload = async (req: any, _res: any, next: any) => {
+  try {
+    const files = (req.files || {}) as Record<string, Express.Multer.File[] | undefined>;
+    const uploaded: any = {};
+    const userId = req.user?.userId ?? req.user?.id ?? 'anon';
+
+    const { uploadToS3 } = require('./s3Service');
+    if (files.evidence?.[0]) {
+      const f = files.evidence[0];
+      const key = `petty-cash/expenses/${userId}/${Date.now()}-evidence-${f.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      uploaded.evidence_url = await uploadToS3(f.buffer, key, f.mimetype || 'image/jpeg');
+    }
+    if (files.odometer_photo?.[0]) {
+      const f = files.odometer_photo[0];
+      const key = `petty-cash/expenses/${userId}/${Date.now()}-odo-${f.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      uploaded.odometer_photo_url = await uploadToS3(f.buffer, key, f.mimetype || 'image/jpeg');
+    }
+    if (files.xml?.[0]) {
+      const f = files.xml[0];
+      const key = `petty-cash/expenses/${userId}/${Date.now()}-${f.originalname.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+      uploaded.xml_url = await uploadToS3(f.buffer, key, 'application/xml');
+    }
+    req.uploadedFiles = uploaded;
+    next();
+  } catch (err) {
+    console.error('petty cash upload error', err);
+    next(err);
+  }
+};
+
+// --- Endpoints WEB / ADMIN (sucursales + finanzas) ---
+const PCASH_ADMIN_ROLES = [
+  ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR,
+  ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT, ROLES.OPERACIONES
+];
+app.get('/api/admin/petty-cash/stats', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcGetStats);
+app.get('/api/admin/petty-cash/categories', authenticateToken, pcGetCategories);
+app.get('/api/admin/petty-cash/wallets', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcListWallets);
+app.get('/api/admin/petty-cash/wallets/:id', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcGetWalletDetail);
+app.get('/api/admin/petty-cash/branches', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcListBranches);
+app.get('/api/admin/petty-cash/drivers', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcListDrivers);
+app.post('/api/admin/petty-cash/fund-branch', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), pcFundBranch);
+app.post('/api/admin/petty-cash/advance-driver', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcAdvanceDriver);
+app.get('/api/admin/petty-cash/pending', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcListPendingExpenses);
+app.post('/api/admin/petty-cash/movements/:id/approve', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcApproveExpense);
+app.post('/api/admin/petty-cash/movements/:id/reject', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcRejectExpense);
+app.post('/api/admin/petty-cash/route-settle', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcCloseRouteSettlement);
+app.get('/api/admin/petty-cash/settlements', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcListSettlements);
+
+// --- Endpoints MOBILE / CHOFER ---
+app.get('/api/petty-cash/categories', authenticateToken, pcGetCategories);
+app.get('/api/petty-cash/my-wallet', authenticateToken, pcGetMyWallet);
+app.get('/api/petty-cash/my-advances', authenticateToken, pcListMyAdvances);
+app.post('/api/petty-cash/advances/:id/accept', authenticateToken, pcAcceptAdvance);
+app.post('/api/petty-cash/expenses', authenticateToken, pcExpenseUpload, handlePettyCashExpenseUpload, pcRegisterExpense);
+
 
 // --- RUTAS DE ASESORES ---
 app.get('/api/users/advisors', authenticateToken, getAdvisorsList);
@@ -8970,6 +9054,16 @@ async function ensureRequiredColumns() {
       INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)
       VALUES ('accounting_hub', 'Contabilidad', 'Contabilidad', 'receipt_long', 'Portal contable multi-empresa: facturas, productos, categorías', TRUE, 10)
       ON CONFLICT (panel_key) DO NOTHING
+    `);
+    // Sembrar panel de Caja Chica Sucursales
+    await pool.query(`
+      INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)
+      VALUES ('admin_petty_cash', 'Caja Chica Sucursales', 'admin', 'LocalAtm', 'Fondeo, anticipos, viáticos y comprobaciones por sucursal', TRUE, 22)
+      ON CONFLICT (panel_key) DO UPDATE SET
+        panel_name = EXCLUDED.panel_name,
+        description = EXCLUDED.description,
+        icon = EXCLUDED.icon,
+        category = EXCLUDED.category
     `);
     // Tabla de permisos de contadores por empresa fiscal
     await pool.query(`
