@@ -116,7 +116,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             loadedToday: cargados,
             deliveredToday: entregados,
             pendingToLoad: liberados,
-            pendingDelivery: 0,
+            pendingDelivery: cargados,
             returnedToday: 0,
           });
           setLoadedPackages([]);
@@ -330,10 +330,12 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     {
       id: 'delivery',
       title: 'Confirmar Entrega',
-      subtitle: `${stats.pendingDelivery} por entregar`,
+      subtitle: isMonitoreo
+        ? `${stats.pendingDelivery} en monitoreo`
+        : `${stats.pendingDelivery} por entregar`,
       icon: 'local-shipping',
       color: '#4CAF50',
-      screen: 'DeliveryConfirm',
+      screen: isMonitoreo ? 'MonitorContainers' : 'DeliveryConfirm',
       badge: stats.pendingDelivery,
       enabled: stats.pendingDelivery > 0,
     },
@@ -354,6 +356,12 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     // Monitoreo: el botón "Iniciar Monitoreo" abre directo la lista de contenedores.
     if (isMonitoreo && action.id === 'load') {
       navigation.navigate(action.screen, { user, token, mode: 'start-monitoring' });
+      return;
+    }
+
+    // Monitoreo: "Confirmar Entrega" abre la lista de contenedores en monitoreo para subir 3 fotos.
+    if (isMonitoreo && action.id === 'delivery') {
+      navigation.navigate(action.screen, { user, token, mode: 'confirm-delivery' });
       return;
     }
 

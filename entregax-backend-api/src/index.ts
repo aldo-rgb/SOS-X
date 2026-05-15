@@ -7731,6 +7731,7 @@ app.get('/api/monitoreo/containers', authenticateToken, async (req: any, res) =>
         c.driver_name, c.driver_plates, c.driver_phone, c.driver_company,
         c.route_dispatched_at, c.created_at,
         c.monitoring_started_at, c.monitoring_photo_1_url, c.monitoring_photo_2_url,
+        c.delivery_confirmed_at, c.delivery_photo_1_url, c.delivery_photo_2_url, c.delivery_photo_3_url,
         u.id AS client_user_id,
         u.full_name AS client_name,
         u.box_id AS client_box_id,
@@ -7897,6 +7898,94 @@ app.post(
       return res.json({ ok: true, container: updated.rows[0] });
     } catch (error: any) {
       console.error('Error iniciando monitoreo:', error);
+      res.status(500).json({ error: 'Error interno', details: error?.message });
+    }
+  }
+);
+
+// ✅ Confirmar entrega del contenedor: monitorista sube 3 fotos y el contenedor pasa a 'delivered'.
+const deliveryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+app.post(
+  '/api/monitoreo/containers/:id/confirm-delivery',
+  authenticateToken,
+  deliveryUpload.fields([
+    { name: 'photo1', maxCount: 1 },
+    { name: 'photo2', maxCount: 1 },
+    { name: 'photo3', maxCount: 1 },
+  ]),
+  async (req: any, res) => {
+    try {
+      const role = String(req.user?.role || '').toLowerCase();
+      if (!['monitoreo', 'admin', 'super_admin', 'director'].includes(role)) {
+        return res.status(403).json({ error: 'Acceso denegado' });
+      }
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: 'ID inválido' });
+
+      const userId = Number(req.user?.id || req.user?.userId);
+      const files = (req.files || {}) as Record<string, Express.Multer.File[]>;
+      const f1 = files.photo1?.[0];
+      const f2 = files.photo2?.[0];
+      const f3 = files.photo3?.[0];
+      if (!f1 || !f2 || !f3) {
+        return res.status(400).json({ error: 'Se requieren 3 fotos (photo1, photo2, photo3)' });
+      }
+
+      const owner = await pool.query(
+        'SELECT id, monitor_user_id, status, monitoring_started_at, delivery_confirmed_at FROM containers WHERE id = $1',
+        [id]
+      );
+      if (owner.rows.length === 0) return res.status(404).json({ error: 'Contenedor no encontrado' });
+      const cRow = owner.rows[0];
+      if (role === 'monitoreo' && Number(cRow.monitor_user_id) !== userId) {
+        return res.status(403).json({ error: 'No estás asignado a este contenedor' });
+      }
+      if (!cRow.monitoring_started_at) {
+        return res.status(409).json({ error: 'Primero debes iniciar el monitoreo de este contenedor' });
+      }
+      if (cRow.delivery_confirmed_at) {
+        return res.status(409).json({ error: 'La entrega ya fue confirmada para este contenedor' });
+      }
+
+      const { uploadToS3, isS3Configured } = await import('./s3Service');
+      const ts = Date.now();
+      const upload = async (f: Express.Multer.File, idx: number) => {
+        if (isS3Configured()) {
+          const ext = (f.mimetype.split('/')[1] || 'jpg').toLowerCase();
+          return uploadToS3(f.buffer, `delivery/${id}/${ts}_${idx}.${ext}`, f.mimetype);
+        }
+        return `data:${f.mimetype};base64,${f.buffer.toString('base64')}`;
+      };
+      const [url1, url2, url3] = await Promise.all([upload(f1, 1), upload(f2, 2), upload(f3, 3)]);
+
+      const notes = (req.body?.notes || '').toString().trim() || null;
+      const updated = await pool.query(
+        `UPDATE containers
+           SET status = 'delivered',
+               delivery_confirmed_at = NOW(),
+               delivery_confirmed_by = $1,
+               delivery_photo_1_url = $2,
+               delivery_photo_2_url = $3,
+               delivery_photo_3_url = $4,
+               delivery_notes = COALESCE($5, delivery_notes)
+         WHERE id = $6
+         RETURNING id, status, delivery_confirmed_at`,
+        [userId, url1, url2, url3, notes, id]
+      );
+
+      try {
+        await pool.query(
+          `INSERT INTO container_status_history (container_id, new_status, previous_status, changed_by, notes, changed_at)
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [id, 'delivered', cRow.status, userId, '✅ Entrega confirmada por monitorista (3 fotos)']
+        );
+      } catch (e) {
+        // historial puede tener distinto esquema, no es crítico
+      }
+
+      return res.json({ ok: true, container: updated.rows[0] });
+    } catch (error: any) {
+      console.error('Error confirmando entrega:', error);
       res.status(500).json({ error: 'Error interno', details: error?.message });
     }
   }

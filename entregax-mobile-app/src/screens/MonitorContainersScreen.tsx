@@ -28,6 +28,7 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
 export default function MonitorContainersScreen({ navigation, route }: any) {
   const { user, token, mode } = route.params || {};
   const startMode = mode === 'start-monitoring';
+  const confirmMode = mode === 'confirm-delivery';
   const [filter, setFilter] = useState<FilterKey>('in_transit_clientfinal');
   const [containers, setContainers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -35,21 +36,28 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
 
   const load = useCallback(async () => {
     try {
-      // En modo "iniciar monitoreo" siempre se consultan los que están en ruta.
-      const effectiveFilter = startMode ? 'in_transit_clientfinal' : filter;
+      const effectiveFilter = (startMode || confirmMode) ? 'in_transit_clientfinal' : filter;
       const res = await api.get(`/api/monitoreo/containers?status=${effectiveFilter}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       let list = Array.isArray(res.data?.containers) ? res.data.containers : [];
       if (startMode) {
-        // Sólo los que aún no han iniciado monitoreo
         const pending = list.filter((c: any) => !c.monitoring_started_at);
         list = pending;
-        // Si sólo hay uno pendiente, saltar directo a la pantalla de fotos
         if (pending.length === 1) {
           setLoading(false);
           setRefreshing(false);
           navigation.replace('StartMonitoring', { user, token, container: pending[0] });
+          return;
+        }
+      } else if (confirmMode) {
+        // Solo los que ya iniciaron monitoreo y aún no confirmaron entrega
+        const inMonitoring = list.filter((c: any) => c.monitoring_started_at && !c.delivery_confirmed_at);
+        list = inMonitoring;
+        if (inMonitoring.length === 1) {
+          setLoading(false);
+          setRefreshing(false);
+          navigation.replace('ConfirmDelivery', { user, token, container: inMonitoring[0] });
           return;
         }
       }
@@ -61,7 +69,7 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [filter, token, startMode, navigation, user]);
+  }, [filter, token, startMode, confirmMode, navigation, user]);
 
   useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
 
@@ -70,6 +78,7 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
   const renderItem = ({ item }: { item: any }) => {
     const meta = STATUS_META[item.status] || { label: item.status, icon: 'directions-boat', color: '#666' };
     const monitoringStarted = !!item.monitoring_started_at;
+    const deliveryConfirmed = !!item.delivery_confirmed_at;
     const handlePress = () => {
       if (startMode) {
         if (monitoringStarted) {
@@ -77,6 +86,14 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
           return;
         }
         navigation.navigate('StartMonitoring', { user, token, container: item });
+        return;
+      }
+      if (confirmMode) {
+        if (deliveryConfirmed) {
+          Alert.alert('Entrega confirmada', 'Este contenedor ya tiene la entrega confirmada.');
+          return;
+        }
+        navigation.navigate('ConfirmDelivery', { user, token, container: item });
         return;
       }
       navigation.navigate('MonitorContainerDetail', { user, token, containerId: item.id });
@@ -128,11 +145,21 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
               color={monitoringStarted ? '#2E7D32' : '#fff'}
             />
             <Text style={[styles.ctaText, { color: monitoringStarted ? '#2E7D32' : '#fff' }]}>
-              {monitoringStarted ? 'Monitoreo iniciado' : 'Iniciar monitoreo (subir 2 fotos)'}
+              {monitoringStarted ? 'Monitoreo iniciado' : 'Iniciar monitoreo (subir evidencia)'}
             </Text>
           </View>
-        )}
-      </TouchableOpacity>
+        )}        {confirmMode && (
+          <View style={[styles.ctaBox, deliveryConfirmed ? styles.ctaBoxDone : styles.ctaBoxConfirm]}>
+            <MaterialIcons
+              name={deliveryConfirmed ? 'check-circle' : 'task-alt'}
+              size={18}
+              color={deliveryConfirmed ? '#2E7D32' : '#fff'}
+            />
+            <Text style={[styles.ctaText, { color: deliveryConfirmed ? '#2E7D32' : '#fff' }]}>
+              {deliveryConfirmed ? 'Entrega confirmada' : 'Confirmar entrega (subir 3 fotos)'}
+            </Text>
+          </View>
+        )}      </TouchableOpacity>
     );
   };
 
@@ -142,15 +169,17 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <MaterialIcons name="arrow-back" size={24} color="#111" />
         </TouchableOpacity>
-        <Text style={styles.title}>{startMode ? 'Iniciar Monitoreo' : 'Contenedores en Ruta'}</Text>
+        <Text style={styles.title}>{startMode ? 'Iniciar Monitoreo' : (confirmMode ? 'Confirmar Entrega' : 'Contenedores en Ruta')}</Text>
         <View style={{ width: 24 }} />
       </View>
 
-      {startMode ? (
+      {(startMode || confirmMode) ? (
         <View style={styles.banner}>
-          <MaterialIcons name="photo-camera" size={20} color="#F05A28" />
+          <MaterialIcons name={confirmMode ? 'task-alt' : 'photo-camera'} size={20} color="#F05A28" />
           <Text style={styles.bannerText}>
-            Selecciona un contenedor para subir las 2 fotos requeridas e iniciar el monitoreo.
+            {confirmMode
+              ? 'Selecciona un contenedor para subir las 3 fotos de confirmación de entrega.'
+              : 'Selecciona un contenedor para subir las 2 fotos requeridas e iniciar el monitoreo.'}
           </Text>
         </View>
       ) : (
@@ -184,7 +213,9 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
               <Text style={styles.emptyText}>
                 {startMode
                   ? 'No hay contenedores pendientes por monitorear.'
-                  : 'No hay contenedores en este filtro'}
+                  : (confirmMode
+                    ? 'No hay contenedores en monitoreo para confirmar entrega.'
+                    : 'No hay contenedores en este filtro')}
               </Text>
             </View>
           }
@@ -232,6 +263,7 @@ const styles = StyleSheet.create({
     gap: 6, paddingVertical: 10, borderRadius: 8,
   },
   ctaBoxPending: { backgroundColor: '#F05A28' },
+  ctaBoxConfirm: { backgroundColor: '#4CAF50' },
   ctaBoxDone: { backgroundColor: '#E8F5E9', borderWidth: 1, borderColor: '#A5D6A7' },
   ctaText: { fontSize: 13, fontWeight: '700' },
   banner: {
