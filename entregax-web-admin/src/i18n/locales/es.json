@@ -421,6 +421,7 @@
       "delay": "Retraso",
       "warranty": "Garantía Extendida",
       "compensation": "Compensación",
+      "accounting": "Contabilidad",
       "systemError": "Error del Sistema",
       "billing": "Facturación",
       "quote": "Cotización",
@@ -1813,6 +1814,7 @@
         "missing": "📭 Reportar Faltante",
         "warranty": "🛡️ Garantía Extendida",
         "compensation": "💰 Compensación",
+        "accounting": "🧾 Contabilidad",
         "systemError": "⚙️ Error del Sistema",
         "other": "📝 Otro"
       }

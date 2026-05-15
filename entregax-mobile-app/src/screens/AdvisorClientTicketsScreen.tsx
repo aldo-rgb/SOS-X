@@ -71,7 +71,9 @@ const CATEGORY_LABELS: Record<string, string> = {
   delivery: 'Entrega',
   warranty: 'Garantía',
   compensation: 'Compensación',
+  accounting: 'Contabilidad',
   systemError: 'Error Sistema',
+  container: 'Contenedor',
 };
 
 export default function AdvisorClientTicketsScreen({ navigation, route }: any) {

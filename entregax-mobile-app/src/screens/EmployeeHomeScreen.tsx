@@ -191,6 +191,20 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     panelKey: 'ops_usa_pobox',
   },
 
+  // === GESTIÓN DE FLOTILLA ===
+  {
+    id: 'fleet_vehicles',
+    title: 'Gestión de Flotilla',
+    subtitle: 'Unidades, kilometraje y servicios',
+    icon: 'directions-car',
+    iconFamily: 'material',
+    color: '#795548',
+    screen: 'FleetVehicles',
+    roles: ['branch_manager', 'operaciones', 'counter_staff', 'warehouse_ops', 'director', 'admin', 'super_admin'],
+    requiresOnboarding: false,
+    panelKey: 'admin_fleet',
+  },
+
   // === PANELES DE OPERACIONES (panelKey - permisos por panel) ===
   {
     id: 'panel_china_air',
@@ -376,18 +390,18 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
 
 // Mapeo de roles a labels legibles
 const ROLE_LABELS: Record<string, string> = {
-  repartidor: '🚚 Repartidor',
-  warehouse_ops: '📦 Operaciones de Bodega',
-  counter_staff: '🏪 Mostrador',
-  advisor: '💼 Asesor',
-  asesor: '💼 Asesor',
-  asesor_lider: '👔 Asesor Líder',
-  sub_advisor: '💼 Sub Asesor',
-  customer_service: '💬 Servicio a Cliente',
-  branch_manager: '👔 Operacion CEDIS',
-  director: '📊 Director',
-  admin: '⚙️ Administrador',
-  super_admin: '👑 Super Administrador',
+  repartidor: 'Repartidor',
+  warehouse_ops: 'Operaciones de Bodega',
+  counter_staff: 'Mostrador',
+  advisor: 'Asesor',
+  asesor: 'Asesor',
+  asesor_lider: 'Asesor Líder',
+  sub_advisor: 'Sub Asesor',
+  customer_service: 'Servicio a Cliente',
+  branch_manager: 'Operacion CEDIS',
+  director: 'Director',
+  admin: 'Administrador',
+  super_admin: 'Super Administrador',
 };
 
 export default function EmployeeHomeScreen({ navigation, route }: any) {

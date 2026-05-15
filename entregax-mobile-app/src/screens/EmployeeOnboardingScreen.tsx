@@ -224,10 +224,13 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
     }
     setLoading(true);
     try {
-      await api.post('/api/hr/accept-advisor-privacy', { signature }, {
+      const acceptResp = await api.post('/api/hr/accept-advisor-privacy', { signature }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setPrivacyAccepted(true);
+      // Construir user actualizado para evitar flash de "Aceptar Términos" al entrar a Home
+      const acceptedAt = acceptResp?.data?.acceptedAt || new Date().toISOString();
+      const refreshedUser = { ...(user || {}), privacyAcceptedAt: acceptedAt };
       Alert.alert(
         '✅ Términos Aceptados',
         'Tu firma quedó registrada con la aceptación del aviso de privacidad y los términos de comisiones. Ya puedes comenzar a usar la plataforma.',
@@ -237,10 +240,10 @@ export default function EmployeeOnboardingScreen({ navigation, route, onComplete
             if (onComplete) {
               onComplete();
             } else if (navigation) {
-              if (user?.role === 'repartidor' || user?.role === 'monitoreo') {
-                navigation.replace('DriverHome', { user, token: route?.params?.token });
+              if (refreshedUser?.role === 'repartidor' || refreshedUser?.role === 'monitoreo') {
+                navigation.replace('DriverHome', { user: refreshedUser, token: route?.params?.token });
               } else {
-                navigation.replace('EmployeeHome', { user, token: route?.params?.token });
+                navigation.replace('EmployeeHome', { user: refreshedUser, token: route?.params?.token });
               }
             }
           }

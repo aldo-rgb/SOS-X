@@ -260,6 +260,116 @@ export const importLegacyClients = async (req: Request, res: Response): Promise<
 };
 
 /**
+ * Sincronizar clientes legacy desde el sistema EntregaX viejo (sistemaentregax.com)
+ * POST /api/legacy/sync-external
+ *
+ * Consume el endpoint público: https://sistemaentregax.com/api/customers/list-customers-admin
+ * Estructura esperada: { status: 'success', data: [{ suite, nombre, correo, telefono, asesor, token }] }
+ * Hace upsert sobre legacy_clients (suite -> box_id, nombre -> full_name, correo -> email).
+ * No sobreescribe registros que ya fueron reclamados (is_claimed = TRUE).
+ */
+export const syncExternalLegacyClients = async (_req: Request, res: Response): Promise<any> => {
+    const EXTERNAL_URL = 'https://sistemaentregax.com/api/customers/list-customers-admin';
+    try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+
+        let response: Response;
+        try {
+            response = await fetch(EXTERNAL_URL, {
+                method: 'GET',
+                headers: { 'Accept': 'application/json' },
+                signal: controller.signal as any
+            }) as any;
+        } finally {
+            clearTimeout(timeout);
+        }
+
+        if (!response.ok) {
+            return res.status(502).json({
+                error: 'No se pudo consultar el sistema EntregaX externo',
+                status: response.status
+            });
+        }
+
+        const payload: any = await response.json();
+        const rows: any[] = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+
+        if (rows.length === 0) {
+            return res.json({
+                success: true,
+                message: 'El sistema externo no devolvió clientes',
+                stats: { total: 0, importados: 0, actualizados: 0, omitidos: 0, errores: 0 }
+            });
+        }
+
+        let importados = 0;
+        let actualizados = 0;
+        let omitidos = 0;
+        let errores = 0;
+        const errorList: string[] = [];
+
+        for (const row of rows) {
+            try {
+                const rawBoxId = (row?.suite ?? '').toString().trim().toUpperCase();
+                if (!rawBoxId || !/^(S|RT)\d+/i.test(rawBoxId)) {
+                    omitidos++;
+                    continue;
+                }
+                const fullName = row?.nombre ? String(row.nombre).trim() : null;
+                const email = row?.correo ? String(row.correo).toLowerCase().trim() : null;
+
+                // Upsert respetando los registros ya reclamados (no machacar datos del usuario)
+                const result = await pool.query(`
+                    INSERT INTO legacy_clients (box_id, full_name, email, registration_date)
+                    VALUES ($1, $2, $3, NULL)
+                    ON CONFLICT (box_id) DO UPDATE SET
+                        full_name = COALESCE(EXCLUDED.full_name, legacy_clients.full_name),
+                        email = COALESCE(EXCLUDED.email, legacy_clients.email)
+                    WHERE legacy_clients.is_claimed = FALSE
+                    RETURNING (xmax = 0) AS inserted
+                `, [rawBoxId, fullName, email]);
+
+                if (result.rowCount && result.rowCount > 0) {
+                    if ((result.rows[0] as any)?.inserted) {
+                        importados++;
+                    } else {
+                        actualizados++;
+                    }
+                } else {
+                    // Conflicto pero ya estaba reclamado -> no se tocó
+                    omitidos++;
+                }
+            } catch (rowErr: any) {
+                errores++;
+                if (errorList.length < 10) {
+                    errorList.push(`${row?.suite || '?'}: ${rowErr?.message || 'error'}`);
+                }
+            }
+        }
+
+        return res.json({
+            success: true,
+            message: 'Sincronización completada',
+            stats: {
+                total: rows.length,
+                importados,
+                actualizados,
+                omitidos,
+                errores
+            },
+            erroresEjemplo: errorList
+        });
+    } catch (error: any) {
+        console.error('Error sincronizando clientes legacy externos:', error);
+        return res.status(500).json({
+            error: 'Error al sincronizar clientes desde el sistema externo',
+            details: error?.message || String(error)
+        });
+    }
+};
+
+/**
  * Obtener lista de clientes legacy
  * GET /api/legacy/clients
  */

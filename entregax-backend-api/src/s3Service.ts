@@ -116,7 +116,7 @@ export const signS3UrlIfNeeded = async (url: string | null | undefined, expiresI
   ];
   for (const re of patterns) {
     const m = url.match(re);
-    if (m) {
+    if (m && m[1]) {
       const key = decodeURIComponent(m[1]);
       try {
         return await getSignedUrlForKey(key, expiresIn);

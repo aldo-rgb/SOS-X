@@ -38,6 +38,9 @@ import VehicleInspectionScreen from './src/screens/VehicleInspectionScreen';
 import DriverHomeScreen from './src/screens/DriverHomeScreen';
 import MonitorContainersScreen from './src/screens/MonitorContainersScreen';
 import MonitorContainerDetailScreen from './src/screens/MonitorContainerDetailScreen';
+import MonitorIncidentsScreen from './src/screens/MonitorIncidentsScreen';
+import FleetVehiclesScreen from './src/screens/FleetVehiclesScreen';
+import FleetVehicleDetailScreen from './src/screens/FleetVehicleDetailScreen';
 import StartMonitoringScreen from './src/screens/StartMonitoringScreen';
 import ConfirmDeliveryScreen from './src/screens/ConfirmDeliveryScreen';
 import LoadingVanScreen from './src/screens/LoadingVanScreen';
@@ -123,6 +126,9 @@ export type RootStackParamList = {
   DriverHome: { user: any; token: string };
   MonitorContainers: { user: any; token: string; mode?: 'start-monitoring' | 'confirm-delivery' };
   MonitorContainerDetail: { user: any; token: string; containerId: number };
+  MonitorIncidents: { user: any; token: string };
+  FleetVehicles: { user: any; token: string };
+  FleetVehicleDetail: { user: any; token: string; vehicleId: number };
   StartMonitoring: { user: any; token: string; container: any };
   ConfirmDelivery: { user: any; token: string; container: any };
   LoadingVan: { user: any; token: string };
@@ -302,6 +308,9 @@ function App() {
           />
           <Stack.Screen name="MonitorContainers" component={MonitorContainersScreen} />
           <Stack.Screen name="MonitorContainerDetail" component={MonitorContainerDetailScreen} />
+          <Stack.Screen name="MonitorIncidents" component={MonitorIncidentsScreen} />
+          <Stack.Screen name="FleetVehicles" component={FleetVehiclesScreen} />
+          <Stack.Screen name="FleetVehicleDetail" component={FleetVehicleDetailScreen} />
           <Stack.Screen name="StartMonitoring" component={StartMonitoringScreen} />
           <Stack.Screen name="ConfirmDelivery" component={ConfirmDeliveryScreen} />
           <Stack.Screen 

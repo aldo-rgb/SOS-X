@@ -36,7 +36,8 @@ import {
   Pending as PendingIcon,
   Refresh as RefreshIcon,
   People as PeopleIcon,
-  HowToReg as ClaimedIcon
+  HowToReg as ClaimedIcon,
+  CloudSync as SyncIcon
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import * as XLSX from 'xlsx';
@@ -94,6 +95,15 @@ export default function LegacyClientsPage() {
   // Delete dialog
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [clientToDelete, setClientToDelete] = useState<LegacyClient | null>(null);
+
+  // Sync external dialog
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<{
+    success: boolean;
+    message: string;
+    stats?: { total: number; importados: number; actualizados: number; omitidos: number; errores: number };
+  } | null>(null);
+  const [syncDialogOpen, setSyncDialogOpen] = useState(false);
 
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
@@ -288,6 +298,38 @@ export default function LegacyClientsPage() {
             onClick={() => { setUploadResult(null); setSelectedFile(null); setFilePreview(null); setUploadDialogOpen(true); }}
           >
             Importar Excel
+          </Button>
+          <Button
+            variant="contained"
+            color="secondary"
+            startIcon={syncing ? <CircularProgress size={18} color="inherit" /> : <SyncIcon />}
+            disabled={syncing}
+            onClick={async () => {
+              setSyncing(true);
+              setSyncResult(null);
+              setSyncDialogOpen(true);
+              try {
+                const resp = await fetch(`${API_URL}/api/legacy/sync-external`, {
+                  method: 'POST',
+                  headers: { ...headers, 'Content-Type': 'application/json' }
+                });
+                const data = await resp.json();
+                if (resp.ok) {
+                  setSyncResult({ success: true, message: data.message || 'Sincronización completada', stats: data.stats });
+                } else {
+                  setSyncResult({ success: false, message: data.error || 'Error al sincronizar' });
+                }
+                fetchStats();
+                fetchClients();
+              } catch (err) {
+                const msg = err instanceof Error ? err.message : 'Error de red al sincronizar';
+                setSyncResult({ success: false, message: msg });
+              } finally {
+                setSyncing(false);
+              }
+            }}
+          >
+            {syncing ? 'Sincronizando…' : 'Sincronizar Sistema EX'}
           </Button>
           <Button
             variant="outlined"
@@ -591,6 +633,75 @@ export default function LegacyClientsPage() {
           <Button onClick={() => setDeleteDialogOpen(false)}>Cancelar</Button>
           <Button variant="contained" color="error" onClick={handleDelete}>
             Eliminar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Sync Result Dialog */}
+      <Dialog open={syncDialogOpen} onClose={() => !syncing && setSyncDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Sincronización Sistema EntregaX</DialogTitle>
+        <DialogContent>
+          {syncing && !syncResult && (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 3 }}>
+              <CircularProgress size={28} />
+              <Typography>Consultando sistemaentregax.com…</Typography>
+            </Box>
+          )}
+          {syncResult && (
+            <>
+              <Alert severity={syncResult.success ? 'success' : 'error'} sx={{ mb: 2 }}>
+                {syncResult.message}
+              </Alert>
+              {syncResult.stats && (
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 6, md: 4 }}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Typography variant="caption" color="text.secondary">Total recibidos</Typography>
+                        <Typography variant="h5" fontWeight="bold">{syncResult.stats.total}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 4 }}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Typography variant="caption" color="success.main">Nuevos</Typography>
+                        <Typography variant="h5" fontWeight="bold" color="success.main">{syncResult.stats.importados}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 4 }}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Typography variant="caption" color="info.main">Actualizados</Typography>
+                        <Typography variant="h5" fontWeight="bold" color="info.main">{syncResult.stats.actualizados}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 4 }}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Typography variant="caption" color="text.secondary">Omitidos</Typography>
+                        <Typography variant="h5" fontWeight="bold">{syncResult.stats.omitidos}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                  <Grid size={{ xs: 6, md: 4 }}>
+                    <Card variant="outlined">
+                      <CardContent>
+                        <Typography variant="caption" color="error.main">Errores</Typography>
+                        <Typography variant="h5" fontWeight="bold" color="error.main">{syncResult.stats.errores}</Typography>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSyncDialogOpen(false)} disabled={syncing}>
+            Cerrar
           </Button>
         </DialogActions>
       </Dialog>

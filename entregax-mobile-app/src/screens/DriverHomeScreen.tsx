@@ -345,12 +345,16 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     },
     {
       id: 'return',
-      title: 'Retorno a Bodega',
-      subtitle: 'Devolver paquetes no entregados',
-      icon: 'assignment-return',
-      color: '#9C27B0',
-      screen: 'ReturnScan',
-      enabled: stats.pendingDelivery > 0 || stats.loadedToday > stats.deliveredToday,
+      title: isMonitoreo ? 'Incidencias' : 'Retorno a Bodega',
+      subtitle: isMonitoreo
+        ? 'Reportar problema con un contenedor'
+        : 'Devolver paquetes no entregados',
+      icon: isMonitoreo ? 'report-problem' : 'assignment-return',
+      color: isMonitoreo ? '#E53935' : '#9C27B0',
+      screen: isMonitoreo ? 'MonitorIncidents' : 'ReturnScan',
+      enabled: isMonitoreo
+        ? stats.pendingDelivery > 0 // tiene al menos 1 contenedor en monitoreo
+        : (stats.pendingDelivery > 0 || stats.loadedToday > stats.deliveredToday),
     },
   ];
 
@@ -366,6 +370,12 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     // Monitoreo: "Confirmar Entrega" abre la lista de contenedores en monitoreo para subir 3 fotos.
     if (isMonitoreo && action.id === 'delivery') {
       navigation.navigate(action.screen, { user, token, mode: 'confirm-delivery' });
+      return;
+    }
+
+    // Monitoreo: "Incidencias" abre la lista de contenedores activos para reportar problema.
+    if (isMonitoreo && action.id === 'return') {
+      navigation.navigate('MonitorIncidents', { user, token });
       return;
     }
 

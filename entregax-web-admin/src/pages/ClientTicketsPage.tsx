@@ -63,7 +63,9 @@ const categoryLabels: Record<string, string> = {
   missing: '📭 Faltante',
   warranty: '🛡️ Garantía',
   compensation: '💰 Compensación',
+  accounting: '🧾 Contabilidad',
   systemError: '⚙️ Error del Sistema',
+  container: '🚢 Contenedor',
   other: '📝 Otro',
 };
 

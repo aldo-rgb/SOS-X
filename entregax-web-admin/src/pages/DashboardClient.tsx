@@ -2918,6 +2918,7 @@ export default function DashboardClient() {
     { value: 'missing', label: t('cd.support.categories.missing') },
     { value: 'warranty', label: t('cd.support.categories.warranty') },
     { value: 'compensation', label: t('cd.support.categories.compensation') },
+    { value: 'accounting', label: t('cd.support.categories.accounting') },
     { value: 'systemError', label: t('cd.support.categories.systemError') },
     { value: 'other', label: t('cd.support.categories.other') },
   ];
@@ -2927,7 +2928,7 @@ export default function DashboardClient() {
     if (!supportCategory) return false;
     if (!supportMessage.trim()) return false;
     // Tracking obligatorio excepto para Error del Sistema
-    if (supportCategory !== 'systemError' && !supportTracking.trim()) return false;
+    if (supportCategory !== 'systemError' && supportCategory !== 'accounting' && !supportTracking.trim()) return false;
     // Si hay tracking, debe estar validado
     if (supportTracking.trim() && trackingValidation.status !== 'valid') return false;
     return true;
@@ -11193,7 +11194,7 @@ export default function DashboardClient() {
 
           {/* Número de Guía */}
           <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-            {t('cd.support.tracking')} {supportCategory === 'systemError' ? `(${t('cd.support.optional')})` : '*'}
+            {t('cd.support.tracking')} {(supportCategory === 'systemError' || supportCategory === 'accounting') ? `(${t('cd.support.optional')})` : '*'}
           </Typography>
           <TextField
             fullWidth

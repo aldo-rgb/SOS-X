@@ -1521,7 +1521,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                     synthetic.push({
                                         id: -1,
                                         previous_status: null,
-                                        new_status: sel.status || 'in_transit_clientfinal',
+                                        // Forzamos 'in_transit_clientfinal' aunque el contenedor ya
+                                        // esté entregado, para que la fila de Inicio de monitoreo
+                                        // NO muestre el botón de "Ver fotos de entrega".
+                                        new_status: 'in_transit_clientfinal',
                                         driver_name: null,
                                         driver_plates: null,
                                         driver_phone: null,
@@ -1567,7 +1570,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                     {augmented.map((h) => {
                                                         const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
                                                         const isMonitoringStart = !!h.notes && /Monitoreo\s*iniciado/i.test(h.notes);
-                                                        const isDelivery = h.new_status === 'delivered';
+                                                        // Solo es fila de entrega si pasó a 'delivered' Y no es una nota de inicio de monitoreo
+                                                        const isDelivery = h.new_status === 'delivered' && !isMonitoringStart;
                                                         return (
                                                             <ListItem key={h.id} sx={{ borderBottom: '1px solid #eee', alignItems: 'flex-start' }}>
                                                                 <ListItemText

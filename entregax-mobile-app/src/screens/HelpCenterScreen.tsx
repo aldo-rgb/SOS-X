@@ -128,12 +128,13 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     { value: 'missing', label: t('helpCenter.categories.missing') },
     { value: 'warranty', label: t('helpCenter.categories.warranty') },
     { value: 'compensation', label: t('helpCenter.categories.compensation') },
+    { value: 'accounting', label: t('helpCenter.categories.accounting') },
     { value: 'systemError', label: t('helpCenter.categories.systemError') },
     { value: 'other', label: t('helpCenter.categories.other') },
   ];
 
-  // El número de guía es obligatorio excepto para "systemError"
-  const isTrackingRequired = ticketCategory !== 'systemError' && ticketCategory !== '';
+  // El número de guía es obligatorio excepto para "systemError" y "accounting"
+  const isTrackingRequired = ticketCategory !== 'systemError' && ticketCategory !== 'accounting' && ticketCategory !== '';
 
   // Opción 1: Hablar ahora (Asesor Virtual / AI)
   const handleTalkNow = () => {

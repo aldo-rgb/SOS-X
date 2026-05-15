@@ -1659,6 +1659,7 @@
         "missing": "📭 Report Missing Item",
         "warranty": "🛡️ Extended Warranty",
         "compensation": "💰 Compensation",
+        "accounting": "🧾 Accounting",
         "systemError": "⚙️ System Error",
         "other": "📝 Other"
       }

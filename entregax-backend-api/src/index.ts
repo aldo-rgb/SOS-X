@@ -806,7 +806,8 @@ import {
   verifyLegacyBox,
   verifyLegacyName,
   deleteLegacyClient,
-  uploadMiddleware
+  uploadMiddleware,
+  syncExternalLegacyClients
 } from './legacyController';
 import {
   getWalletStatus,
@@ -1953,6 +1954,7 @@ app.get('/api/legacy/verify/:boxId', verifyLegacyBox);
 app.post('/api/legacy/verify-name', verifyLegacyName);
 // Protegidas (para admin)
 app.post('/api/legacy/import', authenticateToken, requireRole(ROLES.SUPER_ADMIN), uploadMiddleware, importLegacyClients);
+app.post('/api/legacy/sync-external', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.DIRECTOR), syncExternalLegacyClients);
 app.get('/api/legacy/clients', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.WAREHOUSE_OPS), getLegacyClients);
 app.get('/api/legacy/stats', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getLegacyStats);
 app.delete('/api/legacy/clients/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteLegacyClient);
