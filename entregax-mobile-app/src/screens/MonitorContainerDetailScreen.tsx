@@ -103,17 +103,11 @@ export default function MonitorContainerDetailScreen({ navigation, route }: any)
           <Text style={styles.statusBannerText}>{STATUS_LABELS[c.status] || c.status}</Text>
         </View>
 
-        {/* Datos del contenedor */}
+        {/* Datos del contenedor (vista resumida para monitorista) */}
         <Section title="📦 Datos del contenedor">
           <Row label="Referencia" value={c.reference_code} />
           <Row label="Contenedor" value={c.container_number} />
-          <Row label="BL" value={c.bl_number} />
-          <Row label="Buque / Viaje" value={[c.vessel_name, c.voyage_number].filter(Boolean).join(' · ')} />
           <Row label="Semana" value={c.week_number} />
-          <Row label="ETA" value={c.eta ? new Date(c.eta).toLocaleDateString() : null} />
-          <Row label="Peso total" value={c.total_weight_kg ? `${c.total_weight_kg} kg` : null} />
-          <Row label="Volumen" value={c.total_cbm ? `${c.total_cbm} m³` : null} />
-          <Row label="Paquetes" value={c.total_packages} />
         </Section>
 
         {/* Cliente */}
@@ -153,14 +147,31 @@ export default function MonitorContainerDetailScreen({ navigation, route }: any)
           {addr ? (
             <>
               <Row label="Alias" value={addr.alias || addr.label} />
-              <Row label="Contacto" value={addr.contact_name} />
-              <Row label="Teléfono" value={addr.contact_phone} />
+              <Row label="Contacto" value={addr.recipient_name || addr.contact_name} />
+              <Row label="Teléfono" value={addr.phone || addr.contact_phone} />
               <Row
                 label="Dirección"
-                value={[addr.street, addr.exterior_number, addr.colonia, addr.city, addr.state, addr.postal_code]
-                  .filter(Boolean).join(', ')}
+                value={[
+                  addr.street,
+                  addr.exterior_number,
+                  addr.interior_number ? `Int. ${addr.interior_number}` : null,
+                  addr.neighborhood || addr.colonia,
+                  addr.city,
+                  addr.state,
+                  addr.zip_code || addr.postal_code,
+                  addr.country,
+                ].filter(Boolean).join(', ')}
               />
               <Row label="Referencias" value={addr.reference || addr.references_text} />
+              {(addr.phone || addr.contact_phone) ? (
+                <TouchableOpacity
+                  style={[styles.actionBtn, { backgroundColor: '#2E7D32' }]}
+                  onPress={() => call(addr.phone || addr.contact_phone)}
+                >
+                  <MaterialIcons name="phone" size={18} color="#fff" />
+                  <Text style={styles.actionBtnText}>Llamar {addr.phone || addr.contact_phone}</Text>
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity style={[styles.actionBtn, { backgroundColor: '#1976D2' }]} onPress={() => openMap(addr)}>
                 <MaterialIcons name="map" size={18} color="#fff" />
                 <Text style={styles.actionBtnText}>Abrir en Google Maps</Text>
@@ -168,27 +179,6 @@ export default function MonitorContainerDetailScreen({ navigation, route }: any)
             </>
           ) : (
             <Text style={styles.muted}>El cliente no tiene dirección registrada.</Text>
-          )}
-        </Section>
-
-        {/* Historial */}
-        <Section title="🕒 Historial de status">
-          {data.history.length === 0 ? (
-            <Text style={styles.muted}>Sin movimientos registrados.</Text>
-          ) : (
-            data.history.map((h: any) => (
-              <View key={h.id} style={styles.historyItem}>
-                <View style={styles.historyDot} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.historyStatus}>{STATUS_LABELS[h.status] || h.status}</Text>
-                  <Text style={styles.historyMeta}>
-                    {new Date(h.created_at).toLocaleString()}
-                    {h.changed_by_name ? ` · ${h.changed_by_name}` : ''}
-                  </Text>
-                  {h.notes ? <Text style={styles.historyNotes}>{h.notes}</Text> : null}
-                </View>
-              </View>
-            ))
           )}
         </Section>
       </ScrollView>

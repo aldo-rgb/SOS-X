@@ -89,6 +89,22 @@ export const listInTransitContainers = async (_req: AuthRequest, res: Response):
         c.total_cbm,
         c.created_at,
         c.received_at,
+        c.driver_name,
+        c.driver_plates,
+        c.driver_phone,
+        c.driver_company,
+        c.monitor_user_id,
+        c.monitoring_started_at,
+        c.monitoring_photo_1_url,
+        c.monitoring_photo_2_url,
+        c.monitoring_notes,
+        c.delivery_confirmed_at,
+        c.delivery_photo_1_url,
+        c.delivery_photo_2_url,
+        c.delivery_photo_3_url,
+        c.delivery_notes,
+        mu.full_name AS monitor_name,
+        mu.phone AS monitor_phone,
         mr.code AS route_code,
         (
           SELECT COUNT(*) FROM maritime_orders mo
@@ -106,6 +122,7 @@ export const listInTransitContainers = async (_req: AuthRequest, res: Response):
         ) AS missing_orders
       FROM containers c
       LEFT JOIN maritime_routes mr ON mr.id = c.route_id
+      LEFT JOIN users mu ON mu.id = c.monitor_user_id
       WHERE c.received_at IS NULL
       ORDER BY c.eta ASC NULLS LAST, c.id DESC
     `);

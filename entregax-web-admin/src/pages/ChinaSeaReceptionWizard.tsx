@@ -214,6 +214,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     };
     const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
+    // Visor de fotos (Inicio de monitoreo / Confirmación de entrega)
+    const [photosDialog, setPhotosDialog] = useState<{ title: string; urls: string[] } | null>(null);
     type DestinationAddress = {
         id?: number;
         alias?: string | null;
@@ -1456,18 +1458,46 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             </Typography>
                             <Autocomplete
                                 size="small"
-                                options={monitors}
-                                value={monitors.find((m) => m.id === monitorUserId) || null}
+                                options={(() => {
+                                    // Si ya hay un monitor asignado pero no aparece en la lista activa
+                                    // (por ejemplo, fue desactivado o aún no carga la lista), inyectar
+                                    // una opción sintética para que el Autocomplete pueda mostrar el
+                                    // nombre asignado actual en lugar de quedar vacío.
+                                    const assignedName = (selected as any)?.monitor_name as string | undefined;
+                                    if (
+                                        monitorUserId &&
+                                        !monitors.find((m) => m.id === monitorUserId) &&
+                                        assignedName
+                                    ) {
+                                        return [
+                                            { id: monitorUserId, full_name: assignedName, phone: (selected as any)?.monitor_phone || null },
+                                            ...monitors,
+                                        ];
+                                    }
+                                    return monitors;
+                                })()}
+                                value={
+                                    monitors.find((m) => m.id === monitorUserId) ||
+                                    (monitorUserId
+                                        ? {
+                                              id: monitorUserId,
+                                              full_name: (selected as any)?.monitor_name || `Monitorista #${monitorUserId}`,
+                                              phone: (selected as any)?.monitor_phone || null,
+                                          }
+                                        : null)
+                                }
                                 onChange={(_, v) => setMonitorUserId(v?.id || null)}
                                 getOptionLabel={(o) => o.full_name + (o.phone ? ` · ${o.phone}` : '')}
                                 isOptionEqualToValue={(a, b) => a.id === b.id}
                                 renderInput={(params) => (
                                     <TextField
                                         {...params}
-                                        label="Selecciona un monitorista…"
+                                        label={monitorUserId ? 'Monitorista asignado' : 'Selecciona un monitorista…'}
                                         helperText={truckMode === 'full'
                                             ? 'En modo Full se asignará a ambos contenedores automáticamente.'
-                                            : 'Se notificará al monitorista para dar seguimiento al contenedor.'}
+                                            : (monitorUserId
+                                                ? 'Puedes reasignar a otro monitorista o conservar el actual.'
+                                                : 'Se notificará al monitorista para dar seguimiento al contenedor.')}
                                     />
                                 )}
                                 noOptionsText={monitors.length === 0 ? 'No hay monitoristas activos en el sistema' : 'Sin coincidencias'}
@@ -1490,13 +1520,18 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                     <List dense disablePadding>
                                         {history.map((h) => {
                                             const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
+                                            const sel: any = selected || {};
+                                            const isMonitoringStart = !!h.notes && /Monitoreo\s*iniciado/i.test(h.notes);
+                                            const isDelivery = h.new_status === 'delivered';
+                                            const monitoringUrls = [sel.monitoring_photo_1_url, sel.monitoring_photo_2_url].filter(Boolean) as string[];
+                                            const deliveryUrls = [sel.delivery_photo_1_url, sel.delivery_photo_2_url, sel.delivery_photo_3_url].filter(Boolean) as string[];
                                             return (
                                                 <ListItem key={h.id} sx={{ borderBottom: '1px solid #eee', alignItems: 'flex-start' }}>
                                                     <ListItemText
                                                         primary={
                                                             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                                                                 <Typography sx={{ fontWeight: 700 }}>
-                                                                    {meta?.icon || '·'} {meta?.label || h.new_status}
+                                                                    {isMonitoringStart ? '📸' : (meta?.icon || '·')} {isMonitoringStart ? 'Inicio de monitoreo' : (meta?.label || h.new_status)}
                                                                 </Typography>
                                                                 <Chip
                                                                     label={new Date(h.changed_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
@@ -1506,6 +1541,26 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                                 />
                                                                 {h.changed_by_name && (
                                                                     <Chip label={`por ${h.changed_by_name}`} size="small" sx={{ height: 20, bgcolor: BLACK, color: '#FFF', fontSize: 11 }} />
+                                                                )}
+                                                                {isMonitoringStart && monitoringUrls.length > 0 && (
+                                                                    <Button
+                                                                        size="small"
+                                                                        variant="outlined"
+                                                                        sx={{ height: 22, py: 0, fontSize: 11, borderColor: ORANGE, color: ORANGE, textTransform: 'none' }}
+                                                                        onClick={() => setPhotosDialog({ title: '📸 Fotos de inicio de monitoreo', urls: monitoringUrls })}
+                                                                    >
+                                                                        Ver fotos ({monitoringUrls.length})
+                                                                    </Button>
+                                                                )}
+                                                                {isDelivery && deliveryUrls.length > 0 && (
+                                                                    <Button
+                                                                        size="small"
+                                                                        variant="outlined"
+                                                                        sx={{ height: 22, py: 0, fontSize: 11, borderColor: '#2E7D32', color: '#2E7D32', textTransform: 'none' }}
+                                                                        onClick={() => setPhotosDialog({ title: '✅ Fotos de entrega', urls: deliveryUrls })}
+                                                                    >
+                                                                        Ver fotos de entrega ({deliveryUrls.length})
+                                                                    </Button>
                                                                 )}
                                                             </Stack>
                                                         }
@@ -2256,6 +2311,46 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             </Button>
                         </>
                     )}
+                </DialogActions>
+            </Dialog>
+
+            {/* ─────────── DIALOG: VISOR DE FOTOS (monitoreo / entrega) ─────────── */}
+            <Dialog open={!!photosDialog} onClose={() => setPhotosDialog(null)} maxWidth="md" fullWidth>
+                <DialogTitle sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700 }}>
+                    {photosDialog?.title || 'Fotos'}
+                </DialogTitle>
+                <DialogContent sx={{ pt: 3 }}>
+                    {photosDialog && photosDialog.urls.length > 0 ? (
+                        <Grid container spacing={2}>
+                            {photosDialog.urls.map((url, idx) => (
+                                <Grid key={idx} size={{ xs: 12, sm: photosDialog.urls.length >= 3 ? 4 : 6 }}>
+                                    <Paper variant="outlined" sx={{ overflow: 'hidden' }}>
+                                        <Box
+                                            component="a"
+                                            href={url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            sx={{ display: 'block', textDecoration: 'none' }}
+                                        >
+                                            <img
+                                                src={url}
+                                                alt={`Foto ${idx + 1}`}
+                                                style={{ width: '100%', height: 'auto', display: 'block', maxHeight: 480, objectFit: 'contain', background: '#000' }}
+                                            />
+                                        </Box>
+                                        <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', py: 0.5, color: '#555' }}>
+                                            Foto {idx + 1} · click para abrir en pestaña nueva
+                                        </Typography>
+                                    </Paper>
+                                </Grid>
+                            ))}
+                        </Grid>
+                    ) : (
+                        <Typography color="text.secondary">Sin fotos disponibles.</Typography>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ p: 2 }}>
+                    <Button onClick={() => setPhotosDialog(null)} sx={{ color: BLACK }}>Cerrar</Button>
                 </DialogActions>
             </Dialog>
         </Box>
