@@ -20,15 +20,17 @@ import {
     QrCodeScanner as ScannerIcon,
     Inventory2 as InventoryIcon,
     ChevronRight as ChevronRightIcon,
+    LocalShipping as ShippingIcon,
 } from '@mui/icons-material';
 import ChinaAirReceptionWizard from './ChinaAirReceptionWizard';
 import ChinaAirInventoryPage from './ChinaAirInventoryPage';
+import TdiExpressShipmentsPage from './TdiExpressShipmentsPage';
 
 interface Props {
     onBack: () => void;
 }
 
-type Panel = 'menu' | 'reception' | 'inventory';
+type Panel = 'menu' | 'reception' | 'inventory' | 'tdi_express';
 
 const ORANGE = '#FF6B35';
 const BLACK = '#1A1A1A';
@@ -48,6 +50,13 @@ const OPTIONS = [
         icon: <InventoryIcon sx={{ fontSize: 56, color: '#FFF' }} />,
         bgGradient: 'linear-gradient(135deg, #1976D2 0%, #42A5F5 100%)',
     },
+    {
+        key: 'tdi_express' as const,
+        title: 'Recibir TDI Express',
+        description: 'Captura en serie de envíos de la ruta TDI Express China → Monterrey',
+        icon: <ShippingIcon sx={{ fontSize: 56, color: '#FFF' }} />,
+        bgGradient: 'linear-gradient(135deg, #1A1A1A 0%, #424242 100%)',
+    },
 ];
 
 export default function ChinaAirHubPage({ onBack }: Props) {
@@ -58,6 +67,9 @@ export default function ChinaAirHubPage({ onBack }: Props) {
     }
     if (panel === 'inventory') {
         return <ChinaAirInventoryPage onBack={() => setPanel('menu')} />;
+    }
+    if (panel === 'tdi_express') {
+        return <TdiExpressShipmentsPage onBack={() => setPanel('menu')} />;
     }
 
     return (
@@ -108,7 +120,7 @@ export default function ChinaAirHubPage({ onBack }: Props) {
             <Box
                 sx={{
                     display: 'grid',
-                    gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' },
+                    gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' },
                     gap: 3,
                 }}
             >

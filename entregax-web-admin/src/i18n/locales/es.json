@@ -191,38 +191,23 @@
     "processing": "Procesando..."
   },
   "pobox": {
-    "hub": {
-      "title": "PO Box USA",
-      "subtitle": "Panel de gestión de paquetería PO Box",
-      "backToMenu": "← Volver al menú PO Box",
-      "tip": "Consejo",
-      "tipText": "Usa \"Recibir Paquetería\" para escanear nuevos paquetes, \"Cobrar\" para gestionar pagos pendientes, y \"Cotizar\" para calcular costos antes de recibir.",
-      "options": {
-        "receive": {
-          "title": "Recibir Paquetería",
-          "description": "Recepción en serie - Bodega Hidalgo TX"
-        },
-        "entry": {
-          "title": "Entrada",
-          "description": "Ver paquetes recibidos en bodega"
-        },
-        "inventory": {
-          "title": "Inventario",
-          "description": "Ver todos los paquetes PO Box"
-        },
-        "exit": {
-          "title": "Salida",
-          "description": "Procesar consolidaciones y despachos"
-        },
-        "collect": {
-          "title": "Cobrar",
-          "description": "Gestionar cobros y pagos pendientes"
-        },
-        "quote": {
-          "title": "Cotizar",
-          "description": "Calcular costos y generar cotizaciones"
-        }
-      }
+    "costing": {
+      "title": "Panel de Costeo PO Box",
+      "subtitle": "Calcula el costo de cada guía basado en dimensiones",
+      "formula": "Fórmula de Costeo",
+      "calculator": "Calculadora",
+      "packages": "Paquetes",
+      "history": "Historial",
+      "manualCalc": "Calculadora Manual",
+      "enterDimensions": "Ingresa las dimensiones de la caja en centímetros",
+      "enterDimensionsToCalc": "Ingresa las dimensiones para calcular",
+      "result": "Resultado",
+      "configTitle": "Configuración de Costeo",
+      "conversionFactor": "Factor de Conversión",
+      "divisor": "Divisor Dimensional",
+      "baseRate": "Tarifa Base",
+      "minCost": "Costo Mínimo",
+      "active": "Configuración Activa"
     }
   },
   "auth": {
@@ -768,7 +753,7 @@
       "pricing": "Tarifas",
       "invoicing": "Facturación",
       "instructions": "Direcciones",
-      "suppliers": "Pago Proveedores",
+      "suppliers": "Costeo Proveedores",
       "commissions": "Comisiones",
       "reports": "Reportes",
       "verifications": "Verificaciones KYC",
@@ -791,7 +776,6 @@
       "dhl_operations": "Operaciones DHL",
       "anticipos": "Control de Anticipos",
       "pobox_rates": "Tarifas PO Box",
-      "suppliers": "Costeo Proveedores",
       "carrier_options": "Paqueterías"
     },
     "moduleFeatures": {
@@ -989,7 +973,7 @@
     "convertMessage": "Se creará una cuenta para este prospecto con la contraseña por defecto.",
     "prospectCreated": "Prospecto creado exitosamente",
     "prospectUpdated": "Prospecto actualizado exitosamente",
-    "prospectConverted": "Prospecto convertido a cliente exitosamente",
+    "prospectConverted": "¡Prospecto convertido! Casillero:",
     "prospectDeleted": "Prospecto eliminado",
     "leadAssigned": "Lead asignado exitosamente",
     "leadStatusUpdated": "Estado del lead actualizado",
@@ -1039,7 +1023,6 @@
     "hoursAgo": "Hace {{count}} horas",
     "oneDayAgo": "Hace 1 día",
     "daysAgo": "Hace {{count}} días",
-    "prospectConverted": "¡Prospecto convertido! Casillero:",
     "nameRequired": "El nombre es requerido",
     "advisorAssigned": "Asesor asignado correctamente",
     "errorAssigning": "Error al asignar asesor",
@@ -1079,7 +1062,7 @@
       "referral": "Referido",
       "other": "Otro"
     },
-    "takeControlHint": "Para enviar mensajes manuales, primero debes \"Tomar Control\" desactivando la IA."  
+    "takeControlHint": "Para enviar mensajes manuales, primero debes \"Tomar Control\" desactivando la IA."
   },
   "warranties": {
     "title": "Garantía Extendida (GEX)",
@@ -1319,26 +1302,6 @@
     "deactivated": "Ruta desactivada",
     "errorLoading": "Error al cargar las rutas",
     "codeRequired": "El código de ruta es requerido"
-  },
-  "pobox": {
-    "costing": {
-      "title": "Panel de Costeo PO Box",
-      "subtitle": "Calcula el costo de cada guía basado en dimensiones",
-      "formula": "Fórmula de Costeo",
-      "calculator": "Calculadora",
-      "packages": "Paquetes",
-      "history": "Historial",
-      "manualCalc": "Calculadora Manual",
-      "enterDimensions": "Ingresa las dimensiones de la caja en centímetros",
-      "enterDimensionsToCalc": "Ingresa las dimensiones para calcular",
-      "result": "Resultado",
-      "configTitle": "Configuración de Costeo",
-      "conversionFactor": "Factor de Conversión",
-      "divisor": "Divisor Dimensional",
-      "baseRate": "Tarifa Base",
-      "minCost": "Costo Mínimo",
-      "active": "Configuración Activa"
-    }
   },
   "cd": {
     "header": {
@@ -2117,5 +2080,86 @@
     "totalReferrals": "Total Referidos",
     "thisMonth": "Este Mes",
     "subAdvisors": "Sub-Asesores"
+  },
+  "tdiExpress": {
+    "title": "Recibir TDI Express",
+    "subtitle": "Recepción en serie de envíos de la ruta aérea TDI Express (China → Monterrey)",
+    "hubCardTitle": "Recibir TDI Express",
+    "hubCardDesc": "Captura en serie de los envíos que llegan por la ruta TDI Express China → Monterrey",
+    "receivePackage": "Recibir Paquete",
+    "search": "Buscar por guía, cliente o casillero...",
+    "refresh": "Actualizar",
+    "statusFilter": "Estado",
+    "all": "Todos",
+    "noShipments": "Sin envíos registrados",
+    "stats": {
+      "total": "Total",
+      "capturadoChina": "Capturado en China",
+      "enTransito": "En tránsito",
+      "recibidoMty": "Recibido en MTY",
+      "enReenvio": "En reenvío nacional",
+      "entregado": "Entregado"
+    },
+    "table": {
+      "tracking": "Guía",
+      "client": "Cliente",
+      "boxes": "Cajas",
+      "weight": "Peso (kg)",
+      "price": "Precio",
+      "status": "Estado",
+      "received": "Recibido"
+    },
+    "wizard": {
+      "title": "Recepción en serie — TDI Express",
+      "step1": "Cliente y cajas",
+      "step2": "Capturar cajas",
+      "step3": "Confirmar",
+      "clientBoxId": "Numero del cliente (EJ. S100)",
+      "expectedBoxes": "Total de cajas esperadas",
+      "start": "Iniciar recepción",
+      "boxOf": "Caja {{n}} de {{total}}",
+      "originGuide": "Guía origen",
+      "clientNumber": "Número de cliente",
+      "grossWeight": "Peso GW (kg)",
+      "chargeableWeight": "Peso CW (kg)",
+      "length": "Largo (cm)",
+      "width": "Ancho (cm)",
+      "height": "Alto (cm)",
+      "productType": "Tipo de producto",
+      "description": "Descripción del producto",
+      "comments": "Comentarios",
+      "addBox": "Agregar caja",
+      "finish": "Finalizar",
+      "cancel": "Cancelar",
+      "close": "Cerrar",
+      "captured": "Capturadas",
+      "estimatedPrice": "Precio estimado",
+      "required": "Campo obligatorio",
+      "done": "Recepción completada",
+      "quantity": "Cantidad",
+      "addBoxes": "Agregar {{n}} cajas",
+      "copyPrevious": "Copiar anterior",
+      "boxesAdded": "Cajas agregadas",
+      "remaining": "Faltan {{n}} caja(s)",
+      "deleteBox": "Eliminar",
+      "noBoxes": "Aún no se agregan cajas",
+      "section1": "Guía y cliente",
+      "section2": "Peso y medidas",
+      "section3": "Tipo y cantidad",
+      "missingBoxes": "Faltan {{n}} caja(s) por capturar"
+    },
+    "productTypes": {
+      "logo": "Logo",
+      "generico": "Genérico",
+      "sensible": "Sensible",
+      "fragil": "Frágil"
+    },
+    "statusLabels": {
+      "received_china": "Capturado en China",
+      "in_transit": "En tránsito",
+      "received_mty": "Recibido en MTY",
+      "dispatched_national": "En reenvío nacional",
+      "delivered": "Entregado"
+    }
   }
 }

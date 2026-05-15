@@ -723,6 +723,15 @@ import {
   deleteClientTariff
 } from './airEmailController';
 import {
+  getTdiProductTypes,
+  getTdiStats,
+  listTdiShipments,
+  getTdiShipmentDetail,
+  startTdiSerial,
+  addTdiBox,
+  removeTdiBox,
+} from './tdiExpressController';
+import {
   getCajoGuides,
   getCajoStats,
   getCajoGuideById,
@@ -7573,6 +7582,15 @@ app.get('/api/awb-costs/:id/profit', authenticateToken, requireMinLevel(ROLES.CO
 app.get('/api/awb-costs/:id/calc-release-costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), calcReleaseCosts);
 app.post('/api/awb-costs/:id/upload-document', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadAwbDocument, handleAwbDocumentUpload);
 app.delete('/api/awb-costs/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteAwbCost);
+
+// ========== TDI EXPRESS — recepción en serie ruta TDI-EXPRES ==========
+app.get('/api/tdi-express/product-types', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getTdiProductTypes);
+app.get('/api/tdi-express/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getTdiStats);
+app.get('/api/tdi-express/shipments', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listTdiShipments);
+app.get('/api/tdi-express/shipments/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getTdiShipmentDetail);
+app.post('/api/tdi-express/serial/start', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), startTdiSerial);
+app.post('/api/tdi-express/serial/:masterId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addTdiBox);
+app.delete('/api/tdi-express/serial/:masterId/child/:childId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), removeTdiBox);
 
 // ========== RECEPCIÓN AÉREA POR AWB (Hub TDI Aéreo China) ==========
 app.get('/api/admin/china-air/awbs/in-transit', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listInTransitAwbs);

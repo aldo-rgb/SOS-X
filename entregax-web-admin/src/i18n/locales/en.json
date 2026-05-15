@@ -162,38 +162,23 @@
     "moreFilters": "More filters (coming soon)"
   },
   "pobox": {
-    "hub": {
-      "title": "PO Box USA",
-      "subtitle": "PO Box Package Management Panel",
-      "backToMenu": "← Back to PO Box menu",
-      "tip": "Tip",
-      "tipText": "Use \"Receive Packages\" to scan new packages, \"Collect\" to manage pending payments, and \"Quote\" to calculate costs before receiving.",
-      "options": {
-        "receive": {
-          "title": "Receive Packages",
-          "description": "Bulk reception - Hidalgo TX Warehouse"
-        },
-        "entry": {
-          "title": "Entry",
-          "description": "View received packages in warehouse"
-        },
-        "inventory": {
-          "title": "Inventory",
-          "description": "View all PO Box packages"
-        },
-        "exit": {
-          "title": "Exit",
-          "description": "Process consolidations and dispatches"
-        },
-        "collect": {
-          "title": "Collect",
-          "description": "Manage payments and pending charges"
-        },
-        "quote": {
-          "title": "Quote",
-          "description": "Calculate costs and generate quotes"
-        }
-      }
+    "costing": {
+      "title": "PO Box Costing Panel",
+      "subtitle": "Calculate the cost of each shipment based on dimensions",
+      "formula": "Costing Formula",
+      "calculator": "Calculator",
+      "packages": "Packages",
+      "history": "History",
+      "manualCalc": "Manual Calculator",
+      "enterDimensions": "Enter box dimensions in centimeters",
+      "enterDimensionsToCalc": "Enter dimensions to calculate",
+      "result": "Result",
+      "configTitle": "Costing Configuration",
+      "conversionFactor": "Conversion Factor",
+      "divisor": "Dimensional Divisor",
+      "baseRate": "Base Rate",
+      "minCost": "Minimum Cost",
+      "active": "Active Configuration"
     }
   },
   "auth": {
@@ -726,7 +711,7 @@
       "pricing": "Rates",
       "invoicing": "Invoicing",
       "instructions": "Addresses",
-      "suppliers": "Supplier Payment",
+      "suppliers": "Supplier Costing",
       "commissions": "Commissions",
       "reports": "Reports",
       "verifications": "KYC Verifications",
@@ -746,7 +731,6 @@
       "dhl_operations": "DHL Operations",
       "anticipos": "Advance Control",
       "pobox_rates": "PO Box Rates",
-      "suppliers": "Supplier Costing",
       "carrier_options": "Carrier Options"
     },
     "moduleFeatures": {
@@ -944,7 +928,7 @@
     "convertMessage": "An account will be created for this prospect with the default password.",
     "prospectCreated": "Prospect created successfully",
     "prospectUpdated": "Prospect updated successfully",
-    "prospectConverted": "Prospect converted to client successfully",
+    "prospectConverted": "Prospect converted! Mailbox:",
     "prospectDeleted": "Prospect deleted",
     "leadAssigned": "Lead assigned successfully",
     "leadStatusUpdated": "Lead status updated",
@@ -994,7 +978,6 @@
     "hoursAgo": "{{count}} hours ago",
     "oneDayAgo": "1 day ago",
     "daysAgo": "{{count}} days ago",
-    "prospectConverted": "Prospect converted! Mailbox:",
     "nameRequired": "Name is required",
     "advisorAssigned": "Advisor assigned successfully",
     "errorAssigning": "Error assigning advisor",
@@ -1265,26 +1248,6 @@
     "deactivated": "Route deactivated",
     "errorLoading": "Error loading routes",
     "codeRequired": "Route code is required"
-  },
-  "pobox": {
-    "costing": {
-      "title": "PO Box Costing Panel",
-      "subtitle": "Calculate the cost of each shipment based on dimensions",
-      "formula": "Costing Formula",
-      "calculator": "Calculator",
-      "packages": "Packages",
-      "history": "History",
-      "manualCalc": "Manual Calculator",
-      "enterDimensions": "Enter box dimensions in centimeters",
-      "enterDimensionsToCalc": "Enter dimensions to calculate",
-      "result": "Result",
-      "configTitle": "Costing Configuration",
-      "conversionFactor": "Conversion Factor",
-      "divisor": "Dimensional Divisor",
-      "baseRate": "Base Rate",
-      "minCost": "Minimum Cost",
-      "active": "Active Configuration"
-    }
   },
   "cd": {
     "header": {
@@ -1904,5 +1867,86 @@
     "totalReferrals": "Total Referrals",
     "thisMonth": "This Month",
     "subAdvisors": "Sub-Advisors"
+  },
+  "tdiExpress": {
+    "title": "Receive TDI Express",
+    "subtitle": "Batch reception of shipments from the TDI Express air route (China → Monterrey)",
+    "hubCardTitle": "Receive TDI Express",
+    "hubCardDesc": "Batch capture of shipments arriving via the TDI Express route China → Monterrey",
+    "receivePackage": "Receive Package",
+    "search": "Search by guide, client or box ID...",
+    "refresh": "Refresh",
+    "statusFilter": "Status",
+    "all": "All",
+    "noShipments": "No shipments registered",
+    "stats": {
+      "total": "Total",
+      "capturadoChina": "Captured in China",
+      "enTransito": "In transit",
+      "recibidoMty": "Received in MTY",
+      "enReenvio": "In national re-ship",
+      "entregado": "Delivered"
+    },
+    "table": {
+      "tracking": "Guide",
+      "client": "Client",
+      "boxes": "Boxes",
+      "weight": "Weight (kg)",
+      "price": "Price",
+      "status": "Status",
+      "received": "Received"
+    },
+    "wizard": {
+      "title": "Batch reception — TDI Express",
+      "step1": "Client & boxes",
+      "step2": "Capture boxes",
+      "step3": "Confirm",
+      "clientBoxId": "Client box ID (optional)",
+      "expectedBoxes": "Expected total boxes",
+      "start": "Start reception",
+      "boxOf": "Box {{n}} of {{total}}",
+      "originGuide": "Origin guide",
+      "clientNumber": "Client number",
+      "grossWeight": "Gross weight GW (kg)",
+      "chargeableWeight": "Chargeable weight CW (kg)",
+      "length": "Length (cm)",
+      "width": "Width (cm)",
+      "height": "Height (cm)",
+      "productType": "Product type",
+      "description": "Product description",
+      "comments": "Comments",
+      "addBox": "Add box",
+      "finish": "Finish",
+      "cancel": "Cancel",
+      "close": "Close",
+      "captured": "Captured",
+      "estimatedPrice": "Estimated price",
+      "required": "Required field",
+      "done": "Reception completed",
+      "quantity": "Quantity",
+      "addBoxes": "Add {{n}} boxes",
+      "copyPrevious": "Copy previous",
+      "boxesAdded": "Boxes added",
+      "remaining": "{{n}} box(es) left",
+      "deleteBox": "Delete",
+      "noBoxes": "No boxes added yet",
+      "section1": "Guide & client",
+      "section2": "Weight & measures",
+      "section3": "Type & quantity",
+      "missingBoxes": "{{n}} box(es) still to capture"
+    },
+    "productTypes": {
+      "logo": "Logo",
+      "generico": "Generic",
+      "sensible": "Sensitive",
+      "fragil": "Fragile"
+    },
+    "statusLabels": {
+      "received_china": "Captured in China",
+      "in_transit": "In transit",
+      "received_mty": "Received in MTY",
+      "dispatched_national": "In national re-ship",
+      "delivered": "Delivered"
+    }
   }
 }
