@@ -1506,86 +1506,132 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
 
                         {/* Historial de cambios */}
                         <Box sx={{ mt: 3 }}>
-                            <Typography sx={{ fontWeight: 700, color: BLACK, mb: 1 }}>
-                                📜 Historial de cambios ({history.length})
-                            </Typography>
-                            {loadingHistory ? (
-                                <Box sx={{ textAlign: 'center', py: 2 }}><CircularProgress size={20} sx={{ color: TEAL }} /></Box>
-                            ) : history.length === 0 ? (
-                                <Typography variant="caption" color="text.secondary">
-                                    Sin movimientos registrados todavía.
-                                </Typography>
-                            ) : (
-                                <Paper variant="outlined" sx={{ maxHeight: 220, overflow: 'auto' }}>
-                                    <List dense disablePadding>
-                                        {history.map((h) => {
-                                            const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
-                                            const sel: any = selected || {};
-                                            const isMonitoringStart = !!h.notes && /Monitoreo\s*iniciado/i.test(h.notes);
-                                            const isDelivery = h.new_status === 'delivered';
-                                            const monitoringUrls = [sel.monitoring_photo_1_url, sel.monitoring_photo_2_url].filter(Boolean) as string[];
-                                            const deliveryUrls = [sel.delivery_photo_1_url, sel.delivery_photo_2_url, sel.delivery_photo_3_url].filter(Boolean) as string[];
-                                            return (
-                                                <ListItem key={h.id} sx={{ borderBottom: '1px solid #eee', alignItems: 'flex-start' }}>
-                                                    <ListItemText
-                                                        primary={
-                                                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                                                                <Typography sx={{ fontWeight: 700 }}>
-                                                                    {isMonitoringStart ? '📸' : (meta?.icon || '·')} {isMonitoringStart ? 'Inicio de monitoreo' : (meta?.label || h.new_status)}
-                                                                </Typography>
-                                                                <Chip
-                                                                    label={new Date(h.changed_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
-                                                                    size="small"
-                                                                    variant="outlined"
-                                                                    sx={{ height: 20, fontSize: 11 }}
+                            {(() => {
+                                // Construir historial aumentado:
+                                // - Si el contenedor tiene monitoring_started_at y NO existe un row real
+                                //   en history con notas "Monitoreo iniciado", se inyecta uno sintético.
+                                // - Idem para delivery_confirmed_at -> "Entregado".
+                                const sel: any = selected || {};
+                                const monitoringUrls = [sel.monitoring_photo_1_url, sel.monitoring_photo_2_url].filter(Boolean) as string[];
+                                const deliveryUrls = [sel.delivery_photo_1_url, sel.delivery_photo_2_url, sel.delivery_photo_3_url].filter(Boolean) as string[];
+
+                                const synthetic: HistoryEntry[] = [];
+                                const hasMonStartRow = history.some((h) => h.notes && /Monitoreo\s*iniciado/i.test(h.notes));
+                                if (sel.monitoring_started_at && !hasMonStartRow) {
+                                    synthetic.push({
+                                        id: -1,
+                                        previous_status: null,
+                                        new_status: sel.status || 'in_transit_clientfinal',
+                                        driver_name: null,
+                                        driver_plates: null,
+                                        driver_phone: null,
+                                        driver_company: null,
+                                        notes: '📸 Monitoreo iniciado por monitorista',
+                                        changed_by_name: sel.monitor_name || null,
+                                        changed_at: sel.monitoring_started_at,
+                                    });
+                                }
+                                const hasDeliveredRow = history.some((h) => h.new_status === 'delivered');
+                                if (sel.delivery_confirmed_at && !hasDeliveredRow) {
+                                    synthetic.push({
+                                        id: -2,
+                                        previous_status: sel.status || null,
+                                        new_status: 'delivered',
+                                        driver_name: null,
+                                        driver_plates: null,
+                                        driver_phone: null,
+                                        driver_company: null,
+                                        notes: '✅ Entrega confirmada por monitorista (3 fotos)',
+                                        changed_by_name: sel.monitor_name || null,
+                                        changed_at: sel.delivery_confirmed_at,
+                                    });
+                                }
+                                const augmented: HistoryEntry[] = [...synthetic, ...history].sort(
+                                    (a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime()
+                                );
+
+                                return (
+                                    <>
+                                        <Typography sx={{ fontWeight: 700, color: BLACK, mb: 1 }}>
+                                            📜 Historial de cambios ({augmented.length})
+                                        </Typography>
+                                        {loadingHistory ? (
+                                            <Box sx={{ textAlign: 'center', py: 2 }}><CircularProgress size={20} sx={{ color: TEAL }} /></Box>
+                                        ) : augmented.length === 0 ? (
+                                            <Typography variant="caption" color="text.secondary">
+                                                Sin movimientos registrados todavía.
+                                            </Typography>
+                                        ) : (
+                                            <Paper variant="outlined" sx={{ maxHeight: 260, overflow: 'auto' }}>
+                                                <List dense disablePadding>
+                                                    {augmented.map((h) => {
+                                                        const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
+                                                        const isMonitoringStart = !!h.notes && /Monitoreo\s*iniciado/i.test(h.notes);
+                                                        const isDelivery = h.new_status === 'delivered';
+                                                        return (
+                                                            <ListItem key={h.id} sx={{ borderBottom: '1px solid #eee', alignItems: 'flex-start' }}>
+                                                                <ListItemText
+                                                                    primary={
+                                                                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                                                                            <Typography sx={{ fontWeight: 700 }}>
+                                                                                {isMonitoringStart ? '📸' : (meta?.icon || '·')} {isMonitoringStart ? 'Inicio de monitoreo' : (meta?.label || h.new_status)}
+                                                                            </Typography>
+                                                                            <Chip
+                                                                                label={new Date(h.changed_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                                                                                size="small"
+                                                                                variant="outlined"
+                                                                                sx={{ height: 20, fontSize: 11 }}
+                                                                            />
+                                                                            {h.changed_by_name && (
+                                                                                <Chip label={`por ${h.changed_by_name}`} size="small" sx={{ height: 20, bgcolor: BLACK, color: '#FFF', fontSize: 11 }} />
+                                                                            )}
+                                                                            {isMonitoringStart && monitoringUrls.length > 0 && (
+                                                                                <Button
+                                                                                    size="small"
+                                                                                    variant="outlined"
+                                                                                    sx={{ height: 22, py: 0, fontSize: 11, borderColor: ORANGE, color: ORANGE, textTransform: 'none' }}
+                                                                                    onClick={() => setPhotosDialog({ title: '📸 Fotos de inicio de monitoreo', urls: monitoringUrls })}
+                                                                                >
+                                                                                    Ver fotos ({monitoringUrls.length})
+                                                                                </Button>
+                                                                            )}
+                                                                            {isDelivery && deliveryUrls.length > 0 && (
+                                                                                <Button
+                                                                                    size="small"
+                                                                                    variant="outlined"
+                                                                                    sx={{ height: 22, py: 0, fontSize: 11, borderColor: '#2E7D32', color: '#2E7D32', textTransform: 'none' }}
+                                                                                    onClick={() => setPhotosDialog({ title: '✅ Fotos de entrega', urls: deliveryUrls })}
+                                                                                >
+                                                                                    Ver fotos de entrega ({deliveryUrls.length})
+                                                                                </Button>
+                                                                            )}
+                                                                        </Stack>
+                                                                    }
+                                                                    secondary={
+                                                                        <Box component="span" sx={{ display: 'block', fontSize: 12, color: '#555', mt: 0.5 }}>
+                                                                            {(h.driver_name || h.driver_plates || h.driver_phone) && (
+                                                                                <span>
+                                                                                    🚛 {h.driver_name || '—'}
+                                                                                    {h.driver_plates ? ` · ${h.driver_plates}` : ''}
+                                                                                    {h.driver_phone ? ` · ${h.driver_phone}` : ''}
+                                                                                </span>
+                                                                            )}
+                                                                            {h.notes && <span style={{ display: 'block' }}>📝 {h.notes}</span>}
+                                                                            {h.previous_status && (
+                                                                                <span style={{ display: 'block', color: '#999' }}>(anterior: {h.previous_status})</span>
+                                                                            )}
+                                                                        </Box>
+                                                                    }
                                                                 />
-                                                                {h.changed_by_name && (
-                                                                    <Chip label={`por ${h.changed_by_name}`} size="small" sx={{ height: 20, bgcolor: BLACK, color: '#FFF', fontSize: 11 }} />
-                                                                )}
-                                                                {isMonitoringStart && monitoringUrls.length > 0 && (
-                                                                    <Button
-                                                                        size="small"
-                                                                        variant="outlined"
-                                                                        sx={{ height: 22, py: 0, fontSize: 11, borderColor: ORANGE, color: ORANGE, textTransform: 'none' }}
-                                                                        onClick={() => setPhotosDialog({ title: '📸 Fotos de inicio de monitoreo', urls: monitoringUrls })}
-                                                                    >
-                                                                        Ver fotos ({monitoringUrls.length})
-                                                                    </Button>
-                                                                )}
-                                                                {isDelivery && deliveryUrls.length > 0 && (
-                                                                    <Button
-                                                                        size="small"
-                                                                        variant="outlined"
-                                                                        sx={{ height: 22, py: 0, fontSize: 11, borderColor: '#2E7D32', color: '#2E7D32', textTransform: 'none' }}
-                                                                        onClick={() => setPhotosDialog({ title: '✅ Fotos de entrega', urls: deliveryUrls })}
-                                                                    >
-                                                                        Ver fotos de entrega ({deliveryUrls.length})
-                                                                    </Button>
-                                                                )}
-                                                            </Stack>
-                                                        }
-                                                        secondary={
-                                                            <Box component="span" sx={{ display: 'block', fontSize: 12, color: '#555', mt: 0.5 }}>
-                                                                {(h.driver_name || h.driver_plates || h.driver_phone) && (
-                                                                    <span>
-                                                                        🚛 {h.driver_name || '—'}
-                                                                        {h.driver_plates ? ` · ${h.driver_plates}` : ''}
-                                                                        {h.driver_phone ? ` · ${h.driver_phone}` : ''}
-                                                                    </span>
-                                                                )}
-                                                                {h.notes && <span style={{ display: 'block' }}>📝 {h.notes}</span>}
-                                                                {h.previous_status && (
-                                                                    <span style={{ display: 'block', color: '#999' }}>(anterior: {h.previous_status})</span>
-                                                                )}
-                                                            </Box>
-                                                        }
-                                                    />
-                                                </ListItem>
-                                            );
-                                        })}
-                                    </List>
-                                </Paper>
-                            )}
+                                                            </ListItem>
+                                                        );
+                                                    })}
+                                                </List>
+                                            </Paper>
+                                        )}
+                                    </>
+                                );
+                            })()}
                         </Box>
                     </Paper>
 
