@@ -1895,7 +1895,10 @@
       "price": "Price",
       "status": "Status",
       "received": "Received",
-      "actions": "Actions"
+      "actions": "Actions",
+      "dimensions": "Dimensions",
+      "productType": "Type",
+      "mixed": "Mixed"
     },
     "wizard": {
       "title": "Batch reception — TDI Express",

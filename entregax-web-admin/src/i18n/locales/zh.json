@@ -1762,7 +1762,10 @@
       "price": "价格",
       "status": "状态",
       "received": "收货时间",
-      "actions": "操作"
+      "actions": "操作",
+      "dimensions": "尺寸",
+      "productType": "类型",
+      "mixed": "多种"
     },
     "wizard": {
       "title": "批量收货 — TDI Express",

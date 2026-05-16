@@ -155,7 +155,14 @@ export const listTdiShipments = async (req: Request, res: Response): Promise<any
          m.total_boxes, m.weight, m.air_chargeable_weight, m.air_sale_price,
          m.description, m.notes, m.received_at, m.created_at,
          u.full_name AS client_name,
-         (SELECT COUNT(*) FROM packages c WHERE c.master_id = m.id) AS captured_boxes
+         (SELECT COUNT(*) FROM packages c WHERE c.master_id = m.id) AS captured_boxes,
+         (SELECT string_agg(DISTINCT c.air_tariff_type, ',')
+            FROM packages c WHERE c.master_id = m.id AND c.air_tariff_type IS NOT NULL) AS child_tariff_types,
+         (SELECT COUNT(DISTINCT COALESCE(c.pkg_length,0)||'x'||COALESCE(c.pkg_width,0)||'x'||COALESCE(c.pkg_height,0))
+            FROM packages c WHERE c.master_id = m.id) AS dim_variants,
+         (SELECT c.pkg_length || '×' || c.pkg_width || '×' || c.pkg_height
+            FROM packages c WHERE c.master_id = m.id AND c.pkg_length IS NOT NULL
+            ORDER BY c.box_number LIMIT 1) AS first_dims
        FROM packages m
        LEFT JOIN users u ON u.id = m.user_id
        WHERE ${where.join(' AND ')}
@@ -286,41 +293,74 @@ export const deleteTdiShipment = async (req: Request, res: Response): Promise<an
 };
 
 // =====================================================================
-// EDITAR el número de cliente de un envío (master + todas sus cajas)
+// EDITAR un envío: número de cliente y/o tipo de producto
+// (aplica al master y a todas sus cajas; recalcula precios si cambia el tipo)
 // =====================================================================
-export const updateTdiShipmentClient = async (req: Request, res: Response): Promise<any> => {
+export const updateTdiShipment = async (req: Request, res: Response): Promise<any> => {
   const client = await pool.connect();
   try {
     const id = Number(req.params.id);
     if (!Number.isFinite(id)) return res.status(400).json({ error: 'id inválido' });
-    const bid = String((req.body || {}).boxId || '').trim().toUpperCase();
-    if (!bid) return res.status(400).json({ error: 'Número de cliente requerido' });
-
-    // Resolver usuario por casillero (users → legacy)
-    let userId: number | null = null;
-    const u = await client.query('SELECT id FROM users WHERE UPPER(box_id) = $1 LIMIT 1', [bid]);
-    if (u.rows[0]) userId = u.rows[0].id;
+    const { boxId, productType } = (req.body || {}) as { boxId?: string; productType?: string };
+    const bid = boxId ? String(boxId).trim().toUpperCase() : '';
+    const newTariff = productType
+      ? (PRODUCT_TO_TARIFF[String(productType).toLowerCase()] || null)
+      : null;
+    if (!bid && !newTariff) {
+      return res.status(400).json({ error: 'Nada que actualizar' });
+    }
 
     await client.query('BEGIN');
     const m = await client.query(
-      `SELECT id FROM packages WHERE id = $1 AND air_source = 'tdi_express'`,
+      `SELECT id, air_route_id FROM packages WHERE id = $1 AND air_source = 'tdi_express'`,
       [id]
     );
     if (!m.rows[0]) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Envío no encontrado' });
     }
-    await client.query(
-      `UPDATE packages SET box_id = $1, user_id = $2, updated_at = NOW()
-       WHERE id = $3 OR master_id = $3`,
-      [bid, userId, id]
-    );
+    const routeId = m.rows[0].air_route_id;
+
+    // Cliente (master + hijas)
+    if (bid) {
+      let userId: number | null = null;
+      const u = await client.query('SELECT id FROM users WHERE UPPER(box_id) = $1 LIMIT 1', [bid]);
+      if (u.rows[0]) userId = u.rows[0].id;
+      await client.query(
+        `UPDATE packages SET box_id = $1, user_id = $2, updated_at = NOW()
+         WHERE id = $3 OR master_id = $3`,
+        [bid, userId, id]
+      );
+    }
+
+    // Tipo de producto → recalcula tarifa y precio de cada caja
+    if (newTariff) {
+      const ppk = await getTariffPerKg(client, routeId, newTariff);
+      await client.query(
+        `UPDATE packages SET
+           air_tariff_type = $1,
+           air_price_per_kg = $2,
+           air_sale_price = CASE WHEN $2 IS NULL THEN NULL
+             ELSE ROUND($2 * COALESCE(air_chargeable_weight, weight, 0), 2) END,
+           updated_at = NOW()
+         WHERE master_id = $3`,
+        [newTariff, ppk > 0 ? ppk : null, id]
+      );
+      await client.query(
+        `UPDATE packages SET
+           air_sale_price = COALESCE((SELECT SUM(air_sale_price) FROM packages WHERE master_id = $1), 0),
+           updated_at = NOW()
+         WHERE id = $1`,
+        [id]
+      );
+    }
+
     await client.query('COMMIT');
     return res.json({ success: true });
   } catch (err: any) {
     await client.query('ROLLBACK').catch(() => {});
-    console.error('updateTdiShipmentClient error', err);
-    return res.status(500).json({ error: 'Error al actualizar cliente', details: err.message });
+    console.error('updateTdiShipment error', err);
+    return res.status(500).json({ error: 'Error al actualizar envío', details: err.message });
   } finally {
     client.release();
   }

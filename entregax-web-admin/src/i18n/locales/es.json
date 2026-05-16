@@ -2108,7 +2108,10 @@
       "price": "Precio",
       "status": "Estado",
       "received": "Recibido",
-      "actions": "Acciones"
+      "actions": "Acciones",
+      "dimensions": "Medidas",
+      "productType": "Tipo",
+      "mixed": "Varias"
     },
     "wizard": {
       "title": "Recepción en serie — TDI Express",

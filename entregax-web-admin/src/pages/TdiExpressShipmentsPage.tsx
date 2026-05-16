@@ -52,6 +52,9 @@ interface Shipment {
   client_name: string | null;
   captured_boxes: string | number;
   received_at: string | null;
+  child_tariff_types?: string | null;
+  dim_variants?: string | number | null;
+  first_dims?: string | null;
 }
 interface ProductType { key: string; tariffType: string; pricePerKg: number; }
 interface BoxRow {
@@ -101,8 +104,8 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [quantity, setQuantity] = useState('1');
   const [busy, setBusy] = useState(false);
   // Editar número de cliente de un envío
-  const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string }>(
-    { open: false, id: null, value: '' }
+  const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string }>(
+    { open: false, id: null, value: '', productType: '' }
   );
 
   const loadAll = useCallback(async () => {
@@ -128,8 +131,24 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  const fmtMoney = (n: any) => `$${Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleDateString() : '—');
+  // Fecha y hora en horario de China (Guangzhou / Asia/Shanghai)
+  const fmtChina = (s: string | null) => {
+    if (!s) return '—';
+    try {
+      return new Date(s).toLocaleString('es-MX', {
+        timeZone: 'Asia/Shanghai', day: '2-digit', month: 'short',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+    } catch { return s; }
+  };
+  // Tipo(s) de producto de un envío a partir de los air_tariff_type de sus cajas
+  const shipmentTypes = (s: Shipment) =>
+    (s.child_tariff_types || '').split(',').filter(Boolean)
+      .map((tt) => t(`tdiExpress.productTypes.${TARIFF_TO_PRODUCT[tt] || 'generico'}`))
+      .join(', ') || '—';
+  const shipmentDims = (s: Shipment) =>
+    Number(s.dim_variants || 0) > 1 ? t('tdiExpress.table.mixed')
+      : (s.first_dims ? `${s.first_dims} cm` : '—');
 
   // ---- Wizard ----
   const openWizard = () => {
@@ -271,7 +290,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     const esc = (s: any) => String(s ?? '').replace(/[<>&]/g, '');
     const labels = items.map((it, i) => `
       <div class="label">
-        <div class="hdr">✈️ TDI EXPRESS<span>${it.boxNumber} / ${it.total}</span></div>
+        <div class="hdr">TDI EXPRESS<span>${it.boxNumber} / ${it.total}</span></div>
         <div class="trk">${esc(it.tracking)}</div>
         <svg class="bc" id="bc${i}"></svg>
         <div class="qr" id="qr${i}"></div>
@@ -287,7 +306,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       <style>
         *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif;}
         .label{width:4in;height:6in;padding:0.22in;border:1px solid #000;page-break-after:always;overflow:hidden;}
-        .hdr{background:#1A1A1A;color:#fff;padding:8px 10px;font-weight:bold;font-size:15px;display:flex;justify-content:space-between;border-radius:4px;}
+        .hdr{color:#000;padding:4px 0 8px;font-weight:bold;font-size:16px;display:flex;justify-content:space-between;border-bottom:2px solid #000;}
         .trk{font-size:22px;font-weight:900;text-align:center;letter-spacing:1px;margin:12px 0 2px;}
         .bc{display:block;width:88%;height:58px;margin:0 auto;}
         .qr{text-align:center;margin:4px 0 8px;}
@@ -334,15 +353,19 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     }
   };
 
-  const saveClient = async () => {
-    if (!editClient.id || !editClient.value.trim()) return;
+  const saveEdit = async () => {
+    if (!editClient.id) return;
+    if (!editClient.value.trim() && !editClient.productType) return;
     try {
       await axios.patch(
-        `${API_URL}/api/tdi-express/shipments/${editClient.id}/client`,
-        { boxId: editClient.value.trim() },
+        `${API_URL}/api/tdi-express/shipments/${editClient.id}`,
+        {
+          boxId: editClient.value.trim() || undefined,
+          productType: editClient.productType || undefined,
+        },
         { headers: authHeaders }
       );
-      setEditClient({ open: false, id: null, value: '' });
+      setEditClient({ open: false, id: null, value: '', productType: '' });
       loadAll();
     } catch (e: any) {
       window.alert(e?.response?.data?.error || 'Error');
@@ -411,38 +434,43 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         <Table size="small">
           <TableHead>
             <TableRow sx={{ bgcolor: BLACK }}>
-              {['tracking', 'client', 'boxes', 'weight', 'price', 'status', 'received'].map((c) => (
+              {['tracking', 'client', 'boxes', 'weight', 'dimensions', 'productType', 'status', 'received'].map((c) => (
                 <TableCell key={c} sx={{ color: '#FFF', fontWeight: 700 }}>{t(`tdiExpress.table.${c}`)}</TableCell>
               ))}
               <TableCell align="center" sx={{ color: '#FFF', fontWeight: 700 }}>{t('tdiExpress.table.actions')}</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {loading && <TableRow><TableCell colSpan={8} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
+            {loading && <TableRow><TableCell colSpan={9} align="center"><CircularProgress size={24} /></TableCell></TableRow>}
             {!loading && shipments.length === 0 && (
-              <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4, color: '#999' }}>
+              <TableRow><TableCell colSpan={9} align="center" sx={{ py: 4, color: '#999' }}>
                 {t('tdiExpress.noShipments')}
               </TableCell></TableRow>
             )}
             {shipments.map((s) => (
               <TableRow key={s.id} hover>
                 <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE }}>{s.tracking_internal}</TableCell>
-                <TableCell>{s.client_name || s.box_id || '—'}</TableCell>
+                <TableCell sx={{ fontWeight: 600 }}>{s.box_id || '—'}</TableCell>
                 <TableCell><Chip size="small" icon={<InventoryIcon />} label={`${s.captured_boxes}/${s.total_boxes ?? 1}`} /></TableCell>
                 <TableCell>{Number(s.weight || 0).toFixed(2)}</TableCell>
-                <TableCell sx={{ fontWeight: 700 }}>{fmtMoney(s.air_sale_price)}</TableCell>
+                <TableCell>{shipmentDims(s)}</TableCell>
+                <TableCell>{shipmentTypes(s)}</TableCell>
                 <TableCell>
                   <Chip size="small" label={t(`tdiExpress.statusLabels.${s.status}`)}
                     sx={{ bgcolor: STATUS_COLOR[s.status] || '#999', color: '#FFF', fontWeight: 600 }} />
                 </TableCell>
-                <TableCell>{fmtDate(s.received_at)}</TableCell>
+                <TableCell>{fmtChina(s.received_at)}</TableCell>
                 <TableCell align="center" sx={{ whiteSpace: 'nowrap' }}>
                   <IconButton size="small" title={t('tdiExpress.reprintLabels')}
                     onClick={() => reprintLabels(s)} sx={{ color: ORANGE }}>
                     <PrintIcon fontSize="small" />
                   </IconButton>
                   <IconButton size="small" title={t('tdiExpress.editClient')}
-                    onClick={() => setEditClient({ open: true, id: s.id, value: s.box_id || '' })}
+                    onClick={() => setEditClient({
+                      open: true, id: s.id, value: s.box_id || '',
+                      productType: (s.child_tariff_types || '').split(',').filter(Boolean).length === 1
+                        ? (TARIFF_TO_PRODUCT[(s.child_tariff_types || '').split(',')[0]] || '') : '',
+                    })}
                     sx={{ color: '#1976D2' }}>
                     <EditIcon fontSize="small" />
                   </IconButton>
@@ -639,21 +667,33 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         </DialogActions>
       </Dialog>
 
-      {/* ===== Editar número de cliente ===== */}
-      <Dialog open={editClient.open} onClose={() => setEditClient({ open: false, id: null, value: '' })} maxWidth="xs" fullWidth>
+      {/* ===== Editar envío: cliente y tipo de producto ===== */}
+      <Dialog open={editClient.open} onClose={() => setEditClient({ open: false, id: null, value: '', productType: '' })} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ bgcolor: BLACK, color: '#FFF' }}>{t('tdiExpress.editClient')}</DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <TextField
-            autoFocus fullWidth label={t('tdiExpress.wizard.clientNumber')}
-            value={editClient.value}
-            onChange={(e) => setEditClient({ ...editClient, value: e.target.value.toUpperCase() })}
-          />
+        <DialogContent>
+          <Stack spacing={2.5} sx={{ mt: 3 }}>
+            <TextField
+              autoFocus fullWidth label={t('tdiExpress.wizard.clientNumber')}
+              value={editClient.value}
+              onChange={(e) => setEditClient({ ...editClient, value: e.target.value.toUpperCase() })}
+            />
+            <TextField
+              select fullWidth label={t('tdiExpress.wizard.productType')}
+              value={editClient.productType}
+              onChange={(e) => setEditClient({ ...editClient, productType: e.target.value })}
+            >
+              {productTypes.map((p) => (
+                <MenuItem key={p.key} value={p.key}>{t(`tdiExpress.productTypes.${p.key}`)}</MenuItem>
+              ))}
+            </TextField>
+          </Stack>
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setEditClient({ open: false, id: null, value: '' })}>
+          <Button onClick={() => setEditClient({ open: false, id: null, value: '', productType: '' })}>
             {t('tdiExpress.wizard.cancel')}
           </Button>
-          <Button variant="contained" onClick={saveClient} disabled={!editClient.value.trim()}
+          <Button variant="contained" onClick={saveEdit}
+            disabled={!editClient.value.trim() && !editClient.productType}
             sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' } }}>
             {t('tdiExpress.save')}
           </Button>
