@@ -464,6 +464,129 @@ export const addTdiBox = async (req: Request, res: Response): Promise<any> => {
 };
 
 // =====================================================================
+// ENVIAR TDI EXPRESS — listado de cajas listas para salir de China
+// Una caja está "lista" si: air_source='tdi_express', no es master,
+// status='received_china'. Se marca has_instructions si la caja (o su
+// master) ya tiene una dirección de entrega asignada.
+// REGLA: solo las cajas con instrucciones de envío pueden despacharse.
+// =====================================================================
+export const listTdiOutboundReady = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { search } = req.query as { search?: string };
+    const where: string[] = [
+      `c.air_source = 'tdi_express'`,
+      `COALESCE(c.is_master, false) = false`,
+      `c.status = 'received_china'`,
+    ];
+    const params: any[] = [];
+    if (search && search.trim()) {
+      params.push(`%${search.trim().toLowerCase()}%`);
+      where.push(`(LOWER(c.tracking_internal) LIKE $${params.length}
+        OR LOWER(COALESCE(c.tracking_provider,'')) LIKE $${params.length}
+        OR LOWER(COALESCE(c.box_id,'')) LIKE $${params.length}
+        OR LOWER(COALESCE(u.full_name,'')) LIKE $${params.length})`);
+    }
+    const r = await pool.query(
+      `SELECT
+         c.id, c.tracking_internal, c.tracking_provider, c.box_id, c.master_id,
+         c.box_number, c.weight, c.air_chargeable_weight,
+         c.pkg_length, c.pkg_width, c.pkg_height, c.air_tariff_type,
+         c.description, c.assigned_address_id,
+         m.tracking_internal AS master_tracking, m.assigned_address_id AS master_address_id,
+         u.full_name AS client_name,
+         (c.assigned_address_id IS NOT NULL OR m.assigned_address_id IS NOT NULL) AS has_instructions,
+         a.alias AS delivery_alias, a.street AS delivery_address, a.city AS delivery_city
+       FROM packages c
+       LEFT JOIN packages m ON m.id = c.master_id
+       LEFT JOIN users u ON u.id = c.user_id
+       LEFT JOIN addresses a ON a.id = COALESCE(c.assigned_address_id, m.assigned_address_id)
+       WHERE ${where.join(' AND ')}
+       ORDER BY c.created_at DESC
+       LIMIT 500`,
+      params
+    );
+    return res.json({ boxes: r.rows });
+  } catch (err: any) {
+    console.error('listTdiOutboundReady error', err);
+    return res.status(500).json({ error: 'Error', details: err.message });
+  }
+};
+
+// =====================================================================
+// ENVIAR TDI EXPRESS — despachar cajas (received_china → in_transit)
+// Body: { packageIds: number[] }
+// REGLA: rechaza la operación si alguna caja no tiene instrucciones de envío.
+// =====================================================================
+export const dispatchTdiBoxes = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const { packageIds } = (req.body || {}) as { packageIds?: number[] };
+    const ids = (packageIds || []).map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    if (ids.length === 0) {
+      return res.status(400).json({ error: 'packageIds requerido' });
+    }
+
+    // Verificar estado e instrucciones de cada caja
+    const check = await client.query(
+      `SELECT c.id, c.tracking_internal, c.status,
+              (c.assigned_address_id IS NOT NULL OR m.assigned_address_id IS NOT NULL) AS has_instructions
+       FROM packages c
+       LEFT JOIN packages m ON m.id = c.master_id
+       WHERE c.id = ANY($1::int[]) AND c.air_source = 'tdi_express'
+         AND COALESCE(c.is_master, false) = false`,
+      [ids]
+    );
+
+    const found = check.rows;
+    if (found.length !== ids.length) {
+      return res.status(400).json({ error: 'Algunas cajas no existen o no son de TDI Express' });
+    }
+    const notReady = found.filter((b) => b.status !== 'received_china');
+    if (notReady.length > 0) {
+      return res.status(400).json({
+        error: `Algunas cajas no están listas para salida: ${notReady.map((b) => b.tracking_internal).join(', ')}`,
+      });
+    }
+    // REGLA DE SALIDA: todas deben tener instrucciones de envío
+    const noInstructions = found.filter((b) => !b.has_instructions);
+    if (noInstructions.length > 0) {
+      return res.status(400).json({
+        error: `No se puede dar salida: las siguientes cajas no tienen instrucciones de envío: ${noInstructions.map((b) => b.tracking_internal).join(', ')}`,
+        boxesWithoutInstructions: noInstructions.map((b) => b.tracking_internal),
+      });
+    }
+
+    await client.query('BEGIN');
+    const upd = await client.query(
+      `UPDATE packages SET status = 'in_transit', updated_at = NOW()
+       WHERE id = ANY($1::int[])
+       RETURNING id, tracking_internal`,
+      [ids]
+    );
+    // Actualizar el estado de los masters cuyas cajas ya salieron todas
+    await client.query(
+      `UPDATE packages m SET status = 'in_transit', updated_at = NOW()
+       WHERE m.air_source = 'tdi_express' AND m.is_master = true
+         AND m.status = 'received_china'
+         AND NOT EXISTS (
+           SELECT 1 FROM packages c
+           WHERE c.master_id = m.id AND c.status = 'received_china'
+         )
+         AND EXISTS (SELECT 1 FROM packages c WHERE c.master_id = m.id)`
+    );
+    await client.query('COMMIT');
+
+    return res.json({ success: true, dispatched: upd.rows.length, boxes: upd.rows });
+  } catch (err: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('dispatchTdiBoxes error', err);
+    return res.status(500).json({ error: 'Error al dar salida', details: err.message });
+  } finally {
+    client.release();
+  }
+};
+
+// =====================================================================
 // RECEPCIÓN EN SERIE — quitar caja
 // =====================================================================
 export const removeTdiBox = async (req: Request, res: Response): Promise<any> => {

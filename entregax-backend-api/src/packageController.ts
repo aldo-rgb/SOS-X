@@ -2543,6 +2543,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 LEFT JOIN consolidations c ON p.consolidation_id = c.id
                 WHERE (p.user_id = $1 OR ($2 IS NOT NULL AND p.box_id = $2))
                   AND (p.is_master = true OR p.master_id IS NULL)
+                  AND COALESCE(p.air_source, '') <> 'tdi_express'
                 ORDER BY p.id
             ) sub
             ORDER BY created_at DESC
@@ -3179,8 +3180,16 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 shipping_mark: pkg.box_id || null,
                 has_gex: false,
                 gex_folio: null,
-                delivery_address_id: null,
-                delivery_instructions: null,
+                // 🏠 Instrucciones de entrega: assigned_address_id se llena al asignarlas
+                assigned_address_id: pkg.assigned_address_id || null,
+                delivery_address_id: pkg.assigned_address_id || null,
+                delivery_instructions: pkg.notes || null,
+                has_delivery_instructions: !!pkg.assigned_address_id,
+                national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : 0,
+                // 💰 Costos (para el flujo de pago)
+                assigned_cost_mxn: pkg.assigned_cost_mxn ? parseFloat(pkg.assigned_cost_mxn) : null,
+                saldo_pendiente: pkg.saldo_pendiente != null ? parseFloat(pkg.saldo_pendiente) : null,
+                monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : null,
             }));
         } catch (e) {
             console.error('[getMyPackages] TDI Express error:', e);
@@ -3693,8 +3702,8 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
             case 'dhl':
                 // Paquetes DHL vienen de packages
                 result = await pool.query(`
-                    UPDATE packages 
-                    SET assigned_address_id = $1, 
+                    UPDATE packages
+                    SET assigned_address_id = $1,
                         notes = COALESCE($2, notes),
                         needs_instructions = false,
                         updated_at = CURRENT_TIMESTAMP
@@ -3702,6 +3711,36 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                     RETURNING id, tracking_internal
                 `, [deliveryAddressId, deliveryInstructions, packageId]);
                 break;
+
+            case 'tdi_express': {
+                // 🛫 TDI Express: el id recibido es el master. Asignar dirección al
+                // master y propagar a TODAS sus cajas hijas.
+                const tdiShipCost = parseFloat(carrierCost) || 0;
+                result = await pool.query(`
+                    UPDATE packages
+                    SET assigned_address_id = $1,
+                        notes = COALESCE($2, notes),
+                        national_carrier = $4,
+                        national_shipping_cost = COALESCE($5, national_shipping_cost),
+                        needs_instructions = false,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = $3${ownerCondition}
+                    RETURNING id, tracking_internal
+                `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || null, tdiShipCost]);
+                if (result.rowCount && result.rowCount > 0) {
+                    await pool.query(`
+                        UPDATE packages
+                        SET assigned_address_id = $1,
+                            notes = COALESCE($2, notes),
+                            national_carrier = $4,
+                            national_shipping_cost = COALESCE($5, national_shipping_cost),
+                            needs_instructions = false,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE master_id = $3
+                    `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || null, tdiShipCost]);
+                }
+                break;
+            }
 
             default:
                 return res.status(400).json({ 

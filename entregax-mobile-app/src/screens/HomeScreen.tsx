@@ -175,6 +175,19 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       return chinaAirLabels[status] || status;
     }
 
+    // 🛫 Labels para TDI Express (ruta aérea China → MTY)
+    if (shipmentType === 'tdi_express') {
+      const tdiLabels: Record<string, string> = {
+        received_china: 'Recibido en China',
+        in_transit: 'En Tránsito',
+        received_mty: 'Recibido en MTY',
+        dispatched_national: 'En Reenvío Nacional',
+        ready_pickup: 'Listo para Recoger',
+        delivered: 'Entregado',
+      };
+      return tdiLabels[status] || status;
+    }
+
     // 🚚 Labels para DHL Express
     if (shipmentType === 'dhl') {
       const dhlLabels: Record<string, string> = {
@@ -817,14 +830,18 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // 📦 PO Box USA: seleccionable si está en bodega (received) O procesando (processing)
     // ❌ Paquetes ya pagados NO son seleccionables (al tap → ir a detalle)
     // ✅ Para marítimo/china_air/dhl: seleccionable SIN instrucciones (para asignar) O CON instrucciones pero NO pagado (para pagar)
-    const isPOBoxUSA = !isMaritime && !isChinaAir && !isDHL;
+    // 🛫 Es paquete TDI Express?
+    const isTdiExpress = item.shipment_type === 'tdi_express';
+    const isPOBoxUSA = !isMaritime && !isChinaAir && !isDHL && !isTdiExpress;
     // 📍 Paquetes en Pick Up pueden ser seleccionados para cambiar método de envío
     const isPickupPackage = isPOBoxUSA && item.status === 'ready_pickup';
     const isSelectable = isUserVerified && !isPaid && (
-      (isPOBoxUSA && ['received', 'in_transit', 'received_mty', 'processing', 'ready_pickup'].includes(item.status)) || 
+      (isPOBoxUSA && ['received', 'in_transit', 'received_mty', 'processing', 'ready_pickup'].includes(item.status)) ||
       (isMaritime && ['received_china', 'in_transit', 'at_port'].includes(item.status)) ||
       (isChinaAir && ['received_origin', 'in_transit', 'at_customs', 'in_transit_transfer', 'arrived_mx'].includes(item.status)) ||
-      (isDHL && ['received_mty'].includes(item.status))
+      (isDHL && ['received_mty'].includes(item.status)) ||
+      // 🛫 TDI Express: seleccionable para asignar instrucciones o pagar
+      (isTdiExpress && ['received_china', 'in_transit', 'received_mty'].includes(item.status))
     );
     const isSelected = selectedIds.includes(item.id);
     
@@ -2223,6 +2240,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         const isMaritimeSelection = shipmentType === 'maritime';
         const isChinaAirSelection = shipmentType === 'china_air';
         const isDHLSelection = shipmentType === 'dhl';
+        const isTdiExpressSelection = shipmentType === 'tdi_express';
         
         // 📦 PO Box USA: Detectar si son paquetes en bodega o procesando
         const isPOBoxUSA = !shipmentType || shipmentType === 'air';
@@ -2241,7 +2259,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           .every(p => (p as any).delivery_address_id || (p as any).assigned_address_id);
         
         // 🎯 Paquetes en bodega necesitan instrucciones (dirección de envío) - SOLO si NO tienen instrucciones
-        const needsInstructions = (isMaritimeSelection || isChinaAirSelection || isDHLSelection || isWarehouseSelection) && !allSelectedHaveInstructions;
+        const needsInstructions = (isMaritimeSelection || isChinaAirSelection || isDHLSelection || isTdiExpressSelection || isWarehouseSelection) && !allSelectedHaveInstructions;
         
         // Calcular total a pagar para paquetes procesando
         // 🔧 FIX: Solo filtrar paquetes del mismo tipo de servicio seleccionado Y que no estén pagados
@@ -2258,6 +2276,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           if (isChinaAirSelection) return p.shipment_type === 'china_air';
           // Si es DHL, solo incluir DHL
           if (isDHLSelection) return p.shipment_type === 'dhl';
+          // Si es TDI Express, solo incluir TDI Express
+          if (isTdiExpressSelection) return p.shipment_type === 'tdi_express';
           return true;
         });
         const totalToPay = selectedPackages.reduce((sum, p) => {
@@ -2282,7 +2302,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             const saldo = parseFloat(String((p as any).saldo_pendiente || p.assigned_cost_mxn || 0));
             return saldo > 0 && (p as any).client_paid !== true;
           });
-        const canPayChinaMaritimeDHL = (isMaritimeSelection || isChinaAirSelection || isDHLSelection)
+        const canPayChinaMaritimeDHL = (isMaritimeSelection || isChinaAirSelection || isDHLSelection || isTdiExpressSelection)
           && allSelectedHaveInstructions
           && selectedHasPendingBalance;
 
@@ -2293,8 +2313,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
         return (
           <FAB
-            icon={needsInstructions 
-              ? (isMaritimeSelection ? "ferry" : isChinaAirSelection ? "airplane" : isDHLSelection ? "truck-delivery" : "package-variant") 
+            icon={needsInstructions
+              ? (isMaritimeSelection ? "ferry" : isChinaAirSelection ? "airplane" : isTdiExpressSelection ? "airplane-takeoff" : isDHLSelection ? "truck-delivery" : "package-variant")
               : "credit-card"}
             label={needsInstructions 
               ? `📋 Asignar Instrucciones (${selectedIds.length})`

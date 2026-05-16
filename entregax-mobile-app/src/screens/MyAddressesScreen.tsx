@@ -58,6 +58,7 @@ interface Address {
     usa?: string;
     maritime?: string;
     air?: string;
+    tdi_express?: string;
   };
 }
 
@@ -122,11 +123,16 @@ const formatReceptionHoursDisplay = (raw?: string | null): string => {
 };
 
 // 🚚 Paqueterías disponibles por tipo de servicio
-// - Marítimo: solo Entregax Local CDMX + Paquete Express
-// - Aéreo:    Entregax Local CDMX + Entregax Local MTY + Paquete Express
-// - USA:      Entregax Local MTY + Paquete Express
+// - Marítimo:    solo Entregax Local CDMX + Paquete Express
+// - Aéreo:       Entregax Local CDMX + Entregax Local MTY + Paquete Express
+// - USA:         Entregax Local MTY + Paquete Express
+// - TDI Express: Entregax Local MTY + Paquete Express (llega a Monterrey)
 const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: string; cost: number; dynamic?: boolean }[]> = {
   usa: [
+    { id: 'entregax_local_mty', name: 'Entregax Local MTY', icon: '🚛', cost: 0 },
+    { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
+  ],
+  tdi_express: [
     { id: 'entregax_local_mty', name: 'Entregax Local MTY', icon: '🚛', cost: 0 },
     { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
   ],
@@ -361,6 +367,22 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
   };
 
   const toggleService = (service: string) => {
+    // ⚠️ Al activar TDI Express, advertir que se aceptan los costos de origen
+    if (service === 'tdi_express' && !selectedServices.includes('tdi_express')) {
+      Alert.alert(
+        'Costos de origen TDI Express',
+        'Al seleccionar este servicio preconfigurado aceptas automáticamente los costos de origen para todos tus envíos subsecuentes de TDI Express.',
+        [
+          { text: 'Cancelar', style: 'cancel' },
+          { text: 'Aceptar', onPress: () => applyToggleService('tdi_express') },
+        ]
+      );
+      return;
+    }
+    applyToggleService(service);
+  };
+
+  const applyToggleService = (service: string) => {
     setSelectedServices(prev => {
       if (prev.includes(service)) {
         // Al deseleccionar el servicio, quitar también la paquetería
@@ -441,6 +463,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
       case 'maritime': return 'Marítimo';
       case 'air': return 'Aéreo';
       case 'usa': return 'USA';
+      case 'tdi_express': return 'TDI Express';
       case 'all': return 'Todos';
       default: return service;
     }
@@ -487,12 +510,12 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                     {getServiceChips(address.default_for_service).length > 0 && (
                       <View style={styles.serviceChipsRow}>
                         {getServiceChips(address.default_for_service).map((svc) => {
-                          const carrierId = address.carrier_config?.[svc];
+                          const carrierId = (address.carrier_config as Record<string, string> | undefined)?.[svc];
                           const carrier = carrierId ? CARRIERS_BY_SERVICE[svc]?.find(c => c.id === carrierId) : null;
                           return (
                             <View key={svc} style={styles.serviceChipWithCarrier}>
                               <Text style={styles.serviceChipSmallText}>
-                                {svc === 'maritime' ? '🚢 Marítimo' : svc === 'air' ? '✈️ Aéreo' : svc === 'usa' ? '🇺🇸 USA' : '🌐 Todos'}
+                                {svc === 'maritime' ? '🚢 Marítimo' : svc === 'air' ? '✈️ Aéreo' : svc === 'usa' ? '🇺🇸 USA' : svc === 'tdi_express' ? '🛫 TDI Express' : '🌐 Todos'}
                               </Text>
                               {carrier && (
                                 <Text style={styles.carrierChipText}>
@@ -793,7 +816,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
               </View>
               <Text style={styles.serviceModalTitle}>Configurar servicios</Text>
               <Text style={styles.serviceModalSubtitle}>
-                Selecciona los servicios y la paquetería preferida para cada uno
+                Selecciona los servicios y la paquetería preferida para cada uno esto automatiza tus instrucciones. IMPORTANTE: Si esta esta seccion esta configurada los envios a tu domicilio se haran automaticos sin espera de tus instrucciones
               </Text>
             </View>
 
@@ -933,6 +956,53 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                       </View>
                       <View style={[styles.radioCircle, selectedCarriers.usa === carrier.id && styles.radioCircleSelected]}>
                         {selectedCarriers.usa === carrier.id && <View style={styles.radioCircleInner} />}
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              {/* === TDI EXPRESS === */}
+              <TouchableOpacity
+                style={[styles.serviceOptionCard, selectedServices.includes('tdi_express') && styles.serviceOptionCardActive]}
+                onPress={() => toggleService('tdi_express')}
+              >
+                <View style={styles.serviceOptionLeft}>
+                  <Text style={styles.serviceOptionEmoji}>🛫</Text>
+                  <View>
+                    <Text style={styles.serviceOptionName}>TDI Express</Text>
+                    <Text style={styles.serviceOptionDescription}>Envíos aéreos express China → MTY</Text>
+                  </View>
+                </View>
+                <View style={[styles.checkbox, selectedServices.includes('tdi_express') && styles.checkboxChecked]}>
+                  {selectedServices.includes('tdi_express') && (
+                    <Ionicons name="checkmark" size={16} color="white" />
+                  )}
+                </View>
+              </TouchableOpacity>
+
+              {/* 📦 Selector de paquetería para TDI Express */}
+              {selectedServices.includes('tdi_express') && (
+                <View style={styles.carrierSelector}>
+                  <Text style={styles.carrierSelectorLabel}>Paquetería para TDI Express:</Text>
+                  {CARRIERS_BY_SERVICE.tdi_express.map((carrier) => (
+                    <TouchableOpacity
+                      key={carrier.id}
+                      style={[
+                        styles.carrierOption,
+                        selectedCarriers.tdi_express === carrier.id && styles.carrierOptionSelected
+                      ]}
+                      onPress={() => selectCarrierForService('tdi_express', carrier.id)}
+                    >
+                      <Text style={styles.carrierOptionIcon}>{carrier.icon}</Text>
+                      <View style={styles.carrierOptionInfo}>
+                        <Text style={styles.carrierOptionName}>{carrier.name}</Text>
+                        <Text style={styles.carrierOptionCost}>
+                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} MXN`)}
+                        </Text>
+                      </View>
+                      <View style={[styles.radioCircle, selectedCarriers.tdi_express === carrier.id && styles.radioCircleSelected]}>
+                        {selectedCarriers.tdi_express === carrier.id && <View style={styles.radioCircleInner} />}
                       </View>
                     </TouchableOpacity>
                   ))}

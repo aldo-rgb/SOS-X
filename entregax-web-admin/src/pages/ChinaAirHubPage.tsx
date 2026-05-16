@@ -21,16 +21,18 @@ import {
     Inventory2 as InventoryIcon,
     ChevronRight as ChevronRightIcon,
     LocalShipping as ShippingIcon,
+    FlightTakeoff as FlightTakeoffIcon,
 } from '@mui/icons-material';
 import ChinaAirReceptionWizard from './ChinaAirReceptionWizard';
 import ChinaAirInventoryPage from './ChinaAirInventoryPage';
 import TdiExpressShipmentsPage from './TdiExpressShipmentsPage';
+import TdiExpressOutboundPage from './TdiExpressOutboundPage';
 
 interface Props {
     onBack: () => void;
 }
 
-type Panel = 'menu' | 'reception' | 'inventory' | 'tdi_express';
+type Panel = 'menu' | 'reception' | 'inventory' | 'tdi_express' | 'tdi_outbound';
 
 const ORANGE = '#FF6B35';
 const BLACK = '#1A1A1A';
@@ -57,6 +59,13 @@ const OPTIONS = [
         icon: <ShippingIcon sx={{ fontSize: 56, color: '#FFF' }} />,
         bgGradient: 'linear-gradient(135deg, #1A1A1A 0%, #424242 100%)',
     },
+    {
+        key: 'tdi_outbound' as const,
+        title: 'Enviar TDI Express',
+        description: 'Da salida a las cajas TDI Express listas para salir de China',
+        icon: <FlightTakeoffIcon sx={{ fontSize: 56, color: '#FFF' }} />,
+        bgGradient: 'linear-gradient(135deg, #2E7D32 0%, #66BB6A 100%)',
+    },
 ];
 
 export default function ChinaAirHubPage({ onBack }: Props) {
@@ -70,6 +79,9 @@ export default function ChinaAirHubPage({ onBack }: Props) {
     }
     if (panel === 'tdi_express') {
         return <TdiExpressShipmentsPage onBack={() => setPanel('menu')} />;
+    }
+    if (panel === 'tdi_outbound') {
+        return <TdiExpressOutboundPage onBack={() => setPanel('menu')} />;
     }
 
     return (
