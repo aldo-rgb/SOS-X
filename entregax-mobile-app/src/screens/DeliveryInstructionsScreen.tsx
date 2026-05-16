@@ -1404,8 +1404,13 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
                     return false;
                   }
                   // 🗺️ Si el CP destino es MTY metro o CDMX metro, ocultar Paquete Express
-                  //    (la entrega local cubre la zona, no se requiere paquetería externa)
-                  if ((inMtyMetro || inCdmxMetro) && (carrier.id === 'paquete_express' || carrier.id === 'paquete_express_pc')) {
+                  //    (la entrega local cubre la zona, no se requiere paquetería externa).
+                  // 🛫 TDI Express SIEMPRE ofrece Paquete Express y Por Cobrar.
+                  if (
+                    shipmentType !== 'tdi_express' &&
+                    (inMtyMetro || inCdmxMetro) &&
+                    (carrier.id === 'paquete_express' || carrier.id === 'paquete_express_pc')
+                  ) {
                     return false;
                   }
                   return true;

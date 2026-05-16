@@ -2670,7 +2670,7 @@ export default function DashboardClient() {
     if (serviceFilter !== 'all') {
       filtered = filtered.filter(pkg => {
         const type = pkg.shipment_type || pkg.servicio;
-        if (serviceFilter === 'china_air') return type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX';
+        if (serviceFilter === 'china_air') return type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX' || type === 'tdi_express';
         if (serviceFilter === 'china_sea') return type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl' || type === 'FCL_CHN_MX';
         if (serviceFilter === 'usa_pobox') return type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
         if (serviceFilter === 'dhl') return type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
@@ -2859,7 +2859,7 @@ export default function DashboardClient() {
 
     packages.forEach(pkg => {
       const type = pkg.shipment_type || pkg.servicio;
-      if (type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX') {
+      if (type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX' || type === 'tdi_express') {
         // Agrupar hijas AIR<prefix>-NNN bajo el mismo master virtual
         const tracking = String(pkg.tracking || '').toUpperCase();
         const childMatch = tracking.match(/^(AIR[A-Z0-9]+)-(\d{2,4})$/i);

@@ -2316,10 +2316,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         tracking_provider,
         description as descripcion,
         service_type as servicio,
-        CASE 
+        CASE
           WHEN service_type = 'POBOX_USA' THEN 'air'
           WHEN service_type = 'AIR_CHN_MX' THEN 'china_air'
           WHEN service_type = 'SEA_CHN_MX' THEN 'maritime'
+          WHEN service_type = 'tdi_express' OR air_source = 'tdi_express' THEN 'china_air'
           ELSE 'air'
         END as shipment_type,
         status::text as status,
@@ -2912,10 +2913,11 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
         tracking_provider,
         description as descripcion,
         service_type as servicio,
-        CASE 
+        CASE
           WHEN service_type = 'POBOX_USA' THEN 'air'
           WHEN service_type = 'AIR_CHN_MX' THEN 'china_air'
           WHEN service_type = 'SEA_CHN_MX' THEN 'maritime'
+          WHEN service_type = 'tdi_express' OR air_source = 'tdi_express' THEN 'china_air'
           ELSE 'air'
         END as shipment_type,
         status,
