@@ -94,7 +94,7 @@ export interface Package {
   has_gex?: boolean;
   gex_folio?: string;
   // ✈️🇨🇳 Shipment type for differentiation
-  shipment_type?: 'air' | 'maritime' | 'china_air' | 'dhl';
+  shipment_type?: 'air' | 'maritime' | 'china_air' | 'dhl' | 'fcl' | 'tdi_express';
   // 💰 Costos
   assigned_cost_mxn?: number;
   saldo_pendiente?: number;

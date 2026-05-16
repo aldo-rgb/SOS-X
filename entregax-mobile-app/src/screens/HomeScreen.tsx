@@ -213,7 +213,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const getFilteredPackages = useCallback(() => {
     const filtered = packages.filter(pkg => {
       if (serviceFilter !== null) {
-        if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+        if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air' && pkg.shipment_type !== 'tdi_express') return false;
         if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
         if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
         if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
@@ -314,7 +314,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       // shipment_type viene tipado pero hay valores legacy ('fcl')
       // que no están en la unión, por eso casteamos a string.
       const t = String((pkg as any).shipment_type || '');
-      if (t === 'china_air') air++;
+      if (t === 'china_air' || t === 'tdi_express') air++;
       else if (t === 'maritime' || t === 'fcl') maritime++;
       else if (t === 'dhl') dhl++;
       if ((pkg as any).service_type === 'POBOX_USA') usa++;
@@ -326,7 +326,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const getInstructionCounts = useCallback(() => {
     const filtered = packages.filter(pkg => {
       if (serviceFilter !== null) {
-        if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+        if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air' && pkg.shipment_type !== 'tdi_express') return false;
         if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
         if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
         if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
@@ -373,7 +373,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               // Seleccionar paquetes con instrucciones Y NO pagados
               const withInstr = packages.filter(pkg => {
                 if (serviceFilter !== null) {
-                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air' && pkg.shipment_type !== 'tdi_express') return false;
                   if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
                   if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
                   if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
@@ -392,7 +392,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               // Seleccionar paquetes sin instrucciones
               const withoutInstr = packages.filter(pkg => {
                 if (serviceFilter !== null) {
-                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air' && pkg.shipment_type !== 'tdi_express') return false;
                   if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
                   if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
                   if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
@@ -1920,7 +1920,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 }
                 setInstructionFilter(false);
                 const withoutInstr = packages.filter(pkg => {
-                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air' && pkg.shipment_type !== 'tdi_express') return false;
                   if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
                   if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
                   if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;
@@ -1959,7 +1959,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 }
                 setInstructionFilter(true);
                 const withInstr = packages.filter(pkg => {
-                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air') return false;
+                  if (serviceFilter === 'air' && pkg.shipment_type !== 'china_air' && pkg.shipment_type !== 'tdi_express') return false;
                   if (serviceFilter === 'maritime' && pkg.shipment_type !== 'maritime' && pkg.shipment_type !== 'fcl') return false;
                   if (serviceFilter === 'dhl' && pkg.shipment_type !== 'dhl') return false;
                   if (serviceFilter === 'usa' && pkg.service_type !== 'POBOX_USA') return false;

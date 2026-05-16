@@ -3136,7 +3136,57 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
         });
 
         // Combinar todos los tipos
-        const allPackages = [...airPackages, ...maritimePackages, ...chinaAirPackages, ...dhlPackages, ...fclPackages];
+        // ✈️ TDI Express — envíos de la ruta TDI-EXPRES capturados para este cliente.
+        // Se exponen como shipment_type 'tdi_express' para que aparezcan bajo el filtro Aéreo.
+        let tdiExpressPackages: any[] = [];
+        try {
+            const tdiRes = await pool.query(`
+                SELECT m.*,
+                    (SELECT COUNT(*) FROM packages c WHERE c.master_id = m.id) AS captured_boxes
+                FROM packages m
+                WHERE m.air_source = 'tdi_express' AND m.is_master = true
+                  AND (m.user_id = $1 OR ($2::text IS NOT NULL AND UPPER(m.box_id) = UPPER($2::text)))
+                ORDER BY m.created_at DESC
+            `, [userId, userBoxId]);
+            tdiExpressPackages = tdiRes.rows.map((pkg: any) => ({
+                id: pkg.id,
+                tracking_internal: pkg.tracking_internal,
+                tracking_provider: null,
+                description: `TDI Express - ${pkg.total_boxes || 1} cajas`,
+                weight: pkg.weight ? parseFloat(pkg.weight) : null,
+                volume: null,
+                dimensions: null,
+                declared_value: null,
+                status: pkg.status,
+                statusLabel: null,
+                carrier: 'TDI Express',
+                national_carrier: pkg.national_carrier || null,
+                national_tracking: pkg.national_tracking || null,
+                national_label_url: pkg.national_label_url || null,
+                destination_city: 'CEDIS MTY',
+                destination_country: 'MX',
+                image_url: null,
+                is_master: true,
+                total_boxes: pkg.total_boxes || 1,
+                received_at: pkg.received_at || pkg.created_at,
+                delivered_at: pkg.status === 'delivered' ? pkg.updated_at : null,
+                created_at: pkg.created_at,
+                consolidation_id: null,
+                consolidation_status: null,
+                warehouse_location: 'TDI Express',
+                service_type: 'tdi_express',
+                shipment_type: 'tdi_express',
+                shipping_mark: pkg.box_id || null,
+                has_gex: false,
+                gex_folio: null,
+                delivery_address_id: null,
+                delivery_instructions: null,
+            }));
+        } catch (e) {
+            console.error('[getMyPackages] TDI Express error:', e);
+        }
+
+        const allPackages = [...airPackages, ...maritimePackages, ...chinaAirPackages, ...dhlPackages, ...fclPackages, ...tdiExpressPackages];
         
         // Ordenar por fecha de creación
         allPackages.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
