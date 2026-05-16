@@ -2,15 +2,15 @@
   "rewrites": [
     {
       "source": "/privacy-policy",
-      "destination": "https://sos-x-production.up.railway.app/legal/privacy-policy"
+      "destination": "https://api.entregax.app/legal/privacy-policy"
     },
     {
       "source": "/eliminar-cuenta",
-      "destination": "https://sos-x-production.up.railway.app/eliminar-cuenta"
+      "destination": "https://api.entregax.app/eliminar-cuenta"
     },
     {
       "source": "/account-deletion",
-      "destination": "https://sos-x-production.up.railway.app/account-deletion"
+      "destination": "https://api.entregax.app/account-deletion"
     },
     {
       "source": "/(.*)",

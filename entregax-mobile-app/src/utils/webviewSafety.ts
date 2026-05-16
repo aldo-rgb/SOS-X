@@ -16,7 +16,8 @@ const ALLOWED_HOSTS = [
   'sandbox-api.openpay.mx',
   'api.openpay.mx',
   // Backend propio
-  'sos-x-production.up.railway.app',
+  'api.entregax.app',
+  'sos-x-production.up.railway.app', // fallback durante la migración de dominio
   'app.entregax.com',
   'entregax.com',
 ];

@@ -510,7 +510,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
             <WebView
               source={{ uri: approvalUrl }}
               onNavigationStateChange={handleWebViewNavigation}
-              originWhitelist={['https://*.paypal.com', 'https://paypal.com', 'https://*.openpay.mx', 'https://openpay.mx', 'https://sos-x-production.up.railway.app']}
+              originWhitelist={['https://*.paypal.com', 'https://paypal.com', 'https://*.openpay.mx', 'https://openpay.mx', 'https://api.entregax.app', 'https://sos-x-production.up.railway.app']}
               onShouldStartLoadWithRequest={(req) => isAllowedUrl(req.url)}
               setSupportMultipleWindows={false}
               allowsLinkPreview={false}

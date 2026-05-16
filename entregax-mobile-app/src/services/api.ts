@@ -2,7 +2,7 @@
 // En desarrollo usa IP local, en producción (TestFlight/App Store) usa Railway
 import Constants from 'expo-constants';
 
-const PROD_API_URL = 'https://sos-x-production.up.railway.app';
+const PROD_API_URL = 'https://api.entregax.app';
 
 // Detecta automáticamente la IP de la Mac donde corre Metro/Expo
 // para que el backend en :3001 sea accesible desde el dispositivo
