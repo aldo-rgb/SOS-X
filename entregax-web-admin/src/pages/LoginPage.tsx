@@ -891,7 +891,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     onChange={setRegisterPhone}
                     label="WhatsApp"
                     required
-                    helperText="Recibir\u00e1s un c\u00f3digo de verificaci\u00f3n por WhatsApp"
+                    helperText="Recibirás un código de verificación por WhatsApp"
                   />
                 </Box>
 

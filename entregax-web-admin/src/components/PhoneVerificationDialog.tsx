@@ -1,16 +1,16 @@
 /**
- * PhoneVerificationDialog — Modal con OTP de 6 d\u00edgitos.
+ * PhoneVerificationDialog — Modal con OTP de 6 dígitos.
  *
  * Flujo:
  *   1) Al abrir, llama POST /api/auth/phone/send-code (a menos que skipInitialSend=true)
- *   2) Usuario teclea c\u00f3digo de 6 d\u00edgitos
+ *   2) Usuario teclea código de 6 dígitos
  *   3) POST /api/auth/phone/verify-code
  *   4) onVerified() y se cierra.
  *
- * Bot\u00f3n "Verificar m\u00e1s tarde" cierra el dialog sin verificar (onSkip).
+ * Botón "Verificar más tarde" cierra el dialog sin verificar (onSkip).
  *
- * Token JWT autom\u00e1tico (Authorization: Bearer) para que el backend pueda
- * identificar al usuario actual (cambio de tel\u00e9fono).
+ * Token JWT automático (Authorization: Bearer) para que el backend pueda
+ * identificar al usuario actual (cambio de teléfono).
  */
 import { useEffect, useRef, useState } from 'react';
 import {
@@ -38,9 +38,9 @@ interface Props {
   onSkip?: () => void;
   /** Token JWT opcional. Si no se pasa, se toma de localStorage. */
   token?: string;
-  /** Si ya enviaste el c\u00f3digo desde fuera, evita re-enviar al abrir. */
+  /** Si ya enviaste el código desde fuera, evita re-enviar al abrir. */
   skipInitialSend?: boolean;
-  /** Personalizable: t\u00edtulo */
+  /** Personalizable: título */
   title?: string;
 }
 
@@ -70,7 +70,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
 
   const sendCode = async (silent = false) => {
     if (!phone) {
-      setError('Falta n\u00famero de tel\u00e9fono.');
+      setError('Falta número de teléfono.');
       return;
     }
     setSending(true);
@@ -82,12 +82,12 @@ const PhoneVerificationDialog: React.FC<Props> = ({
         { phone },
         { headers: authHeaders() }
       );
-      setInfo(data?.message || 'C\u00f3digo enviado por WhatsApp.');
+      setInfo(data?.message || 'Código enviado por WhatsApp.');
       setCooldown(RESEND_COOLDOWN);
       // Modo dev: si backend devuelve devCode, lo prerrellenamos para QA
       if (data?.devCode) {
         setCode(String(data.devCode));
-        setInfo(`(DEV) C\u00f3digo: ${data.devCode}`);
+        setInfo(`(DEV) Código: ${data.devCode}`);
       }
     } catch (err: any) {
       const apiErr = err?.response?.data;
@@ -95,23 +95,23 @@ const PhoneVerificationDialog: React.FC<Props> = ({
         setCooldown(apiErr.retryAfterSeconds);
         setError(apiErr?.error || 'Espera unos segundos.');
       } else {
-        setError(apiErr?.error || 'No se pudo enviar el c\u00f3digo.');
+        setError(apiErr?.error || 'No se pudo enviar el código.');
       }
     } finally {
       setSending(false);
     }
   };
 
-  // Al abrir el modal, dispara env\u00edo inicial s\u00f3lo una vez
+  // Al abrir el modal, dispara envío inicial sólo una vez
   useEffect(() => {
     if (open && !sentOnceRef.current) {
       sentOnceRef.current = true;
       if (!skipInitialSend) {
         sendCode(true);
       } else {
-        // Asumimos que ya se envi\u00f3 reci\u00e9n; arrancamos cooldown
+        // Asumimos que ya se envió recién; arrancamos cooldown
         setCooldown(RESEND_COOLDOWN);
-        setInfo('Te enviamos un c\u00f3digo por WhatsApp.');
+        setInfo('Te enviamos un código por WhatsApp.');
       }
     }
     if (!open) {
@@ -134,7 +134,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
 
   const handleVerify = async () => {
     if (!/^\d{6}$/.test(code)) {
-      setError('El c\u00f3digo debe tener 6 d\u00edgitos.');
+      setError('El código debe tener 6 dígitos.');
       return;
     }
     setSubmitting(true);
@@ -156,7 +156,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
       } catch {}
       onVerified();
     } catch (err: any) {
-      setError(err?.response?.data?.error || 'C\u00f3digo incorrecto.');
+      setError(err?.response?.data?.error || 'Código incorrecto.');
     } finally {
       setSubmitting(false);
     }
@@ -182,7 +182,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
       <DialogContent>
         <Stack spacing={2} sx={{ mt: 1 }}>
           <Typography variant="body2" color="text.secondary">
-            Te enviamos un c\u00f3digo de 6 d\u00edgitos por WhatsApp a:
+            Te enviamos un código de 6 dígitos por WhatsApp a:
           </Typography>
           <Box sx={{
             textAlign: 'center',
@@ -199,7 +199,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
           {info && !error && <Alert severity="info">{info}</Alert>}
 
           <TextField
-            label="C\u00f3digo de verificaci\u00f3n"
+            label="Código de verificación"
             value={code}
             onChange={(e) => {
               const v = e.target.value.replace(/\D/g, '').slice(0, 6);
@@ -225,7 +225,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
 
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <Typography variant="caption" color="text.secondary">
-              \u00bfNo lleg\u00f3?
+              ¿No llegó?
             </Typography>
             <Button
               size="small"
@@ -233,7 +233,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
               disabled={cooldown > 0 || sending}
               sx={{ textTransform: 'none', fontWeight: 600 }}
             >
-              {sending ? 'Enviando...' : cooldown > 0 ? `Reenviar en ${cooldown}s` : 'Reenviar c\u00f3digo'}
+              {sending ? 'Enviando...' : cooldown > 0 ? `Reenviar en ${cooldown}s` : 'Reenviar código'}
             </Button>
           </Box>
         </Stack>
@@ -245,7 +245,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
             disabled={submitting}
             sx={{ textTransform: 'none' }}
           >
-            Verificar m\u00e1s tarde
+            Verificar más tarde
           </Button>
         )}
         <Button
