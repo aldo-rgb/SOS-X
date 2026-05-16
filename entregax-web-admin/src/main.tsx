@@ -13,12 +13,12 @@ import CotizadorPublico from './pages/CotizadorPublico.tsx'
 initSentry()
 
 const PrivacyPolicyRedirect = () => {
-  window.location.replace('https://sos-x-production.up.railway.app/legal/privacy-policy');
+  window.location.replace('https://api.entregax.app/legal/privacy-policy');
   return null;
 };
 
 const AccountDeletionRedirect = () => {
-  window.location.replace('https://sos-x-production.up.railway.app/eliminar-cuenta');
+  window.location.replace('https://api.entregax.app/eliminar-cuenta');
   return null;
 };
 

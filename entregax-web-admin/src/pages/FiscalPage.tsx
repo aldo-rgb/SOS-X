@@ -32,7 +32,7 @@ const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/
 const PUBLIC_BACKEND_URL =
   (import.meta.env.VITE_PUBLIC_BACKEND_URL as string | undefined) ||
   (import.meta.env.PROD ? (import.meta.env.VITE_API_URL as string | undefined) : undefined) ||
-  'https://sos-x-production.up.railway.app';
+  'https://api.entregax.app';
 const ORANGE = '#F05A28';
 const BLACK = '#111';
 

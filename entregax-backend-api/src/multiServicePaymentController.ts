@@ -771,7 +771,7 @@ export const processOpenPayCard = async (req: AuthRequest, res: Response): Promi
     const packageCount = packageIds.length;
     const cleanDescription = `Pago EntregaX ${packageCount} ${packageCount === 1 ? 'paquete' : 'paquetes'}`;
     
-    const callbackBaseUrl = process.env.API_URL || 'https://sos-x-production.up.railway.app';
+    const callbackBaseUrl = process.env.API_URL || 'https://api.entregax.app';
     const chargeData = {
       method: 'card',
       amount: total,
@@ -952,7 +952,7 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
     const token = await getPayPalToken(credentials);
     const paypalApiUrl = credentials.isSandbox ? PAYPAL_SANDBOX_URL : PAYPAL_PROD_URL;
 
-    const callbackBaseUrl = process.env.API_URL || 'https://sos-x-production.up.railway.app';
+    const callbackBaseUrl = process.env.API_URL || 'https://api.entregax.app';
 
     // Crear orden en PayPal
     const order = await axios.post(
