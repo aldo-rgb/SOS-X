@@ -223,7 +223,7 @@
   },
   "menu": {
     "dashboard": "Dashboard",
-    "customerService": "Servicio a Cliente",
+    "customerService": "Centro de Soporte",
     "unifiedLeads": "Central de Leads 🔥",
     "crmClients": "Control Clientes",
     "salesReport": "Reportes Ventas",
@@ -232,7 +232,7 @@
     "panels": "Herramientas",
     "panelsAdmin": "Administración",
     "panelsOperations": "Operaciones",
-    "panelsService": "Servicio a Cliente",
+    "panelsService": "Centro de Soporte",
     "panelsHR": "Recursos Humanos",
     "panelsFleet": "Gestión de Flotilla",
     "shipments": "Envíos",
@@ -257,7 +257,7 @@
     "settings": "Configuración"
   },
   "customerService": {
-    "title": "Servicio a Cliente",
+    "title": "Centro de Soporte",
     "subtitle": "Herramientas de CRM, gestión de leads y soporte al cliente",
     "quickStats": "Resumen Rápido",
     "leads": {
@@ -269,7 +269,7 @@
       "description": "Análisis de clientes, detección de riesgo y acciones de recuperación"
     },
     "support": {
-      "title": "Centro de Soporte",
+      "title": "Atención a Cliente",
       "description": "Atención al cliente con IA, escalamiento y resolución de tickets"
     },
     "stats": {
@@ -376,7 +376,7 @@
     "noStatus": "Sin estado"
   },
   "support": {
-    "title": "Centro de Soporte",
+    "title": "Atención a Cliente",
     "subtitle": "Gestión de tickets con Agentes Personalizados",
     "searchPlaceholder": "Buscar ticket...",
     "aiHandling": "Gestionado",
@@ -697,7 +697,7 @@
       "description": "Gestiona clientes, verificaciones, comisiones, facturación, proveedores, servicios, precios y configuración."
     },
     "customerServicePanels": {
-      "title": "Servicio a Cliente",
+      "title": "Centro de Soporte",
       "subtitle": "CRM, Leads y Soporte",
       "description": "Central de leads, control de clientes, recuperación, soporte con IA y gestión de tickets."
     },

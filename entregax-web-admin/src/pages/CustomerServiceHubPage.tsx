@@ -204,7 +204,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
     {
       key: 'support',
       title: t('customerService.support.title', 'Centro de Soporte'),
-      description: t('customerService.support.description', 'Atención al cliente con IA, escalamiento y resolución de tickets'),
+      description: t('customerService.support.description', 'Soporte al cliente con IA, escalamiento y resolución de tickets'),
       icon: <HeadsetMicIcon sx={{ fontSize: 40 }} />,
       color: '#10B981',
       bgColor: 'rgba(16, 185, 129, 0.1)',
