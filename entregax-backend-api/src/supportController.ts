@@ -349,14 +349,27 @@ async function getAIResponse(userMessage: string, chatHistory: any[]): Promise<{
  */
 export const handleSupportMessage = async (req: Request, res: Response): Promise<any> => {
   try {
+    await ensureDepartmentsSchema();
     // Obtener userId del JWT (el token contiene userId, no id)
     const userId = (req as any).user?.userId || req.body.userId;
+    const userRole = (req as any).user?.role || '';
     const message = req.body.message;
     const ticketId = req.body.ticketId;
 
     console.log(`🎫 [SUPPORT] userId=${userId}, message=${message?.substring(0, 50)}, hasFiles=${!!(req.files as any[])?.length}`);
     const category = req.body.category;
     const escalateDirectly = req.body.escalateDirectly === 'true' || req.body.escalateDirectly === true;
+
+    // Determinar creator_type y department_id
+    const employeeRoles = ['employee', 'counter_staff', 'customer_service', 'admin', 'super_admin'];
+    const creatorType = employeeRoles.includes(userRole) ? 'employee' : 'client';
+    // Employees go to Soporte Técnico by default; clients to Atención a Cliente
+    const deptRes = await pool.query(
+      creatorType === 'employee'
+        ? `SELECT id FROM support_departments WHERE name = 'Soporte Técnico' LIMIT 1`
+        : `SELECT id FROM support_departments WHERE is_default_for_clients = TRUE LIMIT 1`
+    );
+    const departmentId = deptRes.rows[0]?.id || null;
     
     // Obtener archivos si hay (de multer)
     const files = req.files as Express.Multer.File[] | undefined;
@@ -401,9 +414,9 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       const initialStatus = escalateDirectly ? 'escalated_human' : 'open_ai';
       
       const newTicket = await pool.query(
-        `INSERT INTO support_tickets (ticket_folio, user_id, category, subject, status)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id, ticket_folio`,
-        [folio, userId, category || 'other', subject, initialStatus]
+        `INSERT INTO support_tickets (ticket_folio, user_id, category, subject, status, creator_type, department_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, ticket_folio`,
+        [folio, userId, category || 'other', subject, initialStatus, creatorType, departmentId]
       );
       currentTicketId = newTicket.rows[0].id;
       ticketFolio = newTicket.rows[0].ticket_folio;
@@ -627,31 +640,40 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
  */
 export const getAdminTickets = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { status, limit = 50 } = req.query;
+    await ensureDepartmentsSchema();
+    const { status, limit = 100, department_id, creator_type } = req.query;
 
-    let query = `
-      SELECT t.*, u.full_name, u.email, u.phone,
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (status) { conditions.push(`t.status = $${idx++}`); params.push(status); }
+    if (department_id) { conditions.push(`t.department_id = $${idx++}`); params.push(department_id); }
+    if (creator_type) { conditions.push(`t.creator_type = $${idx++}`); params.push(creator_type); }
+
+    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const query = `
+      SELECT t.*,
+             u.full_name, u.email, u.phone,
+             d.name as department_name, d.color as department_color, d.icon as department_icon,
+             ag.full_name as assigned_agent_name,
              (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) as message_count,
              (SELECT message FROM ticket_messages WHERE ticket_id = t.id ORDER BY created_at DESC LIMIT 1) as last_message
       FROM support_tickets t
       LEFT JOIN users u ON t.user_id = u.id
-    `;
-
-    const params: any[] = [];
-    if (status) {
-      query += ` WHERE t.status = $1`;
-      params.push(status);
-    }
-
-    query += ` ORDER BY 
-      CASE t.status 
-        WHEN 'escalated_human' THEN 1 
-        WHEN 'open_ai' THEN 2 
-        WHEN 'waiting_client' THEN 3 
-        ELSE 4 
-      END,
-      t.updated_at DESC
-      LIMIT $${params.length + 1}`;
+      LEFT JOIN support_departments d ON t.department_id = d.id
+      LEFT JOIN users ag ON t.assigned_to = ag.id
+      ${where}
+      ORDER BY
+        CASE t.status
+          WHEN 'escalated_human' THEN 1
+          WHEN 'open_ai' THEN 2
+          WHEN 'waiting_client' THEN 3
+          ELSE 4
+        END,
+        t.updated_at DESC
+      LIMIT $${idx}`;
     params.push(limit);
 
     const result = await pool.query(query, params);
@@ -668,18 +690,31 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
  */
 export const getSupportStats = async (req: Request, res: Response): Promise<any> => {
   try {
-    const stats = await pool.query(`
-      SELECT 
-        COUNT(*) FILTER (WHERE status = 'open_ai') as ai_handling,
-        COUNT(*) FILTER (WHERE status = 'escalated_human') as needs_human,
-        COUNT(*) FILTER (WHERE status = 'waiting_client') as waiting_client,
-        COUNT(*) FILTER (WHERE status = 'resolved') as resolved,
-        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as today_new,
-        COUNT(*) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours') as today_resolved
-      FROM support_tickets
-    `);
+    await ensureDepartmentsSchema();
+    const [stats, deptStats] = await Promise.all([
+      pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'open_ai') as ai_handling,
+          COUNT(*) FILTER (WHERE status = 'escalated_human') as needs_human,
+          COUNT(*) FILTER (WHERE status = 'waiting_client') as waiting_client,
+          COUNT(*) FILTER (WHERE status = 'resolved') as resolved,
+          COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as today_new,
+          COUNT(*) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours') as today_resolved,
+          COUNT(*) FILTER (WHERE creator_type = 'employee' AND status NOT IN ('resolved','closed')) as employee_open,
+          COUNT(*) FILTER (WHERE creator_type = 'client' AND status NOT IN ('resolved','closed')) as client_open
+        FROM support_tickets
+      `),
+      pool.query(`
+        SELECT d.id, d.name, d.color, d.icon,
+               COUNT(t.id) FILTER (WHERE t.status NOT IN ('resolved','closed')) as open_count
+        FROM support_departments d
+        LEFT JOIN support_tickets t ON t.department_id = d.id
+        GROUP BY d.id, d.name, d.color, d.icon, d.sort_order
+        ORDER BY d.sort_order
+      `)
+    ]);
 
-    res.json(stats.rows[0]);
+    res.json({ ...stats.rows[0], departments: deptStats.rows });
   } catch (error) {
     console.error('Error obteniendo stats:', error);
     res.status(500).json({ error: 'Error obteniendo estadísticas' });
@@ -763,6 +798,128 @@ export const assignTicket = async (req: Request, res: Response): Promise<any> =>
   } catch (error) {
     console.error('Error asignando ticket:', error);
     res.status(500).json({ error: 'Error asignando ticket' });
+  }
+};
+
+// ============================================================
+// 🏢 DEPARTAMENTOS Y RUTEO DE TICKETS
+// ============================================================
+
+let _deptTableEnsured = false;
+export const ensureDepartmentsSchema = async () => {
+  if (_deptTableEnsured) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS support_departments (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100) NOT NULL,
+        color VARCHAR(7) NOT NULL DEFAULT '#666666',
+        icon VARCHAR(50),
+        is_default_for_clients BOOLEAN DEFAULT FALSE,
+        sort_order INT DEFAULT 0,
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      INSERT INTO support_departments (name, color, icon, is_default_for_clients, sort_order)
+      VALUES
+        ('Atención a Cliente', '#F05A28', 'headset', TRUE, 1),
+        ('Soporte Técnico',    '#2196F3', 'construct', FALSE, 2),
+        ('Contabilidad',       '#4CAF50', 'cash',      FALSE, 3),
+        ('Dirección',          '#9C27B0', 'business',  FALSE, 4)
+      ON CONFLICT DO NOTHING
+    `);
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS department_id INT REFERENCES support_departments(id)`);
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS assigned_to INT REFERENCES users(id)`);
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS creator_type VARCHAR(20) DEFAULT 'client'`);
+    // Migrate existing tickets to default department
+    await pool.query(`
+      UPDATE support_tickets
+      SET department_id = (SELECT id FROM support_departments WHERE is_default_for_clients = TRUE LIMIT 1)
+      WHERE department_id IS NULL
+    `);
+    _deptTableEnsured = true;
+    console.log('✅ support_departments schema ensured');
+  } catch (e) {
+    console.error('Error ensuring departments schema:', e);
+  }
+};
+
+/**
+ * GET /api/support/departments
+ * Lista de departamentos disponibles
+ */
+export const getDepartments = async (_req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureDepartmentsSchema();
+    const result = await pool.query(
+      `SELECT id, name, color, icon, is_default_for_clients FROM support_departments ORDER BY sort_order`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error obteniendo departamentos:', error);
+    res.status(500).json({ error: 'Error obteniendo departamentos' });
+  }
+};
+
+/**
+ * GET /api/admin/support/agents?department_id=X
+ * Lista de agentes (empleados) disponibles para asignar
+ */
+export const getSupportAgents = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const result = await pool.query(
+      `SELECT id, full_name, email, role
+       FROM users
+       WHERE role IN ('customer_service', 'admin', 'super_admin', 'counter_staff', 'employee')
+         AND (status IS NULL OR status = 'active')
+       ORDER BY full_name`
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error obteniendo agentes:', error);
+    res.status(500).json({ error: 'Error obteniendo agentes' });
+  }
+};
+
+/**
+ * POST /api/admin/support/ticket/:id/transfer
+ * Transferir ticket a otro departamento y/o agente
+ */
+export const transferTicket = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { department_id, assigned_to, note } = req.body;
+
+    if (!department_id && !assigned_to) {
+      return res.status(400).json({ error: 'Se requiere departamento o agente destino' });
+    }
+
+    const updates: string[] = ['updated_at = NOW()'];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (department_id) { updates.push(`department_id = $${idx++}`); params.push(department_id); }
+    if (assigned_to) { updates.push(`assigned_to = $${idx++}`, `assigned_agent_id = $${idx++}`); params.push(assigned_to, assigned_to); }
+    updates.push(`status = $${idx++}`); params.push('escalated_human');
+    params.push(id);
+
+    await pool.query(
+      `UPDATE support_tickets SET ${updates.join(', ')} WHERE id = $${idx}`,
+      params
+    );
+
+    if (note) {
+      await pool.query(
+        `INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES ($1, 'agent', $2)`,
+        [id, `📋 Ticket transferido. Nota: ${note}`]
+      );
+    }
+
+    res.json({ success: true, message: 'Ticket transferido' });
+  } catch (error) {
+    console.error('Error transfiriendo ticket:', error);
+    res.status(500).json({ error: 'Error transfiriendo ticket' });
   }
 };
 

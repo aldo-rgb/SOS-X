@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   View,
   StyleSheet,
@@ -81,6 +82,7 @@ type HomeScreenProps = {
 
 export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const { user: initialUser, token } = route.params;
   const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled } = usePaymentStatus();
   // Logos remotos (configurables desde Ajustes del Sistema > Brand Assets).
@@ -1306,39 +1308,47 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       <StatusBar barStyle="light-content" backgroundColor={BLACK} />
       
       {/* Appbar */}
-      <Appbar.Header style={styles.appbar}>
-        <View style={{ paddingLeft: 16, justifyContent: 'center' }}>
-          <Image 
-            source={entregaxLogoUrl ? { uri: entregaxLogoUrl } : require('../../assets/logo.png')} 
-            style={{ width: 120, height: 36, resizeMode: 'contain' }}
-          />
-        </View>
-        <View style={{ flex: 1 }} />
-        <TouchableOpacity 
-          onPress={() => setShowLanguageModal(true)}
-          style={styles.languageButton}
-        >
-          <Text style={styles.languageFlag}>{getLanguageFlag(currentLang)}</Text>
-        </TouchableOpacity>
-        {/* 🔔 Ícono de notificaciones con badge rojo */}
-        <View style={{ position: 'relative' }}>
-          <Appbar.Action 
-            icon="bell-outline" 
-            onPress={() => navigation.navigate('Notifications', { user, token })} 
-            color="white" 
-          />
-          {unreadNotifications > 0 && (
-            <View style={styles.notificationBadge}>
-              {unreadNotifications <= 9 ? (
-                <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
-              ) : (
-                <Text style={styles.notificationBadgeText}>9+</Text>
+      <View style={{ backgroundColor: BLACK, paddingTop: insets.top }}>
+        <View style={styles.appbar}>
+          {/* Izquierda: logo */}
+          <View style={{ paddingLeft: 12, justifyContent: 'center' }}>
+            <Image
+              source={entregaxLogoUrl ? { uri: entregaxLogoUrl } : require('../../assets/logo.png')}
+              style={{ width: 101, height: 26, resizeMode: 'contain' }}
+            />
+          </View>
+
+          <View style={{ flex: 1 }} />
+
+          {/* Derecha: idioma + notificaciones + menú */}
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => setShowLanguageModal(true)} style={{ padding: 8 }} hitSlop={8}>
+              <Text style={styles.languageFlag}>{getLanguageFlag(currentLang)}</Text>
+            </TouchableOpacity>
+            <View style={{ position: 'relative' }}>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('Notifications', { user, token })}
+                style={{ padding: 8 }}
+                hitSlop={8}
+              >
+                <Ionicons name="notifications-outline" size={24} color="white" />
+              </TouchableOpacity>
+              {unreadNotifications > 0 && (
+                <View style={styles.notificationBadge}>
+                  {unreadNotifications <= 9 ? (
+                    <Text style={styles.notificationBadgeText}>{unreadNotifications}</Text>
+                  ) : (
+                    <Text style={styles.notificationBadgeText}>9+</Text>
+                  )}
+                </View>
               )}
             </View>
-          )}
+            <TouchableOpacity onPress={() => setShowMenu(true)} style={{ padding: 8 }} hitSlop={8}>
+              <Ionicons name="menu" size={26} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
-        <Appbar.Action icon="menu" onPress={() => setShowMenu(true)} color="white" />
-      </Appbar.Header>
+      </View>
 
       {/* 🌐 Modal de Idioma */}
       <Modal visible={showLanguageModal} animationType="fade" transparent>
@@ -2960,7 +2970,10 @@ const styles = StyleSheet.create({
   },
   appbar: {
     backgroundColor: BLACK,
-    elevation: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    height: 46,
   },
   appbarTitle: {
     color: 'white',

@@ -128,7 +128,7 @@ export default function BootstrapScreen({ navigation }: Props) {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={BLACK} />
       <Image
-        source={require('../../assets/logo.png')}
+        source={require('../../assets/x-logo-entregax.png')}
         style={styles.logo}
         resizeMode="contain"
       />
@@ -146,6 +146,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 24,
   },
-  logo: { width: 200, height: 60 },
+  logo: { width: 160, height: 160 },
   hint: { color: '#bbb', marginTop: 12, fontSize: 13 },
 });

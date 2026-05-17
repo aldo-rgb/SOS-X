@@ -84,6 +84,8 @@ import AdvisorReferralScreen from './src/screens/AdvisorReferralScreen';
 import AdvisorTeamScreen from './src/screens/AdvisorTeamScreen';
 import AdvisorClientTicketsScreen from './src/screens/AdvisorClientTicketsScreen';
 import AdvisorNotificationsScreen from './src/screens/AdvisorNotificationsScreen';
+import AdvisorPackagesScreen from './src/screens/AdvisorPackagesScreen';
+import AdvisorSupportTicketScreen from './src/screens/AdvisorSupportTicketScreen';
 // Chat Screens (módulo interno staff)
 import ChatListScreen from './src/screens/ChatListScreen';
 import ChatRoomScreen from './src/screens/ChatRoomScreen';
@@ -178,6 +180,8 @@ export type RootStackParamList = {
   AdvisorTeam: { user: any; token: string };
   AdvisorClientTickets: { user: any; token: string };
   AdvisorNotifications: { user: any; token: string };
+  AdvisorPackages: { user: any; token: string; filter: string };
+  AdvisorSupportTicket: { user: any; token: string };
   // Chat interno staff
   ChatList: { user: any; token: string };
   ChatRoom: {
@@ -419,23 +423,15 @@ function App() {
               headerShown: false,
             }}
           />
-          <Stack.Screen 
-            name="AdvisorClients" 
+          <Stack.Screen
+            name="AdvisorClients"
             component={AdvisorClientsScreen}
-            options={{
-              headerShown: true,
-              headerTitle: 'Mis Clientes',
-              headerTintColor: '#F05A28',
-            }}
+            options={{ headerShown: false }}
           />
-          <Stack.Screen 
-            name="AdvisorCommissions" 
+          <Stack.Screen
+            name="AdvisorCommissions"
             component={AdvisorCommissionsScreen}
-            options={{
-              headerShown: true,
-              headerTitle: 'Mis Comisiones',
-              headerTintColor: '#F05A28',
-            }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen 
             name="AdvisorReferral" 
@@ -465,7 +461,7 @@ function App() {
             }}
           />
           <Stack.Screen 
-            name="AdvisorNotifications" 
+            name="AdvisorNotifications"
             component={AdvisorNotificationsScreen}
             options={{
               headerShown: true,
@@ -473,6 +469,8 @@ function App() {
               headerTintColor: '#F05A28',
             }}
           />
+          <Stack.Screen name="AdvisorPackages" component={AdvisorPackagesScreen} />
+          <Stack.Screen name="AdvisorSupportTicket" component={AdvisorSupportTicketScreen} options={{ headerShown: false }} />
           {/* Chat interno staff */}
           <Stack.Screen name="ChatList" component={ChatListScreen} />
           <Stack.Screen name="ChatRoom" component={ChatRoomScreen} />

@@ -519,7 +519,8 @@ import {
   getAdvisorClientTickets,
   getAdvisorTicketDetail,
   getAdvisorNotifications,
-  getAdvisorUnreadCount
+  getAdvisorUnreadCount,
+  getAdvisorPackages
 } from './advisorPanelController';
 import {
   requestAdvisor,
@@ -563,7 +564,11 @@ import {
   submitBoxIdClaim,
   uploadBoxIdClaimFiles,
   getBoxIdClaims,
-  resolveBoxIdClaim
+  resolveBoxIdClaim,
+  getDepartments,
+  getSupportAgents,
+  transferTicket,
+  ensureDepartmentsSchema
 } from './supportController';
 import {
   getMyNotifications,
@@ -4449,6 +4454,7 @@ app.put('/api/gex/auto-config', authenticateToken, async (req: AuthRequest, res:
 
 // ========== PANEL DEL ASESOR (self-service) ==========
 app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
+app.get('/api/advisor/packages', authenticateToken, getAdvisorPackages);
 app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
 app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWallet);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
@@ -4546,6 +4552,15 @@ app.put('/api/admin/support/ticket/:id/resolve', authenticateToken, requireMinLe
 
 // Admin: Asignar ticket a agente
 app.put('/api/admin/support/ticket/:id/assign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignTicket);
+
+// Departamentos: listar (autenticado, cualquier rol)
+app.get('/api/support/departments', authenticateToken, getDepartments);
+
+// Admin: agentes disponibles para asignar
+app.get('/api/admin/support/agents', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSupportAgents);
+
+// Admin: transferir ticket a departamento/agente
+app.post('/api/admin/support/ticket/:id/transfer', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), transferTicket);
 
 // 🆘 Público: Reclamación de número de cliente (sin auth)
 app.post('/api/support/public/claim-box-id', uploadBoxIdClaimFiles, submitBoxIdClaim);
@@ -9364,6 +9379,9 @@ httpServer.listen(PORT, '0.0.0.0', () => {
 
   // Asegurar columnas (idempotente) antes de cron jobs
   ensureRequiredColumns();
+
+  // Asegurar tablas de departamentos de soporte
+  ensureDepartmentsSchema();
 
   // One-shot: resetear cuenta de pruebas jesuscampos@entregax.com.mx
   // (idempotente — guarda marcador en system_configurations).

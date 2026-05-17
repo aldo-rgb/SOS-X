@@ -134,15 +134,21 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
     `, [advisorId]);
 
     // Comisiones del mes actual
-    // Por ahora calculamos basado en paquetes pagados de sus clientes
     const commissionsRes = await pool.query(`
-      SELECT 
+      SELECT
         COALESCE(SUM(CASE WHEN COALESCE(p.saldo_pendiente, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 AND p.updated_at >= date_trunc('month', NOW()) THEN COALESCE(p.assigned_cost_mxn, 0) END), 0) as month_volume_mxn,
         COUNT(CASE WHEN COALESCE(p.saldo_pendiente, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 AND p.updated_at >= date_trunc('month', NOW()) THEN 1 END) as month_paid_count
       FROM packages p
       JOIN users u ON p.user_id = u.id
       WHERE u.role = 'client'
         AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+    `, [advisorId]);
+
+    const commissionTotalRes = await pool.query(`
+      SELECT COALESCE(SUM(commission_amount_mxn), 0) as month_commission_mxn
+      FROM advisor_commissions
+      WHERE advisor_id = $1
+        AND created_at >= date_trunc('month', NOW())
     `, [advisorId]);
 
     // Registros mensuales (últimos 6 meses)
@@ -196,6 +202,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       commissions: {
         monthVolumeMxn: parseFloat(commissionsRes.rows[0]?.month_volume_mxn) || 0,
         monthPaidCount: parseInt(commissionsRes.rows[0]?.month_paid_count) || 0,
+        monthCommissionMxn: parseFloat(commissionTotalRes.rows[0]?.month_commission_mxn) || 0,
       },
       monthlyRegistrations: monthlyRes.rows,
       subAdvisors: parseInt(subAdvisorsRes.rows[0]?.sub_advisors) || 0,
@@ -1408,5 +1415,43 @@ export const getAdvisorUnreadCount = async (req: Request, res: Response): Promis
   } catch (error) {
     console.error('Error fetching advisor unread count:', error);
     res.status(500).json({ success: false, count: 0 });
+  }
+};
+
+// ─── ADVISOR PACKAGES (filtrado) ───
+export const getAdvisorPackages = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    const { filter } = req.query; // 'in_transit' | 'awaiting_payment' | 'missing_instructions'
+
+    let whereExtra = '';
+    if (filter === 'awaiting_payment') {
+      whereExtra = `AND COALESCE(p.saldo_pendiente, 0) > 0`;
+    } else if (filter === 'missing_instructions') {
+      whereExtra = `AND p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')`;
+    }
+
+    const result = await pool.query(`
+      SELECT p.id, p.tracking_number, p.status, p.goods_name, p.assigned_cost_mxn,
+             p.saldo_pendiente, p.destination_address, p.assigned_address_id,
+             p.created_at, p.updated_at,
+             u.full_name AS client_name, u.box_id AS client_box_id
+        FROM packages p
+        JOIN users u ON p.user_id = u.id
+       WHERE u.role = 'client'
+         AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+         AND p.status IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
+         ${whereExtra}
+       ORDER BY p.updated_at DESC
+       LIMIT 200
+    `, [advisorId]);
+
+    console.log(`[getAdvisorPackages] advisorId=${advisorId} filter=${filter} rows=${result.rows.length}`);
+    res.json({ packages: result.rows });
+  } catch (error) {
+    console.error('Error getAdvisorPackages:', error);
+    res.status(500).json({ error: 'Error al obtener paquetes' });
   }
 };

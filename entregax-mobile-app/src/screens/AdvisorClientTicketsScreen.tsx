@@ -10,7 +10,7 @@ import {
   Modal,
   ScrollView,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { api } from '../services/api';
 
@@ -78,6 +78,7 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
   const { user, token } = route.params;
+  const insets = useSafeAreaInsets();
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [stats, setStats] = useState<TicketStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -339,7 +340,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
 
       {/* Ticket Detail Modal */}
       <Modal visible={showDetail} animationType="slide" onRequestClose={() => setShowDetail(false)}>
-        <SafeAreaView style={styles.modalContainer}>
+        <View style={[styles.modalContainer, { paddingTop: insets.top }]}>
           {/* Modal Header */}
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setShowDetail(false)} style={styles.modalClose}>
@@ -424,7 +425,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
               <View style={{ height: 40 }} />
             </ScrollView>
           )}
-        </SafeAreaView>
+        </View>
       </Modal>
     </SafeAreaView>
   );

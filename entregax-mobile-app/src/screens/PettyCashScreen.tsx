@@ -23,7 +23,7 @@ import {
   Image,
   Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -88,6 +88,7 @@ const fmtDate = (s: string) => {
 
 export default function PettyCashScreen({ navigation, route }: any) {
   const token = route?.params?.token;
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -406,7 +407,7 @@ export default function PettyCashScreen({ navigation, route }: any) {
       {/* Modal: Registrar gasto */}
       <Modal visible={expenseOpen} animationType="slide" onRequestClose={() => setExpenseOpen(false)}>
         <SafeAreaView style={styles.container}>
-          <View style={styles.header}>
+          <View style={[styles.header, { paddingTop: insets.top > 0 ? insets.top : 12 }]}>
             <TouchableOpacity onPress={() => setExpenseOpen(false)} disabled={expSaving}>
               <MaterialIcons name="close" size={28} color="#333" />
             </TouchableOpacity>

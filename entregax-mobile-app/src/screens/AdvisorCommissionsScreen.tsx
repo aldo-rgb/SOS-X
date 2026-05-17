@@ -12,11 +12,11 @@ import {
   TouchableOpacity,
   Dimensions,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Text,
   Surface,
   ActivityIndicator,
-  Chip,
   Divider,
 } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
@@ -49,6 +49,7 @@ interface Commission {
 
 export default function AdvisorCommissionsScreen({ navigation, route }: any) {
   const { user, token } = route.params;
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [summary, setSummary] = useState<CommissionSummary | null>(null);
@@ -69,14 +70,43 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
       if (!response.ok) throw new Error('Error al cargar comisiones');
       
       const data = await response.json();
-      setSummary(data.summary || null);
-      
-      if (reset) {
-        setCommissions(data.commissions || []);
-      } else {
-        setCommissions(prev => [...prev, ...(data.commissions || [])]);
+
+      // Backend devuelve data.totals y data.recent (no data.summary/data.commissions)
+      if (data.totals) {
+        const monthly = data.monthly || [];
+        setSummary({
+          totalEarned: data.totals.totalCommission || 0,
+          totalPending: data.totals.pendingCommission || 0,
+          totalPaid: data.totals.paidCommission || 0,
+          thisMonth: monthly[0]?.commission || 0,
+          lastMonth: monthly[1]?.commission || 0,
+        });
       }
-      
+
+      // Normalizar recent → Commission shape
+      const normalize = (r: any): Commission => ({
+        id: r.id,
+        client_name: r.clientName || r.client_name || '',
+        client_box_id: r.clientBoxId || r.client_box_id || '',
+        package_tracking: r.tracking || r.package_tracking || '',
+        service_type: r.serviceType || r.service_type || '',
+        amount_mxn: r.paymentAmount ?? r.amount_mxn ?? 0,
+        commission_rate: r.commissionRate ?? r.commission_rate ?? 0,
+        commission_mxn: r.commissionAmount ?? r.commission_mxn ?? 0,
+        status: r.status || '',
+        paid_at: r.paidAt ?? r.paid_at ?? null,
+        created_at: r.createdAt || r.created_at || '',
+      });
+
+      let list: Commission[] = (data.recent || data.commissions || []).map(normalize);
+      if (filter !== 'all') list = list.filter(c => c.status === filter);
+
+      if (reset) {
+        setCommissions(list);
+      } else {
+        setCommissions(prev => [...prev, ...list]);
+      }
+
       if (reset) setPage(1);
     } catch (err) {
       console.error('Error loading commissions:', err);
@@ -167,13 +197,16 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
       
       <View style={styles.commissionFooter}>
         <Text style={styles.dateText}>{formatDate(item.created_at)}</Text>
-        <Chip 
-          mode="flat" 
-          textStyle={{ fontSize: 10, color: getStatusColor(item.status) }}
-          style={{ backgroundColor: getStatusColor(item.status) + '20', height: 24 }}
-        >
-          {getStatusLabel(item.status)}
-        </Chip>
+        <View style={{
+          backgroundColor: getStatusColor(item.status) + '20',
+          borderRadius: 12,
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+        }}>
+          <Text style={{ fontSize: 11, color: getStatusColor(item.status), fontWeight: '600' }}>
+            {getStatusLabel(item.status)}
+          </Text>
+        </View>
       </View>
     </Surface>
   );
@@ -187,7 +220,7 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
@@ -198,27 +231,27 @@ export default function AdvisorCommissionsScreen({ navigation, route }: any) {
       {/* Summary Cards */}
       {summary && (
         <View style={styles.summaryContainer}>
-          <Surface style={styles.summaryCard}>
-            <Text style={styles.summaryLabel}>Total Ganado</Text>
-            <Text style={styles.summaryValue}>
-              ${summary.totalEarned?.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-            </Text>
-            <Text style={styles.summaryUnit}>MXN</Text>
-          </Surface>
-          <Surface style={[styles.summaryCard, { backgroundColor: '#E8F5E9' }]}>
-            <Text style={styles.summaryLabel}>Este Mes</Text>
-            <Text style={[styles.summaryValue, { color: '#4CAF50' }]}>
-              ${summary.thisMonth?.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-            </Text>
-            <Text style={styles.summaryUnit}>MXN</Text>
-          </Surface>
-          <Surface style={[styles.summaryCard, { backgroundColor: '#FFF3E0' }]}>
-            <Text style={styles.summaryLabel}>Pendiente</Text>
-            <Text style={[styles.summaryValue, { color: '#FF9800' }]}>
+          <TouchableOpacity style={[styles.summaryCard, { backgroundColor: '#FFF3E0' }]} onPress={() => setFilter('pending')}>
+            <Text style={styles.summaryLabel}>Por Cobrar</Text>
+            <Text style={[styles.summaryValue, { color: '#FF9800' }]} numberOfLines={1} adjustsFontSizeToFit>
               ${summary.totalPending?.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
             </Text>
             <Text style={styles.summaryUnit}>MXN</Text>
-          </Surface>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.summaryCard, { backgroundColor: '#E8F5E9' }]} onPress={() => setFilter('paid')}>
+            <Text style={styles.summaryLabel}>Pagadas</Text>
+            <Text style={[styles.summaryValue, { color: '#4CAF50' }]} numberOfLines={1} adjustsFontSizeToFit>
+              ${summary.totalPaid?.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.summaryUnit}>MXN</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.summaryCard, { backgroundColor: '#fff' }]} onPress={() => setFilter('all')}>
+            <Text style={styles.summaryLabel}>Este Mes</Text>
+            <Text style={styles.summaryValue} numberOfLines={1} adjustsFontSizeToFit>
+              ${summary.thisMonth?.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </Text>
+            <Text style={styles.summaryUnit}>MXN</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -279,7 +312,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#111',
-    paddingTop: 60,
     paddingBottom: 16,
     paddingHorizontal: 16,
     flexDirection: 'row',
@@ -314,7 +346,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   summaryValue: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '800',
     color: ORANGE,
     marginTop: 4,
@@ -326,8 +358,10 @@ const styles = StyleSheet.create({
   filtersContainer: {
     flexDirection: 'row',
     paddingHorizontal: 16,
+    paddingTop: 12,
     paddingBottom: 12,
     gap: 8,
+    justifyContent: 'center',
   },
   filterChip: {
     paddingHorizontal: 16,

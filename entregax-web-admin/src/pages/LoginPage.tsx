@@ -606,7 +606,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 src="/logo-paqeteria.png"
                 alt="EntregaX"
                 sx={{
-                  width: 180,
+                  width: 260,
                   height: 'auto',
                   objectFit: 'contain',
                 }}

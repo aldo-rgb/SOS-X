@@ -25,13 +25,14 @@ import {
   Clipboard,
   Dimensions,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Appbar, Avatar, Divider, Icon, Chip, Surface } from 'react-native-paper';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { api, API_URL } from '../services/api';
 import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
+import { useBrandAsset } from '../hooks/useBrandAssets';
 import { useTranslation } from 'react-i18next';
 
 const { width } = Dimensions.get('window');
@@ -69,6 +70,7 @@ interface AdvisorDashboardData {
   commissions: {
     monthVolumeMxn: number;
     monthPaidCount: number;
+    monthCommissionMxn: number;
   };
   subAdvisors: number;
 }
@@ -421,6 +423,8 @@ const ROLE_LABELS: Record<string, string> = {
 export default function EmployeeHomeScreen({ navigation, route }: any) {
   const { user: initialUser, token } = route.params;
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
+  const entregaxLogoUrl = useBrandAsset('entregax_full_white');
   const [user, setUser] = useState(initialUser);
   const [refreshing, setRefreshing] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
@@ -432,6 +436,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   // Estados para el panel del asesor
   const [advisorData, setAdvisorData] = useState<AdvisorDashboardData | null>(null);
   const [advisorLoading, setAdvisorLoading] = useState(false);
+  const [hideCommission, setHideCommission] = useState(false);
   const isAdvisor = ADVISOR_ROLES.includes(user.role);
 
   // Estados para idioma y notificaciones
@@ -787,50 +792,58 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={[]}>
       {/* Header */}
-      <Appbar.Header style={styles.appbar}>
-        <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', paddingLeft: 12 }}>
-          <Image 
-            source={require('../../assets/logo.png')} 
-            style={{ width: 110, height: 30, resizeMode: 'contain' }}
-          />
-        </View>
-        <TouchableOpacity 
-          onPress={() => setShowLanguageModal(true)}
-          style={styles.languageButton}
-        >
-          <Text style={styles.languageFlag}>{getLanguageFlag(currentLang)}</Text>
-        </TouchableOpacity>
-        {/* � Chat interno */}
-        <Appbar.Action
-          icon="chat-outline"
-          onPress={() => navigation.navigate('ChatList', { user, token })}
-          color="white"
-        />
-        {/* �🔔 Notificaciones */}
-        <View style={{ position: 'relative' }}>
-          <Appbar.Action 
-            icon="bell-outline" 
-            onPress={() => {
-              if (isAdvisor) {
-                navigation.navigate('AdvisorNotifications', { user, token });
-              } else {
-                navigation.navigate('Notifications', { user, token });
-              }
-            }} 
-            color="white" 
-          />
-          {unreadNotifications > 0 && (
-            <View style={styles.notificationBadge}>
-              <Text style={styles.notificationBadgeText}>
-                {unreadNotifications <= 9 ? unreadNotifications : '9+'}
-              </Text>
+      <View style={{ backgroundColor: BLACK, paddingTop: insets.top }}>
+        <View style={styles.appbar}>
+          {/* Lado izquierdo: idioma + chat */}
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <TouchableOpacity onPress={() => setShowLanguageModal(true)} style={styles.languageButton}>
+              <Text style={styles.languageFlag}>{getLanguageFlag(currentLang)}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('ChatList', { user, token })} style={{ padding: 8 }} hitSlop={8}>
+              <Ionicons name="chatbubble-outline" size={22} color="white" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Centro: logo dinámico */}
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <Image
+              source={entregaxLogoUrl ? { uri: entregaxLogoUrl } : require('../../assets/logo.png')}
+              style={{ width: 138, height: 35, resizeMode: 'contain' }}
+            />
+          </View>
+
+          {/* Lado derecho: notificaciones + menú */}
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <View style={{ position: 'relative' }}>
+              <TouchableOpacity
+                onPress={() => {
+                  if (isAdvisor) {
+                    navigation.navigate('AdvisorNotifications', { user, token });
+                  } else {
+                    navigation.navigate('Notifications', { user, token });
+                  }
+                }}
+                style={{ padding: 8 }}
+                hitSlop={8}
+              >
+                <Ionicons name="notifications-outline" size={24} color="white" />
+              </TouchableOpacity>
+              {unreadNotifications > 0 && (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>
+                    {unreadNotifications <= 9 ? unreadNotifications : '9+'}
+                  </Text>
+                </View>
+              )}
             </View>
-          )}
+            <TouchableOpacity onPress={() => setShowMenu(true)} style={{ padding: 8 }} hitSlop={8}>
+              <Ionicons name="menu" size={26} color="white" />
+            </TouchableOpacity>
+          </View>
         </View>
-        <Appbar.Action icon="menu" onPress={() => setShowMenu(true)} color="white" />
-      </Appbar.Header>
+      </View>
 
       <ScrollView
         refreshControl={
@@ -1063,44 +1076,55 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
             {/* Embarques de Clientes */}
             <Text style={styles.sectionTitle}>📦 {t('advisorPanel.clientShipments')}</Text>
             <View style={advStyles.shipmentStats}>
-              <View style={advStyles.shipmentStatItem}>
+              <TouchableOpacity
+                style={advStyles.shipmentStatItem}
+                onPress={() => navigation.navigate('AdvisorPackages', { user, token, filter: 'in_transit' })}
+              >
                 <View style={[advStyles.shipmentIcon, { backgroundColor: '#2196F320' }]}>
                   <Ionicons name="airplane" size={20} color="#2196F3" />
                 </View>
                 <Text style={advStyles.shipmentValue}>{advisorData.shipments.inTransit}</Text>
                 <Text style={advStyles.shipmentLabel}>{t('advisorPanel.inTransit')}</Text>
-              </View>
-              <View style={advStyles.shipmentStatItem}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={advStyles.shipmentStatItem}
+                onPress={() => navigation.navigate('AdvisorPackages', { user, token, filter: 'awaiting_payment' })}
+              >
                 <View style={[advStyles.shipmentIcon, { backgroundColor: '#FF980020' }]}>
                   <Ionicons name="card" size={20} color="#FF9800" />
                 </View>
                 <Text style={advStyles.shipmentValue}>{advisorData.shipments.awaitingPayment}</Text>
                 <Text style={advStyles.shipmentLabel}>{t('advisorPanel.awaitingPayment')}</Text>
-              </View>
-              <View style={advStyles.shipmentStatItem}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={advStyles.shipmentStatItem}
+                onPress={() => navigation.navigate('AdvisorPackages', { user, token, filter: 'missing_instructions' })}
+              >
                 <View style={[advStyles.shipmentIcon, { backgroundColor: '#f4433620' }]}>
                   <Ionicons name="alert-circle" size={20} color="#f44336" />
                 </View>
                 <Text style={advStyles.shipmentValue}>{advisorData.shipments.missingInstructions}</Text>
                 <Text style={advStyles.shipmentLabel}>{t('advisorPanel.noInstructions')}</Text>
-              </View>
+              </TouchableOpacity>
             </View>
 
             {/* Comisiones del Mes */}
             <Text style={styles.sectionTitle}>💰 {t('advisorPanel.monthCommissions')}</Text>
             <View style={advStyles.commissionsCard}>
               <View style={advStyles.commissionRow}>
-                <View>
-                  <Text style={advStyles.commissionLabel}>{t('advisorPanel.billedVolume')}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={advStyles.commissionLabel}>Total Comisiones</Text>
                   <Text style={advStyles.commissionValue}>
-                    ${advisorData.commissions.monthVolumeMxn.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                    {hideCommission
+                      ? '- - -'
+                      : `$${(advisorData.commissions.monthCommissionMxn || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`}
                   </Text>
                 </View>
-                <Chip icon="receipt" mode="outlined" textStyle={{ color: ORANGE }}>
-                  {advisorData.commissions.monthPaidCount} {t('advisorPanel.payments')}
-                </Chip>
+                <TouchableOpacity onPress={() => setHideCommission(h => !h)} style={{ padding: 8 }}>
+                  <Ionicons name={hideCommission ? 'eye-off-outline' : 'eye-outline'} size={22} color="#999" />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={advStyles.viewCommissionsButton}
                 onPress={() => navigation.navigate('AdvisorCommissions', { user, token })}
               >
@@ -1109,69 +1133,27 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               </TouchableOpacity>
             </View>
 
-            {/* Acciones Rápidas del Asesor */}
-            <Text style={styles.sectionTitle}>⚡ {t('advisorPanel.quickActions')}</Text>
+            {/* Soporte y Atención a Cliente */}
+            <Text style={styles.sectionTitle}>🎧 Soporte y Atención a Cliente</Text>
             <View style={advStyles.quickActions}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={advStyles.quickAction}
-                onPress={() => navigation.navigate('AdvisorClients', { user, token })}
+                onPress={() => navigation.navigate('AdvisorSupportTicket', { user, token })}
               >
-                <View style={[advStyles.quickActionIcon, { backgroundColor: ORANGE + '20' }]}>
-                  <Ionicons name="people" size={24} color={ORANGE} />
+                <View style={[advStyles.quickActionIcon, { backgroundColor: '#2196F3' + '20' }]}>
+                  <Ionicons name="headset" size={24} color="#2196F3" />
                 </View>
-                <Text style={advStyles.quickActionText}>{t('advisorPanel.myClients')}</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity 
-                style={advStyles.quickAction}
-                onPress={() => navigation.navigate('AdvisorCommissions', { user, token })}
-              >
-                <View style={[advStyles.quickActionIcon, { backgroundColor: '#4CAF50' + '20' }]}>
-                  <Ionicons name="cash" size={24} color="#4CAF50" />
-                </View>
-                <Text style={advStyles.quickActionText}>{t('advisorPanel.commissions')}</Text>
-              </TouchableOpacity>
-              
-              {advisorData.subAdvisors > 0 && (
-                <TouchableOpacity 
-                  style={advStyles.quickAction}
-                  onPress={() => navigation.navigate('AdvisorTeam', { user, token })}
-                >
-                  <View style={[advStyles.quickActionIcon, { backgroundColor: '#9C27B0' + '20' }]}>
-                    <Ionicons name="people-circle" size={24} color="#9C27B0" />
-                  </View>
-                  <Text style={advStyles.quickActionText}>{t('advisorPanel.myTeam')} ({advisorData.subAdvisors})</Text>
-                </TouchableOpacity>
-              )}
-
-              <TouchableOpacity 
-                style={advStyles.quickAction}
-                onPress={() => navigation.navigate('SupportTickets', { user, token })}
-              >
-                <View style={[advStyles.quickActionIcon, { backgroundColor: '#FF9800' + '20' }]}>
-                  <Ionicons name="headset" size={24} color="#FF9800" />
-                </View>
-                <Text style={advStyles.quickActionText}>{t('advisorPanel.support')}</Text>
+                <Text style={advStyles.quickActionText}>Soporte</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={advStyles.quickAction}
-                onPress={() => navigation.navigate('MyProfile', { user, token })}
-              >
-                <View style={[advStyles.quickActionIcon, { backgroundColor: '#607D8B' + '20' }]}>
-                  <Ionicons name="person" size={24} color="#607D8B" />
-                </View>
-                <Text style={advStyles.quickActionText}>{t('advisorPanel.myProfile')}</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={advStyles.quickAction}
                 onPress={() => navigation.navigate('AdvisorClientTickets', { user, token })}
               >
                 <View style={[advStyles.quickActionIcon, { backgroundColor: '#E91E63' + '20' }]}>
-                  <Ionicons name="document-text" size={24} color="#E91E63" />
+                  <Ionicons name="ticket" size={24} color="#E91E63" />
                 </View>
-                <Text style={advStyles.quickActionText}>{t('advisorPanel.reports')}</Text>
+                <Text style={advStyles.quickActionText}>Tickets</Text>
               </TouchableOpacity>
             </View>
 
@@ -1411,8 +1393,10 @@ const styles = StyleSheet.create({
   },
   appbar: {
     backgroundColor: BLACK,
-    elevation: 0,
-    height: 44,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    height: 56,
   },
   appbarTitle: {
     color: 'white',

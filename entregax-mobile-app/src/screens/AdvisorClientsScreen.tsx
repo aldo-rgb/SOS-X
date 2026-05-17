@@ -13,6 +13,7 @@ import {
   TextInput,
   Linking,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   Text,
   Avatar,
@@ -44,6 +45,7 @@ interface Client {
 
 export default function AdvisorClientsScreen({ navigation, route }: any) {
   const { user, token, filter: initialFilter } = route.params;
+  const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [clients, setClients] = useState<Client[]>([]);
@@ -237,7 +239,7 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   return (
     <View style={styles.container}>
       {/* Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
@@ -321,7 +323,6 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: '#111',
-    paddingTop: 60,
     paddingBottom: 16,
     paddingHorizontal: 16,
     flexDirection: 'row',

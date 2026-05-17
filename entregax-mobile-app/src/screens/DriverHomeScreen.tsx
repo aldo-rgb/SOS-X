@@ -22,6 +22,7 @@ import {
   Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useBrandAsset } from '../hooks/useBrandAssets';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -65,6 +66,7 @@ interface LoadedPackage {
 export default function DriverHomeScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const user = route?.params?.user;
+  const logoUrl = useBrandAsset('entregax_full_black');
   // 👁️ Rol Monitoreo: NO conduce vehiculo, NO checa asistencia desde el dashboard.
   const isMonitoreo = String(user?.role || '').toLowerCase() === 'monitoreo';
   const [loading, setLoading] = useState(true);
@@ -465,35 +467,28 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       >
         {/* Header */}
         <View style={styles.header}>
+          {/* Izquierda: back */}
           <TouchableOpacity style={styles.backButtonHeader} onPress={handleBackToEmployeeHome}>
             <MaterialIcons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
-          <View>
-            <Text style={styles.greeting}>{getGreeting()} 👋</Text>
-            <Text style={styles.dateText}>
-              {currentTime.toLocaleDateString('es-MX', { 
-                weekday: 'long', 
-                day: 'numeric', 
-                month: 'long' 
-              })}
-            </Text>
-          </View>
-          <TouchableOpacity 
-            style={styles.profileButton}
-            onPress={() => navigation.navigate('ChatList', { user, token })}
-          >
-            <MaterialIcons name="chat" size={24} color="#F05A28" />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.profileButton}
-            onPress={() => navigation.navigate('MyProfile', { user, token })}
-          >
+
+          {/* Centro: logo */}
+          <View style={{ flex: 1, alignItems: 'center' }}>
             <Image
-              source={require('../../assets/x-logo-entregax.png')}
-              style={styles.profileLogo}
-              resizeMode="contain"
+              source={logoUrl ? { uri: logoUrl } : require('../../assets/logo-negro.png')}
+              style={{ width: 173, height: 44, resizeMode: 'contain' }}
             />
-          </TouchableOpacity>
+          </View>
+
+          {/* Derecha: fecha + chat */}
+          <View style={{ alignItems: 'flex-end', justifyContent: 'center', marginRight: 4 }}>
+            <Text style={{ fontSize: 10, color: '#666', marginBottom: 4 }}>
+              {currentTime.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric', month: 'short' })}
+            </Text>
+            <TouchableOpacity onPress={() => navigation.navigate('ChatList', { user, token })}>
+              <MaterialIcons name="chat" size={24} color="#F05A28" />
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* Status Badge / Ver Ruta — Ver Ruta solo aplica para repartidores, no para monitoreo */}

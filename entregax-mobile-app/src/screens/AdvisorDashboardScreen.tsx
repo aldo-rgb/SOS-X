@@ -63,6 +63,7 @@ interface AdvisorDashboardData {
   commissions: {
     monthVolumeMxn: number;
     monthPaidCount: number;
+    monthCommissionMxn: number;
   };
   subAdvisors: number;
 }
@@ -87,6 +88,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [showMenu, setShowMenu] = useState(false);
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [currentLang, setCurrentLang] = useState(getCurrentLanguage());
+  const [hideCommission, setHideCommission] = useState(false);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -191,9 +193,9 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   ];
 
   const shipmentStats = [
-    { label: 'En Tránsito', value: data.shipments.inTransit, icon: 'airplane', color: '#2196F3' },
-    { label: 'Por Pagar', value: data.shipments.awaitingPayment, icon: 'card', color: '#FF9800' },
-    { label: 'Sin Instruc.', value: data.shipments.missingInstructions, icon: 'alert-circle', color: '#f44336' },
+    { label: 'En Tránsito', value: data.shipments.inTransit, icon: 'airplane', color: '#2196F3', filter: 'in_transit' },
+    { label: 'Por Pagar', value: data.shipments.awaitingPayment, icon: 'card', color: '#FF9800', filter: 'awaiting_payment' },
+    { label: 'Sin Instruc.', value: data.shipments.missingInstructions, icon: 'alert-circle', color: '#f44336', filter: 'missing_instructions' },
   ];
 
   return (
@@ -205,7 +207,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         <View style={{ paddingLeft: 16, justifyContent: 'center' }}>
           <Image 
             source={require('../../assets/logo.png')} 
-            style={{ width: 120, height: 36, resizeMode: 'contain' }}
+            style={{ width: 96, height: 29, resizeMode: 'contain' }}
           />
         </View>
         <View style={{ flex: 1 }} />
@@ -416,13 +418,17 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         <Text style={styles.sectionTitle}>📦 Embarques de Clientes</Text>
         <View style={styles.shipmentStats}>
           {shipmentStats.map((stat, index) => (
-            <View key={index} style={styles.shipmentStatItem}>
+            <TouchableOpacity
+              key={index}
+              style={styles.shipmentStatItem}
+              onPress={() => navigation.navigate('AdvisorPackages', { user, token, filter: stat.filter })}
+            >
               <View style={[styles.shipmentIcon, { backgroundColor: stat.color + '20' }]}>
                 <Ionicons name={stat.icon as any} size={20} color={stat.color} />
               </View>
               <Text style={styles.shipmentValue}>{stat.value}</Text>
               <Text style={styles.shipmentLabel}>{stat.label}</Text>
-            </View>
+            </TouchableOpacity>
           ))}
         </View>
 
@@ -430,17 +436,22 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         <Text style={styles.sectionTitle}>💰 Comisiones del Mes</Text>
         <Surface style={styles.commissionsCard}>
           <View style={styles.commissionRow}>
-            <View>
-              <Text style={styles.commissionLabel}>Volumen Facturado</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.commissionLabel}>Total Comisiones</Text>
               <Text style={styles.commissionValue}>
-                ${data.commissions.monthVolumeMxn.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                {hideCommission
+                  ? '- - -'
+                  : `$${(data.commissions.monthCommissionMxn || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`}
               </Text>
             </View>
-            <Chip icon="receipt" mode="outlined" textStyle={{ color: ORANGE }}>
-              {data.commissions.monthPaidCount} pagos
-            </Chip>
+            <TouchableOpacity
+              onPress={() => setHideCommission(h => !h)}
+              style={{ padding: 8 }}
+            >
+              <Ionicons name={hideCommission ? 'eye-off-outline' : 'eye-outline'} size={22} color="#999" />
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.viewCommissionsButton}
             onPress={() => navigation.navigate('AdvisorCommissions', { user, token })}
           >
@@ -449,50 +460,28 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           </TouchableOpacity>
         </Surface>
 
-        {/* Quick Actions */}
-        <Text style={styles.sectionTitle}>⚡ Acciones Rápidas</Text>
+        {/* Soporte */}
+        <Text style={styles.sectionTitle}>🎧 Soporte y Atención a Cliente</Text>
         <View style={styles.quickActions}>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.quickAction}
-            onPress={() => navigation.navigate('AdvisorClients', { user, token })}
-          >
-            <View style={[styles.quickActionIcon, { backgroundColor: ORANGE + '20' }]}>
-              <Ionicons name="people" size={24} color={ORANGE} />
-            </View>
-            <Text style={styles.quickActionText}>Mis Clientes</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.quickAction}
-            onPress={() => navigation.navigate('AdvisorCommissions', { user, token })}
-          >
-            <View style={[styles.quickActionIcon, { backgroundColor: '#4CAF50' + '20' }]}>
-              <Ionicons name="cash" size={24} color="#4CAF50" />
-            </View>
-            <Text style={styles.quickActionText}>Comisiones</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.quickAction}
-            onPress={shareReferralCode}
+            onPress={() => navigation.navigate('SupportChat', { user, token })}
           >
             <View style={[styles.quickActionIcon, { backgroundColor: '#2196F3' + '20' }]}>
-              <Ionicons name="share-social" size={24} color="#2196F3" />
+              <Ionicons name="headset" size={24} color="#2196F3" />
             </View>
-            <Text style={styles.quickActionText}>Referir</Text>
+            <Text style={styles.quickActionText}>Soporte</Text>
           </TouchableOpacity>
-          
-          {data.subAdvisors > 0 && (
-            <TouchableOpacity 
-              style={styles.quickAction}
-              onPress={() => navigation.navigate('AdvisorTeam', { user, token })}
-            >
-              <View style={[styles.quickActionIcon, { backgroundColor: '#9C27B0' + '20' }]}>
-                <Ionicons name="people-circle" size={24} color="#9C27B0" />
-              </View>
-              <Text style={styles.quickActionText}>Mi Equipo ({data.subAdvisors})</Text>
-            </TouchableOpacity>
-          )}
+
+          <TouchableOpacity
+            style={styles.quickAction}
+            onPress={() => navigation.navigate('AdvisorClientTickets', { user, token })}
+          >
+            <View style={[styles.quickActionIcon, { backgroundColor: '#E91E63' + '20' }]}>
+              <Ionicons name="ticket" size={24} color="#E91E63" />
+            </View>
+            <Text style={styles.quickActionText}>Tickets</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Pending Verification Alert */}

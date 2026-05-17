@@ -5,7 +5,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput,
-  ActivityIndicator, Modal, Vibration,
+  ActivityIndicator, Modal, Vibration, Image, FlatList, Dimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -42,6 +42,14 @@ interface Container {
   total_weight_kg: string | number | null;
   total_cbm: string | number | null;
   status?: string | null;
+  monitoring_started_at?: string | null;
+  monitoring_photo_1_url?: string | null;
+  monitoring_photo_2_url?: string | null;
+  delivery_confirmed_at?: string | null;
+  delivery_photo_1_url?: string | null;
+  delivery_photo_2_url?: string | null;
+  delivery_photo_3_url?: string | null;
+  monitor_name?: string | null;
 }
 
 interface Order {
@@ -82,7 +90,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
 
   const [containers, setContainers] = useState<Container[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('in_transit_clientfinal');
   const [selected, setSelected] = useState<Container | null>(null);
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -162,6 +170,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [destinationAddress, setDestinationAddress] = useState<DestinationAddress | null>(null);
   const [loadingFcl, setLoadingFcl] = useState(false);
+  const [photosModal, setPhotosModal] = useState<{ title: string; urls: string[] } | null>(null);
 
   const loadFclData = async (containerId: number) => {
     setLoadingFcl(true);
@@ -828,7 +837,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                   (c.voyage_number || '').toLowerCase().includes(q)
                 )
               : containers;
-            const filtered = statusFilter === 'all' ? byText : byText.filter((c) => (c.status || '') === statusFilter);
+            const filtered = byText.filter((c) => (c.status || '') === statusFilter);
 
             // Mapa de status (mismo que web)
             const statusBadgeMap: Record<string, { label: string; bg: string }> = {
@@ -840,15 +849,13 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
               in_transit_clientfinal: { label: 'EN TRÁNSITO DESTINO', bg: '#E65100' },
               delivered:              { label: 'ENTREGADO',           bg: '#1B5E20' },
             };
-            // Chips fijos solicitados: Todos · Liberado aduana · En ruta destino · En puerto
             const filterOptions: { value: string; label: string }[] = isFCL
               ? [
-                  { value: 'all', label: 'Todos' },
                   { value: 'customs_cleared', label: 'Liberado aduana' },
                   { value: 'in_transit_clientfinal', label: 'En ruta destino' },
-                  { value: 'arrived_port', label: 'En puerto' },
+                  { value: 'delivered', label: 'Entregados' },
                 ]
-              : [{ value: 'all', label: 'Todos' }];
+              : [];
 
             return (
               <>
@@ -870,16 +877,14 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                   )}
                 </View>
 
-                {isFCL && filterOptions.length > 1 && (
+                {isFCL && filterOptions.length > 0 && (
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 8 }} contentContainerStyle={{ gap: 6, paddingRight: 12 }}>
                     {filterOptions.map((opt) => {
                       const active = statusFilter === opt.value;
                       const meta = statusBadgeMap[opt.value];
                       const bg = active ? (meta?.bg || accent) : '#ECEFF1';
                       const fg = active ? '#FFF' : BLACK;
-                      const count = opt.value === 'all'
-                        ? containers.length
-                        : containers.filter((c) => (c.status || '') === opt.value).length;
+                      const count = containers.filter((c) => (c.status || '') === opt.value).length;
                       return (
                         <TouchableOpacity
                           key={opt.value}
@@ -900,9 +905,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
                     <Text style={styles.emptyText}>
                       {q
                         ? `Sin resultados para "${searchQuery}"`
-                        : statusFilter !== 'all'
-                          ? `No hay contenedores en "${statusBadgeMap[statusFilter]?.label || statusFilter}"`
-                          : 'No hay contenedores'}
+                        : `No hay contenedores en "${statusBadgeMap[statusFilter]?.label || statusFilter}"`}
                     </Text>
                   </View>
                 ) : (
@@ -1153,42 +1156,97 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
               </View>
 
               {/* Historial */}
-              <Text style={[styles.fclSectionTitle, { marginTop: 18 }]}>📜 Historial de cambios ({history.length})</Text>
-              {loadingFcl ? (
-                <ActivityIndicator size="small" color={accent} style={{ marginVertical: 10 }} />
-              ) : history.length === 0 ? (
-                <Text style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Sin movimientos registrados todavía.</Text>
-              ) : (
-                <View style={styles.fclHistoryBox}>
-                  {history.map((h) => {
-                    const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
-                    const title = h.change_type === 'monitor'
-                      ? '👁️ Monitorista asignado'
-                      : h.change_type === 'route'
-                        ? '🚛 Datos de ruta actualizados'
-                        : `${meta?.icon || '·'} ${meta?.label || h.new_status}`;
-                    return (
-                      <View key={h.id} style={styles.fclHistoryItem}>
-                        <Text style={{ fontWeight: '700', color: BLACK }}>
-                          {title}
-                        </Text>
-                        <Text style={{ fontSize: 11, color: '#666' }}>
-                          {new Date(h.changed_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
-                          {h.changed_by_name ? ` · por ${h.changed_by_name}` : ''}
-                        </Text>
-                        {(h.driver_name || h.driver_plates || h.driver_phone) && (
-                          <Text style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
-                            🚛 {h.driver_name || '—'}
-                            {h.driver_plates ? ` · ${h.driver_plates}` : ''}
-                            {h.driver_phone ? ` · ${h.driver_phone}` : ''}
-                          </Text>
-                        )}
-                        {h.notes ? <Text style={{ fontSize: 11, color: '#555' }}>📝 {h.notes}</Text> : null}
+              {(() => {
+                const sel = selected!;
+                const monitoringUrls = [sel.monitoring_photo_1_url, sel.monitoring_photo_2_url].filter(Boolean) as string[];
+                const deliveryUrls = [sel.delivery_photo_1_url, sel.delivery_photo_2_url, sel.delivery_photo_3_url].filter(Boolean) as string[];
+
+                const synthetic: HistoryEntry[] = [];
+                const hasMonStartRow = history.some((h) => h.notes && /Monitoreo\s*iniciado/i.test(h.notes));
+                if (sel.monitoring_started_at && !hasMonStartRow) {
+                  synthetic.push({
+                    id: -1, previous_status: null,
+                    new_status: 'in_transit_clientfinal',
+                    driver_name: null, driver_plates: null, driver_phone: null, driver_company: null,
+                    notes: '📸 Monitoreo iniciado por monitorista',
+                    changed_by_name: sel.monitor_name || null,
+                    changed_at: sel.monitoring_started_at,
+                  });
+                }
+                const hasDeliveredRow = history.some((h) => h.new_status === 'delivered');
+                if (sel.delivery_confirmed_at && !hasDeliveredRow) {
+                  synthetic.push({
+                    id: -2, previous_status: sel.status || null,
+                    new_status: 'delivered',
+                    driver_name: null, driver_plates: null, driver_phone: null, driver_company: null,
+                    notes: `✅ Entrega confirmada por monitorista (${deliveryUrls.length} fotos)`,
+                    changed_by_name: sel.monitor_name || null,
+                    changed_at: sel.delivery_confirmed_at,
+                  });
+                }
+                const augmented: HistoryEntry[] = [...synthetic, ...history].sort(
+                  (a, b) => new Date(b.changed_at).getTime() - new Date(a.changed_at).getTime()
+                );
+
+                return (
+                  <>
+                    <Text style={[styles.fclSectionTitle, { marginTop: 18 }]}>📜 Historial de cambios ({augmented.length})</Text>
+                    {loadingFcl ? (
+                      <ActivityIndicator size="small" color={accent} style={{ marginVertical: 10 }} />
+                    ) : augmented.length === 0 ? (
+                      <Text style={{ fontSize: 12, color: '#999', marginTop: 4 }}>Sin movimientos registrados todavía.</Text>
+                    ) : (
+                      <View style={styles.fclHistoryBox}>
+                        {augmented.map((h) => {
+                          const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
+                          const isMonitoringStart = !!h.notes && /Monitoreo\s*iniciado/i.test(h.notes);
+                          const isDelivery = h.new_status === 'delivered' && !isMonitoringStart;
+                          const title = isMonitoringStart
+                            ? '📸 Inicio de monitoreo'
+                            : h.change_type === 'monitor'
+                              ? '👁️ Monitorista asignado'
+                              : h.change_type === 'route'
+                                ? '🚛 Datos de ruta actualizados'
+                                : `${meta?.icon || '·'} ${meta?.label || h.new_status}`;
+                          return (
+                            <View key={h.id} style={styles.fclHistoryItem}>
+                              <Text style={{ fontWeight: '700', color: BLACK }}>{title}</Text>
+                              <Text style={{ fontSize: 11, color: '#666' }}>
+                                {new Date(h.changed_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
+                                {h.changed_by_name ? ` · por ${h.changed_by_name}` : ''}
+                              </Text>
+                              {(h.driver_name || h.driver_plates || h.driver_phone) && (
+                                <Text style={{ fontSize: 11, color: '#555', marginTop: 2 }}>
+                                  🚛 {h.driver_name || '—'}
+                                  {h.driver_plates ? ` · ${h.driver_plates}` : ''}
+                                  {h.driver_phone ? ` · ${h.driver_phone}` : ''}
+                                </Text>
+                              )}
+                              {h.notes ? <Text style={{ fontSize: 11, color: '#555' }}>📝 {h.notes}</Text> : null}
+                              {isMonitoringStart && monitoringUrls.length > 0 && (
+                                <TouchableOpacity
+                                  onPress={() => setPhotosModal({ title: '📸 Fotos inicio de monitoreo', urls: monitoringUrls })}
+                                  style={styles.photoBtn}
+                                >
+                                  <Text style={styles.photoBtnText}>Ver fotos ({monitoringUrls.length})</Text>
+                                </TouchableOpacity>
+                              )}
+                              {isDelivery && deliveryUrls.length > 0 && (
+                                <TouchableOpacity
+                                  onPress={() => setPhotosModal({ title: '✅ Fotos de entrega', urls: deliveryUrls })}
+                                  style={[styles.photoBtn, { borderColor: GREEN }]}
+                                >
+                                  <Text style={[styles.photoBtnText, { color: GREEN }]}>Ver fotos de entrega ({deliveryUrls.length})</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          );
+                        })}
                       </View>
-                    );
-                  })}
-                </View>
-              )}
+                    )}
+                  </>
+                );
+              })()}
             </ScrollView>
 
             <View style={styles.footer}>
@@ -1288,6 +1346,34 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
           </View>
         );
       })()}
+
+      {/* Modal visor de fotos */}
+      <Modal visible={!!photosModal} transparent animationType="fade" onRequestClose={() => setPhotosModal(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, paddingTop: insets.top + 8, paddingBottom: 12 }}>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>{photosModal?.title}</Text>
+            <TouchableOpacity onPress={() => setPhotosModal(null)} hitSlop={12}>
+              <Ionicons name="close" size={26} color="#fff" />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={photosModal?.urls || []}
+            keyExtractor={(_, i) => String(i)}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            renderItem={({ item }) => (
+              <Image
+                source={{ uri: item }}
+                style={{ width: Dimensions.get('window').width, height: Dimensions.get('window').width, resizeMode: 'contain' }}
+              />
+            )}
+          />
+          <Text style={{ color: '#aaa', textAlign: 'center', paddingBottom: insets.bottom + 16, marginTop: 8, fontSize: 12 }}>
+            Desliza para ver más fotos
+          </Text>
+        </View>
+      </Modal>
 
       {/* STEP 1 — LCL: escaneo de cajas */}
       {step === 1 && selected && !isFCL && (
@@ -1908,6 +1994,8 @@ const styles = StyleSheet.create({
   toggleBtnText: { fontSize: 12, fontWeight: '800', color: BLACK },
   fclHistoryBox: { marginTop: 6, borderWidth: 1, borderColor: '#EEE', borderRadius: 10, backgroundColor: '#FFF' },
   fclHistoryItem: { padding: 10, borderBottomWidth: 1, borderColor: '#F0F0F0' },
+  photoBtn: { marginTop: 6, alignSelf: 'flex-start', borderWidth: 1, borderColor: ORANGE, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 4 },
+  photoBtnText: { fontSize: 11, color: ORANGE, fontWeight: '600' },
   pickerBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   pickerSheet: { backgroundColor: '#FFF', borderTopLeftRadius: 16, borderTopRightRadius: 16, padding: 12, maxHeight: '70%' },
   pickerTitle: { fontSize: 14, fontWeight: '800', color: BLACK, marginBottom: 8, paddingHorizontal: 4 },
