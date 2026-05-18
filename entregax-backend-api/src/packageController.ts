@@ -4822,15 +4822,31 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
         `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, userId, pkgShippingCost, newTotal, newSaldo]);
 
         if (result.rowCount && result.rowCount > 0) {
-          // Si es master multipieza, propagar carrier + shipping cost a hijas (split equitativo por caja)
+          // Si es master multipieza, propagar TODO el estado de instrucciones a las hijas
+          // (carrier, dirección, notas, flags y shipping cost dividido por caja)
           await client.query(`
             UPDATE packages
-            SET carrier = $2,
+            SET assigned_address_id = $4,
+                carrier = $2,
                 national_carrier = $2,
                 national_shipping_cost = $3,
+                notes = COALESCE($5, notes),
+                needs_instructions = false,
+                is_collect = $6,
+                collect_carrier = $7,
+                wants_factura_paqueteria = $8,
                 updated_at = CURRENT_TIMESTAMP
             WHERE master_id = $1
-          `, [pkgId, carrierService, +(carrierCostPerBox).toFixed(2)]);
+          `, [
+            pkgId,
+            carrierService,
+            +(carrierCostPerBox).toFixed(2),
+            addrId,
+            notes || null,
+            isCollectBool,
+            isCollectBool ? carrierService : null,
+            wantsFacturaBool,
+          ]);
         }
         
         // If not found in packages, try maritime_orders

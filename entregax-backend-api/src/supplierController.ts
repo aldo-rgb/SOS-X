@@ -154,9 +154,16 @@ export const deleteSupplier = async (req: Request, res: Response): Promise<void>
 // OBTENER CONSOLIDACIONES PENDIENTES DE PAGO
 // (Todas las consolidaciones con paquetes no pagados)
 // ============================================
-export const getConsolidacionesPendientes = async (_req: Request, res: Response): Promise<void> => {
+export const getConsolidacionesPendientes = async (req: Request, res: Response): Promise<void> => {
     try {
-        console.log('📋 [CONSOLIDACIONES] Buscando consolidaciones pendientes de pago...');
+        const dateRx = /^\d{4}-\d{2}-\d{2}$/;
+        const rawFrom = typeof req.query.received_from === 'string' && dateRx.test(req.query.received_from) ? req.query.received_from : null;
+        const rawTo = typeof req.query.received_to === 'string' && dateRx.test(req.query.received_to) ? req.query.received_to : null;
+        // compat: si llega received_date solo, aplicar como rango [date, date]
+        const single = typeof req.query.received_date === 'string' && dateRx.test(req.query.received_date) ? req.query.received_date : null;
+        const receivedFrom = rawFrom || single;
+        const receivedTo = rawTo || single;
+        console.log(`📋 [CONSOLIDACIONES] Buscando consolidaciones pendientes de pago... (rango=${receivedFrom || '–'} a ${receivedTo || '–'})`);
         
         // Primero verificar si hay consolidaciones con paquetes sin supplier
         const debugResult = await pool.query(`
@@ -176,6 +183,32 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
         // Obtener consolidaciones con al menos un paquete pendiente (ya sea por pagar,
         // faltante o perdido). Los totales incluyen TODAS las guías (pagadas + pendientes)
         // separadas en aggregates para que el frontend pueda mostrar el desglose.
+        // Filtro por rango de fechas de recepción en MTY (cuando el paquete
+        // entró al estado 'received_mty' en package_history). Si sólo viene un
+        // extremo, se usa abierto en el otro lado.
+        const dateFilterParts: string[] = [];
+        const queryParams: any[] = [];
+        // Expresión que representa la fecha efectiva en MTY del paquete:
+        // - MAX(package_history.created_at) donde status='received_mty'
+        // - fallback a packages.received_at si no hay historial
+        const mtyDateExpr = `COALESCE((SELECT MAX(ph.created_at) FROM package_history ph WHERE ph.package_id = pk.id AND ph.status::text = 'received_mty'), pk.received_at)`;
+        if (receivedFrom) {
+            queryParams.push(receivedFrom);
+            dateFilterParts.push(`DATE(${mtyDateExpr} AT TIME ZONE 'America/Monterrey') >= $${queryParams.length}::date`);
+        }
+        if (receivedTo) {
+            queryParams.push(receivedTo);
+            dateFilterParts.push(`DATE(${mtyDateExpr} AT TIME ZONE 'America/Monterrey') <= $${queryParams.length}::date`);
+        }
+        const dateFilterJoin = dateFilterParts.length
+            ? `AND c.id IN (
+                    SELECT DISTINCT pk.consolidation_id
+                      FROM packages pk
+                     WHERE pk.consolidation_id IS NOT NULL
+                       AND ${mtyDateExpr} IS NOT NULL
+                       AND ${dateFilterParts.join(' AND ')}
+                )`
+            : '';
         const result = await pool.query(`
             SELECT 
                 c.id,
@@ -205,11 +238,12 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
               -- Excluir guías master que tienen hijas (multi-bulto): sus hijas
               -- ya contienen el costo individual, sumar el master duplicaría.
               AND NOT (COALESCE(p.is_master, FALSE) = TRUE AND COALESCE(p.total_boxes, 1) > 1)
+              ${dateFilterJoin}
             GROUP BY c.id, c.status, c.created_at, s.id, s.name
             -- Solo consolidaciones que TODAVÍA tienen algo pendiente
             HAVING COUNT(p.id) FILTER (WHERE COALESCE(p.costing_paid, FALSE) = FALSE) > 0
             ORDER BY c.created_at DESC
-        `);
+        `, queryParams);
         
         // Para cada consolidación, obtener los paquetes pendientes
         const consolidationsWithPackages = await Promise.all(
@@ -231,8 +265,24 @@ export const getConsolidacionesPendientes = async (_req: Request, res: Response)
                         p.registered_exchange_rate,
                         p.costing_paid,
                         p.status,
-                        COALESCE(p.missing_on_arrival, FALSE) AS missing_on_arrival,
-                        COALESCE(p.is_lost, FALSE) AS is_lost,
+                        p.created_at,
+                        p.received_at,
+                        (
+                            SELECT MAX(ph.created_at)
+                              FROM package_history ph
+                             WHERE ph.package_id = p.id
+                               AND ph.status::text = 'received_mty'
+                        ) AS received_mty_at,
+                        (COALESCE(p.missing_on_arrival, FALSE) OR EXISTS(
+                            SELECT 1 FROM packages mp
+                             WHERE mp.id = p.master_id
+                               AND COALESCE(mp.missing_on_arrival, FALSE) = TRUE
+                        )) AS missing_on_arrival,
+                        (COALESCE(p.is_lost, FALSE) OR EXISTS(
+                            SELECT 1 FROM packages mp
+                             WHERE mp.id = p.master_id
+                               AND COALESCE(mp.is_lost, FALSE) = TRUE
+                        )) AS is_lost,
                         COALESCE(p.is_master, FALSE) AS is_master,
                         COALESCE(p.total_boxes, 1) AS total_boxes,
                         COALESCE(u.full_name, lc.full_name) as client_name,
@@ -311,6 +361,16 @@ export const getSupplierConsolidations = async (req: Request, res: Response): Pr
                         p.registered_exchange_rate,
                         p.costing_paid,
                         p.received_at,
+                        (COALESCE(p.missing_on_arrival, FALSE) OR EXISTS(
+                            SELECT 1 FROM packages mp
+                             WHERE mp.id = p.master_id
+                               AND COALESCE(mp.missing_on_arrival, FALSE) = TRUE
+                        )) AS missing_on_arrival,
+                        (COALESCE(p.is_lost, FALSE) OR EXISTS(
+                            SELECT 1 FROM packages mp
+                             WHERE mp.id = p.master_id
+                               AND COALESCE(mp.is_lost, FALSE) = TRUE
+                        )) AS is_lost,
                         COALESCE(u.full_name, lc.full_name) as client_name,
                         COALESCE(u.box_id, p.box_id, lc.box_id) as client_box_id
                     FROM packages p

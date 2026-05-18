@@ -63,6 +63,7 @@ import {
   CheckCircle as CheckCircleIcon,
   PictureAsPdf as PictureAsPdfIcon,
   WhatsApp as WhatsAppIcon,
+  ArrowBack as ArrowBackIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -189,7 +190,18 @@ const CajaChicaPage: React.FC = () => {
   // Pagos a proveedores
   const [consolidacionesPendientes, setConsolidacionesPendientes] = useState<ConsolidacionPendiente[]>([]);
   const [loadingConsolidaciones, setLoadingConsolidaciones] = useState(false);
+  // Filtro por rango de fechas de recepción (DATE en zona MTY). Vacío = sin filtro.
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState<string>('');
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState<string>('');
+  // Wizard de "Realizar Pago": service -> supplier -> consolidations
+  const [pagoWizardStep, setPagoWizardStep] = useState<'service' | 'supplier' | 'consolidations'>('service');
+  const [pagoServicioSel, setPagoServicioSel] = useState<'pobox' | 'air' | 'maritime' | 'china' | null>(null);
+  const [pagoProveedorSel, setPagoProveedorSel] = useState<{ id: number; name: string } | null>(null);
+  const [proveedoresList, setProveedoresList] = useState<Array<{ id: number; name: string; pending_payment?: number }>>([]);
+  const [loadingProveedores, setLoadingProveedores] = useState(false);
   const [expandedConsolidaciones, setExpandedConsolidaciones] = useState<Set<number>>(new Set());
+  const [soloFaltantes, setSoloFaltantes] = useState<Set<number>>(new Set());
+  const [soloNoLlegados, setSoloNoLlegados] = useState<Set<number>>(new Set());
   const [consolidacionAPagar, setConsolidacionAPagar] = useState<ConsolidacionPendiente | null>(null);
   const [pagoConsolidacionDialogOpen, setPagoConsolidacionDialogOpen] = useState(false);
   const [pagoConsolidacionRef, setPagoConsolidacionRef] = useState('');
@@ -293,16 +305,36 @@ const CajaChicaPage: React.FC = () => {
   }, []);
 
   // Cargar consolidaciones pendientes de pago a proveedores
-  const fetchConsolidacionesPendientes = useCallback(async () => {
+  const fetchConsolidacionesPendientes = useCallback(async (from?: string, to?: string, supplierId?: number) => {
     setLoadingConsolidaciones(true);
     try {
-      const response = await api.get('/suppliers/consolidaciones-pendientes');
+      const params: Record<string, string> = {};
+      if (from) params.received_from = from;
+      if (to) params.received_to = to;
+      const response = await api.get('/suppliers/consolidaciones-pendientes', {
+        params: Object.keys(params).length ? params : undefined,
+      });
       console.log('📦 Respuesta consolidaciones:', response.data);
-      setConsolidacionesPendientes(response.data.consolidations || []);
+      const all = response.data.consolidations || [];
+      const filtered = supplierId ? all.filter((c: any) => Number(c.supplier_id) === Number(supplierId)) : all;
+      setConsolidacionesPendientes(filtered);
     } catch (error) {
       console.error('Error fetching consolidaciones pendientes:', error);
     } finally {
       setLoadingConsolidaciones(false);
+    }
+  }, []);
+
+  // Cargar proveedores activos (para wizard de pago)
+  const fetchProveedoresPago = useCallback(async () => {
+    setLoadingProveedores(true);
+    try {
+      const response = await api.get('/suppliers');
+      setProveedoresList(response.data.suppliers || []);
+    } catch (error) {
+      console.error('Error fetching suppliers:', error);
+    } finally {
+      setLoadingProveedores(false);
     }
   }, []);
 
@@ -846,8 +878,14 @@ const CajaChicaPage: React.FC = () => {
             color="warning"
             startIcon={<PaymentIcon />}
             onClick={() => {
+              // Abrir wizard en paso 1 (selección de servicio).
+              setPagoWizardStep('service');
+              setPagoServicioSel(null);
+              setPagoProveedorSel(null);
+              setConsolidacionesPendientes([]);
+              setFiltroFechaDesde('');
+              setFiltroFechaHasta('');
               setPagoProveedorDialogOpen(true);
-              fetchConsolidacionesPendientes();
             }}
           >
             Realizar Pago
@@ -1375,8 +1413,29 @@ const CajaChicaPage: React.FC = () => {
         <DialogTitle>
           <Box display="flex" justifyContent="space-between" alignItems="center">
             <Box display="flex" alignItems="center" gap={1}>
+              {pagoWizardStep !== 'service' && (
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    if (pagoWizardStep === 'consolidations') {
+                      setPagoWizardStep('supplier');
+                      setPagoProveedorSel(null);
+                      setConsolidacionesPendientes([]);
+                    } else if (pagoWizardStep === 'supplier') {
+                      setPagoWizardStep('service');
+                      setPagoServicioSel(null);
+                    }
+                  }}
+                >
+                  <ArrowBackIcon />
+                </IconButton>
+              )}
               <PaymentIcon color="warning" />
-              <Typography variant="h6">Pagos Pendientes a Proveedores</Typography>
+              <Typography variant="h6">
+                {pagoWizardStep === 'service' && 'Realizar Pago — Selecciona servicio'}
+                {pagoWizardStep === 'supplier' && `Pago ${pagoServicioSel?.toUpperCase()} — Selecciona proveedor`}
+                {pagoWizardStep === 'consolidations' && `Pagos pendientes — ${pagoProveedorSel?.name || ''}`}
+              </Typography>
             </Box>
             <IconButton onClick={() => setPagoProveedorDialogOpen(false)} size="small">
               <CloseIcon />
@@ -1384,6 +1443,154 @@ const CajaChicaPage: React.FC = () => {
           </Box>
         </DialogTitle>
         <DialogContent dividers>
+          {/* ===== PASO 1: Selección de servicio ===== */}
+          {pagoWizardStep === 'service' && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Selecciona el tipo de servicio cuyas guías quieres pagar al proveedor.
+              </Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' }, gap: 2 }}>
+                {([
+                  { key: 'pobox', label: 'PO Box USA', icon: <ShippingIcon sx={{ fontSize: 40 }} color="warning" />, enabled: true, desc: 'Guías recibidas en CEDIS MTY desde EE.UU.' },
+                  { key: 'air', label: 'Aéreo', icon: <ShippingIcon sx={{ fontSize: 40 }} color="info" />, enabled: false, desc: 'Próximamente' },
+                  { key: 'maritime', label: 'Marítimo', icon: <ShippingIcon sx={{ fontSize: 40 }} color="primary" />, enabled: false, desc: 'Próximamente' },
+                  { key: 'china', label: 'China', icon: <ShippingIcon sx={{ fontSize: 40 }} color="error" />, enabled: false, desc: 'Próximamente' },
+                ] as const).map((svc) => (
+                  <Paper
+                    key={svc.key}
+                    elevation={2}
+                    sx={{
+                      p: 3,
+                      textAlign: 'center',
+                      cursor: svc.enabled ? 'pointer' : 'not-allowed',
+                      opacity: svc.enabled ? 1 : 0.5,
+                      transition: 'all 0.2s',
+                      '&:hover': svc.enabled ? { boxShadow: 6, transform: 'translateY(-2px)' } : {},
+                      border: '2px solid',
+                      borderColor: 'divider',
+                    }}
+                    onClick={() => {
+                      if (!svc.enabled) return;
+                      setPagoServicioSel(svc.key);
+                      setPagoWizardStep('supplier');
+                      fetchProveedoresPago();
+                    }}
+                  >
+                    {svc.icon}
+                    <Typography variant="h6" sx={{ mt: 1 }}>{svc.label}</Typography>
+                    <Typography variant="caption" color="text.secondary">{svc.desc}</Typography>
+                  </Paper>
+                ))}
+              </Box>
+            </Box>
+          )}
+
+          {/* ===== PASO 2: Selección de proveedor ===== */}
+          {pagoWizardStep === 'supplier' && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Selecciona el proveedor cuyo pago vas a procesar.
+              </Typography>
+              {loadingProveedores ? (
+                <Box display="flex" justifyContent="center" p={4}><CircularProgress /></Box>
+              ) : proveedoresList.length === 0 ? (
+                <Alert severity="info">No hay proveedores activos.</Alert>
+              ) : (
+                <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(3, 1fr)' }, gap: 2 }}>
+                  {proveedoresList.map((sup) => (
+                    <Paper
+                      key={sup.id}
+                      elevation={2}
+                      sx={{
+                        p: 2,
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        '&:hover': { boxShadow: 6, transform: 'translateY(-2px)', borderColor: 'primary.main' },
+                        border: '2px solid',
+                        borderColor: 'divider',
+                      }}
+                      onClick={() => {
+                        setPagoProveedorSel({ id: sup.id, name: sup.name });
+                        setPagoWizardStep('consolidations');
+                        // Precargar hoy como rango por defecto
+                        const hoy = new Date();
+                        const tz = new Date(hoy.getTime() - hoy.getTimezoneOffset() * 60000)
+                          .toISOString()
+                          .slice(0, 10);
+                        setFiltroFechaDesde(tz);
+                        setFiltroFechaHasta(tz);
+                        fetchConsolidacionesPendientes(tz, tz, sup.id);
+                      }}
+                    >
+                      <Box display="flex" alignItems="center" gap={1.5}>
+                        <PersonIcon color="primary" />
+                        <Box flex={1} minWidth={0}>
+                          <Typography variant="subtitle1" fontWeight="bold" noWrap>{sup.name}</Typography>
+                          <Typography variant="caption" color={Number(sup.pending_payment || 0) > 0 ? 'warning.main' : 'text.secondary'}>
+                            {Number(sup.pending_payment || 0) > 0
+                              ? `${sup.pending_payment} guía(s) pendientes`
+                              : 'Sin pendientes'}
+                          </Typography>
+                        </Box>
+                      </Box>
+                    </Paper>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {/* ===== PASO 3: Consolidaciones del proveedor ===== */}
+          {pagoWizardStep === 'consolidations' && (
+            <>
+          {/* Filtro por rango de fechas de recepción */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+            <TextField
+              type="date"
+              size="small"
+              label="Desde"
+              InputLabelProps={{ shrink: true }}
+              value={filtroFechaDesde}
+              onChange={(e) => {
+                const v = e.target.value;
+                setFiltroFechaDesde(v);
+                fetchConsolidacionesPendientes(v || undefined, filtroFechaHasta || undefined, pagoProveedorSel?.id);
+              }}
+              sx={{ minWidth: 170 }}
+            />
+            <TextField
+              type="date"
+              size="small"
+              label="Hasta"
+              InputLabelProps={{ shrink: true }}
+              value={filtroFechaHasta}
+              onChange={(e) => {
+                const v = e.target.value;
+                setFiltroFechaHasta(v);
+                fetchConsolidacionesPendientes(filtroFechaDesde || undefined, v || undefined, pagoProveedorSel?.id);
+              }}
+              inputProps={{ min: filtroFechaDesde || undefined }}
+              sx={{ minWidth: 170 }}
+            />
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                setFiltroFechaDesde('');
+                setFiltroFechaHasta('');
+                fetchConsolidacionesPendientes(undefined, undefined, pagoProveedorSel?.id);
+              }}
+              disabled={!filtroFechaDesde && !filtroFechaHasta}
+            >
+              Mostrar todas
+            </Button>
+            <Typography variant="body2" color="text.secondary">
+              {filtroFechaDesde || filtroFechaHasta
+                ? `Recibidas ${filtroFechaDesde ? `desde ${new Date(filtroFechaDesde + 'T00:00:00').toLocaleDateString('es-MX')}` : ''}${filtroFechaDesde && filtroFechaHasta ? ' ' : ''}${filtroFechaHasta ? `hasta ${new Date(filtroFechaHasta + 'T00:00:00').toLocaleDateString('es-MX')}` : ''}`
+                : 'Sin filtro de fecha — mostrando todas las consolidaciones pendientes'}
+            </Typography>
+          </Box>
+
           {loadingConsolidaciones ? (
             <Box display="flex" justifyContent="center" p={4}>
               <CircularProgress />
@@ -1493,21 +1700,47 @@ const CajaChicaPage: React.FC = () => {
                             />
                           </TableCell>
                           <TableCell>
-                            <Chip 
-                              label={
-                                consolidacion.status === 'in_transit' ? 'En Tránsito'
-                                  : consolidacion.status === 'received_partial' ? `Parcial (${consolidacion.missing_count || 0} faltante${(consolidacion.missing_count || 0) === 1 ? '' : 's'})`
-                                  : consolidacion.status === 'received_mty' ? 'Recibida'
-                                  : consolidacion.status
+                            {(() => {
+                              const pkgs = consolidacion.packages || [];
+                              const isReceivedMty = (p: any) => !!p.received_mty_at;
+                              // Conteos autoritativos del backend (incluyen masters multi-bulto)
+                              const missing = Number(consolidacion.missing_count || 0);
+                              const lost = Number(consolidacion.lost_count || 0);
+                              const total = Number(consolidacion.package_count || pkgs.length);
+                              // Recibidas: paquetes del array con received_mty_at, sin missing/lost
+                              const receivedInArr = pkgs.filter((p: any) => isReceivedMty(p) && !p.missing_on_arrival && !p.is_lost).length;
+                              // Ajustamos por paquetes excluidos (masters con hijas): asumimos que
+                              // los no-listados que no son missing/lost están recibidos si la consolidación
+                              // tiene received_mty_at registrado.
+                              const excluded = Math.max(0, total - pkgs.length);
+                              const received = receivedInArr + excluded;
+                              const inTransit = Math.max(0, total - received - missing - lost);
+
+                              let label = '';
+                              let color: 'info' | 'warning' | 'success' | 'default' | 'error' = 'default';
+
+                              if (total === 0) {
+                                label = consolidacion.status || '—';
+                              } else if (missing > 0 || lost > 0) {
+                                const parts: string[] = [];
+                                if (missing > 0) parts.push(`${missing} faltante${missing === 1 ? '' : 's'}`);
+                                if (lost > 0) parts.push(`${lost} perdida${lost === 1 ? '' : 's'}`);
+                                if (inTransit > 0) parts.push(`${inTransit} en tránsito`);
+                                label = `Parcial (${parts.join(', ')})`;
+                                color = 'warning';
+                              } else if (received === total) {
+                                label = 'Recibida';
+                                color = 'success';
+                              } else if (received === 0) {
+                                label = 'En Tránsito';
+                                color = 'info';
+                              } else {
+                                label = `Parcial (${received}/${total} recibidas)`;
+                                color = 'warning';
                               }
-                              size="small"
-                              color={
-                                consolidacion.status === 'in_transit' ? 'info'
-                                  : consolidacion.status === 'received_partial' ? 'warning'
-                                  : consolidacion.status === 'received_mty' ? 'success'
-                                  : 'default'
-                              }
-                            />
+
+                              return <Chip label={label} size="small" color={color} />;
+                            })()}
                           </TableCell>
                           <TableCell align="right">
                             <Typography fontWeight="bold" color="success.main">
@@ -1572,9 +1805,58 @@ const CajaChicaPage: React.FC = () => {
                           <TableRow>
                             <TableCell colSpan={9} sx={{ p: 0, bgcolor: 'grey.50' }}>
                               <Box sx={{ p: 2 }}>
-                                <Typography variant="subtitle2" gutterBottom>
-                                  Paquetes en esta consolidación:
-                                </Typography>
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+                                  <Typography variant="subtitle2">
+                                    Paquetes en esta consolidación:
+                                  </Typography>
+                                  {(() => {
+                                    const pkgs = consolidacion.packages || [];
+                                    // Pendientes de pago a proveedor: costing_paid != true Y no perdidos/faltantes (esos no se pagan)
+                                    const pendCount = pkgs.filter((p: any) => !p.costing_paid && !p.is_lost && !p.missing_on_arrival).length;
+                                    // No llegaron a MTY: missing_on_arrival o is_lost
+                                    const noLlegCount = pkgs.filter((p: any) => p.missing_on_arrival === true || p.is_lost === true).length;
+                                    const activePend = soloFaltantes.has(consolidacion.id);
+                                    const activeNoLleg = soloNoLlegados.has(consolidacion.id);
+                                    return (
+                                      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                                        {pendCount > 0 && pendCount < pkgs.length && (
+                                          <Button
+                                            size="small"
+                                            variant={activePend ? 'contained' : 'outlined'}
+                                            color="warning"
+                                            onClick={() => {
+                                              setSoloFaltantes(prev => {
+                                                const next = new Set(prev);
+                                                if (next.has(consolidacion.id)) next.delete(consolidacion.id);
+                                                else { next.add(consolidacion.id); setSoloNoLlegados(p => { const n = new Set(p); n.delete(consolidacion.id); return n; }); }
+                                                return next;
+                                              });
+                                            }}
+                                          >
+                                            {activePend ? `Mostrar todos (${pkgs.length})` : `Solo pendientes de pago (${pendCount})`}
+                                          </Button>
+                                        )}
+                                        {noLlegCount > 0 && (
+                                          <Button
+                                            size="small"
+                                            variant={activeNoLleg ? 'contained' : 'outlined'}
+                                            color="error"
+                                            onClick={() => {
+                                              setSoloNoLlegados(prev => {
+                                                const next = new Set(prev);
+                                                if (next.has(consolidacion.id)) next.delete(consolidacion.id);
+                                                else { next.add(consolidacion.id); setSoloFaltantes(p => { const n = new Set(p); n.delete(consolidacion.id); return n; }); }
+                                                return next;
+                                              });
+                                            }}
+                                          >
+                                            {activeNoLleg ? `Mostrar todos (${pkgs.length})` : `Ver no llegados / perdidos (${noLlegCount})`}
+                                          </Button>
+                                        )}
+                                      </Box>
+                                    );
+                                  })()}
+                                </Box>
                                 <Table size="small">
                                   <TableHead>
                                     <TableRow>
@@ -1584,12 +1866,20 @@ const CajaChicaPage: React.FC = () => {
                                       <TableCell align="right">Peso (lb)</TableCell>
                                       <TableCell align="right">USD</TableCell>
                                       <TableCell align="right">MXN</TableCell>
+                                      <TableCell align="center">Ingresada</TableCell>
+                                      <TableCell align="center">Recibida en MTY</TableCell>
                                       <TableCell align="center">Estatus</TableCell>
-                                      <TableCell align="center">Pagado</TableCell>
+                                      <TableCell align="center">Pago Proveedor</TableCell>
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
-                                    {consolidacion.packages?.map((pkg) => {
+                                    {(consolidacion.packages || [])
+                                      .filter((pkg: any) => {
+                                        if (soloNoLlegados.has(consolidacion.id)) return pkg.missing_on_arrival === true || pkg.is_lost === true;
+                                        if (soloFaltantes.has(consolidacion.id)) return !pkg.costing_paid && !pkg.is_lost && !pkg.missing_on_arrival;
+                                        return true;
+                                      })
+                                      .map((pkg) => {
                                       const isMissing = pkg.missing_on_arrival === true;
                                       const isLost = pkg.is_lost === true;
                                       const problema = isLost || isMissing;
@@ -1616,19 +1906,31 @@ const CajaChicaPage: React.FC = () => {
                                         <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>${Number(pkg.pobox_cost_usd || 0).toFixed(2)}</TableCell>
                                         <TableCell align="right" sx={problema ? { color: 'text.disabled' } : undefined}>{formatCurrency(Number(pkg.pobox_service_cost || 0))}</TableCell>
                                         <TableCell align="center">
+                                          <Typography variant="caption" color="text.secondary">
+                                            {pkg.created_at ? new Date(pkg.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'}
+                                          </Typography>
+                                        </TableCell>
+                                        <TableCell align="center">
+                                          <Typography variant="caption" color={(!problema && pkg.received_mty_at) ? 'text.primary' : 'text.disabled'}>
+                                            {(!problema && pkg.received_mty_at) ? new Date(pkg.received_mty_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '—'}
+                                          </Typography>
+                                        </TableCell>
+                                        <TableCell align="center">
                                           {isLost ? (
                                             <Chip label="Perdido" size="small" color="error" variant="filled" />
                                           ) : isMissing ? (
                                             <Chip label="No llegó a MTY" size="small" color="warning" variant="filled" />
-                                          ) : (
+                                          ) : pkg.received_mty_at ? (
                                             <Chip label="Recibida" size="small" color="success" variant="outlined" />
+                                          ) : (
+                                            <Chip label="En tránsito" size="small" color="info" variant="outlined" />
                                           )}
                                         </TableCell>
                                         <TableCell align="center">
-                                          {pkg.costing_paid ? (
-                                            <CheckCircleIcon color="success" fontSize="small" />
-                                          ) : problema ? (
+                                          {problema ? (
                                             <Typography variant="caption" color="text.disabled">No se paga</Typography>
+                                          ) : pkg.costing_paid ? (
+                                            <CheckCircleIcon color="success" fontSize="small" />
                                           ) : (
                                             <Typography variant="caption" color="warning.main">Pendiente</Typography>
                                           )}
@@ -1649,8 +1951,16 @@ const CajaChicaPage: React.FC = () => {
               </TableContainer>
             </Box>
           )}
+            </>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 2, gap: 1, justifyContent: 'space-between', flexWrap: 'wrap' }}>
+          {pagoWizardStep !== 'consolidations' ? (
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+              <Button onClick={() => setPagoProveedorDialogOpen(false)}>Cerrar</Button>
+            </Box>
+          ) : (
+            <>
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
             <Typography variant="body2" color={selectedConsolidaciones.size > 0 ? 'primary.main' : 'text.secondary'} fontWeight={selectedConsolidaciones.size > 0 ? 'bold' : 'normal'}>
               {selectedConsolidaciones.size === 0
@@ -1702,6 +2012,8 @@ const CajaChicaPage: React.FC = () => {
               Cerrar
             </Button>
           </Box>
+            </>
+          )}
         </DialogActions>
       </Dialog>
 

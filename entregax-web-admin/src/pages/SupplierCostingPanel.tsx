@@ -103,6 +103,8 @@ interface PackageCosting {
     client_name?: string;
     client_box_id?: string;
     client_paid?: boolean;
+    missing_on_arrival?: boolean;
+    is_lost?: boolean;
 }
 
 interface Consolidation {
@@ -995,16 +997,24 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                                 {/* Status de Pago a Proveedor */}
                                                 {cons.packages && cons.packages.length > 0 && (
                                                     (() => {
-                                                        const totalPkgs = cons.packages.length;
-                                                        const paidPkgs = cons.packages.filter((p: any) => p.costing_paid).length;
-                                                        const allPaid = paidPkgs === totalPkgs;
+                                                        // Excluir faltantes/perdidos del conteo (no aplican a pago)
+                                                        const payable = cons.packages.filter((p: any) => !p.missing_on_arrival && !p.is_lost);
+                                                        const missingCount = cons.packages.filter((p: any) => p.missing_on_arrival || p.is_lost).length;
+                                                        const totalPkgs = payable.length;
+                                                        const paidPkgs = payable.filter((p: any) => p.costing_paid).length;
+                                                        const allPaid = totalPkgs > 0 && paidPkgs === totalPkgs;
                                                         const partialPaid = paidPkgs > 0 && paidPkgs < totalPkgs;
+                                                        const label = allPaid
+                                                            ? (missingCount > 0 ? `Pagado (${missingCount} faltante${missingCount > 1 ? 's' : ''})` : 'Pagado')
+                                                            : partialPaid
+                                                                ? `${paidPkgs}/${totalPkgs} Pagados`
+                                                                : 'Pago Pendiente';
                                                         return (
                                                             <Chip 
                                                                 icon={allPaid ? <CheckCircleIcon /> : undefined}
-                                                                label={allPaid ? 'Pagado' : partialPaid ? `${paidPkgs}/${totalPkgs} Pagados` : 'Pago Pendiente'}
-                                                                color={allPaid ? 'success' : partialPaid ? 'info' : 'warning'}
-                                                                variant={allPaid ? 'filled' : 'outlined'}
+                                                                label={label}
+                                                                color={allPaid ? (missingCount > 0 ? 'warning' : 'success') : partialPaid ? 'info' : 'warning'}
+                                                                variant={allPaid && missingCount === 0 ? 'filled' : 'outlined'}
                                                                 size="small"
                                                             />
                                                         );
@@ -1075,7 +1085,9 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                                                         </Typography>
                                                                     </TableCell>
                                                                     <TableCell align="center">
-                                                                        {pkg.costing_paid ? (
+                                                                        {(pkg.missing_on_arrival || pkg.is_lost) ? (
+                                                                            <Chip label="Pendiente" size="small" color="warning" variant="outlined" />
+                                                                        ) : pkg.costing_paid ? (
                                                                             <Chip icon={<CheckCircleIcon />} label="Pagado" size="small" color="success" />
                                                                         ) : (
                                                                             <Chip label="Pendiente" size="small" color="warning" variant="outlined" />
