@@ -119,6 +119,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
   // Filtros
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const [unassignedOnly, setUnassignedOnly] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
 
   // Diálogos
   const [detailDialog, setDetailDialog] = useState<{ 
@@ -737,6 +738,20 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
             />
           </Box>
 
+          {/* Buscador por cliente (nombre, box, shipping mark, FNO, AWB) */}
+          <Box sx={{ mb: 2 }}>
+            <TextField
+              size="small"
+              fullWidth
+              placeholder="Buscar por número de cliente, nombre, FNO, AWB o shipping mark..."
+              value={clientSearch}
+              onChange={(e) => setClientSearch(e.target.value)}
+              InputProps={{
+                startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} />,
+              }}
+            />
+          </Box>
+
           <TableContainer component={Paper}>
             <Table size="small">
               <TableHead>
@@ -766,7 +781,35 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  receipts.map((receipt) => (
+                  (() => {
+                    const q = clientSearch.trim().toLowerCase();
+                    // También buscar sin sufijo de caja "-001", "-002", etc.
+                    const qBase = q.replace(/-\d{1,4}$/, '');
+                    const filtered = q
+                      ? receipts.filter((r) => {
+                          const hay = [
+                            r.client_box_id,
+                            r.client_name,
+                            r.shipping_mark,
+                            r.fno,
+                            r.awb_international,
+                            r.international_tracking,
+                          ]
+                            .map((v) => String(v || '').toLowerCase())
+                            .join(' | ');
+                          return hay.includes(q) || (qBase !== q && hay.includes(qBase));
+                        })
+                      : receipts;
+                    if (filtered.length === 0) {
+                      return (
+                        <TableRow>
+                          <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                            <Typography color="text.secondary">Sin resultados para “{clientSearch}”</Typography>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }
+                    return filtered.map((receipt) => (
                     <TableRow key={receipt.id} hover>
                       <TableCell>
                         {receipt.created_at ? (
@@ -847,7 +890,8 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
                         </Tooltip>
                       </TableCell>
                     </TableRow>
-                  ))
+                  ));
+                  })()
                 )}
               </TableBody>
             </Table>

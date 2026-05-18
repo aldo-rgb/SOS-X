@@ -1083,6 +1083,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal, '')), '[^A-Z0-9]', '', 'g') = $2
                OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider, '')), '[^A-Z0-9]', '', 'g') = $2
                OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no, '')), '[^A-Z0-9]', '', 'g') = $2
+            ORDER BY
+              CASE WHEN UPPER(COALESCE(p.tracking_internal, '')) = $1 THEN 0 ELSE 1 END ASC,
+              CASE WHEN p.user_id IS NOT NULL THEN 0 ELSE 1 END ASC
+            LIMIT 1
         `, [trackingUpper, trackingCompact]);
 
         // Fallback: si no se encontró match exacto, buscar por prefijo (caso master AIR
@@ -4744,6 +4748,8 @@ export const uploadDeliveryDocs = (req: Request, res: Response, next: Function) 
 export const bulkAssignDelivery = async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = (req as any).user.userId;
+    const userRole = String((req as any).user.role || '').toLowerCase();
+    const isAdmin = ['admin', 'superadmin', 'super_admin', 'ops_mx', 'ops_usa', 'ops_usa_pobox'].includes(userRole);
     const {
       packageIds,
       addressId,
@@ -4790,7 +4796,12 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
 
       // Verify address belongs to user
       if (addrId) {
-        const addrCheck = await client.query('SELECT id FROM addresses WHERE id = $1 AND user_id = $2', [addrId, userId]);
+        const addrCheck = await client.query(
+          isAdmin
+            ? 'SELECT id FROM addresses WHERE id = $1'
+            : 'SELECT id FROM addresses WHERE id = $1 AND user_id = $2',
+          isAdmin ? [addrId] : [addrId, userId]
+        );
         if (addrCheck.rows.length === 0) {
           await client.query('ROLLBACK');
           return res.status(400).json({ success: false, error: 'Dirección no válida' });
@@ -4800,12 +4811,28 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
       // Update all selected packages
       let updatedCount = 0;
       for (const pkgId of pkgIds) {
+        // Resolver owner real del paquete: admins pueden operar en nombre de cualquier cliente.
+        let resolvedOwner: number | null = null;
+        if (isAdmin) {
+          const pkgOwner = await client.query(`SELECT user_id FROM packages WHERE id = $1 LIMIT 1`, [pkgId]);
+          resolvedOwner = pkgOwner.rows[0]?.user_id ?? null;
+          if (resolvedOwner == null) {
+            const moOwner = await client.query(`SELECT user_id FROM maritime_orders WHERE id = $1 LIMIT 1`, [pkgId]);
+            resolvedOwner = moOwner.rows[0]?.user_id ?? null;
+          }
+          if (resolvedOwner == null) {
+            const dhlOwner = await client.query(`SELECT user_id FROM dhl_shipments WHERE id = $1 LIMIT 1`, [pkgId]);
+            resolvedOwner = dhlOwner.rows[0]?.user_id ?? null;
+          }
+        }
+        const ownerId: number = resolvedOwner ?? userId;
+
         // Pre-fetch para calcular costo proporcional por cajas y recalcular saldo
         const preRes = await client.query(
           `SELECT id, total_boxes, pobox_venta_usd, gex_total_cost,
                   registered_exchange_rate, monto_pagado
            FROM packages WHERE id = $1 AND user_id = $2`,
-          [pkgId, userId]
+          [pkgId, ownerId]
         );
         const pre = preRes.rows[0];
         const pkgBoxes = pre ? Math.max(1, parseInt(pre.total_boxes, 10) || 1) : 1;
@@ -4834,7 +4861,7 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
               updated_at = CURRENT_TIMESTAMP
           WHERE id = $7 AND user_id = $8
           RETURNING id
-        `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, userId, pkgShippingCost, newTotal, newSaldo]);
+        `, [addrId, carrierService, notes || null, isCollectBool, isCollectBool ? carrierService : null, wantsFacturaBool, pkgId, ownerId, pkgShippingCost, newTotal, newSaldo]);
 
         if (result.rowCount && result.rowCount > 0) {
           // Si es master multipieza, propagar TODO el estado de instrucciones a las hijas
@@ -4875,7 +4902,7 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = $4 AND user_id = $5
             RETURNING id, COALESCE(summary_boxes, goods_num, 1) as boxes
-          `, [addrId, carrierService, notes || null, pkgId, userId, +(carrierCostPerBox * 1).toFixed(2)]);
+          `, [addrId, carrierService, notes || null, pkgId, ownerId, +(carrierCostPerBox * 1).toFixed(2)]);
 
           if (maritimeResult.rowCount && maritimeResult.rowCount > 0) {
             // Recalcular con cajas reales
@@ -4898,7 +4925,7 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
                   updated_at = CURRENT_TIMESTAMP
               WHERE id = $4 AND user_id = $5
               RETURNING id
-            `, [addrId, carrierService, dhlCost, pkgId, userId]);
+            `, [addrId, carrierService, dhlCost, pkgId, ownerId]);
             if (dhlResult.rowCount && dhlResult.rowCount > 0) {
               updatedCount++;
               console.log(`📦 DHL shipment ${pkgId} → shipping=$${dhlCost}`);
