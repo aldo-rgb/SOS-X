@@ -45,8 +45,6 @@ import {
   Help as HelpIcon,
   Warning as WarningIcon,
   SwapHoriz as TransferIcon,
-  Badge as BadgeIcon,
-  Business as BusinessIcon,
 } from '@mui/icons-material';
 
 const ORANGE = '#F05A28';
@@ -142,7 +140,7 @@ const categoryLabels: Record<string, string> = {
 };
 
 export default function SupportBoardPage() {
-  const { t } = useTranslation();
+  useTranslation();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [stats, setStats] = useState<SupportStats | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -728,7 +726,7 @@ function TicketCard({
           )}
           {/* Category */}
           <Chip
-            icon={ticket.category in categoryIcons ? React.cloneElement(categoryIcons[ticket.category], { style: { fontSize: 12 } }) : <HelpIcon style={{ fontSize: 12 }} />}
+            icon={ticket.category in categoryIcons ? categoryIcons[ticket.category] : <HelpIcon fontSize="small" />}
             label={categoryLabels[ticket.category] || ticket.category}
             size="small"
             variant="outlined"
