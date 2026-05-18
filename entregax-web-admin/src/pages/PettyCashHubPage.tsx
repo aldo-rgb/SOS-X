@@ -17,7 +17,6 @@ import {
   Receipt as ReceiptIcon,
   Send as SendIcon,
   Refresh as RefreshIcon,
-  History as HistoryIcon,
   LocationOn as GpsIcon,
   Description as XmlIcon,
   Speed as OdometerIcon,

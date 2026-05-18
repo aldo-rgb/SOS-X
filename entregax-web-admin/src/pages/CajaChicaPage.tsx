@@ -117,6 +117,13 @@ interface Transaccion {
     monto_aplicado: number;
     tracking_number: string;
   }> | null;
+  consolidaciones?: Array<{
+    consolidation_id: number;
+    supplier_name: string | null;
+    package_count: number;
+    total_mxn: number | string;
+    total_usd: number | string;
+  }> | null;
 }
 
 interface Corte {
@@ -170,6 +177,8 @@ interface ConsolidacionPendiente {
     total_boxes?: number;
     client_name: string;
     client_box_id: string;
+    created_at?: string;
+    received_mty_at?: string | null;
   }>;
 }
 
@@ -212,6 +221,9 @@ const CajaChicaPage: React.FC = () => {
   const [pagoMultipleRef, setPagoMultipleRef] = useState('');
   const [pagoMultipleNotas, setPagoMultipleNotas] = useState('');
   const [procesandoPagoMultiple, setProcesandoPagoMultiple] = useState(false);
+  // Filas expandibles en la tabla de Transacciones (para ver detalle
+  // de consolidaciones en pagos a proveedor agrupados).
+  const [expandedTxs, setExpandedTxs] = useState<Set<number>>(new Set());
 
   // Búsqueda de cliente
   const [_clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
@@ -384,6 +396,7 @@ const CajaChicaPage: React.FC = () => {
       consolidacion_id: number;
       supplier_name: string;
       tracking: string;
+      tracking_provider: string;
       client: string;
       client_box_id: string;
       description: string;
@@ -396,6 +409,8 @@ const CajaChicaPage: React.FC = () => {
       statusLabel: string;
       countsToTotal: boolean;
       reasonNoCount?: string;
+      received_at?: string | null;
+      received_mty_at?: string | null;
     }> = [];
     let totalUsd = 0;
     let totalMxn = 0;
@@ -450,6 +465,7 @@ const CajaChicaPage: React.FC = () => {
           consolidacion_id: c.id,
           supplier_name: c.supplier_name,
           tracking: p.tracking,
+          tracking_provider: (p as any).tracking_provider || '',
           client: `${p.client_name || '—'} (${p.client_box_id || 'N/A'})`,
           client_box_id: p.client_box_id || '',
           description: p.description || '—',
@@ -462,6 +478,8 @@ const CajaChicaPage: React.FC = () => {
           statusLabel,
           countsToTotal,
           reasonNoCount,
+          received_at: (p as any).received_at || null,
+          received_mty_at: (p as any).received_mty_at || null,
         });
         if (countsToTotal) {
           totalUsd += usd;
@@ -510,7 +528,10 @@ const CajaChicaPage: React.FC = () => {
       <th class="num center">No.</th>
       <th>Consolidación</th>
       <th># Cliente</th>
+      <th>Guía Origen</th>
       <th>Guía</th>
+      <th class="center">Fecha Ingreso</th>
+      <th class="center">Recibida MTY</th>
       <th class="num center">Peso (kg)</th>
       <th>Medidas (in)</th>
       <th class="num">USD</th>
@@ -533,12 +554,21 @@ const CajaChicaPage: React.FC = () => {
         'returned_to_warehouse': 'Regresó a bodega',
       };
       const lastStatus = statusMap[r.status] || r.status || '—';
+      const fmtDate = (d?: string | null) => {
+        if (!d) return '—';
+        try {
+          return new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' });
+        } catch { return '—'; }
+      };
       return `
       <tr>
         <td class="num center" style="font-weight:600;color:#666">${idx + 1}</td>
         <td>#${r.consolidacion_id}</td>
         <td style="font-family:monospace;font-weight:600">${r.client_box_id || '—'}</td>
+        <td style="font-family:monospace">${r.tracking_provider || '—'}</td>
         <td style="font-family:monospace;font-weight:600">${r.tracking}</td>
+        <td class="center">${fmtDate(r.received_at)}</td>
+        <td class="center">${fmtDate(r.received_mty_at)}</td>
         <td class="num center">${r.weight.toFixed(2)}</td>
         <td>${r.dims}</td>
         <td class="num">$${r.usd.toFixed(2)}</td>
@@ -622,44 +652,34 @@ const CajaChicaPage: React.FC = () => {
       return;
     }
     setProcesandoPagoMultiple(true);
-    let pagadas = 0;
-    let paquetesActualizados = 0;
-    let totalMxn = 0;
-    const errores: string[] = [];
-    for (const c of pagables) {
-      try {
-        const response = await api.post('/caja-chica/pagar-consolidacion', {
-          consolidation_id: c.id,
-          monto: Number(c.total_cost_mxn),
-          referencia: pagoMultipleRef || null,
-          notas: pagoMultipleNotas ? `${pagoMultipleNotas} [Pago múltiple]` : 'Pago múltiple de consolidaciones'
-        });
-        pagadas++;
-        paquetesActualizados += Number(response.data?.packages_updated || 0);
-        totalMxn += Number(c.total_cost_mxn);
-      } catch (error: unknown) {
-        const axiosError = error as { response?: { data?: { error?: string } } };
-        errores.push(`#${c.id}: ${axiosError.response?.data?.error || 'error'}`);
-      }
-    }
-    setProcesandoPagoMultiple(false);
-    setPagoMultipleDialogOpen(false);
-    setSelectedConsolidaciones(new Set());
-    if (errores.length === 0) {
+    try {
+      // Un solo endpoint = una sola transacción de caja en lugar de N filas
+      // de "Pago Proveedor" duplicadas en el historial.
+      const response = await api.post('/caja-chica/pagar-consolidaciones-multiple', {
+        consolidation_ids: pagables.map(c => c.id),
+        referencia: pagoMultipleRef || null,
+        notas: pagoMultipleNotas || null,
+      });
+      setProcesandoPagoMultiple(false);
+      setPagoMultipleDialogOpen(false);
+      setSelectedConsolidaciones(new Set());
+      const data = response.data || {};
       setSnackbar({
         open: true,
-        message: `✅ ${pagadas} consolidación(es) pagadas · ${paquetesActualizados} paquetes · ${formatCurrency(totalMxn)}`,
-        severity: 'success'
+        message: `✅ ${data.consolidations?.length || pagables.length} consolidación(es) pagadas · ${data.packages_updated || 0} paquetes · ${formatCurrency(Number(data.total_monto || 0))}`,
+        severity: 'success',
       });
-    } else {
+      fetchConsolidacionesPendientes();
+      loadData();
+    } catch (error: unknown) {
+      setProcesandoPagoMultiple(false);
+      const axiosError = error as { response?: { data?: { error?: string } } };
       setSnackbar({
         open: true,
-        message: `Pagadas ${pagadas}/${pagables.length}. Errores: ${errores.join('; ')}`,
-        severity: 'warning'
+        message: axiosError.response?.data?.error || 'Error al procesar pago múltiple',
+        severity: 'error',
       });
     }
-    fetchConsolidacionesPendientes();
-    loadData();
   };
 
   // Confirmar pago de consolidación a proveedor
@@ -940,6 +960,7 @@ const CajaChicaPage: React.FC = () => {
           <Table>
             <TableHead>
               <TableRow sx={{ bgcolor: 'grey.100' }}>
+                <TableCell width={40}></TableCell>
                 <TableCell>Fecha</TableCell>
                 <TableCell>Tipo</TableCell>
                 <TableCell>Cliente</TableCell>
@@ -950,8 +971,41 @@ const CajaChicaPage: React.FC = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {transacciones.map((tx) => (
-                <TableRow key={tx.id} hover>
+              {transacciones.map((tx) => {
+                const hasConsolidaciones = !!(tx.consolidaciones && tx.consolidaciones.length > 0);
+                const expandable = hasConsolidaciones;
+                const isExpanded = expandedTxs.has(tx.id);
+                return (
+                <React.Fragment key={tx.id}>
+                <TableRow
+                  hover
+                  sx={{
+                    cursor: expandable ? 'pointer' : 'default',
+                    '& > td': { borderBottom: isExpanded ? 'none' : undefined },
+                  }}
+                  onClick={() => {
+                    if (!expandable) return;
+                    setExpandedTxs(prev => {
+                      const next = new Set(prev);
+                      if (next.has(tx.id)) next.delete(tx.id); else next.add(tx.id);
+                      return next;
+                    });
+                  }}
+                >
+                  <TableCell>
+                    {expandable && (
+                      <IconButton size="small" onClick={(e) => {
+                        e.stopPropagation();
+                        setExpandedTxs(prev => {
+                          const next = new Set(prev);
+                          if (next.has(tx.id)) next.delete(tx.id); else next.add(tx.id);
+                          return next;
+                        });
+                      }}>
+                        {isExpanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+                      </IconButton>
+                    )}
+                  </TableCell>
                   <TableCell>{formatDate(tx.created_at)}</TableCell>
                   <TableCell>
                     <Chip
@@ -996,10 +1050,64 @@ const CajaChicaPage: React.FC = () => {
                   </TableCell>
                   <TableCell>{tx.admin_name}</TableCell>
                 </TableRow>
-              ))}
+                {expandable && isExpanded && (
+                  <TableRow>
+                    <TableCell colSpan={8} sx={{ p: 0, bgcolor: 'grey.50' }}>
+                      <Box sx={{ p: 2 }}>
+                        <Typography variant="subtitle2" gutterBottom>
+                          Consolidaciones cubiertas por este pago
+                        </Typography>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell><strong>Consolidación</strong></TableCell>
+                              <TableCell><strong>Proveedor</strong></TableCell>
+                              <TableCell align="center"><strong>Paquetes</strong></TableCell>
+                              <TableCell align="right"><strong>USD</strong></TableCell>
+                              <TableCell align="right"><strong>MXN</strong></TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {(tx.consolidaciones || []).map(c => (
+                              <TableRow key={c.consolidation_id}>
+                                <TableCell>
+                                  <Box display="flex" alignItems="center" gap={1}>
+                                    <ShippingIcon color="primary" fontSize="small" />
+                                    <Typography fontWeight="bold">#{c.consolidation_id}</Typography>
+                                  </Box>
+                                </TableCell>
+                                <TableCell>{c.supplier_name || '—'}</TableCell>
+                                <TableCell align="center">
+                                  <Chip label={c.package_count} size="small" color="primary" variant="outlined" />
+                                </TableCell>
+                                <TableCell align="right">${Number(c.total_usd || 0).toFixed(2)}</TableCell>
+                                <TableCell align="right">{formatCurrency(Number(c.total_mxn || 0))}</TableCell>
+                              </TableRow>
+                            ))}
+                            <TableRow sx={{ bgcolor: 'warning.light' }}>
+                              <TableCell colSpan={2} sx={{ fontWeight: 'bold' }}>TOTAL</TableCell>
+                              <TableCell align="center" sx={{ fontWeight: 'bold' }}>
+                                {(tx.consolidaciones || []).reduce((s, c) => s + Number(c.package_count || 0), 0)}
+                              </TableCell>
+                              <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                                ${(tx.consolidaciones || []).reduce((s, c) => s + Number(c.total_usd || 0), 0).toFixed(2)}
+                              </TableCell>
+                              <TableCell align="right" sx={{ fontWeight: 'bold' }}>
+                                {formatCurrency((tx.consolidaciones || []).reduce((s, c) => s + Number(c.total_mxn || 0), 0))}
+                              </TableCell>
+                            </TableRow>
+                          </TableBody>
+                        </Table>
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                )}
+                </React.Fragment>
+                );
+              })}
               {transacciones.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">No hay transacciones registradas</Typography>
                   </TableCell>
                 </TableRow>

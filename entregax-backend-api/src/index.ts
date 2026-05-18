@@ -468,7 +468,8 @@ import {
   getHistorialPagosCliente,
   buscarPorReferencia,
   confirmarPagoReferencia,
-  pagarConsolidacionProveedor
+  pagarConsolidacionProveedor,
+  pagarMultiplesConsolidaciones
 } from './cajaChicaController';
 import {
   // Exchange Rate Config
@@ -8756,6 +8757,7 @@ app.get('/api/caja-chica/buscar-guia', authenticateToken, buscarGuiaParaCobro);
 app.post('/api/caja-chica/corte', authenticateToken, realizarCorte);
 app.get('/api/caja-chica/cortes', authenticateToken, getCortes);
 app.post('/api/caja-chica/pagar-consolidacion', authenticateToken, pagarConsolidacionProveedor);
+app.post('/api/caja-chica/pagar-consolidaciones-multiple', authenticateToken, pagarMultiplesConsolidaciones);
 
 // ============================================
 // DATOS FISCALES Y FACTURACIÓN CFDI 4.0

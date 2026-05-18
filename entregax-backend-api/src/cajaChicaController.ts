@@ -635,7 +635,13 @@ export const registrarEgreso = async (req: AuthRequest, res: Response): Promise<
 export const getTransacciones = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { fecha_desde, fecha_hasta, tipo, cliente_id } = req.query;
-    
+
+    // Asegurar que la columna `referencia` exista — algunos entornos legacy
+    // no corrieron la migración add_caja_chica_evidencia.sql, lo que rompe
+    // la subquery de detalle de pagos a proveedor.
+    await pool.query(`ALTER TABLE caja_chica_transacciones ADD COLUMN IF NOT EXISTS referencia VARCHAR(100)`).catch(() => {});
+    await pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS costing_payment_reference VARCHAR(100)`).catch(() => {});
+
     let query = `
       SELECT 
         t.*,
@@ -650,7 +656,28 @@ export const getTransacciones = async (req: AuthRequest, res: Response): Promise
           FROM caja_chica_aplicacion_pagos ap
           JOIN packages p ON p.id = ap.package_id
           WHERE ap.transaccion_id = t.id
-        ) as aplicaciones
+        ) as aplicaciones,
+        (
+          -- Detalle de consolidaciones cubiertas por este pago a proveedor.
+          -- Las identificamos a través de packages.costing_payment_reference,
+          -- que se setea con el mismo valor de t.referencia (o CAJA-<id> si no
+          -- hubo referencia explícita) al pagar una/varias consolidaciones.
+          SELECT json_agg(row_to_json(d) ORDER BY d.consolidation_id)
+          FROM (
+            SELECT
+              p.consolidation_id,
+              MAX(s.name) AS supplier_name,
+              COUNT(p.id)::int AS package_count,
+              COALESCE(SUM(p.pobox_service_cost), 0)::numeric AS total_mxn,
+              COALESCE(SUM(p.pobox_cost_usd), 0)::numeric AS total_usd
+            FROM packages p
+            LEFT JOIN suppliers s ON s.id = p.supplier_id
+            WHERE t.categoria = 'pago_proveedor'
+              AND p.costing_payment_reference = COALESCE(t.referencia, 'CAJA-' || t.id::text)
+              AND p.consolidation_id IS NOT NULL
+            GROUP BY p.consolidation_id
+          ) d
+        ) AS consolidaciones
       FROM caja_chica_transacciones t
       LEFT JOIN users u ON u.id = t.cliente_id
       WHERE t.concepto NOT ILIKE '%PO Box%'
@@ -685,8 +712,104 @@ export const getTransacciones = async (req: AuthRequest, res: Response): Promise
     query += ` ORDER BY t.created_at DESC LIMIT 200`;
     
     const result = await pool.query(query, params);
-    
-    res.json(result.rows);
+
+    // ====================================================================
+    // Agrupar pagos a proveedor disparados en el mismo "click" en una sola
+    // fila visual. Criterio: misma categoría=pago_proveedor, mismo admin,
+    // mismo proveedor (extraído del concepto) y mismo minuto de created_at.
+    // Esto cubre tanto el nuevo endpoint multi (que ya inserta una fila)
+    // como datos históricos creados por el endpoint single en bucle.
+    // ====================================================================
+    const proveedorRegex = /Pago Proveedor:\s*([^-]+?)\s*-\s*Consolidaci[óo]n\s*#?(\d+)/i;
+    const groups = new Map<string, any>();
+    const ordered: any[] = [];
+    for (const row of result.rows) {
+      if (row.categoria !== 'pago_proveedor') {
+        ordered.push(row);
+        continue;
+      }
+      const m = String(row.concepto || '').match(proveedorRegex);
+      const proveedor = m?.[1]?.trim() || 'Proveedor';
+      const consolId = m?.[2] ? parseInt(m[2], 10) : null;
+      const minute = new Date(row.created_at).toISOString().slice(0, 16);
+      const key = `${row.admin_id || 'x'}|${proveedor}|${minute}`;
+
+      if (!groups.has(key)) {
+        const seed = {
+          ...row,
+          monto: Number(row.monto) || 0,
+          _proveedor: proveedor,
+          _tx_ids: [row.id],
+          _consol_ids: new Set<number>(consolId ? [consolId] : []),
+          consolidaciones: Array.isArray(row.consolidaciones) ? [...row.consolidaciones] : [],
+        };
+        groups.set(key, seed);
+        ordered.push(seed);
+      } else {
+        const g = groups.get(key);
+        g.monto = Number(g.monto) + (Number(row.monto) || 0);
+        g._tx_ids.push(row.id);
+        if (consolId) g._consol_ids.add(consolId);
+        if (Array.isArray(row.consolidaciones)) {
+          const existing = new Set(g.consolidaciones.map((c: any) => c.consolidation_id));
+          for (const c of row.consolidaciones) {
+            if (!existing.has(c.consolidation_id)) g.consolidaciones.push(c);
+          }
+        }
+        // saldo_despues_movimiento: usar el del último (cronológicamente posterior).
+        if (new Date(row.created_at) > new Date(g.created_at)) {
+          g.saldo_despues_movimiento = row.saldo_despues_movimiento;
+        }
+      }
+    }
+
+    // Si una fila agrupada no trajo consolidaciones desde SQL (porque las
+    // filas históricas no compartían referencia), las construimos desde el
+    // concepto: una entrada mínima por consolidation_id detectado.
+    for (const g of groups.values()) {
+      const consolIds: number[] = Array.from(g._consol_ids);
+      if (g.consolidaciones.length === 0 && consolIds.length > 0) {
+        // Hidratar con datos reales de packages para cada consolidación.
+        try {
+          const det = await pool.query(
+            `SELECT p.consolidation_id,
+                    MAX(s.name) AS supplier_name,
+                    COUNT(p.id)::int AS package_count,
+                    COALESCE(SUM(p.pobox_service_cost), 0)::numeric AS total_mxn,
+                    COALESCE(SUM(p.pobox_cost_usd), 0)::numeric AS total_usd
+               FROM packages p
+               LEFT JOIN suppliers s ON s.id = p.supplier_id
+              WHERE p.consolidation_id = ANY($1::int[])
+              GROUP BY p.consolidation_id
+              ORDER BY p.consolidation_id`,
+            [consolIds]
+          );
+          g.consolidaciones = det.rows;
+        } catch {
+          g.consolidaciones = consolIds.map((id) => ({
+            consolidation_id: id,
+            supplier_name: g._proveedor,
+            package_count: null,
+            total_mxn: null,
+            total_usd: null,
+          }));
+        }
+      }
+      // Reescribir concepto agrupado.
+      if (g._tx_ids.length > 1 || consolIds.length > 1) {
+        const ids = consolIds.sort((a, b) => a - b).map((n) => `#${n}`).join(', ');
+        const totalPkgs = g.consolidaciones.reduce(
+          (s: number, c: any) => s + (Number(c.package_count) || 0),
+          0
+        );
+        g.concepto = `Pago Proveedor: ${g._proveedor} - ${consolIds.length} consolidación(es) (${ids})${totalPkgs ? ` - ${totalPkgs} paquete(s)` : ''}`;
+      }
+      delete g._proveedor;
+      delete g._tx_ids;
+      delete g._consol_ids;
+    }
+
+    res.json(ordered);
   } catch (error) {
     console.error('Error en getTransacciones:', error);
     res.status(500).json({ message: 'Error al obtener transacciones' });
@@ -1221,9 +1344,9 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
     // Crear transacción de egreso en caja chica
     const transaccionResult = await pool.query(`
       INSERT INTO caja_chica_transacciones 
-        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas)
+        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, referencia)
       VALUES 
-        ('egreso', $1, $2, 'pago_proveedor', $3, $4, $5, $6)
+        ('egreso', $1, $2, 'pago_proveedor', $3, $4, $5, $6, $7)
       RETURNING id
     `, [
       monto,
@@ -1231,7 +1354,8 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
       adminId,
       adminName,
       nuevoSaldo,
-      `${referencia ? `Ref: ${referencia}` : ''}${notas ? ` | ${notas}` : ''}`.trim() || null
+      `${referencia ? `Ref: ${referencia}` : ''}${notas ? ` | ${notas}` : ''}`.trim() || null,
+      referencia || null
     ]);
 
     const transaccionId = transaccionResult.rows[0].id;
@@ -1288,5 +1412,154 @@ export const pagarConsolidacionProveedor = async (req: AuthRequest, res: Respons
   } catch (error) {
     console.error('Error en pagarConsolidacionProveedor:', error);
     res.status(500).json({ error: 'Error al procesar pago a proveedor' });
+  }
+};
+
+// ============================================
+// PAGAR MÚLTIPLES CONSOLIDACIONES EN UNA SOLA TRANSACCIÓN
+// ============================================
+// Crea UNA sola fila en caja_chica_transacciones que cubre todas las
+// consolidaciones del lote. Cada paquete pagado queda etiquetado con
+// la misma `costing_payment_reference` para poder rearmar el detalle
+// al listar las transacciones.
+export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    const { consolidation_ids, referencia, notas } = req.body as {
+      consolidation_ids: number[]; referencia?: string | null; notas?: string | null;
+    };
+    const adminId = req.user?.id;
+    const adminName = req.user?.name || 'Sistema';
+
+    if (!Array.isArray(consolidation_ids) || consolidation_ids.length === 0) {
+      res.status(400).json({ error: 'Se requiere al menos una consolidación' });
+      return;
+    }
+
+    await client.query('BEGIN');
+
+    // Cargar consolidaciones pagables (sólo paquetes que llegaron, no pagados aún)
+    const consResult = await client.query(`
+      SELECT
+        c.id AS consolidation_id,
+        s.id AS supplier_id,
+        s.name AS supplier_name,
+        COUNT(p.id)::int AS package_count,
+        COALESCE(SUM(p.pobox_service_cost), 0)::numeric AS total_mxn,
+        COALESCE(SUM(p.pobox_cost_usd), 0)::numeric AS total_usd
+      FROM consolidations c
+      JOIN packages p ON p.consolidation_id = c.id
+      LEFT JOIN suppliers s ON p.supplier_id = s.id
+      WHERE c.id = ANY($1::int[])
+        AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)
+        AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
+        AND COALESCE(p.is_lost, FALSE) = FALSE
+      GROUP BY c.id, s.id, s.name
+    `, [consolidation_ids]);
+
+    if (consResult.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Las consolidaciones no tienen paquetes pendientes de pago' });
+      return;
+    }
+
+    const consolidaciones = consResult.rows;
+    const totalMonto = consolidaciones.reduce((s, c) => s + Number(c.total_mxn || 0), 0);
+    const totalPaquetes = consolidaciones.reduce((s, c) => s + Number(c.package_count || 0), 0);
+    const supplierNames = Array.from(new Set(consolidaciones.map(c => c.supplier_name).filter(Boolean)));
+    const idsLista = consolidaciones.map(c => `#${c.consolidation_id}`).join(', ');
+
+    // Saldo actual
+    const saldoResult = await client.query(`
+      SELECT COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) as saldo
+      FROM caja_chica_transacciones
+    `);
+    const saldoActual = parseFloat(saldoResult.rows[0].saldo);
+    const nuevoSaldo = saldoActual - totalMonto;
+
+    const concepto = `Pago Proveedor: ${supplierNames.join(', ') || 'N/A'} - ${consolidaciones.length} consolidación(es) (${idsLista}) - ${totalPaquetes} paquete(s)`;
+
+    const txInsert = await client.query(`
+      INSERT INTO caja_chica_transacciones
+        (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, referencia)
+      VALUES ('egreso', $1, $2, 'pago_proveedor', $3, $4, $5, $6, $7)
+      RETURNING id
+    `, [
+      totalMonto,
+      concepto,
+      adminId,
+      adminName,
+      nuevoSaldo,
+      notas || null,
+      referencia || null,
+    ]);
+    const transaccionId: number = txInsert.rows[0].id;
+    const paymentRef = referencia || `CAJA-${transaccionId}`;
+
+    // Marcar paquetes como pagados (sólo los que llegaron)
+    const updateRes = await client.query(`
+      UPDATE packages
+         SET costing_paid = TRUE,
+             costing_paid_at = NOW(),
+             costing_payment_reference = $1,
+             updated_at = NOW()
+       WHERE consolidation_id = ANY($2::int[])
+         AND (costing_paid IS NULL OR costing_paid = FALSE)
+         AND COALESCE(missing_on_arrival, FALSE) = FALSE
+         AND COALESCE(is_lost, FALSE) = FALSE
+      RETURNING id, consolidation_id, supplier_id
+    `, [paymentRef, consolidation_ids]);
+
+    // Historial de pagos por proveedor (igual que pagarConsolidacionProveedor)
+    const bySupplier = new Map<number, number[]>();
+    for (const row of updateRes.rows) {
+      if (!row.supplier_id) continue;
+      const arr = bySupplier.get(row.supplier_id) || [];
+      arr.push(row.id);
+      bySupplier.set(row.supplier_id, arr);
+    }
+    for (const [supplierId, packageIds] of bySupplier.entries()) {
+      const monto = consolidaciones
+        .filter(c => Number(c.supplier_id) === Number(supplierId))
+        .reduce((s, c) => s + Number(c.total_mxn || 0), 0);
+      await client.query(`
+        INSERT INTO pobox_payment_history
+          (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
+        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
+      `, [JSON.stringify(packageIds), monto, paymentRef, adminId, supplierId]).catch(async (err) => {
+        if (err.code === '42703') {
+          await client.query('ALTER TABLE pobox_payment_history ADD COLUMN IF NOT EXISTS supplier_id INTEGER').catch(() => {});
+          await client.query(`
+            INSERT INTO pobox_payment_history
+              (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
+          `, [JSON.stringify(packageIds), monto, paymentRef, adminId, supplierId]).catch(() => {});
+        }
+      });
+    }
+
+    await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: `Pago de $${totalMonto.toFixed(2)} MXN registrado · ${consolidaciones.length} consolidación(es) · ${updateRes.rows.length} paquete(s)`,
+      transaccion_id: transaccionId,
+      payment_reference: paymentRef,
+      total_monto: totalMonto,
+      consolidations: consolidaciones.map(c => ({
+        id: c.consolidation_id,
+        supplier_name: c.supplier_name,
+        package_count: Number(c.package_count),
+        monto_mxn: Number(c.total_mxn),
+        monto_usd: Number(c.total_usd),
+      })),
+      packages_updated: updateRes.rows.length,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error en pagarMultiplesConsolidaciones:', error);
+    res.status(500).json({ error: 'Error al procesar pago múltiple a proveedor' });
+  } finally {
+    client.release();
   }
 };

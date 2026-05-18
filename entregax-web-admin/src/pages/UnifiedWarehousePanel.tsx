@@ -96,6 +96,9 @@ interface ShipmentMaster {
   paymentStatus?: string | null;
   clientPaid?: boolean;
   clientPaidAt?: string | null;
+  consolidationId?: number | null;
+  missingOnArrival?: boolean;
+  isLost?: boolean;
   totalCost?: number | null;
   poboxCostUsd?: number | null;
   nationalLabelCost?: number | null;
@@ -591,22 +594,60 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                     )}
                   </Box>
                   <Stack alignItems="flex-end" spacing={1}>
-                    <Chip
-                      icon={<CheckIcon />}
-                      label={
-                        m.currentBranch?.name
-                          ? `${m.statusLabel || m.status || 'Sin estado'} · ${m.currentBranch.name}`
-                          : (m.statusLabel || m.status || 'Sin estado')
+                    {(() => {
+                      // Si el paquete (o su master) está marcado como faltante/perdido,
+                      // priorizamos ese estado por encima del status técnico de la BD
+                      // (que puede decir 'received_mty' por transiciones masivas en bloque).
+                      if (m.isLost) {
+                        return (
+                          <Chip
+                            label="⚠️ PERDIDA"
+                            color="error"
+                            sx={{ fontWeight: 'bold', fontSize: '0.95rem', py: 2 }}
+                          />
+                        );
                       }
-                      color={statusColor(m.status)}
-                      sx={{ fontWeight: 'bold', fontSize: '0.95rem', py: 2 }}
-                    />
+                      if (m.missingOnArrival) {
+                        return (
+                          <Chip
+                            label={
+                              m.currentBranch?.name
+                                ? `⏳ RETRASADA — NO LLEGÓ A MTY · ${m.currentBranch.name}`
+                                : '⏳ RETRASADA — NO LLEGÓ A MTY'
+                            }
+                            color="warning"
+                            sx={{ fontWeight: 'bold', fontSize: '0.95rem', py: 2 }}
+                          />
+                        );
+                      }
+                      return (
+                        <Chip
+                          icon={<CheckIcon />}
+                          label={
+                            m.currentBranch?.name
+                              ? `${m.statusLabel || m.status || 'Sin estado'} · ${m.currentBranch.name}`
+                              : (m.statusLabel || m.status || 'Sin estado')
+                          }
+                          color={statusColor(m.status)}
+                          sx={{ fontWeight: 'bold', fontSize: '0.95rem', py: 2 }}
+                        />
+                      );
+                    })()}
                     {m.isMaster && (
                       <Chip
                         label={`Multipieza · ${m.totalBoxes || 1} cajas`}
                         size="small"
                         color="primary"
                         variant="outlined"
+                      />
+                    )}
+                    {m.consolidationId && (
+                      <Chip
+                        label={`Consolidación #${m.consolidationId}`}
+                        size="small"
+                        color="warning"
+                        variant="outlined"
+                        sx={{ fontWeight: 700 }}
                       />
                     )}
                   </Stack>

@@ -83,7 +83,12 @@ export const getConsolidationPackages = async (req: AuthRequest, res: Response):
     const packages = await pool.query(
       `SELECT 
          p.id, p.tracking_internal, p.status, p.received_at, p.dispatched_at,
-         p.missing_on_arrival, p.missing_reported_at,
+         (COALESCE(p.missing_on_arrival, FALSE) OR EXISTS(
+            SELECT 1 FROM packages mp
+             WHERE mp.id = p.master_id
+               AND COALESCE(mp.missing_on_arrival, FALSE) = TRUE
+         )) AS missing_on_arrival,
+         p.missing_reported_at,
          p.description, p.weight, p.declared_value, p.service_type,
          p.is_master, p.master_id, p.total_boxes,
          p.box_id AS pkg_box_id,

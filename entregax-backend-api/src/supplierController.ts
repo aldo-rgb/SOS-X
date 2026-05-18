@@ -191,7 +191,11 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
         // Expresión que representa la fecha efectiva en MTY del paquete:
         // - MAX(package_history.created_at) donde status='received_mty'
         // - fallback a packages.received_at si no hay historial
-        const mtyDateExpr = `COALESCE((SELECT MAX(ph.created_at) FROM package_history ph WHERE ph.package_id = pk.id AND ph.status::text = 'received_mty'), pk.received_at)`;
+        // Usamos MIN para tomar la PRIMERA fecha en que el paquete llegó a MTY.
+        // Las transiciones de la consolidación (in_transit → received_mty) insertan
+        // un nuevo registro 'received_mty' a TODOS los paquetes, lo que con MAX
+        // sobrescribía la fecha real con la fecha de la última transición.
+        const mtyDateExpr = `COALESCE((SELECT MIN(ph.created_at) FROM package_history ph WHERE ph.package_id = pk.id AND ph.status::text = 'received_mty'), pk.received_at)`;
         if (receivedFrom) {
             queryParams.push(receivedFrom);
             dateFilterParts.push(`DATE(${mtyDateExpr} AT TIME ZONE 'America/Monterrey') >= $${queryParams.length}::date`);
@@ -268,7 +272,10 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
                         p.created_at,
                         p.received_at,
                         (
-                            SELECT MAX(ph.created_at)
+                            -- MIN para conservar la fecha REAL de la primera recepción en MTY
+                            -- (transiciones de consolidación insertan nuevos registros 'received_mty'
+                            -- a todos los paquetes, falseando la fecha si se usara MAX).
+                            SELECT MIN(ph.created_at)
                               FROM package_history ph
                              WHERE ph.package_id = p.id
                                AND ph.status::text = 'received_mty'

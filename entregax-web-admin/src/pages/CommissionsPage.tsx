@@ -438,7 +438,9 @@ export default function CommissionsPage() {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {advisors.length > 0 ? advisors.map((advisor) => (
+                  {advisors.length > 0 ? [...advisors]
+                    .sort((a, b) => (Number(b.referral_count) || 0) - (Number(a.referral_count) || 0))
+                    .map((advisor) => (
                     <TableRow key={advisor.id} hover>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>

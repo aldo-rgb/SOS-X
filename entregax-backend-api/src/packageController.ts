@@ -1061,7 +1061,17 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                    a.state as addr_state, a.zip_code as addr_zip,
                    a.phone as addr_phone, a.reference as addr_reference,
                    a.carrier_config as addr_carrier_config,
-                   br.id as branch_id_val, br.code as branch_code, br.name as branch_name
+                   br.id as branch_id_val, br.code as branch_code, br.name as branch_name,
+                   (COALESCE(p.missing_on_arrival, FALSE) OR EXISTS(
+                       SELECT 1 FROM packages mp
+                        WHERE mp.id = p.master_id
+                          AND COALESCE(mp.missing_on_arrival, FALSE) = TRUE
+                   )) AS missing_on_arrival_eff,
+                   (COALESCE(p.is_lost, FALSE) OR EXISTS(
+                       SELECT 1 FROM packages mp
+                        WHERE mp.id = p.master_id
+                          AND COALESCE(mp.is_lost, FALSE) = TRUE
+                   )) AS is_lost_eff
             FROM packages p 
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
@@ -1099,7 +1109,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                            a.state as addr_state, a.zip_code as addr_zip,
                            a.phone as addr_phone, a.reference as addr_reference,
                            a.carrier_config as addr_carrier_config,
-                           br.id as branch_id_val, br.code as branch_code, br.name as branch_name
+                           br.id as branch_id_val, br.code as branch_code, br.name as branch_name,
+                           COALESCE(p.missing_on_arrival, FALSE) AS missing_on_arrival_eff,
+                           COALESCE(p.is_lost, FALSE) AS is_lost_eff
                     FROM packages p
                     LEFT JOIN users u ON p.user_id = u.id
                     LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
@@ -1559,6 +1571,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     paymentStatus: pkg.payment_status || null,
                     clientPaid: pkg.client_paid === true,
                     clientPaidAt: pkg.client_paid_at || null,
+                    consolidationId: pkg.consolidation_id || null,
+                    missingOnArrival: pkg.missing_on_arrival_eff === true || pkg.missing_on_arrival === true,
+                    isLost: pkg.is_lost_eff === true || pkg.is_lost === true,
                     totalCost: pkg.gex_total_cost ? parseFloat(pkg.gex_total_cost) : null,
                     poboxCostUsd: pkg.pobox_cost_usd ? parseFloat(pkg.pobox_cost_usd) : null,
                     // Costos visibles solo para super_admin/admin/director/customer_service en frontend
