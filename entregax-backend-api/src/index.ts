@@ -835,6 +835,7 @@ import {
   acceptAdvance as pcAcceptAdvance,
   listMyAdvances as pcListMyAdvances,
   registerExpense as pcRegisterExpense,
+  registerBranchExpense as pcRegisterBranchExpense,
   getMyWallet as pcGetMyWallet,
   listPendingExpenses as pcListPendingExpenses,
   approveExpense as pcApproveExpense,
@@ -2059,6 +2060,7 @@ app.get('/api/petty-cash/my-wallet', authenticateToken, pcGetMyWallet);
 app.get('/api/petty-cash/my-advances', authenticateToken, pcListMyAdvances);
 app.post('/api/petty-cash/advances/:id/accept', authenticateToken, pcAcceptAdvance);
 app.post('/api/petty-cash/expenses', authenticateToken, pcExpenseUpload, handlePettyCashExpenseUpload, pcRegisterExpense);
+app.post('/api/petty-cash/branch-expenses', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcExpenseUpload, handlePettyCashExpenseUpload, pcRegisterBranchExpense);
 
 
 // --- RUTAS DE ASESORES ---

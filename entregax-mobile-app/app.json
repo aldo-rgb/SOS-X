@@ -27,7 +27,14 @@
         "NSBluetoothAlwaysUsageDescription": "EntregaX usa Bluetooth para conectar impresoras de guías.",
         "NSBluetoothPeripheralUsageDescription": "EntregaX usa Bluetooth para conectar impresoras térmicas de guías.",
         "NSFaceIDUsageDescription": "EntregaX usa Face ID para que entres más rápido sin escribir tu contraseña.",
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.195261632917-l736lhaudp3p3lpkrnfv1u21v6hd8g8s"
+            ]
+          }
+        ]
       }
     },
     "android": {
@@ -111,9 +118,9 @@
       "eas": {
         "projectId": "b6043c48-2360-4a21-afa7-3ea091d6c74c"
       },
-      "googleIosClientId": "",
-      "googleAndroidClientId": "",
-      "googleWebClientId": "992259567923-bru9cos6eouvc91bbn9a4mpp0ggmh444.apps.googleusercontent.com"
+      "googleIosClientId": "195261632917-l736lhaudp3p3lpkrnfv1u21v6hd8g8s.apps.googleusercontent.com",
+      "googleAndroidClientId": "195261632917-ou8b8i8ojui8d2rojdd2ammf3v1p68um.apps.googleusercontent.com",
+      "googleWebClientId": "195261632917-6423vo6huqh0p5dd6itj5igs53sdqlfi.apps.googleusercontent.com"
     },
     "owner": "aldozaia"
   }

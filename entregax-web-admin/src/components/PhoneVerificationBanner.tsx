@@ -21,9 +21,14 @@ interface Props {
   onVerified?: () => void;
 }
 
+const REQUIRE_PHONE_VERIFICATION = import.meta.env.VITE_REQUIRE_PHONE_VERIFICATION === 'true';
+
 const PhoneVerificationBanner: React.FC<Props> = ({ user, onVerified }) => {
   const [open, setOpen] = useState(false);
 
+  // Si el feature flag está apagado, no mostramos el banner (modo temporal mientras
+  // Meta aprueba la WABA / plantillas de WhatsApp).
+  if (!REQUIRE_PHONE_VERIFICATION) return null;
   if (!user) return null;
   const role = (user.role || '').toLowerCase();
   if (!['client', 'cliente'].includes(role)) return null;

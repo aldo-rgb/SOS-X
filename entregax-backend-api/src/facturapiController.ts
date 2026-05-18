@@ -422,3 +422,29 @@ export const downloadFacturapiAttachment = async (req: AuthRequest, res: Respons
     res.status(500).json({ error: err.message });
   }
 };
+
+/* =================================================================
+ * Helper: descarga el XML crudo de un CFDI recibido vía Facturapi.
+ * Reutilizable desde otros controladores (p.ej. para reparsear
+ * conceptos y poder importar al inventario).
+ * Devuelve null si no se puede descargar.
+ * =============================================================== */
+export async function fetchFacturapiCfdiXml(emitterId: number, facturapiId: string): Promise<string | null> {
+  try {
+    const e = await loadEmitter(emitterId);
+    if (!e || !e.facturapi_api_key || !facturapiId) return null;
+    const r = await axios.get(`${FACTURAPI_BASE}/invoices/${facturapiId}/xml`, {
+      ...getFacturapiAuth(e.facturapi_api_key),
+      responseType: 'arraybuffer',
+      validateStatus: () => true,
+    });
+    if (r.status < 200 || r.status >= 300) {
+      console.warn(`[fetchFacturapiCfdiXml] HTTP ${r.status} emitter=${emitterId} facturapi=${facturapiId}`);
+      return null;
+    }
+    return Buffer.from(r.data).toString('utf8');
+  } catch (err: any) {
+    console.warn('[fetchFacturapiCfdiXml] error:', err.message);
+    return null;
+  }
+}

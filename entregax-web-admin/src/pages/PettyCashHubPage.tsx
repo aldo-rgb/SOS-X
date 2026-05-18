@@ -13,6 +13,8 @@ import {
   Cancel as RejectIcon,
   Visibility as ViewIcon,
   AttachMoney as MoneyIcon,
+  PhotoCamera as PhotoCameraIcon,
+  Receipt as ReceiptIcon,
   Send as SendIcon,
   Refresh as RefreshIcon,
   History as HistoryIcon,
@@ -35,6 +37,7 @@ interface Wallet {
   balance_mxn: string | number;
   pending_to_verify_mxn: string | number;
   credit_limit_mxn: string | number;
+  currency?: string;
   status: string;
   pending_expenses_count: string | number;
   updated_at: string;
@@ -46,6 +49,7 @@ interface Movement {
   movement_type: 'fund' | 'advance' | 'expense' | 'return' | 'adjustment';
   category: string | null;
   amount_mxn: string | number;
+  currency?: string;
   status: string;
   concept: string | null;
   evidence_url: string | null;
@@ -70,6 +74,7 @@ interface BranchOption {
   name: string;
   code: string;
   balance_mxn: string | number;
+  currency?: string;
   wallet_id: number | null;
 }
 
@@ -108,8 +113,11 @@ interface Stats {
   pending_approvals_total: number;
 }
 
-const fmtMoney = (n: number | string | null | undefined) => {
+const fmtMoney = (n: number | string | null | undefined, currency: string = 'MXN') => {
   const v = Number(n || 0);
+  if ((currency || 'MXN').toUpperCase() === 'USD') {
+    return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+  }
   return v.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
 };
 
@@ -174,6 +182,10 @@ export default function PettyCashHubPage() {
   const [fundOrigin, setFundOrigin] = useState<'caja_cc' | 'otro'>('caja_cc');
   const [fundOriginDetail, setFundOriginDetail] = useState('');
   const [fundBusy, setFundBusy] = useState(false);
+  // FX (sólo si la sucursal opera en otra moneda)
+  const [fundFxRate, setFundFxRate] = useState('');
+  const [fundSourceAmountMxn, setFundSourceAmountMxn] = useState('');
+  const [fundFxProvider, setFundFxProvider] = useState('');
 
   // Modal Anticipo a Chofer
   const [advOpen, setAdvOpen] = useState(false);
@@ -183,6 +195,16 @@ export default function PettyCashHubPage() {
   const [advPurpose, setAdvPurpose] = useState('');
   const [advBranchId, setAdvBranchId] = useState<number | ''>('');
   const [advBusy, setAdvBusy] = useState(false);
+
+  // Modal Registrar Gasto de Sucursal (mismo flujo que el chofer en la app)
+  const [gastoOpen, setGastoOpen] = useState(false);
+  const [gastoWallet, setGastoWallet] = useState<Wallet | null>(null);
+  const [gastoCategory, setGastoCategory] = useState<string>('combustible');
+  const [gastoAmount, setGastoAmount] = useState('');
+  const [gastoConcept, setGastoConcept] = useState('');
+  const [gastoPhoto, setGastoPhoto] = useState<File | null>(null);
+  const [gastoPhotoPreview, setGastoPhotoPreview] = useState<string | null>(null);
+  const [gastoBusy, setGastoBusy] = useState(false);
 
   // Modal Detalle de gasto + aprobación
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -234,6 +256,9 @@ export default function PettyCashHubPage() {
     setFundConcept('');
     setFundOrigin('caja_cc');
     setFundOriginDetail('');
+    setFundFxRate('');
+    setFundSourceAmountMxn('');
+    setFundFxProvider('');
     try {
       const r = await fetch(`${API_URL}/api/admin/petty-cash/branches`, { headers });
       const d = await r.json();
@@ -241,20 +266,34 @@ export default function PettyCashHubPage() {
     } catch (e) { console.error(e); }
   };
 
+  const selectedBranch = branchesOpts.find(b => b.id === Number(fundBranchId));
+  const selectedCurrency = (selectedBranch?.currency || 'MXN').toUpperCase();
+  const needsFx = selectedCurrency !== 'MXN';
+
   const handleFund = async () => {
     if (!fundBranchId || !fundAmount) return;
+    if (needsFx && (!fundFxRate || !fundSourceAmountMxn)) {
+      setSnack({ severity: 'error', msg: `Captura tipo de cambio y monto MXN egresado para ${selectedCurrency}` });
+      return;
+    }
     setFundBusy(true);
     try {
+      const body: Record<string, unknown> = {
+        branch_id: fundBranchId,
+        amount_mxn: Number(fundAmount),
+        concept: fundConcept || undefined,
+        funds_origin: fundOrigin,
+        funds_origin_detail: fundOrigin === 'otro' ? fundOriginDetail.trim() : undefined,
+      };
+      if (needsFx) {
+        body.fx_rate = Number(fundFxRate);
+        body.source_amount_mxn = Number(fundSourceAmountMxn);
+        body.fx_provider = fundFxProvider.trim() || undefined;
+      }
       const r = await fetch(`${API_URL}/api/admin/petty-cash/fund-branch`, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          branch_id: fundBranchId,
-          amount_mxn: Number(fundAmount),
-          concept: fundConcept || undefined,
-          funds_origin: fundOrigin,
-          funds_origin_detail: fundOrigin === 'otro' ? fundOriginDetail.trim() : undefined
-        })
+        body: JSON.stringify(body)
       });
       const d = await r.json();
       if (r.ok) {
@@ -283,7 +322,12 @@ export default function PettyCashHubPage() {
         fetch(`${API_URL}/api/admin/petty-cash/branches`, { headers }).then(r => r.json())
       ]);
       setDriversOpts(d1.drivers || []);
-      setBranchesOpts(b1.branches || []);
+      const branches = b1.branches || [];
+      setBranchesOpts(branches);
+      // Si el usuario sólo tiene 1 sucursal asignada, fijarla por defecto y bloquear el campo.
+      if (branches.length === 1) {
+        setAdvBranchId(branches[0].id);
+      }
     } catch (e) { console.error(e); }
   };
 
@@ -313,6 +357,60 @@ export default function PettyCashHubPage() {
       setSnack({ severity: 'error', msg: 'Error de red' });
     } finally {
       setAdvBusy(false);
+    }
+  };
+
+  const openGastoDialog = (wallet: Wallet) => {
+    setGastoWallet(wallet);
+    setGastoCategory('combustible');
+    setGastoAmount('');
+    setGastoConcept('');
+    setGastoPhoto(null);
+    setGastoPhotoPreview(null);
+    setGastoOpen(true);
+  };
+
+  const onGastoPhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    setGastoPhoto(f);
+    if (gastoPhotoPreview) URL.revokeObjectURL(gastoPhotoPreview);
+    setGastoPhotoPreview(f ? URL.createObjectURL(f) : null);
+  };
+
+  const submitGasto = async () => {
+    const amount = Number(String(gastoAmount).replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setSnack({ severity: 'error', msg: 'Monto inválido' });
+      return;
+    }
+    if (!gastoPhoto) {
+      setSnack({ severity: 'error', msg: 'Foto del ticket requerida' });
+      return;
+    }
+    setGastoBusy(true);
+    try {
+      const form = new FormData();
+      form.append('category', gastoCategory);
+      form.append('amount_mxn', String(amount));
+      if (gastoConcept) form.append('concept', gastoConcept);
+      form.append('evidence', gastoPhoto);
+      const r = await fetch(`${API_URL}/api/petty-cash/branch-expenses`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setSnack({ severity: 'success', msg: 'Gasto registrado · pendiente de aprobación' });
+        setGastoOpen(false);
+        loadAll();
+      } else {
+        setSnack({ severity: 'error', msg: d.error || 'No se pudo registrar el gasto' });
+      }
+    } catch {
+      setSnack({ severity: 'error', msg: 'Error de red' });
+    } finally {
+      setGastoBusy(false);
     }
   };
 
@@ -388,7 +486,7 @@ export default function PettyCashHubPage() {
         <Box>
           <Typography variant="h4" fontWeight="bold">💼 Caja Chica Sucursales</Typography>
           <Typography variant="body2" color="text.secondary">
-            Fondeo, anticipos a choferes (vales digitales), captura de gastos, aprobaciones y arqueos.
+            Fondeo, anticipos a choferes (vales digitales), captura de gastos y aprobaciones.
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1.5 }}>
@@ -397,9 +495,7 @@ export default function PettyCashHubPage() {
               Fondear Sucursal
             </Button>
           )}
-          <Button variant="contained" color="secondary" startIcon={<SendIcon />} onClick={openAdvanceDialog}>
-            Anticipo a Chofer
-          </Button>
+          {/* Anticipo a Chofer: se gestiona desde la app móvil del chofer/sucursal */}
           <Button variant="outlined" startIcon={<RefreshIcon />} onClick={loadAll}>
             Actualizar
           </Button>
@@ -465,7 +561,6 @@ export default function PettyCashHubPage() {
           <Tab icon={<BranchIcon />} iconPosition="start" label={`Sucursales (${branchWallets.length})`} />
           <Tab icon={<DriverIcon />} iconPosition="start" label={`Choferes (${driverWallets.length})`} />
           <Tab icon={<ApproveIcon />} iconPosition="start" label={`Aprobaciones (${pendingExpenses.length})`} />
-          <Tab icon={<HistoryIcon />} iconPosition="start" label="Arqueos / Cortes" />
         </Tabs>
       </Paper>
 
@@ -492,13 +587,16 @@ export default function PettyCashHubPage() {
                   <Divider sx={{ my: 1 }} />
                   <Typography variant="caption" color="text.secondary">Saldo disponible</Typography>
                   <Typography variant="h4" fontWeight="bold" color={Number(w.balance_mxn) > 0 ? 'success.main' : 'text.disabled'}>
-                    {fmtMoney(w.balance_mxn)}
+                    {fmtMoney(w.balance_mxn, w.currency)}
                   </Typography>
                   <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
                     <Button size="small" variant="contained" startIcon={<SendIcon />} onClick={() => {
                       setAdvBranchId(w.branch_id || '');
                       openAdvanceDialog();
                     }}>Anticipo</Button>
+                    <Button size="small" variant="contained" color="warning" startIcon={<ReceiptIcon />} onClick={() => openGastoDialog(w)}>
+                      Registrar Gasto
+                    </Button>
                     <Button size="small" variant="outlined" color="info" startIcon={<MovementsIcon />} onClick={() => openWalletDetail(w)}>
                       Movimientos
                     </Button>
@@ -553,12 +651,12 @@ export default function PettyCashHubPage() {
                   <TableCell>{w.branch_name || '—'}</TableCell>
                   <TableCell align="right">
                     <Typography fontWeight="bold" color={Number(w.balance_mxn) > 0 ? 'primary.main' : 'text.disabled'}>
-                      {fmtMoney(w.balance_mxn)}
+                      {fmtMoney(w.balance_mxn, w.currency)}
                     </Typography>
                   </TableCell>
                   <TableCell align="right">
                     {Number(w.pending_to_verify_mxn) > 0 ? (
-                      <Chip size="small" color="warning" label={fmtMoney(w.pending_to_verify_mxn)} />
+                      <Chip size="small" color="warning" label={fmtMoney(w.pending_to_verify_mxn, w.currency)} />
                     ) : '—'}
                   </TableCell>
                   <TableCell align="center">
@@ -613,7 +711,7 @@ export default function PettyCashHubPage() {
                       <Chip size="small" label={`${cat.icon} ${cat.label}`} />
                     </TableCell>
                     <TableCell align="right">
-                      <Typography fontWeight="bold">{fmtMoney(m.amount_mxn)}</Typography>
+                      <Typography fontWeight="bold">{fmtMoney(m.amount_mxn, m.currency)}</Typography>
                     </TableCell>
                     <TableCell>
                       <Tooltip title={m.concept || ''}>
@@ -666,8 +764,8 @@ export default function PettyCashHubPage() {
         </TableContainer>
       )}
 
-      {/* TAB: Arqueos */}
-      {tab === 3 && (
+      {/* TAB: Arqueos — DESHABILITADO. No hacemos devoluciones, sólo refileamos para sostener el fondo. */}
+      {false && tab === 3 && (
         <TableContainer component={Paper}>
           <Table size="small">
             <TableHead>
@@ -714,20 +812,27 @@ export default function PettyCashHubPage() {
         <DialogTitle>💰 Fondear Caja Chica de Sucursal</DialogTitle>
         <DialogContent>
           <Alert severity="info" sx={{ mb: 2 }}>
-            {fundOrigin === 'caja_cc'
-              ? 'Este movimiento se registrará como egreso en Caja CC y entrará al saldo de la sucursal.'
-              : 'Como el origen no es Caja CC, se registrará automáticamente un ingreso (origen externo) y un egreso (fondeo) en Caja CC.'}
+            {needsFx
+              ? `Esta sucursal opera en ${selectedCurrency}. Caja CC egresará en MXN (compra de divisas) y entregará ${selectedCurrency} a la sucursal según el tipo de cambio.`
+              : fundOrigin === 'caja_cc'
+                ? 'Este movimiento se registrará como egreso en Caja CC y entrará al saldo de la sucursal.'
+                : 'Como el origen no es Caja CC, se registrará automáticamente un ingreso (origen externo) y un egreso (fondeo) en Caja CC.'}
           </Alert>
           <TextField
             select fullWidth margin="normal" label="Sucursal"
             value={fundBranchId}
             onChange={e => setFundBranchId(Number(e.target.value))}
           >
-            {branchesOpts.map(b => (
-              <MenuItem key={b.id} value={b.id}>
-                {b.name} — saldo actual: {fmtMoney(b.balance_mxn)}
-              </MenuItem>
-            ))}
+            {branchesOpts
+              .filter(b => !/centro\s*cc/i.test(b.name || ''))
+              .map(b => {
+                const cur = (b.currency || 'MXN').toUpperCase();
+                return (
+                  <MenuItem key={b.id} value={b.id}>
+                    {b.name} {cur !== 'MXN' ? `[${cur}] ` : ''}— saldo actual: {fmtMoney(b.balance_mxn, cur)}
+                  </MenuItem>
+                );
+              })}
           </TextField>
           <TextField
             select fullWidth margin="normal" label="Origen de los fondos"
@@ -746,10 +851,54 @@ export default function PettyCashHubPage() {
             />
           )}
           <TextField
-            fullWidth margin="normal" label="Monto (MXN)" type="number"
-            value={fundAmount} onChange={e => setFundAmount(e.target.value)}
-            InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+            fullWidth margin="normal"
+            label={`Monto a entregar a sucursal (${selectedCurrency})`}
+            type="number"
+            value={fundAmount}
+            onChange={e => {
+              const v = e.target.value;
+              setFundAmount(v);
+              // Auto-cálculo del MXN egresado cuando ya hay tipo de cambio
+              if (needsFx && fundFxRate && Number(v) > 0 && Number(fundFxRate) > 0) {
+                setFundSourceAmountMxn((Number(v) * Number(fundFxRate)).toFixed(2));
+              }
+            }}
+            InputProps={{ startAdornment: <InputAdornment position="start">{selectedCurrency === 'USD' ? 'US$' : '$'}</InputAdornment> }}
           />
+          {needsFx && (
+            <>
+              <TextField
+                fullWidth margin="normal"
+                label={`Tipo de cambio (MXN por 1 ${selectedCurrency})`}
+                type="number"
+                value={fundFxRate}
+                onChange={e => {
+                  const v = e.target.value;
+                  setFundFxRate(v);
+                  if (fundAmount && Number(v) > 0) {
+                    setFundSourceAmountMxn((Number(fundAmount) * Number(v)).toFixed(2));
+                  }
+                }}
+                helperText="Tasa entregada por la casa de bolsa"
+              />
+              <TextField
+                fullWidth margin="normal"
+                label="Monto MXN egresado de Caja CC"
+                type="number"
+                value={fundSourceAmountMxn}
+                onChange={e => setFundSourceAmountMxn(e.target.value)}
+                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                helperText={`Debe ser ≈ ${selectedCurrency} × tipo de cambio (tolerancia ±$1 MXN)`}
+              />
+              <TextField
+                fullWidth margin="normal"
+                label="Casa de bolsa / Proveedor (opcional)"
+                placeholder="Ej. Intercam, Monex, Banco Base…"
+                value={fundFxProvider}
+                onChange={e => setFundFxProvider(e.target.value)}
+              />
+            </>
+          )}
           <TextField
             fullWidth margin="normal" label="Concepto / Notas (opcional)"
             value={fundConcept} onChange={e => setFundConcept(e.target.value)}
@@ -761,7 +910,11 @@ export default function PettyCashHubPage() {
           <Button
             variant="contained"
             onClick={handleFund}
-            disabled={fundBusy || !fundBranchId || !fundAmount || (fundOrigin === 'otro' && !fundOriginDetail.trim())}
+            disabled={
+              fundBusy || !fundBranchId || !fundAmount ||
+              (fundOrigin === 'otro' && !fundOriginDetail.trim()) ||
+              (needsFx && (!fundFxRate || !fundSourceAmountMxn))
+            }
           >
             {fundBusy ? <CircularProgress size={20} /> : 'Fondear'}
           </Button>
@@ -775,13 +928,14 @@ export default function PettyCashHubPage() {
           <Alert severity="info" sx={{ mb: 2 }}>
             Sale del saldo de la sucursal. El chofer deberá "Aceptar y Firmar" desde su app antes de poder usarlo.
           </Alert>
-          {branchesOpts.length > 1 && (
+          {branchesOpts.length > 0 && (
             <TextField
-              select fullWidth margin="normal" label="Sucursal origen (opcional)"
+              select fullWidth margin="normal" label="Sucursal origen"
               value={advBranchId}
               onChange={e => setAdvBranchId(Number(e.target.value))}
+              disabled={branchesOpts.length <= 1}
+              helperText={branchesOpts.length <= 1 ? 'Asignada automáticamente por tu sucursal' : undefined}
             >
-              <MenuItem value="">— Auto (sucursal del chofer) —</MenuItem>
               {branchesOpts.map(b => (
                 <MenuItem key={b.id} value={b.id}>
                   {b.name} — saldo: {fmtMoney(b.balance_mxn)}
@@ -815,6 +969,77 @@ export default function PettyCashHubPage() {
           <Button onClick={() => setAdvOpen(false)} disabled={advBusy}>Cancelar</Button>
           <Button variant="contained" color="secondary" onClick={handleAdvance} disabled={advBusy || !advDriverId || !advAmount}>
             {advBusy ? <CircularProgress size={20} /> : 'Crear Vale'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Registrar Gasto de Sucursal (con foto de evidencia) */}
+      <Dialog open={gastoOpen} onClose={() => !gastoBusy && setGastoOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>🧾 Registrar Gasto · {gastoWallet?.owner_name || 'Sucursal'}</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            El gasto se deduce de la wallet de la sucursal y queda <strong>pendiente de aprobación</strong>.
+            Igual que un chofer en la app: requiere foto del ticket como evidencia.
+          </Alert>
+          <TextField
+            select fullWidth margin="normal" label="Categoría"
+            value={gastoCategory}
+            onChange={e => setGastoCategory(e.target.value)}
+          >
+            {Object.entries(CATEGORY_LABELS).map(([key, c]) => (
+              <MenuItem key={key} value={key}>{c.icon} {c.label}</MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            fullWidth margin="normal" label="Monto" type="number"
+            value={gastoAmount}
+            onChange={e => setGastoAmount(e.target.value)}
+            InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+          />
+          <TextField
+            fullWidth margin="normal" label="Concepto / descripción (opcional)"
+            value={gastoConcept}
+            onChange={e => setGastoConcept(e.target.value)}
+            placeholder="ej. Tóner impresora, factura A1234"
+            multiline
+            minRows={2}
+          />
+          <Box sx={{ mt: 2 }}>
+            <Button
+              variant="outlined"
+              component="label"
+              startIcon={<PhotoCameraIcon />}
+              fullWidth
+            >
+              {gastoPhoto ? 'Cambiar foto del ticket' : 'Foto del ticket (requerida)'}
+              <input
+                type="file"
+                hidden
+                accept="image/*"
+                capture="environment"
+                onChange={onGastoPhotoChange}
+              />
+            </Button>
+            {gastoPhotoPreview && (
+              <Box
+                component="img"
+                src={gastoPhotoPreview}
+                alt="ticket preview"
+                sx={{ mt: 1, width: '100%', maxHeight: 280, objectFit: 'contain', borderRadius: 1, border: '1px solid #ddd' }}
+              />
+            )}
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setGastoOpen(false)} disabled={gastoBusy}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={submitGasto}
+            disabled={gastoBusy || !gastoAmount || !gastoPhoto}
+            startIcon={gastoBusy ? <CircularProgress size={16} /> : <ReceiptIcon />}
+          >
+            {gastoBusy ? 'Guardando…' : 'Registrar Gasto'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -890,7 +1115,7 @@ export default function PettyCashHubPage() {
               <Box>
                 <Typography variant="caption" color="text.secondary">Saldo disponible</Typography>
                 <Typography variant="h5" fontWeight="bold" color="success.main">
-                  {fmtMoney(detailWallet.balance_mxn)}
+                  {fmtMoney(detailWallet.balance_mxn, detailWallet.currency)}
                 </Typography>
               </Box>
               <Box>
@@ -959,16 +1184,16 @@ export default function PettyCashHubPage() {
                           </TableCell>
                           <TableCell align="right">
                             {meta.sign < 0 ? (
-                              <Typography color="error.main" fontWeight={600}>−{fmtMoney(amount)}</Typography>
+                              <Typography color="error.main" fontWeight={600}>−{fmtMoney(amount, m.currency || detailWallet?.currency)}</Typography>
                             ) : '—'}
                           </TableCell>
                           <TableCell align="right">
                             {meta.sign > 0 ? (
-                              <Typography color="success.main" fontWeight={600}>+{fmtMoney(amount)}</Typography>
+                              <Typography color="success.main" fontWeight={600}>+{fmtMoney(amount, m.currency || detailWallet?.currency)}</Typography>
                             ) : '—'}
                           </TableCell>
                           <TableCell align="right">
-                            {affectsBalance ? <Typography fontWeight="bold">{fmtMoney(running)}</Typography> : '—'}
+                            {affectsBalance ? <Typography fontWeight="bold">{fmtMoney(running, detailWallet?.currency)}</Typography> : '—'}
                           </TableCell>
                           <TableCell align="center">
                             <Chip size="small" label={st.label} color={st.color} />

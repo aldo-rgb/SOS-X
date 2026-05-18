@@ -775,9 +775,9 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
               value={selectedClient}
               onChange={(_, v) => applyClient(v)}
               onInputChange={(_, v) => setClientQuery(v)}
-              getOptionLabel={(o) => `${o.razon_social || o.full_name || ''} (${o.rfc})`}
+              getOptionLabel={(o) => `${o.box_id ? `[${o.box_id}] ` : ''}${o.razon_social || o.full_name || ''} (${o.rfc})`}
               isOptionEqualToValue={(a, b) => a.id === b.id}
-              renderInput={(p) => <TextField {...p} size="small" label="Buscar cliente existente (RFC, razón social, email)" />}
+              renderInput={(p) => <TextField {...p} size="small" label="Buscar cliente existente (No. cliente, RFC, razón social, email)" />}
               noOptionsText="Sin resultados — escribe los datos manualmente abajo"
             />
             <Divider><Chip label="Datos fiscales del receptor" size="small" /></Divider>
@@ -1409,6 +1409,19 @@ function ReceivedInvoicesTab({ emitter }: { emitter: Emitter }) {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [detail, setDetail] = useState<any | null>(null);
 
+  // Confirm dialog + snackbar (reemplazo de window.confirm/alert nativos)
+  const [confirmState, setConfirmState] = useState<{
+    open: boolean;
+    title: string;
+    message: string;
+    confirmLabel?: string;
+    severity?: 'warning' | 'danger' | 'info';
+    onConfirm?: () => void | Promise<void>;
+  }>({ open: false, title: '', message: '' });
+  const [snack, setSnack] = useState<{ open: boolean; severity: 'success' | 'error' | 'info' | 'warning'; message: string }>({ open: false, severity: 'info', message: '' });
+  const askConfirm = (opts: Omit<typeof confirmState, 'open'>) => setConfirmState({ ...opts, open: true });
+  const notify = (severity: 'success' | 'error' | 'info' | 'warning', message: string) => setSnack({ open: true, severity, message });
+
   const load = async () => {
     setLoading(true);
     try {
@@ -1421,29 +1434,51 @@ function ReceivedInvoicesTab({ emitter }: { emitter: Emitter }) {
   useEffect(() => { load(); }, [emitter.id]); // eslint-disable-line
 
   const remove = async (id: number) => {
-    if (!confirm('¿Eliminar factura recibida? Se revertirá el inventario importado.')) return;
-    await api.delete(`/accounting/${emitter.id}/received-invoices/${id}`);
-    load();
+    askConfirm({
+      title: 'Eliminar factura recibida',
+      message: 'Se revertirá el inventario importado de esta factura. Esta acción no se puede deshacer.',
+      confirmLabel: 'Eliminar',
+      severity: 'danger',
+      onConfirm: async () => {
+        try {
+          await api.delete(`/accounting/${emitter.id}/received-invoices/${id}`);
+          notify('success', 'Factura eliminada.');
+          load();
+        } catch (e: any) {
+          notify('error', e?.response?.data?.error || e?.message || 'Error al eliminar la factura');
+        }
+      },
+    });
   };
 
   const [importingId, setImportingId] = useState<number | null>(null);
   const importToInventory = async (row: any) => {
     if (row.tipo_comprobante !== 'I') {
-      alert('Sólo se puede importar inventario de CFDI tipo Ingreso (I).');
+      notify('warning', 'Sólo se puede importar inventario de CFDI tipo Ingreso (I).');
       return;
     }
-    if (!confirm(`¿Importar al inventario los conceptos de la factura ${row.serie || ''}${row.folio || row.id}? Se crearán/sumarán productos según el XML.`)) return;
-    setImportingId(row.id);
-    try {
-      const res = await api.post(`/accounting/${emitter.id}/received-invoices/${row.id}/import-inventory`);
-      const { imported_items, skipped_items, total_items } = res.data || {};
-      alert(`Importación completada: ${imported_items}/${total_items} conceptos al inventario${skipped_items ? ` (${skipped_items} omitidos)` : ''}.`);
-      load();
-    } catch (e: any) {
-      alert(e?.response?.data?.error || e?.response?.data?.message || 'Error al importar al inventario');
-    } finally {
-      setImportingId(null);
-    }
+    askConfirm({
+      title: 'Importar conceptos al inventario',
+      message: `¿Importar al inventario los conceptos de la factura ${row.serie || ''}${row.folio || row.id}? Se crearán o sumarán productos según el XML.`,
+      confirmLabel: 'Importar',
+      severity: 'warning',
+      onConfirm: async () => {
+        setImportingId(row.id);
+        try {
+          const res = await api.post(`/accounting/${emitter.id}/received-invoices/${row.id}/import-inventory`);
+          const { imported_items, skipped_items, total_items } = res.data || {};
+          notify(
+            'success',
+            `Importación completada: ${imported_items}/${total_items} conceptos al inventario${skipped_items ? ` (${skipped_items} omitidos)` : ''}.`
+          );
+          load();
+        } catch (e: any) {
+          notify('error', e?.response?.data?.error || e?.response?.data?.message || 'Error al importar al inventario');
+        } finally {
+          setImportingId(null);
+        }
+      },
+    });
   };
 
   const openDetail = async (id: number) => {
@@ -1526,6 +1561,68 @@ function ReceivedInvoicesTab({ emitter }: { emitter: Emitter }) {
 
       <UploadXmlDialog open={uploadOpen} emitterId={emitter.id} onClose={() => setUploadOpen(false)} onUploaded={load} />
       <ReceivedInvoiceDetailDialog invoice={detail} onClose={() => setDetail(null)} />
+
+      {/* Confirm dialog estilizado */}
+      <Dialog
+        open={confirmState.open}
+        onClose={() => setConfirmState((s) => ({ ...s, open: false }))}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden' } }}
+      >
+        <Box sx={{
+          bgcolor: confirmState.severity === 'danger' ? RED : confirmState.severity === 'warning' ? ORANGE : BLACK,
+          color: 'white',
+          px: 3, py: 2,
+          display: 'flex', alignItems: 'center', gap: 1.5,
+        }}>
+          {confirmState.severity === 'danger' ? <DeleteIcon /> : <WarningAmberIcon />}
+          <Typography variant="h6" fontWeight={700}>{confirmState.title}</Typography>
+        </Box>
+        <DialogContent sx={{ pt: 3, pb: 2 }}>
+          <Typography variant="body2" color="text.secondary" sx={{ lineHeight: 1.6 }}>
+            {confirmState.message}
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button onClick={() => setConfirmState((s) => ({ ...s, open: false }))} sx={{ textTransform: 'none', color: 'text.secondary' }}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={async () => {
+              const fn = confirmState.onConfirm;
+              setConfirmState((s) => ({ ...s, open: false }));
+              if (fn) await fn();
+            }}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 700,
+              bgcolor: confirmState.severity === 'danger' ? RED : ORANGE,
+              '&:hover': { bgcolor: BLACK },
+            }}
+          >
+            {confirmState.confirmLabel || 'Confirmar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Snackbar para notificaciones */}
+      <Snackbar
+        open={snack.open}
+        autoHideDuration={5000}
+        onClose={() => setSnack((s) => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          severity={snack.severity}
+          variant="filled"
+          onClose={() => setSnack((s) => ({ ...s, open: false }))}
+          sx={{ fontWeight: 600, boxShadow: 3 }}
+        >
+          {snack.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }

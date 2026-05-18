@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Pool } from 'pg';
 import { FacturamaClient, FacturamaError } from './facturamaClient';
+import { fetchFacturapiCfdiXml } from './facturapiController';
 
 const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
@@ -443,11 +444,11 @@ export const searchFiscalClients = async (req: AuthRequest, res: Response): Prom
         let where = `WHERE u.rfc IS NOT NULL AND LENGTH(TRIM(u.rfc)) >= 12`;
         if (search) {
             params.push(`%${search}%`);
-            where += ` AND (u.rfc ILIKE $${params.length} OR u.razon_social ILIKE $${params.length} OR u.full_name ILIKE $${params.length} OR u.email ILIKE $${params.length})`;
+            where += ` AND (u.rfc ILIKE $${params.length} OR u.razon_social ILIKE $${params.length} OR u.full_name ILIKE $${params.length} OR u.email ILIKE $${params.length} OR u.box_id ILIKE $${params.length})`;
         }
 
         const r = await pool.query(`
-            SELECT u.id, u.full_name, u.email,
+            SELECT u.id, u.full_name, u.email, u.box_id,
                    UPPER(TRIM(u.rfc)) AS rfc,
                    COALESCE(u.razon_social, u.full_name) AS razon_social,
                    u.regimen_fiscal,
@@ -1046,6 +1047,7 @@ export const getReceivedInvoiceDetail = async (req: AuthRequest, res: Response):
 
         const inv = await pool.query(`SELECT * FROM accounting_received_invoices WHERE id=$1 AND fiscal_emitter_id=$2`, [invoiceId, emitterId]);
         if (!inv.rows[0]) return res.status(404).json({ error: 'No encontrada' });
+        const invoiceRow = inv.rows[0];
         let items = await pool.query(`
             SELECT i.*, p.description AS matched_description, p.sku AS matched_sku
             FROM accounting_received_invoice_items i
@@ -1053,15 +1055,66 @@ export const getReceivedInvoiceDetail = async (req: AuthRequest, res: Response):
             WHERE i.received_invoice_id=$1 ORDER BY i.id ASC
         `, [invoiceId]);
 
+        // Si no hay items y no tenemos xml_content guardado, intentar descargarlo desde Facturapi
+        // (los CFDIs sincronizados por cron sólo guardan xml_url remoto, no el contenido).
+        if (items.rows.length === 0 && !invoiceRow.xml_content && invoiceRow.facturapi_id) {
+            const fetched = await fetchFacturapiCfdiXml(emitterId, String(invoiceRow.facturapi_id));
+            if (fetched) {
+                invoiceRow.xml_content = fetched;
+                try {
+                    await pool.query(
+                        `UPDATE accounting_received_invoices SET xml_content=$1 WHERE id=$2`,
+                        [fetched, invoiceId]
+                    );
+                } catch (persistErr) {
+                    console.warn('getReceivedInvoiceDetail: no se pudo persistir xml_content:', (persistErr as any)?.message);
+                }
+            }
+        }
+
         // Recuperación: si no hay items pero tenemos el XML, re-parseamos con el parser robusto.
-        if (items.rows.length === 0 && inv.rows[0].xml_content) {
+        if (items.rows.length === 0 && invoiceRow.xml_content) {
             try {
-                const { items: parsedItems } = parseCfdiXml(inv.rows[0].xml_content);
+                const { header: parsedHeader, items: parsedItems } = parseCfdiXml(invoiceRow.xml_content);
                 if (parsedItems.length > 0) {
                     const client = await pool.connect();
                     try {
                         await client.query('BEGIN');
                         await insertReceivedInvoiceItems(client, emitterId, invoiceId, parsedItems);
+                        // Backfill de campos de cabecera que pudieron quedar en 0/null durante el sync remoto.
+                        await client.query(
+                            `UPDATE accounting_received_invoices SET
+                                subtotal = CASE WHEN COALESCE(subtotal,0) = 0 THEN $1 ELSE subtotal END,
+                                iva      = CASE WHEN COALESCE(iva,0)      = 0 THEN $2 ELSE iva END,
+                                total    = CASE WHEN COALESCE(total,0)    = 0 THEN $3 ELSE total END,
+                                uuid_sat = COALESCE(uuid_sat, $4),
+                                folio    = COALESCE(folio,    $5),
+                                serie    = COALESCE(serie,    $6),
+                                emisor_rfc    = COALESCE(emisor_rfc,    $7),
+                                emisor_nombre = COALESCE(emisor_nombre, $8),
+                                receptor_rfc  = COALESCE(receptor_rfc,  $9),
+                                receptor_nombre = COALESCE(receptor_nombre, $10),
+                                uso_cfdi      = COALESCE(uso_cfdi,      $11),
+                                metodo_pago   = COALESCE(metodo_pago,   $12),
+                                forma_pago    = COALESCE(forma_pago,    $13)
+                              WHERE id=$14`,
+                            [
+                                parsedHeader.subtotal || 0,
+                                parsedHeader.iva || 0,
+                                parsedHeader.total || 0,
+                                parsedHeader.uuid_sat,
+                                parsedHeader.folio,
+                                parsedHeader.serie,
+                                parsedHeader.emisor_rfc,
+                                parsedHeader.emisor_nombre,
+                                parsedHeader.receptor_rfc,
+                                parsedHeader.receptor_nombre,
+                                parsedHeader.uso_cfdi,
+                                parsedHeader.metodo_pago,
+                                parsedHeader.forma_pago,
+                                invoiceId,
+                            ]
+                        );
                         await client.query('COMMIT');
                     } catch (e) {
                         await client.query('ROLLBACK');
@@ -1075,12 +1128,15 @@ export const getReceivedInvoiceDetail = async (req: AuthRequest, res: Response):
                         LEFT JOIN accounting_products p ON p.id=i.matched_product_id
                         WHERE i.received_invoice_id=$1 ORDER BY i.id ASC
                     `, [invoiceId]);
+                    // Refrescar la cabecera tras el backfill para que el front muestre los valores correctos.
+                    const refreshed = await pool.query(`SELECT * FROM accounting_received_invoices WHERE id=$1`, [invoiceId]);
+                    if (refreshed.rows[0]) Object.assign(invoiceRow, refreshed.rows[0]);
                 }
             } catch (recErr) {
                 console.warn('getReceivedInvoiceDetail: recuperación de items falló:', (recErr as any)?.message);
             }
         }
-        return res.json({ success: true, invoice: inv.rows[0], items: items.rows });
+        return res.json({ success: true, invoice: invoiceRow, items: items.rows });
     } catch (e: any) {
         console.error('getReceivedInvoiceDetail:', e);
         res.status(500).json({ error: 'Error obteniendo detalle', message: e.message });
@@ -1358,7 +1414,7 @@ export const uploadReceivedInvoice = async (req: AuthRequest, res: Response): Pr
                         await client.query(`UPDATE accounting_received_invoice_items SET matched_product_id=$1 WHERE id=$2`, [productId, itemId]);
                     }
                     if (productId) {
-                        await client.query(`UPDATE accounting_products SET stock_qty = stock_qty + $1, updated_at=CURRENT_TIMESTAMP WHERE id=$2`, [it.quantity, productId]);
+                        await client.query(`UPDATE accounting_products SET stock_qty = stock_qty + $1, is_active=TRUE, updated_at=CURRENT_TIMESTAMP WHERE id=$2`, [it.quantity, productId]);
                         await client.query(`
                             INSERT INTO accounting_product_movements
                               (product_id, movement_type, quantity, unit_cost, reason, reference_type, reference_id, created_by)
@@ -1403,7 +1459,8 @@ export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Re
         if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
 
         const invRes = await pool.query(
-            `SELECT id, uuid_sat, tipo_comprobante, moneda, inventory_imported, xml_content
+            `SELECT id, uuid_sat, tipo_comprobante, moneda, inventory_imported, xml_content,
+                    facturapi_id, facturama_id, xml_url
                FROM accounting_received_invoices
               WHERE id=$1 AND fiscal_emitter_id=$2`,
             [invoiceId, emitterId]
@@ -1415,6 +1472,24 @@ export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Re
         }
         if (invoice.inventory_imported) {
             return res.status(409).json({ error: 'Esta factura ya fue importada al inventario' });
+        }
+
+        // Si no tenemos xml_content guardado (CFDIs sincronizados desde Facturapi/Facturama
+        // sólo traen pdf_url/xml_url remotos), intentar descargar el XML ahora para poder
+        // parsear los conceptos.
+        if (!invoice.xml_content && invoice.facturapi_id) {
+            const fetched = await fetchFacturapiCfdiXml(emitterId, String(invoice.facturapi_id));
+            if (fetched) {
+                invoice.xml_content = fetched;
+                try {
+                    await pool.query(
+                        `UPDATE accounting_received_invoices SET xml_content=$1 WHERE id=$2`,
+                        [fetched, invoiceId]
+                    );
+                } catch (persistErr) {
+                    console.warn('importReceivedInvoiceToInventory: no se pudo persistir xml_content:', (persistErr as any)?.message);
+                }
+            }
         }
 
         const client = await pool.connect();
@@ -1478,6 +1553,17 @@ export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Re
                     if (mr.rows[0]) productId = mr.rows[0].id;
                 }
 
+                // Match adicional por SKU (no_identificacion), evita choque con UNIQUE (fiscal_emitter_id, sku)
+                if (!productId && it.no_identificacion) {
+                    const sr = await client.query(
+                        `SELECT id FROM accounting_products
+                          WHERE fiscal_emitter_id=$1 AND sku=$2
+                          LIMIT 1`,
+                        [emitterId, it.no_identificacion]
+                    );
+                    if (sr.rows[0]) productId = sr.rows[0].id;
+                }
+
                 // Si sigue sin existir, crearlo a partir del concepto del XML
                 if (!productId && it.sat_clave_prod_serv && it.description) {
                     const np = await client.query(
@@ -1485,6 +1571,8 @@ export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Re
                             (fiscal_emitter_id, sku, description, sat_clave_prod_serv, sat_clave_unidad,
                              unit_price, currency, tax_rate, stock_qty, created_by, notes)
                          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                         ON CONFLICT (fiscal_emitter_id, sku) DO UPDATE
+                            SET updated_at = CURRENT_TIMESTAMP
                          RETURNING id`,
                         [
                             emitterId,
@@ -1507,7 +1595,9 @@ export const importReceivedInvoiceToInventory = async (req: AuthRequest, res: Re
 
                 await client.query(
                     `UPDATE accounting_products
-                        SET stock_qty = stock_qty + $1, updated_at=CURRENT_TIMESTAMP
+                        SET stock_qty = stock_qty + $1,
+                            is_active = TRUE,
+                            updated_at=CURRENT_TIMESTAMP
                       WHERE id=$2`,
                     [it.quantity, productId]
                 );

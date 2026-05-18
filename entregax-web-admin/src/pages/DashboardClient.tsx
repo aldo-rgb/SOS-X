@@ -381,7 +381,10 @@ export default function DashboardClient() {
     }
     // re-evaluar al cambiar tab/foco
   }, []);
-  const isPhoneVerified = currentUser?.phoneVerified === true || currentUser?.phone_verified === true;
+  // Feature flag: si VITE_REQUIRE_PHONE_VERIFICATION !== 'true', se considera siempre verificado.
+  // Útil mientras Meta aprueba la WABA / plantillas de OTP.
+  const REQUIRE_PHONE_VERIFICATION = import.meta.env.VITE_REQUIRE_PHONE_VERIFICATION === 'true';
+  const isPhoneVerified = !REQUIRE_PHONE_VERIFICATION || currentUser?.phoneVerified === true || currentUser?.phone_verified === true;
   // X-Pay solo habilitado si feature flag + WhatsApp verificado
   const paymentsEnabled = xpayEnabled && isPhoneVerified;
   // Pagos nativos EntregaX también requieren teléfono verificado

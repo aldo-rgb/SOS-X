@@ -27,7 +27,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { api } from '../services/api';
+import * as ImagePicker from 'expo-image-picker';
+import { api, API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
 const GREEN = '#00B894';
@@ -159,6 +160,14 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
   const [rejectReason, setRejectReason] = useState('');
   const [reviewBusy, setReviewBusy] = useState(false);
 
+  // Modal: registrar gasto de sucursal (igual que la app del chofer)
+  const [gastoOpen, setGastoOpen] = useState(false);
+  const [gastoCategory, setGastoCategory] = useState<string>('combustible');
+  const [gastoAmount, setGastoAmount] = useState('');
+  const [gastoConcept, setGastoConcept] = useState('');
+  const [gastoPhoto, setGastoPhoto] = useState<{ uri: string; name: string; type: string } | null>(null);
+  const [gastoBusy, setGastoBusy] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
       const [s, bw, dw, pe] = await Promise.all([
@@ -244,6 +253,81 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
       Alert.alert('Error', err?.response?.data?.error || 'No se pudo crear el anticipo');
     } finally {
       setAdvBusy(false);
+    }
+  };
+
+  // ---- Registrar gasto (sale de la wallet de la sucursal) ----
+  const openGasto = () => {
+    setGastoCategory('combustible');
+    setGastoAmount('');
+    setGastoConcept('');
+    setGastoPhoto(null);
+    setGastoOpen(true);
+  };
+
+  const pickGastoPhoto = async (fromCamera: boolean) => {
+    try {
+      const perm = fromCamera
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (perm.status !== 'granted') {
+        Alert.alert('Permiso requerido', 'Necesitamos acceso para capturar el ticket.');
+        return;
+      }
+      const result = fromCamera
+        ? await ImagePicker.launchCameraAsync({ quality: 0.7, allowsEditing: false })
+        : await ImagePicker.launchImageLibraryAsync({ quality: 0.7, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+      if (result.canceled || !result.assets?.length) return;
+      const a = result.assets[0];
+      setGastoPhoto({
+        uri: a.uri,
+        name: a.fileName || `ticket-${Date.now()}.jpg`,
+        type: a.mimeType || 'image/jpeg',
+      });
+    } catch {
+      Alert.alert('Error', 'No se pudo obtener la foto');
+    }
+  };
+
+  const submitGasto = async () => {
+    const amount = Number(gastoAmount.replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      Alert.alert('Monto inválido', 'Captura un monto mayor a $0');
+      return;
+    }
+    if (!gastoPhoto) {
+      Alert.alert('Foto requerida', 'Toma una foto del ticket o factura');
+      return;
+    }
+    setGastoBusy(true);
+    try {
+      const form = new FormData();
+      form.append('category', gastoCategory);
+      form.append('amount_mxn', String(amount));
+      if (gastoConcept) form.append('concept', gastoConcept);
+      // @ts-ignore: RN FormData file
+      form.append('evidence', {
+        uri: gastoPhoto.uri,
+        name: gastoPhoto.name,
+        type: gastoPhoto.type,
+      });
+
+      const res = await fetch(`${API_URL}/api/petty-cash/branch-expenses`, {
+        method: 'POST',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: form as any,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data?.error || 'No se pudo registrar el gasto');
+      }
+      Alert.alert('✅ Gasto registrado', 'Quedó pendiente de aprobación.');
+      setGastoOpen(false);
+      loadData();
+    } catch (err: any) {
+      Alert.alert('Error', err?.message || 'No se pudo registrar el gasto');
+    } finally {
+      setGastoBusy(false);
     }
   };
 
@@ -359,6 +443,17 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
         >
           <MaterialIcons name="send" size={20} color="#fff" />
           <Text style={styles.actionBtnText}>Anticipo a Chofer</Text>
+        </TouchableOpacity>
+
+        {/* Registrar gasto de sucursal (mismo flujo que la app del chofer) */}
+        <TouchableOpacity
+          style={[styles.actionBtn, { backgroundColor: GREEN, marginTop: 10 }, !branchWallet && { opacity: 0.5 }]}
+          onPress={openGasto}
+          disabled={!branchWallet}
+          activeOpacity={0.85}
+        >
+          <MaterialIcons name="receipt-long" size={20} color="#fff" />
+          <Text style={styles.actionBtnText}>Registrar Gasto (Sucursal)</Text>
         </TouchableOpacity>
 
         {/* Tabs */}
@@ -581,6 +676,111 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                 <>
                   <MaterialIcons name="send" size={20} color="#fff" />
                   <Text style={styles.actionBtnText}>Crear Vale</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
+
+      {/* Modal: Registrar gasto de sucursal */}
+      <Modal visible={gastoOpen} animationType="slide" onRequestClose={() => !gastoBusy && setGastoOpen(false)}>
+        <SafeAreaView style={styles.container}>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => setGastoOpen(false)} disabled={gastoBusy}>
+              <MaterialIcons name="close" size={28} color="#333" />
+            </TouchableOpacity>
+            <Text style={[styles.headerTitle, { marginLeft: 12 }]}>Registrar Gasto</Text>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+            <View style={styles.infoBox}>
+              <Text style={styles.infoText}>
+                Este gasto se deduce de la wallet de <Text style={{ fontWeight: '700' }}>{branchWallet?.owner_name || 'la sucursal'}</Text> y queda pendiente de aprobación. Se requiere foto del ticket.
+              </Text>
+            </View>
+
+            <Text style={styles.label}>Categoría</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 4 }}>
+              {Object.entries(CATEGORIES).map(([key, c]) => (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => setGastoCategory(key)}
+                  style={{
+                    paddingVertical: 8,
+                    paddingHorizontal: 12,
+                    backgroundColor: gastoCategory === key ? ORANGE : '#F0F0F0',
+                    borderRadius: 20,
+                    margin: 4,
+                  }}
+                >
+                  <Text style={{ color: gastoCategory === key ? '#fff' : '#333', fontWeight: '600' }}>
+                    {c.icon} {c.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.label}>Monto (MXN)</Text>
+            <TextInput
+              style={styles.input}
+              keyboardType="decimal-pad"
+              placeholder="0.00"
+              value={gastoAmount}
+              onChangeText={setGastoAmount}
+            />
+
+            <Text style={styles.label}>Concepto / descripción (opcional)</Text>
+            <TextInput
+              style={[styles.input, { minHeight: 60, textAlignVertical: 'top' }]}
+              placeholder="Ej. Tóner impresora, factura A1234"
+              value={gastoConcept}
+              onChangeText={setGastoConcept}
+              multiline
+            />
+
+            <Text style={styles.label}>Foto del ticket (requerida)</Text>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: ORANGE, flex: 1 }]}
+                onPress={() => pickGastoPhoto(true)}
+                disabled={gastoBusy}
+              >
+                <MaterialIcons name="photo-camera" size={20} color="#fff" />
+                <Text style={styles.actionBtnText}>Cámara</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: '#555', flex: 1 }]}
+                onPress={() => pickGastoPhoto(false)}
+                disabled={gastoBusy}
+              >
+                <MaterialIcons name="photo-library" size={20} color="#fff" />
+                <Text style={styles.actionBtnText}>Galería</Text>
+              </TouchableOpacity>
+            </View>
+
+            {gastoPhoto ? (
+              <Image
+                source={{ uri: gastoPhoto.uri }}
+                style={{ width: '100%', height: 260, marginTop: 12, borderRadius: 8, backgroundColor: '#eee' }}
+                resizeMode="contain"
+              />
+            ) : null}
+
+            <TouchableOpacity
+              style={[
+                styles.actionBtn,
+                { backgroundColor: GREEN, marginTop: 22 },
+                (gastoBusy || !gastoAmount || !gastoPhoto) && { opacity: 0.6 },
+              ]}
+              onPress={submitGasto}
+              disabled={gastoBusy || !gastoAmount || !gastoPhoto}
+            >
+              {gastoBusy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <MaterialIcons name="check" size={20} color="#fff" />
+                  <Text style={styles.actionBtnText}>Registrar Gasto</Text>
                 </>
               )}
             </TouchableOpacity>

@@ -157,6 +157,13 @@ export const listWallets = async (req: Request, res: Response): Promise<any> => 
       if (!scope.branchId) {
         return res.json({ wallets: [] });
       }
+      // Asegura que el usuario de sucursal vea SIEMPRE la wallet de su sucursal,
+      // aunque aún no se haya fondeado (saldo $0). Misma lógica que getMyWallet
+      // para choferes: la wallet se crea on-demand al primer acceso.
+      const wantsBranchType = !owner_type || owner_type === 'branch';
+      if (wantsBranchType) {
+        try { await ensureBranchWallet(scope.branchId); } catch { /* noop */ }
+      }
       params.push(scope.branchId);
       where.push(`w.branch_id = $${params.length}`);
     } else if (branch_id) {
@@ -182,6 +189,7 @@ export const listWallets = async (req: Request, res: Response): Promise<any> => 
         w.balance_mxn,
         w.pending_to_verify_mxn,
         w.credit_limit_mxn,
+        COALESCE(w.currency, 'MXN') AS currency,
         w.status,
         w.updated_at,
         (
@@ -269,7 +277,15 @@ export const getWalletDetail = async (req: Request, res: Response): Promise<any>
 // =====================================================================
 /**
  * POST /api/admin/petty-cash/fund-branch
- * Body: { branch_id, amount_mxn, concept? }
+ * Body:
+ *   { branch_id, amount_mxn, concept?, funds_origin?, funds_origin_detail? }
+ *
+ *   Para wallets en USD (ej. Mostrador Hidalgo TX) además:
+ *   { fx_rate, source_amount_mxn, fx_provider? }
+ *   donde:
+ *     - amount_mxn   = monto en USD que llega a la sucursal
+ *     - source_amount_mxn = monto en MXN egresado de Caja CC (compra de divisas)
+ *     - fx_rate      = MXN por 1 USD (source_amount_mxn / amount_mxn)
  * Sólo super_admin / admin / director / accountant
  */
 export const fundBranch = async (req: Request, res: Response): Promise<any> => {
@@ -278,9 +294,12 @@ export const fundBranch = async (req: Request, res: Response): Promise<any> => {
     return res.status(403).json({ error: 'Sin permisos para fondear sucursales' });
   }
   const adminId = getUserId(req);
-  const { branch_id, amount_mxn, concept, funds_origin, funds_origin_detail } = req.body || {};
+  const {
+    branch_id, amount_mxn, concept, funds_origin, funds_origin_detail,
+    fx_rate, source_amount_mxn, fx_provider
+  } = req.body || {};
   const branchId = Number(branch_id);
-  const amount = Number(amount_mxn);
+  const amount = Number(amount_mxn); // siempre = monto que entra al wallet en su moneda
   if (!Number.isFinite(branchId) || branchId <= 0) {
     return res.status(400).json({ error: 'branch_id inválido' });
   }
@@ -307,69 +326,122 @@ export const fundBranch = async (req: Request, res: Response): Promise<any> => {
 
     const walletId = await ensureBranchWallet(branchId, client as any);
 
+    // Moneda del wallet (USD para Hidalgo TX, MXN por default)
+    const wRow = await client.query(
+      `SELECT COALESCE(currency,'MXN') AS currency FROM petty_cash_wallets WHERE id=$1`,
+      [walletId]
+    );
+    const walletCurrency: string = String(wRow.rows[0]?.currency || 'MXN').toUpperCase();
+
+    // ¿Hay conversión MXN → walletCurrency?
+    const needsFx = walletCurrency !== 'MXN';
+    let fxRate: number | null = null;
+    let sourceAmount: number | null = null;
+    const sourceCurrency = 'MXN'; // siempre se compra divisa con MXN de Caja CC MXN
+    const fxProvider = String(fx_provider || '').trim() || (needsFx ? 'casa de bolsa' : null);
+
+    if (needsFx) {
+      fxRate = Number(fx_rate);
+      sourceAmount = Number(source_amount_mxn);
+      if (!Number.isFinite(fxRate) || fxRate <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `fx_rate inválido (MXN por 1 ${walletCurrency})` });
+      }
+      if (!Number.isFinite(sourceAmount) || sourceAmount <= 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'source_amount_mxn inválido' });
+      }
+      // Sanidad: source ≈ amount * fxRate (tolerancia 1 MXN para redondeos de la casa de bolsa)
+      const expected = amount * fxRate;
+      if (Math.abs(expected - sourceAmount) > 1) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          error: `Inconsistencia en conversión: ${amount} ${walletCurrency} × ${fxRate} = ${expected.toFixed(2)} MXN, pero source_amount_mxn = ${sourceAmount}`,
+        });
+      }
+    }
+
     // Datos admin para caja_chica_transacciones
     const adminRow = await client.query('SELECT full_name FROM users WHERE id = $1', [adminId]);
     const adminName = adminRow.rows[0]?.full_name || 'Admin';
 
-    // Saldo actual Caja CC
+    // Monto que efectivamente sale de Caja CC (en su moneda)
+    // - sin conversión: el mismo amount, en walletCurrency = MXN
+    // - con conversión: source_amount_mxn en MXN
+    const ccCurrency: string = needsFx ? sourceCurrency : walletCurrency;
+    const ccAmount: number = needsFx ? (sourceAmount as number) : amount;
+
+    // Saldo actual de Caja CC en la moneda que sale
     const saldoRes = await client.query(`
       SELECT COALESCE(SUM(CASE WHEN tipo='ingreso' THEN monto ELSE -monto END), 0) AS saldo
       FROM caja_chica_transacciones
-    `);
+      WHERE COALESCE(currency,'MXN') = $1
+    `, [ccCurrency]);
     const saldoActual = Number(saldoRes.rows[0]?.saldo || 0);
 
     // Si el origen NO es Caja CC, primero registramos el INGRESO del dinero
     // externo a Caja CC (trazabilidad); el egreso del fondeo sale después.
     let saldoTrasIngreso = saldoActual;
     if (fundsOrigin === 'otro') {
-      saldoTrasIngreso = saldoActual + amount;
+      saldoTrasIngreso = saldoActual + ccAmount;
       await client.query(`
         INSERT INTO caja_chica_transacciones (
           tipo, monto, concepto, admin_id, admin_name,
           saldo_despues_movimiento, categoria, notas, currency, branch_id
         ) VALUES (
-          'ingreso', $1, $2, $3, $4, $5, 'ingreso_fondeo_externo', $6, 'MXN', $7
+          'ingreso', $1, $2, $3, $4, $5, 'ingreso_fondeo_externo', $6, $7, $8
         )
       `, [
-        amount,
+        ccAmount,
         `Ingreso a Caja CC — origen: ${originDetail} [PCASH-FUND-${Date.now()}]`,
         adminId,
         adminName,
         saldoTrasIngreso,
         `Fondos externos para fondear sucursal ${br.rows[0].name}. Origen: ${originDetail}`,
+        ccCurrency,
         branchId
       ]);
     }
 
-    const nuevoSaldo = saldoTrasIngreso - amount;
+    const nuevoSaldo = saldoTrasIngreso - ccAmount;
+    const fxNote = needsFx
+      ? ` | Compra ${amount.toFixed(2)} ${walletCurrency} @ ${fxRate} MXN (${fxProvider})`
+      : '';
 
-    // 1. Registrar egreso en caja_chica_transacciones
+    // 1. Registrar egreso en caja_chica_transacciones (en su moneda)
     const ccIns = await client.query(`
       INSERT INTO caja_chica_transacciones (
         tipo, monto, concepto, admin_id, admin_name,
         saldo_despues_movimiento, categoria, notas, currency, branch_id
       ) VALUES (
-        'egreso', $1, $2, $3, $4, $5, 'fondeo_caja_chica_sucursal', $6, 'MXN', $7
+        'egreso', $1, $2, $3, $4, $5, $6, $7, $8, $9
       ) RETURNING id
     `, [
-      amount,
-      `Fondeo Caja Chica Sucursal ${br.rows[0].name} [PCASH-FUND-${Date.now()}]`,
+      ccAmount,
+      `Fondeo Caja Chica Sucursal ${br.rows[0].name}${fxNote} [PCASH-FUND-${Date.now()}]`,
       adminId,
       adminName,
       nuevoSaldo,
-      concept || `Fondo asignado a sucursal ${br.rows[0].name}`,
+      needsFx ? 'compra_divisas_fondeo_sucursal' : 'fondeo_caja_chica_sucursal',
+      (concept || `Fondo asignado a sucursal ${br.rows[0].name}`) + fxNote,
+      ccCurrency,
       branchId
     ]);
     const ccTxId = ccIns.rows[0].id as number;
 
-    // 2. Crear movement `fund` en petty cash
+    // 2. Crear movement `fund` en petty cash (en la moneda del wallet)
     const pcm = await client.query(`
       INSERT INTO petty_cash_movements (
         wallet_id, movement_type, amount_mxn, status, concept,
-        branch_id, created_by, reviewed_by, reviewed_at, caja_chica_transaccion_id
-      ) VALUES ($1, 'fund', $2, 'approved', $3, $4, $5, $5, CURRENT_TIMESTAMP, $6)
+        branch_id, created_by, reviewed_by, reviewed_at, caja_chica_transaccion_id,
+        currency, fx_rate, source_amount, source_currency, fx_provider
+      ) VALUES ($1, 'fund', $2, 'approved', $3, $4, $5, $5, CURRENT_TIMESTAMP, $6,
+                $7, $8, $9, $10, $11)
       RETURNING id
-    `, [walletId, amount, concept || null, branchId, adminId, ccTxId]);
+    `, [
+      walletId, amount, concept || null, branchId, adminId, ccTxId,
+      walletCurrency, fxRate, sourceAmount, needsFx ? sourceCurrency : null, fxProvider
+    ]);
 
     // 3. Actualizar saldo de la wallet
     await client.query(`
@@ -382,10 +454,15 @@ export const fundBranch = async (req: Request, res: Response): Promise<any> => {
 
     return res.json({
       success: true,
-      message: `Sucursal ${br.rows[0].name} fondeada con $${amount.toFixed(2)}`,
+      message: needsFx
+        ? `Sucursal ${br.rows[0].name} fondeada con ${amount.toFixed(2)} ${walletCurrency} (compra de ${sourceAmount?.toFixed(2)} MXN @ ${fxRate})`
+        : `Sucursal ${br.rows[0].name} fondeada con $${amount.toFixed(2)} ${walletCurrency}`,
       wallet_id: walletId,
+      wallet_currency: walletCurrency,
       movement_id: pcm.rows[0].id,
-      caja_chica_transaccion_id: ccTxId
+      caja_chica_transaccion_id: ccTxId,
+      fx_rate: fxRate,
+      source_amount_mxn: sourceAmount,
     });
   } catch (err: any) {
     await client.query('ROLLBACK');
@@ -718,6 +795,87 @@ export const registerExpense = async (req: Request, res: Response): Promise<any>
   }
 };
 
+// =====================================================================
+// SUCURSAL / OPERACIONES REGISTRA GASTO (web + mobile admin)
+// =====================================================================
+/**
+ * POST /api/petty-cash/branch-expenses
+ * Mismo formato multipart que /expenses (chofer), pero el gasto se imputa a la
+ * wallet de SUCURSAL del usuario autenticado (branch_manager, operaciones, etc.).
+ * Reusa el mismo middleware `pcExpenseUpload` + `handlePettyCashExpenseUpload`.
+ */
+export const registerBranchExpense = async (req: Request, res: Response): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+  const {
+    category,
+    amount_mxn,
+    concept,
+    gps_lat,
+    gps_lng,
+    gps_accuracy_m,
+    vehicle_id
+  } = req.body || {};
+
+  const amount = Number(amount_mxn);
+  if (!category || typeof category !== 'string') {
+    return res.status(400).json({ error: 'category requerida' });
+  }
+  const validCategories = EXPENSE_CATEGORIES.map(c => c.key);
+  if (!validCategories.includes(category)) {
+    return res.status(400).json({ error: 'Categoría no válida' });
+  }
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(400).json({ error: 'amount_mxn inválido' });
+  }
+
+  const uploaded = (req as any).uploadedFiles || {};
+  const evidenceUrl = uploaded.evidence_url || null;
+  const xmlUrl = uploaded.xml_url || null;
+  if (!evidenceUrl) {
+    return res.status(400).json({ error: 'Foto del ticket requerida' });
+  }
+
+  // Resolver la sucursal del usuario
+  const ur = await pool.query('SELECT branch_id FROM users WHERE id = $1', [userId]);
+  const branchId = ur.rows[0]?.branch_id || null;
+  if (!branchId) {
+    return res.status(400).json({ error: 'El usuario no tiene una sucursal asignada' });
+  }
+  const walletId = await ensureBranchWallet(branchId);
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const m = await client.query(`
+      INSERT INTO petty_cash_movements (
+        wallet_id, movement_type, category, amount_mxn, status, concept,
+        evidence_url, xml_url,
+        gps_lat, gps_lng, gps_accuracy_m, vehicle_id,
+        branch_id, created_by
+      ) VALUES ($1, 'expense', $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      RETURNING id, created_at
+    `, [
+      walletId, category, amount, concept || null,
+      evidenceUrl, xmlUrl,
+      gps_lat ? Number(gps_lat) : null,
+      gps_lng ? Number(gps_lng) : null,
+      gps_accuracy_m ? Number(gps_accuracy_m) : null,
+      vehicle_id ? Number(vehicle_id) : null,
+      branchId, userId
+    ]);
+    await client.query('COMMIT');
+    return res.json({ success: true, movement_id: m.rows[0].id, created_at: m.rows[0].created_at });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('registerBranchExpense error', err);
+    return res.status(500).json({ error: 'Error al registrar gasto de sucursal', details: err.message });
+  } finally {
+    client.release();
+  }
+};
+
 /**
  * GET /api/petty-cash/my-wallet
  * Devuelve saldo + últimos movimientos del chofer
@@ -1043,7 +1201,8 @@ export const listAssignableDrivers = async (req: Request, res: Response): Promis
   try {
     const scope = await resolveBranchScope(req);
     const where: string[] = [
-      `LOWER(role) IN ('repartidor','monitoreo','operaciones','warehouse_ops','counter_staff')`,
+      // Solo choferes y monitoristas. counter_staff y warehouse_ops NO reciben anticipos.
+      `LOWER(role) IN ('repartidor','monitoreo','operaciones')`,
       `(is_blocked IS NULL OR is_blocked = FALSE)`
     ];
     const params: any[] = [];
@@ -1068,16 +1227,26 @@ export const listAssignableDrivers = async (req: Request, res: Response): Promis
  * GET /api/admin/petty-cash/branches
  * Lista sucursales con balance actual (atajo para modal de fondeo).
  */
-export const listBranchesWithBalance = async (_req: Request, res: Response): Promise<any> => {
+export const listBranchesWithBalance = async (req: Request, res: Response): Promise<any> => {
   try {
+    const scope = await resolveBranchScope(req);
+    const params: any[] = [];
+    let where = '';
+    if (!scope.allBranches) {
+      if (!scope.branchId) return res.json({ branches: [] });
+      params.push(scope.branchId);
+      where = `WHERE b.id = $${params.length}`;
+    }
     const r = await pool.query(`
       SELECT b.id, b.name, b.code,
         COALESCE(w.balance_mxn, 0) AS balance_mxn,
+        COALESCE(w.currency, 'MXN') AS currency,
         w.id AS wallet_id
       FROM branches b
       LEFT JOIN petty_cash_wallets w ON w.owner_type='branch' AND w.owner_id = b.id
+      ${where}
       ORDER BY b.name
-    `);
+    `, params);
     return res.json({ branches: r.rows });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error', details: err.message });
