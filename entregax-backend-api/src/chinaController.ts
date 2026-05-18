@@ -539,7 +539,7 @@ export const receiveFromChina = async (req: Request, res: Response): Promise<any
 // ============================================
 export const getChinaReceipts = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { status, limit = 50, offset = 0 } = req.query;
+        const { status, limit = 1000, offset = 0 } = req.query;
 
         let query = `
             SELECT 

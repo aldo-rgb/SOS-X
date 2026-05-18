@@ -240,6 +240,7 @@ const AirApiPage: React.FC<Props> = ({ onBack }) => {
 
       // Cargar recepciones
       const receiptsUrl = new URL(`${API_URL}/api/china/receipts`);
+      receiptsUrl.searchParams.set('limit', '2000');
       if (statusFilter) receiptsUrl.searchParams.set('status', statusFilter);
       
       const receiptsRes = await fetch(receiptsUrl.toString(), { headers });
