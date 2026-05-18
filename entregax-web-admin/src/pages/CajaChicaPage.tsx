@@ -73,6 +73,15 @@ interface CajaChicaStats {
   egresos_hoy: number;
   cantidad_transacciones_hoy: number;
   ultimo_corte: string | null;
+  // Campos por moneda
+  saldo_mxn: number;
+  ingresos_hoy_mxn: number;
+  egresos_hoy_mxn: number;
+  transacciones_hoy_mxn: number;
+  saldo_usd: number;
+  ingresos_hoy_usd: number;
+  egresos_hoy_usd: number;
+  transacciones_hoy_usd: number;
 }
 
 interface Cliente {
@@ -924,9 +933,9 @@ const CajaChicaPage: React.FC = () => {
       {/* Stats Cards — diseño corporativo: tarjetas blancas con acento de marca */}
       <Grid container spacing={3} sx={{ mb: 3 }}>
         {[
-          { accent: '#F05A28', label: 'Saldo Actual', value: formatCurrency(stats?.saldo_actual || 0), icon: <AccountBalanceIcon /> },
-          { accent: '#F05A28', label: 'Ingresos Hoy', value: formatCurrency(stats?.ingresos_hoy || 0), icon: <TrendingUpIcon /> },
-          { accent: '#C1272D', label: 'Egresos Hoy', value: formatCurrency(stats?.egresos_hoy || 0), icon: <TrendingDownIcon /> },
+          { accent: '#F05A28', label: 'Saldo Actual', value: formatCurrency(stats?.saldo_mxn ?? stats?.saldo_actual ?? 0), icon: <AccountBalanceIcon /> },
+          { accent: '#F05A28', label: 'Ingresos Hoy', value: formatCurrency(stats?.ingresos_hoy_mxn ?? stats?.ingresos_hoy ?? 0), icon: <TrendingUpIcon /> },
+          { accent: '#C1272D', label: 'Egresos Hoy', value: formatCurrency(stats?.egresos_hoy_mxn ?? stats?.egresos_hoy ?? 0), icon: <TrendingDownIcon /> },
           { accent: '#1A1A1A', label: 'Transacciones Hoy', value: stats?.cantidad_transacciones_hoy || 0, icon: <ReceiptIcon /> },
         ].map((c) => (
           <Grid size={{ xs: 12, sm: 6, md: 3 }} key={c.label}>
@@ -1458,7 +1467,7 @@ const CajaChicaPage: React.FC = () => {
         <DialogContent sx={{ mt: 2 }}>
           <Alert severity="info" sx={{ mb: 2 }}>
             <Typography variant="body2">
-              Saldo actual en sistema: <strong>{formatCurrency(stats?.saldo_actual || 0)}</strong>
+              Saldo actual en sistema: <strong>{formatCurrency(stats?.saldo_mxn ?? stats?.saldo_actual ?? 0)}</strong>
             </Typography>
           </Alert>
           <Grid container spacing={2}>
@@ -1478,11 +1487,11 @@ const CajaChicaPage: React.FC = () => {
               <Grid size={{ xs: 12 }}>
                 <Alert
                   severity={
-                    parseFloat(corteForm.saldo_real) === (stats?.saldo_actual || 0) ? 'success'
-                      : parseFloat(corteForm.saldo_real) > (stats?.saldo_actual || 0) ? 'info' : 'warning'
+                    parseFloat(corteForm.saldo_real) === (stats?.saldo_mxn ?? stats?.saldo_actual ?? 0) ? 'success'
+                      : parseFloat(corteForm.saldo_real) > (stats?.saldo_mxn ?? stats?.saldo_actual ?? 0) ? 'info' : 'warning'
                   }
                 >
-                  Diferencia: <strong>{formatCurrency(parseFloat(corteForm.saldo_real) - (stats?.saldo_actual || 0))}</strong>
+                  Diferencia: <strong>{formatCurrency(parseFloat(corteForm.saldo_real) - (stats?.saldo_mxn ?? stats?.saldo_actual ?? 0))}</strong>
                 </Alert>
               </Grid>
             )}
