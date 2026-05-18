@@ -2247,7 +2247,17 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         COALESCE(SUM(COALESCE(assigned_cost_mxn, saldo_pendiente, 0)) FILTER (WHERE client_paid = FALSE AND status::text NOT IN ('cancelled', 'returned', 'delivered') AND service_type = 'AIR_CHN_MX'), 0) as saldo_aereo
       FROM packages
       WHERE user_id = $1
-    `, [userId]);
+         OR (user_id IS NULL AND EXISTS (
+           SELECT 1 FROM china_receipts cr
+           WHERE (cr.user_id = $1 OR UPPER(cr.shipping_mark) = UPPER($2))
+             AND (
+               UPPER(packages.tracking_provider) = UPPER(cr.fno)
+               OR UPPER(packages.tracking_provider) LIKE UPPER(cr.fno) || '-%'
+               OR UPPER(packages.child_no) = UPPER(cr.fno)
+               OR UPPER(packages.child_no) LIKE UPPER(cr.fno) || '-%'
+             )
+         ))
+    `, [userId, boxId]);
 
     // 2b. Contar órdenes marítimas (por user_id O por shipping_mark)
     const maritimeStatsQuery = await pool.query(`
@@ -2442,7 +2452,22 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         carrier,
         gex_total_cost
       FROM packages
-      WHERE (user_id = $1 OR box_id = $2)
+      WHERE (
+        user_id = $1
+        OR box_id = $2
+        -- Incluir paquetes SIN CLIENTE cuyo FNO está asignado en china_receipts
+        -- (por user_id directo o por shipping_mark=box_id para clientes legacy)
+        OR (user_id IS NULL AND EXISTS (
+          SELECT 1 FROM china_receipts cr
+          WHERE (cr.user_id = $1 OR UPPER(cr.shipping_mark) = UPPER($2))
+            AND (
+              UPPER(packages.tracking_provider) = UPPER(cr.fno)
+              OR UPPER(packages.tracking_provider) LIKE UPPER(cr.fno) || '-%'
+              OR UPPER(packages.child_no) = UPPER(cr.fno)
+              OR UPPER(packages.child_no) LIKE UPPER(cr.fno) || '-%'
+            )
+        ))
+      )
         AND status::text NOT IN ('cancelled', 'returned')
         AND (
           status::text NOT IN ('delivered', 'sent')

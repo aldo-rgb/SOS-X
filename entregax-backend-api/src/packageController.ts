@@ -1095,14 +1095,22 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         `, [trackingUpper, trackingCompact]);
 
         // Rescue: paquete encontrado pero SIN CLIENTE → buscar en china_receipts por FNO
+        // Soporta: user_id directo (users) y legacy_clients via shipping_mark
         if (result.rows.length > 0 && !result.rows[0].user_id) {
             const fnoCandidate = trackingUpper.replace(/-\d{1,4}$/, '');
             const rescueRes = await pool.query(`
-                SELECT cr.user_id, u.full_name, u.email, u.box_id as user_box_id
+                SELECT
+                  COALESCE(cr.user_id, lc.claimed_by_user_id) as user_id,
+                  COALESCE(u.full_name, cu.full_name, lc.full_name) as full_name,
+                  COALESCE(u.email, cu.email) as email,
+                  COALESCE(u.box_id, cu.box_id, lc.box_id) as user_box_id
                 FROM china_receipts cr
-                JOIN users u ON cr.user_id = u.id
+                LEFT JOIN users u ON cr.user_id = u.id
+                LEFT JOIN legacy_clients lc ON UPPER(cr.shipping_mark) = UPPER(lc.box_id)
+                LEFT JOIN users cu ON lc.claimed_by_user_id = cu.id
                 WHERE (UPPER(cr.fno) = $1 OR UPPER(cr.fno) = $2)
-                  AND cr.user_id IS NOT NULL
+                  AND (cr.user_id IS NOT NULL OR lc.id IS NOT NULL)
+                ORDER BY (cr.user_id IS NOT NULL) DESC
                 LIMIT 1
             `, [fnoCandidate, trackingUpper]);
             if (rescueRes.rows.length > 0) {
@@ -1164,11 +1172,18 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     if (!result.rows[0].user_id) {
                         const fnoCandidate = trackingUpper.replace(/-\d{1,4}$/, '');
                         const rescueRes2 = await pool.query(`
-                            SELECT cr.user_id, u.full_name, u.email, u.box_id as user_box_id
+                            SELECT
+                              COALESCE(cr.user_id, lc.claimed_by_user_id) as user_id,
+                              COALESCE(u.full_name, cu.full_name, lc.full_name) as full_name,
+                              COALESCE(u.email, cu.email) as email,
+                              COALESCE(u.box_id, cu.box_id, lc.box_id) as user_box_id
                             FROM china_receipts cr
-                            JOIN users u ON cr.user_id = u.id
+                            LEFT JOIN users u ON cr.user_id = u.id
+                            LEFT JOIN legacy_clients lc ON UPPER(cr.shipping_mark) = UPPER(lc.box_id)
+                            LEFT JOIN users cu ON lc.claimed_by_user_id = cu.id
                             WHERE (UPPER(cr.fno) = $1 OR UPPER(cr.fno) = $2)
-                              AND cr.user_id IS NOT NULL
+                              AND (cr.user_id IS NOT NULL OR lc.id IS NOT NULL)
+                            ORDER BY (cr.user_id IS NOT NULL) DESC
                             LIMIT 1
                         `, [fnoCandidate, trackingUpper]);
                         if (rescueRes2.rows.length > 0) {
