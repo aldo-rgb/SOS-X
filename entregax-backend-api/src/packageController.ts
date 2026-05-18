@@ -4918,7 +4918,7 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
             // Try dhl_shipments (1 paquete = costo por caja × 1)
             const dhlCost = +(carrierCostPerBox * 1).toFixed(2);
             const dhlResult = await client.query(`
-              UPDATE dhl_shipments 
+              UPDATE dhl_shipments
               SET delivery_address_id = $1,
                   national_carrier = $2,
                   national_cost_mxn = $3,
@@ -4929,6 +4929,24 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
             if (dhlResult.rowCount && dhlResult.rowCount > 0) {
               updatedCount++;
               console.log(`📦 DHL shipment ${pkgId} → shipping=$${dhlCost}`);
+            } else {
+              // Try FCL containers
+              const containerResult = await client.query(`
+                UPDATE containers
+                SET delivery_address_id = $1,
+                    national_carrier = $2,
+                    delivery_notes = COALESCE($3, delivery_notes),
+                    national_shipping_cost = $4,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = $5 AND (client_user_id = $6 OR legacy_client_id IN (
+                  SELECT id FROM legacy_clients WHERE box_id = (SELECT box_id FROM users WHERE id = $6)
+                ))
+                RETURNING id
+              `, [addrId, carrierService, notes || null, +(carrierCostPerBox).toFixed(2), pkgId, ownerId]);
+              if (containerResult.rowCount && containerResult.rowCount > 0) {
+                updatedCount++;
+                console.log(`🏗️ Container ${pkgId} → delivery_address_id=${addrId}, carrier=${carrierService}`);
+              }
             }
           }
         } else {

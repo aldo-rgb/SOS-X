@@ -2485,6 +2485,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         CASE WHEN payment_status = 'paid' THEN true ELSE false END as client_paid,
         delivery_address_id,
         NULL as assigned_address_id,
+        CASE WHEN delivery_address_id IS NOT NULL THEN true ELSE false END as has_delivery_instructions,
         created_at,
         COALESCE(summary_boxes, 0) as total_boxes,
         COALESCE(summary_weight, weight) as weight,
@@ -2651,8 +2652,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           COALESCE(c.vessel_name, c.bl_number, 'En tránsito') as fecha_estimada,
           COALESCE(c.sale_price, 0) as monto,
           false as client_paid,
-          NULL as delivery_address_id,
-          NULL as assigned_address_id,
+          c.delivery_address_id,
+          c.delivery_address_id as assigned_address_id,
           c.created_at,
           c.total_packages as total_boxes,
           c.total_weight_kg as weight,
@@ -2672,7 +2673,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           COALESCE(c.sale_price_currency, 'MXN') as monto_currency,
           c.eta,
           c.bl_number,
-          c.vessel_name
+          c.vessel_name,
+          CASE WHEN c.delivery_address_id IS NOT NULL THEN true ELSE false END as has_delivery_instructions,
+          c.national_carrier,
+          COALESCE(c.national_shipping_cost, 0) as national_shipping_cost,
+          c.delivery_notes as notes
         FROM containers c
         WHERE (${containerConditions.join(' OR ')})
           AND c.status NOT IN ('delivered', 'cancelled')
@@ -8906,6 +8911,11 @@ async function ensureRequiredColumns() {
       ALTER TABLE container_status_history ADD COLUMN IF NOT EXISTS driver_company TEXT;
       CREATE INDEX IF NOT EXISTS idx_container_status_history_container ON container_status_history(container_id);
       CREATE INDEX IF NOT EXISTS idx_container_status_history_changed_at ON container_status_history(changed_at DESC);
+      -- 📍 Instrucciones de entrega para contenedores FCL (dirección, paquetería, notas)
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS delivery_address_id INTEGER REFERENCES addresses(id);
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS national_carrier TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS delivery_notes TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS national_shipping_cost NUMERIC(12,2) DEFAULT 0;
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
 

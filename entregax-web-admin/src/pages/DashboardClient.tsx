@@ -3541,7 +3541,19 @@ export default function DashboardClient() {
       });
       
       if (response.data.success) {
-        setSnackbar({ open: true, message: `📍 Instrucciones asignadas exitosamente para ${applyToFullShipment ? totalBoxes : selected.length} paquete(s)`, severity: 'success' });
+        const realCount = Number(response.data.updatedCount);
+        if (Number.isFinite(realCount) && realCount === 0) {
+          setSnackbar({
+            open: true,
+            message: '⚠️ No se actualizó ningún paquete. Verifica el cliente y vuelve a intentar.',
+            severity: 'warning',
+          });
+        } else {
+          const displayCount = Number.isFinite(realCount) && realCount > 0
+            ? realCount
+            : (applyToFullShipment ? totalBoxes : selected.length);
+          setSnackbar({ open: true, message: `📍 Instrucciones asignadas exitosamente para ${displayCount} paquete(s)`, severity: 'success' });
+        }
         setDeliveryModalOpen(false);
         setSelectedPackageIds([]);
         setSelectedDeliveryAddress(null);
