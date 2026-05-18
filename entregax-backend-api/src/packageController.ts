@@ -1100,17 +1100,24 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         if (result.rows.length === 0) {
             const prefixLike = `${trackingUpper}-%`;
             const childByPrefix = await pool.query(
-                `SELECT id, master_id FROM packages
+                `SELECT id, master_id, user_id FROM packages
                  WHERE UPPER(COALESCE(child_no, '')) LIKE $1
                     OR UPPER(COALESCE(tracking_internal, '')) LIKE $1
-                 ORDER BY box_number ASC NULLS LAST
+                 ORDER BY
+                   CASE WHEN user_id IS NOT NULL THEN 0 ELSE 1 END ASC,
+                   box_number ASC NULLS LAST
                  LIMIT 1`,
                 [prefixLike]
             );
             if (childByPrefix.rows.length > 0) {
                 const masterId = childByPrefix.rows[0].master_id || childByPrefix.rows[0].id;
+                const childUserId: number | null = childByPrefix.rows[0].user_id ?? null;
                 const masterRes = await pool.query(`
-                    SELECT p.*, u.full_name, u.email, u.box_id as user_box_id,
+                    SELECT p.*,
+                           -- Usar usuario del child si el master no tiene usuario asignado
+                           COALESCE(u.full_name, cu.full_name) as full_name,
+                           COALESCE(u.email, cu.email) as email,
+                           COALESCE(u.box_id, cu.box_id) as user_box_id,
                            lc.full_name as legacy_name, lc.box_id as legacy_box_id,
                            a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
                            a.exterior_number as addr_ext, a.interior_number as addr_int,
@@ -1123,11 +1130,12 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                            COALESCE(p.is_lost, FALSE) AS is_lost_eff
                     FROM packages p
                     LEFT JOIN users u ON p.user_id = u.id
+                    LEFT JOIN users cu ON cu.id = $2
                     LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
-                    LEFT JOIN addresses a ON p.assigned_address_id = a.id
+                    LEFT JOIN addresses a ON COALESCE(p.assigned_address_id, (SELECT assigned_address_id FROM packages WHERE id = $2 LIMIT 1)) = a.id
                     LEFT JOIN branches br ON p.current_branch_id = br.id
                     WHERE p.id = $1
-                `, [masterId]);
+                `, [masterId, childUserId]);
                 if (masterRes.rows.length > 0) {
                     result.rows = masterRes.rows;
                     (result as any).rowCount = 1;
