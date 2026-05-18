@@ -1094,6 +1094,27 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             LIMIT 1
         `, [trackingUpper, trackingCompact]);
 
+        // Rescue: paquete encontrado pero SIN CLIENTE → buscar en china_receipts por FNO
+        if (result.rows.length > 0 && !result.rows[0].user_id) {
+            const fnoCandidate = trackingUpper.replace(/-\d{1,4}$/, '');
+            const rescueRes = await pool.query(`
+                SELECT cr.user_id, u.full_name, u.email, u.box_id as user_box_id
+                FROM china_receipts cr
+                JOIN users u ON cr.user_id = u.id
+                WHERE (UPPER(cr.fno) = $1 OR UPPER(cr.fno) = $2)
+                  AND cr.user_id IS NOT NULL
+                LIMIT 1
+            `, [fnoCandidate, trackingUpper]);
+            if (rescueRes.rows.length > 0) {
+                const r = rescueRes.rows[0];
+                result.rows[0].user_id = r.user_id;
+                result.rows[0].full_name = r.full_name;
+                result.rows[0].email = r.email;
+                result.rows[0].user_box_id = r.user_box_id;
+                console.log(`🔦 Scanner rescue china_receipts: tracking=${trackingUpper} → user_id=${r.user_id} (${r.full_name})`);
+            }
+        }
+
         // Fallback: si no se encontró match exacto, buscar por prefijo (caso master AIR
         // sin sufijo "-NNN" — el usuario escribió la guía maestra y queremos resolver
         // al package master para listar todas las hijas).
@@ -1139,6 +1160,26 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 if (masterRes.rows.length > 0) {
                     result.rows = masterRes.rows;
                     (result as any).rowCount = 1;
+                    // Rescue también en el master del prefix fallback
+                    if (!result.rows[0].user_id) {
+                        const fnoCandidate = trackingUpper.replace(/-\d{1,4}$/, '');
+                        const rescueRes2 = await pool.query(`
+                            SELECT cr.user_id, u.full_name, u.email, u.box_id as user_box_id
+                            FROM china_receipts cr
+                            JOIN users u ON cr.user_id = u.id
+                            WHERE (UPPER(cr.fno) = $1 OR UPPER(cr.fno) = $2)
+                              AND cr.user_id IS NOT NULL
+                            LIMIT 1
+                        `, [fnoCandidate, trackingUpper]);
+                        if (rescueRes2.rows.length > 0) {
+                            const r2 = rescueRes2.rows[0];
+                            result.rows[0].user_id = r2.user_id;
+                            result.rows[0].full_name = r2.full_name;
+                            result.rows[0].email = r2.email;
+                            result.rows[0].user_box_id = r2.user_box_id;
+                            console.log(`🔦 Scanner rescue china_receipts (prefix): tracking=${trackingUpper} → user_id=${r2.user_id} (${r2.full_name})`);
+                        }
+                    }
                 }
             }
         }
