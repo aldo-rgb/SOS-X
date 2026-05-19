@@ -313,12 +313,13 @@ export const getMyReferralCode = async (req: Request, res: Response): Promise<an
 export const getAdvisors = async (req: Request, res: Response): Promise<any> => {
     try {
         const result = await pool.query(`
-            SELECT 
-                u.id, 
-                u.full_name, 
-                u.email, 
+            SELECT
+                u.id,
+                u.full_name,
+                u.email,
                 u.referral_code,
                 u.role,
+                u.profile_photo_url,
                 u.referred_by_id as leader_id,
                 l.full_name as leader_name,
                 u.created_at,

@@ -81,6 +81,7 @@ interface Advisor {
   email: string;
   referral_code: string;
   role: string;
+  profile_photo_url: string | null;
   leader_id: number | null;
   leader_name: string | null;
   referral_count: number;
@@ -444,8 +445,11 @@ export default function CommissionsPage() {
                     <TableRow key={advisor.id} hover>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                          <Avatar sx={{ bgcolor: advisor.role === 'asesor_lider' ? ORANGE : 'grey.400' }}>
-                            {advisor.role === 'asesor_lider' ? <SupervisorAccountIcon /> : <PeopleIcon />}
+                          <Avatar
+                            src={advisor.profile_photo_url || undefined}
+                            sx={{ bgcolor: advisor.role === 'asesor_lider' ? ORANGE : 'grey.400' }}
+                          >
+                            {!advisor.profile_photo_url && (advisor.role === 'asesor_lider' ? <SupervisorAccountIcon /> : <PeopleIcon />)}
                           </Avatar>
                           <Box>
                             <Typography fontWeight="bold">{advisor.full_name}</Typography>
