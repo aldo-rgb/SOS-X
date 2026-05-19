@@ -820,15 +820,18 @@ export const ensureDepartmentsSchema = async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    // Agregar columnas a support_tickets PRIMERO (necesarias para las queries siguientes)
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS department_id INT REFERENCES support_departments(id)`);
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS assigned_to INT REFERENCES users(id)`);
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS creator_type VARCHAR(20) DEFAULT 'client'`);
     // Reasignar tickets que apuntan a IDs duplicados → conservar MIN(id) por nombre
     await pool.query(`
-      UPDATE support_tickets t
+      UPDATE support_tickets
       SET department_id = canonical.min_id
-      FROM (
-        SELECT name, MIN(id) AS min_id FROM support_departments GROUP BY name
-      ) canonical
-      JOIN support_departments d ON d.name = canonical.name
-      WHERE t.department_id = d.id
+      FROM support_departments d,
+           (SELECT name, MIN(id) AS min_id FROM support_departments GROUP BY name) canonical
+      WHERE support_tickets.department_id = d.id
+        AND d.name = canonical.name
         AND d.id <> canonical.min_id
     `);
     // Limpiar duplicados conservando el registro con id más bajo por nombre
@@ -852,9 +855,6 @@ export const ensureDepartmentsSchema = async () => {
         ('Dirección',          '#9C27B0', 'business',  FALSE, 4)
       ON CONFLICT (name) DO NOTHING
     `);
-    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS department_id INT REFERENCES support_departments(id)`);
-    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS assigned_to INT REFERENCES users(id)`);
-    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS creator_type VARCHAR(20) DEFAULT 'client'`);
     // Migrate existing tickets to default department
     await pool.query(`
       UPDATE support_tickets
