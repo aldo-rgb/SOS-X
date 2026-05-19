@@ -338,6 +338,7 @@ export default function DashboardAdvisor() {
   const [shipmentServiceType, setShipmentServiceType] = useState<string>('all');
   const [shipmentPaymentFilter, setShipmentPaymentFilter] = useState<string>('all');
   const [shipmentInstructionsFilter, setShipmentInstructionsFilter] = useState<string>('all');
+  const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set());
 
   // Assign instructions dialog
   const [instrDialogOpen, setInstrDialogOpen] = useState(false);
@@ -575,13 +576,15 @@ export default function DashboardAdvisor() {
     }
   };
 
-  const handleOpenInstrDialog = async (shipment: AdvisorShipment) => {
-    setInstrShipment(shipment);
+  const handleOpenInstrDialog = async (shipment?: AdvisorShipment) => {
+    const target = shipment ?? (selectedUids.size > 0 ? shipments.find(s => selectedUids.has(s.uid)) ?? null : null);
+    if (!target) return;
+    setInstrShipment(target);
     setInstrSelectedId('');
     setInstrDialogOpen(true);
     setInstrLoading(true);
     try {
-      const res = await api.get(`/advisor/clients/${shipment.clientId}/addresses`);
+      const res = await api.get(`/advisor/clients/${target.clientId}/addresses`);
       setInstrAddresses(res.data);
     } catch {
       setSnackbar({ open: true, message: 'Error al cargar direcciones', severity: 'error' });
@@ -591,12 +594,18 @@ export default function DashboardAdvisor() {
   };
 
   const handleSaveInstructions = async () => {
-    if (!instrShipment || !instrSelectedId) return;
+    if (!instrSelectedId) return;
     setInstrSaving(true);
     try {
-      await api.put(`/advisor/shipments/${instrShipment.uid}/instructions`, { addressId: instrSelectedId });
-      setSnackbar({ open: true, message: 'Instrucciones asignadas correctamente', severity: 'success' });
+      const uids = selectedUids.size > 0 ? Array.from(selectedUids) : instrShipment ? [instrShipment.uid] : [];
+      if (uids.length === 0) return;
+      await Promise.all(uids.map(uid =>
+        api.put(`/advisor/shipments/${uid}/instructions`, { addressId: instrSelectedId })
+      ));
+      const count = uids.length;
+      setSnackbar({ open: true, message: count > 1 ? `${count} envíos actualizados` : 'Instrucciones asignadas correctamente', severity: 'success' });
       setInstrDialogOpen(false);
+      setSelectedUids(new Set());
       fetchShipments();
     } catch {
       setSnackbar({ open: true, message: 'Error al guardar instrucciones', severity: 'error' });
@@ -1262,6 +1271,31 @@ export default function DashboardAdvisor() {
   // TAB 2: EMBARQUES EN TRÁNSITO
   // ════════════════════════════════════
 
+  // ─── Multi-selection helpers ───
+  const selectionLockService = useMemo(
+    () => selectedUids.size > 0 ? (shipments.find(s => selectedUids.has(s.uid))?.serviceType ?? null) : null,
+    [selectedUids, shipments]
+  );
+  const selectionLockClientId = useMemo(
+    () => selectedUids.size > 0 ? (shipments.find(s => selectedUids.has(s.uid))?.clientId ?? null) : null,
+    [selectedUids, shipments]
+  );
+  const canSelectShipment = useCallback(
+    (s: AdvisorShipment) => {
+      if (selectedUids.size === 0) return true;
+      return s.serviceType === selectionLockService && s.clientId === selectionLockClientId;
+    },
+    [selectedUids, selectionLockService, selectionLockClientId]
+  );
+  const toggleSelect = useCallback((uid: string) => {
+    setSelectedUids(prev => {
+      const next = new Set(prev);
+      if (next.has(uid)) next.delete(uid); else next.add(uid);
+      return next;
+    });
+  }, []);
+  const clearSelection = useCallback(() => setSelectedUids(new Set()), []);
+
   const renderShipments = () => (
     <Fade in timeout={400}>
       <Box>
@@ -1370,10 +1404,65 @@ export default function DashboardAdvisor() {
 
         {shipmentsLoading && <LinearProgress sx={{ mb: 1 }} />}
 
+        {/* Multi-selection action bar */}
+        {selectedUids.size > 0 && (
+          <Paper elevation={3} sx={{ display: 'flex', alignItems: 'center', gap: 2, p: '8px 16px', mb: 1.5, borderRadius: 2, bgcolor: '#1565C0', color: '#fff' }}>
+            <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>
+              {selectedUids.size} envío{selectedUids.size !== 1 ? 's' : ''} seleccionado{selectedUids.size !== 1 ? 's' : ''}
+              {selectionLockService && (
+                <Chip
+                  label={
+                    selectionLockService === 'AIR_CHN_MX' ? '✈️ Aéreo' :
+                    selectionLockService === 'SEA_CHN_MX' ? '🚢 Marítimo' :
+                    selectionLockService === 'AA_DHL' ? '📦 DHL' :
+                    selectionLockService === 'POBOX_USA' ? '📮 POBox' :
+                    selectionLockService
+                  }
+                  size="small"
+                  sx={{ ml: 1, bgcolor: 'rgba(255,255,255,0.2)', color: '#fff', fontSize: '0.7rem' }}
+                />
+              )}
+            </Typography>
+            <Button
+              size="small"
+              variant="contained"
+              startIcon={<EditIcon />}
+              onClick={() => handleOpenInstrDialog()}
+              sx={{ bgcolor: '#fff', color: '#1565C0', fontWeight: 700, '&:hover': { bgcolor: '#e3f2fd' } }}
+            >
+              Asignar instrucciones
+            </Button>
+            <IconButton size="small" onClick={clearSelection} sx={{ color: '#fff' }}>
+              <CloseIcon fontSize="small" />
+            </IconButton>
+          </Paper>
+        )}
+
         <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
           <Table size="small">
             <TableHead>
               <TableRow>
+                <TableCell padding="checkbox" sx={{ width: 40 }}>
+                  <Tooltip title={selectedUids.size === 0 && shipments.some((a, i, arr) => arr.some(b => b.serviceType !== a.serviceType || b.clientId !== a.clientId)) ? 'Filtra por servicio y cliente para seleccionar todos' : ''}>
+                    <span>
+                      <Checkbox
+                        size="small"
+                        indeterminate={selectedUids.size > 0 && shipments.filter(s => canSelectShipment(s)).some(s => !selectedUids.has(s.uid))}
+                        checked={shipments.length > 0 && shipments.filter(s => canSelectShipment(s)).length > 0 && shipments.filter(s => canSelectShipment(s)).every(s => selectedUids.has(s.uid))}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            const toSelect = selectedUids.size === 0
+                              ? shipments.filter(s => s.serviceType === shipments[0]?.serviceType && s.clientId === shipments[0]?.clientId)
+                              : shipments.filter(s => canSelectShipment(s));
+                            setSelectedUids(prev => { const next = new Set(prev); toSelect.forEach(s => next.add(s.uid)); return next; });
+                          } else {
+                            clearSelection();
+                          }
+                        }}
+                      />
+                    </span>
+                  </Tooltip>
+                </TableCell>
                 <TableCell>{t('advisor.tracking')}</TableCell>
                 <TableCell>{t('advisor.client')}</TableCell>
                 <TableCell align="center">{t('advisor.status')}</TableCell>
@@ -1389,13 +1478,25 @@ export default function DashboardAdvisor() {
             <TableBody>
               {shipments.length === 0 && !shipmentsLoading && (
                 <TableRow>
-                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noShipments')}</Typography>
                   </TableCell>
                 </TableRow>
               )}
               {shipments.map((s) => (
-                <TableRow key={s.uid} hover>
+                <TableRow key={s.uid} hover selected={selectedUids.has(s.uid)}>
+                  <TableCell padding="checkbox">
+                    <Tooltip title={!canSelectShipment(s) ? 'Solo se pueden seleccionar envíos del mismo servicio y cliente' : ''}>
+                      <span>
+                        <Checkbox
+                          size="small"
+                          checked={selectedUids.has(s.uid)}
+                          disabled={!canSelectShipment(s)}
+                          onChange={() => toggleSelect(s.uid)}
+                        />
+                      </span>
+                    </Tooltip>
+                  </TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                       <Typography variant="body2" fontWeight={600}>{s.tracking || s.internationalTracking || `#${s.id}`}</Typography>
@@ -2678,11 +2779,16 @@ export default function DashboardAdvisor() {
       <Dialog open={instrDialogOpen} onClose={() => setInstrDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#E65100', color: '#fff' }}>
           <EditIcon />
-          Instrucciones de entrega — {instrShipment?.tracking || instrShipment?.uid}
+          {selectedUids.size > 1
+            ? `Instrucciones de entrega — ${selectedUids.size} envíos`
+            : `Instrucciones de entrega — ${instrShipment?.tracking || instrShipment?.uid}`}
         </DialogTitle>
         <DialogContent dividers sx={{ pt: 2 }}>
           <Typography variant="body2" color="text.secondary" gutterBottom>
-            Selecciona la dirección de entrega guardada del cliente <strong>{instrShipment?.clientName}</strong>:
+            {selectedUids.size > 1
+              ? <>Selecciona la dirección para asignar a los <strong>{selectedUids.size} envíos</strong> seleccionados del cliente <strong>{instrShipment?.clientName}</strong>:</>
+              : <>Selecciona la dirección de entrega guardada del cliente <strong>{instrShipment?.clientName}</strong>:</>
+            }
           </Typography>
           {instrLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
