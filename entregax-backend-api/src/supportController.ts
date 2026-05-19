@@ -820,6 +820,18 @@ export const ensureDepartmentsSchema = async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
+    // Agregar unique constraint si no existe (evita duplicados futuros)
+    await pool.query(`
+      ALTER TABLE support_departments
+      ADD CONSTRAINT IF NOT EXISTS support_departments_name_unique UNIQUE (name)
+    `);
+    // Limpiar duplicados conservando el registro con id más bajo por nombre
+    await pool.query(`
+      DELETE FROM support_departments
+      WHERE id NOT IN (
+        SELECT MIN(id) FROM support_departments GROUP BY name
+      )
+    `);
     await pool.query(`
       INSERT INTO support_departments (name, color, icon, is_default_for_clients, sort_order)
       VALUES
@@ -827,7 +839,7 @@ export const ensureDepartmentsSchema = async () => {
         ('Soporte Técnico',    '#2196F3', 'construct', FALSE, 2),
         ('Contabilidad',       '#4CAF50', 'cash',      FALSE, 3),
         ('Dirección',          '#9C27B0', 'business',  FALSE, 4)
-      ON CONFLICT DO NOTHING
+      ON CONFLICT (name) DO NOTHING
     `);
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS department_id INT REFERENCES support_departments(id)`);
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS assigned_to INT REFERENCES users(id)`);
