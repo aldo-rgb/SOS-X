@@ -9608,6 +9608,7 @@ export default function DashboardClient() {
                 {[
                   { value: 'air', label: '✈️ Aéreo China', color: '#2196F3', serviceType: 'china_air' },
                   { value: 'maritime', label: '🚢 Marítimo China', color: '#00897B', serviceType: 'china_sea' },
+                  { value: 'tdi_express', label: '✈️ TDI Express', color: '#7B1FA2', serviceType: 'tdi_express' },
                   { value: 'dhl', label: '📮 Liberación MTY', color: '#D32F2F', serviceType: 'dhl' },
                   { value: 'usa', label: '📦 PO Box USA', color: '#F05A28', serviceType: 'usa_pobox' },
                 ].map(svc => {

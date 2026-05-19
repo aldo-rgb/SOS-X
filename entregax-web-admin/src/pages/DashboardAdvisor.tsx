@@ -48,6 +48,12 @@ import {
   Divider,
   BottomNavigation,
   BottomNavigationAction,
+  Checkbox,
+  FormControlLabel,
+  FormGroup,
+  List,
+  ListItem,
+  ListItemText,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -82,6 +88,8 @@ import {
   Badge as BadgeIcon,
   GppGood as GppGoodIcon,
   AccountBalanceWallet as WalletIcon,
+  LocationOn as LocationIcon,
+  LocalShipping as CarrierIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
@@ -341,6 +349,17 @@ export default function DashboardAdvisor() {
   const [walletData, setWalletData] = useState<ClientWallet | null>(null);
   const [walletLoading, setWalletLoading] = useState(false);
 
+  // Addresses modal
+  const [addressesModalOpen, setAddressesModalOpen] = useState(false);
+  const [addressesClient, setAddressesClient] = useState<{ id: number; name: string } | null>(null);
+  const [clientAddresses, setClientAddresses] = useState<any[]>([]);
+  const [addressesLoading, setAddressesLoading] = useState(false);
+  const [editingAddress, setEditingAddress] = useState<any | null>(null);
+  const [addressServiceTypes, setAddressServiceTypes] = useState<string[]>([]);
+  const [addressCarrierConfig, setAddressCarrierConfig] = useState<Record<string, string>>({});
+  const [addressSaving, setAddressSaving] = useState(false);
+  const [carriersCache, setCarriersCache] = useState<Record<string, any[]>>({});
+
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false, message: '', severity: 'info'
@@ -479,6 +498,68 @@ export default function DashboardAdvisor() {
       setWalletModalOpen(false);
     } finally {
       setWalletLoading(false);
+    }
+  };
+
+  const SERVICE_LIST = [
+    { value: 'air',         label: '✈️ Aéreo China',     color: '#2196F3', serviceType: 'china_air' },
+    { value: 'maritime',    label: '🚢 Marítimo China',   color: '#00897B', serviceType: 'china_sea' },
+    { value: 'tdi_express', label: '✈️ TDI Express',      color: '#7B1FA2', serviceType: 'tdi_express' },
+    { value: 'dhl',         label: '📮 Liberación MTY',   color: '#D32F2F', serviceType: 'dhl' },
+    { value: 'usa',         label: '📦 PO Box USA',       color: '#F05A28', serviceType: 'usa_pobox' },
+  ];
+
+  const handleViewAddresses = async (clientId: number, clientName: string) => {
+    setAddressesClient({ id: clientId, name: clientName });
+    setAddressesModalOpen(true);
+    setEditingAddress(null);
+    setAddressesLoading(true);
+    try {
+      const res = await api.get(`/advisor/clients/${clientId}/addresses`);
+      setClientAddresses(res.data);
+    } catch {
+      setSnackbar({ open: true, message: 'Error al cargar direcciones', severity: 'error' });
+    } finally {
+      setAddressesLoading(false);
+    }
+  };
+
+  const fetchCarriersAdvisor = async (serviceType: string) => {
+    if (carriersCache[serviceType]) return carriersCache[serviceType];
+    try {
+      const res = await api.get(`/carrier-options/by-service/${serviceType}`);
+      const carriers = res.data?.data || [];
+      setCarriersCache(prev => ({ ...prev, [serviceType]: carriers }));
+      return carriers;
+    } catch { return []; }
+  };
+
+  const handleEditAddress = (addr: any) => {
+    setEditingAddress(addr);
+    const services = addr.default_for_service
+      ? addr.default_for_service.split(',').map((s: string) => s.trim()).filter(Boolean)
+      : [];
+    setAddressServiceTypes(services);
+    setAddressCarrierConfig(addr.carrier_config || {});
+    SERVICE_LIST.forEach(svc => fetchCarriersAdvisor(svc.serviceType));
+  };
+
+  const handleSaveAddressServices = async () => {
+    if (!editingAddress || !addressesClient) return;
+    setAddressSaving(true);
+    try {
+      await api.put(
+        `/advisor/clients/${addressesClient.id}/addresses/${editingAddress.id}/default-for-service`,
+        { services: addressServiceTypes, carrier_config: addressCarrierConfig }
+      );
+      const res = await api.get(`/advisor/clients/${addressesClient.id}/addresses`);
+      setClientAddresses(res.data);
+      setEditingAddress(null);
+      setSnackbar({ open: true, message: 'Preferencias actualizadas', severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Error al guardar', severity: 'error' });
+    } finally {
+      setAddressSaving(false);
     }
   };
 
@@ -888,13 +969,14 @@ export default function DashboardAdvisor() {
                 <TableCell>{t('advisor.lastShipment')}</TableCell>
                 <TableCell align="center">{t('advisor.verification')}</TableCell>
                 <TableCell>{t('advisor.notes')}</TableCell>
+                <TableCell align="center">Direcciones</TableCell>
                 <TableCell align="center">Cartera</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {clients.length === 0 && !clientsLoading && (
                 <TableRow>
-                  <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noClients')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -1017,6 +1099,26 @@ export default function DashboardAdvisor() {
                         <EditIcon sx={{ fontSize: 12, ml: 0.5, color: 'text.secondary' }} />
                       </Box>
                     )}
+                  </TableCell>
+                  <TableCell align="center">
+                    <Tooltip title="Ver y administrar direcciones">
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => handleViewAddresses(c.id, c.fullName)}
+                        startIcon={<LocationIcon />}
+                        sx={{
+                          textTransform: 'none',
+                          fontSize: '0.75rem',
+                          py: 0.5,
+                          borderColor: '#7B1FA2',
+                          color: '#7B1FA2',
+                          '&:hover': { bgcolor: '#f3e5f5', borderColor: '#6a1b9a' },
+                        }}
+                      >
+                        Dirs
+                      </Button>
+                    </Tooltip>
                   </TableCell>
                   <TableCell align="center">
                     <Tooltip title="Ver Cartera">
@@ -2419,6 +2521,168 @@ export default function DashboardAdvisor() {
             variant="outlined"
             sx={{ borderRadius: 2 }}
           >
+            Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ─── Dialog: Direcciones del Cliente ─── */}
+      <Dialog
+        open={addressesModalOpen}
+        onClose={() => { setAddressesModalOpen(false); setEditingAddress(null); }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#7B1FA2', color: '#fff' }}>
+          <LocationIcon />
+          Direcciones — {addressesClient?.name}
+        </DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          {addressesLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
+              <CircularProgress sx={{ color: '#7B1FA2' }} />
+            </Box>
+          ) : clientAddresses.length === 0 ? (
+            <Box sx={{ p: 3, textAlign: 'center' }}>
+              <Typography color="text.secondary">Este cliente no tiene direcciones guardadas.</Typography>
+            </Box>
+          ) : (
+            <List disablePadding>
+              {clientAddresses.map((addr, idx) => {
+                const isEditing = editingAddress?.id === addr.id;
+                const services = addr.default_for_service
+                  ? addr.default_for_service.split(',').map((s: string) => s.trim()).filter(Boolean)
+                  : [];
+                return (
+                  <Box key={addr.id}>
+                    {idx > 0 && <Divider />}
+                    <ListItem
+                      alignItems="flex-start"
+                      sx={{ flexDirection: 'column', py: 1.5, px: 2 }}
+                    >
+                      <Box sx={{ display: 'flex', width: '100%', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                        <Box>
+                          <Typography variant="body2" fontWeight={700}>
+                            {addr.alias || addr.recipient_name || `Dirección ${idx + 1}`}
+                            {addr.is_default && <Chip label="Principal" size="small" color="success" sx={{ ml: 1, height: 18, fontSize: 10 }} />}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {addr.street} {addr.exterior_number}{addr.interior_number ? ` Int. ${addr.interior_number}` : ''}, {addr.colony ? `${addr.colony}, ` : ''}{addr.city}, {addr.state} {addr.zip_code}
+                          </Typography>
+                          {services.length > 0 && !isEditing && (
+                            <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+                              {services.map(svc => {
+                                const found = SERVICE_LIST.find(s => s.value === svc);
+                                return (
+                                  <Chip
+                                    key={svc}
+                                    label={found ? found.label : svc}
+                                    size="small"
+                                    sx={{ height: 20, fontSize: 10, bgcolor: found ? `${found.color}22`, color: found?.color }}
+                                  />
+                                );
+                              })}
+                            </Box>
+                          )}
+                        </Box>
+                        <Button
+                          size="small"
+                          variant={isEditing ? 'contained' : 'outlined'}
+                          onClick={() => isEditing ? setEditingAddress(null) : handleEditAddress(addr)}
+                          sx={{ ml: 1, textTransform: 'none', fontSize: '0.7rem',
+                            ...(isEditing ? { bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6a1b9a' } } : { borderColor: '#7B1FA2', color: '#7B1FA2' })
+                          }}
+                        >
+                          {isEditing ? 'Cancelar' : 'Editar'}
+                        </Button>
+                      </Box>
+
+                      {isEditing && (
+                        <Box sx={{ mt: 1.5, width: '100%', bgcolor: '#f9f0ff', borderRadius: 1, p: 1.5 }}>
+                          <Typography variant="caption" fontWeight={600} color="#7B1FA2" display="block" mb={0.5}>
+                            Servicios predeterminados y paquetería:
+                          </Typography>
+                          <FormGroup>
+                            {SERVICE_LIST.map(svc => {
+                              const isChecked = addressServiceTypes.includes(svc.value);
+                              const carriers = carriersCache[svc.serviceType] || [];
+                              const currentCarrier = addressCarrierConfig[svc.value] || '';
+                              return (
+                                <Box key={svc.value} sx={{ mb: 0.5 }}>
+                                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <FormControlLabel
+                                      control={
+                                        <Checkbox
+                                          size="small"
+                                          checked={isChecked}
+                                          onChange={(e) => {
+                                            const checked = e.target.checked;
+                                            setAddressServiceTypes(prev =>
+                                              checked ? [...prev, svc.value] : prev.filter(s => s !== svc.value)
+                                            );
+                                            if (!checked) {
+                                              setAddressCarrierConfig(prev => {
+                                                const cc = { ...prev }; delete cc[svc.value]; return cc;
+                                              });
+                                            }
+                                          }}
+                                          sx={{ color: svc.color, '&.Mui-checked': { color: svc.color } }}
+                                        />
+                                      }
+                                      label={<Typography variant="body2">{svc.label}</Typography>}
+                                      sx={{ mr: 0, minWidth: 160 }}
+                                    />
+                                    {isChecked && carriers.length > 0 && (
+                                      <TextField
+                                        select
+                                        size="small"
+                                        value={currentCarrier}
+                                        onChange={(e) => setAddressCarrierConfig(prev => ({ ...prev, [svc.value]: e.target.value }))}
+                                        sx={{ flex: 1, minWidth: 150 }}
+                                        SelectProps={{
+                                          displayEmpty: true,
+                                          renderValue: (val: unknown) => {
+                                            if (!val) return <Typography variant="body2" color="text.secondary">Sin paquetería</Typography>;
+                                            const c = carriers.find((x: any) => x.carrier_key === val || x.id === val);
+                                            return <Typography variant="body2">{c ? `${c.icon || '🚛'} ${c.name}` : String(val)}</Typography>;
+                                          },
+                                        }}
+                                      >
+                                        <MenuItem value=""><em>Sin paquetería default</em></MenuItem>
+                                        {carriers.map((c: any) => (
+                                          <MenuItem key={c.carrier_key || c.id} value={c.carrier_key || c.id}>
+                                            {c.icon || '🚛'} {c.name}
+                                          </MenuItem>
+                                        ))}
+                                      </TextField>
+                                    )}
+                                  </Box>
+                                </Box>
+                              );
+                            })}
+                          </FormGroup>
+                          <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 1 }}>
+                            <Button
+                              variant="contained"
+                              size="small"
+                              disabled={addressSaving}
+                              onClick={handleSaveAddressServices}
+                              sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6a1b9a' }, textTransform: 'none' }}
+                            >
+                              {addressSaving ? <CircularProgress size={16} color="inherit" /> : 'Guardar'}
+                            </Button>
+                          </Box>
+                        </Box>
+                      )}
+                    </ListItem>
+                  </Box>
+                );
+              })}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 1.5 }}>
+          <Button onClick={() => { setAddressesModalOpen(false); setEditingAddress(null); }} variant="outlined">
             Cerrar
           </Button>
         </DialogActions>

@@ -171,7 +171,9 @@ import {
   getMyPaymentMethods,
   createPaymentMethod,
   deletePaymentMethod,
-  setDefaultPaymentMethod
+  setDefaultPaymentMethod,
+  getAdvisorClientAddresses,
+  setAdvisorClientDefaultForService
 } from './addressController';
 import {
   getCommissionRates,
@@ -4491,6 +4493,8 @@ app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
 app.get('/api/advisor/packages', authenticateToken, getAdvisorPackages);
 app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
 app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWallet);
+app.get('/api/advisor/clients/:clientId/addresses', authenticateToken, getAdvisorClientAddresses);
+app.put('/api/advisor/clients/:clientId/addresses/:addressId/default-for-service', authenticateToken, setAdvisorClientDefaultForService);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
 app.get('/api/advisor/shipments/:id/children', authenticateToken, getRepackChildren);

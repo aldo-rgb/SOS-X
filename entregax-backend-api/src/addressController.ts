@@ -876,6 +876,79 @@ export const deletePaymentMethod = async (req: Request, res: Response): Promise<
     }
 };
 
+// ============ ADVISOR: OBTENER DIRECCIONES DE UN CLIENTE ============
+export const getAdvisorClientAddresses = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const authReq = req as AuthRequest;
+        if (!authReq.user?.userId) { res.status(401).json({ error: 'No autenticado' }); return; }
+        const clientId = Number(req.params.clientId);
+        if (!clientId) { res.status(400).json({ error: 'clientId inválido' }); return; }
+        const result = await pool.query(
+            `SELECT id, alias, recipient_name, street, exterior_number, interior_number,
+                    colony, city, state, zip_code, phone, reference, reception_hours,
+                    is_default, default_for_service, carrier_config
+               FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC`,
+            [clientId]
+        );
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error getAdvisorClientAddresses:', error);
+        res.status(500).json({ error: 'Error al obtener direcciones' });
+    }
+};
+
+// ============ ADVISOR: ACTUALIZAR SERVICIOS/PAQUETERÍA DE UNA DIRECCIÓN DE CLIENTE ============
+export const setAdvisorClientDefaultForService = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const authReq = req as AuthRequest;
+        if (!authReq.user?.userId) { res.status(401).json({ error: 'No autenticado' }); return; }
+        const clientId = Number(req.params.clientId);
+        const addressId = req.params.addressId;
+        const { services, carrier_config } = req.body;
+        if (!clientId) { res.status(400).json({ error: 'clientId inválido' }); return; }
+
+        const serviceList = Array.isArray(services) ? services : [];
+
+        if (serviceList.length === 0) {
+            await pool.query(
+                'UPDATE addresses SET default_for_service = NULL WHERE id = $1 AND user_id = $2',
+                [addressId, clientId]
+            );
+        } else {
+            for (const svc of serviceList) {
+                const others = await pool.query(
+                    `SELECT id, default_for_service FROM addresses WHERE user_id = $1 AND id != $2 AND default_for_service IS NOT NULL`,
+                    [clientId, addressId]
+                );
+                for (const addr of others.rows) {
+                    const current = addr.default_for_service.split(',').filter((s: string) => s.trim());
+                    const updated = current.filter((s: string) => s !== svc);
+                    await pool.query(
+                        'UPDATE addresses SET default_for_service = $1 WHERE id = $2',
+                        [updated.length > 0 ? updated.join(',') : null, addr.id]
+                    );
+                }
+            }
+            const serviceString = serviceList.join(',');
+            if (carrier_config && typeof carrier_config === 'object') {
+                await pool.query(
+                    'UPDATE addresses SET default_for_service = $1, carrier_config = $2 WHERE id = $3 AND user_id = $4',
+                    [serviceString, JSON.stringify(carrier_config), addressId, clientId]
+                );
+            } else {
+                await pool.query(
+                    'UPDATE addresses SET default_for_service = $1 WHERE id = $2 AND user_id = $3',
+                    [serviceString, addressId, clientId]
+                );
+            }
+        }
+        res.json({ message: 'Actualizado correctamente' });
+    } catch (error) {
+        console.error('Error setAdvisorClientDefaultForService:', error);
+        res.status(500).json({ error: 'Error al actualizar' });
+    }
+};
+
 // ============ ESTABLECER MÉTODO DE PAGO PREDETERMINADO ============
 export const setDefaultPaymentMethod = async (req: Request, res: Response): Promise<void> => {
     try {
