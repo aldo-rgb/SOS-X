@@ -820,10 +820,16 @@ export const ensureDepartmentsSchema = async () => {
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    // Agregar unique constraint si no existe (evita duplicados futuros)
+    // Reasignar tickets que apuntan a IDs duplicados → conservar MIN(id) por nombre
     await pool.query(`
-      ALTER TABLE support_departments
-      ADD CONSTRAINT IF NOT EXISTS support_departments_name_unique UNIQUE (name)
+      UPDATE support_tickets t
+      SET department_id = canonical.min_id
+      FROM (
+        SELECT name, MIN(id) AS min_id FROM support_departments GROUP BY name
+      ) canonical
+      JOIN support_departments d ON d.name = canonical.name
+      WHERE t.department_id = d.id
+        AND d.id <> canonical.min_id
     `);
     // Limpiar duplicados conservando el registro con id más bajo por nombre
     await pool.query(`
@@ -831,6 +837,11 @@ export const ensureDepartmentsSchema = async () => {
       WHERE id NOT IN (
         SELECT MIN(id) FROM support_departments GROUP BY name
       )
+    `);
+    // Agregar unique constraint si no existe (evita duplicados futuros)
+    await pool.query(`
+      ALTER TABLE support_departments
+      ADD CONSTRAINT IF NOT EXISTS support_departments_name_unique UNIQUE (name)
     `);
     await pool.query(`
       INSERT INTO support_departments (name, color, icon, is_default_for_clients, sort_order)
