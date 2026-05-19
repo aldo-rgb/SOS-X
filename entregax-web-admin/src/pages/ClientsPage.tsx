@@ -265,7 +265,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
       const response = await axios.get(`${API_URL}/api/admin/advisors`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setAdvisors(response.data);
+      setAdvisors(response.data.advisors || response.data);
     } catch (error) {
       console.error('Error cargando asesores:', error);
     } finally {
