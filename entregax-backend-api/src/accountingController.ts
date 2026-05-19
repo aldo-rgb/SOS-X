@@ -441,21 +441,27 @@ export const searchFiscalClients = async (req: AuthRequest, res: Response): Prom
 
         const search = String(req.query.search || '').trim();
         const params: any[] = [];
-        let where = `WHERE u.rfc IS NOT NULL AND LENGTH(TRIM(u.rfc)) >= 12`;
+        let where = `WHERE u.fiscal_rfc IS NOT NULL AND LENGTH(TRIM(u.fiscal_rfc)) >= 12`;
         if (search) {
             params.push(`%${search}%`);
-            where += ` AND (u.rfc ILIKE $${params.length} OR u.razon_social ILIKE $${params.length} OR u.full_name ILIKE $${params.length} OR u.email ILIKE $${params.length} OR u.box_id ILIKE $${params.length})`;
+            where += ` AND (
+              u.fiscal_rfc ILIKE $${params.length}
+              OR u.fiscal_razon_social ILIKE $${params.length}
+              OR u.full_name ILIKE $${params.length}
+              OR u.email ILIKE $${params.length}
+              OR u.box_id ILIKE $${params.length}
+            )`;
         }
 
         const r = await pool.query(`
             SELECT u.id, u.full_name, u.email, u.box_id,
-                   UPPER(TRIM(u.rfc)) AS rfc,
-                   COALESCE(u.razon_social, u.full_name) AS razon_social,
-                   u.regimen_fiscal,
-                   COALESCE(u.cfdi_zip, u.zip_code) AS cp
+                   UPPER(TRIM(u.fiscal_rfc)) AS rfc,
+                   COALESCE(u.fiscal_razon_social, u.full_name) AS razon_social,
+                   u.fiscal_regimen_fiscal AS regimen_fiscal,
+                   COALESCE(u.fiscal_codigo_postal, u.zip_code) AS cp
               FROM users u
              ${where}
-             ORDER BY u.razon_social ASC NULLS LAST, u.full_name ASC
+             ORDER BY u.fiscal_razon_social ASC NULLS LAST, u.full_name ASC
              LIMIT 25
         `, params);
 
