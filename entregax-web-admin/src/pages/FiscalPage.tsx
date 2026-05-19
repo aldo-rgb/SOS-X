@@ -887,7 +887,6 @@ export default function FiscalPage() {
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tab icon={<BusinessIcon />} label={i18n.language === 'es' ? 'Mis Empresas' : 'My Companies'} />
           <Tab icon={<SettingsIcon />} label="Servicios" />
-          <Tab icon={<ReceiptLongIcon />} label={i18n.language === 'es' ? 'Facturas' : 'Invoices'} />
         </Tabs>
       </Paper>
 
@@ -1235,90 +1234,6 @@ export default function FiscalPage() {
         </Paper>
       )}
 
-      {/* Tab Facturas */}
-      {tabValue === 2 && (
-        <Paper elevation={3} sx={{ borderRadius: 3, overflow: 'hidden' }}>
-          <Box sx={{ bgcolor: BLACK, px: 3, py: 2 }}>
-            <Typography variant="h6" sx={{ color: 'white', fontWeight: 'bold' }}>
-              📄 {i18n.language === 'es' ? 'Historial de Facturas' : 'Invoice History'}
-            </Typography>
-          </Box>
-
-          <TableContainer>
-            <Table>
-              <TableHead>
-                <TableRow sx={{ bgcolor: 'grey.100' }}>
-                  <TableCell sx={{ fontWeight: 'bold' }}>Folio</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Cliente' : 'Client'}</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Receptor' : 'Receiver'}</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Emisor' : 'Issuer'}</TableCell>
-                  <TableCell align="right" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Monto' : 'Amount'}</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Fecha' : 'Date'}</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Descargar' : 'Download'}</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {invoices.length > 0 ? invoices.map((invoice) => (
-                  <TableRow key={invoice.id} hover>
-                    <TableCell>
-                      <Chip label={invoice.folio} size="small" color="primary" />
-                    </TableCell>
-                    <TableCell>{invoice.client_name}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2">{invoice.receiver_name}</Typography>
-                      <Typography variant="caption" color="text.secondary">{invoice.receiver_rfc}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">{invoice.emitter_alias}</Typography>
-                      <Typography variant="caption" color="text.secondary">{invoice.emitter_rfc}</Typography>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Typography fontWeight="bold">${parseFloat(invoice.amount).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
-                    </TableCell>
-                    <TableCell align="center">
-                      <Chip 
-                        icon={invoice.status === 'generated' ? <CheckCircleIcon /> : <CancelIcon />}
-                        label={invoice.status === 'generated' ? 'Timbrada' : 'Cancelada'}
-                        color={invoice.status === 'generated' ? 'success' : 'error'}
-                        size="small"
-                      />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Typography variant="caption">
-                        {new Date(invoice.created_at).toLocaleDateString('es-MX')}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="center">
-                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
-                        <Tooltip title="PDF">
-                          <IconButton size="small" sx={{ color: '#D32F2F' }} onClick={() => window.open(invoice.pdf_url, '_blank')}>
-                            <DescriptionIcon />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="XML">
-                          <IconButton size="small" sx={{ color: '#1976D2' }} onClick={() => window.open(invoice.xml_url, '_blank')}>
-                            <DescriptionIcon />
-                          </IconButton>
-                        </Tooltip>
-                      </Box>
-                    </TableCell>
-                  </TableRow>
-                )) : (
-                  <TableRow>
-                    <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
-                      <ReceiptLongIcon sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
-                      <Typography color="text.secondary">
-                        {i18n.language === 'es' ? 'Aún no hay facturas generadas' : 'No invoices generated yet'}
-                      </Typography>
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </TableContainer>
-        </Paper>
-      )}
 
       {/* Modal Crear/Editar Empresa */}
       <Dialog open={openModal} onClose={() => setOpenModal(false)} maxWidth="sm" fullWidth>
