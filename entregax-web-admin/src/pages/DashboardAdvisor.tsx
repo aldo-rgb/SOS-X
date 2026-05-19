@@ -1513,7 +1513,7 @@ export default function DashboardAdvisor() {
             <TableHead>
               <TableRow>
                 <TableCell padding="checkbox" sx={{ width: 40 }}>
-                  <Tooltip title={selectedUids.size === 0 && shipments.some((a, i, arr) => arr.some(b => b.serviceType !== a.serviceType || b.clientId !== a.clientId)) ? 'Filtra por servicio y cliente para seleccionar todos' : ''}>
+                  <Tooltip title={selectedUids.size === 0 && shipments.some((a, _i, arr) => arr.some(b => b.serviceType !== a.serviceType || b.clientId !== a.clientId)) ? 'Filtra por servicio y cliente para seleccionar todos' : ''}>
                     <span>
                       <Checkbox
                         size="small"
