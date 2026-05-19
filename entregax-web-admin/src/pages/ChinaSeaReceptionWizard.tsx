@@ -317,7 +317,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     // ─────────── BULK UPDATE FCL (pegar lista de contenedores) ───────────
     const [bulkOpen, setBulkOpen] = useState(false);
     const [bulkInput, setBulkInput] = useState('');
-    const [bulkStatus, setBulkStatus] = useState<string>('');
+    const [bulkStatus, setBulkStatus] = useState<string>('customs_cleared');
     const [bulkRunning, setBulkRunning] = useState(false);
     const [bulkResults, setBulkResults] = useState<{
         matched: Container[];
@@ -401,7 +401,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const resetBulk = () => {
         setBulkOpen(false);
         setBulkInput('');
-        setBulkStatus('');
+        setBulkStatus('customs_cleared');
         setBulkResults(null);
         setBulkRunning(false);
     };
