@@ -347,6 +347,9 @@ export default function DashboardAdvisor() {
   const [instrLoading, setInstrLoading] = useState(false);
   const [instrSaving, setInstrSaving] = useState(false);
   const [instrSelectedId, setInstrSelectedId] = useState<string>('');
+  const [instrCarriers, setInstrCarriers] = useState<any[]>([]);
+  const [instrCarrierKey, setInstrCarrierKey] = useState<string>('');
+  const [instrCarriersLoading, setInstrCarriersLoading] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<AdvisorShipment | null>(null);
   const [repackChildren, setRepackChildren] = useState<any[]>([]);
   const [repackChildrenLoading, setRepackChildrenLoading] = useState(false);
@@ -522,6 +525,16 @@ export default function DashboardAdvisor() {
     { value: 'usa',         label: '📦 PO Box USA',       color: '#F05A28', serviceType: 'usa_pobox' },
   ];
 
+  // Mapeo de serviceType del envío → clave para carrier-options y carrier_config
+  const SHIPMENT_TYPE_TO_CARRIER_SERVICE: Record<string, string> = {
+    'AIR_CHN_MX': 'china_air',
+    'SEA_CHN_MX': 'china_sea',
+    'AA_DHL': 'dhl',
+    'POBOX_USA': 'usa_pobox',
+    'TDI_EXPRESS': 'tdi_express',
+    'tdi_express': 'tdi_express',
+  };
+
   const handleViewAddresses = async (clientId: number, clientName: string) => {
     setAddressesClient({ id: clientId, name: clientName });
     setAddressesModalOpen(true);
@@ -581,15 +594,34 @@ export default function DashboardAdvisor() {
     if (!target) return;
     setInstrShipment(target);
     setInstrSelectedId('');
+    setInstrCarrierKey('');
+    setInstrCarriers([]);
     setInstrDialogOpen(true);
     setInstrLoading(true);
+    setInstrCarriersLoading(true);
+    const carrierServiceType = SHIPMENT_TYPE_TO_CARRIER_SERVICE[target.serviceType] ?? null;
     try {
-      const res = await api.get(`/advisor/clients/${target.clientId}/addresses`);
-      setInstrAddresses(res.data);
+      const [addrRes, carrierRes] = await Promise.all([
+        api.get(`/advisor/clients/${target.clientId}/addresses`),
+        carrierServiceType ? api.get(`/carrier-options/by-service/${carrierServiceType}`) : Promise.resolve(null),
+      ]);
+      setInstrAddresses(addrRes.data);
+      setInstrCarriers(carrierRes?.data?.data || []);
     } catch {
-      setSnackbar({ open: true, message: 'Error al cargar direcciones', severity: 'error' });
+      setSnackbar({ open: true, message: 'Error al cargar datos', severity: 'error' });
     } finally {
       setInstrLoading(false);
+      setInstrCarriersLoading(false);
+    }
+  };
+
+  const handleSelectInstrAddress = (addr: any) => {
+    setInstrSelectedId(String(addr.id));
+    const serviceKey = instrShipment ? SHIPMENT_TYPE_TO_CARRIER_SERVICE[instrShipment.serviceType] : null;
+    if (serviceKey && addr.carrier_config?.[serviceKey]) {
+      setInstrCarrierKey(addr.carrier_config[serviceKey]);
+    } else {
+      setInstrCarrierKey('');
     }
   };
 
@@ -599,8 +631,11 @@ export default function DashboardAdvisor() {
     try {
       const uids = selectedUids.size > 0 ? Array.from(selectedUids) : instrShipment ? [instrShipment.uid] : [];
       if (uids.length === 0) return;
+      const serviceKey = instrShipment ? SHIPMENT_TYPE_TO_CARRIER_SERVICE[instrShipment.serviceType] : undefined;
+      const body: any = { addressId: instrSelectedId };
+      if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
       await Promise.all(uids.map(uid =>
-        api.put(`/advisor/shipments/${uid}/instructions`, { addressId: instrSelectedId })
+        api.put(`/advisor/shipments/${uid}/instructions`, body)
       ));
       const count = uids.length;
       setSnackbar({ open: true, message: count > 1 ? `${count} envíos actualizados` : 'Instrucciones asignadas correctamente', severity: 'success' });
@@ -2809,7 +2844,7 @@ export default function DashboardAdvisor() {
                   <Paper
                     key={addr.id}
                     variant="outlined"
-                    onClick={() => setInstrSelectedId(String(addr.id))}
+                    onClick={() => handleSelectInstrAddress(addr)}
                     sx={{
                       p: 1.5, cursor: 'pointer', borderRadius: 2,
                       borderColor: isSelected ? '#E65100' : 'divider',
@@ -2848,6 +2883,59 @@ export default function DashboardAdvisor() {
                   </Paper>
                 );
               })}
+            </Box>
+          )}
+
+          {/* ─── Sección Paquetería ─── */}
+          {(instrCarriers.length > 0 || instrCarriersLoading) && (
+            <Box sx={{ mt: 2.5 }}>
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ color: '#E65100', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <CarrierIcon sx={{ fontSize: 18 }} /> ¿Por qué paquetería?
+              </Typography>
+              {instrCarriersLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={24} /></Box>
+              ) : (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                  {instrCarriers.map((carrier: any) => {
+                    const isCarrierSelected = instrCarrierKey === carrier.carrier_key;
+                    const isUrl = carrier.icon && (carrier.icon.startsWith('/') || carrier.icon.startsWith('http'));
+                    return (
+                      <Paper
+                        key={carrier.carrier_key}
+                        variant="outlined"
+                        onClick={() => setInstrCarrierKey(isCarrierSelected ? '' : carrier.carrier_key)}
+                        sx={{
+                          p: 1.5, cursor: 'pointer', borderRadius: 2, minWidth: 90, maxWidth: 120,
+                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5,
+                          borderColor: isCarrierSelected ? '#E65100' : 'divider',
+                          borderWidth: isCarrierSelected ? 2 : 1,
+                          bgcolor: isCarrierSelected ? '#FFF3E0' : 'background.paper',
+                          transition: 'all 0.15s',
+                          '&:hover': { borderColor: '#E65100', bgcolor: '#FFF8F5' },
+                          position: 'relative',
+                        }}
+                      >
+                        {isCarrierSelected && (
+                          <CheckCircleIcon sx={{ position: 'absolute', top: 6, right: 6, fontSize: 16, color: '#E65100' }} />
+                        )}
+                        {isUrl
+                          ? <img src={carrier.icon} alt={carrier.name} style={{ width: 36, height: 36, objectFit: 'contain' }} />
+                          : <Typography sx={{ fontSize: 28, lineHeight: 1 }}>{carrier.icon}</Typography>
+                        }
+                        <Typography variant="caption" fontWeight={isCarrierSelected ? 700 : 400} align="center" sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
+                          {carrier.name}
+                        </Typography>
+                        {carrier.price_label && (
+                          <Typography variant="caption" color="text.secondary" align="center" sx={{ fontSize: '0.65rem' }}>
+                            {carrier.price_label}
+                          </Typography>
+                        )}
+                      </Paper>
+                    );
+                  })}
+                </Box>
+              )}
             </Box>
           )}
         </DialogContent>

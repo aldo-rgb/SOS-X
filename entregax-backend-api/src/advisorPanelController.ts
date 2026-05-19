@@ -1474,7 +1474,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
     const { uid } = req.params;
-    const { addressId } = req.body;
+    const { addressId, carrierKey, serviceKey } = req.body;
     if (!uid || !addressId) return res.status(400).json({ error: 'uid y addressId requeridos' });
 
     // Parse uid
@@ -1523,6 +1523,14 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       );
     } else {
       return res.status(400).json({ error: `Tipo de envío no soportado: ${type}` });
+    }
+
+    // Opcional: guardar preferencia de paquetería en carrier_config de la dirección
+    if (carrierKey && serviceKey) {
+      await pool.query(
+        `UPDATE addresses SET carrier_config = COALESCE(carrier_config, '{}'::jsonb) || $1::jsonb WHERE id = $2`,
+        [JSON.stringify({ [serviceKey]: carrierKey }), addressId]
+      );
     }
 
     res.json({ success: true, message: 'Instrucciones asignadas correctamente' });
