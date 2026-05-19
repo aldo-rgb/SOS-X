@@ -2578,7 +2578,7 @@ export default function DashboardAdvisor() {
                                     key={svc}
                                     label={found ? found.label : svc}
                                     size="small"
-                                    sx={{ height: 20, fontSize: 10, bgcolor: found ? `${found.color}22`, color: found?.color }}
+                                    sx={{ height: 20, fontSize: 10, bgcolor: found ? `${found.color}22` : undefined, color: found?.color }}
                                   />
                                 );
                               })}
