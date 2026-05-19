@@ -66,6 +66,8 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
+  const [instrEnabled, setInstrEnabled] = useState(true);
+
   // Address management modal
   const [addrModal, setAddrModal] = useState(false);
   const [addrClient, setAddrClient] = useState<Client | null>(null);
@@ -112,6 +114,13 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   }, [token, search, filter, page]);
 
   useEffect(() => { setLoading(true); loadClients(true); }, [search, filter]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/system/payment-status`)
+      .then(r => r.json())
+      .then(d => setInstrEnabled(d.advisor_instructions_enabled !== false))
+      .catch(() => {});
+  }, []);
 
   const onRefresh = () => { setRefreshing(true); setPage(1); loadClients(true); };
   const loadMore = () => { if (!loading && hasMore) { setPage(prev => prev + 1); loadClients(); } };
@@ -376,12 +385,14 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
                           </View>
                         )}
                       </View>
-                      <TouchableOpacity
-                        style={[styles.editBtn, isEditing && { backgroundColor: '#7B1FA2' }]}
-                        onPress={() => isEditing ? setEditingAddrId(null) : startEditAddress(addr)}
-                      >
-                        <Ionicons name={isEditing ? 'close' : 'pencil'} size={16} color={isEditing ? '#fff' : PURPLE} />
-                      </TouchableOpacity>
+                      {instrEnabled && (
+                        <TouchableOpacity
+                          style={[styles.editBtn, isEditing && { backgroundColor: '#7B1FA2' }]}
+                          onPress={() => isEditing ? setEditingAddrId(null) : startEditAddress(addr)}
+                        >
+                          <Ionicons name={isEditing ? 'close' : 'pencil'} size={16} color={isEditing ? '#fff' : PURPLE} />
+                        </TouchableOpacity>
+                      )}
                     </View>
 
                     {isEditing && (

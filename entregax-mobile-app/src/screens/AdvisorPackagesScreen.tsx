@@ -72,6 +72,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'pending'>(initFilters.payment);
   const [instructionsFilter, setInstructionsFilter] = useState<'all' | 'yes' | 'no'>(initFilters.instructions);
+  const [instrEnabled, setInstrEnabled] = useState(true);
 
   // Instruction assignment modal
   const [instrModal, setInstrModal] = useState(false);
@@ -117,6 +118,13 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   }, [buildUrl, token]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/system/payment-status`)
+      .then(r => r.json())
+      .then(d => setInstrEnabled(d.advisor_instructions_enabled !== false))
+      .catch(() => {});
+  }, []);
 
   const openInstrModal = async (item: Shipment) => {
     setInstrShipment(item);
@@ -172,12 +180,14 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                 {STATUS_LABELS[item.status] || item.status}
               </Text>
             </View>
-            <TouchableOpacity
-              style={[styles.pencilBtn, { backgroundColor: item.has_instructions ? '#E8F5E9' : '#FFF3E0' }]}
-              onPress={() => openInstrModal(item)}
-            >
-              <Ionicons name="pencil" size={14} color={item.has_instructions ? GREEN : '#FF9800'} />
-            </TouchableOpacity>
+            {instrEnabled && (
+              <TouchableOpacity
+                style={[styles.pencilBtn, { backgroundColor: item.has_instructions ? '#E8F5E9' : '#FFF3E0' }]}
+                onPress={() => openInstrModal(item)}
+              >
+                <Ionicons name="pencil" size={14} color={item.has_instructions ? GREEN : '#FF9800'} />
+              </TouchableOpacity>
+            )}
           </View>
         </View>
         {item.goods_name ? <Text style={styles.goodsName}>{item.goods_name}</Text> : null}
