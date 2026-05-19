@@ -1464,3 +1464,70 @@ export const getAdvisorPackages = async (req: Request, res: Response): Promise<a
     res.status(500).json({ error: 'Error al obtener paquetes' });
   }
 };
+
+// ─── ADVISOR: Asignar instrucciones (dirección) a un embarque ───────────────
+// uid format: PKG-{id}, MAR-{id}, DHL-{id}
+export const assignAdvisorShipmentInstructions = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!(await ensureAdvisorOnboarded(req, res))) return;
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    const { uid } = req.params;
+    const { addressId } = req.body;
+    if (!uid || !addressId) return res.status(400).json({ error: 'uid y addressId requeridos' });
+
+    // Parse uid
+    const uidStr = String(uid);
+    const dashIdx = uidStr.indexOf('-');
+    const type = uidStr.substring(0, dashIdx);
+    const rawId = uidStr.substring(dashIdx + 1);
+    const shipmentId = parseInt(rawId);
+    if (!shipmentId) return res.status(400).json({ error: 'uid inválido' });
+
+    // Verify the address belongs to a client of this advisor
+    const addrCheck = await pool.query(`
+      SELECT a.id, a.user_id FROM addresses a
+      JOIN users u ON a.user_id = u.id
+      WHERE a.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2) AND u.role = 'client'
+    `, [addressId, advisorId]);
+    if (addrCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Dirección no válida para este cliente' });
+    }
+    const clientId = addrCheck.rows[0].user_id;
+
+    if (type === 'PKG') {
+      // Verify package belongs to client of advisor
+      const check = await pool.query(
+        `SELECT id FROM packages WHERE id = $1 AND user_id = $2`, [shipmentId, clientId]
+      );
+      if (check.rows.length === 0) return res.status(403).json({ error: 'Paquete no encontrado' });
+      await pool.query(
+        `UPDATE packages SET assigned_address_id = $1 WHERE id = $2`, [addressId, shipmentId]
+      );
+    } else if (type === 'MAR') {
+      const check = await pool.query(
+        `SELECT id FROM maritime_orders WHERE id = $1 AND user_id = $2`, [shipmentId, clientId]
+      );
+      if (check.rows.length === 0) return res.status(403).json({ error: 'Orden marítima no encontrada' });
+      await pool.query(
+        `UPDATE maritime_orders SET delivery_address_id = $1 WHERE id = $2`, [addressId, shipmentId]
+      );
+    } else if (type === 'DHL') {
+      const check = await pool.query(
+        `SELECT id FROM dhl_shipments WHERE id = $1 AND user_id = $2`, [shipmentId, clientId]
+      );
+      if (check.rows.length === 0) return res.status(403).json({ error: 'Envío DHL no encontrado' });
+      await pool.query(
+        `UPDATE dhl_shipments SET delivery_address_id = $1 WHERE id = $2`, [addressId, shipmentId]
+      );
+    } else {
+      return res.status(400).json({ error: `Tipo de envío no soportado: ${type}` });
+    }
+
+    res.json({ success: true, message: 'Instrucciones asignadas correctamente' });
+  } catch (error) {
+    console.error('Error assignAdvisorShipmentInstructions:', error);
+    res.status(500).json({ error: 'Error al asignar instrucciones' });
+  }
+};

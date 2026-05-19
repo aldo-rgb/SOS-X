@@ -523,7 +523,8 @@ import {
   getAdvisorTicketDetail,
   getAdvisorNotifications,
   getAdvisorUnreadCount,
-  getAdvisorPackages
+  getAdvisorPackages,
+  assignAdvisorShipmentInstructions
 } from './advisorPanelController';
 import {
   requestAdvisor,
@@ -4495,6 +4496,7 @@ app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
 app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWallet);
 app.get('/api/advisor/clients/:clientId/addresses', authenticateToken, getAdvisorClientAddresses);
 app.put('/api/advisor/clients/:clientId/addresses/:addressId/default-for-service', authenticateToken, setAdvisorClientDefaultForService);
+app.put('/api/advisor/shipments/:uid/instructions', authenticateToken, assignAdvisorShipmentInstructions);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
 app.get('/api/advisor/shipments/:id/children', authenticateToken, getRepackChildren);

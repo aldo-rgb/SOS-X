@@ -338,6 +338,14 @@ export default function DashboardAdvisor() {
   const [shipmentServiceType, setShipmentServiceType] = useState<string>('all');
   const [shipmentPaymentFilter, setShipmentPaymentFilter] = useState<string>('all');
   const [shipmentInstructionsFilter, setShipmentInstructionsFilter] = useState<string>('all');
+
+  // Assign instructions dialog
+  const [instrDialogOpen, setInstrDialogOpen] = useState(false);
+  const [instrShipment, setInstrShipment] = useState<AdvisorShipment | null>(null);
+  const [instrAddresses, setInstrAddresses] = useState<any[]>([]);
+  const [instrLoading, setInstrLoading] = useState(false);
+  const [instrSaving, setInstrSaving] = useState(false);
+  const [instrSelectedId, setInstrSelectedId] = useState<string>('');
   const [selectedShipment, setSelectedShipment] = useState<AdvisorShipment | null>(null);
   const [repackChildren, setRepackChildren] = useState<any[]>([]);
   const [repackChildrenLoading, setRepackChildrenLoading] = useState(false);
@@ -564,6 +572,36 @@ export default function DashboardAdvisor() {
       setSnackbar({ open: true, message: 'Error al guardar', severity: 'error' });
     } finally {
       setAddressSaving(false);
+    }
+  };
+
+  const handleOpenInstrDialog = async (shipment: AdvisorShipment) => {
+    setInstrShipment(shipment);
+    setInstrSelectedId('');
+    setInstrDialogOpen(true);
+    setInstrLoading(true);
+    try {
+      const res = await api.get(`/advisor/clients/${shipment.clientId}/addresses`);
+      setInstrAddresses(res.data);
+    } catch {
+      setSnackbar({ open: true, message: 'Error al cargar direcciones', severity: 'error' });
+    } finally {
+      setInstrLoading(false);
+    }
+  };
+
+  const handleSaveInstructions = async () => {
+    if (!instrShipment || !instrSelectedId) return;
+    setInstrSaving(true);
+    try {
+      await api.put(`/advisor/shipments/${instrShipment.uid}/instructions`, { addressId: instrSelectedId });
+      setSnackbar({ open: true, message: 'Instrucciones asignadas correctamente', severity: 'success' });
+      setInstrDialogOpen(false);
+      fetchShipments();
+    } catch {
+      setSnackbar({ open: true, message: 'Error al guardar instrucciones', severity: 'error' });
+    } finally {
+      setInstrSaving(false);
     }
   };
 
@@ -1461,6 +1499,16 @@ export default function DashboardAdvisor() {
                     <Typography variant="caption">{formatDate(s.createdAt)}</Typography>
                   </TableCell>
                   <TableCell align="center">
+                    <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                    <Tooltip title="Asignar instrucciones de entrega">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleOpenInstrDialog(s)}
+                        sx={{ color: s.hasInstructions ? '#2E7D32' : '#E65100' }}
+                      >
+                        <EditIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title="Ver detalles">
                       <IconButton
                         size="small"
@@ -1482,6 +1530,7 @@ export default function DashboardAdvisor() {
                         <VisibilityIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
+                    </Box>
                   </TableCell>
                 </TableRow>
               ))}
@@ -2621,6 +2670,90 @@ export default function DashboardAdvisor() {
             sx={{ borderRadius: 2 }}
           >
             Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ─── Dialog: Asignar Instrucciones ─── */}
+      <Dialog open={instrDialogOpen} onClose={() => setInstrDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: '#E65100', color: '#fff' }}>
+          <EditIcon />
+          Instrucciones de entrega — {instrShipment?.tracking || instrShipment?.uid}
+        </DialogTitle>
+        <DialogContent dividers sx={{ pt: 2 }}>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            Selecciona la dirección de entrega guardada del cliente <strong>{instrShipment?.clientName}</strong>:
+          </Typography>
+          {instrLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : instrAddresses.length === 0 ? (
+            <Alert severity="warning" sx={{ mt: 1 }}>
+              Este cliente no tiene direcciones guardadas. Pídele que agregue una dirección desde su portal.
+            </Alert>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+              {instrAddresses.map((addr) => {
+                const isSelected = instrSelectedId === String(addr.id);
+                const services = addr.default_for_service
+                  ? addr.default_for_service.split(',').map((s: string) => s.trim()).filter(Boolean)
+                  : [];
+                return (
+                  <Paper
+                    key={addr.id}
+                    variant="outlined"
+                    onClick={() => setInstrSelectedId(String(addr.id))}
+                    sx={{
+                      p: 1.5, cursor: 'pointer', borderRadius: 2,
+                      borderColor: isSelected ? '#E65100' : 'divider',
+                      borderWidth: isSelected ? 2 : 1,
+                      bgcolor: isSelected ? '#FFF3E0' : 'background.paper',
+                      '&:hover': { borderColor: '#E65100', bgcolor: '#FFF8F5' },
+                    }}
+                  >
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <Box>
+                        <Typography variant="body2" fontWeight={700}>
+                          {addr.alias || addr.recipient_name || 'Dirección'}
+                          {addr.is_default && <Chip label="Principal" size="small" color="success" sx={{ ml: 1, height: 18, fontSize: 10 }} />}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          {addr.street} {addr.exterior_number}{addr.interior_number ? ` Int. ${addr.interior_number}` : ''}
+                          {addr.colony ? `, ${addr.colony}` : ''}, {addr.city}, {addr.state} {addr.zip_code}
+                        </Typography>
+                        {addr.recipient_name && addr.alias && (
+                          <Typography variant="caption" color="text.secondary">Recibe: {addr.recipient_name}</Typography>
+                        )}
+                      </Box>
+                      {isSelected && <CheckCircleIcon sx={{ color: '#E65100', flexShrink: 0 }} />}
+                    </Box>
+                    {services.length > 0 && (
+                      <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
+                        {services.map((svc: string) => {
+                          const found = SERVICE_LIST.find(s => s.value === svc);
+                          return (
+                            <Chip key={svc} label={found ? found.label : svc} size="small"
+                              sx={{ height: 18, fontSize: 10, bgcolor: found ? `${found.color}22` : undefined, color: found?.color }} />
+                          );
+                        })}
+                      </Box>
+                    )}
+                  </Paper>
+                );
+              })}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 1.5 }}>
+          <Button onClick={() => setInstrDialogOpen(false)} variant="outlined">Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={!instrSelectedId || instrSaving}
+            onClick={handleSaveInstructions}
+            sx={{ bgcolor: '#E65100', '&:hover': { bgcolor: '#bf360c' } }}
+          >
+            {instrSaving ? <CircularProgress size={18} color="inherit" /> : 'Guardar instrucciones'}
           </Button>
         </DialogActions>
       </Dialog>
