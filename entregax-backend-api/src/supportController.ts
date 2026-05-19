@@ -361,7 +361,11 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     const escalateDirectly = req.body.escalateDirectly === 'true' || req.body.escalateDirectly === true;
 
     // Determinar creator_type y department_id
-    const employeeRoles = ['employee', 'counter_staff', 'customer_service', 'admin', 'super_admin'];
+    const employeeRoles = [
+      'employee', 'counter_staff', 'customer_service', 'admin', 'super_admin',
+      'director', 'branch_manager', 'warehouse_ops', 'accountant',
+      'monitoreo', 'operaciones', 'repartidor', 'abogado',
+    ];
     const creatorType = employeeRoles.includes(userRole) ? 'employee' : 'client';
     // Employees go to Soporte Técnico by default; clients to Atención a Cliente
     const deptRes = await pool.query(
@@ -860,6 +864,19 @@ export const ensureDepartmentsSchema = async () => {
       UPDATE support_tickets
       SET department_id = (SELECT id FROM support_departments WHERE is_default_for_clients = TRUE LIMIT 1)
       WHERE department_id IS NULL
+    `);
+    // Corregir tickets mal clasificados como 'client' creados por empleados internos
+    await pool.query(`
+      UPDATE support_tickets t
+      SET creator_type = 'employee'
+      FROM users u
+      WHERE t.user_id = u.id
+        AND t.creator_type = 'client'
+        AND u.role IN (
+          'employee','counter_staff','customer_service','admin','super_admin',
+          'director','branch_manager','warehouse_ops','accountant',
+          'monitoreo','operaciones','repartidor','abogado'
+        )
     `);
     _deptTableEnsured = true;
     console.log('✅ support_departments schema ensured');
