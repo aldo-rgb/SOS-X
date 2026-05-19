@@ -2701,17 +2701,34 @@ export default function DashboardAdvisor() {
                                           displayEmpty: true,
                                           renderValue: (val: unknown) => {
                                             if (!val) return <Typography variant="body2" color="text.secondary">Sin paquetería</Typography>;
-                                            const c = carriers.find((x: any) => x.carrier_key === val || x.id === val);
-                                            return <Typography variant="body2">{c ? `${c.icon || '🚛'} ${c.name}` : String(val)}</Typography>;
+                                            const found = carriers.find((x: any) => x.carrier_key === val || x.id === val);
+                                            if (!found) return <Typography variant="body2">{String(val)}</Typography>;
+                                            const isUrl = found.icon && (found.icon.startsWith('/') || found.icon.startsWith('http'));
+                                            return (
+                                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                {isUrl
+                                                  ? <img src={found.icon} alt="" style={{ width: 18, height: 18, objectFit: 'contain' }} />
+                                                  : <span>{found.icon || '🚛'}</span>}
+                                                <Typography variant="body2" noWrap>{found.name}</Typography>
+                                              </Box>
+                                            );
                                           },
                                         }}
                                       >
                                         <MenuItem value=""><em>Sin paquetería default</em></MenuItem>
-                                        {carriers.map((c: any) => (
-                                          <MenuItem key={c.carrier_key || c.id} value={c.carrier_key || c.id}>
-                                            {c.icon || '🚛'} {c.name}
-                                          </MenuItem>
-                                        ))}
+                                        {carriers.map((c: any) => {
+                                          const isUrl = c.icon && (c.icon.startsWith('/') || c.icon.startsWith('http'));
+                                          return (
+                                            <MenuItem key={c.carrier_key || c.id} value={c.carrier_key || c.id}>
+                                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                {isUrl
+                                                  ? <img src={c.icon} alt="" style={{ width: 20, height: 20, objectFit: 'contain' }} />
+                                                  : <span>{c.icon || '🚛'}</span>}
+                                                {c.name}
+                                              </Box>
+                                            </MenuItem>
+                                          );
+                                        })}
                                       </TextField>
                                     )}
                                   </Box>
