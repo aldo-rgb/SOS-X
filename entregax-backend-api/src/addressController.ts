@@ -885,7 +885,7 @@ export const getAdvisorClientAddresses = async (req: Request, res: Response): Pr
         if (!clientId) { res.status(400).json({ error: 'clientId inválido' }); return; }
         const result = await pool.query(
             `SELECT id, alias, recipient_name, street, exterior_number, interior_number,
-                    colony, city, state, zip_code, phone, reference, reception_hours,
+                    neighborhood AS colony, city, state, zip_code, phone, reference, reception_hours,
                     is_default, default_for_service, carrier_config
                FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC`,
             [clientId]

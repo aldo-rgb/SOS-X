@@ -922,22 +922,48 @@ export default function DashboardAdvisor() {
   // TAB 1: MIS CLIENTES
   // ════════════════════════════════════
 
+  const renderClientNote = (c: AdvisorClient) => (
+    editingNoteId === c.id ? (
+      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
+        <TextField
+          size="small" multiline maxRows={3} value={noteText}
+          onChange={(e) => setNoteText(e.target.value)} fullWidth
+          placeholder={t('advisor.writeNote')}
+        />
+        <IconButton size="small" color="primary" onClick={() => handleSaveNote(c.id)}>
+          <SaveIcon fontSize="small" />
+        </IconButton>
+        <IconButton size="small" onClick={() => setEditingNoteId(null)}>
+          <CancelIcon fontSize="small" />
+        </IconButton>
+      </Box>
+    ) : (
+      <Box
+        sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, p: 0.5, borderRadius: 1 }}
+        onClick={() => { setEditingNoteId(c.id); setNoteText(c.advisorNotes || ''); }}
+      >
+        <Typography variant="caption" color={c.advisorNotes ? 'text.primary' : 'text.secondary'}>
+          {c.advisorNotes || t('advisor.clickToAddNote')}
+        </Typography>
+        <EditIcon sx={{ fontSize: 12, ml: 0.5, color: 'text.secondary' }} />
+      </Box>
+    )
+  );
+
   const renderClients = () => (
     <Fade in timeout={400}>
       <Box>
         {/* Search & filters */}
-        <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', gap: 1.5, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
           <TextField
             placeholder={t('advisor.searchClients')}
             size="small"
             value={clientSearch}
             onChange={(e) => { setClientSearch(e.target.value); setClientPage(0); }}
-            InputProps={{
-              startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment>
-            }}
-            sx={{ minWidth: 280 }}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+            sx={{ flex: 1, minWidth: 200 }}
           />
-          <FormControl size="small" sx={{ minWidth: 180 }}>
+          <FormControl size="small" sx={{ minWidth: 160 }}>
             <InputLabel>{t('advisor.filterStatus')}</InputLabel>
             <Select
               value={clientFilter}
@@ -950,200 +976,232 @@ export default function DashboardAdvisor() {
               <MenuItem value="unverified">{t('advisor.unverified')}</MenuItem>
             </Select>
           </FormControl>
-          <Box sx={{ flex: 1 }} />
           <Chip label={`${clientsTotal} ${t('advisor.totalLower')}`} variant="outlined" />
         </Box>
 
         {clientsLoading && <LinearProgress sx={{ mb: 1 }} />}
 
-        <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell>{t('advisor.clientName')}</TableCell>
-                <TableCell>No. de Cliente</TableCell>
-                <TableCell align="center">Sin Instr.</TableCell>
-                <TableCell align="center">{t('advisor.inTransitShort')}</TableCell>
-                <TableCell align="center">Pdte. Pago</TableCell>
-                <TableCell align="right">Saldo Pdte.</TableCell>
-                <TableCell>{t('advisor.lastShipment')}</TableCell>
-                <TableCell align="center">{t('advisor.verification')}</TableCell>
-                <TableCell>{t('advisor.notes')}</TableCell>
-                <TableCell align="center">Direcciones</TableCell>
-                <TableCell align="center">Cartera</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {clients.length === 0 && !clientsLoading && (
-                <TableRow>
-                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
-                    <Typography color="text.secondary">{t('advisor.noClients')}</Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-              {clients.map((c) => (
-                <TableRow key={c.id} hover>
-                  <TableCell>
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>{c.fullName}</Typography>
-                      <Typography variant="caption" color="text.secondary">{c.email}</Typography>
-                      {c.phone && (
-                        <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
-                          <Tooltip title={t('advisor.callClient')}>
-                            <IconButton
-                              size="small"
-                              href={`tel:${c.phone}`}
-                              sx={{
-                                bgcolor: '#e3f2fd',
-                                color: '#1565c0',
-                                '&:hover': { bgcolor: '#1565c0', color: '#fff' },
-                                width: 28,
-                                height: 28,
-                              }}
-                            >
-                              <PhoneIcon sx={{ fontSize: 16 }} />
-                            </IconButton>
-                          </Tooltip>
-                          <Tooltip title="WhatsApp">
-                            <IconButton
-                              size="small"
-                              onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
-                              sx={{
-                                bgcolor: '#e8f5e9',
-                                color: '#25D366',
-                                '&:hover': { bgcolor: '#25D366', color: '#fff' },
-                                width: 28,
-                                height: 28,
-                              }}
-                            >
-                              <WhatsAppIcon sx={{ fontSize: 16 }} />
-                            </IconButton>
-                          </Tooltip>
-                        </Box>
+        {/* ── MOBILE: card layout ── */}
+        {isMobile ? (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            {clients.length === 0 && !clientsLoading && (
+              <Typography color="text.secondary" align="center" sx={{ py: 4 }}>
+                {t('advisor.noClients')}
+              </Typography>
+            )}
+            {clients.map((c) => (
+              <Paper key={c.id} sx={{ borderRadius: 2, p: 1.5, border: '1px solid', borderColor: 'divider' }}>
+                {/* Row 1: name + box + verification */}
+                <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 0.5 }}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography variant="body2" fontWeight={700} noWrap>{c.fullName}</Typography>
+                    <Typography variant="caption" color="text.secondary" noWrap display="block">{c.email}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5, flexShrink: 0 }}>
+                    <Chip label={c.boxId || '—'} size="small" variant="outlined" sx={{ height: 20, fontSize: 10 }} />
+                    {getVerificationChip(c.identityVerified, c.verificationStatus)}
+                  </Box>
+                </Box>
+
+                {/* Row 2: phone buttons */}
+                {c.phone && (
+                  <Box sx={{ display: 'flex', gap: 0.5, mb: 1 }}>
+                    <IconButton size="small" href={`tel:${c.phone}`}
+                      sx={{ bgcolor: '#e3f2fd', color: '#1565c0', width: 28, height: 28 }}>
+                      <PhoneIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                    <IconButton size="small"
+                      onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
+                      sx={{ bgcolor: '#e8f5e9', color: '#25D366', width: 28, height: 28 }}>
+                      <WhatsAppIcon sx={{ fontSize: 14 }} />
+                    </IconButton>
+                  </Box>
+                )}
+
+                {/* Row 3: stats grid */}
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 0.5, mb: 1 }}>
+                  {[
+                    { label: 'Sin Instr.', value: c.missingInstructionsCount, color: c.missingInstructionsCount > 0 ? 'warning' : null },
+                    { label: 'Tránsito', value: c.inTransitCount, color: c.inTransitCount > 0 ? 'warning' : null },
+                    { label: 'Pdte. Pago', value: c.pendingPaymentCount, color: c.pendingPaymentCount > 0 ? 'error' : null },
+                    { label: null, value: null, amount: c.pendingPaymentTotal },
+                  ].map((stat, i) => (
+                    <Box key={i} sx={{ bgcolor: '#f5f5f5', borderRadius: 1, p: 0.5, textAlign: 'center' }}>
+                      {stat.amount !== undefined ? (
+                        <>
+                          <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: 9 }}>Saldo Pdte.</Typography>
+                          <Typography variant="caption" fontWeight={700} color={stat.amount > 0 ? 'error.main' : 'text.secondary'} sx={{ fontSize: 10 }}>
+                            {stat.amount > 0 ? formatMXN(stat.amount) : '$0'}
+                          </Typography>
+                        </>
+                      ) : (
+                        <>
+                          <Typography variant="caption" display="block" color="text.secondary" sx={{ fontSize: 9 }}>{stat.label}</Typography>
+                          {(stat.value as number) > 0
+                            ? <Chip label={stat.value} color={stat.color as any} size="small" sx={{ height: 16, fontSize: 10, '& .MuiChip-label': { px: 0.5 } }} />
+                            : <Typography variant="caption" color="text.secondary">0</Typography>
+                          }
+                        </>
                       )}
                     </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={c.boxId || '—'} size="small" variant="outlined" />
-                  </TableCell>
-                  <TableCell align="center">
-                    {c.missingInstructionsCount > 0 ? (
-                      <Chip label={c.missingInstructionsCount} color="warning" size="small" />
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">0</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell align="center">
-                    {c.inTransitCount > 0 ? (
-                      <Chip label={c.inTransitCount} color="warning" size="small" />
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">0</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell align="center">
-                    {c.pendingPaymentCount > 0 ? (
-                      <Chip label={c.pendingPaymentCount} color="error" size="small" />
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">0</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell align="right">
-                    {c.pendingPaymentTotal > 0 ? (
-                      <Typography variant="body2" fontWeight={700} color="error.main">
-                        {formatMXN(c.pendingPaymentTotal)}
-                      </Typography>
-                    ) : (
-                      <Typography variant="body2" color="text.secondary">$0</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="caption">
-                      {c.lastShipmentAt ? formatDate(c.lastShipmentAt) : t('advisor.never')}
+                  ))}
+                </Box>
+
+                {/* Row 4: last shipment */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
+                  <Typography variant="caption" color="text.secondary">Último envío:</Typography>
+                  <Typography variant="caption">
+                    {c.lastShipmentAt ? formatDate(c.lastShipmentAt) : t('advisor.never')}
+                  </Typography>
+                  {c.daysSinceLastShipment !== null && c.daysSinceLastShipment > 30 && (
+                    <Typography variant="caption" color="error.main">
+                      ({c.daysSinceLastShipment}d)
                     </Typography>
-                    {c.daysSinceLastShipment !== null && c.daysSinceLastShipment > 30 && (
-                      <Typography variant="caption" display="block" color="error.main">
-                        {c.daysSinceLastShipment} {t('advisor.daysAgo')}
-                      </Typography>
-                    )}
-                  </TableCell>
-                  <TableCell align="center">
-                    {getVerificationChip(c.identityVerified, c.verificationStatus)}
-                  </TableCell>
-                  <TableCell sx={{ minWidth: 180, maxWidth: 250 }}>
-                    {editingNoteId === c.id ? (
-                      <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center' }}>
-                        <TextField
-                          size="small"
-                          multiline
-                          maxRows={3}
-                          value={noteText}
-                          onChange={(e) => setNoteText(e.target.value)}
-                          fullWidth
-                          placeholder={t('advisor.writeNote')}
-                        />
-                        <IconButton size="small" color="primary" onClick={() => handleSaveNote(c.id)}>
-                          <SaveIcon fontSize="small" />
-                        </IconButton>
-                        <IconButton size="small" onClick={() => setEditingNoteId(null)}>
-                          <CancelIcon fontSize="small" />
-                        </IconButton>
-                      </Box>
-                    ) : (
-                      <Box
-                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' }, p: 0.5, borderRadius: 1 }}
-                        onClick={() => { setEditingNoteId(c.id); setNoteText(c.advisorNotes || ''); }}
-                      >
-                        <Typography variant="caption" color={c.advisorNotes ? 'text.primary' : 'text.secondary'}>
-                          {c.advisorNotes || t('advisor.clickToAddNote')}
-                        </Typography>
-                        <EditIcon sx={{ fontSize: 12, ml: 0.5, color: 'text.secondary' }} />
-                      </Box>
-                    )}
-                  </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="Ver y administrar direcciones">
-                      <Button
-                        variant="outlined"
-                        size="small"
-                        onClick={() => handleViewAddresses(c.id, c.fullName)}
-                        startIcon={<LocationIcon />}
-                        sx={{
-                          textTransform: 'none',
-                          fontSize: '0.75rem',
-                          py: 0.5,
-                          borderColor: '#7B1FA2',
-                          color: '#7B1FA2',
-                          '&:hover': { bgcolor: '#f3e5f5', borderColor: '#6a1b9a' },
-                        }}
-                      >
-                        Dirs
-                      </Button>
-                    </Tooltip>
-                  </TableCell>
-                  <TableCell align="center">
-                    <Tooltip title="Ver Cartera">
-                      <Button
-                        variant="contained"
-                        size="small"
-                        onClick={() => handleViewWallet(c.id)}
-                        startIcon={<WalletIcon />}
-                        sx={{
-                          bgcolor: '#F05A28',
-                          '&:hover': { bgcolor: '#d94d1f' },
-                          textTransform: 'none',
-                          fontSize: '0.75rem',
-                          py: 0.5,
-                        }}
-                      >
-                        Ver
-                      </Button>
-                    </Tooltip>
-                  </TableCell>
+                  )}
+                </Box>
+
+                {/* Row 5: nota */}
+                <Box sx={{ mb: 1 }}>{renderClientNote(c)}</Box>
+
+                {/* Row 6: actions */}
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  <Button
+                    variant="outlined" size="small" fullWidth
+                    onClick={() => handleViewAddresses(c.id, c.fullName)}
+                    startIcon={<LocationIcon />}
+                    sx={{ textTransform: 'none', fontSize: '0.75rem', borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#f3e5f5' } }}
+                  >
+                    Dirs
+                  </Button>
+                  <Button
+                    variant="contained" size="small" fullWidth
+                    onClick={() => handleViewWallet(c.id)}
+                    startIcon={<WalletIcon />}
+                    sx={{ textTransform: 'none', fontSize: '0.75rem', bgcolor: '#F05A28', '&:hover': { bgcolor: '#d94d1f' } }}
+                  >
+                    Cartera
+                  </Button>
+                </Box>
+              </Paper>
+            ))}
+          </Box>
+        ) : (
+          /* ── DESKTOP: table layout ── */
+          <TableContainer component={Paper} sx={{ borderRadius: 2, overflowX: 'auto' }}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>{t('advisor.clientName')}</TableCell>
+                  <TableCell>No. de Cliente</TableCell>
+                  <TableCell align="center">Sin Instr.</TableCell>
+                  <TableCell align="center">{t('advisor.inTransitShort')}</TableCell>
+                  <TableCell align="center">Pdte. Pago</TableCell>
+                  <TableCell align="right">Saldo Pdte.</TableCell>
+                  <TableCell>{t('advisor.lastShipment')}</TableCell>
+                  <TableCell align="center">{t('advisor.verification')}</TableCell>
+                  <TableCell>{t('advisor.notes')}</TableCell>
+                  <TableCell align="center">Direcciones</TableCell>
+                  <TableCell align="center">Cartera</TableCell>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
+              </TableHead>
+              <TableBody>
+                {clients.length === 0 && !clientsLoading && (
+                  <TableRow>
+                    <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                      <Typography color="text.secondary">{t('advisor.noClients')}</Typography>
+                    </TableCell>
+                  </TableRow>
+                )}
+                {clients.map((c) => (
+                  <TableRow key={c.id} hover>
+                    <TableCell>
+                      <Box>
+                        <Typography variant="body2" fontWeight={600}>{c.fullName}</Typography>
+                        <Typography variant="caption" color="text.secondary">{c.email}</Typography>
+                        {c.phone && (
+                          <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5 }}>
+                            <Tooltip title={t('advisor.callClient')}>
+                              <IconButton size="small" href={`tel:${c.phone}`}
+                                sx={{ bgcolor: '#e3f2fd', color: '#1565c0', '&:hover': { bgcolor: '#1565c0', color: '#fff' }, width: 28, height: 28 }}>
+                                <PhoneIcon sx={{ fontSize: 16 }} />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="WhatsApp">
+                              <IconButton size="small"
+                                onClick={() => window.open(`https://wa.me/${c.phone.replace(/\D/g, '')}`, '_blank')}
+                                sx={{ bgcolor: '#e8f5e9', color: '#25D366', '&:hover': { bgcolor: '#25D366', color: '#fff' }, width: 28, height: 28 }}>
+                                <WhatsAppIcon sx={{ fontSize: 16 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={c.boxId || '—'} size="small" variant="outlined" />
+                    </TableCell>
+                    <TableCell align="center">
+                      {c.missingInstructionsCount > 0
+                        ? <Chip label={c.missingInstructionsCount} color="warning" size="small" />
+                        : <Typography variant="body2" color="text.secondary">0</Typography>}
+                    </TableCell>
+                    <TableCell align="center">
+                      {c.inTransitCount > 0
+                        ? <Chip label={c.inTransitCount} color="warning" size="small" />
+                        : <Typography variant="body2" color="text.secondary">0</Typography>}
+                    </TableCell>
+                    <TableCell align="center">
+                      {c.pendingPaymentCount > 0
+                        ? <Chip label={c.pendingPaymentCount} color="error" size="small" />
+                        : <Typography variant="body2" color="text.secondary">0</Typography>}
+                    </TableCell>
+                    <TableCell align="right">
+                      {c.pendingPaymentTotal > 0
+                        ? <Typography variant="body2" fontWeight={700} color="error.main">{formatMXN(c.pendingPaymentTotal)}</Typography>
+                        : <Typography variant="body2" color="text.secondary">$0</Typography>}
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption">
+                        {c.lastShipmentAt ? formatDate(c.lastShipmentAt) : t('advisor.never')}
+                      </Typography>
+                      {c.daysSinceLastShipment !== null && c.daysSinceLastShipment > 30 && (
+                        <Typography variant="caption" display="block" color="error.main">
+                          {c.daysSinceLastShipment} {t('advisor.daysAgo')}
+                        </Typography>
+                      )}
+                    </TableCell>
+                    <TableCell align="center">
+                      {getVerificationChip(c.identityVerified, c.verificationStatus)}
+                    </TableCell>
+                    <TableCell sx={{ minWidth: 180, maxWidth: 250 }}>
+                      {renderClientNote(c)}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Ver y administrar direcciones">
+                        <Button variant="outlined" size="small"
+                          onClick={() => handleViewAddresses(c.id, c.fullName)}
+                          startIcon={<LocationIcon />}
+                          sx={{ textTransform: 'none', fontSize: '0.75rem', py: 0.5, borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#f3e5f5', borderColor: '#6a1b9a' } }}>
+                          Dirs
+                        </Button>
+                      </Tooltip>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Ver Cartera">
+                        <Button variant="contained" size="small"
+                          onClick={() => handleViewWallet(c.id)}
+                          startIcon={<WalletIcon />}
+                          sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#d94d1f' }, textTransform: 'none', fontSize: '0.75rem', py: 0.5 }}>
+                          Ver
+                        </Button>
+                      </Tooltip>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        )}
 
         <TablePagination
           component="div"
