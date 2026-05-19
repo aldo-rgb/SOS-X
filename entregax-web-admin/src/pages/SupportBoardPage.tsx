@@ -31,6 +31,7 @@ import {
   Tabs,
   Tab,
   Tooltip,
+  Alert,
 } from '@mui/material';
 import {
   SupportAgent as AgentIcon,
@@ -97,6 +98,7 @@ interface TicketMessage {
   attachment_url?: string;
   attachments?: string[] | string | null;
   created_at: string;
+  is_internal?: boolean;
 }
 
 interface SupportStats {
@@ -200,7 +202,7 @@ export default function SupportBoardPage() {
 
   const loadMessages = async (ticketId: number) => {
     try {
-      const res = await fetch(`${API_URL}/support/ticket/${ticketId}/messages`, {
+      const res = await fetch(`${API_URL}/admin/support/ticket/${ticketId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setMessages(await res.json());
@@ -417,7 +419,7 @@ export default function SupportBoardPage() {
       <Box sx={{ display: 'flex', gap: 2, flex: 1, overflow: 'hidden', minHeight: 0 }}>
         {[
           { status: 'escalated_human', label: 'Requieren Atención ⚠️', bg: '#FFF3E0', accent: ORANGE, urgent: true },
-          { status: 'open_ai',         label: 'Con IA 🤖',             bg: '#E3F2FD', accent: '#2196F3', urgent: false },
+          { status: 'open_ai',         label: 'Asesor Virtual - En desarrollo',             bg: '#E3F2FD', accent: '#2196F3', urgent: false },
           { status: 'waiting_client',  label: 'Esperando Cliente ⏳',  bg: '#FFF8E1', accent: '#f9a825', urgent: false },
           { status: 'resolved',        label: 'Resueltos ✅',          bg: '#E8F5E9', accent: '#4caf50', urgent: false },
         ].map(({ status, label, bg, accent, urgent }) => {
@@ -496,17 +498,22 @@ export default function SupportBoardPage() {
                     <Box
                       sx={{
                         maxWidth: '72%', p: 2, borderRadius: 2,
-                        bgcolor: msg.sender_type === 'client' ? 'white' : msg.sender_type === 'ai' ? '#E3F2FD' : '#E8F5E9',
-                        border: '1px solid #ddd',
+                        bgcolor: msg.is_internal
+                          ? '#FFF8E1'
+                          : msg.sender_type === 'client' ? 'white' : msg.sender_type === 'ai' ? '#E3F2FD' : '#E8F5E9',
+                        border: msg.is_internal ? '1.5px dashed #F9A825' : '1px solid #ddd',
                       }}
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
                         {msg.sender_type === 'client' && <PersonIcon fontSize="small" color="action" />}
-                        {msg.sender_type === 'agent' && <AgentIcon fontSize="small" sx={{ color: '#4caf50' }} />}
+                        {msg.sender_type === 'agent' && <AgentIcon fontSize="small" sx={{ color: msg.is_internal ? '#F9A825' : '#4caf50' }} />}
                         <Typography variant="caption" color="text.secondary">
                           {msg.sender_type === 'client' ? 'Cliente' : msg.sender_type === 'ai' ? 'IA' : 'Agente'} ·{' '}
                           {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                         </Typography>
+                        {msg.is_internal && (
+                          <Chip label="🔒 Interno" size="small" sx={{ fontSize: 10, height: 18, bgcolor: '#FFF8E1', color: '#F57F17', border: '1px solid #F9A825' }} />
+                        )}
                       </Box>
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
                         {msg.message}
@@ -542,10 +549,22 @@ export default function SupportBoardPage() {
               <Divider />
 
               {selectedTicket.status !== 'resolved' && (
-                <Box sx={{ p: 2, display: 'flex', gap: 1 }}>
+                <Box sx={{ px: 2, pt: 1 }}>
+                  {selectedTicket.department_name && selectedTicket.department_name !== 'Atención a Cliente' && (
+                    <Alert severity="warning" icon={false} sx={{ mb: 1, py: 0.5, fontSize: 12 }}>
+                      🔒 Respuesta interna — el cliente <strong>NO verá</strong> este mensaje. Solo lo ve Atención a Cliente.
+                    </Alert>
+                  )}
+                </Box>
+              )}
+              {selectedTicket.status !== 'resolved' && (
+                <Box sx={{ px: 2, pb: 2, display: 'flex', gap: 1 }}>
                   <TextField
                     fullWidth multiline maxRows={3}
-                    placeholder="Escribe una respuesta..."
+                    placeholder={selectedTicket.department_name && selectedTicket.department_name !== 'Atención a Cliente'
+                      ? '🔒 Mensaje interno (solo para Atención a Cliente)...'
+                      : 'Escribe una respuesta...'}
+
                     value={replyText}
                     onChange={(e) => setReplyText(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}

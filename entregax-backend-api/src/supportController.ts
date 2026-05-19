@@ -571,11 +571,12 @@ export const getMyTickets = async (req: Request, res: Response): Promise<any> =>
 export const getTicketMessages = async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params;
-    
+    // Vista cliente: solo mensajes NO internos
     const result = await pool.query(
-      `SELECT id, sender_type, message, attachment_url, attachments, created_at
-       FROM ticket_messages 
-       WHERE ticket_id = $1 
+      `SELECT id, sender_type, message, attachment_url, attachments, created_at, FALSE as is_internal
+       FROM ticket_messages
+       WHERE ticket_id = $1
+         AND COALESCE(is_internal, FALSE) = FALSE
        ORDER BY created_at ASC`,
       [id]
     );
@@ -583,6 +584,28 @@ export const getTicketMessages = async (req: Request, res: Response): Promise<an
     res.json(result.rows);
   } catch (error) {
     console.error('Error obteniendo mensajes:', error);
+    res.status(500).json({ error: 'Error obteniendo mensajes' });
+  }
+};
+
+/**
+ * GET /api/admin/support/ticket/:id/messages
+ * Mensajes para agentes (incluye internos)
+ */
+export const getAdminTicketMessages = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      `SELECT id, sender_type, message, attachment_url, attachments, created_at,
+              COALESCE(is_internal, FALSE) as is_internal
+       FROM ticket_messages
+       WHERE ticket_id = $1
+       ORDER BY created_at ASC`,
+      [id]
+    );
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error obteniendo mensajes admin:', error);
     res.status(500).json({ error: 'Error obteniendo mensajes' });
   }
 };
@@ -739,21 +762,35 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
       return res.status(400).json({ error: 'Mensaje requerido' });
     }
 
+    // Determinar si el mensaje debe ser interno:
+    // Solo "Atención a Cliente" (is_default_for_clients=TRUE) responde directo al cliente.
+    // Cualquier otro departamento genera mensajes internos.
+    const ticketRes = await pool.query(
+      `SELECT t.department_id, d.is_default_for_clients
+       FROM support_tickets t
+       LEFT JOIN support_departments d ON t.department_id = d.id
+       WHERE t.id = $1`,
+      [id]
+    );
+    const isDefaultDept = ticketRes.rows[0]?.is_default_for_clients ?? true;
+    const isInternal = !isDefaultDept;
+
     // Guardar mensaje del agente
     await pool.query(
-      `INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES ($1, 'agent', $2)`,
-      [id, message]
+      `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, $3)`,
+      [id, message, isInternal]
     );
 
-    // Actualizar ticket: asignar agente y cambiar estado
+    // Solo cambiar status a waiting_client si el mensaje es visible al cliente
+    const newStatus = isInternal ? 'escalated_human' : 'waiting_client';
     await pool.query(
-      `UPDATE support_tickets 
-       SET assigned_agent_id = $1, status = 'waiting_client', updated_at = NOW() 
-       WHERE id = $2`,
-      [agentId, id]
+      `UPDATE support_tickets
+       SET assigned_agent_id = $1, status = $2, updated_at = NOW()
+       WHERE id = $3`,
+      [agentId, newStatus, id]
     );
 
-    res.json({ success: true, message: 'Respuesta enviada' });
+    res.json({ success: true, message: 'Respuesta enviada', is_internal: isInternal });
   } catch (error) {
     console.error('Error respondiendo ticket:', error);
     res.status(500).json({ error: 'Error enviando respuesta' });
@@ -828,6 +865,8 @@ export const ensureDepartmentsSchema = async () => {
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS department_id INT REFERENCES support_departments(id)`);
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS assigned_to INT REFERENCES users(id)`);
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS creator_type VARCHAR(20) DEFAULT 'client'`);
+    // Mensajes internos: solo visibles para agentes, no para el cliente
+    await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN DEFAULT FALSE`);
     // Reasignar tickets que apuntan a IDs duplicados → conservar MIN(id) por nombre
     await pool.query(`
       UPDATE support_tickets
@@ -951,7 +990,7 @@ export const transferTicket = async (req: Request, res: Response): Promise<any> 
 
     if (note) {
       await pool.query(
-        `INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES ($1, 'agent', $2)`,
+        `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, TRUE)`,
         [id, `📋 Ticket transferido. Nota: ${note}`]
       );
     }
