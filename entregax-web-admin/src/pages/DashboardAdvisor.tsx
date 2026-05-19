@@ -336,6 +336,8 @@ export default function DashboardAdvisor() {
   const [shipmentPage, setShipmentPage] = useState(0);
   const [shipmentClientId, setShipmentClientId] = useState<string>('all');
   const [shipmentServiceType, setShipmentServiceType] = useState<string>('all');
+  const [shipmentPaymentFilter, setShipmentPaymentFilter] = useState<string>('all');
+  const [shipmentInstructionsFilter, setShipmentInstructionsFilter] = useState<string>('all');
   const [selectedShipment, setSelectedShipment] = useState<AdvisorShipment | null>(null);
   const [repackChildren, setRepackChildren] = useState<any[]>([]);
   const [repackChildrenLoading, setRepackChildrenLoading] = useState(false);
@@ -423,6 +425,8 @@ export default function DashboardAdvisor() {
       if (shipmentFilter !== 'all') params.filter = shipmentFilter;
       if (shipmentClientId !== 'all') params.clientId = shipmentClientId;
       if (shipmentServiceType !== 'all') params.serviceType = shipmentServiceType;
+      if (shipmentPaymentFilter !== 'all') params.payment = shipmentPaymentFilter;
+      if (shipmentInstructionsFilter !== 'all') params.instructions = shipmentInstructionsFilter;
       const res = await api.get('/advisor/shipments', { params });
       setShipments(res.data.shipments);
       setShipmentsTotal(res.data.total);
@@ -432,7 +436,7 @@ export default function DashboardAdvisor() {
     } finally {
       setShipmentsLoading(false);
     }
-  }, [shipmentPage, shipmentSearch, shipmentFilter, shipmentClientId, shipmentServiceType]);
+  }, [shipmentPage, shipmentSearch, shipmentFilter, shipmentClientId, shipmentServiceType, shipmentPaymentFilter, shipmentInstructionsFilter]);
 
   const fetchCommissions = useCallback(async () => {
     try {
@@ -1287,6 +1291,43 @@ export default function DashboardAdvisor() {
               <MenuItem value="POBOX_USA">📮 PO Box USA</MenuItem>
             </Select>
           </FormControl>
+        </Box>
+
+        {/* Payment + Instructions filters */}
+        <Box sx={{ display: 'flex', gap: 1, mb: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>Pago:</Typography>
+          {[
+            { key: 'all',     label: 'Todos' },
+            { key: 'paid',    label: '✅ Pagado' },
+            { key: 'pending', label: '🔴 Pendiente' },
+          ].map(opt => (
+            <Chip
+              key={opt.key}
+              label={opt.label}
+              size="small"
+              variant={shipmentPaymentFilter === opt.key ? 'filled' : 'outlined'}
+              color={shipmentPaymentFilter === opt.key ? (opt.key === 'paid' ? 'success' : opt.key === 'pending' ? 'error' : 'primary') : 'default'}
+              onClick={() => { setShipmentPaymentFilter(opt.key); setShipmentPage(0); }}
+              sx={{ cursor: 'pointer' }}
+            />
+          ))}
+          <Divider orientation="vertical" flexItem sx={{ mx: 0.5 }} />
+          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>Instrucciones:</Typography>
+          {[
+            { key: 'all', label: 'Todos' },
+            { key: 'yes', label: '✅ Con instrucciones' },
+            { key: 'no',  label: '⚠️ Sin instrucciones' },
+          ].map(opt => (
+            <Chip
+              key={opt.key}
+              label={opt.label}
+              size="small"
+              variant={shipmentInstructionsFilter === opt.key ? 'filled' : 'outlined'}
+              color={shipmentInstructionsFilter === opt.key ? (opt.key === 'yes' ? 'success' : opt.key === 'no' ? 'warning' : 'primary') : 'default'}
+              onClick={() => { setShipmentInstructionsFilter(opt.key); setShipmentPage(0); }}
+              sx={{ cursor: 'pointer' }}
+            />
+          ))}
         </Box>
 
         {shipmentsLoading && <LinearProgress sx={{ mb: 1 }} />}
