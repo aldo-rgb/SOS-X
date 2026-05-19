@@ -1298,6 +1298,21 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             </Box>
                         )}
 
+                        {/* Ruta y monitorista: solo disponibles desde Liberado de aduana */}
+                        {(fclStatus !== 'customs_cleared' && fclStatus !== 'in_transit_clientfinal') ? (
+                            <Box sx={{ mt: 2, p: 2, bgcolor: '#F5F5F5', borderRadius: 2, border: '1px dashed #BDBDBD', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                <Typography sx={{ fontSize: 22 }}>🔒</Typography>
+                                <Box>
+                                    <Typography variant="body2" fontWeight={700} color="text.secondary">
+                                        Información de ruta y monitorista no disponibles
+                                    </Typography>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Solo se puede asignar ruta y monitorista cuando el contenedor está en estado <strong>Liberado de aduana</strong> o <strong>En tránsito a destino</strong>.
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        ) : (<>
+
                         {/* Info de la ruta hacia destino (operador / placas / teléfono) */}
                         {(() => {
                             if (hasPersistedRoute && !editingRoute) {
@@ -1513,6 +1528,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 noOptionsText={monitors.length === 0 ? 'No hay monitoristas activos en el sistema' : 'Sin coincidencias'}
                             />
                         </Box>
+                        </>)}
 
                         {/* Historial de cambios */}
                         <Box sx={{ mt: 3 }}>
