@@ -67,6 +67,7 @@ const resolveSeaReceptionStatusByUser = async (
 // GET /api/admin/china-sea/containers/in-transit
 // ============================================
 export const listInTransitContainers = async (_req: AuthRequest, res: Response): Promise<void> => {
+  const isFcl = String((_req as any).query?.mode || '').toLowerCase() === 'fcl';
   try {
     const result = await pool.query(`
       SELECT
@@ -123,7 +124,7 @@ export const listInTransitContainers = async (_req: AuthRequest, res: Response):
       FROM containers c
       LEFT JOIN maritime_routes mr ON mr.id = c.route_id
       LEFT JOIN users mu ON mu.id = c.monitor_user_id
-      WHERE c.received_at IS NULL
+      WHERE (${isFcl ? "c.status != 'delivered'" : 'c.received_at IS NULL'})
       ORDER BY c.eta ASC NULLS LAST, c.id DESC
     `);
 

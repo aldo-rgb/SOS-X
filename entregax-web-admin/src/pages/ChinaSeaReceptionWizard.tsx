@@ -713,7 +713,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const loadContainers = async () => {
         setLoading(true); setError(null);
         try {
-            const res = await api.get('/admin/china-sea/containers/in-transit');
+            const res = await api.get(`/admin/china-sea/containers/in-transit${mode === 'FCL' ? '?mode=fcl' : ''}`);
             const all: Container[] = res.data.containers || [];
             const filtered = all.filter((c) => {
                 const week = (c.week_number || '').toString().trim();
