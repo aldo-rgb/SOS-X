@@ -173,7 +173,8 @@ import {
   deletePaymentMethod,
   setDefaultPaymentMethod,
   getAdvisorClientAddresses,
-  setAdvisorClientDefaultForService
+  setAdvisorClientDefaultForService,
+  createAdvisorClientAddress
 } from './addressController';
 import {
   getCommissionRates,
@@ -4495,6 +4496,7 @@ app.get('/api/advisor/packages', authenticateToken, getAdvisorPackages);
 app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
 app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWallet);
 app.get('/api/advisor/clients/:clientId/addresses', authenticateToken, getAdvisorClientAddresses);
+app.post('/api/advisor/clients/:clientId/addresses', authenticateToken, createAdvisorClientAddress);
 app.put('/api/advisor/clients/:clientId/addresses/:addressId/default-for-service', authenticateToken, setAdvisorClientDefaultForService);
 app.put('/api/advisor/shipments/:uid/instructions', authenticateToken, assignAdvisorShipmentInstructions);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
@@ -9246,7 +9248,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -9268,6 +9270,11 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['gex_enabled']?.enabled !== false
       : true;
 
+    // advisor_instructions_enabled: controla botón lapiz y edición de instrucciones/direcciones en panel asesor
+    const advisorInstructionsEnabled = byKey['advisor_instructions_enabled'] !== undefined
+      ? byKey['advisor_instructions_enabled']?.enabled !== false
+      : true;
+
     // payments_enabled: legacy (ambos activos si ambos activos)
     const paymentsEnabled = xpayEnabled && entregaxPaymentsEnabled;
 
@@ -9276,9 +9283,10 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       xpay_enabled: xpayEnabled,
       entregax_payments_enabled: entregaxPaymentsEnabled,
       gex_enabled: gexEnabled,
+      advisor_instructions_enabled: advisorInstructionsEnabled,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true });
   }
 });
 
@@ -9362,6 +9370,26 @@ app.post('/api/admin/system/gex-toggle', authenticateToken, requireRole('super_a
   } catch (err: any) {
     console.error('[GEX-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de GEX' });
+  }
+});
+
+// POST /api/admin/system/advisor-instructions-toggle — controla botón de instrucciones/direcciones en panel asesor
+app.post('/api/admin/system/advisor-instructions-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('advisor_instructions_enabled', $1::jsonb, 'Control de asignación de instrucciones y edición de direcciones en panel asesor', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`📋 [ADVISOR-INSTRUCTIONS] ${enabled ? '✅ Habilitado' : '🔴 Deshabilitado'} por user #${userId}`);
+    res.json({ success: true, advisor_instructions_enabled: !!enabled });
+  } catch (err: any) {
+    console.error('[ADVISOR-INSTRUCTIONS-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar estado de instrucciones de asesores' });
   }
 });
 

@@ -92,6 +92,7 @@ import {
   LocalShipping as CarrierIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
+import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
 import AdvisorTermsSignatureDialog from '../components/AdvisorTermsSignatureDialog';
 
@@ -308,6 +309,7 @@ export default function DashboardAdvisor() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const isTablet = useMediaQuery(theme.breakpoints.down('md'));
+  const { advisorInstructionsEnabled } = usePaymentStatus();
 
   // ─── State ───
   const [activeTab, setActiveTab] = useState(0);
@@ -373,6 +375,12 @@ export default function DashboardAdvisor() {
   const [addressCarrierConfig, setAddressCarrierConfig] = useState<Record<string, string>>({});
   const [addressSaving, setAddressSaving] = useState(false);
   const [carriersCache, setCarriersCache] = useState<Record<string, any[]>>({});
+
+  // New address form (advisor adding address for client)
+  const [newAddrOpen, setNewAddrOpen] = useState(false);
+  const [newAddrSaving, setNewAddrSaving] = useState(false);
+  const EMPTY_ADDR = { alias: '', recipientName: '', street: '', exteriorNumber: '', interiorNumber: '', neighborhood: '', city: '', state: '', zipCode: '' };
+  const [newAddrForm, setNewAddrForm] = useState(EMPTY_ADDR);
 
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
@@ -586,6 +594,23 @@ export default function DashboardAdvisor() {
       setSnackbar({ open: true, message: 'Error al guardar', severity: 'error' });
     } finally {
       setAddressSaving(false);
+    }
+  };
+
+  const handleAddAddress = async () => {
+    if (!addressesClient) return;
+    setNewAddrSaving(true);
+    try {
+      await api.post(`/advisor/clients/${addressesClient.id}/addresses`, newAddrForm);
+      const res = await api.get(`/advisor/clients/${addressesClient.id}/addresses`);
+      setClientAddresses(res.data);
+      setNewAddrOpen(false);
+      setNewAddrForm(EMPTY_ADDR);
+      setSnackbar({ open: true, message: 'Dirección agregada correctamente', severity: 'success' });
+    } catch {
+      setSnackbar({ open: true, message: 'Error al agregar dirección', severity: 'error' });
+    } finally {
+      setNewAddrSaving(false);
     }
   };
 
@@ -1458,15 +1483,17 @@ export default function DashboardAdvisor() {
                 />
               )}
             </Typography>
-            <Button
-              size="small"
-              variant="contained"
-              startIcon={<EditIcon />}
-              onClick={() => handleOpenInstrDialog()}
-              sx={{ bgcolor: '#fff', color: '#1565C0', fontWeight: 700, '&:hover': { bgcolor: '#e3f2fd' } }}
-            >
-              Asignar instrucciones
-            </Button>
+            {advisorInstructionsEnabled && (
+              <Button
+                size="small"
+                variant="contained"
+                startIcon={<EditIcon />}
+                onClick={() => handleOpenInstrDialog()}
+                sx={{ bgcolor: '#fff', color: '#1565C0', fontWeight: 700, '&:hover': { bgcolor: '#e3f2fd' } }}
+              >
+                Asignar instrucciones
+              </Button>
+            )}
             <IconButton size="small" onClick={clearSelection} sx={{ color: '#fff' }}>
               <CloseIcon fontSize="small" />
             </IconButton>
@@ -1636,15 +1663,17 @@ export default function DashboardAdvisor() {
                   </TableCell>
                   <TableCell align="center">
                     <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                    <Tooltip title="Asignar instrucciones de entrega">
-                      <IconButton
-                        size="small"
-                        onClick={() => handleOpenInstrDialog(s)}
-                        sx={{ color: s.hasInstructions ? '#2E7D32' : '#E65100' }}
-                      >
-                        <EditIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    {advisorInstructionsEnabled && (
+                      <Tooltip title="Asignar instrucciones de entrega">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleOpenInstrDialog(s)}
+                          sx={{ color: s.hasInstructions ? '#2E7D32' : '#E65100' }}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                     <Tooltip title="Ver detalles">
                       <IconButton
                         size="small"
@@ -3011,16 +3040,18 @@ export default function DashboardAdvisor() {
                             </Box>
                           )}
                         </Box>
-                        <Button
-                          size="small"
-                          variant={isEditing ? 'contained' : 'outlined'}
-                          onClick={() => isEditing ? setEditingAddress(null) : handleEditAddress(addr)}
-                          sx={{ ml: 1, textTransform: 'none', fontSize: '0.7rem',
-                            ...(isEditing ? { bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6a1b9a' } } : { borderColor: '#7B1FA2', color: '#7B1FA2' })
-                          }}
-                        >
-                          {isEditing ? 'Cancelar' : 'Editar'}
-                        </Button>
+                        {advisorInstructionsEnabled && (
+                          <Button
+                            size="small"
+                            variant={isEditing ? 'contained' : 'outlined'}
+                            onClick={() => isEditing ? setEditingAddress(null) : handleEditAddress(addr)}
+                            sx={{ ml: 1, textTransform: 'none', fontSize: '0.7rem',
+                              ...(isEditing ? { bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6a1b9a' } } : { borderColor: '#7B1FA2', color: '#7B1FA2' })
+                            }}
+                          >
+                            {isEditing ? 'Cancelar' : 'Editar'}
+                          </Button>
+                        )}
                       </Box>
 
                       {isEditing && (
@@ -3124,9 +3155,50 @@ export default function DashboardAdvisor() {
             </List>
           )}
         </DialogContent>
-        <DialogActions sx={{ p: 1.5 }}>
+        <DialogActions sx={{ p: 1.5, justifyContent: 'space-between' }}>
+          {advisorInstructionsEnabled ? (
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => { setNewAddrForm(EMPTY_ADDR); setNewAddrOpen(true); }}
+              sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6a1b9a' }, textTransform: 'none' }}
+            >
+              + Agregar dirección
+            </Button>
+          ) : <Box />}
           <Button onClick={() => { setAddressesModalOpen(false); setEditingAddress(null); }} variant="outlined">
             Cerrar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Sub-dialog: Nueva Dirección */}
+      <Dialog open={newAddrOpen} onClose={() => setNewAddrOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#7B1FA2', color: '#fff', display: 'flex', alignItems: 'center', gap: 1 }}>
+          <LocationIcon fontSize="small" /> Nueva dirección — {addressesClient?.name}
+        </DialogTitle>
+        <DialogContent dividers sx={{ pt: 2 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+            <TextField label="Alias" size="small" value={newAddrForm.alias} onChange={e => setNewAddrForm(p => ({ ...p, alias: e.target.value }))} sx={{ gridColumn: '1 / -1' }} />
+            <TextField label="Nombre del destinatario" size="small" value={newAddrForm.recipientName} onChange={e => setNewAddrForm(p => ({ ...p, recipientName: e.target.value }))} sx={{ gridColumn: '1 / -1' }} />
+            <TextField label="Calle *" size="small" value={newAddrForm.street} onChange={e => setNewAddrForm(p => ({ ...p, street: e.target.value }))} sx={{ gridColumn: '1 / -1' }} />
+            <TextField label="No. Exterior *" size="small" value={newAddrForm.exteriorNumber} onChange={e => setNewAddrForm(p => ({ ...p, exteriorNumber: e.target.value }))} />
+            <TextField label="No. Interior" size="small" value={newAddrForm.interiorNumber} onChange={e => setNewAddrForm(p => ({ ...p, interiorNumber: e.target.value }))} />
+            <TextField label="Colonia" size="small" value={newAddrForm.neighborhood} onChange={e => setNewAddrForm(p => ({ ...p, neighborhood: e.target.value }))} sx={{ gridColumn: '1 / -1' }} />
+            <TextField label="Ciudad *" size="small" value={newAddrForm.city} onChange={e => setNewAddrForm(p => ({ ...p, city: e.target.value }))} />
+            <TextField label="Estado *" size="small" value={newAddrForm.state} onChange={e => setNewAddrForm(p => ({ ...p, state: e.target.value }))} />
+            <TextField label="C.P. *" size="small" value={newAddrForm.zipCode} onChange={e => setNewAddrForm(p => ({ ...p, zipCode: e.target.value }))} />
+          </Box>
+        </DialogContent>
+        <DialogActions sx={{ p: 1.5 }}>
+          <Button onClick={() => setNewAddrOpen(false)} variant="outlined">Cancelar</Button>
+          <Button
+            variant="contained"
+            disabled={!newAddrForm.street || !newAddrForm.city || !newAddrForm.state || !newAddrForm.zipCode || newAddrSaving}
+            onClick={handleAddAddress}
+            sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6a1b9a' } }}
+          >
+            {newAddrSaving ? <CircularProgress size={18} color="inherit" /> : 'Guardar dirección'}
           </Button>
         </DialogActions>
       </Dialog>

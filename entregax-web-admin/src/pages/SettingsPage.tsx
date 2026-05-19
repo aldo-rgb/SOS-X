@@ -33,7 +33,7 @@ import CategoryIcon from '@mui/icons-material/Category';
 import PercentIcon from '@mui/icons-material/Percent';
 import PaymentIcon from '@mui/icons-material/Payment';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 
@@ -78,21 +78,24 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [togglingGex, setTogglingGex] = useState(false);
+    const [togglingAdvisorInstr, setTogglingAdvisorInstr] = useState(false);
     // Estado local optimista que se sincroniza con el hook al cargar.
     const [localXpay, setLocalXpay] = useState<boolean | null>(null);
     const [localEntregax, setLocalEntregax] = useState<boolean | null>(null);
     const [localGex, setLocalGex] = useState<boolean | null>(null);
+    const [localAdvisorInstr, setLocalAdvisorInstr] = useState<boolean | null>(null);
     useEffect(() => {
         if (!paymentsStatusLoading) {
             setLocalXpay(xpayEnabled);
             setLocalEntregax(entregaxPaymentsEnabled);
             setLocalGex(gexEnabled);
+            setLocalAdvisorInstr(advisorInstructionsEnabled);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -137,6 +140,21 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar GEX', severity: 'error' });
         } finally {
             setTogglingGex(false);
+        }
+    };
+    const handleToggleAdvisorInstr = async (checked: boolean) => {
+        setTogglingAdvisorInstr(true);
+        const prev = localAdvisorInstr;
+        setLocalAdvisorInstr(checked);
+        try {
+            await toggleAdvisorInstructions(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Instrucciones de asesores ${checked ? 'activadas' : 'desactivadas'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalAdvisorInstr(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
+        } finally {
+            setTogglingAdvisorInstr(false);
         }
     };
 
@@ -377,6 +395,34 @@ export default function SettingsPage() {
                                             />
                                         }
                                         label={togglingGex ? '...' : (localGex ? 'Activado' : 'Desactivado')}
+                                        labelPlacement="start"
+                                        sx={{ m: 0 }}
+                                    />
+                                )}
+                            </Paper>
+
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                        📋 Instrucciones y Direcciones (Panel Asesor)
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Controla si los asesores pueden asignar instrucciones de entrega a envíos, editar direcciones de clientes y agregar nuevas direcciones. Si se desactiva, estos botones desaparecen del panel del asesor.
+                                    </Typography>
+                                </Box>
+                                {paymentsStatusLoading || localAdvisorInstr === null ? (
+                                    <CircularProgress size={20} />
+                                ) : (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={!!localAdvisorInstr}
+                                                onChange={(e) => handleToggleAdvisorInstr(e.target.checked)}
+                                                disabled={togglingAdvisorInstr}
+                                                color="success"
+                                            />
+                                        }
+                                        label={togglingAdvisorInstr ? '...' : (localAdvisorInstr ? 'Activado' : 'Desactivado')}
                                         labelPlacement="start"
                                         sx={{ m: 0 }}
                                     />

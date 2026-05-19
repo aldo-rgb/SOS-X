@@ -14,6 +14,7 @@ interface PaymentStatusCache {
   xpay_enabled: boolean;
   entregax_payments_enabled: boolean;
   gex_enabled: boolean;
+  advisor_instructions_enabled: boolean;
 }
 
 let cached: PaymentStatusCache | null = null;
@@ -25,6 +26,7 @@ const FALLBACK: PaymentStatusCache = {
   xpay_enabled: true,
   entregax_payments_enabled: true,
   gex_enabled: true,
+  advisor_instructions_enabled: true,
 };
 
 export function usePaymentStatus() {
@@ -50,6 +52,7 @@ export function usePaymentStatus() {
             xpay_enabled: data.xpay_enabled !== false,
             entregax_payments_enabled: data.entregax_payments_enabled !== false,
             gex_enabled: data.gex_enabled !== false,
+            advisor_instructions_enabled: data.advisor_instructions_enabled !== false,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -68,6 +71,7 @@ export function usePaymentStatus() {
     xpayEnabled: status.xpay_enabled,
     entregaxPaymentsEnabled: status.entregax_payments_enabled,
     gexEnabled: status.gex_enabled,
+    advisorInstructionsEnabled: status.advisor_instructions_enabled,
     loading,
   };
 }
@@ -93,5 +97,11 @@ export async function toggleEntregaxPayments(enabled: boolean): Promise<void> {
 /** Actualiza el estado de contratación de GEX (solo Super Admin) */
 export async function toggleGEX(enabled: boolean): Promise<void> {
   await api.post('/admin/system/gex-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Controla visibilidad del botón de instrucciones/edición de direcciones en panel asesor (solo Super Admin) */
+export async function toggleAdvisorInstructions(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/advisor-instructions-toggle', { enabled });
   invalidatePaymentStatusCache();
 }

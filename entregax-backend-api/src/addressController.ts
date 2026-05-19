@@ -949,6 +949,39 @@ export const setAdvisorClientDefaultForService = async (req: Request, res: Respo
     }
 };
 
+// ============ CREAR DIRECCIÓN PARA CLIENTE (ASESOR) ============
+export const createAdvisorClientAddress = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const authReq = req as AuthRequest;
+        const advisorId = authReq.user?.userId;
+        if (!advisorId) { res.status(401).json({ error: 'No autenticado' }); return; }
+
+        const clientId = parseInt(String(req.params.clientId));
+        const clientCheck = await pool.query(
+            `SELECT id FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) AND role = 'client'`,
+            [clientId, advisorId]
+        );
+        if (clientCheck.rows.length === 0) { res.status(403).json({ error: 'Cliente no encontrado' }); return; }
+
+        const { alias, recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault } = req.body;
+        if (!street || !city || !state || !zipCode) {
+            res.status(400).json({ error: 'Faltan campos requeridos: street, city, state, zipCode' }); return;
+        }
+        if (isDefault) {
+            await pool.query(`UPDATE addresses SET is_default = FALSE WHERE user_id = $1`, [clientId]);
+        }
+        const result = await pool.query(
+            `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false]
+        );
+        res.status(201).json({ message: 'Dirección creada exitosamente', address: result.rows[0] });
+    } catch (error) {
+        console.error('Error createAdvisorClientAddress:', error);
+        res.status(500).json({ error: 'Error al crear dirección' });
+    }
+};
+
 // ============ ESTABLECER MÉTODO DE PAGO PREDETERMINADO ============
 export const setDefaultPaymentMethod = async (req: Request, res: Response): Promise<void> => {
     try {
