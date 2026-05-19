@@ -53,7 +53,6 @@ import {
   FormGroup,
   List,
   ListItem,
-  ListItemText,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -181,6 +180,11 @@ interface AdvisorShipment {
   widthCm: number;
   heightCm: number;
   description: string;
+  deliveryCarrierName: string | null;
+  deliveryCarrierIcon: string | null;
+  deliveryAddressName: string | null;
+  deliveryAddressCity: string | null;
+  deliveryAddressRecipient: string | null;
 }
 
 interface ShipmentStats {
@@ -652,6 +656,10 @@ export default function DashboardAdvisor() {
 
   const handleSaveInstructions = async () => {
     if (!instrSelectedId) return;
+    if (instrCarriers.length > 0 && !instrCarrierKey) {
+      setSnackbar({ open: true, message: 'Debes seleccionar una paquetería antes de guardar', severity: 'error' });
+      return;
+    }
     setInstrSaving(true);
     try {
       const uids = selectedUids.size > 0 ? Array.from(selectedUids) : instrShipment ? [instrShipment.uid] : [];
@@ -1532,6 +1540,7 @@ export default function DashboardAdvisor() {
                 <TableCell align="right">{t('advisor.amount')}</TableCell>
                 <TableCell align="center">{t('advisor.paid')}</TableCell>
                 <TableCell align="center">Instrucciones</TableCell>
+                <TableCell align="center">Paquetería</TableCell>
                 <TableCell align="center">GEX</TableCell>
                 <TableCell>{t('advisor.date')}</TableCell>
                 <TableCell align="center">Acciones</TableCell>
@@ -1540,7 +1549,7 @@ export default function DashboardAdvisor() {
             <TableBody>
               {shipments.length === 0 && !shipmentsLoading && (
                 <TableRow>
-                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noShipments')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -1636,6 +1645,20 @@ export default function DashboardAdvisor() {
                           <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>No</Typography>
                         </Box>
                       </Tooltip>
+                    )}
+                  </TableCell>
+                  <TableCell align="center">
+                    {s.deliveryCarrierName ? (
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                        {s.deliveryCarrierIcon && (s.deliveryCarrierIcon.startsWith('/') || s.deliveryCarrierIcon.startsWith('http')) ? (
+                          <img src={s.deliveryCarrierIcon} alt={s.deliveryCarrierName} style={{ width: 20, height: 20, objectFit: 'contain' }} />
+                        ) : s.deliveryCarrierIcon ? (
+                          <Typography sx={{ fontSize: 16 }}>{s.deliveryCarrierIcon}</Typography>
+                        ) : null}
+                        <Typography variant="caption" fontWeight={600} sx={{ fontSize: '0.7rem' }}>{s.deliveryCarrierName}</Typography>
+                      </Box>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">—</Typography>
                     )}
                   </TableCell>
                   <TableCell align="center">
@@ -2526,6 +2549,43 @@ export default function DashboardAdvisor() {
                   </Grid>
                 </Paper>
 
+                {/* Instrucciones de entrega */}
+                <Typography variant="overline" color="text.secondary" sx={{ mt: 1 }}>Instrucciones de Entrega</Typography>
+                <Paper variant="outlined" sx={{ p: 2, mb: 2, borderRadius: 2, borderColor: s.hasInstructions ? '#66BB6A' : '#FFB74D', bgcolor: s.hasInstructions ? '#F1F8E9' : '#FFF8F0' }}>
+                  {s.hasInstructions && s.deliveryAddressName ? (
+                    <Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                        <LocationIcon sx={{ fontSize: 18, color: '#F05A28' }} />
+                        <Typography variant="body2" fontWeight={700}>{s.deliveryAddressName}</Typography>
+                      </Box>
+                      {s.deliveryAddressCity && (
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ ml: 3.5 }}>{s.deliveryAddressCity}</Typography>
+                      )}
+                      {s.deliveryAddressRecipient && (
+                        <Typography variant="caption" color="text.secondary" display="block" sx={{ ml: 3.5 }}>Recibe: {s.deliveryAddressRecipient}</Typography>
+                      )}
+                      {s.deliveryCarrierName && (
+                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, mt: 1, ml: 3.5, bgcolor: '#fff', border: '1px solid #e0e0e0', borderRadius: 1.5, px: 1, py: 0.3 }}>
+                          {s.deliveryCarrierIcon && (s.deliveryCarrierIcon.startsWith('/') || s.deliveryCarrierIcon.startsWith('http'))
+                            ? <img src={s.deliveryCarrierIcon} alt={s.deliveryCarrierName} style={{ width: 16, height: 16, objectFit: 'contain' }} />
+                            : s.deliveryCarrierIcon ? <Typography sx={{ fontSize: 14, lineHeight: 1 }}>{s.deliveryCarrierIcon}</Typography> : null}
+                          <Typography variant="caption" fontWeight={600} sx={{ fontSize: '0.72rem' }}>{s.deliveryCarrierName}</Typography>
+                        </Box>
+                      )}
+                    </Box>
+                  ) : s.hasInstructions ? (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <CheckCircleIcon sx={{ fontSize: 18, color: '#2E7D32' }} />
+                      <Typography variant="body2" fontWeight={600} color="#2E7D32">Instrucciones configuradas</Typography>
+                    </Box>
+                  ) : (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <WarningIcon sx={{ fontSize: 18, color: '#E65100' }} />
+                      <Typography variant="body2" fontWeight={600} color="#E65100">Sin instrucciones de entrega</Typography>
+                    </Box>
+                  )}
+                </Paper>
+
                 {/* Client info */}
                 <Typography variant="overline" color="text.secondary">Información del Cliente</Typography>
                 <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
@@ -2972,7 +3032,7 @@ export default function DashboardAdvisor() {
           <Button onClick={() => setInstrDialogOpen(false)} variant="outlined">Cancelar</Button>
           <Button
             variant="contained"
-            disabled={!instrSelectedId || instrSaving}
+            disabled={!instrSelectedId || instrSaving || (instrCarriers.length > 0 && !instrCarrierKey)}
             onClick={handleSaveInstructions}
             sx={{ bgcolor: '#E65100', '&:hover': { bgcolor: '#bf360c' } }}
           >
@@ -3026,7 +3086,7 @@ export default function DashboardAdvisor() {
                           </Typography>
                           {services.length > 0 && !isEditing && (
                             <Box sx={{ display: 'flex', gap: 0.5, mt: 0.5, flexWrap: 'wrap' }}>
-                              {services.map(svc => {
+                              {services.map((svc: string) => {
                                 const found = SERVICE_LIST.find(s => s.value === svc);
                                 return (
                                   <Chip

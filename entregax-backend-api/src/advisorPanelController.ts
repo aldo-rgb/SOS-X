@@ -406,7 +406,24 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         COALESCE(p.pkg_length, 0) as length_cm,
         COALESCE(p.pkg_width, 0) as width_cm,
         COALESCE(p.pkg_height, 0) as height_cm,
-        p.description as description
+        p.description as description,
+        (SELECT cso.name FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key =
+          CASE p.service_type::text
+            WHEN 'AIR_CHN_MX' THEN addr.carrier_config->>'china_air'
+            WHEN 'POBOX_USA'   THEN addr.carrier_config->>'usa_pobox'
+            WHEN 'TDI_EXPRESS' THEN addr.carrier_config->>'tdi_express'
+            ELSE NULL END
+         WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_carrier_name,
+        (SELECT cso.icon FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key =
+          CASE p.service_type::text
+            WHEN 'AIR_CHN_MX' THEN addr.carrier_config->>'china_air'
+            WHEN 'POBOX_USA'   THEN addr.carrier_config->>'usa_pobox'
+            WHEN 'TDI_EXPRESS' THEN addr.carrier_config->>'tdi_express'
+            ELSE NULL END
+         WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_carrier_icon,
+        (SELECT addr.alias FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_name,
+        (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_city,
+        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_recipient
       FROM packages p
       JOIN users u ON p.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client' AND p.master_id IS NULL
@@ -431,7 +448,14 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         0 as length_cm,
         0 as width_cm,
         0 as height_cm,
-        mo.goods_name as description
+        mo.goods_name as description,
+        (SELECT cso.name FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key = addr.carrier_config->>'china_sea'
+         WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_carrier_name,
+        (SELECT cso.icon FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key = addr.carrier_config->>'china_sea'
+         WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_carrier_icon,
+        (SELECT addr.alias FROM addresses addr WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_address_name,
+        (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_address_city,
+        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_address_recipient
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -456,7 +480,14 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         COALESCE(ds.length_cm, 0) as length_cm,
         COALESCE(ds.width_cm, 0) as width_cm,
         COALESCE(ds.height_cm, 0) as height_cm,
-        ds.description as description
+        ds.description as description,
+        (SELECT cso.name FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key = addr.carrier_config->>'dhl'
+         WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_carrier_name,
+        (SELECT cso.icon FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key = addr.carrier_config->>'dhl'
+         WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_carrier_icon,
+        (SELECT addr.alias FROM addresses addr WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_address_name,
+        (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_address_city,
+        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_address_recipient
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -578,6 +609,11 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         widthCm: parseFloat(s.width_cm) || 0,
         heightCm: parseFloat(s.height_cm) || 0,
         description: s.description || '',
+        deliveryCarrierName: s.delivery_carrier_name || null,
+        deliveryCarrierIcon: s.delivery_carrier_icon || null,
+        deliveryAddressName: s.delivery_address_name || null,
+        deliveryAddressCity: s.delivery_address_city || null,
+        deliveryAddressRecipient: s.delivery_address_recipient || null,
       })),
       stats: {
         total: parseInt(statsRes.rows[0]?.total) || 0,
