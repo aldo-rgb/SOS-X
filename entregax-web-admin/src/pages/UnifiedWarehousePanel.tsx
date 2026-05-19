@@ -310,6 +310,7 @@ const formatAddress = (a?: Address | null): string => {
 const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) => {
   const navigate = useNavigate();
   const [barcode, setBarcode] = useState('');
+  const [lastSearched, setLastSearched] = useState('');
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<ShipmentResponse['shipment'] | null>(null);
@@ -356,6 +357,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
     const tracking = normalizeBarcode(barcode);
     if (!tracking) return;
 
+    setLastSearched(tracking);
     setSearching(true);
     setError(null);
     setData(null);
@@ -579,14 +581,21 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                     </Typography>
                     <Stack direction="row" alignItems="center" spacing={1}>
                       <Typography variant="h4" fontWeight="bold" sx={{ wordBreak: 'break-all' }}>
-                        {m.tracking}
+                        {lastSearched && lastSearched.toUpperCase() !== m.tracking?.toUpperCase()
+                          ? lastSearched
+                          : m.tracking}
                       </Typography>
                       <Tooltip title="Copiar">
-                        <Button size="small" onClick={() => copy(m.tracking)} sx={{ minWidth: 0 }}>
+                        <Button size="small" onClick={() => copy(lastSearched || m.tracking)} sx={{ minWidth: 0 }}>
                           <CopyIcon fontSize="small" />
                         </Button>
                       </Tooltip>
                     </Stack>
+                    {lastSearched && lastSearched.toUpperCase() !== m.tracking?.toUpperCase() && (
+                      <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                        Interno: {m.tracking}
+                      </Typography>
+                    )}
                     {m.description && (
                       <Typography variant="body2" color="text.secondary">
                         {m.description}
