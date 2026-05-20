@@ -111,6 +111,38 @@ export default function DashboardBranchManager() {
   /* eslint-enable @typescript-eslint/no-explicit-any */
   const [abandonoOpen, setAbandonoOpen] = useState(false);
 
+  // Tickets de soporte de la sucursal
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const [branchTickets, setBranchTickets] = useState<any[]>([]);
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  const [branchSupportDept, setBranchSupportDept] = useState<string>('');
+  const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
+
+  const getCedisDeptName = (code: string, name: string): string => {
+    const c = code.toUpperCase();
+    const n = name.toUpperCase();
+    if (c === 'MTY' || n.includes('MTY') || n.includes('MONTERREY')) return 'CEDIS MTY';
+    if (c === 'CDMX' || n.includes('CDMX') || n.includes('CIUDAD DE MEXICO')) return 'CEDIS CDMX';
+    if (c === 'TX' || c === 'USA' || n.includes('HIDALGO') || n.includes(' TX') || n.includes('USA')) return 'CEDIS USA';
+    return '';
+  };
+
+  const loadBranchTickets = async (branchCode: string, branchName: string) => {
+    const deptName = getCedisDeptName(branchCode, branchName);
+    if (!deptName) return;
+    setBranchSupportDept(deptName);
+    try {
+      const deptsRes = await api.get('/support/departments');
+      const dept = (deptsRes.data || []).find((d: any) => d.name === deptName);
+      if (!dept) return;
+      const res = await api.get(`/admin/support/tickets?limit=50&department_id=${dept.id}`);
+      const open = (res.data || []).filter((t: any) => t.status !== 'resolved' && t.status !== 'closed');
+      setBranchTickets(open);
+    } catch {
+      // silencioso: usuario sin acceso o sin tickets
+    }
+  };
+
   useEffect(() => {
     loadData();
     loadDelayedCount();
@@ -125,6 +157,7 @@ export default function DashboardBranchManager() {
     const iv = setInterval(() => {
       loadDelayedCount();
       loadPendingVerifications();
+      if (stats?.sucursal) loadBranchTickets(stats.sucursal.codigo, stats.sucursal.nombre);
       loadAbandonosListos();
     }, 60000);
     return () => clearInterval(iv);
@@ -239,6 +272,7 @@ export default function DashboardBranchManager() {
       const response = await api.get('/dashboard/branch-manager');
       if (response.data) {
         setStats(response.data);
+        loadBranchTickets(response.data.sucursal?.codigo || '', response.data.sucursal?.nombre || '');
       }
     } catch (error) {
       console.error('Error cargando dashboard:', error);
@@ -990,6 +1024,108 @@ export default function DashboardBranchManager() {
         </DialogTitle>
         <DialogContent sx={{ p: 0 }}>
           <DelayedPackagesPage hideActions service={delayedService} />
+        </DialogContent>
+      </Dialog>
+
+      {/* === Sección: Soporte de Sucursal === */}
+      {branchSupportDept && (
+        <>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5, mt: 1 }}>
+            <Box sx={{ width: 4, height: 18, bgcolor: '#2196F3', borderRadius: 1 }} />
+            <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9rem', letterSpacing: 0.2, textTransform: 'uppercase' }}>
+              Soporte — {branchSupportDept}
+            </Typography>
+            <Divider sx={{ flex: 1, ml: 1, borderColor: '#E5E7EB' }} />
+          </Stack>
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
+              <Paper
+                onClick={() => setTicketDialogOpen(true)}
+                elevation={0}
+                sx={{
+                  p: 2.25,
+                  bgcolor: branchTickets.length > 0 ? '#EFF6FF' : '#fff',
+                  border: branchTickets.length > 0 ? '1px solid #93C5FD' : '1px solid #E5E7EB',
+                  borderRadius: 2,
+                  cursor: 'pointer',
+                  transition: 'box-shadow .18s, transform .18s',
+                  boxShadow: branchTickets.length > 0 ? '0 4px 14px rgba(33,150,243,0.12)' : '0 1px 2px rgba(15,23,42,0.04)',
+                  '&:hover': { boxShadow: '0 6px 18px rgba(33,150,243,0.18)', transform: 'translateY(-1px)' },
+                  animation: branchTickets.length > 0 ? 'pulseBlue 2.5s ease-in-out infinite' : 'none',
+                  '@keyframes pulseBlue': {
+                    '0%,100%': { boxShadow: '0 4px 14px rgba(33,150,243,0.12)' },
+                    '50%': { boxShadow: '0 4px 22px rgba(33,150,243,0.28)' },
+                  },
+                }}
+              >
+                <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                  <Box>
+                    <Typography variant="caption" sx={{ color: '#64748B', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase', fontSize: '0.7rem' }}>
+                      Tickets Abiertos
+                    </Typography>
+                    <Typography sx={{ color: branchTickets.length > 0 ? '#1D4ED8' : '#0F172A', fontWeight: 700, fontSize: '2rem', lineHeight: 1.1, mt: 0.5 }}>
+                      {branchTickets.length}
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mt: 0.5 }}>
+                      {branchTickets.length === 0 ? 'sin tickets pendientes' : branchTickets.length === 1 ? 'ticket pendiente' : 'tickets pendientes'}
+                    </Typography>
+                  </Box>
+                  <Badge badgeContent={branchTickets.length} color="primary" invisible={branchTickets.length === 0}
+                    sx={{ '& .MuiBadge-badge': { fontWeight: 700 } }}>
+                    <Box sx={{ width: 38, height: 38, borderRadius: 1.5, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      bgcolor: branchTickets.length > 0 ? '#DBEAFE' : '#F1F5F9', color: branchTickets.length > 0 ? '#1D4ED8' : '#0F172A' }}>
+                      <HeadsetIcon sx={{ fontSize: 22 }} />
+                    </Box>
+                  </Badge>
+                </Stack>
+                {branchTickets.length > 0 && (
+                  <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 1.25 }}>
+                    <ArrowForwardIcon sx={{ fontSize: 14, color: '#2563EB' }} />
+                    <Typography variant="caption" sx={{ color: '#2563EB', fontWeight: 600 }}>Ver tickets</Typography>
+                  </Stack>
+                )}
+              </Paper>
+            </Grid>
+          </Grid>
+        </>
+      )}
+
+      {/* Modal: Tickets de soporte de la sucursal */}
+      <Dialog open={ticketDialogOpen} onClose={() => setTicketDialogOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 2 } }}>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          background: 'linear-gradient(135deg, #1D4ED8 0%, #2563EB 100%)', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <HeadsetIcon />
+            <Typography variant="h6" fontWeight={700}>
+              Tickets — {branchSupportDept} · {branchTickets.length} abierto{branchTickets.length !== 1 ? 's' : ''}
+            </Typography>
+          </Box>
+          <IconButton onClick={() => setTicketDialogOpen(false)} sx={{ color: 'white' }}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 2 }}>
+          {branchTickets.length === 0 ? (
+            <Typography color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>No hay tickets pendientes.</Typography>
+          ) : (
+            branchTickets.map((t: any) => (
+              <Paper key={t.id} elevation={0} sx={{ p: 2, mb: 1.5, border: '1px solid #E5E7EB', borderRadius: 2,
+                borderLeft: `4px solid ${t.category === 'urgent' ? '#DC2626' : '#2563EB'}` }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                    <Typography sx={{ fontWeight: 700, fontSize: 14, color: '#0F172A' }}>{t.subject}</Typography>
+                    <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 0.25 }}>
+                      {t.ticket_folio} · {t.full_name}{t.client_box_id ? ` · #${t.client_box_id}` : ''}{t.phone ? ` · ${t.phone}` : ''}
+                    </Typography>
+                    {t.last_message_preview && (
+                      <Typography variant="caption" sx={{ color: '#94A3B8', display: 'block', mt: 0.25, fontStyle: 'italic' }}>
+                        "{t.last_message_preview}"
+                      </Typography>
+                    )}
+                  </Box>
+                  <Chip size="small" label={t.category || 'general'} sx={{ bgcolor: '#EFF6FF', color: '#1D4ED8', fontWeight: 600, fontSize: 11 }} />
+                </Stack>
+              </Paper>
+            ))
+          )}
         </DialogContent>
       </Dialog>
 
