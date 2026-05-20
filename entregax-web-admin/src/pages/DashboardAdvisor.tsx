@@ -343,7 +343,7 @@ export default function DashboardAdvisor() {
   // Shipments tab
   const [shipments, setShipments] = useState<AdvisorShipment[]>([]);
   const [shipmentsTotal, setShipmentsTotal] = useState(0);
-  const [shipmentStats, setShipmentStats] = useState<ShipmentStats | null>(null);
+  const [_shipmentStats, setShipmentStats] = useState<ShipmentStats | null>(null);
   const [shipmentsLoading, setShipmentsLoading] = useState(false);
   const [shipmentSearch, setShipmentSearch] = useState('');
   const [shipmentFilter, setShipmentFilter] = useState<string>('all');

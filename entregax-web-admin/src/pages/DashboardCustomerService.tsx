@@ -24,8 +24,6 @@ import {
 } from '@mui/material';
 import {
   Chat as ChatIcon,
-  Email as EmailIcon,
-  Phone as PhoneIcon,
   WhatsApp as WhatsAppIcon,
   Person as PersonIcon,
   LocalShipping as ShippingIcon,
@@ -33,7 +31,6 @@ import {
   AccessTime as AccessTimeIcon,
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
-  TrendingUp as TrendingUpIcon,
   Assignment as AssignmentIcon,
   FiberNew as NewIcon,
 } from '@mui/icons-material';
