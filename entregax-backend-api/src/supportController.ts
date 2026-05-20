@@ -596,11 +596,13 @@ export const getAdminTicketMessages = async (req: Request, res: Response): Promi
   try {
     const { id } = req.params;
     const result = await pool.query(
-      `SELECT id, sender_type, message, attachment_url, attachments, created_at,
-              COALESCE(is_internal, FALSE) as is_internal
-       FROM ticket_messages
-       WHERE ticket_id = $1
-       ORDER BY created_at ASC`,
+      `SELECT tm.id, tm.sender_type, tm.message, tm.attachment_url, tm.attachments, tm.created_at,
+              COALESCE(tm.is_internal, FALSE) as is_internal,
+              u.full_name as sender_name
+       FROM ticket_messages tm
+       LEFT JOIN users u ON u.id = tm.sender_id
+       WHERE tm.ticket_id = $1
+       ORDER BY tm.created_at ASC`,
       [id]
     );
     res.json(result.rows);
@@ -777,8 +779,8 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
 
     // Guardar mensaje del agente
     await pool.query(
-      `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, $3)`,
-      [id, message, isInternal]
+      `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, is_internal) VALUES ($1, 'agent', $2, $3, $4)`,
+      [id, agentId, message, isInternal]
     );
 
     // Solo cambiar status a waiting_client si el mensaje es visible al cliente
@@ -867,6 +869,8 @@ export const ensureDepartmentsSchema = async () => {
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS creator_type VARCHAR(20) DEFAULT 'client'`);
     // Mensajes internos: solo visibles para agentes, no para el cliente
     await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN DEFAULT FALSE`);
+    // Quién envió el mensaje (para agentes)
+    await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS sender_id INT REFERENCES users(id)`);
     // Reasignar tickets que apuntan a IDs duplicados → conservar MIN(id) por nombre
     await pool.query(`
       UPDATE support_tickets

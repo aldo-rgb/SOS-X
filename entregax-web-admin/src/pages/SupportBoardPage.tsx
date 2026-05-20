@@ -88,6 +88,7 @@ interface SupportTicket {
 interface TicketMessage {
   id: number;
   sender_type: 'client' | 'ai' | 'agent';
+  sender_name?: string;
   message: string;
   attachment_url?: string;
   attachments?: string[] | string | null;
@@ -551,7 +552,7 @@ export default function SupportBoardPage() {
                         {msg.sender_type === 'client' && <PersonIcon fontSize="small" color="action" />}
                         {msg.sender_type === 'agent' && <AgentIcon fontSize="small" sx={{ color: msg.is_internal ? '#F9A825' : '#4caf50' }} />}
                         <Typography variant="caption" color="text.secondary">
-                          {msg.sender_type === 'client' ? 'Cliente' : msg.sender_type === 'ai' ? 'IA' : 'Agente'} ·{' '}
+                          {msg.sender_type === 'client' ? 'Cliente' : msg.sender_type === 'ai' ? 'IA' : (msg.sender_name || 'Agente')} ·{' '}
                           {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
                         </Typography>
                         {msg.is_internal && (
