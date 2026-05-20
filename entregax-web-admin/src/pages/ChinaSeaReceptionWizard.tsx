@@ -211,6 +211,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         notes: string | null;
         changed_by_name: string | null;
         changed_at: string;
+        change_type?: string | null;
     };
     const [history, setHistory] = useState<HistoryEntry[]>([]);
     const [loadingHistory, setLoadingHistory] = useState(false);
@@ -752,12 +753,14 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setDriverPlates(dp);
             setDriverPhone(dph);
             setDriverCompany(dc);
-            setHasPersistedRoute(!!(dn || dp || dph || dc));
+            const hasPersisted = !!(dn || dp || dph || dc);
+            setHasPersistedRoute(hasPersisted);
             const initialMonitor = (c as any).monitor_user_id || null;
             setMonitorUserId(initialMonitor);
             setOriginalMonitorUserId(initialMonitor);
             setDriverNotes('');
-            setEditingRoute(false);
+            // Sin ruta previa → modo edición activo de entrada para poder guardar
+            setEditingRoute(!hasPersisted);
             setTruckMode('sencillo');
             setSecondContainerId(null);
             // Preseleccionar el status actual del contenedor para no “avanzarlo”
@@ -1608,15 +1611,18 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                     {augmented.map((h) => {
                                                         const meta = FCL_STATUSES.find((s) => s.value === h.new_status);
                                                         const isMonitoringStart = !!h.notes && /Monitoreo\s*iniciado/i.test(h.notes);
-                                                        // Solo es fila de entrega si pasó a 'delivered' Y no es una nota de inicio de monitoreo
                                                         const isDelivery = h.new_status === 'delivered' && !isMonitoringStart;
+                                                        const isRoute = h.change_type === 'route';
+                                                        const isMonitorChange = h.change_type === 'monitor';
+                                                        const entryIcon = isMonitoringStart ? '📸' : isRoute ? '🚛' : isMonitorChange ? '👁️' : (meta?.icon || '·');
+                                                        const entryLabel = isMonitoringStart ? 'Inicio de monitoreo' : isRoute ? 'Asignación de operador' : isMonitorChange ? 'Asignación de monitorista' : (meta?.label || h.new_status);
                                                         return (
                                                             <ListItem key={h.id} sx={{ borderBottom: '1px solid #eee', alignItems: 'flex-start' }}>
                                                                 <ListItemText
                                                                     primary={
                                                                         <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
                                                                             <Typography sx={{ fontWeight: 700 }}>
-                                                                                {isMonitoringStart ? '📸' : (meta?.icon || '·')} {isMonitoringStart ? 'Inicio de monitoreo' : (meta?.label || h.new_status)}
+                                                                                {entryIcon} {entryLabel}
                                                                             </Typography>
                                                                             <Chip
                                                                                 label={new Date(h.changed_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}
