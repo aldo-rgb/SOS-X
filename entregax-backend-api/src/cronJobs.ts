@@ -358,11 +358,17 @@ export const startDriverLicenseCheckCron = () => {
             'id-card'
           ]);
           
-          // Notificar a admins
+          // Notificar solo a admins de la misma sucursal del repartidor (+ super_admin global)
           const admins = await pool.query(`
-            SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'branch_manager')
-          `);
-          
+            SELECT u.id FROM users u
+            WHERE u.role IN ('super_admin', 'admin')
+            UNION
+            SELECT u.id FROM users u
+            WHERE u.role IN ('branch_manager', 'operaciones', 'Operaciones')
+              AND u.branch_id = (SELECT branch_id FROM users WHERE id = $1)
+              AND u.branch_id IS NOT NULL
+          `, [driver.id]);
+
           for (const admin of admins.rows) {
             await pool.query(`
               INSERT INTO notifications (user_id, title, message, type, icon, data)

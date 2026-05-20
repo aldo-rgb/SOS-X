@@ -237,17 +237,37 @@ export default function SupportBoardPage() {
   })();
   const defaultDeptSet = useRef(false);
 
+  // Para usuarios operaciones: detectar su sucursal CEDIS desde el perfil
+  const currentUserCedisDept: string = (() => {
+    try {
+      const u = JSON.parse(localStorage.getItem('user') || '{}');
+      const code = String(u.branch_code || '').toUpperCase();
+      const name = String(u.branch_name || '').toUpperCase();
+      if (code === 'MTY' || name.includes('MTY') || name.includes('MONTERREY')) return 'CEDIS MTY';
+      if (code === 'CDMX' || name.includes('CDMX')) return 'CEDIS CDMX';
+      if (code === 'TX' || code === 'USA' || name.includes('HIDALGO') || name.includes(' TX') || name.includes('USA')) return 'CEDIS USA';
+      return '';
+    } catch { return ''; }
+  })();
+
+  const isOperaciones = currentUserRole === 'operaciones' || currentUserRole === 'Operaciones';
+
   // Reglas de visibilidad por nombre de departamento
   const DEPT_ALLOWED_ROLES: Record<string, string[]> = {
     'Dirección':         ['super_admin', 'admin', 'director'],
     'Contabilidad':      ['super_admin', 'admin', 'accountant'],
     'Soporte Técnico':   ['super_admin', 'admin', 'customer_service', 'counter_staff'],
     'Atención a Cliente':['super_admin', 'admin', 'customer_service', 'counter_staff'],
+    'CEDIS MTY':         ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones'],
+    'CEDIS CDMX':        ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones'],
+    'CEDIS USA':         ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones'],
   };
 
   const canSeeDept = (deptName: string): boolean => {
+    // Operaciones solo ve su propio CEDIS
+    if (isOperaciones) return currentUserCedisDept !== '' && deptName === currentUserCedisDept;
     const allowed = DEPT_ALLOWED_ROLES[deptName];
-    if (!allowed) return true; // departamentos sin regla → todos los ven
+    if (!allowed) return true;
     return allowed.includes(currentUserRole);
   };
 

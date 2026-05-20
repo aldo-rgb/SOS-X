@@ -1037,6 +1037,53 @@ export const transferTicket = async (req: Request, res: Response): Promise<any> 
       );
     }
 
+    // Si el destino es un CEDIS, notificar a usuarios operaciones de esa sucursal
+    if (deptName.startsWith('CEDIS')) {
+      try {
+        // Mapear nombre CEDIS → código de sucursal
+        const cedisBranchCode =
+          deptName === 'CEDIS MTY'  ? 'MTY'  :
+          deptName === 'CEDIS CDMX' ? 'CDMX' :
+          deptName === 'CEDIS USA'  ? 'TX'   : null;
+
+        let recipients: any[] = [];
+        if (cedisBranchCode) {
+          const r = await pool.query(
+            `SELECT u.id FROM users u
+             JOIN branches b ON b.id = u.branch_id
+             WHERE u.role IN ('operaciones', 'Operaciones', 'branch_manager', 'admin', 'super_admin')
+               AND (b.code = $1 OR u.role IN ('admin', 'super_admin'))`,
+            [cedisBranchCode]
+          );
+          recipients = r.rows;
+        } else {
+          const r = await pool.query(`SELECT id FROM users WHERE role IN ('admin', 'super_admin')`);
+          recipients = r.rows;
+        }
+
+        const ticketRow = await pool.query(
+          `SELECT subject, ticket_folio FROM support_tickets WHERE id = $1`, [id]
+        );
+        const subject = ticketRow.rows[0]?.subject || '';
+        const folio = ticketRow.rows[0]?.ticket_folio || `#${id}`;
+
+        const { createCustomNotification } = await import('./notificationController');
+        for (const rec of recipients) {
+          await createCustomNotification(
+            rec.id,
+            `🎫 Nuevo ticket en ${deptName}`,
+            `${folio}: "${subject}"`,
+            'info',
+            'headset',
+            { ticketId: Number(id), folio },
+            '/support'
+          );
+        }
+      } catch (notifErr) {
+        console.warn('[SUPPORT] Error notificando transferencia CEDIS:', notifErr);
+      }
+    }
+
     res.json({ success: true, message: 'Ticket transferido' });
   } catch (error) {
     console.error('Error transfiriendo ticket:', error);

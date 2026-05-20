@@ -691,13 +691,15 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
                     u.is_verified, u.verification_status, u.is_employee_onboarded, u.profile_photo_url,
                     u.phone, u.phone_verified, u.rfc, u.referred_by_id, u.privacy_accepted_at,
                     u.gex_auto_enabled,
-                    u.advisor_id,
+                    u.advisor_id, u.branch_id,
+                    b.name as branch_name, b.code as branch_code,
                     a.full_name as advisor_name,
                     a.phone as advisor_phone,
                     a.email as advisor_email,
                     a.profile_photo_url as advisor_photo
              FROM users u
              LEFT JOIN users a ON u.advisor_id = a.id
+             LEFT JOIN branches b ON b.id = u.branch_id
              WHERE u.id = $1`,
             [userId]
         );
