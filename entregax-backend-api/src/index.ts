@@ -569,6 +569,7 @@ import {
   uploadSupportImages,
   uploadAdminReplyFiles,
   aiEnhanceMessage,
+  aiTranslateMessage,
   validateTracking,
   submitBoxIdClaim,
   uploadBoxIdClaimFiles,
@@ -4598,6 +4599,9 @@ app.post('/api/admin/support/ticket/:id/reply', authenticateToken, requireMinLev
 
 // Admin: Mejorar mensaje con IA
 app.post('/api/support/ai-enhance', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), aiEnhanceMessage);
+
+// Traducción bajo demanda (agente o cliente autenticado)
+app.post('/api/support/ai-translate', authenticateToken, aiTranslateMessage);
 
 // Admin: Resolver ticket
 app.put('/api/admin/support/ticket/:id/resolve', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resolveTicket);

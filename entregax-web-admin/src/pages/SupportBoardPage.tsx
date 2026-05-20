@@ -174,6 +174,11 @@ export default function SupportBoardPage() {
   const [enhancing, setEnhancing] = useState(false);
   const [originalText, setOriginalText] = useState<string | null>(null);
 
+  // Traducción bajo demanda — caché en memoria: msgId → translated text
+  const [translations, setTranslations] = useState<Record<number, string>>({});
+  const [translatingId, setTranslatingId] = useState<number | null>(null);
+  const [showTranslated, setShowTranslated] = useState<Record<number, boolean>>({});
+
   const token = localStorage.getItem('token');
   const currentUserRole: string = (() => {
     try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; }
@@ -301,6 +306,30 @@ export default function SupportBoardPage() {
       }
     } catch { /* silencioso */ }
     finally { setEnhancing(false); }
+  };
+
+  const handleTranslate = async (msgId: number, text: string) => {
+    // Si ya hay traducción cacheada, solo alternar visibilidad
+    if (translations[msgId]) {
+      setShowTranslated(prev => ({ ...prev, [msgId]: !prev[msgId] }));
+      return;
+    }
+    setTranslatingId(msgId);
+    try {
+      const res = await fetch(`${API_URL}/support/ai-translate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text, targetLang: 'es' }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.translated) {
+          setTranslations(prev => ({ ...prev, [msgId]: data.translated }));
+          setShowTranslated(prev => ({ ...prev, [msgId]: true }));
+        }
+      }
+    } catch { /* silencioso */ }
+    finally { setTranslatingId(null); }
   };
 
   const handleResolveTicket = async () => {
@@ -627,9 +656,15 @@ export default function SupportBoardPage() {
                           <Chip label="🔒 Interno" size="small" sx={{ fontSize: 10, height: 18, bgcolor: '#FFF8E1', color: '#F57F17', border: '1px solid #F9A825' }} />
                         )}
                       </Box>
+                      {/* Texto: original o traducción cacheada */}
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                        {msg.message}
+                        {showTranslated[msg.id] && translations[msg.id] ? translations[msg.id] : msg.message}
                       </Typography>
+                      {showTranslated[msg.id] && translations[msg.id] && (
+                        <Typography variant="caption" sx={{ color: '#9C27B0', fontStyle: 'italic', display: 'block', mt: 0.3 }}>
+                          🌐 Traducido al español · <span style={{ textDecoration: 'underline', cursor: 'pointer' }} onClick={() => setShowTranslated(prev => ({ ...prev, [msg.id]: false }))}>ver original</span>
+                        </Typography>
+                      )}
                       {(() => {
                         let urls: string[] = [];
                         if (Array.isArray(msg.attachments)) urls = msg.attachments as string[];
@@ -658,6 +693,22 @@ export default function SupportBoardPage() {
                           </Box>
                         );
                       })()}
+                      {/* Botón traducir — solo si el mensaje tiene texto */}
+                      {msg.message && !showTranslated[msg.id] && (
+                        <Box
+                          component="span"
+                          onClick={() => translatingId !== msg.id && handleTranslate(msg.id, msg.message)}
+                          sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.4, mt: 0.8, cursor: 'pointer', color: '#9C27B0', opacity: 0.7, fontSize: 11, '&:hover': { opacity: 1 } }}
+                        >
+                          {translatingId === msg.id
+                            ? <CircularProgress size={10} sx={{ color: '#9C27B0' }} />
+                            : <Typography variant="caption" sx={{ fontSize: 11 }}>A/文</Typography>
+                          }
+                          <Typography variant="caption" sx={{ fontSize: 11 }}>
+                            {translatingId === msg.id ? 'Traduciendo...' : 'Traducir'}
+                          </Typography>
+                        </Box>
+                      )}
                     </Box>
                   </Box>
                 ))}

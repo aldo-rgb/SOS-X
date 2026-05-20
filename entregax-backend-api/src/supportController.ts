@@ -1331,3 +1331,66 @@ Reglas de Redacción:
     res.status(500).json({ error: 'Error interno' });
   }
 };
+
+/**
+ * POST /api/support/ai-translate
+ * Traduce un mensaje bajo demanda. El texto original nunca se modifica en DB.
+ * Body: { text: string, targetLang?: string }  (targetLang default: "es")
+ */
+export const aiTranslateMessage = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { text, targetLang = 'es' } = req.body;
+    if (!text || typeof text !== 'string' || text.trim().length < 2) {
+      return res.status(400).json({ error: 'Texto requerido' });
+    }
+
+    if (!OPENAI_API_KEY) {
+      return res.status(503).json({ error: 'Servicio de IA no configurado' });
+    }
+
+    const langNames: Record<string, string> = {
+      es: 'Spanish (Mexican)',
+      en: 'English',
+      zh: 'Chinese (Simplified)',
+      pt: 'Portuguese',
+      fr: 'French',
+    };
+    const targetName = langNames[targetLang] || targetLang;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a professional translator for a logistics customer support platform. Translate the following message to ${targetName}. Output ONLY the translated text — no explanations, no quotes, no preamble.`,
+          },
+          { role: 'user', content: text.trim() },
+        ],
+        max_tokens: 600,
+        temperature: 0.1,
+      }),
+    });
+
+    if (!response.ok) {
+      return res.status(502).json({ error: 'Error al contactar servicio de traducción' });
+    }
+
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const translated = data?.choices?.[0]?.message?.content?.trim() || '';
+
+    if (!translated) {
+      return res.status(502).json({ error: 'La IA no devolvió traducción' });
+    }
+
+    res.json({ success: true, translated, targetLang });
+  } catch (error) {
+    console.error('Error aiTranslateMessage:', error);
+    res.status(500).json({ error: 'Error interno' });
+  }
+};
