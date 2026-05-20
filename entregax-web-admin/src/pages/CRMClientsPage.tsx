@@ -35,6 +35,7 @@ import {
   RadioGroup,
   Radio,
   FormControlLabel,
+  Autocomplete,
   type SelectChangeEvent,
 } from '@mui/material';
 import Grid from '@mui/material/Grid';
@@ -80,6 +81,7 @@ interface Advisor {
   id: number;
   full_name: string;
   email: string;
+  box_id?: string;
   total_clients?: number;
 }
 
@@ -816,19 +818,36 @@ export default function CRMClientsPage() {
           <Typography variant="body2" color="text.secondary">{selectedClient?.full_name}</Typography>
         </DialogTitle>
         <DialogContent dividers>
-          <FormControl fullWidth sx={{ mt: 1 }}>
-            <InputLabel>Asesor</InputLabel>
-            <Select
-              value={newAdvisorId}
-              label="Asesor"
-              onChange={(e: SelectChangeEvent) => setNewAdvisorId(e.target.value)}
-            >
-              <MenuItem value="">Sin asesor</MenuItem>
-              {advisors.map(a => (
-                <MenuItem key={a.id} value={String(a.id)}>{a.full_name}</MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <Autocomplete
+            sx={{ mt: 1 }}
+            options={[{ id: 0, full_name: 'Sin asesor', email: '', box_id: '' } as Advisor, ...advisors]}
+            getOptionLabel={(a) => a.id === 0 ? 'Sin asesor' : `${a.full_name}${a.box_id ? ` (${a.box_id})` : ''}`}
+            filterOptions={(options, { inputValue }) => {
+              const q = inputValue.toLowerCase();
+              return options.filter(a =>
+                a.id === 0 ||
+                a.full_name.toLowerCase().includes(q) ||
+                (a.box_id || '').toLowerCase().includes(q)
+              );
+            }}
+            value={advisors.find(a => String(a.id) === newAdvisorId) || (newAdvisorId === '' ? { id: 0, full_name: 'Sin asesor', email: '', box_id: '' } as Advisor : null)}
+            onChange={(_e, val) => setNewAdvisorId(val && val.id !== 0 ? String(val.id) : '')}
+            renderInput={(params) => (
+              <TextField {...params} label="Buscar asesor (nombre o código)" fullWidth />
+            )}
+            renderOption={(props, a) => (
+              <li {...props} key={a.id}>
+                <Box>
+                  <Typography variant="body2" fontWeight={600}>{a.full_name}</Typography>
+                  {a.id !== 0 && (
+                    <Typography variant="caption" color="text.secondary">
+                      {a.box_id ? `Código: ${a.box_id}` : a.email}
+                    </Typography>
+                  )}
+                </Box>
+              </li>
+            )}
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setChangeAdvisorOpen(false)}>Cancelar</Button>

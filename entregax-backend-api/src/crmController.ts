@@ -1130,11 +1130,12 @@ export const getCRMDashboard = async (_req: Request, res: Response): Promise<any
 export const getAdvisorsForCRM = async (_req: Request, res: Response): Promise<any> => {
   try {
     const result = await pool.query(`
-      SELECT 
-        u.id, 
-        u.full_name, 
-        u.email, 
-        u.role, 
+      SELECT
+        u.id,
+        u.full_name,
+        u.email,
+        u.box_id,
+        u.role,
         u.team_leader_id,
         leader.full_name as team_leader_name,
         (SELECT COUNT(*) FROM users WHERE referred_by_id = u.id) as total_clients
