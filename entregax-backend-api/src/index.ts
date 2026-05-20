@@ -567,6 +567,8 @@ import {
   resolveTicket,
   assignTicket,
   uploadSupportImages,
+  uploadAdminReplyFiles,
+  aiEnhanceMessage,
   validateTracking,
   submitBoxIdClaim,
   uploadBoxIdClaimFiles,
@@ -4591,8 +4593,11 @@ app.get('/api/admin/support/tickets', authenticateToken, requireMinLevel(ROLES.C
 // Admin: Estadísticas de soporte
 app.get('/api/admin/support/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSupportStats);
 
-// Admin: Responder como agente
-app.post('/api/admin/support/ticket/:id/reply', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), adminReplyTicket);
+// Admin: Responder como agente (con adjuntos opcionales)
+app.post('/api/admin/support/ticket/:id/reply', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadAdminReplyFiles, adminReplyTicket);
+
+// Admin: Mejorar mensaje con IA
+app.post('/api/support/ai-enhance', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), aiEnhanceMessage);
 
 // Admin: Resolver ticket
 app.put('/api/admin/support/ticket/:id/resolve', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resolveTicket);

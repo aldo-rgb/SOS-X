@@ -47,6 +47,11 @@ import {
   Warning as WarningIcon,
   SwapHoriz as TransferIcon,
   OpenInNew as OpenInNewIcon,
+  AttachFile as AttachFileIcon,
+  AutoFixHigh as AIIcon,
+  Undo as UndoIcon,
+  Close as CloseIcon,
+  PictureAsPdf as PdfIcon,
 } from '@mui/icons-material';
 import PackageDetailDialog from './PackageDetailDialog';
 
@@ -161,6 +166,14 @@ export default function SupportBoardPage() {
   const [creatorFilter, setCreatorFilter] = useState<'all' | 'client' | 'employee'>('all');
   const [packageDetailTracking, setPackageDetailTracking] = useState<string | null>(null);
 
+  // Adjuntos
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // IA Mejorar
+  const [enhancing, setEnhancing] = useState(false);
+  const [originalText, setOriginalText] = useState<string | null>(null);
+
   const token = localStorage.getItem('token');
   const currentUserRole: string = (() => {
     try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; }
@@ -241,40 +254,53 @@ export default function SupportBoardPage() {
   };
 
   const handleSendReply = async () => {
-    if (!replyText.trim() || !selectedTicket) return;
+    if ((!replyText.trim() && attachedFiles.length === 0) || !selectedTicket) return;
     const text = replyText.trim();
     const ticketId = selectedTicket.id;
-    // Optimistic: show message immediately
     const tempId = Date.now();
-    const tempMsg: TicketMessage = {
-      id: tempId,
-      sender_type: 'agent',
-      message: text,
-      is_internal: false,
-      created_at: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, tempMsg]);
+    setMessages(prev => [...prev, { id: tempId, sender_type: 'agent', message: text, is_internal: false, created_at: new Date().toISOString() }]);
     setReplyText('');
+    setAttachedFiles([]);
+    setOriginalText(null);
     setSending(true);
     try {
+      const body = new FormData();
+      body.append('message', text);
+      attachedFiles.forEach(f => body.append('images', f));
       const res = await fetch(`${API_URL}/admin/support/ticket/${ticketId}/reply`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message: text }),
+        headers: { Authorization: `Bearer ${token}` },
+        body,
       });
       if (!res.ok) {
-        // Revert optimistic message and restore text
         setMessages(prev => prev.filter(m => m.id !== tempId));
         setReplyText(text);
         return;
       }
-      // Sync with server to get real message id/timestamp
       await loadMessages(ticketId);
       await loadTickets();
     } catch {
       setMessages(prev => prev.filter(m => m.id !== tempId));
       setReplyText(text);
     } finally { setSending(false); }
+  };
+
+  const handleAIEnhance = async () => {
+    if (!replyText.trim()) return;
+    setEnhancing(true);
+    setOriginalText(replyText);
+    try {
+      const res = await fetch(`${API_URL}/support/ai-enhance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ text: replyText }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.improved) setReplyText(data.improved);
+      }
+    } catch { /* silencioso */ }
+    finally { setEnhancing(false); }
   };
 
   const handleResolveTicket = async () => {
@@ -610,20 +636,25 @@ export default function SupportBoardPage() {
                         else if (typeof msg.attachments === 'string') {
                           try { const p = JSON.parse(msg.attachments); if (Array.isArray(p)) urls = p; } catch { /* ignore */ }
                         }
-                        if (urls.length === 0 && msg.message) {
-                          const re = /(https?:\/\/[^\s)\]]+\.(?:png|jpe?g|gif|webp))/gi;
-                          urls = msg.message.match(re) || [];
-                        }
                         if (urls.length === 0 && msg.attachment_url) urls = [msg.attachment_url];
                         if (urls.length === 0) return null;
                         return (
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
-                            {urls.map((u, i) => (
-                              <a key={i} href={u} target="_blank" rel="noreferrer">
-                                <Box component="img" src={u} alt={`adj-${i}`}
-                                  sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
-                              </a>
-                            ))}
+                            {urls.map((u, i) => {
+                              const isPdf = u.toLowerCase().endsWith('.pdf') || u.includes('/pdf') || u.includes('application/pdf');
+                              return isPdf ? (
+                                <a key={i} href={u} target="_blank" rel="noreferrer"
+                                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#fce4ec', borderRadius: 6, border: '1px solid #ef9a9a', textDecoration: 'none', color: '#c62828' }}>
+                                  <PdfIcon sx={{ fontSize: 20 }} />
+                                  <Typography variant="caption" fontWeight={600}>Ver PDF</Typography>
+                                </a>
+                              ) : (
+                                <a key={i} href={u} target="_blank" rel="noreferrer">
+                                  <Box component="img" src={u} alt={`adj-${i}`}
+                                    sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                                </a>
+                              );
+                            })}
                           </Box>
                         );
                       })()}
@@ -645,20 +676,84 @@ export default function SupportBoardPage() {
                 </Box>
               )}
               {selectedTicket.status !== 'resolved' && (
-                <Box sx={{ px: 2, pb: 2, display: 'flex', gap: 1 }}>
-                  <TextField
-                    fullWidth multiline maxRows={3}
-                    placeholder={selectedTicket.department_name && selectedTicket.department_name !== 'Atención a Cliente'
-                      ? '🔒 Mensaje interno (solo para Atención a Cliente)...'
-                      : 'Escribe una respuesta...'}
+                <Box sx={{ px: 2, pb: 2 }}>
+                  {/* Previews de adjuntos */}
+                  {attachedFiles.length > 0 && (
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                      {attachedFiles.map((f, i) => (
+                        <Box key={i} sx={{ position: 'relative', display: 'inline-flex', alignItems: 'center', bgcolor: '#f5f5f5', borderRadius: 1, border: '1px solid #ddd', p: 0.5, pr: 1, gap: 0.5 }}>
+                          {f.type === 'application/pdf'
+                            ? <PdfIcon sx={{ color: '#e53935', fontSize: 28 }} />
+                            : <Box component="img" src={URL.createObjectURL(f)} sx={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 0.5 }} />
+                          }
+                          <Typography variant="caption" sx={{ maxWidth: 80, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</Typography>
+                          <IconButton size="small" onClick={() => setAttachedFiles(prev => prev.filter((_, j) => j !== i))} sx={{ p: 0.2 }}>
+                            <CloseIcon sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Box>
+                      ))}
+                    </Box>
+                  )}
 
-                    value={replyText}
-                    onChange={(e) => setReplyText(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
-                  />
-                  <IconButton onClick={handleSendReply} disabled={sending || !replyText.trim()}>
-                    {sending ? <CircularProgress size={24} /> : <SendIcon sx={{ color: ORANGE }} />}
-                  </IconButton>
+                  {/* Barra de herramientas IA + adjunto */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                    <Tooltip title="Adjuntar imagen o PDF">
+                      <IconButton size="small" onClick={() => fileInputRef.current?.click()} sx={{ color: '#666' }}>
+                        <AttachFileIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      hidden
+                      multiple
+                      accept="image/*,application/pdf"
+                      onChange={(e) => {
+                        if (e.target.files) setAttachedFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+                        e.target.value = '';
+                      }}
+                    />
+                    <Tooltip title="Mejorar redacción con IA">
+                      <span>
+                        <IconButton
+                          size="small"
+                          disabled={enhancing || !replyText.trim()}
+                          onClick={handleAIEnhance}
+                          sx={{ color: '#7B1FA2', '&:hover': { bgcolor: 'rgba(123,31,162,0.08)' } }}
+                        >
+                          {enhancing ? <CircularProgress size={16} sx={{ color: '#7B1FA2' }} /> : <AIIcon fontSize="small" />}
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                    {originalText !== null && (
+                      <Tooltip title="Deshacer mejora IA">
+                        <IconButton size="small" onClick={() => { setReplyText(originalText); setOriginalText(null); }} sx={{ color: ORANGE }}>
+                          <UndoIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                    {originalText !== null && (
+                      <Typography variant="caption" sx={{ color: '#7B1FA2', fontStyle: 'italic', ml: 0.5 }}>✨ Mejorado por IA</Typography>
+                    )}
+                  </Box>
+
+                  {/* Campo de texto + enviar */}
+                  <Box sx={{ display: 'flex', gap: 1 }}>
+                    <TextField
+                      fullWidth multiline maxRows={4}
+                      placeholder={selectedTicket.department_name && selectedTicket.department_name !== 'Atención a Cliente'
+                        ? '🔒 Mensaje interno (solo para Atención a Cliente)...'
+                        : 'Escribe una respuesta...'}
+                      value={replyText}
+                      onChange={(e) => { setReplyText(e.target.value); if (originalText !== null) setOriginalText(null); }}
+                      onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
+                      slotProps={{ htmlInput: { spellCheck: true, lang: 'es' } }}
+                      sx={{ '& .MuiOutlinedInput-root': originalText !== null ? { borderColor: '#7B1FA2' } : {} }}
+                    />
+                    <IconButton onClick={handleSendReply} disabled={sending || (!replyText.trim() && attachedFiles.length === 0)}>
+                      {sending ? <CircularProgress size={24} /> : <SendIcon sx={{ color: ORANGE }} />}
+                    </IconButton>
+                  </Box>
                 </Box>
               )}
             </DialogContent>

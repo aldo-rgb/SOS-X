@@ -25,29 +25,24 @@ try {
 
 const multerUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB por imagen
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB por archivo
   fileFilter: (_req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|webp/;
+    const allowedTypes = /jpeg|jpg|png|gif|webp|pdf/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-    if (extname && mimetype) {
-      cb(null, true);
-    } else {
-      cb(null, false); // Ignorar archivo no válido en vez de lanzar error
-    }
+    const allowedMime = /image\/(jpeg|png|gif|webp)|application\/pdf/.test(file.mimetype);
+    cb(null, !!(extname && allowedMime));
   }
 }).array('images', 10);
 
-// Wrapper que maneja errores de multer sin crashear el request
-export const uploadSupportImages = (req: Request, res: Response, next: Function) => {
+const wrapMulter = (req: Request, res: Response, next: Function) => {
   multerUpload(req, res, (err: any) => {
-    if (err) {
-      console.warn('⚠️ Error de multer (ignorando, continuando sin imágenes):', err.message || err);
-      // Continuar sin archivos, no bloquear el ticket
-    }
+    if (err) console.warn('⚠️ Error de multer (ignorando):', err.message || err);
     next();
   });
 };
+
+export const uploadSupportImages = wrapMulter;
+export const uploadAdminReplyFiles = wrapMulter;
 
 // ============================================================
 // CONFIGURACIÓN DE IA (OpenAI)
@@ -761,13 +756,10 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
     const { message } = req.body;
     const agentId = (req as any).user?.userId;
 
-    if (!message) {
-      return res.status(400).json({ error: 'Mensaje requerido' });
+    if (!message && !(req.files as Express.Multer.File[])?.length) {
+      return res.status(400).json({ error: 'Mensaje o adjunto requerido' });
     }
 
-    // Determinar si el mensaje debe ser interno:
-    // Solo "Atención a Cliente" (is_default_for_clients=TRUE) responde directo al cliente.
-    // Cualquier otro departamento genera mensajes internos.
     const ticketRes = await pool.query(
       `SELECT t.department_id, d.is_default_for_clients
        FROM support_tickets t
@@ -778,22 +770,42 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
     const isDefaultDept = ticketRes.rows[0]?.is_default_for_clients ?? true;
     const isInternal = !isDefaultDept;
 
-    // Guardar mensaje del agente
+    // Procesar adjuntos (imágenes + PDFs)
+    const files = (req.files as Express.Multer.File[]) || [];
+    const attachmentUrls: string[] = [];
+    for (const f of files) {
+      const ext = path.extname(f.originalname) || '.bin';
+      const filename = `support-reply-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+      try {
+        if (isS3Configured()) {
+          const url = await uploadToS3(f.buffer, `support/${filename}`, f.mimetype);
+          attachmentUrls.push(url);
+        } else {
+          const filePath = path.join(supportUploadsDir, filename);
+          fs.writeFileSync(filePath, f.buffer);
+          const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+          attachmentUrls.push(`${baseUrl}/uploads/support/${filename}`);
+        }
+      } catch (err) {
+        console.error('⚠️ Error subiendo adjunto de respuesta:', err);
+      }
+    }
+
+    const attachmentsJson = attachmentUrls.length > 0 ? JSON.stringify(attachmentUrls) : null;
+
     await pool.query(
-      `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, is_internal) VALUES ($1, 'agent', $2, $3, $4)`,
-      [id, agentId, message, isInternal]
+      `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, is_internal, attachments)
+       VALUES ($1, 'agent', $2, $3, $4, $5)`,
+      [id, agentId, message || '', isInternal, attachmentsJson]
     );
 
-    // Solo cambiar status a waiting_client si el mensaje es visible al cliente
     const newStatus = isInternal ? 'escalated_human' : 'waiting_client';
     await pool.query(
-      `UPDATE support_tickets
-       SET assigned_agent_id = $1, status = $2, updated_at = NOW()
-       WHERE id = $3`,
+      `UPDATE support_tickets SET assigned_agent_id = $1, status = $2, updated_at = NOW() WHERE id = $3`,
       [agentId, newStatus, id]
     );
 
-    res.json({ success: true, message: 'Respuesta enviada', is_internal: isInternal });
+    res.json({ success: true, message: 'Respuesta enviada', is_internal: isInternal, attachments: attachmentUrls });
   } catch (error) {
     console.error('Error respondiendo ticket:', error);
     res.status(500).json({ error: 'Error enviando respuesta' });
@@ -1254,5 +1266,68 @@ export const resolveBoxIdClaim = async (req: Request, res: Response): Promise<an
   } catch (error) {
     console.error('Error resolveBoxIdClaim:', error);
     return res.status(500).json({ success: false, error: 'Error al actualizar reclamación' });
+  }
+};
+
+/**
+ * POST /api/support/ai-enhance
+ * Mejora el borrador de un agente con IA para hacerlo profesional
+ */
+export const aiEnhanceMessage = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string' || text.trim().length < 3) {
+      return res.status(400).json({ error: 'Texto requerido' });
+    }
+
+    if (!OPENAI_API_KEY) {
+      return res.status(503).json({ error: 'Servicio de IA no configurado' });
+    }
+
+    const systemPrompt = `Eres el "Copiloto de Redacción" para el equipo de Atención a Clientes de EntregaX, una plataforma premium de logística internacional y pagos B2B.
+
+Tu Misión: Tomar el borrador escrito por un agente de soporte humano (que puede contener errores ortográficos, jerga informal o ideas incompletas) y transformarlo en un mensaje altamente profesional, empático y claro, listo para ser enviado al cliente.
+
+Reglas de Redacción:
+- Tono: Institucional, resolutivo, amable y sumamente profesional (hablar de "usted").
+- Formato: Párrafos cortos y fáciles de leer. Sin listas con viñetas innecesarias.
+- Fidelidad: NO inventes datos, fechas, montos o promesas que el agente no haya incluido en su borrador original. Tu trabajo es mejorar la forma, no cambiar el fondo.
+- Ortografía: Corrección gramatical y ortográfica absoluta en español.
+- Salida: Devuelve ÚNICAMENTE el texto final mejorado. Sin saludos genéricos ("¡Hola, soy la IA!"), sin comillas adicionales, sin explicaciones de lo que hiciste.`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: `Borrador del agente:\n\n${text.trim()}` },
+        ],
+        max_tokens: 500,
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      const err = await response.text();
+      console.error('OpenAI error:', err);
+      return res.status(502).json({ error: 'Error al contactar servicio de IA' });
+    }
+
+    const data = await response.json() as { choices?: Array<{ message?: { content?: string } }> };
+    const improved = data?.choices?.[0]?.message?.content?.trim() || '';
+
+    if (!improved) {
+      return res.status(502).json({ error: 'La IA no devolvió respuesta' });
+    }
+
+    res.json({ success: true, improved });
+  } catch (error) {
+    console.error('Error aiEnhanceMessage:', error);
+    res.status(500).json({ error: 'Error interno' });
   }
 };
