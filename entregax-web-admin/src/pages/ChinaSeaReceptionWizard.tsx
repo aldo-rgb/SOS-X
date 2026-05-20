@@ -49,6 +49,8 @@ import {
     Warning as WarningIcon,
     DirectionsBoat as BoatIcon,
     Search as SearchIcon,
+    EditLocation as EditLocationIcon,
+    AddLocation as AddLocationIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -235,6 +237,40 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         references_text?: string | null;
     };
     const [destinationAddress, setDestinationAddress] = useState<DestinationAddress | null>(null);
+
+    // ── Dialog asignar dirección WEEK ──
+    const EMPTY_WEEK_ADDR = { alias: '', recipient_name: '', phone: '', street: '', exterior_number: '', interior_number: '', neighborhood: '', city: '', state: '', zip_code: '', reference: '' };
+    const [weekAddrOpen, setWeekAddrOpen] = useState(false);
+    const [weekAddrMode, setWeekAddrMode] = useState<'new' | 'saved'>('saved');
+    const [savedWeekAddresses, setSavedWeekAddresses] = useState<DestinationAddress[]>([]);
+    const [selectedSavedAddr, setSelectedSavedAddr] = useState<DestinationAddress | null>(null);
+    const [weekAddrForm, setWeekAddrForm] = useState(EMPTY_WEEK_ADDR);
+    const [savingWeekAddr, setSavingWeekAddr] = useState(false);
+
+    const openWeekAddrDialog = async () => {
+        setWeekAddrOpen(true);
+        setWeekAddrMode('saved');
+        setSelectedSavedAddr(null);
+        setWeekAddrForm(EMPTY_WEEK_ADDR);
+        try {
+            const r = await api.get('/maritime/week-saved-addresses');
+            setSavedWeekAddresses(r.data?.addresses || []);
+        } catch { setSavedWeekAddresses([]); }
+    };
+
+    const handleSaveWeekAddr = async () => {
+        if (!selected) return;
+        setSavingWeekAddr(true);
+        try {
+            const body = weekAddrMode === 'saved' && selectedSavedAddr?.id
+                ? { address_id: selectedSavedAddr.id }
+                : weekAddrForm;
+            const r = await api.post(`/maritime/containers/${selected.id}/week-address`, body);
+            setDestinationAddress({ ...r.data.address, instruction_confirmed: true });
+            setWeekAddrOpen(false);
+        } catch { /* noop */ } finally { setSavingWeekAddr(false); }
+    };
+
     // Modo de viaje: 'sencillo' (1 contenedor) o 'full' (2 contenedores con mismo operador)
     const [truckMode, setTruckMode] = useState<'sencillo' | 'full'>('sencillo');
     const [secondContainerId, setSecondContainerId] = useState<number | null>(null);
@@ -1275,43 +1311,62 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         )}
 
                         {/* 📍 Dirección de envío del cliente final */}
-                        {destinationAddress ? (
-                            <Box sx={{ mt: 2, p: 2, bgcolor: '#E3F2FD', borderRadius: 2, border: '1px solid #1976D2' }}>
-                                <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                                    <Typography sx={{ fontWeight: 700, color: '#1976D2' }}>
-                                        📍 Dirección de envío
-                                    </Typography>
-                                    {(destinationAddress.alias || destinationAddress.label) && (
-                                        <Chip label={destinationAddress.alias || destinationAddress.label} size="small" sx={{ bgcolor: '#1976D2', color: '#FFF', fontWeight: 700 }} />
+                        {(() => {
+                            const isWeekContainer = selected && (selected as any).is_fcl_dedicated !== true;
+                            return destinationAddress ? (
+                                <Box sx={{ mt: 2, p: 2, bgcolor: '#E3F2FD', borderRadius: 2, border: '1px solid #1976D2' }}>
+                                    <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+                                        <Typography sx={{ fontWeight: 700, color: '#1976D2', flex: 1 }}>
+                                            📍 Dirección de envío
+                                        </Typography>
+                                        {(destinationAddress.alias || destinationAddress.label) && (
+                                            <Chip label={destinationAddress.alias || destinationAddress.label} size="small" sx={{ bgcolor: '#1976D2', color: '#FFF', fontWeight: 700 }} />
+                                        )}
+                                        {isWeekContainer && (
+                                            <IconButton size="small" onClick={openWeekAddrDialog} sx={{ color: '#1976D2' }} title="Cambiar dirección">
+                                                <EditLocationIcon fontSize="small" />
+                                            </IconButton>
+                                        )}
+                                    </Stack>
+                                    {destinationAddress.recipient_name && (
+                                        <Typography sx={{ fontWeight: 700 }}>{destinationAddress.recipient_name}{destinationAddress.phone ? ` · ${destinationAddress.phone}` : ''}</Typography>
                                     )}
-                                </Stack>
-                                {destinationAddress.recipient_name && (
-                                    <Typography sx={{ fontWeight: 700 }}>{destinationAddress.recipient_name}{destinationAddress.phone ? ` · ${destinationAddress.phone}` : ''}</Typography>
-                                )}
-                                <Typography variant="body2" sx={{ color: BLACK }}>
-                                    {[destinationAddress.street, destinationAddress.exterior_number].filter(Boolean).join(' ')}
-                                    {destinationAddress.interior_number ? ` Int. ${destinationAddress.interior_number}` : ''}
-                                    {destinationAddress.neighborhood ? `, Col. ${destinationAddress.neighborhood}` : ''}
-                                </Typography>
-                                <Typography variant="body2" sx={{ color: BLACK }}>
-                                    {[destinationAddress.city, destinationAddress.state, destinationAddress.zip_code].filter(Boolean).join(', ')}
-                                    {destinationAddress.country ? ` · ${destinationAddress.country}` : ''}
-                                </Typography>
-                                {(destinationAddress.reference || destinationAddress.references_text) && (
-                                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                                        Ref.: {destinationAddress.reference || destinationAddress.references_text}
+                                    <Typography variant="body2" sx={{ color: BLACK }}>
+                                        {[destinationAddress.street, destinationAddress.exterior_number].filter(Boolean).join(' ')}
+                                        {destinationAddress.interior_number ? ` Int. ${destinationAddress.interior_number}` : ''}
+                                        {destinationAddress.neighborhood ? `, Col. ${destinationAddress.neighborhood}` : ''}
                                     </Typography>
-                                )}
-                            </Box>
-                        ) : (
-                            <Box sx={{ mt: 2, p: 2, bgcolor: '#FFF3E0', borderRadius: 2, border: '1px dashed #FF9800', display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                                <Typography sx={{ fontSize: 20 }}>⚠️</Typography>
-                                <Box>
-                                    <Typography sx={{ fontWeight: 700, color: '#E65100', fontSize: 13 }}>Sin Instrucciones de Entrega</Typography>
-                                    <Typography variant="caption" color="text.secondary">El cliente aún no ha asignado una dirección de entrega para este contenedor.</Typography>
+                                    <Typography variant="body2" sx={{ color: BLACK }}>
+                                        {[destinationAddress.city, destinationAddress.state, destinationAddress.zip_code].filter(Boolean).join(', ')}
+                                        {destinationAddress.country ? ` · ${destinationAddress.country}` : ''}
+                                    </Typography>
+                                    {(destinationAddress.reference || destinationAddress.references_text) && (
+                                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                                            Ref.: {destinationAddress.reference || destinationAddress.references_text}
+                                        </Typography>
+                                    )}
                                 </Box>
-                            </Box>
-                        )}
+                            ) : (
+                                <Box sx={{ mt: 2, p: 2, bgcolor: '#FFF3E0', borderRadius: 2, border: '1px dashed #FF9800', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                    <Typography sx={{ fontSize: 20 }}>⚠️</Typography>
+                                    <Box sx={{ flex: 1 }}>
+                                        <Typography sx={{ fontWeight: 700, color: '#E65100', fontSize: 13 }}>Sin Instrucciones de Entrega</Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                            {isWeekContainer ? 'Este contenedor WEEK no tiene dirección asignada.' : 'El cliente aún no ha asignado una dirección de entrega para este contenedor.'}
+                                        </Typography>
+                                    </Box>
+                                    {isWeekContainer && (
+                                        <Button
+                                            size="small" variant="contained" startIcon={<AddLocationIcon />}
+                                            onClick={openWeekAddrDialog}
+                                            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D44E22' }, whiteSpace: 'nowrap', textTransform: 'none', fontWeight: 700 }}
+                                        >
+                                            Asignar Dirección
+                                        </Button>
+                                    )}
+                                </Box>
+                            );
+                        })()}
 
                         {/* Ruta y monitorista: solo disponibles desde Liberado de aduana */}
                         {(fclStatus !== 'customs_cleared' && fclStatus !== 'in_transit_clientfinal') ? (
@@ -2452,6 +2507,111 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     <Button onClick={() => setPhotosDialog(null)} sx={{ color: BLACK }}>Cerrar</Button>
                 </DialogActions>
             </Dialog>
+        {/* ── Dialog: Asignar Dirección WEEK ── */}
+        <Dialog open={weekAddrOpen} onClose={() => setWeekAddrOpen(false)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+            <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
+                📍 Asignar Dirección de Entrega
+                <Typography variant="caption" display="block" color="text.secondary" sx={{ mt: 0.5 }}>
+                    Contenedor: {selected?.container_number} · {selected?.week_number}
+                </Typography>
+            </DialogTitle>
+            <DialogContent>
+                {/* Toggle nueva / guardada */}
+                <ToggleButtonGroup
+                    value={weekAddrMode} exclusive
+                    onChange={(_, v) => { if (v) setWeekAddrMode(v); }}
+                    size="small" sx={{ mb: 2, mt: 0.5 }}
+                >
+                    <ToggleButton value="saved">Dirección guardada</ToggleButton>
+                    <ToggleButton value="new">Nueva dirección</ToggleButton>
+                </ToggleButtonGroup>
+
+                {weekAddrMode === 'saved' ? (
+                    savedWeekAddresses.length === 0 ? (
+                        <Alert severity="info" sx={{ mb: 1 }}>
+                            No hay direcciones guardadas aún. Crea una nueva.
+                        </Alert>
+                    ) : (
+                        <Autocomplete
+                            options={savedWeekAddresses}
+                            getOptionLabel={(a) => `${a.alias ? `[${a.alias}] ` : ''}${[a.street, a.exterior_number, a.city, a.state].filter(Boolean).join(', ')}`}
+                            value={selectedSavedAddr}
+                            onChange={(_, v) => setSelectedSavedAddr(v)}
+                            renderInput={(params) => <TextField {...params} label="Seleccionar dirección" size="small" />}
+                            renderOption={(props, a) => (
+                                <li {...props} key={a.id}>
+                                    <Box>
+                                        {a.alias && <Typography variant="caption" sx={{ fontWeight: 700, color: '#F05A28' }}>{a.alias} · </Typography>}
+                                        {a.recipient_name && <Typography variant="caption" sx={{ fontWeight: 600 }}>{a.recipient_name} · </Typography>}
+                                        <Typography variant="caption">{[a.street, a.exterior_number, a.city, a.state].filter(Boolean).join(', ')}</Typography>
+                                    </Box>
+                                </li>
+                            )}
+                        />
+                    )
+                ) : (
+                    <Grid container spacing={1.5}>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField fullWidth size="small" label="Alias (opcional)" placeholder="Ej: CEDIS MTY"
+                                value={weekAddrForm.alias} onChange={e => setWeekAddrForm(f => ({ ...f, alias: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField fullWidth size="small" label="Destinatario" placeholder="Nombre del destinatario"
+                                value={weekAddrForm.recipient_name} onChange={e => setWeekAddrForm(f => ({ ...f, recipient_name: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField fullWidth size="small" label="Teléfono" placeholder="10 dígitos"
+                                value={weekAddrForm.phone} onChange={e => setWeekAddrForm(f => ({ ...f, phone: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField fullWidth size="small" label="Calle *"
+                                value={weekAddrForm.street} onChange={e => setWeekAddrForm(f => ({ ...f, street: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 3 }}>
+                            <TextField fullWidth size="small" label="No. Exterior"
+                                value={weekAddrForm.exterior_number} onChange={e => setWeekAddrForm(f => ({ ...f, exterior_number: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 3 }}>
+                            <TextField fullWidth size="small" label="No. Interior"
+                                value={weekAddrForm.interior_number} onChange={e => setWeekAddrForm(f => ({ ...f, interior_number: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField fullWidth size="small" label="Colonia"
+                                value={weekAddrForm.neighborhood} onChange={e => setWeekAddrForm(f => ({ ...f, neighborhood: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 4 }}>
+                            <TextField fullWidth size="small" label="Ciudad *"
+                                value={weekAddrForm.city} onChange={e => setWeekAddrForm(f => ({ ...f, city: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 8, sm: 4 }}>
+                            <TextField fullWidth size="small" label="Estado *"
+                                value={weekAddrForm.state} onChange={e => setWeekAddrForm(f => ({ ...f, state: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 4, sm: 4 }}>
+                            <TextField fullWidth size="small" label="C.P."
+                                value={weekAddrForm.zip_code} onChange={e => setWeekAddrForm(f => ({ ...f, zip_code: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 12 }}>
+                            <TextField fullWidth size="small" label="Referencia"
+                                value={weekAddrForm.reference} onChange={e => setWeekAddrForm(f => ({ ...f, reference: e.target.value }))} />
+                        </Grid>
+                    </Grid>
+                )}
+            </DialogContent>
+            <DialogActions sx={{ px: 3, pb: 2 }}>
+                <Button onClick={() => setWeekAddrOpen(false)} sx={{ textTransform: 'none' }}>Cancelar</Button>
+                <Button
+                    variant="contained"
+                    disabled={savingWeekAddr || (weekAddrMode === 'saved' ? !selectedSavedAddr : !weekAddrForm.street.trim() || !weekAddrForm.city.trim())}
+                    onClick={handleSaveWeekAddr}
+                    startIcon={savingWeekAddr ? <CircularProgress size={16} color="inherit" /> : <AddLocationIcon />}
+                    sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D44E22' }, textTransform: 'none', fontWeight: 700 }}
+                >
+                    {savingWeekAddr ? 'Guardando...' : 'Guardar Dirección'}
+                </Button>
+            </DialogActions>
+        </Dialog>
+
         </Box>
     );
 }

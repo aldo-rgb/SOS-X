@@ -383,29 +383,27 @@ export const getContainerStatusHistory = async (req: AuthRequest, res: Response)
           phone: cRow.monitor_phone,
         };
       }
-      if (clientUserId) {
-        // 1. Primero: delivery_address_id directo en el contenedor (FCL)
-        const contAddrRes = await pool.query(
-          `SELECT a.* FROM containers c
-             JOIN addresses a ON a.id = c.delivery_address_id
-            WHERE c.id = $1 AND c.delivery_address_id IS NOT NULL`,
+      // 1. Siempre: delivery_address_id directo en el contenedor (FCL y WEEK)
+      const contAddrRes = await pool.query(
+        `SELECT a.* FROM containers c
+           JOIN addresses a ON a.id = c.delivery_address_id
+          WHERE c.id = $1 AND c.delivery_address_id IS NOT NULL`,
+        [id]
+      );
+      if (contAddrRes.rows.length > 0) {
+        destinationAddress = { ...contAddrRes.rows[0], instruction_confirmed: true };
+      } else if (clientUserId) {
+        // 2. Fallback solo para LCL: maritime_orders con delivery_address_id
+        const instrRes = await pool.query(
+          `SELECT da.* FROM maritime_orders mo
+             JOIN addresses da ON da.id = mo.delivery_address_id
+            WHERE mo.container_id = $1 AND mo.delivery_address_id IS NOT NULL
+            LIMIT 1`,
           [id]
         );
-        if (contAddrRes.rows.length > 0) {
-          destinationAddress = { ...contAddrRes.rows[0], instruction_confirmed: true };
-        } else {
-          // 2. Fallback: maritime_orders con delivery_address_id (LCL)
-          const instrRes = await pool.query(
-            `SELECT da.* FROM maritime_orders mo
-               JOIN addresses da ON da.id = mo.delivery_address_id
-              WHERE mo.container_id = $1 AND mo.delivery_address_id IS NOT NULL
-              LIMIT 1`,
-            [id]
-          );
-          destinationAddress = instrRes.rows.length > 0
-            ? { ...instrRes.rows[0], instruction_confirmed: true }
-            : null;
-        }
+        destinationAddress = instrRes.rows.length > 0
+          ? { ...instrRes.rows[0], instruction_confirmed: true }
+          : null;
       }
     } catch (addrErr) {
       console.warn('[getContainerStatusHistory] No se pudo cargar dirección:', (addrErr as Error).message);
@@ -2020,5 +2018,77 @@ export const calculateShipmentCost = async (req: AuthRequest, res: Response): Pr
   } catch (error) {
     console.error('Error calculating shipment cost:', error);
     res.status(500).json({ error: 'Error al calcular costo' });
+  }
+};
+
+// GET /api/maritime/week-saved-addresses
+// Devuelve todas las direcciones previamente asignadas a contenedores WEEK (no FCL dedicado)
+export const getWeekSavedAddresses = async (_req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const result = await pool.query(
+      `SELECT DISTINCT ON (a.street, a.exterior_number, a.city, a.state)
+              a.id, a.alias, a.recipient_name, a.phone,
+              a.street, a.exterior_number, a.interior_number,
+              a.neighborhood, a.city, a.state, a.zip_code, a.reference
+         FROM containers c
+         JOIN addresses a ON a.id = c.delivery_address_id
+        WHERE c.legacy_client_id IS NULL
+          AND c.delivery_address_id IS NOT NULL
+        ORDER BY a.street, a.exterior_number, a.city, a.state, a.id DESC`
+    );
+    res.json({ addresses: result.rows });
+  } catch (error) {
+    console.error('Error getting week saved addresses:', error);
+    res.status(500).json({ error: 'Error al obtener direcciones guardadas' });
+  }
+};
+
+// POST /api/maritime/containers/:id/week-address
+// Asigna o crea una dirección de entrega para un contenedor WEEK
+export const assignWeekContainerAddress = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { address_id, alias, recipient_name, phone, street, exterior_number, interior_number, neighborhood, city, state, zip_code, reference } = req.body;
+
+    // Verificar que el contenedor existe
+    const cRes = await pool.query('SELECT id, status FROM containers WHERE id = $1', [id]);
+    if (cRes.rows.length === 0) return res.status(404).json({ error: 'Contenedor no encontrado' });
+    const currentStatus = cRes.rows[0].status;
+
+    let finalAddressId: number;
+
+    if (address_id) {
+      // Reusar dirección existente
+      const aRes = await pool.query('SELECT id FROM addresses WHERE id = $1', [address_id]);
+      if (aRes.rows.length === 0) return res.status(404).json({ error: 'Dirección no encontrada' });
+      finalAddressId = address_id;
+    } else {
+      // Crear nueva dirección (sin user_id — es del contenedor/operación)
+      const insertAddr = await pool.query(
+        `INSERT INTO addresses (alias, recipient_name, phone, street, exterior_number, interior_number, neighborhood, city, state, zip_code, reference)
+         VALUES ($1, NULLIF($2,''), NULLIF($3,''), NULLIF($4,''), NULLIF($5,''), NULLIF($6,''), NULLIF($7,''), NULLIF($8,''), NULLIF($9,''), NULLIF($10,''), NULLIF($11,''))
+         RETURNING id`,
+        [alias || null, recipient_name || '', phone || '', street || '', exterior_number || '', interior_number || '', neighborhood || '', city || '', state || '', zip_code || '', reference || '']
+      );
+      finalAddressId = insertAddr.rows[0].id;
+    }
+
+    // Asignar al contenedor
+    await pool.query('UPDATE containers SET delivery_address_id = $1 WHERE id = $2', [finalAddressId, id]);
+
+    // Registrar en historial
+    await pool.query(
+      `INSERT INTO container_status_history
+         (container_id, previous_status, new_status, notes, changed_by_user_id, changed_by_name, change_type)
+       VALUES ($1, $2, $2, $3, $4, $5, 'address')`,
+      [id, currentStatus, 'Dirección de entrega asignada', req.user?.userId || null, req.user?.email || null]
+    );
+
+    // Retornar la dirección asignada
+    const addrRes = await pool.query('SELECT * FROM addresses WHERE id = $1', [finalAddressId]);
+    res.json({ success: true, address: addrRes.rows[0] });
+  } catch (error) {
+    console.error('Error assigning week container address:', error);
+    res.status(500).json({ error: 'Error al asignar dirección' });
   }
 };
