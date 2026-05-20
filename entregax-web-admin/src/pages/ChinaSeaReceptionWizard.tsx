@@ -1272,7 +1272,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                         )}
 
                         {/* 📍 Dirección de envío del cliente final */}
-                        {destinationAddress && (
+                        {destinationAddress ? (
                             <Box sx={{ mt: 2, p: 2, bgcolor: '#E3F2FD', borderRadius: 2, border: '1px solid #1976D2' }}>
                                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
                                     <Typography sx={{ fontWeight: 700, color: '#1976D2' }}>
@@ -1299,6 +1299,14 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                         Ref.: {destinationAddress.reference || destinationAddress.references_text}
                                     </Typography>
                                 )}
+                            </Box>
+                        ) : (
+                            <Box sx={{ mt: 2, p: 2, bgcolor: '#FFF3E0', borderRadius: 2, border: '1px dashed #FF9800', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                                <Typography sx={{ fontSize: 20 }}>⚠️</Typography>
+                                <Box>
+                                    <Typography sx={{ fontWeight: 700, color: '#E65100', fontSize: 13 }}>Sin Instrucciones de Entrega</Typography>
+                                    <Typography variant="caption" color="text.secondary">El cliente aún no ha asignado una dirección de entrega para este contenedor.</Typography>
+                                </Box>
                             </Box>
                         )}
 

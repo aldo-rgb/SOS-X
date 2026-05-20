@@ -384,18 +384,22 @@ export const getContainerStatusHistory = async (req: AuthRequest, res: Response)
         };
       }
       if (clientUserId) {
-        const addrRes = await pool.query(
-          `SELECT *
-             FROM addresses
-            WHERE user_id = $1
-            ORDER BY
-              (COALESCE(default_for_service,'') ILIKE '%maritimo%' OR COALESCE(default_for_service,'') ILIKE '%fcl%') DESC,
-              is_default DESC,
-              created_at DESC
+        // Verificar si alguna orden del contenedor tiene delivery_address_id asignado
+        const instrRes = await pool.query(
+          `SELECT da.* FROM maritime_orders mo
+             JOIN addresses da ON da.id = mo.delivery_address_id
+            WHERE mo.container_id = $1
+              AND mo.delivery_address_id IS NOT NULL
             LIMIT 1`,
-          [clientUserId]
+          [id]
         );
-        destinationAddress = addrRes.rows[0] || null;
+        if (instrRes.rows.length > 0) {
+          // Instrucciones formalmente asignadas: usar esa dirección
+          destinationAddress = { ...instrRes.rows[0], instruction_confirmed: true };
+        } else {
+          // Sin instrucciones: no mostrar dirección (null)
+          destinationAddress = null;
+        }
       }
     } catch (addrErr) {
       console.warn('[getContainerStatusHistory] No se pudo cargar dirección:', (addrErr as Error).message);

@@ -7999,20 +7999,18 @@ app.get('/api/monitoreo/containers/:id', authenticateToken, async (req: any, res
       console.warn('No se pudo cargar historial:', (e as Error).message);
     }
 
-    // Dirección de destino preferida del cliente
+    // Dirección de destino: solo si hay instrucciones formalmente asignadas
     let destinationAddress: any = null;
     if (container.client_user_id) {
       try {
-        const a = await pool.query(`
-          SELECT * FROM addresses
-          WHERE user_id = $1
-          ORDER BY
-            (default_for_service ILIKE '%maritimo%' OR default_for_service ILIKE '%fcl%') DESC,
-            is_default DESC,
-            created_at DESC
+        const instrRes = await pool.query(`
+          SELECT da.* FROM maritime_orders mo
+          JOIN addresses da ON da.id = mo.delivery_address_id
+          WHERE mo.container_id = $1
+            AND mo.delivery_address_id IS NOT NULL
           LIMIT 1
-        `, [container.client_user_id]);
-        destinationAddress = a.rows[0] || null;
+        `, [container.id]);
+        destinationAddress = instrRes.rows[0] ? { ...instrRes.rows[0], instruction_confirmed: true } : null;
       } catch (e) {
         console.warn('No se pudo cargar dirección:', (e as Error).message);
       }
