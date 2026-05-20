@@ -54,6 +54,17 @@ interface TicketStats {
   last_7_days: number;
 }
 
+interface MyTicket {
+  id: number;
+  ticket_folio: string;
+  category: string;
+  subject: string;
+  status: string;
+  priority: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string; bg: string }> = {
   open_ai: { label: 'IA Atendiendo', color: '#2196F3', icon: 'chatbubble-ellipses', bg: '#E3F2FD' },
   waiting_client: { label: 'Esperando Cliente', color: '#FF9800', icon: 'time', bg: '#FFF3E0' },
@@ -74,30 +85,40 @@ const CATEGORY_LABELS: Record<string, string> = {
   accounting: 'Contabilidad',
   systemError: 'Error Sistema',
   container: 'Contenedor',
+  clientIssue: 'Problema con Cliente',
 };
 
 export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
   const { user, token } = route.params;
   const insets = useSafeAreaInsets();
+  const [viewMode, setViewMode] = useState<'clients' | 'mine'>('clients');
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [stats, setStats] = useState<TicketStats | null>(null);
+  const [myTickets, setMyTickets] = useState<MyTicket[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState('all');
-  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | MyTicket | null>(null);
   const [ticketMessages, setTicketMessages] = useState<TicketMessage[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
 
   const loadTickets = useCallback(async () => {
     try {
-      const qs = filter !== 'all' ? `?status=${filter}` : '';
-      const res = await api.get(`/api/advisor/client-tickets${qs}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.data.success) {
-        setTickets(res.data.tickets);
-        setStats(res.data.stats);
+      if (viewMode === 'mine') {
+        const res = await api.get('/api/support/tickets', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setMyTickets(Array.isArray(res.data) ? res.data : []);
+      } else {
+        const qs = filter !== 'all' ? `?status=${filter}` : '';
+        const res = await api.get(`/api/advisor/client-tickets${qs}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.data.success) {
+          setTickets(res.data.tickets);
+          setStats(res.data.stats);
+        }
       }
     } catch (error) {
       console.error('Error cargando tickets:', error);
@@ -105,7 +126,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [token, filter]);
+  }, [token, filter, viewMode]);
 
   useEffect(() => {
     setLoading(true);
@@ -117,16 +138,23 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
     loadTickets();
   };
 
-  const openTicketDetail = async (ticket: Ticket) => {
+  const openTicketDetail = async (ticket: Ticket | MyTicket) => {
     setSelectedTicket(ticket);
     setShowDetail(true);
     setDetailLoading(true);
     try {
-      const res = await api.get(`/api/advisor/client-tickets/${ticket.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (res.data.success) {
-        setTicketMessages(res.data.messages);
+      if (viewMode === 'mine') {
+        const res = await api.get(`/api/support/ticket/${ticket.id}/messages`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setTicketMessages(Array.isArray(res.data) ? res.data : []);
+      } else {
+        const res = await api.get(`/api/advisor/client-tickets/${ticket.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.data.success) {
+          setTicketMessages(res.data.messages);
+        }
       }
     } catch (error) {
       console.error('Error cargando detalle:', error);
@@ -159,6 +187,38 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
   };
 
   const getStatusInfo = (status: string) => STATUS_CONFIG[status] || STATUS_CONFIG.open_ai;
+
+  const renderMyTicketItem = ({ item }: { item: MyTicket }) => {
+    const statusInfo = getStatusInfo(item.status);
+    return (
+      <TouchableOpacity style={styles.ticketCard} onPress={() => openTicketDetail(item)}>
+        <View style={styles.ticketHeader}>
+          <View style={styles.ticketFolioRow}>
+            <Text style={styles.ticketFolio}>{item.ticket_folio || `#${item.id}`}</Text>
+            <View style={[styles.statusBadge, { backgroundColor: statusInfo.bg }]}>
+              <Ionicons name={statusInfo.icon as any} size={12} color={statusInfo.color} />
+              <Text style={[styles.statusText, { color: statusInfo.color }]}>{statusInfo.label}</Text>
+            </View>
+          </View>
+          <Text style={styles.ticketTime}>{timeAgo(item.updated_at)}</Text>
+        </View>
+        <View style={styles.clientRow}>
+          <View style={[styles.clientAvatar, { backgroundColor: '#2196F320' }]}>
+            <Ionicons name="person" size={16} color="#2196F3" />
+          </View>
+          <View style={styles.clientInfo}>
+            <Text style={styles.clientName}>{item.subject || 'Sin asunto'}</Text>
+            <Text style={styles.clientBox}>{formatDate(item.created_at)}</Text>
+          </View>
+          <View style={styles.categoryBadge}>
+            <Text style={styles.categoryText}>
+              {CATEGORY_LABELS[item.category] || item.category}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   const filters = [
     { key: 'all', label: 'Todos', count: stats?.total },
@@ -273,8 +333,30 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
+      {/* View Mode Toggle */}
+      <View style={styles.toggleRow}>
+        <TouchableOpacity
+          style={[styles.toggleBtn, viewMode === 'clients' && styles.toggleBtnActive]}
+          onPress={() => { setViewMode('clients'); setFilter('all'); }}
+        >
+          <Ionicons name="people" size={14} color={viewMode === 'clients' ? '#fff' : '#666'} />
+          <Text style={[styles.toggleBtnText, viewMode === 'clients' && styles.toggleBtnTextActive]}>
+            Tickets de Clientes
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.toggleBtn, viewMode === 'mine' && styles.toggleBtnActive]}
+          onPress={() => setViewMode('mine')}
+        >
+          <Ionicons name="person-circle" size={14} color={viewMode === 'mine' ? '#fff' : '#666'} />
+          <Text style={[styles.toggleBtnText, viewMode === 'mine' && styles.toggleBtnTextActive]}>
+            Mis Tickets
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       {/* Stats Cards */}
-      {stats && (
+      {viewMode === 'clients' && stats && (
         <View style={styles.statsRow}>
           <View style={[styles.statCard, { borderLeftColor: '#F44336' }]}>
             <Text style={styles.statNumber}>{parseInt(String(stats.escalated)) || 0}</Text>
@@ -295,48 +377,69 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
         </View>
       )}
 
-      {/* Filter Chips */}
-      <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false} 
-        style={styles.filterScroll}
-        contentContainerStyle={styles.filterContainer}
-      >
-        {filters.map(f => (
-          <TouchableOpacity
-            key={f.key}
-            style={[styles.filterChip, filter === f.key && styles.filterChipActive]}
-            onPress={() => setFilter(f.key)}
-          >
-            <Text style={[styles.filterChipText, filter === f.key && styles.filterChipTextActive]}>
-              {f.label} {f.count != null ? `(${f.count})` : ''}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+      {/* Filter Chips — solo en modo clientes */}
+      {viewMode === 'clients' && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScroll}
+          contentContainerStyle={styles.filterContainer}
+        >
+          {filters.map(f => (
+            <TouchableOpacity
+              key={f.key}
+              style={[styles.filterChip, filter === f.key && styles.filterChipActive]}
+              onPress={() => setFilter(f.key)}
+            >
+              <Text style={[styles.filterChipText, filter === f.key && styles.filterChipTextActive]}>
+                {f.label} {f.count != null ? `(${f.count})` : ''}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      )}
 
       {/* Tickets List */}
-      <FlatList
-        data={tickets}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={renderTicketItem}
-        contentContainerStyle={styles.listContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ORANGE]} />
-        }
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Ionicons name="ticket-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyTitle}>Sin Tickets</Text>
-            <Text style={styles.emptySubtitle}>
-              {filter === 'all' 
-                ? 'Tus clientes aún no han generado tickets de soporte'
-                : `No hay tickets con estado "${filters.find(f => f.key === filter)?.label}"`
-              }
-            </Text>
-          </View>
-        }
-      />
+      {viewMode === 'clients' ? (
+        <FlatList
+          data={tickets}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderTicketItem}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ORANGE]} />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons name="ticket-outline" size={64} color="#ccc" />
+              <Text style={styles.emptyTitle}>Sin Tickets</Text>
+              <Text style={styles.emptySubtitle}>
+                {filter === 'all'
+                  ? 'Tus clientes aún no han generado tickets de soporte'
+                  : `No hay tickets con estado "${filters.find(f => f.key === filter)?.label}"`
+                }
+              </Text>
+            </View>
+          }
+        />
+      ) : (
+        <FlatList
+          data={myTickets}
+          keyExtractor={(item) => String(item.id)}
+          renderItem={renderMyTicketItem}
+          contentContainerStyle={styles.listContent}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ORANGE]} />
+          }
+          ListEmptyComponent={
+            <View style={styles.emptyState}>
+              <Ionicons name="ticket-outline" size={64} color="#ccc" />
+              <Text style={styles.emptyTitle}>Sin Tickets</Text>
+              <Text style={styles.emptySubtitle}>Aún no has levantado ningún ticket</Text>
+            </View>
+          }
+        />
+      )}
 
       {/* FAB — Levantar Ticket */}
       <TouchableOpacity
@@ -377,14 +480,25 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
             <ScrollView style={styles.modalBody}>
               {/* Client Info */}
               <View style={styles.detailClientCard}>
-                <View style={styles.detailClientAvatar}>
-                  <Text style={styles.detailClientAvatarText}>
-                    {(selectedTicket.client_name || 'NN').substring(0, 2).toUpperCase()}
-                  </Text>
+                <View style={[styles.detailClientAvatar, viewMode === 'mine' && { backgroundColor: '#2196F320' }]}>
+                  {viewMode === 'mine' ? (
+                    <Ionicons name="person" size={22} color="#2196F3" />
+                  ) : (
+                    <Text style={styles.detailClientAvatarText}>
+                      {((selectedTicket as Ticket).client_name || 'NN').substring(0, 2).toUpperCase()}
+                    </Text>
+                  )}
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.detailClientName}>{selectedTicket.client_name}</Text>
-                  <Text style={styles.detailClientEmail}>{selectedTicket.client_box_id || selectedTicket.client_email}</Text>
+                  <Text style={styles.detailClientName}>
+                    {viewMode === 'mine' ? 'Mi Ticket' : (selectedTicket as Ticket).client_name}
+                  </Text>
+                  <Text style={styles.detailClientEmail}>
+                    {viewMode === 'mine'
+                      ? selectedTicket.ticket_folio
+                      : ((selectedTicket as Ticket).client_box_id || (selectedTicket as Ticket).client_email)
+                    }
+                  </Text>
                 </View>
                 <View style={styles.categoryBadge}>
                   <Text style={styles.categoryText}>
@@ -444,6 +558,36 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    marginHorizontal: 12,
+    marginTop: 12,
+    marginBottom: 4,
+    backgroundColor: '#E8E8E8',
+    borderRadius: 10,
+    padding: 3,
+    gap: 3,
+  },
+  toggleBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    borderRadius: 8,
+    gap: 6,
+  },
+  toggleBtnActive: {
+    backgroundColor: ORANGE,
+  },
+  toggleBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
+  },
+  toggleBtnTextActive: {
+    color: '#fff',
   },
   statsRow: {
     flexDirection: 'row',

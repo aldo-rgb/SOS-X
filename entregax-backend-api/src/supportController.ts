@@ -357,15 +357,18 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     const escalateDirectly = req.body.escalateDirectly === 'true' || req.body.escalateDirectly === true;
 
     // Determinar creator_type y department_id
+    const advisorRoles = ['advisor', 'sub_advisor', 'asesor_lider', 'asesor'];
     const employeeRoles = [
       'employee', 'counter_staff', 'customer_service', 'admin', 'super_admin',
       'director', 'branch_manager', 'warehouse_ops', 'accountant',
       'monitoreo', 'operaciones', 'repartidor', 'abogado',
+      ...advisorRoles,
     ];
     const creatorType = employeeRoles.includes(userRole) ? 'employee' : 'client';
-    // Employees go to Soporte Técnico by default; clients to Atención a Cliente
+    // Asesores → Atención a Cliente; resto de empleados → Soporte Técnico; clientes → default
+    const isAdvisorRole = advisorRoles.includes(userRole);
     const deptRes = await pool.query(
-      creatorType === 'employee'
+      creatorType === 'employee' && !isAdvisorRole
         ? `SELECT id FROM support_departments WHERE name = 'Soporte Técnico' LIMIT 1`
         : `SELECT id FROM support_departments WHERE is_default_for_clients = TRUE LIMIT 1`
     );
