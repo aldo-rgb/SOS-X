@@ -603,8 +603,16 @@ export default function SupportBoardPage() {
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
                   <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: dept.color || '#999', flexShrink: 0 }} />
                   <Typography variant="subtitle1" fontWeight="bold" sx={{ flex: 1 }}>{dept.name}</Typography>
-                  {urgent > 0 && <Badge badgeContent={urgent} color="warning" />}
-                  <Typography variant="caption" color="text.secondary">{col.length}</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
+                    {urgent > 0 && (
+                      <Box sx={{ bgcolor: ORANGE, color: '#fff', borderRadius: 10, px: 0.8, fontSize: 11, fontWeight: 700, lineHeight: '18px' }}>
+                        {urgent} ⚠️
+                      </Box>
+                    )}
+                    <Box sx={{ bgcolor: '#e0e0e0', borderRadius: 10, px: 0.8, fontSize: 11, fontWeight: 600, lineHeight: '18px' }}>
+                      {col.length}
+                    </Box>
+                  </Box>
                 </Box>
                 {col.length === 0 ? (
                   <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>Sin tickets</Typography>
