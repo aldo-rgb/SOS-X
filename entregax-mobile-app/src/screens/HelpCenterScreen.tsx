@@ -40,6 +40,7 @@ type RootStackParamList = {
   Home: { user: any; token: string };
   SupportChat: { user: any; token: string; mode?: 'ai' | 'human' };
   RequestAdvisor: { user: any; token: string };
+  MyTickets: { user: any; token: string };
 };
 
 type Props = {
@@ -133,8 +134,8 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     { value: 'other', label: t('helpCenter.categories.other') },
   ];
 
-  // El número de guía es obligatorio excepto para "systemError" y "accounting"
-  const isTrackingRequired = ticketCategory !== 'systemError' && ticketCategory !== 'accounting' && ticketCategory !== '';
+  // El número de guía es obligatorio para todas las categorías
+  const isTrackingRequired = ticketCategory !== '';
 
   // Opción 1: Hablar ahora (Asesor Virtual / AI)
   const handleTalkNow = () => {
@@ -436,7 +437,21 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
             </Surface>
           </TouchableOpacity>
 
-          {/* Opción 4: Aviso de Privacidad de la Empresa */}
+          {/* Opción 4: Mis Tickets */}
+          <TouchableOpacity onPress={() => navigation.navigate('MyTickets', { user, token })}>
+            <Surface style={styles.optionCard}>
+              <View style={[styles.optionIcon, { backgroundColor: '#F3E5F5' }]}>
+                <Ionicons name="list" size={32} color="#7B1FA2" />
+              </View>
+              <View style={styles.optionContent}>
+                <Text style={styles.optionTitle}>Mis Tickets</Text>
+                <Text style={styles.optionDescription}>Consulta el estado de tus reportes y responde mensajes</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={24} color="#999" />
+            </Surface>
+          </TouchableOpacity>
+
+          {/* Opción 5: Aviso de Privacidad de la Empresa */}
           <TouchableOpacity onPress={openPrivacyPolicy}>
             <Surface style={styles.optionCard}>
               <View style={[styles.optionIcon, { backgroundColor: '#E3F2FD' }]}>

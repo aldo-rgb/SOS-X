@@ -963,7 +963,7 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
         );
         if (clientCheck.rows.length === 0) { res.status(403).json({ error: 'Cliente no encontrado' }); return; }
 
-        const { alias, recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault } = req.body;
+        const { alias, recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault, phone, reference, receptionHours, notes } = req.body;
         if (!street || !city || !state || !zipCode) {
             res.status(400).json({ error: 'Faltan campos requeridos: street, city, state, zipCode' }); return;
         }
@@ -971,9 +971,9 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
             await pool.query(`UPDATE addresses SET is_default = FALSE WHERE user_id = $1`, [clientId]);
         }
         const result = await pool.query(
-            `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
-            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false]
+            `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default, phone, reference, reception_hours)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false, phone || null, notes || reference || null, receptionHours || null]
         );
         res.status(201).json({ message: 'Dirección creada exitosamente', address: result.rows[0] });
     } catch (error) {

@@ -886,8 +886,13 @@ export const ensureDepartmentsSchema = async () => {
     `);
     // Agregar unique constraint si no existe (evita duplicados futuros)
     await pool.query(`
-      ALTER TABLE support_departments
-      ADD CONSTRAINT IF NOT EXISTS support_departments_name_unique UNIQUE (name)
+      DO $$ BEGIN
+        IF NOT EXISTS (
+          SELECT 1 FROM pg_constraint WHERE conname = 'support_departments_name_unique'
+        ) THEN
+          ALTER TABLE support_departments ADD CONSTRAINT support_departments_name_unique UNIQUE (name);
+        END IF;
+      END $$;
     `);
     await pool.query(`
       INSERT INTO support_departments (name, color, icon, is_default_for_clients, sort_order)

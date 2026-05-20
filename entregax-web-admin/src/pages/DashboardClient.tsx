@@ -2930,8 +2930,8 @@ export default function DashboardClient() {
   const isSupportFormValid = () => {
     if (!supportCategory) return false;
     if (!supportMessage.trim()) return false;
-    // Tracking obligatorio excepto para Error del Sistema
-    if (supportCategory !== 'systemError' && supportCategory !== 'accounting' && !supportTracking.trim()) return false;
+    // Tracking obligatorio para todas las categorías
+    if (!supportTracking.trim()) return false;
     // Si hay tracking, debe estar validado
     if (supportTracking.trim() && trackingValidation.status !== 'valid') return false;
     return true;
@@ -11210,7 +11210,7 @@ export default function DashboardClient() {
 
           {/* Número de Guía */}
           <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-            {t('cd.support.tracking')} {(supportCategory === 'systemError' || supportCategory === 'accounting') ? `(${t('cd.support.optional')})` : '*'}
+            {t('cd.support.tracking')} *
           </Typography>
           <TextField
             fullWidth

@@ -3,7 +3,7 @@
  * Panel de Soporte al Cliente tipo Kanban con ruteo por departamentos
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box,
@@ -61,12 +61,6 @@ interface Department {
   open_count?: number;
 }
 
-interface Agent {
-  id: number;
-  full_name: string;
-  email: string;
-  role: string;
-}
 
 interface SupportTicket {
   id: number;
@@ -146,16 +140,15 @@ export default function SupportBoardPage() {
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [stats, setStats] = useState<SupportStats | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedTicket, setSelectedTicket] = useState<SupportTicket | null>(null);
   const [messages, setMessages] = useState<TicketMessage[]>([]);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferDept, setTransferDept] = useState<number | ''>('');
-  const [transferAgent, setTransferAgent] = useState<number | ''>('');
   const [transferNote, setTransferNote] = useState('');
   const [transferring, setTransferring] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -163,6 +156,23 @@ export default function SupportBoardPage() {
   const [creatorFilter, setCreatorFilter] = useState<'all' | 'client' | 'employee'>('all');
 
   const token = localStorage.getItem('token');
+  const currentUserRole: string = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; }
+  })();
+
+  // Reglas de visibilidad por nombre de departamento
+  const DEPT_ALLOWED_ROLES: Record<string, string[]> = {
+    'Dirección':         ['super_admin', 'admin', 'director'],
+    'Contabilidad':      ['super_admin', 'admin', 'accountant'],
+    'Soporte Técnico':   ['super_admin', 'admin', 'customer_service', 'counter_staff'],
+    'Atención a Cliente':['super_admin', 'admin', 'customer_service', 'counter_staff'],
+  };
+
+  const canSeeDept = (deptName: string): boolean => {
+    const allowed = DEPT_ALLOWED_ROLES[deptName];
+    if (!allowed) return true; // departamentos sin regla → todos los ven
+    return allowed.includes(currentUserRole);
+  };
 
   const loadTickets = useCallback(async () => {
     try {
@@ -192,33 +202,31 @@ export default function SupportBoardPage() {
     } catch { /* ignore */ }
   }, [token]);
 
-  const loadAgents = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_URL}/admin/support/agents`, { headers: { Authorization: `Bearer ${token}` } });
-      if (!res.ok) return;
-      setAgents(await res.json());
-    } catch { /* ignore */ }
-  }, [token]);
-
   const loadMessages = async (ticketId: number) => {
     try {
       const res = await fetch(`${API_URL}/admin/support/ticket/${ticketId}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setMessages(await res.json());
+      if (!res.ok) return;
+      const data = await res.json();
+      setMessages(Array.isArray(data) ? data : []);
     } catch { /* ignore */ }
   };
 
   useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  useEffect(() => {
     const init = async () => {
       setLoading(true);
-      await Promise.all([loadTickets(), loadStats(), loadDepartments(), loadAgents()]);
+      await Promise.all([loadTickets(), loadStats(), loadDepartments()]);
       setLoading(false);
     };
     init();
     const interval = setInterval(() => { loadTickets(); loadStats(); }, 30000);
     return () => clearInterval(interval);
-  }, [loadTickets, loadStats, loadDepartments, loadAgents]);
+  }, [loadTickets, loadStats, loadDepartments]);
 
   const handleOpenTicket = async (ticket: SupportTicket) => {
     setSelectedTicket(ticket);
@@ -228,25 +236,62 @@ export default function SupportBoardPage() {
 
   const handleSendReply = async () => {
     if (!replyText.trim() || !selectedTicket) return;
+    const text = replyText.trim();
+    const ticketId = selectedTicket.id;
+    // Optimistic: show message immediately
+    const tempId = Date.now();
+    const tempMsg: TicketMessage = {
+      id: tempId,
+      sender_type: 'agent',
+      message: text,
+      is_internal: false,
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, tempMsg]);
+    setReplyText('');
     setSending(true);
     try {
-      await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/reply`, {
+      const res = await fetch(`${API_URL}/admin/support/ticket/${ticketId}/reply`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ message: replyText }),
+        body: JSON.stringify({ message: text }),
       });
-      setReplyText('');
-      await loadMessages(selectedTicket.id);
+      if (!res.ok) {
+        // Revert optimistic message and restore text
+        setMessages(prev => prev.filter(m => m.id !== tempId));
+        setReplyText(text);
+        return;
+      }
+      // Sync with server to get real message id/timestamp
+      await loadMessages(ticketId);
       await loadTickets();
+    } catch {
+      setMessages(prev => prev.filter(m => m.id !== tempId));
+      setReplyText(text);
     } finally { setSending(false); }
   };
 
   const handleResolveTicket = async () => {
     if (!selectedTicket) return;
-    await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/resolve`, {
-      method: 'PUT',
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const isDirectiveRole = ['admin', 'super_admin', 'director', 'accountant'].includes(currentUserRole);
+    if (isDirectiveRole) {
+      // Transfer to Atención a Cliente instead of resolving
+      const atencionDept = departments.find(d => d.name === 'Atención a Cliente');
+      if (!atencionDept) return;
+      await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/transfer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          department_id: atencionDept.id,
+          note: 'Ticket enviado a Atención a Cliente para dar seguimiento al cliente.',
+        }),
+      });
+    } else {
+      await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/resolve`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    }
     setDialogOpen(false);
     setSelectedTicket(null);
     await loadTickets();
@@ -254,7 +299,7 @@ export default function SupportBoardPage() {
   };
 
   const handleTransfer = async () => {
-    if (!selectedTicket || (!transferDept && !transferAgent)) return;
+    if (!selectedTicket || !transferDept) return;
     setTransferring(true);
     try {
       await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/transfer`, {
@@ -262,13 +307,11 @@ export default function SupportBoardPage() {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           department_id: transferDept || undefined,
-          assigned_to: transferAgent || undefined,
           note: transferNote || undefined,
         }),
       });
       setTransferOpen(false);
       setTransferDept('');
-      setTransferAgent('');
       setTransferNote('');
       await loadTickets();
       await loadMessages(selectedTicket.id);
@@ -378,7 +421,7 @@ export default function SupportBoardPage() {
           sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0, textTransform: 'none', fontSize: 13 } }}
         >
           <Tab label="Todos" value="all" />
-          {departments.map((d) => {
+          {departments.filter(d => canSeeDept(d.name)).map((d) => {
             const cnt = deptCounts.find((x) => x.id === d.id)?.open_count;
             return (
               <Tab
@@ -419,7 +462,7 @@ export default function SupportBoardPage() {
       <Box sx={{ display: 'flex', gap: 2, flex: 1, overflow: 'hidden', minHeight: 0 }}>
         {[
           { status: 'escalated_human', label: 'Requieren Atención ⚠️', bg: '#FFF3E0', accent: ORANGE, urgent: true },
-          { status: 'open_ai',         label: 'Asesor Virtual - En desarrollo',             bg: '#E3F2FD', accent: '#2196F3', urgent: false },
+          { status: 'open_ai',         label: 'Asesor Virtual',             bg: '#E3F2FD', accent: '#2196F3', urgent: false },
           { status: 'waiting_client',  label: 'Esperando Cliente ⏳',  bg: '#FFF8E1', accent: '#f9a825', urgent: false },
           { status: 'resolved',        label: 'Resueltos ✅',          bg: '#E8F5E9', accent: '#4caf50', urgent: false },
         ].map(({ status, label, bg, accent, urgent }) => {
@@ -544,6 +587,7 @@ export default function SupportBoardPage() {
                     </Box>
                   </Box>
                 ))}
+                <div ref={messagesEndRef} />
               </Box>
 
               <Divider />
@@ -593,7 +637,9 @@ export default function SupportBoardPage() {
               </Box>
               {selectedTicket.status !== 'resolved' && (
                 <Button variant="contained" color="success" onClick={handleResolveTicket} startIcon={<ResolvedIcon />}>
-                  Marcar Resuelto
+                  {['admin', 'super_admin', 'director', 'accountant'].includes(currentUserRole)
+                    ? 'Marcar resuelto y transferir a Atención a Cliente'
+                    : 'Marcar Resuelto'}
                 </Button>
               )}
             </DialogActions>
@@ -620,26 +666,13 @@ export default function SupportBoardPage() {
               label="Departamento"
               onChange={(e) => setTransferDept(e.target.value as number)}
             >
-              {departments.map((d) => (
+              {departments.filter(d => canSeeDept(d.name)).map((d) => (
                 <MenuItem key={d.id} value={d.id}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: d.color }} />
                     {d.name}
                   </Box>
                 </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel>Asignar a agente (opcional)</InputLabel>
-            <Select
-              value={transferAgent}
-              label="Asignar a agente (opcional)"
-              onChange={(e) => setTransferAgent(e.target.value as number)}
-            >
-              <MenuItem value="">Sin asignar</MenuItem>
-              {agents.map((a) => (
-                <MenuItem key={a.id} value={a.id}>{a.full_name} — {a.role}</MenuItem>
               ))}
             </Select>
           </FormControl>
@@ -656,7 +689,7 @@ export default function SupportBoardPage() {
           <Button
             variant="contained"
             onClick={handleTransfer}
-            disabled={transferring || (!transferDept && !transferAgent)}
+            disabled={transferring || !transferDept}
             sx={{ bgcolor: '#9C27B0', '&:hover': { bgcolor: '#7B1FA2' } }}
             startIcon={transferring ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : <TransferIcon />}
           >

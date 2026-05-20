@@ -1367,28 +1367,7 @@ export default function DashboardAdvisor() {
   const renderShipments = () => (
     <Fade in timeout={400}>
       <Box>
-        {/* Quick stat pills */}
-        {shipmentStats && (
-          <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-            {[
-              { key: 'all', label: t('advisor.allShipments'), count: shipmentStats.total, color: 'default' as const },
-              { key: 'in_transit', label: t('advisor.statusInTransit'), count: shipmentStats.inTransit, color: 'warning' as const },
-              { key: 'awaiting_payment', label: t('advisor.awaitingPayment'), count: shipmentStats.awaitingPayment, color: 'error' as const },
-              { key: 'missing_instructions', label: 'Sin Instrucciones', count: shipmentStats.missingInstructions, color: 'info' as const },
-              { key: 'ready_pickup', label: t('advisor.statusReady'), count: shipmentStats.readyPickup, color: 'success' as const },
-              { key: 'delivered', label: t('advisor.statusDelivered'), count: shipmentStats.delivered, color: 'default' as const },
-            ].map(s => (
-              <Chip
-                key={s.key}
-                label={`${s.label} (${s.count})`}
-                color={shipmentFilter === s.key ? 'primary' : s.color}
-                variant={shipmentFilter === s.key ? 'filled' : 'outlined'}
-                onClick={() => { setShipmentFilter(s.key); setShipmentPage(0); }}
-                clickable
-              />
-            ))}
-          </Box>
-        )}
+        {/* Quick stat pills — ocultas (redundantes con filtros de abajo) */}
 
         {/* Search + Filters */}
         <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -3009,8 +2988,13 @@ export default function DashboardAdvisor() {
                           <CheckCircleIcon sx={{ position: 'absolute', top: 6, right: 6, fontSize: 16, color: '#E65100' }} />
                         )}
                         {isUrl
-                          ? <img src={carrier.icon} alt={carrier.name} style={{ width: 36, height: 36, objectFit: 'contain' }} />
-                          : <Typography sx={{ fontSize: 28, lineHeight: 1 }}>{carrier.icon}</Typography>
+                          ? <img
+                              src={carrier.icon.startsWith('/') ? `${import.meta.env.VITE_API_URL || 'http://localhost:3001'}${carrier.icon}` : carrier.icon}
+                              alt={carrier.name}
+                              style={{ width: 36, height: 36, objectFit: 'contain' }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.insertAdjacentText('afterbegin', '📦'); }}
+                            />
+                          : <Typography sx={{ fontSize: 28, lineHeight: 1 }}>{carrier.icon || '📦'}</Typography>
                         }
                         <Typography variant="caption" fontWeight={isCarrierSelected ? 700 : 400} align="center" sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
                           {carrier.name}

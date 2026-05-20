@@ -224,7 +224,8 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
   }
 
   // Pickup en Sucursal Hidalgo TX solo aplica a guías de PO Box USA
-  const isPOBoxUS = !shipmentType || shipmentType === 'air' || shipmentType === 'usa' || shipmentType === 'pobox';
+  const isPOBoxUS = !shipmentType || ['air', 'usa', 'pobox', 'POBOX_USA', 'usa_pobox'].includes(shipmentType) ||
+    shipmentType.toLowerCase().includes('pobox') || shipmentType.toLowerCase().includes('usa');
 
   // 🗺️ Helpers de zona por código postal
   // - MTY metro (AMM): C.P. que empiezan en 64, 65, 66, 67

@@ -127,9 +127,10 @@ const formatReceptionHoursDisplay = (raw?: string | null): string => {
 // - Aéreo:       Entregax Local CDMX + Entregax Local MTY + Paquete Express
 // - USA:         Entregax Local MTY + Paquete Express
 // - TDI Express: Entregax Local MTY + Paquete Express (llega a Monterrey)
-const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: string; cost: number; dynamic?: boolean }[]> = {
+const CARRIERS_BY_SERVICE: Record<string, { id: string; name: string; icon: string; cost: number; currency?: string; dynamic?: boolean }[]> = {
   usa: [
     { id: 'entregax_local_mty', name: 'Entregax Local MTY', icon: '🚛', cost: 0 },
+    { id: 'pickup_hidalgo', name: 'Paso a recoger a Hidalgo', icon: '🏪', cost: 3, currency: 'USD' },
     { id: 'paquete_express', name: 'Paquete Express', icon: '📦', cost: 0, dynamic: true },
   ],
   tdi_express: [
@@ -857,7 +858,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                       <View style={styles.carrierOptionInfo}>
                         <Text style={styles.carrierOptionName}>{carrier.name}</Text>
                         <Text style={styles.carrierOptionCost}>
-                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} MXN`)}
+                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} ${carrier.currency || 'MXN'}`)}
                         </Text>
                       </View>
                       <View style={[styles.radioCircle, selectedCarriers.maritime === carrier.id && styles.radioCircleSelected]}>
@@ -904,7 +905,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                       <View style={styles.carrierOptionInfo}>
                         <Text style={styles.carrierOptionName}>{carrier.name}</Text>
                         <Text style={styles.carrierOptionCost}>
-                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} MXN`)}
+                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} ${carrier.currency || 'MXN'}`)}
                         </Text>
                       </View>
                       <View style={[styles.radioCircle, selectedCarriers.air === carrier.id && styles.radioCircleSelected]}>
@@ -951,7 +952,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                       <View style={styles.carrierOptionInfo}>
                         <Text style={styles.carrierOptionName}>{carrier.name}</Text>
                         <Text style={styles.carrierOptionCost}>
-                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} MXN`)}
+                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} ${carrier.currency || 'MXN'}`)}
                         </Text>
                       </View>
                       <View style={[styles.radioCircle, selectedCarriers.usa === carrier.id && styles.radioCircleSelected]}>
@@ -998,7 +999,7 @@ export default function MyAddressesScreen({ navigation, route }: Props) {
                       <View style={styles.carrierOptionInfo}>
                         <Text style={styles.carrierOptionName}>{carrier.name}</Text>
                         <Text style={styles.carrierOptionCost}>
-                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} MXN`)}
+                          {carrier.dynamic ? 'Costo según cotización' : (carrier.cost === 0 ? 'Incluido' : `$${carrier.cost} ${carrier.currency || 'MXN'}`)}
                         </Text>
                       </View>
                       <View style={[styles.radioCircle, selectedCarriers.tdi_express === carrier.id && styles.radioCircleSelected]}>

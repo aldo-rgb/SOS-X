@@ -27,6 +27,7 @@ import GEXContractScreen from './src/screens/GEXContractScreen';
 import RequestAdvisorScreen from './src/screens/RequestAdvisorScreen';
 import SupportChatScreen from './src/screens/SupportChatScreen';
 import HelpCenterScreen from './src/screens/HelpCenterScreen';
+import MyTicketsScreen from './src/screens/MyTicketsScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import DeliveryInstructionsScreen from './src/screens/DeliveryInstructionsScreen';
 import MaritimeDetailScreen from './src/screens/MaritimeDetailScreen';
@@ -117,6 +118,7 @@ export type RootStackParamList = {
   GEXContract: { package: Package; user: any; token: string };
   RequestAdvisor: { user: any; token: string };
   HelpCenter: { user: any; token: string };
+  MyTickets: { user: any; token: string };
   SupportChat: { user: any; token: string; mode?: 'ai' | 'human' };
   Notifications: { user: any; token: string };
   DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
@@ -273,9 +275,13 @@ function App() {
             name="SupportChat" 
             component={SupportChatScreen}
           />
-          <Stack.Screen 
-            name="HelpCenter" 
+          <Stack.Screen
+            name="HelpCenter"
             component={HelpCenterScreen}
+          />
+          <Stack.Screen
+            name="MyTickets"
+            component={MyTicketsScreen}
           />
           <Stack.Screen 
             name="Notifications" 
