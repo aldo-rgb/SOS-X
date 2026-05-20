@@ -384,21 +384,27 @@ export const getContainerStatusHistory = async (req: AuthRequest, res: Response)
         };
       }
       if (clientUserId) {
-        // Verificar si alguna orden del contenedor tiene delivery_address_id asignado
-        const instrRes = await pool.query(
-          `SELECT da.* FROM maritime_orders mo
-             JOIN addresses da ON da.id = mo.delivery_address_id
-            WHERE mo.container_id = $1
-              AND mo.delivery_address_id IS NOT NULL
-            LIMIT 1`,
+        // 1. Primero: delivery_address_id directo en el contenedor (FCL)
+        const contAddrRes = await pool.query(
+          `SELECT a.* FROM containers c
+             JOIN addresses a ON a.id = c.delivery_address_id
+            WHERE c.id = $1 AND c.delivery_address_id IS NOT NULL`,
           [id]
         );
-        if (instrRes.rows.length > 0) {
-          // Instrucciones formalmente asignadas: usar esa dirección
-          destinationAddress = { ...instrRes.rows[0], instruction_confirmed: true };
+        if (contAddrRes.rows.length > 0) {
+          destinationAddress = { ...contAddrRes.rows[0], instruction_confirmed: true };
         } else {
-          // Sin instrucciones: no mostrar dirección (null)
-          destinationAddress = null;
+          // 2. Fallback: maritime_orders con delivery_address_id (LCL)
+          const instrRes = await pool.query(
+            `SELECT da.* FROM maritime_orders mo
+               JOIN addresses da ON da.id = mo.delivery_address_id
+              WHERE mo.container_id = $1 AND mo.delivery_address_id IS NOT NULL
+              LIMIT 1`,
+            [id]
+          );
+          destinationAddress = instrRes.rows.length > 0
+            ? { ...instrRes.rows[0], instruction_confirmed: true }
+            : null;
         }
       }
     } catch (addrErr) {

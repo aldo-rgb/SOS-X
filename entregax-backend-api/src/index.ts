@@ -8003,14 +8003,23 @@ app.get('/api/monitoreo/containers/:id', authenticateToken, async (req: any, res
     let destinationAddress: any = null;
     if (container.client_user_id) {
       try {
-        const instrRes = await pool.query(`
-          SELECT da.* FROM maritime_orders mo
-          JOIN addresses da ON da.id = mo.delivery_address_id
-          WHERE mo.container_id = $1
-            AND mo.delivery_address_id IS NOT NULL
-          LIMIT 1
+        // 1. delivery_address_id directo en el contenedor (FCL)
+        const contAddrRes = await pool.query(`
+          SELECT a.* FROM addresses a
+          WHERE a.id = (SELECT delivery_address_id FROM containers WHERE id = $1)
         `, [container.id]);
-        destinationAddress = instrRes.rows[0] ? { ...instrRes.rows[0], instruction_confirmed: true } : null;
+        if (contAddrRes.rows.length > 0) {
+          destinationAddress = { ...contAddrRes.rows[0], instruction_confirmed: true };
+        } else {
+          // 2. Fallback: maritime_orders con delivery_address_id (LCL)
+          const instrRes = await pool.query(`
+            SELECT da.* FROM maritime_orders mo
+            JOIN addresses da ON da.id = mo.delivery_address_id
+            WHERE mo.container_id = $1 AND mo.delivery_address_id IS NOT NULL
+            LIMIT 1
+          `, [container.id]);
+          destinationAddress = instrRes.rows[0] ? { ...instrRes.rows[0], instruction_confirmed: true } : null;
+        }
       } catch (e) {
         console.warn('No se pudo cargar dirección:', (e as Error).message);
       }
