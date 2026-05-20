@@ -274,25 +274,28 @@ export default function SupportBoardPage() {
 
   const handleResolveTicket = async () => {
     if (!selectedTicket) return;
-    const isDirectiveRole = ['admin', 'super_admin', 'director', 'accountant'].includes(currentUserRole);
-    if (isDirectiveRole) {
-      // Transfer to Atención a Cliente instead of resolving
-      const atencionDept = departments.find(d => d.name === 'Atención a Cliente');
-      if (!atencionDept) return;
-      await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/transfer`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          department_id: atencionDept.id,
-          note: 'Ticket enviado a Atención a Cliente para dar seguimiento al cliente.',
-        }),
-      });
-    } else {
-      await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/resolve`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-    }
+    await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/resolve`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setDialogOpen(false);
+    setSelectedTicket(null);
+    await loadTickets();
+    await loadStats();
+  };
+
+  const handleTransferToAtencion = async () => {
+    if (!selectedTicket) return;
+    const atencionDept = departments.find(d => d.name === 'Atención a Cliente');
+    if (!atencionDept) return;
+    await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/transfer`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        department_id: atencionDept.id,
+        note: 'Ticket enviado a Atención a Cliente para dar seguimiento al cliente.',
+      }),
+    });
     setDialogOpen(false);
     setSelectedTicket(null);
     await loadTickets();
@@ -636,11 +639,19 @@ export default function SupportBoardPage() {
                   </Tooltip>
                 )}
               </Box>
+              {selectedTicket.status !== 'resolved' && selectedTicket.department_name !== 'Atención a Cliente' && (
+                <Button
+                  variant="outlined"
+                  onClick={handleTransferToAtencion}
+                  startIcon={<TransferIcon />}
+                  sx={{ borderColor: ORANGE, color: ORANGE, '&:hover': { borderColor: ORANGE, bgcolor: '#FFF3EE' } }}
+                >
+                  Transferir a Atención a Cliente
+                </Button>
+              )}
               {selectedTicket.status !== 'resolved' && (
                 <Button variant="contained" color="success" onClick={handleResolveTicket} startIcon={<ResolvedIcon />}>
-                  {['admin', 'super_admin', 'director', 'accountant'].includes(currentUserRole)
-                    ? 'Marcar resuelto y transferir a Atención a Cliente'
-                    : 'Marcar Resuelto'}
+                  Marcar Resuelto
                 </Button>
               )}
             </DialogActions>
