@@ -532,7 +532,7 @@ export default function DashboardAdvisor() {
   const ADVISOR_TICKET_CATEGORIES = [
     { key: 'systemError',  label: 'Error del Sistema',    icon: <BugIcon />,          color: '#f44336', noTracking: true },
     { key: 'billing',      label: 'Comisiones / Pagos',   icon: <BillingIcon />,      color: '#4CAF50', noTracking: true },
-    { key: 'tracking',     label: 'Rastreo de Paquete',   icon: <SearchIcon />,       color: '#2196F3', noTracking: false },
+    { key: 'tracking',     label: 'Ajustes a un paquete', icon: <SearchIcon />,       color: '#2196F3', noTracking: false },
     { key: 'accounting',   label: 'Problema con Cliente', icon: <ClientIssueIcon />,  color: '#FF9800', noTracking: true },
     { key: 'other',        label: 'Otro',                 icon: <OtherIcon />,        color: '#9E9E9E', noTracking: true },
   ];
@@ -2324,29 +2324,43 @@ export default function DashboardAdvisor() {
                   sx={{ mb: 2 }}
                 />
 
-                {/* Adjuntar imagen */}
-                <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Capturas de pantalla (Opcional)</Typography>
+                {/* Adjuntar archivos (imágenes + PDFs) */}
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Archivos adjuntos (Opcional)</Typography>
                 <input
-                  type="file" accept="image/*" multiple
+                  type="file" accept="image/*,application/pdf" multiple
                   id="advisor-ticket-img"
                   style={{ display: 'none' }}
                   onChange={e => {
                     const files = Array.from(e.target.files || []);
-                    setTicketImages(prev => [...prev, ...files.map(f => ({ file: f, preview: URL.createObjectURL(f) }))]);
+                    setTicketImages(prev => [...prev, ...files.map(f => ({
+                      file: f,
+                      preview: f.type === 'application/pdf' ? '' : URL.createObjectURL(f),
+                    }))]);
                     e.target.value = '';
                   }}
                 />
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
-                  {ticketImages.map((img, i) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2, alignItems: 'center' }}>
+                  {ticketImages.map((item, i) => (
                     <Box key={i} sx={{ position: 'relative' }}>
-                      <img src={img.preview} alt="" style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover' }} />
-                      <IconButton
-                        size="small"
-                        sx={{ position: 'absolute', top: -6, right: -6, bgcolor: '#fff', boxShadow: 1, p: 0.3 }}
-                        onClick={() => setTicketImages(prev => prev.filter((_, idx) => idx !== i))}
-                      >
-                        <CloseIcon fontSize="small" />
-                      </IconButton>
+                      {item.file.type === 'application/pdf' ? (
+                        <Chip
+                          label={item.file.name.length > 18 ? item.file.name.substring(0, 16) + '…' : item.file.name}
+                          onDelete={() => setTicketImages(prev => prev.filter((_, idx) => idx !== i))}
+                          size="small"
+                          sx={{ bgcolor: '#FFEBEE', color: '#C62828', fontWeight: 600, '& .MuiChip-deleteIcon': { color: '#C62828' } }}
+                        />
+                      ) : (
+                        <>
+                          <img src={item.preview} alt="" style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover' }} />
+                          <IconButton
+                            size="small"
+                            sx={{ position: 'absolute', top: -6, right: -6, bgcolor: '#fff', boxShadow: 1, p: 0.3 }}
+                            onClick={() => setTicketImages(prev => prev.filter((_, idx) => idx !== i))}
+                          >
+                            <CloseIcon fontSize="small" />
+                          </IconButton>
+                        </>
+                      )}
                     </Box>
                   ))}
                   <label htmlFor="advisor-ticket-img">

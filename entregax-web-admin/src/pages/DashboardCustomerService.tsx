@@ -88,7 +88,21 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
         api.get('/admin/support/stats'),
         api.get('/admin/support/tickets', { params: { limit: 5 } }),
       ]);
-      setStats(statsRes.data);
+      // PostgreSQL COUNT() devuelve strings — parsear a int
+      const raw = statsRes.data || {};
+      const parsed: SupportStats = {
+        ai_handling: parseInt(raw.ai_handling) || 0,
+        needs_human: parseInt(raw.needs_human) || 0,
+        waiting_client: parseInt(raw.waiting_client) || 0,
+        resolved: parseInt(raw.resolved) || 0,
+        today_new: parseInt(raw.today_new) || 0,
+        today_resolved: parseInt(raw.today_resolved) || 0,
+        employee_open: parseInt(raw.employee_open) || 0,
+        client_open: parseInt(raw.client_open) || 0,
+        avg_resolution_time_min: parseInt(raw.avg_resolution_time_min) || 0,
+        departments: raw.departments || [],
+      };
+      setStats(parsed);
       setRecentTickets(ticketsRes.data?.tickets || ticketsRes.data || []);
     } catch (error) {
       console.error('Error cargando dashboard:', error);
@@ -360,9 +374,9 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
                 <WarningIcon color="error" />
                 <Box>
                   <Typography variant="subtitle2" fontWeight="bold" color="error.dark">
-                    {stats?.needs_human ?? 0} Tickets requieren humano
+                    {stats?.needs_human ?? 0} Tickets requieren atención
                   </Typography>
-                  <Typography variant="caption" color="error.dark">Escalados, requieren atención</Typography>
+                  <Typography variant="caption" color="error.dark">Escalados, sin respuesta de agente</Typography>
                 </Box>
               </Box>
               <Box sx={{ p: 2, bgcolor: 'warning.light', borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2 }}>

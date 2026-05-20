@@ -77,6 +77,73 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   const [editingServices, setEditingServices] = useState<string[]>([]);
   const [addrSaving, setAddrSaving] = useState(false);
 
+  // New address form
+  const [showNewAddrForm, setShowNewAddrForm] = useState(false);
+  const emptyNewAddr = { alias: '', recipientName: '', countryCode: '+52', phone: '', zipCode: '', neighborhood: '', city: '', state: '', street: '', exteriorNumber: '', interiorNumber: '', receptionHours: '', notes: '', isDefault: false };
+  const [newAddr, setNewAddr] = useState(emptyNewAddr);
+  const [newAddrSaving, setNewAddrSaving] = useState(false);
+  const [zipLoading, setZipLoading] = useState(false);
+  const [colonyOptions, setColonyOptions] = useState<string[]>([]);
+  const [showColonyPicker, setShowColonyPicker] = useState(false);
+
+  const fetchZipData = async (cp: string) => {
+    if (cp.length !== 5) return;
+    setZipLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/zipcode/${cp}`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      if (data.city) {
+        setNewAddr(prev => ({ ...prev, city: data.city, state: data.state || prev.state, neighborhood: data.colonies?.[0] || prev.neighborhood }));
+        setColonyOptions(data.colonies || []);
+      }
+    } catch { /* silent */ } finally {
+      setZipLoading(false);
+    }
+  };
+
+  const saveNewAddress = async () => {
+    if (!addrClient) return;
+    if (!newAddr.street || !newAddr.city || !newAddr.state || !newAddr.zipCode || !newAddr.neighborhood) {
+      Alert.alert('Campos requeridos', 'Completa: calle, colonia, ciudad, estado y código postal');
+      return;
+    }
+    setNewAddrSaving(true);
+    try {
+      const phone = newAddr.phone ? `${newAddr.countryCode}${newAddr.phone.replace(/\D/g, '')}` : '';
+      const res = await fetch(`${API_URL}/api/advisor/clients/${addrClient.id}/addresses`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          alias: newAddr.alias || 'Dirección',
+          recipientName: newAddr.recipientName,
+          street: newAddr.street,
+          exteriorNumber: newAddr.exteriorNumber,
+          interiorNumber: newAddr.interiorNumber,
+          neighborhood: newAddr.neighborhood,
+          city: newAddr.city,
+          state: newAddr.state,
+          zipCode: newAddr.zipCode,
+          phone,
+          receptionHours: newAddr.receptionHours,
+          notes: newAddr.notes,
+          isDefault: newAddr.isDefault,
+        }),
+      });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.error || 'Error'); }
+      const r2 = await fetch(`${API_URL}/api/advisor/clients/${addrClient.id}/addresses`, { headers: { Authorization: `Bearer ${token}` } });
+      const data = await r2.json();
+      setAddrList(Array.isArray(data) ? data : []);
+      setShowNewAddrForm(false);
+      setNewAddr(emptyNewAddr);
+      setColonyOptions([]);
+      Alert.alert('Dirección guardada', 'La dirección fue agregada correctamente');
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo guardar la dirección');
+    } finally {
+      setNewAddrSaving(false);
+    }
+  };
+
   const loadClients = useCallback(async (reset = false) => {
     try {
       const currentPage = reset ? 1 : page;
@@ -331,9 +398,18 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               <Text style={styles.modalTitle}>📍 Direcciones</Text>
               <Text style={styles.modalSubtitle}>{addrClient?.full_name}</Text>
             </View>
-            <TouchableOpacity onPress={() => setAddrModal(false)} style={styles.modalClose}>
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TouchableOpacity
+                style={{ backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                onPress={() => { setShowNewAddrForm(true); setNewAddr(emptyNewAddr); setColonyOptions([]); }}
+              >
+                <Ionicons name="add" size={18} color="#fff" />
+                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Agregar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setAddrModal(false)} style={styles.modalClose}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
           </View>
 
           {addrLoading ? (
@@ -346,6 +422,13 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               <Text style={{ color: '#666', marginTop: 12, textAlign: 'center', paddingHorizontal: 32 }}>
                 Este cliente no tiene direcciones guardadas
               </Text>
+              <TouchableOpacity
+                style={{ marginTop: 20, backgroundColor: PURPLE, borderRadius: 10, paddingHorizontal: 20, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', gap: 8 }}
+                onPress={() => { setShowNewAddrForm(true); setNewAddr(emptyNewAddr); setColonyOptions([]); }}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Agregar primera dirección</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <ScrollView contentContainerStyle={{ padding: 16 }}>
@@ -434,6 +517,171 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
           )}
         </View>
       </Modal>
+
+      {/* ─── Modal: Nueva Dirección ─── */}
+      <Modal visible={showNewAddrForm} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowNewAddrForm(false)}>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalHeader, { backgroundColor: PURPLE }]}>
+            <View>
+              <Text style={styles.modalTitle}>📍 Nueva dirección</Text>
+              <Text style={styles.modalSubtitle}>{addrClient?.full_name}</Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowNewAddrForm(false)} style={styles.modalClose}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
+
+            {/* Alias */}
+            <View style={nf.field}>
+              <Text style={nf.label}>Alias</Text>
+              <TextInput style={nf.input} placeholder="Ej: Casa, Oficina, Bodega..." value={newAddr.alias} onChangeText={v => setNewAddr(p => ({ ...p, alias: v }))} />
+            </View>
+
+            {/* Destinatario */}
+            <View style={nf.field}>
+              <Text style={nf.label}>Nombre del destinatario</Text>
+              <TextInput style={nf.input} placeholder="Nombre completo" value={newAddr.recipientName} onChangeText={v => setNewAddr(p => ({ ...p, recipientName: v }))} />
+            </View>
+
+            {/* Teléfono con lada */}
+            <View style={nf.field}>
+              <Text style={nf.label}>Teléfono</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <View style={[nf.input, { width: 90, justifyContent: 'center', paddingHorizontal: 0 }]}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 0 }}>
+                    {['+52 🇲🇽', '+1 🇺🇸', '+86 🇨🇳', '+57 🇨🇴', '+34 🇪🇸'].map(opt => {
+                      const code = opt.split(' ')[0];
+                      return (
+                        <TouchableOpacity key={code} onPress={() => setNewAddr(p => ({ ...p, countryCode: code }))}
+                          style={{ paddingHorizontal: 10, paddingVertical: 8, backgroundColor: newAddr.countryCode === code ? PURPLE : 'transparent', borderRadius: 6 }}>
+                          <Text style={{ color: newAddr.countryCode === code ? '#fff' : '#333', fontSize: 13, fontWeight: '600' }}>{opt}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </View>
+                <TextInput style={[nf.input, { flex: 1 }]} placeholder="10 dígitos" keyboardType="numeric" maxLength={10} value={newAddr.phone} onChangeText={v => setNewAddr(p => ({ ...p, phone: v.replace(/\D/g, '') }))} />
+              </View>
+            </View>
+
+            <View style={nf.divider}><Text style={nf.dividerText}>📍 Dirección</Text></View>
+
+            {/* C.P. — auto-fill */}
+            <View style={nf.field}>
+              <Text style={nf.label}>Código Postal *</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <TextInput
+                  style={[nf.input, { flex: 1 }]}
+                  placeholder="5 dígitos"
+                  keyboardType="numeric"
+                  maxLength={5}
+                  value={newAddr.zipCode}
+                  onChangeText={v => {
+                    const cp = v.replace(/\D/g, '');
+                    setNewAddr(p => ({ ...p, zipCode: cp }));
+                    if (cp.length === 5) fetchZipData(cp);
+                  }}
+                />
+                {zipLoading && <ActivityIndicator size="small" color={PURPLE} />}
+              </View>
+            </View>
+
+            {/* Colonia — picker si hay opciones */}
+            <View style={nf.field}>
+              <Text style={nf.label}>Colonia *</Text>
+              {colonyOptions.length > 0 ? (
+                <>
+                  <TouchableOpacity style={[nf.input, { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]} onPress={() => setShowColonyPicker(p => !p)}>
+                    <Text style={{ color: newAddr.neighborhood ? '#111' : '#aaa', fontSize: 15 }}>{newAddr.neighborhood || 'Selecciona la colonia'}</Text>
+                    <Ionicons name="chevron-down" size={16} color="#666" />
+                  </TouchableOpacity>
+                  {showColonyPicker && (
+                    <View style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, maxHeight: 180, marginTop: 4 }}>
+                      <ScrollView nestedScrollEnabled>
+                        {colonyOptions.map(c => (
+                          <TouchableOpacity key={c} style={{ paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' }}
+                            onPress={() => { setNewAddr(p => ({ ...p, neighborhood: c })); setShowColonyPicker(false); }}>
+                            <Text style={{ fontSize: 14, color: '#333' }}>{c}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </>
+              ) : (
+                <TextInput style={nf.input} placeholder="Ingresa el C.P. para ver colonias" value={newAddr.neighborhood} onChangeText={v => setNewAddr(p => ({ ...p, neighborhood: v }))} />
+              )}
+            </View>
+
+            {/* Ciudad y Estado */}
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={[nf.field, { flex: 1 }]}>
+                <Text style={nf.label}>Ciudad *</Text>
+                <TextInput style={nf.input} placeholder="Ciudad" value={newAddr.city} onChangeText={v => setNewAddr(p => ({ ...p, city: v }))} />
+              </View>
+              <View style={[nf.field, { flex: 1 }]}>
+                <Text style={nf.label}>Estado *</Text>
+                <TextInput style={[nf.input, colonyOptions.length > 0 && newAddr.state ? { backgroundColor: '#f5f5f5', color: '#666' } : {}]} placeholder="Estado" value={newAddr.state} onChangeText={v => setNewAddr(p => ({ ...p, state: v }))} editable={!(colonyOptions.length > 0 && !!newAddr.state)} />
+              </View>
+            </View>
+
+            {/* Calle + Números */}
+            <View style={nf.field}>
+              <Text style={nf.label}>Calle *</Text>
+              <TextInput style={nf.input} placeholder="Nombre de la calle" value={newAddr.street} onChangeText={v => setNewAddr(p => ({ ...p, street: v }))} />
+            </View>
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <View style={[nf.field, { flex: 1 }]}>
+                <Text style={nf.label}>No. Exterior *</Text>
+                <TextInput style={nf.input} placeholder="123" value={newAddr.exteriorNumber} onChangeText={v => setNewAddr(p => ({ ...p, exteriorNumber: v }))} />
+              </View>
+              <View style={[nf.field, { flex: 1 }]}>
+                <Text style={nf.label}>No. Interior</Text>
+                <TextInput style={nf.input} placeholder="Opcional" value={newAddr.interiorNumber} onChangeText={v => setNewAddr(p => ({ ...p, interiorNumber: v }))} />
+              </View>
+            </View>
+
+            <View style={nf.divider}><Text style={nf.dividerText}>🕐 Entrega (opcional)</Text></View>
+
+            {/* Horario de entrega */}
+            <View style={nf.field}>
+              <Text style={nf.label}>Horario de recepción</Text>
+              <TextInput style={nf.input} placeholder="Ej: Lun-Vie 9:00-18:00, Sáb 10:00-14:00" value={newAddr.receptionHours} onChangeText={v => setNewAddr(p => ({ ...p, receptionHours: v }))} />
+            </View>
+
+            <View style={nf.divider}><Text style={nf.dividerText}>📝 Notas (opcional)</Text></View>
+
+            {/* Notas */}
+            <View style={nf.field}>
+              <Text style={nf.label}>Notas / Referencia</Text>
+              <TextInput style={[nf.input, { height: 80, textAlignVertical: 'top', paddingTop: 10 }]} placeholder="Indicaciones especiales, referencias, etc." multiline value={newAddr.notes} onChangeText={v => setNewAddr(p => ({ ...p, notes: v }))} />
+            </View>
+
+            {/* Dirección principal toggle */}
+            <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: 10, padding: 14, backgroundColor: newAddr.isDefault ? PURPLE + '15' : '#f5f5f5', borderRadius: 10, marginBottom: 8 }}
+              onPress={() => setNewAddr(p => ({ ...p, isDefault: !p.isDefault }))}>
+              <View style={{ width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: PURPLE, backgroundColor: newAddr.isDefault ? PURPLE : 'transparent', alignItems: 'center', justifyContent: 'center' }}>
+                {newAddr.isDefault && <Ionicons name="checkmark" size={14} color="#fff" />}
+              </View>
+              <Text style={{ fontSize: 14, color: '#333', fontWeight: '500' }}>Establecer como dirección principal</Text>
+            </TouchableOpacity>
+
+            {/* Botones */}
+            <View style={{ flexDirection: 'row', gap: 10, marginBottom: 32 }}>
+              <TouchableOpacity style={{ flex: 1, borderWidth: 1.5, borderColor: '#ccc', borderRadius: 10, paddingVertical: 14, alignItems: 'center' }} onPress={() => setShowNewAddrForm(false)}>
+                <Text style={{ color: '#666', fontWeight: '600', fontSize: 15 }}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[{ flex: 2, backgroundColor: PURPLE, borderRadius: 10, paddingVertical: 14, alignItems: 'center' }, newAddrSaving && { opacity: 0.6 }]} onPress={saveNewAddress} disabled={newAddrSaving}>
+                {newAddrSaving
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Guardar dirección</Text>}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -492,4 +740,27 @@ const styles = StyleSheet.create({
   svcRowText: { fontSize: 14, color: '#333' },
   saveBtn: { backgroundColor: PURPLE, borderRadius: 8, paddingVertical: 12, alignItems: 'center', marginTop: 8 },
   saveBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+});
+
+// Estilos del formulario de nueva dirección
+const nf = StyleSheet.create({
+  field: { gap: 4 },
+  label: { fontSize: 12, fontWeight: '600', color: '#555', marginBottom: 2 },
+  input: {
+    borderWidth: 1.5,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#111',
+    backgroundColor: '#fff',
+  },
+  divider: {
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    paddingTop: 10,
+    marginTop: 4,
+  },
+  dividerText: { fontSize: 12, fontWeight: '700', color: '#888', textTransform: 'uppercase', letterSpacing: 0.5 },
 });

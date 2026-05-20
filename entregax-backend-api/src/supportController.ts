@@ -424,17 +424,11 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       
       // Si es escalado directo, guardar mensaje con imágenes y retornar inmediatamente
       if (escalateDirectly) {
-        // Construir mensaje con referencias a imágenes
-        let fullMessage = message;
-        if (imageUrls.length > 0) {
-          fullMessage += '\n\n📷 Imágenes adjuntas:\n' + imageUrls.map((url, i) => `[Imagen ${i+1}](${url})`).join('\n');
-        }
-        
         await pool.query(
           `INSERT INTO ticket_messages (ticket_id, sender_type, message, attachments) VALUES ($1, 'client', $2, $3)`,
-          [currentTicketId, fullMessage, JSON.stringify(imageUrls)]
+          [currentTicketId, message, imageUrls.length > 0 ? JSON.stringify(imageUrls) : null]
         );
-        
+
         return res.json({
           status: 'escalated',
           ticketId: currentTicketId,
@@ -443,24 +437,20 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
           imagesUploaded: imageUrls.length
         });
       }
-    } else {
-      // Si es ticket existente y hay imágenes, guardarlas con el mensaje
-      let fullMessage = message;
-      if (imageUrls.length > 0) {
-        fullMessage += '\n\n📷 Imágenes adjuntas:\n' + imageUrls.map((url, i) => `[Imagen ${i+1}](${url})`).join('\n');
-      }
-      
+      // Nuevo ticket sin escalateDirectly: insertar mensaje con attachments aquí
       await pool.query(
         `INSERT INTO ticket_messages (ticket_id, sender_type, message, attachments) VALUES ($1, 'client', $2, $3)`,
-        [currentTicketId, fullMessage, JSON.stringify(imageUrls)]
+        [currentTicketId, message, imageUrls.length > 0 ? JSON.stringify(imageUrls) : null]
+      );
+    } else {
+      // Ticket existente: insertar mensaje con attachments
+      await pool.query(
+        `INSERT INTO ticket_messages (ticket_id, sender_type, message, attachments) VALUES ($1, 'client', $2, $3)`,
+        [currentTicketId, message, imageUrls.length > 0 ? JSON.stringify(imageUrls) : null]
       );
     }
 
-    // B. GUARDAR MENSAJE DEL CLIENTE
-    await pool.query(
-      `INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES ($1, 'client', $2)`,
-      [currentTicketId, message]
-    );
+    // B. (mensaje ya insertado en cada rama arriba)
 
     // C. VERIFICAR ESTADO DEL TICKET
     const ticketCheck = await pool.query(

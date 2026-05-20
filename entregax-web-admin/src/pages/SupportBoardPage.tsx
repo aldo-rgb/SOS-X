@@ -656,9 +656,12 @@ export default function SupportBoardPage() {
                           <Chip label="🔒 Interno" size="small" sx={{ fontSize: 10, height: 18, bgcolor: '#FFF8E1', color: '#F57F17', border: '1px solid #F9A825' }} />
                         )}
                       </Box>
-                      {/* Texto: original o traducción cacheada */}
+                      {/* Texto: limpiar markdown viejo de imágenes y mostrar original o traducción */}
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                        {showTranslated[msg.id] && translations[msg.id] ? translations[msg.id] : msg.message}
+                        {(showTranslated[msg.id] && translations[msg.id]
+                          ? translations[msg.id]
+                          : msg.message
+                        ).replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
                       </Typography>
                       {showTranslated[msg.id] && translations[msg.id] && (
                         <Typography variant="caption" sx={{ color: '#9C27B0', fontStyle: 'italic', display: 'block', mt: 0.3 }}>
@@ -672,6 +675,11 @@ export default function SupportBoardPage() {
                           try { const p = JSON.parse(msg.attachments); if (Array.isArray(p)) urls = p; } catch { /* ignore */ }
                         }
                         if (urls.length === 0 && msg.attachment_url) urls = [msg.attachment_url];
+                        // Extraer URLs del formato markdown legado: [Imagen N](url)
+                        if (urls.length === 0 && msg.message?.includes('Imágenes adjuntas:')) {
+                          const matches = msg.message.matchAll(/\[Imagen \d+\]\((https?:\/\/[^)]+)\)/g);
+                          for (const m of matches) urls.push(m[1]);
+                        }
                         if (urls.length === 0) return null;
                         return (
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
