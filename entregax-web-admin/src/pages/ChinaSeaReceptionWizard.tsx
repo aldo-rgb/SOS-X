@@ -246,12 +246,36 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     const [selectedSavedAddr, setSelectedSavedAddr] = useState<DestinationAddress | null>(null);
     const [weekAddrForm, setWeekAddrForm] = useState(EMPTY_WEEK_ADDR);
     const [savingWeekAddr, setSavingWeekAddr] = useState(false);
+    const [zipLookupLoading, setZipLookupLoading] = useState(false);
+    const [coloniaOptions, setColoniaOptions] = useState<string[]>([]);
+
+    const lookupZipCode = async (cp: string) => {
+        if (cp.length !== 5) { setColoniaOptions([]); return; }
+        setZipLookupLoading(true);
+        try {
+            const r = await fetch(`https://sepomex.icalialabs.com/api/v1/zip_codes?zip_code=${cp}`);
+            const data = await r.json();
+            const rows: any[] = data?.zip_codes || [];
+            if (rows.length === 0) return;
+            const colonias = [...new Set(rows.map((z: any) => z.d_asenta).filter(Boolean))] as string[];
+            const city = rows[0].d_ciudad || rows[0].D_mnpio || '';
+            const state = rows[0].d_estado || '';
+            setColoniaOptions(colonias);
+            setWeekAddrForm(f => ({
+                ...f,
+                city: f.city || city,
+                state: f.state || state,
+                neighborhood: colonias.length === 1 ? colonias[0] : f.neighborhood,
+            }));
+        } catch { /* silencioso */ } finally { setZipLookupLoading(false); }
+    };
 
     const openWeekAddrDialog = async () => {
         setWeekAddrOpen(true);
         setWeekAddrMode('saved');
         setSelectedSavedAddr(null);
         setWeekAddrForm(EMPTY_WEEK_ADDR);
+        setColoniaOptions([]);
         try {
             const r = await api.get('/maritime/week-saved-addresses');
             setSavedWeekAddresses(r.data?.addresses || []);
@@ -2575,21 +2599,45 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             <TextField fullWidth size="small" label="No. Interior"
                                 value={weekAddrForm.interior_number} onChange={e => setWeekAddrForm(f => ({ ...f, interior_number: e.target.value }))} />
                         </Grid>
-                        <Grid size={{ xs: 12, sm: 6 }}>
-                            <TextField fullWidth size="small" label="Colonia"
-                                value={weekAddrForm.neighborhood} onChange={e => setWeekAddrForm(f => ({ ...f, neighborhood: e.target.value }))} />
+                        {/* C.P. primero — dispara el lookup automático */}
+                        <Grid size={{ xs: 4, sm: 4 }}>
+                            <TextField
+                                fullWidth size="small" label="C.P."
+                                value={weekAddrForm.zip_code}
+                                inputProps={{ maxLength: 5 }}
+                                InputProps={{ endAdornment: zipLookupLoading ? <CircularProgress size={14} /> : null }}
+                                onChange={e => {
+                                    const v = e.target.value.replace(/\D/g, '').slice(0, 5);
+                                    setWeekAddrForm(f => ({ ...f, zip_code: v, city: '', state: '', neighborhood: '' }));
+                                    setColoniaOptions([]);
+                                    if (v.length === 5) lookupZipCode(v);
+                                }}
+                            />
                         </Grid>
-                        <Grid size={{ xs: 12, sm: 4 }}>
+                        <Grid size={{ xs: 8, sm: 4 }}>
                             <TextField fullWidth size="small" label="Ciudad *"
                                 value={weekAddrForm.city} onChange={e => setWeekAddrForm(f => ({ ...f, city: e.target.value }))} />
                         </Grid>
-                        <Grid size={{ xs: 8, sm: 4 }}>
+                        <Grid size={{ xs: 12, sm: 4 }}>
                             <TextField fullWidth size="small" label="Estado *"
                                 value={weekAddrForm.state} onChange={e => setWeekAddrForm(f => ({ ...f, state: e.target.value }))} />
                         </Grid>
-                        <Grid size={{ xs: 4, sm: 4 }}>
-                            <TextField fullWidth size="small" label="C.P."
-                                value={weekAddrForm.zip_code} onChange={e => setWeekAddrForm(f => ({ ...f, zip_code: e.target.value }))} />
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            {coloniaOptions.length > 1 ? (
+                                <FormControl fullWidth size="small">
+                                    <InputLabel>Colonia</InputLabel>
+                                    <Select
+                                        label="Colonia"
+                                        value={weekAddrForm.neighborhood}
+                                        onChange={e => setWeekAddrForm(f => ({ ...f, neighborhood: e.target.value }))}
+                                    >
+                                        {coloniaOptions.map(c => <MenuItem key={c} value={c}>{c}</MenuItem>)}
+                                    </Select>
+                                </FormControl>
+                            ) : (
+                                <TextField fullWidth size="small" label="Colonia"
+                                    value={weekAddrForm.neighborhood} onChange={e => setWeekAddrForm(f => ({ ...f, neighborhood: e.target.value }))} />
+                            )}
                         </Grid>
                         <Grid size={{ xs: 12 }}>
                             <TextField fullWidth size="small" label="Referencia"
