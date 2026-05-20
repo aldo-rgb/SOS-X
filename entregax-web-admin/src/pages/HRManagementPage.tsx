@@ -648,7 +648,6 @@ export default function HRManagementPage() {
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Tallas (P/C)</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Contacto Emergencia</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Expediente</TableCell>
-                <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Checador Hoy</TableCell>
                 <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Acciones</TableCell>
               </TableRow>
             </TableHead>
@@ -761,23 +760,6 @@ export default function HRManagementPage() {
                           sx={{ fontWeight: 600, cursor: 'help' }}
                         />
                       </Tooltip>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {emp.check_in_time ? (
-                      <Box>
-                        <Typography color={emp.attendance_status === 'late' ? 'warning.main' : 'success.main'} fontWeight="bold">
-                          Entrada: {new Date(emp.check_in_time).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                          {emp.attendance_status === 'late' && ' ⚠️'}
-                        </Typography>
-                        {emp.check_out_time && (
-                          <Typography variant="caption" color="text.secondary">
-                            Salida: {new Date(emp.check_out_time).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
-                          </Typography>
-                        )}
-                      </Box>
-                    ) : (
-                      <Chip label="Sin checar" color="error" size="small" />
                     )}
                   </TableCell>
                   <TableCell align="center">
