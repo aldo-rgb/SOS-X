@@ -223,6 +223,7 @@ export default function SupportBoardPage() {
   const currentUserRole: string = (() => {
     try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; }
   })();
+  const defaultDeptSet = useRef(false);
 
   // Reglas de visibilidad por nombre de departamento
   const DEPT_ALLOWED_ROLES: Record<string, string[]> = {
@@ -291,6 +292,15 @@ export default function SupportBoardPage() {
     const interval = setInterval(() => { loadTickets(); loadStats(); }, 30000);
     return () => clearInterval(interval);
   }, [loadTickets, loadStats, loadDepartments]);
+
+  // Preseleccionar "Atención a Cliente" para agentes de atención al cliente
+  useEffect(() => {
+    if (defaultDeptSet.current || departments.length === 0) return;
+    if (['customer_service', 'counter_staff'].includes(currentUserRole)) {
+      const atencion = departments.find(d => d.name === 'Atención a Cliente');
+      if (atencion) { setDeptFilter(atencion.id); defaultDeptSet.current = true; }
+    }
+  }, [departments, currentUserRole]);
 
   const handleOpenTicket = async (ticket: SupportTicket) => {
     setSelectedTicket(ticket);
@@ -524,7 +534,6 @@ export default function SupportBoardPage() {
           onChange={(_, v) => setDeptFilter(v)}
           sx={{ minHeight: 36, '& .MuiTab-root': { minHeight: 36, py: 0, textTransform: 'none', fontSize: 13 } }}
         >
-          <Tab label="Todos" value="all" />
           {departments.filter(d => canSeeDept(d.name)).map((d) => {
             const cnt = deptCounts.find((x) => x.id === d.id)?.open_count;
             return (
@@ -545,6 +554,7 @@ export default function SupportBoardPage() {
               />
             );
           })}
+          <Tab label="Todos" value="all" />
         </Tabs>
 
         {/* Creator type filter */}
