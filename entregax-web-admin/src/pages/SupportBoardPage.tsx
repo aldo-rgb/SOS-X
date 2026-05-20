@@ -150,6 +150,7 @@ const categoryLabels: Record<string, string> = {
 function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: object }) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [lightbox, setLightbox] = useState(false);
 
   useEffect(() => {
     setSrc(null);
@@ -182,7 +183,16 @@ function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: ob
     </Box>
   );
 
-  return <Box component="img" src={src} alt={alt} sx={sx} />;
+  return (
+    <>
+      <Box component="img" src={src} alt={alt} sx={{ ...sx as object, cursor: 'zoom-in' }} onClick={() => setLightbox(true)} />
+      <Dialog open={lightbox} onClose={() => setLightbox(false)} maxWidth="xl" PaperProps={{ sx: { bgcolor: 'transparent', boxShadow: 'none' } }}>
+        <Box onClick={() => setLightbox(false)} sx={{ cursor: 'zoom-out', p: 1 }}>
+          <Box component="img" src={src} alt={alt} sx={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 2, display: 'block' }} />
+        </Box>
+      </Dialog>
+    </>
+  );
 }
 
 export default function SupportBoardPage() {
