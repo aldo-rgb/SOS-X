@@ -397,6 +397,8 @@ export default function DashboardAdvisor() {
   // Tickets tab
   const [ticketCategory, setTicketCategory] = useState('');
   const [ticketTracking, setTicketTracking] = useState('');
+  const [ticketClientNumber, setTicketClientNumber] = useState('');
+  const [ticketCedis, setTicketCedis] = useState('');
   const [ticketDescription, setTicketDescription] = useState('');
   const [ticketImages, setTicketImages] = useState<{ file: File; preview: string }[]>([]);
   const [ticketSubmitting, setTicketSubmitting] = useState(false);
@@ -558,17 +560,17 @@ export default function DashboardAdvisor() {
     if (!ticketCategory || !ticketDescription.trim()) return;
     setTicketSubmitting(true);
     try {
-      const catDef = ADVISOR_TICKET_CATEGORIES.find(c => c.key === ticketCategory);
       const formData = new FormData();
-      const fullMsg = ticketTracking.trim()
-        ? `[Tracking: ${ticketTracking.trim()}]\n\n${ticketDescription.trim()}`
+      const metaLines: string[] = [];
+      if (ticketClientNumber.trim()) metaLines.push(`• Número de cliente: ${ticketClientNumber.trim()}`);
+      if (ticketCedis.trim()) metaLines.push(`• Cedis de incidencia: ${ticketCedis.trim()}`);
+      if (ticketTracking.trim()) metaLines.push(`• Número de guía: ${ticketTracking.trim()}`);
+      const fullMsg = metaLines.length > 0
+        ? `📋 Datos de incidencia:\n${metaLines.join('\n')}\n\n${ticketDescription.trim()}`
         : ticketDescription.trim();
       formData.append('message', fullMsg);
       formData.append('category', ticketCategory);
       formData.append('escalateDirectly', 'true');
-      if (!catDef?.noTracking && ticketTracking.trim()) {
-        formData.append('trackingNumber', ticketTracking.trim());
-      }
       ticketImages.forEach((img, i) => {
         formData.append('images', img.file, `ticket_img_${i}.${img.file.name.split('.').pop()}`);
       });
@@ -576,6 +578,8 @@ export default function DashboardAdvisor() {
       setTicketSuccessFolio(res.data?.ticketFolio || '');
       setTicketCategory('');
       setTicketTracking('');
+      setTicketClientNumber('');
+      setTicketCedis('');
       setTicketDescription('');
       setTicketImages([]);
       fetchAdvisorTickets();
@@ -2240,9 +2244,7 @@ export default function DashboardAdvisor() {
   // ════════════════════════════════════
 
   const renderTickets = () => {
-    const selectedCatDef = ADVISOR_TICKET_CATEGORIES.find(c => c.key === ticketCategory);
-    const needsTracking = selectedCatDef ? !selectedCatDef.noTracking : false;
-    const canSubmit = !!ticketCategory && ticketDescription.trim().length > 0 && (!needsTracking || ticketTracking.trim().length > 0);
+    const canSubmit = !!ticketCategory && ticketDescription.trim().length > 0;
 
     const getTicketStatusLabel = (status: string) => {
       const map: Record<string, { label: string; color: 'default' | 'warning' | 'info' | 'error' | 'success' }> = {
@@ -2300,19 +2302,27 @@ export default function DashboardAdvisor() {
                   ))}
                 </Box>
 
-                {/* Tracking — solo para Rastreo de Paquete */}
-                {needsTracking && (
-                  <>
-                    <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Número de Guía *</Typography>
-                    <TextField
-                      fullWidth size="small"
-                      placeholder="Ej: AIR123456789"
-                      value={ticketTracking}
-                      onChange={e => setTicketTracking(e.target.value)}
-                      sx={{ mb: 2 }}
-                    />
-                  </>
-                )}
+                {/* Datos opcionales de incidencia */}
+                <Box sx={{ display: 'flex', gap: 1.5, mb: 2 }}>
+                  <TextField
+                    size="small" label="Número de cliente" placeholder="Ej: CLT-001"
+                    value={ticketClientNumber}
+                    onChange={e => setTicketClientNumber(e.target.value)}
+                    sx={{ flex: 1 }}
+                  />
+                  <TextField
+                    size="small" label="Cedis de incidencia" placeholder="Ej: CEDIS-MTY"
+                    value={ticketCedis}
+                    onChange={e => setTicketCedis(e.target.value)}
+                    sx={{ flex: 1 }}
+                  />
+                </Box>
+                <TextField
+                  fullWidth size="small" label="Número de guía" placeholder="Ej: AIR123456789"
+                  value={ticketTracking}
+                  onChange={e => setTicketTracking(e.target.value)}
+                  sx={{ mb: 2 }}
+                />
 
                 {/* Descripción */}
                 <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Descripción del problema *</Typography>
