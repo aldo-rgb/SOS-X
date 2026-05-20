@@ -358,6 +358,7 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
 
     console.log(`🎫 [SUPPORT] userId=${userId}, message=${message?.substring(0, 50)}, hasFiles=${!!(req.files as any[])?.length}`);
     const category = req.body.category;
+    const trackingNumber = req.body.trackingNumber || null;
     const escalateDirectly = req.body.escalateDirectly === 'true' || req.body.escalateDirectly === true;
 
     // Determinar creator_type y department_id
@@ -418,9 +419,9 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       const initialStatus = escalateDirectly ? 'escalated_human' : 'open_ai';
       
       const newTicket = await pool.query(
-        `INSERT INTO support_tickets (ticket_folio, user_id, category, subject, status, creator_type, department_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id, ticket_folio`,
-        [folio, userId, category || 'other', subject, initialStatus, creatorType, departmentId]
+        `INSERT INTO support_tickets (ticket_folio, user_id, category, subject, tracking_number, status, creator_type, department_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, ticket_folio`,
+        [folio, userId, category || 'other', subject, trackingNumber, initialStatus, creatorType, departmentId]
       );
       currentTicketId = newTicket.rows[0].id;
       ticketFolio = newTicket.rows[0].ticket_folio;
@@ -684,7 +685,7 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
 
     const query = `
       SELECT t.*,
-             u.full_name, u.email, u.phone,
+             u.full_name, u.email, u.phone, u.box_id as client_box_id,
              d.name as department_name, d.color as department_color, d.icon as department_icon,
              ag.full_name as assigned_agent_name,
              (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) as message_count,
@@ -871,6 +872,8 @@ export const ensureDepartmentsSchema = async () => {
     await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN DEFAULT FALSE`);
     // Quién envió el mensaje (para agentes)
     await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS sender_id INT REFERENCES users(id)`);
+    // Número de guía reportada al crear el ticket
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS tracking_number VARCHAR(100)`);
     // Reasignar tickets que apuntan a IDs duplicados → conservar MIN(id) por nombre
     await pool.query(`
       UPDATE support_tickets

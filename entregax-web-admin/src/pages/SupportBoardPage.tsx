@@ -79,6 +79,8 @@ interface SupportTicket {
   department_color?: string;
   assigned_to?: number;
   assigned_agent_name?: string;
+  tracking_number?: string;
+  client_box_id?: string;
   message_count: number;
   last_message?: string;
   created_at: string;
@@ -508,6 +510,39 @@ export default function SupportBoardPage() {
                   <Typography variant="body2" sx={{ opacity: 0.8 }}>
                     {selectedTicket.full_name} · {selectedTicket.email}
                   </Typography>
+                  {/* Datos del ticket */}
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mt: 1 }}>
+                    {selectedTicket.client_box_id && (
+                      <Box>
+                        <Typography variant="caption" sx={{ opacity: 0.5, display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          No. Cliente
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13 }}>
+                          {selectedTicket.client_box_id}
+                        </Typography>
+                      </Box>
+                    )}
+                    {selectedTicket.tracking_number && (
+                      <Box>
+                        <Typography variant="caption" sx={{ opacity: 0.5, display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Guía reportada
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13, fontFamily: 'monospace' }}>
+                          {selectedTicket.tracking_number}
+                        </Typography>
+                      </Box>
+                    )}
+                    {selectedTicket.assigned_agent_name && (
+                      <Box>
+                        <Typography variant="caption" sx={{ opacity: 0.5, display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Asesor asignado
+                        </Typography>
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13 }}>
+                          {selectedTicket.assigned_agent_name}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
                 </Box>
                 <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 0.5 }}>
                   {selectedTicket.department_name && (
@@ -529,11 +564,6 @@ export default function SupportBoardPage() {
                   />
                 </Box>
               </Box>
-              {selectedTicket.assigned_agent_name && (
-                <Typography variant="caption" sx={{ opacity: 0.7, mt: 0.5, display: 'block' }}>
-                  Asignado a: {selectedTicket.assigned_agent_name}
-                </Typography>
-              )}
             </DialogTitle>
             <DialogContent sx={{ p: 0 }}>
               <Box sx={{ p: 2, maxHeight: 380, overflow: 'auto', bgcolor: '#f9f9f9' }}>
