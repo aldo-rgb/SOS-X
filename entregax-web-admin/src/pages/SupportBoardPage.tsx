@@ -649,7 +649,7 @@ export default function SupportBoardPage() {
                   Transferir a Atención a Cliente
                 </Button>
               )}
-              {selectedTicket.status !== 'resolved' && (
+              {selectedTicket.status !== 'resolved' && ['customer_service', 'counter_staff'].includes(currentUserRole) && (
                 <Button variant="contained" color="success" onClick={handleResolveTicket} startIcon={<ResolvedIcon />}>
                   Marcar Resuelto
                 </Button>
