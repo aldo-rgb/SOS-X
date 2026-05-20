@@ -8,7 +8,7 @@ import { pool } from './db';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { uploadToS3, isS3Configured } from './s3Service';
+import { uploadToS3, isS3Configured, getSignedDownloadUrl } from './s3Service';
 
 // ============================================================
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES DE SOPORTE
@@ -1390,5 +1390,24 @@ export const aiTranslateMessage = async (req: Request, res: Response): Promise<a
   } catch (error) {
     console.error('Error aiTranslateMessage:', error);
     res.status(500).json({ error: 'Error interno' });
+  }
+};
+
+/**
+ * GET /api/admin/support/image-sign?key=support/filename.jpg
+ * Genera una signed URL temporal (1h) para imágenes privadas de soporte en S3
+ */
+export const signSupportImage = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { key } = req.query as { key?: string };
+    if (!key) return res.status(400).json({ error: 'key requerida' });
+    const safeKey = decodeURIComponent(key);
+    if (!safeKey.startsWith('support/')) return res.status(403).json({ error: 'No permitido' });
+    if (!isS3Configured()) return res.status(503).json({ error: 'S3 no configurado' });
+    const signedUrl = await getSignedDownloadUrl(safeKey, 3600);
+    res.json({ signedUrl });
+  } catch (err) {
+    console.error('Error generando signed URL:', err);
+    res.status(500).json({ error: 'Error generando URL' });
   }
 };

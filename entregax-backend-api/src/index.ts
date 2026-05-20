@@ -580,6 +580,7 @@ import {
   transferTicket,
   getAdminTicketMessages,
   ensureDepartmentsSchema
+    signSupportImage,
 } from './supportController';
 import {
   getMyNotifications,
@@ -4611,6 +4612,9 @@ app.put('/api/admin/support/ticket/:id/assign', authenticateToken, requireMinLev
 
 // Departamentos: listar (autenticado, cualquier rol)
 app.get('/api/support/departments', authenticateToken, getDepartments);
+
+// Signed URL para imágenes privadas de soporte en S3
+app.get('/api/admin/support/image-sign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), signSupportImage);
 
 // Admin: agentes disponibles para asignar
 app.get('/api/admin/support/agents', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSupportAgents);

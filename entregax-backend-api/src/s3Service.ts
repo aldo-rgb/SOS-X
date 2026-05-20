@@ -161,6 +161,14 @@ export const extractKeyFromUrl = (url: string): string | null => {
 };
 
 /**
+ * Generar URL firmada para descarga (GET) de un objeto privado
+ */
+export const getSignedDownloadUrl = async (key: string, expiresIn = 3600): Promise<string> => {
+  const command = new GetObjectCommand({ Bucket: BUCKET_NAME, Key: key });
+  return getSignedUrl(s3Client, command, { expiresIn });
+};
+
+/**
  * Verificar si S3 está configurado
  */
 export const isS3Configured = (): boolean => {

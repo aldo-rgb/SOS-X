@@ -147,6 +147,31 @@ const categoryLabels: Record<string, string> = {
   other: 'Otro',
 };
 
+function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: object }) {
+  const [src, setSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    const key = s3Url.includes('.amazonaws.com/') ? s3Url.split('.amazonaws.com/')[1] : null;
+    if (!key) { setSrc(s3Url); return; }
+    const token = localStorage.getItem('token');
+    fetch(`${API_URL}/admin/support/image-sign?key=${encodeURIComponent(key)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then((data: { signedUrl?: string }) => setSrc(data.signedUrl || null))
+      .catch(() => setSrc(null));
+  }, [s3Url]);
+
+  if (!src) return (
+    <Box sx={{ width: 100, height: 100, bgcolor: '#f5f5f5', borderRadius: 1, border: '1px solid #ddd', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+      <span style={{ fontSize: 24 }}>🖼️</span>
+      <Typography variant="caption" color="text.secondary">Cargando...</Typography>
+    </Box>
+  );
+
+  return <Box component="img" src={src} alt={alt} sx={sx} />;
+}
+
 export default function SupportBoardPage() {
   useTranslation();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -694,16 +719,9 @@ export default function SupportBoardPage() {
                                   <Typography variant="caption" fontWeight={600}>Ver PDF</Typography>
                                 </a>
                               ) : (
-                                <a key={i} href={u} target="_blank" rel="noreferrer"
-                                  style={{ display: 'block', width: 100, height: 100 }}>
-                                  <Box component="img" src={u} alt={`adj-${i}`}
-                                    sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
-                                    onError={(e: any) => {
-                                      e.target.style.display = 'none';
-                                      e.target.parentElement.innerHTML = `<div style="width:100px;height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f5f5f5;border-radius:4px;border:1px solid #ddd;gap:4px"><span style="font-size:24px">🖼️</span><span style="font-size:10px;color:#999;text-align:center">Ver imagen</span></div>`;
-                                    }}
-                                  />
-                                </a>
+                                <ProtectedImage key={i} s3Url={u} alt={`adj-${i}`}
+                                  sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd', cursor: 'pointer' }}
+                                />
                               );
                             })}
                           </Box>
