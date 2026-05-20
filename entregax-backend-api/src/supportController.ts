@@ -920,7 +920,10 @@ export const ensureDepartmentsSchema = async () => {
         ('Atención a Cliente', '#F05A28', 'headset', TRUE, 1),
         ('Soporte Técnico',    '#2196F3', 'construct', FALSE, 2),
         ('Contabilidad',       '#4CAF50', 'cash',      FALSE, 3),
-        ('Dirección',          '#9C27B0', 'business',  FALSE, 4)
+        ('Dirección',          '#9C27B0', 'business',  FALSE, 4),
+        ('CEDIS MTY',          '#009688', 'business',  FALSE, 5),
+        ('CEDIS CDMX',         '#FF5722', 'business',  FALSE, 6),
+        ('CEDIS USA',          '#3F51B5', 'business',  FALSE, 7)
       ON CONFLICT (name) DO NOTHING
     `);
     // Migrate existing tickets to default department
