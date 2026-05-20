@@ -1508,7 +1508,9 @@ function App() {
             return <DashboardBranchManager />;
           case 'customer_service':
           case 'Customer Service':
-            return <DashboardCustomerService />;
+            return <DashboardCustomerService onNavigateToSupport={() => {
+              window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'service_tickets' } }));
+            }} />;
           case 'counter_staff':
           case 'Counter Staff':
           case 'mostrador':

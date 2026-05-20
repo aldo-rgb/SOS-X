@@ -2926,14 +2926,17 @@ export default function DashboardClient() {
     { value: 'other', label: t('cd.support.categories.other') },
   ];
 
+  const CATEGORIES_NO_TRACKING = ['accounting', 'systemError', 'other'];
+
   // Validar formulario de soporte
   const isSupportFormValid = () => {
     if (!supportCategory) return false;
     if (!supportMessage.trim()) return false;
-    // Tracking obligatorio para todas las categorías
-    if (!supportTracking.trim()) return false;
-    // Si hay tracking, debe estar validado
-    if (supportTracking.trim() && trackingValidation.status !== 'valid') return false;
+    if (!CATEGORIES_NO_TRACKING.includes(supportCategory)) {
+      // Tracking obligatorio para categorías de paquete
+      if (!supportTracking.trim()) return false;
+      if (supportTracking.trim() && trackingValidation.status !== 'valid') return false;
+    }
     return true;
   };
 
@@ -11208,40 +11211,44 @@ export default function DashboardClient() {
             ))}
           </TextField>
 
-          {/* Número de Guía */}
-          <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
-            {t('cd.support.tracking')} *
-          </Typography>
-          <TextField
-            fullWidth
-            placeholder={t('cd.support.trackingPlaceholder')}
-            value={supportTracking}
-            onChange={(e) => {
-              setSupportTracking(e.target.value);
-              if (trackingValidation.status !== 'idle') {
-                setTrackingValidation({ status: 'idle', message: '' });
-              }
-            }}
-            onBlur={() => {
-              if (supportTracking.trim()) {
-                validateTrackingNumber(supportTracking);
-              }
-            }}
-            error={trackingValidation.status === 'invalid'}
-            helperText={
-              trackingValidation.status === 'validating' ? '⏳ Verificando guía...' :
-              trackingValidation.status === 'valid' ? trackingValidation.message :
-              trackingValidation.status === 'invalid' ? trackingValidation.message : ''
-            }
-            FormHelperTextProps={{
-              sx: {
-                color: trackingValidation.status === 'valid' ? '#4CAF50' : 
-                       trackingValidation.status === 'invalid' ? '#D32F2F' : '#666',
-                fontWeight: trackingValidation.status !== 'idle' ? 600 : 400,
-              }
-            }}
-            sx={{ mb: 2 }}
-          />
+          {/* Número de Guía — oculto para categorías que no lo requieren */}
+          {!CATEGORIES_NO_TRACKING.includes(supportCategory) && (
+            <>
+              <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                {t('cd.support.tracking')} *
+              </Typography>
+              <TextField
+                fullWidth
+                placeholder={t('cd.support.trackingPlaceholder')}
+                value={supportTracking}
+                onChange={(e) => {
+                  setSupportTracking(e.target.value);
+                  if (trackingValidation.status !== 'idle') {
+                    setTrackingValidation({ status: 'idle', message: '' });
+                  }
+                }}
+                onBlur={() => {
+                  if (supportTracking.trim()) {
+                    validateTrackingNumber(supportTracking);
+                  }
+                }}
+                error={trackingValidation.status === 'invalid'}
+                helperText={
+                  trackingValidation.status === 'validating' ? '⏳ Verificando guía...' :
+                  trackingValidation.status === 'valid' ? trackingValidation.message :
+                  trackingValidation.status === 'invalid' ? trackingValidation.message : ''
+                }
+                FormHelperTextProps={{
+                  sx: {
+                    color: trackingValidation.status === 'valid' ? '#4CAF50' :
+                           trackingValidation.status === 'invalid' ? '#D32F2F' : '#666',
+                    fontWeight: trackingValidation.status !== 'idle' ? 600 : 400,
+                  }
+                }}
+                sx={{ mb: 2 }}
+              />
+            </>
+          )}
 
           {/* Descripción */}
           <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>

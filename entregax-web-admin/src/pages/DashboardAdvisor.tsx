@@ -1,6 +1,6 @@
 // ============================================
 // DASHBOARD - PANEL DEL ASESOR / ADVISOR PANEL
-// 5 secciones: Dashboard, Clientes, Embarques, Comisiones, Herramientas
+// 6 secciones: Dashboard, Clientes, Embarques, Comisiones, Herramientas, Tickets
 // ============================================
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
@@ -89,6 +89,14 @@ import {
   AccountBalanceWallet as WalletIcon,
   LocationOn as LocationIcon,
   LocalShipping as CarrierIcon,
+  ConfirmationNumber as TicketIcon,
+  Send as SendIcon,
+  AttachFile as AttachFileIcon,
+  BugReport as BugIcon,
+  MonetizationOn as BillingIcon,
+  PersonOff as ClientIssueIcon,
+  MoreHoriz as OtherIcon,
+  ListAlt as ListAltIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
@@ -386,6 +394,20 @@ export default function DashboardAdvisor() {
   const EMPTY_ADDR = { alias: '', recipientName: '', street: '', exteriorNumber: '', interiorNumber: '', neighborhood: '', city: '', state: '', zipCode: '' };
   const [newAddrForm, setNewAddrForm] = useState(EMPTY_ADDR);
 
+  // Tickets tab
+  const [ticketCategory, setTicketCategory] = useState('');
+  const [ticketTracking, setTicketTracking] = useState('');
+  const [ticketDescription, setTicketDescription] = useState('');
+  const [ticketImages, setTicketImages] = useState<{ file: File; preview: string }[]>([]);
+  const [ticketSubmitting, setTicketSubmitting] = useState(false);
+  const [ticketSuccessFolio, setTicketSuccessFolio] = useState('');
+  const [advisorTickets, setAdvisorTickets] = useState<any[]>([]);
+  const [advisorTicketsLoading, setAdvisorTicketsLoading] = useState(false);
+  const [selectedAdvisorTicket, setSelectedAdvisorTicket] = useState<any | null>(null);
+  const [ticketMessages, setTicketMessages] = useState<any[]>([]);
+  const [ticketReply, setTicketReply] = useState('');
+  const [ticketReplySending, setTicketReplySending] = useState(false);
+
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false, message: '', severity: 'info'
@@ -501,7 +523,80 @@ export default function DashboardAdvisor() {
     if (activeTab === 3) fetchCommissions();
   }, [activeTab, fetchCommissions]);
 
+  useEffect(() => {
+    if (activeTab === 5) fetchAdvisorTickets();
+  }, [activeTab]);
+
   // ─── Actions ───
+
+  const ADVISOR_TICKET_CATEGORIES = [
+    { key: 'systemError',  label: 'Error del Sistema',    icon: <BugIcon />,          color: '#f44336', noTracking: true },
+    { key: 'billing',      label: 'Comisiones / Pagos',   icon: <BillingIcon />,      color: '#4CAF50', noTracking: true },
+    { key: 'tracking',     label: 'Rastreo de Paquete',   icon: <SearchIcon />,       color: '#2196F3', noTracking: false },
+    { key: 'accounting',   label: 'Problema con Cliente', icon: <ClientIssueIcon />,  color: '#FF9800', noTracking: true },
+    { key: 'other',        label: 'Otro',                 icon: <OtherIcon />,        color: '#9E9E9E', noTracking: true },
+  ];
+
+  const fetchAdvisorTickets = async () => {
+    setAdvisorTicketsLoading(true);
+    try {
+      const res = await api.get('/support/tickets');
+      setAdvisorTickets(res.data || []);
+    } catch { /* silencioso */ } finally {
+      setAdvisorTicketsLoading(false);
+    }
+  };
+
+  const fetchTicketMessages = async (ticketId: number) => {
+    try {
+      const res = await api.get(`/support/ticket/${ticketId}/messages`);
+      setTicketMessages(res.data || []);
+    } catch { /* silencioso */ }
+  };
+
+  const handleSubmitAdvisorTicket = async () => {
+    if (!ticketCategory || !ticketDescription.trim()) return;
+    setTicketSubmitting(true);
+    try {
+      const catDef = ADVISOR_TICKET_CATEGORIES.find(c => c.key === ticketCategory);
+      const formData = new FormData();
+      const fullMsg = ticketTracking.trim()
+        ? `[Tracking: ${ticketTracking.trim()}]\n\n${ticketDescription.trim()}`
+        : ticketDescription.trim();
+      formData.append('message', fullMsg);
+      formData.append('category', ticketCategory);
+      formData.append('escalateDirectly', 'true');
+      if (!catDef?.noTracking && ticketTracking.trim()) {
+        formData.append('trackingNumber', ticketTracking.trim());
+      }
+      ticketImages.forEach((img, i) => {
+        formData.append('images', img.file, `ticket_img_${i}.${img.file.name.split('.').pop()}`);
+      });
+      const res = await api.post('/support/message', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setTicketSuccessFolio(res.data?.ticketFolio || '');
+      setTicketCategory('');
+      setTicketTracking('');
+      setTicketDescription('');
+      setTicketImages([]);
+      fetchAdvisorTickets();
+    } catch {
+      setSnackbar({ open: true, message: 'Error al crear ticket', severity: 'error' });
+    } finally {
+      setTicketSubmitting(false);
+    }
+  };
+
+  const handleSendTicketReply = async () => {
+    if (!selectedAdvisorTicket || !ticketReply.trim()) return;
+    setTicketReplySending(true);
+    try {
+      await api.post(`/support/ticket/${selectedAdvisorTicket.id}/message`, { message: ticketReply.trim() });
+      setTicketReply('');
+      fetchTicketMessages(selectedAdvisorTicket.id);
+    } catch { /* silencioso */ } finally {
+      setTicketReplySending(false);
+    }
+  };
 
   const handleSaveNote = async (clientId: number) => {
     try {
@@ -532,7 +627,7 @@ export default function DashboardAdvisor() {
   const SERVICE_LIST = [
     { value: 'air',         label: '✈️ Aéreo China',     color: '#2196F3', serviceType: 'china_air' },
     { value: 'maritime',    label: '🚢 Marítimo China',   color: '#00897B', serviceType: 'china_sea' },
-    { value: 'tdi_express', label: '✈️ TDI Express',      color: '#7B1FA2', serviceType: 'tdi_express' },
+    { value: 'tdi_express', label: '✈️ TDI DHL',           color: '#7B1FA2', serviceType: 'tdi_express' },
     { value: 'dhl',         label: '📮 Liberación MTY',   color: '#D32F2F', serviceType: 'dhl' },
     { value: 'usa',         label: '📦 PO Box USA',       color: '#F05A28', serviceType: 'usa_pobox' },
   ];
@@ -725,6 +820,8 @@ export default function DashboardAdvisor() {
       'consolidated': { label: 'Consolidado', color: 'info' },
       'at_port': { label: 'En Puerto', color: 'warning' },
       'at_cedis': { label: 'En CEDIS', color: 'primary' },
+      'out_for_delivery': { label: 'En ruta de entrega', color: 'warning' },
+      'out_of_delivery': { label: 'En ruta de entrega', color: 'warning' },
     };
     const s = map[status] || { label: status, color: 'default' as const };
     return <Chip label={s.label} color={s.color} size="small" />;
@@ -1572,6 +1669,7 @@ export default function DashboardAdvisor() {
                         s.serviceType === 'SEA_CHN_MX' ? '🚢 Marítimo' :
                         s.serviceType === 'AA_DHL' ? '📦 DHL' :
                         s.serviceType === 'POBOX_USA' ? '📮 POBox' :
+                        s.serviceType === 'tdi_express' || s.serviceType === 'TDI_EXPRESS' ? '✈️ TDI DHL' :
                         s.serviceType || '—'
                       }
                       color={
@@ -1579,6 +1677,7 @@ export default function DashboardAdvisor() {
                         s.serviceType === 'SEA_CHN_MX' ? 'info' :
                         s.serviceType === 'AA_DHL' ? 'warning' :
                         s.serviceType === 'POBOX_USA' ? 'secondary' :
+                        s.serviceType === 'tdi_express' || s.serviceType === 'TDI_EXPRESS' ? 'secondary' :
                         'default'
                       }
                     />
@@ -1739,6 +1838,8 @@ export default function DashboardAdvisor() {
       'nacional_mx': '🚚 Nacional MX',
       'liberacion_aa_dhl': '📮 DHL Liberación',
       'gex_warranty': '🛡️ GEX Garantía',
+      'tdi_express': '✈️ TDI DHL',
+      'TDI_EXPRESS': '✈️ TDI DHL',
     };
 
     const shipmentTypeLabels: Record<string, string> = {
@@ -2135,6 +2236,259 @@ export default function DashboardAdvisor() {
   };
 
   // ════════════════════════════════════
+  // RENDER TICKETS
+  // ════════════════════════════════════
+
+  const renderTickets = () => {
+    const selectedCatDef = ADVISOR_TICKET_CATEGORIES.find(c => c.key === ticketCategory);
+    const needsTracking = selectedCatDef ? !selectedCatDef.noTracking : false;
+    const canSubmit = !!ticketCategory && ticketDescription.trim().length > 0 && (!needsTracking || ticketTracking.trim().length > 0);
+
+    const getTicketStatusLabel = (status: string) => {
+      const map: Record<string, { label: string; color: 'default' | 'warning' | 'info' | 'error' | 'success' }> = {
+        open_ai: { label: 'En revisión', color: 'info' },
+        escalated_human: { label: 'Con agente', color: 'warning' },
+        waiting_client: { label: 'Esperando respuesta', color: 'default' },
+        waiting_agent: { label: 'En espera', color: 'default' },
+        resolved: { label: 'Resuelto', color: 'success' },
+        closed: { label: 'Cerrado', color: 'default' },
+      };
+      const s = map[status] || { label: status, color: 'default' as const };
+      return <Chip label={s.label} color={s.color} size="small" />;
+    };
+
+    const formatDate = (d: string) => new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+    return (
+      <Fade in timeout={400}>
+        <Box>
+          {ticketSuccessFolio && (
+            <Alert severity="success" sx={{ mb: 3 }} onClose={() => setTicketSuccessFolio('')}>
+              Ticket <strong>{ticketSuccessFolio}</strong> creado. Un agente te atenderá pronto.
+            </Alert>
+          )}
+
+          <Grid container spacing={3}>
+            {/* ── Crear Ticket ── */}
+            <Grid size={{ xs: 12, md: 5 }}>
+              <Paper sx={{ p: 3, borderRadius: 2 }}>
+                <Typography variant="h6" fontWeight={700} gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <TicketIcon color="primary" /> Nuevo Ticket
+                </Typography>
+                <Alert severity="info" sx={{ mb: 2, py: 0.5 }}>
+                  Tu mensaje será atendido por un agente de soporte.
+                </Alert>
+
+                {/* Categoría */}
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Categoría *</Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                  {ADVISOR_TICKET_CATEGORIES.map(cat => (
+                    <Chip
+                      key={cat.key}
+                      label={cat.label}
+                      icon={cat.icon as React.ReactElement}
+                      onClick={() => { setTicketCategory(cat.key); setTicketTracking(''); }}
+                      variant={ticketCategory === cat.key ? 'filled' : 'outlined'}
+                      sx={{
+                        borderColor: ticketCategory === cat.key ? cat.color : undefined,
+                        bgcolor: ticketCategory === cat.key ? cat.color : undefined,
+                        color: ticketCategory === cat.key ? '#fff' : undefined,
+                        '& .MuiChip-icon': { color: ticketCategory === cat.key ? '#fff' : cat.color },
+                        fontWeight: 600, cursor: 'pointer',
+                      }}
+                    />
+                  ))}
+                </Box>
+
+                {/* Tracking — solo para Rastreo de Paquete */}
+                {needsTracking && (
+                  <>
+                    <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Número de Guía *</Typography>
+                    <TextField
+                      fullWidth size="small"
+                      placeholder="Ej: AIR123456789"
+                      value={ticketTracking}
+                      onChange={e => setTicketTracking(e.target.value)}
+                      sx={{ mb: 2 }}
+                    />
+                  </>
+                )}
+
+                {/* Descripción */}
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Descripción del problema *</Typography>
+                <TextField
+                  fullWidth multiline rows={4}
+                  placeholder="Describe detalladamente qué ocurrió, cuándo y qué estabas haciendo..."
+                  value={ticketDescription}
+                  onChange={e => setTicketDescription(e.target.value)}
+                  sx={{ mb: 2 }}
+                />
+
+                {/* Adjuntar imagen */}
+                <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Capturas de pantalla (Opcional)</Typography>
+                <input
+                  type="file" accept="image/*" multiple
+                  id="advisor-ticket-img"
+                  style={{ display: 'none' }}
+                  onChange={e => {
+                    const files = Array.from(e.target.files || []);
+                    setTicketImages(prev => [...prev, ...files.map(f => ({ file: f, preview: URL.createObjectURL(f) }))]);
+                    e.target.value = '';
+                  }}
+                />
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                  {ticketImages.map((img, i) => (
+                    <Box key={i} sx={{ position: 'relative' }}>
+                      <img src={img.preview} alt="" style={{ width: 72, height: 72, borderRadius: 8, objectFit: 'cover' }} />
+                      <IconButton
+                        size="small"
+                        sx={{ position: 'absolute', top: -6, right: -6, bgcolor: '#fff', boxShadow: 1, p: 0.3 }}
+                        onClick={() => setTicketImages(prev => prev.filter((_, idx) => idx !== i))}
+                      >
+                        <CloseIcon fontSize="small" />
+                      </IconButton>
+                    </Box>
+                  ))}
+                  <label htmlFor="advisor-ticket-img">
+                    <Box sx={{
+                      width: 72, height: 72, border: '2px dashed #F05A28', borderRadius: 2,
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', color: '#F05A28',
+                    }}>
+                      <AttachFileIcon fontSize="small" />
+                      <Typography variant="caption">Adjuntar</Typography>
+                    </Box>
+                  </label>
+                </Box>
+
+                <Button
+                  fullWidth variant="contained"
+                  startIcon={ticketSubmitting ? <CircularProgress size={16} color="inherit" /> : <SendIcon />}
+                  onClick={handleSubmitAdvisorTicket}
+                  disabled={!canSubmit || ticketSubmitting}
+                  sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D44E22' }, textTransform: 'none', fontWeight: 700, py: 1.4 }}
+                >
+                  {ticketSubmitting ? 'Enviando...' : 'Enviar Ticket'}
+                </Button>
+              </Paper>
+            </Grid>
+
+            {/* ── Mis Tickets ── */}
+            <Grid size={{ xs: 12, md: 7 }}>
+              <Paper sx={{ p: 3, borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Typography variant="h6" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <ListAltIcon color="primary" /> Mis Tickets
+                  </Typography>
+                  <IconButton size="small" onClick={fetchAdvisorTickets}><RefreshIcon /></IconButton>
+                </Box>
+
+                {advisorTicketsLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                    <CircularProgress size={32} />
+                  </Box>
+                ) : advisorTickets.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 4 }}>
+                    No tienes tickets aún. Crea uno si necesitas ayuda.
+                  </Typography>
+                ) : (
+                  <List disablePadding>
+                    {advisorTickets.map((ticket, idx) => (
+                      <Box key={ticket.id}>
+                        <ListItem
+                          sx={{ px: 1, py: 1.5, borderRadius: 2, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
+                          onClick={() => {
+                            setSelectedAdvisorTicket(ticket);
+                            fetchTicketMessages(ticket.id);
+                          }}
+                        >
+                          <Avatar sx={{ bgcolor: alpha('#F05A28', 0.12), color: '#F05A28', mr: 1.5, width: 36, height: 36 }}>
+                            <TicketIcon fontSize="small" />
+                          </Avatar>
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.3 }}>
+                              <Typography variant="subtitle2" fontWeight={700} noWrap>{ticket.subject || ticket.ticket_folio}</Typography>
+                              {getTicketStatusLabel(ticket.status)}
+                            </Box>
+                            <Typography variant="caption" color="text.secondary">
+                              {ticket.ticket_folio} · {formatDate(ticket.created_at)}
+                            </Typography>
+                          </Box>
+                        </ListItem>
+                        {idx < advisorTickets.length - 1 && <Divider />}
+                      </Box>
+                    ))}
+                  </List>
+                )}
+              </Paper>
+            </Grid>
+          </Grid>
+
+          {/* Dialog conversación de ticket */}
+          <Dialog
+            open={!!selectedAdvisorTicket}
+            onClose={() => { setSelectedAdvisorTicket(null); setTicketMessages([]); setTicketReply(''); }}
+            maxWidth="sm" fullWidth fullScreen={isMobile}
+            PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3 } }}
+          >
+            {selectedAdvisorTicket && (
+              <>
+                <DialogTitle sx={{ bgcolor: '#F05A28', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Box>
+                    <Typography variant="subtitle1" fontWeight={700}>{selectedAdvisorTicket.subject || 'Ticket'}</Typography>
+                    <Typography variant="caption" sx={{ opacity: 0.85 }}>{selectedAdvisorTicket.ticket_folio}</Typography>
+                  </Box>
+                  <IconButton onClick={() => { setSelectedAdvisorTicket(null); setTicketMessages([]); }} sx={{ color: '#fff' }}>
+                    <CloseIcon />
+                  </IconButton>
+                </DialogTitle>
+                <DialogContent dividers sx={{ p: 0 }}>
+                  <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 300, maxHeight: 420, overflowY: 'auto' }}>
+                    {ticketMessages.length === 0 && (
+                      <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>Cargando mensajes...</Typography>
+                    )}
+                    {ticketMessages.map(msg => (
+                      <Box key={msg.id} sx={{
+                        alignSelf: msg.sender_type === 'employee' ? 'flex-end' : 'flex-start',
+                        maxWidth: '80%',
+                        bgcolor: msg.sender_type === 'employee' ? '#F05A28' : '#f5f5f5',
+                        color: msg.sender_type === 'employee' ? '#fff' : '#111',
+                        borderRadius: 2, px: 1.5, py: 1,
+                      }}>
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{msg.message}</Typography>
+                        <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', textAlign: 'right', mt: 0.3 }}>
+                          {formatDate(msg.created_at)}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </DialogContent>
+                {selectedAdvisorTicket.status !== 'resolved' && selectedAdvisorTicket.status !== 'closed' && (
+                  <DialogActions sx={{ p: 2, gap: 1 }}>
+                    <TextField
+                      fullWidth size="small" multiline maxRows={3}
+                      placeholder="Escribe tu respuesta..."
+                      value={ticketReply}
+                      onChange={e => setTicketReply(e.target.value)}
+                    />
+                    <IconButton
+                      onClick={handleSendTicketReply}
+                      disabled={!ticketReply.trim() || ticketReplySending}
+                      sx={{ color: '#F05A28' }}
+                    >
+                      {ticketReplySending ? <CircularProgress size={20} /> : <SendIcon />}
+                    </IconButton>
+                  </DialogActions>
+                )}
+              </>
+            )}
+          </Dialog>
+        </Box>
+      </Fade>
+    );
+  };
+
+  // ════════════════════════════════════
   // MAIN RENDER
   // ════════════════════════════════════
 
@@ -2144,6 +2498,7 @@ export default function DashboardAdvisor() {
     { label: isMobile ? 'Envíos' : t('advisor.tabShipments'), icon: <ShippingIcon />, shortLabel: 'Envíos' },
     { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
     { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
+    { label: isMobile ? 'Tickets' : 'Tickets', icon: <TicketIcon />, shortLabel: 'Tickets' },
   ], [t, isMobile]);
 
   // ─── GATE: Verificación + Aviso de privacidad firmado ───
@@ -2300,6 +2655,7 @@ export default function DashboardAdvisor() {
             if (activeTab === 1) fetchClients();
             if (activeTab === 2) fetchShipments();
             if (activeTab === 3) fetchCommissions();
+            if (activeTab === 5) fetchAdvisorTickets();
           }}
           size={isMobile ? 'small' : 'medium'}
         >
@@ -2338,6 +2694,7 @@ export default function DashboardAdvisor() {
         {activeTab === 2 && renderShipments()}
         {activeTab === 3 && renderCommissions()}
         {activeTab === 4 && renderTools()}
+        {activeTab === 5 && renderTickets()}
       </Box>
 
       {/* Bottom Navigation - Mobile Only */}
