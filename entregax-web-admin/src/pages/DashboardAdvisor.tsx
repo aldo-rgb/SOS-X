@@ -533,7 +533,7 @@ export default function DashboardAdvisor() {
     { key: 'systemError',  label: 'Error del Sistema',    icon: <BugIcon />,          color: '#f44336', noTracking: true },
     { key: 'billing',      label: 'Comisiones / Pagos',   icon: <BillingIcon />,      color: '#4CAF50', noTracking: true },
     { key: 'tracking',     label: 'Ajustes a un paquete', icon: <SearchIcon />,       color: '#2196F3', noTracking: false },
-    { key: 'accounting',   label: 'Problema con Cliente', icon: <ClientIssueIcon />,  color: '#FF9800', noTracking: true },
+    { key: 'clientIssue',  label: 'Problema con Cliente', icon: <ClientIssueIcon />,  color: '#FF9800', noTracking: true },
     { key: 'other',        label: 'Otro',                 icon: <OtherIcon />,        color: '#9E9E9E', noTracking: true },
   ];
 

@@ -15,7 +15,7 @@ const CATEGORIES = [
   { key: 'systemError', label: 'Error del Sistema',    icon: 'bug',                 color: '#f44336' },
   { key: 'billing',     label: 'Comisiones / Pagos',   icon: 'cash',                color: '#4CAF50' },
   { key: 'tracking',    label: 'Rastreo de Paquete',   icon: 'search',              color: '#2196F3' },
-  { key: 'accounting',  label: 'Problema con Cliente', icon: 'people',              color: '#FF9800' },
+  { key: 'clientIssue', label: 'Problema con Cliente', icon: 'people',              color: '#FF9800' },
   { key: 'other',       label: 'Otro',                 icon: 'ellipsis-horizontal', color: '#9E9E9E' },
 ];
 

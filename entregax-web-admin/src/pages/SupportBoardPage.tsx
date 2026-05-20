@@ -129,6 +129,7 @@ const categoryIcons: Record<string, React.ReactElement> = {
   missing: <WarningIcon fontSize="small" />,
   other: <HelpIcon fontSize="small" />,
   accounting: <BillingIcon fontSize="small" />,
+  clientIssue: <AgentIcon fontSize="small" />,
 };
 
 const categoryLabels: Record<string, string> = {
@@ -142,6 +143,7 @@ const categoryLabels: Record<string, string> = {
   quote: 'Cotización',
   missing: 'Perdido',
   accounting: 'Contabilidad',
+  clientIssue: 'Problema con Cliente',
   other: 'Otro',
 };
 
