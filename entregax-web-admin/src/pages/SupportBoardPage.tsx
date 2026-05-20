@@ -149,18 +149,31 @@ const categoryLabels: Record<string, string> = {
 
 function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: object }) {
   const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    setSrc(null);
+    setFailed(false);
     const key = s3Url.includes('.amazonaws.com/') ? s3Url.split('.amazonaws.com/')[1] : null;
     if (!key) { setSrc(s3Url); return; }
     const token = localStorage.getItem('token');
     fetch(`${API_URL}/admin/support/image-sign?key=${encodeURIComponent(key)}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then(r => r.json())
-      .then((data: { signedUrl?: string }) => setSrc(data.signedUrl || null))
-      .catch(() => setSrc(null));
+      .then(r => { if (!r.ok) throw new Error('sign failed'); return r.json(); })
+      .then((data: { signedUrl?: string }) => {
+        if (data.signedUrl) setSrc(data.signedUrl);
+        else setFailed(true);
+      })
+      .catch(() => setFailed(true));
   }, [s3Url]);
+
+  if (failed) return (
+    <Box sx={{ width: 100, height: 100, bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #ffcc80', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+      <span style={{ fontSize: 24 }}>🖼️</span>
+      <Typography variant="caption" color="warning.main">Sin acceso</Typography>
+    </Box>
+  );
 
   if (!src) return (
     <Box sx={{ width: 100, height: 100, bgcolor: '#f5f5f5', borderRadius: 1, border: '1px solid #ddd', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
