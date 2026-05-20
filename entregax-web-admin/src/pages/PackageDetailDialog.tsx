@@ -142,7 +142,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
             <Grid container spacing={2}>
               {/* Cliente */}
               {client && (
-                <Grid item xs={12} sm={6}>
+                <Grid size={{ xs: 12, sm: 6 }}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                     <PersonIcon color="action" sx={{ mt: 0.3 }} />
                     <Box>
@@ -160,7 +160,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
 
               {/* Sucursal */}
               {m.currentBranch?.name && (
-                <Grid item xs={12} sm={6}>
+                <Grid size={{ xs: 12, sm: 6 }}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                     <StoreIcon color="action" sx={{ mt: 0.3 }} />
                     <Box>
@@ -178,7 +178,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
 
               {/* Carrier proveedor */}
               {(m.trackingProvider || m.internationalTracking) && (
-                <Grid item xs={12} sm={6}>
+                <Grid size={{ xs: 12, sm: 6 }}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                     <LocalShippingIcon color="action" sx={{ mt: 0.3 }} />
                     <Box>
@@ -195,7 +195,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
 
               {/* Última milla */}
               {(m.nationalCarrier || m.nationalTracking) && (
-                <Grid item xs={12} sm={6}>
+                <Grid size={{ xs: 12, sm: 6 }}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                     <DirectionsCarIcon color="action" sx={{ mt: 0.3 }} />
                     <Box>
@@ -223,7 +223,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
               )}
 
               {/* Peso + Cajas */}
-              <Grid item xs={6} sm={3}>
+              <Grid size={{ xs: 6, sm: 3 }}>
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                   <ScaleIcon color="action" sx={{ mt: 0.3 }} />
                   <Box>
@@ -236,7 +236,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
                   </Box>
                 </Box>
               </Grid>
-              <Grid item xs={6} sm={3}>
+              <Grid size={{ xs: 6, sm: 3 }}>
                 <Box>
                   <Typography variant="overline" color="text.secondary" display="block" lineHeight={1.2}>
                     Cajas
@@ -248,7 +248,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
               </Grid>
 
               {/* Estado de pago */}
-              <Grid item xs={12} sm={6}>
+              <Grid size={{ xs: 12, sm: 6 }}>
                 <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
                   <PaymentsIcon color="action" sx={{ mt: 0.3 }} />
                   <Box>
@@ -279,7 +279,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
                   </Box>
                   <Grid container spacing={2}>
                     {(m.poboxVentaMxn != null || m.poboxServiceCost != null) && (
-                      <Grid item xs={6} sm={3}>
+                      <Grid size={{ xs: 6, sm: 3 }}>
                         <Typography variant="overline" color="text.secondary" display="block" lineHeight={1.2}>
                           Venta al cliente (PO BOX)
                         </Typography>
@@ -294,7 +294,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
                       </Grid>
                     )}
                     {m.nationalLabelCost != null && (
-                      <Grid item xs={6} sm={3}>
+                      <Grid size={{ xs: 6, sm: 3 }}>
                         <Typography variant="overline" color="text.secondary" display="block" lineHeight={1.2}>
                           Costo paquetería (última milla)
                         </Typography>
@@ -304,7 +304,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
                       </Grid>
                     )}
                     {m.poboxProviderCostMxn != null && (
-                      <Grid item xs={6} sm={3}>
+                      <Grid size={{ xs: 6, sm: 3 }}>
                         <Typography variant="overline" color="text.secondary" display="block" lineHeight={1.2}>
                           Costo del servicio (proveedor)
                         </Typography>
@@ -319,7 +319,7 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
                       </Grid>
                     )}
                     {m.totalCost != null && (
-                      <Grid item xs={6} sm={3}>
+                      <Grid size={{ xs: 6, sm: 3 }}>
                         <Typography variant="overline" color="text.secondary" display="block" lineHeight={1.2}>
                           Total a cobrar al cliente
                         </Typography>

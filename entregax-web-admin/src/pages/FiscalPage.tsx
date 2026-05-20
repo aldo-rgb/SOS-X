@@ -16,7 +16,6 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import AddBusinessIcon from '@mui/icons-material/AddBusiness';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import EditIcon from '@mui/icons-material/Edit';
-import DescriptionIcon from '@mui/icons-material/Description';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
