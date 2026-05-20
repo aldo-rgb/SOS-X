@@ -264,8 +264,12 @@ export default function SupportBoardPage() {
   };
 
   const canSeeDept = (deptName: string): boolean => {
-    // Operaciones solo ve su propio CEDIS
-    if (isOperaciones) return currentUserCedisDept !== '' && deptName === currentUserCedisDept;
+    if (isOperaciones) {
+      // Si ya tenemos la sucursal: solo su CEDIS
+      if (currentUserCedisDept) return deptName === currentUserCedisDept;
+      // Fallback mientras no hay branch_code en localStorage: solo CEDIS (no depts internos)
+      return deptName.startsWith('CEDIS');
+    }
     const allowed = DEPT_ALLOWED_ROLES[deptName];
     if (!allowed) return true;
     return allowed.includes(currentUserRole);
@@ -608,7 +612,7 @@ export default function SupportBoardPage() {
       <Box sx={{ display: 'flex', gap: 2, flex: 1, overflow: 'auto', minHeight: 0 }}>
         {deptFilter === 'all' ? (
           // Vista por departamento: una columna por cada departamento visible
-          departments.map((dept) => {
+          departments.filter(d => canSeeDept(d.name)).map((dept) => {
             const applySearch = (list: SupportTicket[]) => {
               if (!searchQuery) return list;
               const q = searchQuery.toLowerCase();
