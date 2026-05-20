@@ -52,6 +52,8 @@ import {
   Undo as UndoIcon,
   Close as CloseIcon,
   PictureAsPdf as PdfIcon,
+  Phone as PhoneIcon,
+  WhatsApp as WhatsAppIcon,
 } from '@mui/icons-material';
 import PackageDetailDialog from './PackageDetailDialog';
 
@@ -686,6 +688,40 @@ export default function SupportBoardPage() {
                         <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13 }}>
                           {selectedTicket.client_box_id}
                         </Typography>
+                      </Box>
+                    )}
+                    {selectedTicket.phone && (
+                      <Box>
+                        <Typography variant="caption" sx={{ opacity: 0.5, display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          Teléfono
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13 }}>
+                            {selectedTicket.phone}
+                          </Typography>
+                          <Tooltip title="Llamar">
+                            <IconButton
+                              size="small"
+                              component="a"
+                              href={`tel:${selectedTicket.phone.replace(/\D/g, '')}`}
+                              sx={{ color: '#4CAF50', p: 0.3 }}
+                            >
+                              <PhoneIcon sx={{ fontSize: 16 }} />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="WhatsApp">
+                            <IconButton
+                              size="small"
+                              component="a"
+                              href={`https://wa.me/52${selectedTicket.phone.replace(/\D/g, '').replace(/^52/, '')}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              sx={{ color: '#25D366', p: 0.3 }}
+                            >
+                              <WhatsAppIcon sx={{ fontSize: 16 }} />
+                            </IconButton>
+                          </Tooltip>
+                        </Box>
                       </Box>
                     )}
                     {selectedTicket.tracking_number && (
