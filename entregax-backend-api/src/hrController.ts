@@ -643,7 +643,6 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
       // Datos básicos
       if (!isFilled(e.phone)) missing.push('Teléfono');
       if (!isFilled(e.hire_date)) missing.push('Fecha de ingreso');
-      if (!isFilled(e.employee_number)) missing.push('Número de empleado');
       if (!isFilled(e.emergency_contact)) missing.push('Contacto de emergencia');
 
       // Documentos siempre obligatorios
@@ -1010,11 +1009,12 @@ export const createEmployee = async (req: Request, res: Response): Promise<void>
 export const updateEmployee = async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params;
-    const { 
-      fullName, 
-      phone, 
-      role, 
+    const {
+      fullName,
+      phone,
+      role,
       emergencyContact,
+      hireDate,
       pantsSize,
       shirtSize
     } = req.body;
@@ -1032,11 +1032,12 @@ export const updateEmployee = async (req: Request, res: Response): Promise<void>
         phone = COALESCE($2, phone),
         role = COALESCE($3, role),
         emergency_contact = COALESCE($4, emergency_contact),
-        pants_size = COALESCE($5, pants_size),
-        shirt_size = COALESCE($6, shirt_size)
-      WHERE id = $7
-      RETURNING id, full_name, email, phone, role, employee_number
-    `, [fullName, phone, role, emergencyContact, pantsSize, shirtSize, id]);
+        hire_date = COALESCE($5, hire_date),
+        pants_size = COALESCE($6, pants_size),
+        shirt_size = COALESCE($7, shirt_size)
+      WHERE id = $8
+      RETURNING id, full_name, email, phone, role, employee_number, hire_date, emergency_contact
+    `, [fullName, phone, role, emergencyContact || null, hireDate || null, pantsSize, shirtSize, id]);
 
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'Empleado no encontrado' });

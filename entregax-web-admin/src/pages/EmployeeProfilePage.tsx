@@ -534,7 +534,10 @@ function NominaTab({ profile, onChange, onMsg, vacationLegal }: any) {
     p.nss || p.imss_alta_date ||
     (p.imss_status && p.imss_status !== 'pendiente' && p.imss_status !== '')
   );
+  const u = profile.user || {};
   const [form, setForm] = useState({
+    hire_date: u.hire_date ? String(u.hire_date).slice(0, 10) : '',
+    emergency_contact: u.emergency_contact || '',
     salario_bruto: p.salario_bruto || '',
     salario_neto: p.salario_neto || '',
     sdi: p.sdi || '',
@@ -560,7 +563,12 @@ function NominaTab({ profile, onChange, onMsg, vacationLegal }: any) {
   const save = async () => {
     setSaving(true);
     try {
-      // Si el empleado NO está dado de alta en IMSS, limpiamos los campos relacionados.
+      // Guardar hire_date y emergency_contact en users
+      await api.put(`/admin/hr/employees/${profile.user.id}`, {
+        hireDate: form.hire_date || null,
+        emergencyContact: form.emergency_contact || null,
+      });
+      // Guardar nómina en employee_payroll_info
       const payload: any = { ...form };
       if (!form.imss_registered) {
         payload.nss = '';
@@ -568,9 +576,11 @@ function NominaTab({ profile, onChange, onMsg, vacationLegal }: any) {
         payload.imss_alta_date = '';
         payload.imss_baja_date = '';
       }
-      delete payload.imss_registered; // no lo persistimos como columna
+      delete payload.imss_registered;
+      delete payload.hire_date;
+      delete payload.emergency_contact;
       await api.put(`/admin/hr/employees/${profile.user.id}/payroll`, payload);
-      onMsg('Información de nómina guardada', 'success');
+      onMsg('Información guardada correctamente', 'success');
       onChange();
     } catch (e: any) {
       onMsg(e?.response?.data?.error || 'Error al guardar', 'error');
@@ -585,6 +595,24 @@ function NominaTab({ profile, onChange, onMsg, vacationLegal }: any) {
         <strong>Vacaciones por Ley (Art. 76 LFT — Vacaciones Dignas 2023):</strong>{' '}
         Le corresponden <strong>{vacationLegal} días</strong> según su antigüedad.
       </Alert>
+
+      <Box>
+        <Typography sx={{ fontWeight: 700, color: C.text, mb: 1.5 }}>👤 Datos Laborales</Typography>
+        <Grid container spacing={2}>
+          <Grid size={{xs:12,sm:6,md:4}}>
+            <TextField fullWidth type="date" label="Fecha de Ingreso" size="small"
+              InputLabelProps={{ shrink: true }}
+              value={form.hire_date} onChange={e => update('hire_date', e.target.value)} />
+          </Grid>
+          <Grid size={{xs:12,sm:6,md:8}}>
+            <TextField fullWidth label="Contacto de Emergencia" size="small"
+              placeholder="Nombre y teléfono del contacto de emergencia"
+              value={form.emergency_contact} onChange={e => update('emergency_contact', e.target.value)} />
+          </Grid>
+        </Grid>
+      </Box>
+
+      <Divider />
 
       <Box>
         <Typography sx={{ fontWeight: 700, color: C.text, mb: 1.5 }}>💰 Salario y Pagos</Typography>
