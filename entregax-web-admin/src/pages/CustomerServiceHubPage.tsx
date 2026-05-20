@@ -34,9 +34,9 @@ const TOOL_PERMISSIONS: Record<string, string> = {
   'leads': 'cs_leads',
   'clients': 'cs_clients',
   'support': 'cs_support',
-  'cartera': 'cs_cartera', // Este panel podría no existir aún, usamos cs_clients como fallback
-  'delayed': 'cs_support', // Usa el mismo permiso que soporte
-  'assign_client': 'cs_clients', // Asignación de cliente a paquetes
+  'cartera': 'cs_cartera',
+  'delayed': 'cs_delayed',
+  'assign_client': 'cs_assign_client',
 };
 
 interface User {

@@ -9145,6 +9145,18 @@ async function ensureRequiredColumns() {
     if (cleanup.rowCount && cleanup.rowCount > 0) {
       console.log(`🧹 [STARTUP] CLABEs virtuales simuladas removidas: ${cleanup.rowCount}`);
     }
+    // Sembrar paneles de Servicio a Cliente
+    await pool.query(`
+      INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order) VALUES
+        ('cs_cartera',       'Ajustes y Abandonos', 'customer_service', 'AccountBalanceWallet', 'Cargos, descuentos, cobranza y abandono de mercancía', TRUE, 4),
+        ('cs_delayed',       'Guías con Retraso',   'customer_service', 'LocalShipping',        'Paquetes cuya consolidación llegó a MTY sin ellos',    TRUE, 5),
+        ('cs_assign_client', 'Asignar Cliente',     'customer_service', 'AssignmentInd',        'Guías en bodega PO Box sin cliente asignado',          TRUE, 6)
+      ON CONFLICT (panel_key) DO UPDATE SET
+        panel_name  = EXCLUDED.panel_name,
+        description = EXCLUDED.description,
+        icon        = EXCLUDED.icon,
+        sort_order  = EXCLUDED.sort_order
+    `);
     // Sembrar panel de Contabilidad en admin_panels si no existe
     await pool.query(`
       INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)

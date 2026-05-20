@@ -58,6 +58,8 @@ import {
   Inventory as InventoryIcon,
   Settings as SettingsIcon,
   ReceiptLong as ReceiptLongIcon,
+  AccountBalanceWallet as CarteraIcon,
+  AssignmentInd as AssignmentIndIcon,
 } from '@mui/icons-material';
 import ModulePermissionsDialog from './ModulePermissionsDialog';
 
@@ -109,6 +111,9 @@ const PANEL_ICONS: Record<string, React.ReactNode> = {
   cs_leads: <WhatshotIcon />,
   cs_clients: <PersonSearchIcon />,
   cs_support: <HeadsetMicIcon />,
+  cs_cartera: <CarteraIcon />,
+  cs_delayed: <TruckIcon />,
+  cs_assign_client: <AssignmentIndIcon />,
 };
 
 export default function UserPanelPermissionsPage() {
