@@ -365,13 +365,20 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       ...advisorRoles,
     ];
     const creatorType = employeeRoles.includes(userRole) ? 'employee' : 'client';
-    // Asesores → Atención a Cliente; resto de empleados → Soporte Técnico; clientes → default
+    // Asesores → Atención a Cliente; resto de empleados → Soporte Técnico; clientes → por categoría
     const isAdvisorRole = advisorRoles.includes(userRole);
-    const deptRes = await pool.query(
-      creatorType === 'employee' && !isAdvisorRole
-        ? `SELECT id FROM support_departments WHERE name = 'Soporte Técnico' LIMIT 1`
-        : `SELECT id FROM support_departments WHERE is_default_for_clients = TRUE LIMIT 1`
-    );
+
+    let deptQuery: string;
+    if (creatorType === 'employee' && !isAdvisorRole) {
+      deptQuery = `SELECT id FROM support_departments WHERE name = 'Soporte Técnico' LIMIT 1`;
+    } else if (creatorType === 'client' && category === 'systemError') {
+      deptQuery = `SELECT id FROM support_departments WHERE name = 'Soporte Técnico' LIMIT 1`;
+    } else if (creatorType === 'client' && category === 'accounting') {
+      deptQuery = `SELECT id FROM support_departments WHERE name = 'Contabilidad' LIMIT 1`;
+    } else {
+      deptQuery = `SELECT id FROM support_departments WHERE is_default_for_clients = TRUE LIMIT 1`;
+    }
+    const deptRes = await pool.query(deptQuery);
     const departmentId = deptRes.rows[0]?.id || null;
     
     // Obtener archivos si hay (de multer)
@@ -1006,10 +1013,24 @@ export const transferTicket = async (req: Request, res: Response): Promise<any> 
       params
     );
 
+    // Obtener nombre del departamento destino para el mensaje visible
+    let deptName = '';
+    if (department_id) {
+      const deptRow = await pool.query(`SELECT name FROM support_departments WHERE id = $1`, [department_id]);
+      deptName = deptRow.rows[0]?.name || '';
+    }
+
+    // Mensaje visible al cliente informando la transferencia
+    await pool.query(
+      `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, FALSE)`,
+      [id, `🔄 Tu ticket ha sido transferido al departamento de ${deptName}. Un agente especializado te atenderá a la brevedad.`]
+    );
+
+    // Nota interna adicional si se proporcionó
     if (note) {
       await pool.query(
         `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, TRUE)`,
-        [id, `📋 Ticket transferido. Nota: ${note}`]
+        [id, `📋 Nota interna: ${note}`]
       );
     }
 
