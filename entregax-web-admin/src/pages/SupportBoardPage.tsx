@@ -946,7 +946,7 @@ export default function SupportBoardPage() {
                   startIcon={<TransferIcon />}
                   sx={{ borderColor: ORANGE, color: ORANGE, '&:hover': { borderColor: ORANGE, bgcolor: '#FFF3EE' } }}
                 >
-                  Transferir a Atención a Cliente
+                  Concluir y Transferir a Atn a Cliente
                 </Button>
               )}
               {selectedTicket.status !== 'resolved' && ['customer_service', 'counter_staff'].includes(currentUserRole) && (
@@ -978,7 +978,7 @@ export default function SupportBoardPage() {
               label="Departamento"
               onChange={(e) => setTransferDept(e.target.value as number)}
             >
-              {departments.filter(d => canSeeDept(d.name)).map((d) => (
+              {departments.map((d) => (
                 <MenuItem key={d.id} value={d.id}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: d.color }} />
