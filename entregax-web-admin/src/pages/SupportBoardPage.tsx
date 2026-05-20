@@ -583,38 +583,78 @@ export default function SupportBoardPage() {
       </Box>
 
       {/* Kanban */}
-      <Box sx={{ display: 'flex', gap: 2, flex: 1, overflow: 'hidden', minHeight: 0 }}>
-        {[
-          { status: 'escalated_human', label: 'Requieren Atención ⚠️', bg: '#FFF3E0', accent: ORANGE, urgent: true },
-          { status: 'open_ai',         label: 'Asesor Virtual',             bg: '#E3F2FD', accent: '#2196F3', urgent: false },
-          { status: 'waiting_client',  label: 'Esperando Cliente ⏳',  bg: '#FFF8E1', accent: '#f9a825', urgent: false },
-          { status: 'resolved',        label: 'Resueltos ✅',          bg: '#E8F5E9', accent: '#4caf50', urgent: false },
-        ].map(({ status, label, bg, accent, urgent }) => {
-          const col = getTicketsByStatus(status);
-          return (
-            <Paper key={status} sx={{ flex: 1, p: 2, bgcolor: bg, overflow: 'auto', borderRadius: 2, borderTop: urgent ? `4px solid ${accent}` : undefined }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <Typography variant="subtitle1" fontWeight="bold" sx={{ flex: 1 }}>{label}</Typography>
-                <Badge badgeContent={col.length} color={urgent ? 'warning' : 'default'} />
-              </Box>
-              {col.length === 0 && (
-                <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>
-                  Sin tickets
-                </Typography>
-              )}
-              {(status === 'resolved' ? col.slice(0, 15) : col).map((ticket) => (
-                <TicketCard
-                  key={ticket.id}
-                  ticket={ticket}
-                  onClick={() => handleOpenTicket(ticket)}
-                  formatTime={formatTimeAgo}
-                  isUrgent={urgent}
-                  isResolved={status === 'resolved'}
-                />
-              ))}
-            </Paper>
-          );
-        })}
+      <Box sx={{ display: 'flex', gap: 2, flex: 1, overflow: 'auto', minHeight: 0 }}>
+        {deptFilter === 'all' ? (
+          // Vista por departamento: una columna por cada departamento visible
+          departments.filter(d => canSeeDept(d.name)).map((dept) => {
+            const applySearch = (list: SupportTicket[]) => {
+              if (!searchQuery) return list;
+              const q = searchQuery.toLowerCase();
+              return list.filter(t =>
+                t.ticket_folio.toLowerCase().includes(q) ||
+                t.full_name?.toLowerCase().includes(q) ||
+                t.subject?.toLowerCase().includes(q)
+              );
+            };
+            const col = applySearch(tickets.filter(t => t.department_id === dept.id));
+            const urgent = col.filter(t => t.status === 'escalated_human').length;
+            return (
+              <Paper key={dept.id} sx={{ flex: '0 0 280px', p: 2, bgcolor: '#fafafa', overflow: 'auto', borderRadius: 2, borderTop: `4px solid ${dept.color || '#999'}` }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: dept.color || '#999', flexShrink: 0 }} />
+                  <Typography variant="subtitle1" fontWeight="bold" sx={{ flex: 1 }}>{dept.name}</Typography>
+                  {urgent > 0 && <Badge badgeContent={urgent} color="warning" />}
+                  <Typography variant="caption" color="text.secondary">{col.length}</Typography>
+                </Box>
+                {col.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>Sin tickets</Typography>
+                ) : (
+                  col.slice(0, 20).map((ticket) => (
+                    <TicketCard
+                      key={ticket.id}
+                      ticket={ticket}
+                      onClick={() => handleOpenTicket(ticket)}
+                      formatTime={formatTimeAgo}
+                      isUrgent={ticket.status === 'escalated_human'}
+                      isResolved={ticket.status === 'resolved'}
+                    />
+                  ))
+                )}
+              </Paper>
+            );
+          })
+        ) : (
+          // Vista kanban por status (cuando hay un departamento seleccionado)
+          [
+            { status: 'escalated_human', label: 'Requieren Atención ⚠️', bg: '#FFF3E0', accent: ORANGE, urgent: true },
+            { status: 'open_ai',         label: 'Asesor Virtual',        bg: '#E3F2FD', accent: '#2196F3', urgent: false },
+            { status: 'waiting_client',  label: 'Esperando Cliente ⏳',  bg: '#FFF8E1', accent: '#f9a825', urgent: false },
+            { status: 'resolved',        label: 'Resueltos ✅',          bg: '#E8F5E9', accent: '#4caf50', urgent: false },
+          ].map(({ status, label, bg, accent, urgent }) => {
+            const col = getTicketsByStatus(status);
+            return (
+              <Paper key={status} sx={{ flex: 1, p: 2, bgcolor: bg, overflow: 'auto', borderRadius: 2, borderTop: urgent ? `4px solid ${accent}` : undefined }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                  <Typography variant="subtitle1" fontWeight="bold" sx={{ flex: 1 }}>{label}</Typography>
+                  <Badge badgeContent={col.length} color={urgent ? 'warning' : 'default'} />
+                </Box>
+                {col.length === 0 && (
+                  <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>Sin tickets</Typography>
+                )}
+                {(status === 'resolved' ? col.slice(0, 15) : col).map((ticket) => (
+                  <TicketCard
+                    key={ticket.id}
+                    ticket={ticket}
+                    onClick={() => handleOpenTicket(ticket)}
+                    formatTime={formatTimeAgo}
+                    isUrgent={urgent}
+                    isResolved={status === 'resolved'}
+                  />
+                ))}
+              </Paper>
+            );
+          })
+        )}
       </Box>
 
       {/* Dialog: Detalle del Ticket */}
