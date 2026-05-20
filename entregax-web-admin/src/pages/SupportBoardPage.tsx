@@ -694,9 +694,15 @@ export default function SupportBoardPage() {
                                   <Typography variant="caption" fontWeight={600}>Ver PDF</Typography>
                                 </a>
                               ) : (
-                                <a key={i} href={u} target="_blank" rel="noreferrer">
+                                <a key={i} href={u} target="_blank" rel="noreferrer"
+                                  style={{ display: 'block', width: 100, height: 100 }}>
                                   <Box component="img" src={u} alt={`adj-${i}`}
-                                    sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }} />
+                                    sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd' }}
+                                    onError={(e: any) => {
+                                      e.target.style.display = 'none';
+                                      e.target.parentElement.innerHTML = `<div style="width:100px;height:100px;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#f5f5f5;border-radius:4px;border:1px solid #ddd;gap:4px"><span style="font-size:24px">🖼️</span><span style="font-size:10px;color:#999;text-align:center">Ver imagen</span></div>`;
+                                    }}
+                                  />
                                 </a>
                               );
                             })}
