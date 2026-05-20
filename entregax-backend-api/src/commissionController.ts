@@ -204,29 +204,29 @@ export const getReferralsByAdvisor = async (req: Request, res: Response): Promis
 // 6. ADMIN: Obtener estadísticas de comisiones
 export const getCommissionStats = async (req: Request, res: Response): Promise<any> => {
     try {
-        // Total de asesores con referidos
+        // Total de asesores con clientes asignados
         const advisorsResult = await pool.query(`
-            SELECT COUNT(DISTINCT referred_by_id) as total_advisors
-            FROM users 
-            WHERE referred_by_id IS NOT NULL
+            SELECT COUNT(DISTINCT advisor_id) as total_advisors
+            FROM users
+            WHERE advisor_id IS NOT NULL
         `);
-        
-        // Total de clientes referidos
+
+        // Total de clientes asignados a asesores
         const referredResult = await pool.query(`
             SELECT COUNT(*) as total_referred
-            FROM users 
-            WHERE referred_by_id IS NOT NULL
+            FROM users
+            WHERE advisor_id IS NOT NULL
         `);
-        
-        // Top asesores
+
+        // Top asesores por clientes asignados
         const topAdvisors = await pool.query(`
-            SELECT 
+            SELECT
                 a.id,
                 a.full_name,
                 a.referral_code,
                 COUNT(r.id) as referral_count
             FROM users a
-            JOIN users r ON r.referred_by_id = a.id
+            JOIN users r ON r.advisor_id = a.id
             GROUP BY a.id, a.full_name, a.referral_code
             ORDER BY referral_count DESC
             LIMIT 5
@@ -324,7 +324,7 @@ export const getAdvisors = async (req: Request, res: Response): Promise<any> => 
                 l.full_name as leader_name,
                 u.created_at,
                 COALESCE(
-                    (SELECT COUNT(*) FROM users r WHERE r.referred_by_id = u.id),
+                    (SELECT COUNT(*) FROM users r WHERE r.advisor_id = u.id),
                     0
                 )::int as referral_count
             FROM users u
