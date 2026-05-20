@@ -257,7 +257,7 @@ export default function HRManagementPage() {
   // Cargar empleados
   const loadEmployees = async () => {
     try {
-      const includeInactive = showInactive || searchEmployee.trim().length >= 2;
+      const includeInactive = showInactive;
       const res = await axios.get(`${API_URL}/api/admin/hr/employees`, {
         headers: { Authorization: `Bearer ${getToken()}` },
         params: includeInactive ? { include_inactive: 'true' } : {},
