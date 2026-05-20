@@ -371,6 +371,7 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
         u.recovery_status,
         u.recovery_deadline,
         advisor.full_name as advisor_name,
+        advisor.box_id as advisor_box_id,
         leader.full_name as team_leader_name,
         (SELECT COUNT(*) FROM packages WHERE user_id = u.id) as total_shipments,
         (SELECT COALESCE(SUM(assigned_cost_mxn), 0) FROM packages WHERE user_id = u.id) as total_spent,

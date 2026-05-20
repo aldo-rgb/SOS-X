@@ -70,6 +70,7 @@ interface Client {
   recovery_status: string;
   recovery_deadline: string | null;
   advisor_name: string | null;
+  advisor_box_id: string | null;
   team_leader_name: string | null;
   total_shipments: number;
   total_spent: number;
@@ -168,6 +169,9 @@ export default function CRMClientsPage() {
   // Snackbar
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
+  // Permisos del panel cs_clients
+  const [canEditClients, setCanEditClients] = useState(false);
+
   const getToken = () => localStorage.getItem('token') || '';
 
   // Cargar datos
@@ -225,6 +229,18 @@ export default function CRMClientsPage() {
   useEffect(() => {
     fetchAdvisors();
     fetchPromotions();
+    // Verificar permiso de edición en panel cs_clients
+    const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
+    if (savedUser?.role === 'super_admin' || savedUser?.role === 'admin' || savedUser?.role === 'director') {
+      setCanEditClients(true);
+    } else {
+      axios.get(`${API_URL.replace('/api', '')}/api/panels/me`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      }).then((res) => {
+        const panel = (res.data?.panels || []).find((p: { panel_key: string; can_edit: boolean }) => p.panel_key === 'cs_clients');
+        setCanEditClients(panel?.can_edit === true);
+      }).catch(() => {});
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -576,7 +592,18 @@ export default function CRMClientsPage() {
                       <Chip label={client.box_id} size="small" variant="outlined" />
                     </TableCell>
                     <TableCell>
-                      <Typography variant="body2">{client.advisor_name || '-'}</Typography>
+                      {client.advisor_name ? (
+                        <Box>
+                          <Typography variant="body2" fontWeight={600}>{client.advisor_name}</Typography>
+                          {client.advisor_box_id && (
+                            <Typography variant="caption" color="text.secondary" fontFamily="monospace">
+                              {client.advisor_box_id}
+                            </Typography>
+                          )}
+                        </Box>
+                      ) : (
+                        <Typography variant="body2" color="text.disabled">-</Typography>
+                      )}
                     </TableCell>
                     <TableCell align="center">
                       <Typography variant="body2" fontWeight={600}>{client.total_shipments}</Typography>
@@ -610,20 +637,24 @@ export default function CRMClientsPage() {
                     </TableCell>
                     <TableCell align="center">
                       <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                        <Tooltip title="Cambiar Asesor">
-                          <IconButton size="small" color="primary" onClick={() => {
-                            setSelectedClient(client);
-                            setNewAdvisorId(client.referred_by_id ? String(client.referred_by_id) : '');
-                            setChangeAdvisorOpen(true);
-                          }}>
-                            <EditIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                        <Tooltip title="Resetear Contraseña">
-                          <IconButton size="small" color="warning" onClick={() => setResetPwdClient(client)}>
-                            <LockResetIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
+                        {canEditClients && (
+                          <Tooltip title="Cambiar Asesor">
+                            <IconButton size="small" color="primary" onClick={() => {
+                              setSelectedClient(client);
+                              setNewAdvisorId(client.referred_by_id ? String(client.referred_by_id) : '');
+                              setChangeAdvisorOpen(true);
+                            }}>
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {canEditClients && (
+                          <Tooltip title="Resetear Contraseña">
+                            <IconButton size="small" color="warning" onClick={() => setResetPwdClient(client)}>
+                              <LockResetIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                         {(client.row_color === 'red' || client.recovery_status === 'in_recovery') && (
                           <Tooltip title="Gestionar Recuperación">
                             <IconButton size="small" color="error" onClick={() => handleOpenRecovery(client)}>
