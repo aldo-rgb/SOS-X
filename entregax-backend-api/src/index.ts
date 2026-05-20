@@ -579,8 +579,8 @@ import {
   getSupportAgents,
   transferTicket,
   getAdminTicketMessages,
-  ensureDepartmentsSchema
-    signSupportImage,
+  ensureDepartmentsSchema,
+  signSupportImage,
 } from './supportController';
 import {
   getMyNotifications,

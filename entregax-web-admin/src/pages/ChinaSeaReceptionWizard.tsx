@@ -716,11 +716,15 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             const res = await api.get(`/admin/china-sea/containers/in-transit${mode === 'FCL' ? '?mode=fcl' : ''}`);
             const all: Container[] = res.data.containers || [];
             const filtered = all.filter((c) => {
+                // Fuente primaria: legacy_client_id define si es FCL dedicado
+                if ((c as any).is_fcl_dedicated === true) return mode === 'FCL';
+                // Secundario: campo type explícito
+                const typeVal = (c.type || '').toUpperCase();
+                if (typeVal === 'FCL') return mode === 'FCL';
+                if (typeVal === 'LCL') return mode !== 'FCL';
+                // Fallback: week_number heuristic
                 const week = (c.week_number || '').toString().trim();
                 const hasWeek = /week/i.test(week);
-                // Regla del negocio:
-                //  - LCL (consolidado): tiene week_number "Week X-Y"
-                //  - FCL (1 solo cliente): NO tiene week_number
                 return mode === 'FCL' ? !hasWeek : hasWeek;
             });
             setContainers(filtered);

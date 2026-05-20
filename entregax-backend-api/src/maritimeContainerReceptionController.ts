@@ -107,6 +107,7 @@ export const listInTransitContainers = async (_req: AuthRequest, res: Response):
         mu.full_name AS monitor_name,
         mu.phone AS monitor_phone,
         mr.code AS route_code,
+        (c.legacy_client_id IS NOT NULL) AS is_fcl_dedicated,
         (
           SELECT COUNT(*) FROM maritime_orders mo
           WHERE mo.container_id = c.id
