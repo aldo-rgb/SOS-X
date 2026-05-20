@@ -586,7 +586,7 @@ export default function SupportBoardPage() {
       <Box sx={{ display: 'flex', gap: 2, flex: 1, overflow: 'auto', minHeight: 0 }}>
         {deptFilter === 'all' ? (
           // Vista por departamento: una columna por cada departamento visible
-          departments.filter(d => canSeeDept(d.name)).map((dept) => {
+          departments.map((dept) => {
             const applySearch = (list: SupportTicket[]) => {
               if (!searchQuery) return list;
               const q = searchQuery.toLowerCase();
