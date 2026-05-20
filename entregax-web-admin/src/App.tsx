@@ -30,6 +30,9 @@ import {
   DialogActions,
   Button,
   Checkbox,
+  TextField,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import DashboardIcon from '@mui/icons-material/Dashboard';
@@ -269,6 +272,11 @@ function App() {
   const [notifModalOpen, setNotifModalOpen] = useState(false);
   const [selectedNotifIds, setSelectedNotifIds] = useState<Set<number>>(new Set());
   const [userPanelPermissions, setUserPanelPermissions] = useState<Record<string, boolean>>({});
+  const [forcePwdOpen, setForcePwdOpen] = useState(false);
+  const [forcePwdNew, setForcePwdNew] = useState('');
+  const [forcePwdConfirm, setForcePwdConfirm] = useState('');
+  const [forcePwdLoading, setForcePwdLoading] = useState(false);
+  const [forcePwdError, setForcePwdError] = useState('');
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [authResolved, setAuthResolved] = useState(false);
 
@@ -814,6 +822,30 @@ function App() {
   const handleLoginSuccess = (data: { user: AuthUser; access: any }) => {
     setCurrentUser(data.user);
     setIsAuthenticated(true);
+    if (data.access?.mustChangePassword) {
+      setForcePwdOpen(true);
+    }
+  };
+
+  const handleForcePwdChange = async () => {
+    if (forcePwdNew.length < 6) { setForcePwdError('La contraseña debe tener al menos 6 caracteres'); return; }
+    if (forcePwdNew !== forcePwdConfirm) { setForcePwdError('Las contraseñas no coinciden'); return; }
+    setForcePwdError('');
+    setForcePwdLoading(true);
+    try {
+      const token = localStorage.getItem('token');
+      await axios.post(`${import.meta.env.VITE_API_URL || 'http://localhost:3001'}/api/auth/change-password`,
+        { currentPassword: 'Entregax123', newPassword: forcePwdNew },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setForcePwdOpen(false);
+      setForcePwdNew('');
+      setForcePwdConfirm('');
+    } catch (e: any) {
+      setForcePwdError(e.response?.data?.error || 'Error al cambiar contraseña');
+    } finally {
+      setForcePwdLoading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -1680,6 +1712,36 @@ function App() {
           </Paper>
         </Box>
       </Box>
+
+      {/* Cambio de contraseña obligatorio */}
+      <Dialog open={forcePwdOpen} maxWidth="xs" fullWidth disableEscapeKeyDown>
+        <DialogTitle>🔒 Debes cambiar tu contraseña</DialogTitle>
+        <DialogContent dividers>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Por seguridad, debes establecer una nueva contraseña antes de continuar.
+          </Typography>
+          {forcePwdError && <Alert severity="error" sx={{ mb: 2 }}>{forcePwdError}</Alert>}
+          <TextField
+            fullWidth label="Nueva contraseña" type="password"
+            value={forcePwdNew} onChange={e => setForcePwdNew(e.target.value)}
+            sx={{ mb: 2 }} autoFocus
+          />
+          <TextField
+            fullWidth label="Confirmar contraseña" type="password"
+            value={forcePwdConfirm} onChange={e => setForcePwdConfirm(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            variant="contained"
+            onClick={handleForcePwdChange}
+            disabled={forcePwdLoading || !forcePwdNew || !forcePwdConfirm}
+            fullWidth
+          >
+            {forcePwdLoading ? <CircularProgress size={20} /> : 'Guardar nueva contraseña'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </ThemeProvider>
   );
 }

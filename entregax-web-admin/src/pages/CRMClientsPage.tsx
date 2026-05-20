@@ -47,6 +47,8 @@ import PeopleIcon from '@mui/icons-material/People';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import HistoryIcon from '@mui/icons-material/History';
+import EditIcon from '@mui/icons-material/Edit';
+import LockResetIcon from '@mui/icons-material/LockReset';
 import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -151,6 +153,15 @@ export default function CRMClientsPage() {
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
   const [recoveryHistory, setRecoveryHistory] = useState<RecoveryHistory[]>([]);
   const [actionLoading, setActionLoading] = useState(false);
+
+  // Cambiar asesor
+  const [changeAdvisorOpen, setChangeAdvisorOpen] = useState(false);
+  const [newAdvisorId, setNewAdvisorId] = useState('');
+  const [advisorLoading, setAdvisorLoading] = useState(false);
+
+  // Resetear contraseña
+  const [resetPwdClient, setResetPwdClient] = useState<Client | null>(null);
+  const [resetPwdLoading, setResetPwdLoading] = useState(false);
 
   // Snackbar
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
@@ -306,6 +317,39 @@ export default function CRMClientsPage() {
       fetchClients();
     } catch {
       setSnackbar({ open: true, message: 'Error en detección', severity: 'error' });
+    }
+  };
+
+  const handleChangeAdvisor = async () => {
+    if (!selectedClient) return;
+    setAdvisorLoading(true);
+    try {
+      await axios.patch(`${API_URL}/admin/crm/clients/${selectedClient.id}/advisor`, { advisorId: newAdvisorId || null }, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setSnackbar({ open: true, message: 'Asesor actualizado correctamente', severity: 'success' });
+      setChangeAdvisorOpen(false);
+      fetchClients();
+    } catch {
+      setSnackbar({ open: true, message: 'Error al cambiar asesor', severity: 'error' });
+    } finally {
+      setAdvisorLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!resetPwdClient) return;
+    setResetPwdLoading(true);
+    try {
+      await axios.post(`${API_URL}/admin/crm/clients/${resetPwdClient.id}/reset-password`, {}, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setSnackbar({ open: true, message: `Contraseña reseteada a "Entregax123". El cliente deberá cambiarla al ingresar.`, severity: 'success' });
+      setResetPwdClient(null);
+    } catch {
+      setSnackbar({ open: true, message: 'Error al resetear contraseña', severity: 'error' });
+    } finally {
+      setResetPwdLoading(false);
     }
   };
 
@@ -563,10 +607,24 @@ export default function CRMClientsPage() {
                       />
                     </TableCell>
                     <TableCell align="center">
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                        <Tooltip title="Cambiar Asesor">
+                          <IconButton size="small" color="primary" onClick={() => {
+                            setSelectedClient(client);
+                            setNewAdvisorId(client.referred_by_id ? String(client.referred_by_id) : '');
+                            setChangeAdvisorOpen(true);
+                          }}>
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Resetear Contraseña">
+                          <IconButton size="small" color="warning" onClick={() => setResetPwdClient(client)}>
+                            <LockResetIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
                         {(client.row_color === 'red' || client.recovery_status === 'in_recovery') && (
                           <Tooltip title="Gestionar Recuperación">
-                            <IconButton size="small" color="warning" onClick={() => handleOpenRecovery(client)}>
+                            <IconButton size="small" color="error" onClick={() => handleOpenRecovery(client)}>
                               <LocalOfferIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
@@ -748,6 +806,52 @@ export default function CRMClientsPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setHistoryDialogOpen(false)}>{t('common.close')}</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Cambiar Asesor Dialog */}
+      <Dialog open={changeAdvisorOpen} onClose={() => setChangeAdvisorOpen(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>
+          Cambiar Asesor
+          <Typography variant="body2" color="text.secondary">{selectedClient?.full_name}</Typography>
+        </DialogTitle>
+        <DialogContent dividers>
+          <FormControl fullWidth sx={{ mt: 1 }}>
+            <InputLabel>Asesor</InputLabel>
+            <Select
+              value={newAdvisorId}
+              label="Asesor"
+              onChange={(e: SelectChangeEvent) => setNewAdvisorId(e.target.value)}
+            >
+              <MenuItem value="">Sin asesor</MenuItem>
+              {advisors.map(a => (
+                <MenuItem key={a.id} value={String(a.id)}>{a.full_name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setChangeAdvisorOpen(false)}>Cancelar</Button>
+          <Button variant="contained" onClick={handleChangeAdvisor} disabled={advisorLoading}>
+            {advisorLoading ? <CircularProgress size={20} /> : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Resetear Contraseña Dialog */}
+      <Dialog open={!!resetPwdClient} onClose={() => setResetPwdClient(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>Resetear Contraseña</DialogTitle>
+        <DialogContent dividers>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            La contraseña de <strong>{resetPwdClient?.full_name}</strong> se reseteará a <strong>Entregax123</strong>.
+            El cliente deberá cambiarla obligatoriamente al iniciar sesión.
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetPwdClient(null)}>Cancelar</Button>
+          <Button variant="contained" color="warning" onClick={handleResetPassword} disabled={resetPwdLoading}>
+            {resetPwdLoading ? <CircularProgress size={20} /> : 'Resetear Contraseña'}
+          </Button>
         </DialogActions>
       </Dialog>
 

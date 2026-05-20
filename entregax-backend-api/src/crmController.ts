@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
+import bcrypt from 'bcrypt';
 
 // ============================================================================
 // FUNCIONES ORIGINALES (APP Y CRM BÁSICO)
@@ -364,7 +365,7 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
         u.is_verified,
         u.referred_by_id,
         u.first_transaction_date,
-        u.last_transaction_date,
+        COALESCE(u.last_transaction_date, (SELECT MAX(p.created_at) FROM packages p WHERE p.user_id = u.id)) as last_transaction_date,
         u.last_transaction_ref,
         u.last_transaction_amount,
         u.recovery_status,
@@ -373,13 +374,13 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
         leader.full_name as team_leader_name,
         (SELECT COUNT(*) FROM packages WHERE user_id = u.id) as total_shipments,
         (SELECT COALESCE(SUM(assigned_cost_mxn), 0) FROM packages WHERE user_id = u.id) as total_spent,
-        CASE 
-          WHEN u.last_transaction_date < NOW() - INTERVAL '90 days' THEN 'red'
+        CASE
+          WHEN COALESCE(u.last_transaction_date, (SELECT MAX(p.created_at) FROM packages p WHERE p.user_id = u.id)) < NOW() - INTERVAL '90 days' THEN 'red'
           WHEN (SELECT COUNT(*) FROM packages WHERE user_id = u.id) = 0 THEN 'yellow'
           WHEN u.created_at > NOW() - INTERVAL '30 days' AND (SELECT COUNT(*) FROM packages WHERE user_id = u.id) = 0 THEN 'orange'
           ELSE 'white'
         END as row_color,
-        EXTRACT(DAY FROM NOW() - u.last_transaction_date) as days_inactive
+        EXTRACT(DAY FROM NOW() - COALESCE(u.last_transaction_date, (SELECT MAX(p.created_at) FROM packages p WHERE p.user_id = u.id))) as days_inactive
       FROM users u
       LEFT JOIN users advisor ON u.referred_by_id = advisor.id
       LEFT JOIN users leader ON advisor.team_leader_id = leader.id
@@ -1165,6 +1166,43 @@ export const getTeamLeaders = async (_req: Request, res: Response): Promise<any>
     res.json({ success: true, data: result.rows });
   } catch (error: any) {
     res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+/**
+ * PATCH /api/admin/crm/clients/:id/advisor
+ * Cambiar asesor asignado de un cliente
+ */
+export const changeClientAdvisor = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { advisorId } = req.body;
+    if (!id) return res.status(400).json({ error: 'ID de cliente requerido' });
+    await pool.query(
+      `UPDATE users SET referred_by_id = $1 WHERE id = $2 AND role = 'client'`,
+      [advisorId || null, id]
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * POST /api/admin/crm/clients/:id/reset-password
+ * Resetea contraseña a "Entregax123" y fuerza cambio en próximo login
+ */
+export const resetClientPassword = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const hashed = await bcrypt.hash('Entregax123', 10);
+    await pool.query(
+      `UPDATE users SET password = $1, must_change_password = true WHERE id = $2`,
+      [hashed, id]
+    );
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
   }
 };
 
