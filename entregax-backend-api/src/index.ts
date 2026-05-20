@@ -665,6 +665,7 @@ import {
   getContainerProfitBreakdown,
   getWeekSavedAddresses,
   assignWeekContainerAddress,
+  updateContainerReference,
 } from './maritimeController';
 import {
   // Módulo de Anticipos a Proveedores
@@ -4714,6 +4715,7 @@ app.get('/api/maritime/containers/:id/status-history', authenticateToken, requir
 app.delete('/api/maritime/containers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteContainer);
 app.get('/api/maritime/week-saved-addresses', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getWeekSavedAddresses);
 app.post('/api/maritime/containers/:id/week-address', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignWeekContainerAddress);
+app.patch('/api/maritime/containers/:id/reference', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateContainerReference);
 
 // 👁️ Lista de monitoristas disponibles para asignar a contenedores FCL
 app.get('/api/maritime/monitors', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (_req: AuthRequest, res: Response) => {

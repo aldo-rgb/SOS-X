@@ -145,6 +145,20 @@ export const createContainer = async (req: AuthRequest, res: Response): Promise<
 };
 
 // Actualizar contenedor
+// PATCH /api/maritime/containers/:id/reference — actualizar solo reference_code
+export const updateContainerReference = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { reference_code } = req.body;
+    if (!reference_code?.trim()) return res.status(400).json({ error: 'reference_code requerido' });
+    await pool.query('UPDATE containers SET reference_code = $1 WHERE id = $2', [reference_code.trim().toUpperCase(), id]);
+    res.json({ success: true, reference_code: reference_code.trim().toUpperCase() });
+  } catch (error) {
+    console.error('Error updating reference_code:', error);
+    res.status(500).json({ error: 'Error al actualizar referencia' });
+  }
+};
+
 export const updateContainer = async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const { id } = req.params;

@@ -61,7 +61,8 @@ import {
     LocationOn as LocationIcon,
     PlayArrow as PlayIcon,
     Visibility as VisibilityIcon,
-    // Edit as EditIcon, // No se usa actualmente
+    Edit as EditIcon,
+    Check as CheckIcon,
     Download as DownloadIcon,
     Delete as DeleteIcon,
     Close as CloseIcon,
@@ -299,6 +300,10 @@ export default function CostingPanelMaritimo() {
     // Normalizar rol para comparación (puede venir como "Super Admin" o "super_admin")
     const normalizedRole = userRole.toLowerCase().replace(/\s+/g, '_');
     const canViewUtilidades = ['admin', 'super_admin'].includes(normalizedRole);
+    const canEditReference = ['admin', 'super_admin', 'director'].includes(normalizedRole);
+    const [editingReference, setEditingReference] = useState(false);
+    const [referenceValue, setReferenceValue] = useState('');
+    const [savingReference, setSavingReference] = useState(false);
     const [savingCosts, setSavingCosts] = useState(false);
     const [tabValue, setTabValue] = useState(0);
     const [trackingLogs, setTrackingLogs] = useState<TrackingLog[]>([]);
@@ -1021,6 +1026,23 @@ export default function CostingPanelMaritimo() {
     };
 
     // Guardar costos
+    const handleSaveReference = async () => {
+        if (!selectedContainer) return;
+        setSavingReference(true);
+        try {
+            const token = localStorage.getItem('token');
+            await axios.patch(
+                `${API_URL}/api/maritime/containers/${selectedContainer.id}/reference`,
+                { reference_code: referenceValue.trim() },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            // Actualizar el contenedor en la lista local
+            setContainers(prev => prev.map(c => c.id === selectedContainer.id ? { ...c, reference_code: referenceValue.trim() } : c));
+            setSelectedContainer({ ...selectedContainer, reference_code: referenceValue.trim() });
+            setEditingReference(false);
+        } catch { /* noop */ } finally { setSavingReference(false); }
+    };
+
     const saveCosts = async () => {
         if (!selectedContainer) return;
         setSavingCosts(true);
@@ -1732,9 +1754,35 @@ export default function CostingPanelMaritimo() {
                                                 </Box>
                                                 <Box sx={{ flex: 1 }}>
                                                     <Typography variant="caption" color="text.secondary">REFERENCIA</Typography>
-                                                    <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: '#1565C0' }}>
-                                                        {selectedContainer.reference_code || '-'}
-                                                    </Typography>
+                                                    {editingReference ? (
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.3 }}>
+                                                            <TextField
+                                                                size="small" variant="outlined" autoFocus
+                                                                value={referenceValue}
+                                                                onChange={e => setReferenceValue(e.target.value.toUpperCase())}
+                                                                onKeyDown={e => { if (e.key === 'Enter') handleSaveReference(); if (e.key === 'Escape') setEditingReference(false); }}
+                                                                inputProps={{ style: { fontFamily: 'monospace', fontWeight: 700, fontSize: 13, padding: '4px 8px' } }}
+                                                                sx={{ width: 140 }}
+                                                            />
+                                                            <IconButton size="small" onClick={handleSaveReference} disabled={savingReference} sx={{ color: '#2e7d32' }}>
+                                                                {savingReference ? <CircularProgress size={14} /> : <CheckIcon fontSize="small" />}
+                                                            </IconButton>
+                                                            <IconButton size="small" onClick={() => setEditingReference(false)} sx={{ color: '#999' }}>
+                                                                <CloseIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Box>
+                                                    ) : (
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                            <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: '#1565C0' }}>
+                                                                {selectedContainer.reference_code || '-'}
+                                                            </Typography>
+                                                            {canEditReference && (
+                                                                <IconButton size="small" onClick={() => { setReferenceValue(selectedContainer.reference_code || ''); setEditingReference(true); }} sx={{ color: '#999', p: 0.3 }}>
+                                                                    <EditIcon sx={{ fontSize: 14 }} />
+                                                                </IconButton>
+                                                            )}
+                                                        </Box>
+                                                    )}
                                                 </Box>
                                             </Box>
                                             <Box sx={{ display: 'flex', gap: 3 }}>
