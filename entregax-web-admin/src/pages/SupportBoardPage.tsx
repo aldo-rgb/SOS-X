@@ -46,7 +46,9 @@ import {
   Help as HelpIcon,
   Warning as WarningIcon,
   SwapHoriz as TransferIcon,
+  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
+import PackageDetailDialog from './PackageDetailDialog';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111';
@@ -157,6 +159,7 @@ export default function SupportBoardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [deptFilter, setDeptFilter] = useState<number | 'all'>('all');
   const [creatorFilter, setCreatorFilter] = useState<'all' | 'client' | 'employee'>('all');
+  const [packageDetailTracking, setPackageDetailTracking] = useState<string | null>(null);
 
   const token = localStorage.getItem('token');
   const currentUserRole: string = (() => {
@@ -527,9 +530,15 @@ export default function SupportBoardPage() {
                         <Typography variant="caption" sx={{ opacity: 0.5, display: 'block', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                           Guía reportada
                         </Typography>
-                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13, fontFamily: 'monospace' }}>
-                          {selectedTicket.tracking_number}
-                        </Typography>
+                        <Box
+                          onClick={() => setPackageDetailTracking(selectedTicket.tracking_number!)}
+                          sx={{ display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer', '&:hover': { opacity: 0.75 } }}
+                        >
+                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: 13, fontFamily: 'monospace', textDecoration: 'underline dotted' }}>
+                            {selectedTicket.tracking_number}
+                          </Typography>
+                          <OpenInNewIcon sx={{ fontSize: 13, opacity: 0.8 }} />
+                        </Box>
                       </Box>
                     )}
                     {selectedTicket.assigned_agent_name && (
@@ -739,6 +748,12 @@ export default function SupportBoardPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Detalle de Guía */}
+      <PackageDetailDialog
+        tracking={packageDetailTracking}
+        onClose={() => setPackageDetailTracking(null)}
+      />
     </Box>
   );
 }
