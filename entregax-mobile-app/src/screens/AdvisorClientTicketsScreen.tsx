@@ -338,6 +338,15 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
         }
       />
 
+      {/* FAB — Levantar Ticket */}
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate('AdvisorSupportTicket', { user, token })}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="add" size={28} color="#fff" />
+      </TouchableOpacity>
+
       {/* Ticket Detail Modal */}
       <Modal visible={showDetail} animationType="slide" onRequestClose={() => setShowDetail(false)}>
         <View style={[styles.modalContainer, { paddingTop: insets.top }]}>
@@ -491,7 +500,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 12,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   ticketCard: {
     backgroundColor: '#fff',
@@ -635,6 +644,22 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 8,
     lineHeight: 20,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: ORANGE,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
   },
   // Modal
   modalContainer: {
