@@ -1082,7 +1082,8 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<void>
           'repartidor', 'warehouse_ops', 'counter_staff', 'customer_service',
           'branch_manager', 'monitoreo', 'accountant', 'contador',
           'operaciones', 'operations', 'abogado', 'sales', 'manager',
-          'driver', 'support', 'director'
+          'driver', 'support', 'director',
+          'advisor', 'asesor', 'asesor_lider', 'sub_advisor'
         )
       RETURNING id, full_name
     `, [id]);
