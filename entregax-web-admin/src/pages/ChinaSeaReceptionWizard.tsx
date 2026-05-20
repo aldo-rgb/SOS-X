@@ -2575,34 +2575,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                     )
                 ) : (
                     <Grid container spacing={1.5}>
-                        <Grid size={{ xs: 12, sm: 6 }}>
-                            <TextField fullWidth size="small" label="Alias (opcional)" placeholder="Ej: CEDIS MTY"
-                                value={weekAddrForm.alias} onChange={e => setWeekAddrForm(f => ({ ...f, alias: e.target.value }))} />
-                        </Grid>
-                        <Grid size={{ xs: 12, sm: 6 }}>
-                            <TextField fullWidth size="small" label="Destinatario" placeholder="Nombre del destinatario"
-                                value={weekAddrForm.recipient_name} onChange={e => setWeekAddrForm(f => ({ ...f, recipient_name: e.target.value }))} />
-                        </Grid>
-                        <Grid size={{ xs: 12, sm: 6 }}>
-                            <TextField fullWidth size="small" label="Teléfono" placeholder="10 dígitos"
-                                value={weekAddrForm.phone} onChange={e => setWeekAddrForm(f => ({ ...f, phone: e.target.value }))} />
-                        </Grid>
-                        <Grid size={{ xs: 12, sm: 6 }}>
-                            <TextField fullWidth size="small" label="Calle *"
-                                value={weekAddrForm.street} onChange={e => setWeekAddrForm(f => ({ ...f, street: e.target.value }))} />
-                        </Grid>
-                        <Grid size={{ xs: 6, sm: 3 }}>
-                            <TextField fullWidth size="small" label="No. Exterior"
-                                value={weekAddrForm.exterior_number} onChange={e => setWeekAddrForm(f => ({ ...f, exterior_number: e.target.value }))} />
-                        </Grid>
-                        <Grid size={{ xs: 6, sm: 3 }}>
-                            <TextField fullWidth size="small" label="No. Interior"
-                                value={weekAddrForm.interior_number} onChange={e => setWeekAddrForm(f => ({ ...f, interior_number: e.target.value }))} />
-                        </Grid>
-                        {/* C.P. primero — dispara el lookup automático */}
-                        <Grid size={{ xs: 4, sm: 4 }}>
+                        {/* 1. C.P. → dispara autocompletar Ciudad/Estado/Colonia */}
+                        <Grid size={{ xs: 4, sm: 3 }}>
                             <TextField
-                                fullWidth size="small" label="C.P."
+                                fullWidth size="small" label="C.P. *"
                                 value={weekAddrForm.zip_code}
                                 inputProps={{ maxLength: 5 }}
                                 InputProps={{ endAdornment: zipLookupLoading ? <CircularProgress size={14} /> : null }}
@@ -2614,14 +2590,17 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 }}
                             />
                         </Grid>
-                        <Grid size={{ xs: 8, sm: 4 }}>
+                        {/* 2. Ciudad */}
+                        <Grid size={{ xs: 8, sm: 5 }}>
                             <TextField fullWidth size="small" label="Ciudad *"
                                 value={weekAddrForm.city} onChange={e => setWeekAddrForm(f => ({ ...f, city: e.target.value }))} />
                         </Grid>
+                        {/* 3. Estado */}
                         <Grid size={{ xs: 12, sm: 4 }}>
                             <TextField fullWidth size="small" label="Estado *"
                                 value={weekAddrForm.state} onChange={e => setWeekAddrForm(f => ({ ...f, state: e.target.value }))} />
                         </Grid>
+                        {/* 4. Colonia — select si hay opciones del CP */}
                         <Grid size={{ xs: 12, sm: 6 }}>
                             {coloniaOptions.length > 1 ? (
                                 <FormControl fullWidth size="small">
@@ -2639,7 +2618,33 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                     value={weekAddrForm.neighborhood} onChange={e => setWeekAddrForm(f => ({ ...f, neighborhood: e.target.value }))} />
                             )}
                         </Grid>
-                        <Grid size={{ xs: 12 }}>
+                        {/* 5. Calle + números */}
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField fullWidth size="small" label="Calle *"
+                                value={weekAddrForm.street} onChange={e => setWeekAddrForm(f => ({ ...f, street: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 3 }}>
+                            <TextField fullWidth size="small" label="No. Exterior"
+                                value={weekAddrForm.exterior_number} onChange={e => setWeekAddrForm(f => ({ ...f, exterior_number: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 6, sm: 3 }}>
+                            <TextField fullWidth size="small" label="No. Interior"
+                                value={weekAddrForm.interior_number} onChange={e => setWeekAddrForm(f => ({ ...f, interior_number: e.target.value }))} />
+                        </Grid>
+                        {/* 6. Datos de contacto */}
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField fullWidth size="small" label="Destinatario"
+                                value={weekAddrForm.recipient_name} onChange={e => setWeekAddrForm(f => ({ ...f, recipient_name: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField fullWidth size="small" label="Teléfono"
+                                value={weekAddrForm.phone} onChange={e => setWeekAddrForm(f => ({ ...f, phone: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
+                            <TextField fullWidth size="small" label="Alias (opcional)" placeholder="Ej: CEDIS MTY"
+                                value={weekAddrForm.alias} onChange={e => setWeekAddrForm(f => ({ ...f, alias: e.target.value }))} />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 6 }}>
                             <TextField fullWidth size="small" label="Referencia"
                                 value={weekAddrForm.reference} onChange={e => setWeekAddrForm(f => ({ ...f, reference: e.target.value }))} />
                         </Grid>
