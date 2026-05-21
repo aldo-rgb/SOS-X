@@ -183,6 +183,8 @@ export default function AdvanceControlPanel() {
     // UI
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
     const [saving, setSaving] = useState(false);
+    const [referenciasOmitidas, setReferenciasOmitidas] = useState(false);
+    const [omitirConfirmDialog, setOmitirConfirmDialog] = useState(false);
 
     // Preview de comprobante (imágenes) + URL para abrir en nueva ventana (imágenes y PDF)
     const [comprobanteOpenUrl, setComprobanteOpenUrl] = useState<string | null>(null);
@@ -319,8 +321,17 @@ export default function AdvanceControlPanel() {
         return refs;
     };
 
+    // Referencias que se enviarán (excluyendo inválidas si el usuario optó por omitirlas)
+    const getReferenciasParaEnviar = () => {
+        if (referenciasOmitidas) {
+            return parsedReferencias.filter(ref => referenciasValidacion[ref.referencia]?.valida);
+        }
+        return parsedReferencias;
+    };
+
     // Manejar cambio en texto de referencias
     const handleReferenciasChange = (text: string) => {
+        setReferenciasOmitidas(false); // resetear omisión si el usuario edita
         setNewBolsa({ ...newBolsa, referenciasText: text });
         const parsed = parseReferencias(text);
         setParsedReferencias(parsed);
@@ -355,9 +366,9 @@ export default function AdvanceControlPanel() {
         return parsedReferencias.some(ref => referenciasValidacion[ref.referencia]?.duplicada);
     };
 
-    // Calcular total de referencias
+    // Calcular total de referencias (solo las que se van a registrar)
     const getTotalReferencias = () => {
-        return parsedReferencias.reduce((sum, ref) => sum + ref.monto, 0);
+        return getReferenciasParaEnviar().reduce((sum, ref) => sum + ref.monto, 0);
     };
 
     // Crear bolsa de anticipo con referencias
@@ -379,10 +390,15 @@ export default function AdvanceControlPanel() {
             setSnackbar({ open: true, message: '⚠️ No se pueden duplicar referencias en un mismo depósito', severity: 'error' });
             return;
         }
-        // Validar que todas las referencias existan en el sistema
-        if (tieneReferenciasInvalidas()) {
+        // Validar referencias inválidas (bloqueante solo si no se eligió omitir)
+        if (tieneReferenciasInvalidas() && !referenciasOmitidas) {
             const invalidas = parsedReferencias.filter(ref => !referenciasValidacion[ref.referencia]?.valida).map(ref => ref.referencia);
             setSnackbar({ open: true, message: `⚠️ Las siguientes referencias no existen en el sistema: ${invalidas.join(', ')}`, severity: 'error' });
+            return;
+        }
+        const refsParaEnviar = getReferenciasParaEnviar();
+        if (refsParaEnviar.length === 0) {
+            setSnackbar({ open: true, message: '⚠️ No quedan referencias válidas para registrar', severity: 'error' });
             return;
         }
         if (newBolsa.tipo_pago === 'transferencia' && (!newBolsa.numero_operacion || !newBolsa.banco_origen)) {
@@ -404,7 +420,7 @@ export default function AdvanceControlPanel() {
             formData.append('numero_operacion', newBolsa.tipo_pago === 'transferencia' ? newBolsa.numero_operacion : '');
             formData.append('banco_origen', newBolsa.tipo_pago === 'transferencia' ? newBolsa.banco_origen : '');
             formData.append('notas', newBolsa.notas);
-            formData.append('referencias', JSON.stringify(parsedReferencias));
+            formData.append('referencias', JSON.stringify(refsParaEnviar));
             formData.append('comprobante', comprobanteFile);
 
             // Importante: NO setear Content-Type manualmente. Cuando se
@@ -428,6 +444,7 @@ export default function AdvanceControlPanel() {
                 referenciasText: ''
             });
             setParsedReferencias([]);
+            setReferenciasOmitidas(false);
             setComprobanteFile(null);
             fetchBolsas();
             fetchProveedores();
@@ -1112,12 +1129,32 @@ export default function AdvanceControlPanel() {
                                                 sx={{ ml: 1 }} 
                                             />
                                         )}
-                                        {tieneReferenciasInvalidas() && (
-                                            <Chip 
-                                                label="⚠️ Algunas referencias no existen" 
-                                                size="small" 
-                                                color="error" 
-                                                sx={{ ml: 1 }} 
+                                        {tieneReferenciasInvalidas() && !referenciasOmitidas && (
+                                            <>
+                                                <Chip
+                                                    label="⚠️ Algunas referencias no existen"
+                                                    size="small"
+                                                    color="error"
+                                                    sx={{ ml: 1 }}
+                                                />
+                                                <Button
+                                                    size="small"
+                                                    variant="outlined"
+                                                    color="warning"
+                                                    onClick={() => setOmitirConfirmDialog(true)}
+                                                    sx={{ ml: 1, textTransform: 'none', fontSize: '0.7rem', py: 0.25, px: 1 }}
+                                                >
+                                                    Omitir no encontradas
+                                                </Button>
+                                            </>
+                                        )}
+                                        {referenciasOmitidas && (
+                                            <Chip
+                                                label="✓ Referencias inválidas omitidas"
+                                                size="small"
+                                                color="success"
+                                                onDelete={() => setReferenciasOmitidas(false)}
+                                                sx={{ ml: 1 }}
                                             />
                                         )}
                                     </Typography>
@@ -1205,37 +1242,46 @@ export default function AdvanceControlPanel() {
                     </Grid>
                 </DialogContent>
                 <DialogActions sx={{ p: 2, justifyContent: 'space-between' }}>
-                    <Typography variant="body2" color={(tieneReferenciasInvalidas() || tieneReferenciasDuplicadas() || !comprobanteFile) ? 'error' : 'text.secondary'}>
-                        {!newBolsa.proveedor_id 
+                    {(() => {
+                        const invalidas = parsedReferencias.filter(ref => !referenciasValidacion[ref.referencia]?.valida);
+                        const bloqueante = tieneReferenciasDuplicadas() || (tieneReferenciasInvalidas() && !referenciasOmitidas) || !comprobanteFile;
+                        const msg = !newBolsa.proveedor_id
                             ? '⚠️ Selecciona un proveedor'
                             : !comprobanteFile
                                 ? '📎 Sube el comprobante de pago'
                                 : parsedReferencias.length === 0
                                     ? '📝 Ingresa al menos una referencia'
                                     : tieneReferenciasDuplicadas()
-                                        ? `🔁 No se pueden duplicar referencias en un mismo depósito`
-                                        : tieneReferenciasInvalidas()
-                                            ? `⚠️ ${parsedReferencias.filter(ref => !referenciasValidacion[ref.referencia]?.valida).length} referencia(s) no válida(s)`
+                                        ? '🔁 No se pueden duplicar referencias en un mismo depósito'
+                                        : tieneReferenciasInvalidas() && !referenciasOmitidas
+                                            ? `⚠️ ${invalidas.length} referencia(s) no válida(s) — usa "Omitir" para continuar`
                                             : newBolsa.tipo_pago === 'transferencia' && (!newBolsa.numero_operacion || !newBolsa.banco_origen)
                                                 ? '🏦 Completa los datos bancarios'
-                                                : `💰 Total: $${formatCurrency(getTotalReferencias())} MXN`
-                        }
-                    </Typography>
+                                                : referenciasOmitidas
+                                                    ? `💰 Total válido: $${formatCurrency(getTotalReferencias())} MXN (${invalidas.length} ref. omitida(s))`
+                                                    : `💰 Total: $${formatCurrency(getTotalReferencias())} MXN`;
+                        return (
+                            <Typography variant="body2" color={bloqueante ? 'error' : 'text.secondary'}>
+                                {msg}
+                            </Typography>
+                        );
+                    })()}
                     <Box sx={{ display: 'flex', gap: 1 }}>
                         <Button onClick={() => setBolsaDialog(false)}>Cancelar</Button>
-                        <Button 
-                            variant="contained" 
+                        <Button
+                            variant="contained"
                             onClick={handleCreateBolsa}
                             disabled={
-                                saving || 
-                                !newBolsa.proveedor_id || 
-                                !comprobanteFile || 
-                                parsedReferencias.length === 0 || 
-                                tieneReferenciasInvalidas() || 
+                                saving ||
+                                !newBolsa.proveedor_id ||
+                                !comprobanteFile ||
+                                parsedReferencias.length === 0 ||
+                                (tieneReferenciasInvalidas() && !referenciasOmitidas) ||
                                 tieneReferenciasDuplicadas() ||
+                                getReferenciasParaEnviar().length === 0 ||
                                 (newBolsa.tipo_pago === 'transferencia' && (!newBolsa.numero_operacion || !newBolsa.banco_origen))
                             }
-                            sx={{ bgcolor: (tieneReferenciasInvalidas() || tieneReferenciasDuplicadas() || !comprobanteFile) ? '#9E9E9E' : THEME_COLOR }}
+                            sx={{ bgcolor: (tieneReferenciasDuplicadas() || (tieneReferenciasInvalidas() && !referenciasOmitidas) || !comprobanteFile) ? '#9E9E9E' : THEME_COLOR }}
                         >
                             {saving ? <CircularProgress size={20} /> : `Registrar Depósito ($${formatCurrency(getTotalReferencias())})`}
                         </Button>
@@ -1283,6 +1329,38 @@ export default function AdvanceControlPanel() {
                         startIcon={deleting ? <CircularProgress size={20} /> : <DeleteIcon />}
                     >
                         {deleting ? 'Eliminando...' : 'Eliminar'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Dialog: Confirmar omisión de referencias no encontradas */}
+            <Dialog open={omitirConfirmDialog} onClose={() => setOmitirConfirmDialog(false)} maxWidth="xs" fullWidth>
+                <DialogTitle sx={{ color: 'warning.dark' }}>
+                    ⚠️ Omitir referencias no encontradas
+                </DialogTitle>
+                <DialogContent>
+                    <Typography gutterBottom>
+                        Las siguientes referencias <strong>no existen en el sistema</strong> y serán omitidas al registrar el depósito:
+                    </Typography>
+                    <Box sx={{ mt: 1, mb: 2, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                        {parsedReferencias
+                            .filter(ref => !referenciasValidacion[ref.referencia]?.valida)
+                            .map(ref => (
+                                <Chip key={ref.referencia} label={`${ref.referencia} ($${formatCurrency(ref.monto)})`} color="error" size="small" />
+                            ))}
+                    </Box>
+                    <Alert severity="warning">
+                        Solo se registrarán las referencias válidas encontradas en el sistema. ¿Deseas continuar?
+                    </Alert>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setOmitirConfirmDialog(false)}>Cancelar</Button>
+                    <Button
+                        variant="contained"
+                        color="warning"
+                        onClick={() => { setReferenciasOmitidas(true); setOmitirConfirmDialog(false); }}
+                    >
+                        Sí, omitir y continuar
                     </Button>
                 </DialogActions>
             </Dialog>
