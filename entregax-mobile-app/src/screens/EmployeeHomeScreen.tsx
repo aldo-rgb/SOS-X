@@ -345,9 +345,9 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#3F51B5',
     screen: 'SupportTickets',
-    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin'],
+    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin', 'operaciones'],
     requiresOnboarding: false,
-    panelKey: 'ops_mx_cedis',
+    panelKey: 'cs_support',
   },
   {
     id: 'client_lookup',
@@ -357,10 +357,10 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     iconFamily: 'ionicons',
     color: '#795548',
     screen: 'ClientLookup',
-    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin'],
+    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin', 'operaciones'],
     requiresOnboarding: false,
     hideIfPOBox: true, // El personal de mostrador usa los módulos PO Box
-    panelKey: 'ops_mx_cedis',
+    panelKey: 'cs_support',
   },
   
   // === GERENTE DE SUCURSAL ===

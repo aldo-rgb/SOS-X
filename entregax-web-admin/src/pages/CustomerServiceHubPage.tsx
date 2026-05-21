@@ -385,7 +385,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       }}>
         {filteredTools.map((tool) => {
           const badgeCount = tool.key === 'leads' ? hubStats.pendingLeads
-            : tool.key === 'support' ? hubStats.escalatedTickets
+            : tool.key === 'support' ? hubStats.openTickets
             : tool.key === 'clients' ? hubStats.atRiskClients
             : tool.key === 'delayed' ? hubStats.delayedPackages
             : tool.key === 'assign_client' ? hubStats.unassignedPackages

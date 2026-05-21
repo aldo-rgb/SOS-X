@@ -184,14 +184,21 @@ export default function AdvanceControlPanel() {
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' | 'info' | 'warning' });
     const [saving, setSaving] = useState(false);
 
-    // Preview de comprobante (solo imágenes)
+    // Preview de comprobante (imágenes) + URL para abrir en nueva ventana (imágenes y PDF)
+    const [comprobanteOpenUrl, setComprobanteOpenUrl] = useState<string | null>(null);
     useEffect(() => {
-        if (!comprobanteFile || !comprobanteFile.type.startsWith('image/')) {
+        if (!comprobanteFile) {
             setComprobantePreviewUrl(null);
+            setComprobanteOpenUrl(null);
             return;
         }
         const objectUrl = URL.createObjectURL(comprobanteFile);
-        setComprobantePreviewUrl(objectUrl);
+        setComprobanteOpenUrl(objectUrl);
+        if (comprobanteFile.type.startsWith('image/')) {
+            setComprobantePreviewUrl(objectUrl);
+        } else {
+            setComprobantePreviewUrl(null);
+        }
         return () => URL.revokeObjectURL(objectUrl);
     }, [comprobanteFile]);
 
@@ -1033,6 +1040,15 @@ export default function AdvanceControlPanel() {
                                     }}
                                 />
                             </Button>
+                            {comprobanteOpenUrl && (
+                                <Typography
+                                    variant="caption"
+                                    onClick={() => window.open(comprobanteOpenUrl, '_blank')}
+                                    sx={{ display: 'block', mt: 0.5, color: 'primary.main', cursor: 'pointer', textDecoration: 'underline', pl: 0.5 }}
+                                >
+                                    🔗 Ver archivo en nueva ventana
+                                </Typography>
+                            )}
                             {comprobantePreviewUrl && (
                                 <Box sx={{ mt: 1.5 }}>
                                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75 }}>
@@ -1042,6 +1058,7 @@ export default function AdvanceControlPanel() {
                                         component="img"
                                         src={comprobantePreviewUrl}
                                         alt="Preview comprobante"
+                                        onClick={() => window.open(comprobantePreviewUrl, '_blank')}
                                         sx={{
                                             width: '100%',
                                             maxHeight: 220,
@@ -1049,6 +1066,8 @@ export default function AdvanceControlPanel() {
                                             border: '1px solid #E0E0E0',
                                             borderRadius: 1,
                                             bgcolor: '#FAFAFA',
+                                            cursor: 'pointer',
+                                            '&:hover': { opacity: 0.85 },
                                         }}
                                     />
                                 </Box>
