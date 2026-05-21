@@ -505,6 +505,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: '#F5F5F5',
+    flexShrink: 0,
   },
   tabActive: {
     backgroundColor: ORANGE,

@@ -12,12 +12,20 @@ const ORANGE = '#F05A28';
 const BLACK = '#111';
 
 const CATEGORIES = [
-  { key: 'systemError', label: 'Error del Sistema',    icon: 'bug',                 color: '#f44336' },
-  { key: 'billing',     label: 'Comisiones / Pagos',   icon: 'cash',                color: '#4CAF50' },
-  { key: 'tracking',    label: 'Rastreo de Paquete',   icon: 'search',              color: '#2196F3' },
-  { key: 'clientIssue', label: 'Problema con Cliente', icon: 'people',              color: '#FF9800' },
-  { key: 'other',       label: 'Otro',                 icon: 'ellipsis-horizontal', color: '#9E9E9E' },
+  { key: 'systemError',       label: 'Error del Sistema',    icon: 'bug',                 color: '#f44336' },
+  { key: 'billing',           label: 'Comisiones / Pagos',   icon: 'cash',                color: '#4CAF50' },
+  { key: 'tracking',          label: 'Rastreo de Paquete',   icon: 'search',              color: '#2196F3' },
+  { key: 'clientIssue',       label: 'Problema con Cliente', icon: 'people',              color: '#FF9800' },
+  { key: 'packageAdjustment', label: 'Ajuste a un Paquete',  icon: 'cube',                color: '#9C27B0' },
+  { key: 'other',             label: 'Otro',                 icon: 'ellipsis-horizontal', color: '#9E9E9E' },
 ];
+
+const CEDIS_OPTIONS = ['MTY', 'CDMX', 'USA', 'Otro'];
+
+// Categories that require client number + cedis
+const NEEDS_CLIENT_FIELDS = ['billing', 'tracking', 'clientIssue', 'packageAdjustment'];
+// Categories that require tracking number
+const NEEDS_GUIA = ['tracking'];
 
 export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
   const { user, token } = route.params;
@@ -30,9 +38,16 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
   const [sent, setSent] = useState(false);
   const [folio, setFolio] = useState('');
 
+  const [ticketClientNumber, setTicketClientNumber] = useState('');
+  const [ticketCedis, setTicketCedis] = useState('');
+  const [ticketGuia, setTicketGuia] = useState('');
+
   const now = new Date();
   const dateLabel = now.toLocaleDateString('es-MX', { day: '2-digit', month: 'long', year: 'numeric' });
   const timeLabel = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+
+  const showClientFields = category ? NEEDS_CLIENT_FIELDS.includes(category) : false;
+  const showGuia = category ? NEEDS_GUIA.includes(category) : false;
 
   const pickScreenshot = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -66,10 +81,32 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
 
     setLoading(true);
     try {
+      const extraLines: string[] = [];
+      if (showClientFields && ticketClientNumber.trim()) {
+        extraLines.push(`Número de cliente: ${ticketClientNumber.trim()}`);
+      }
+      if (showClientFields && ticketCedis) {
+        extraLines.push(`Cedis: ${ticketCedis}`);
+      }
+      if (showGuia && ticketGuia.trim()) {
+        extraLines.push(`Número de guía: ${ticketGuia.trim()}`);
+      }
+
+      const body = [
+        `[${dateLabel} ${timeLabel}]`,
+        ...(extraLines.length ? ['', ...extraLines] : []),
+        '',
+        description.trim(),
+      ].join('\n');
+
       const form = new FormData();
-      form.append('message', `[${dateLabel} ${timeLabel}]\n\n${description.trim()}`);
+      form.append('message', body);
       form.append('category', category);
       form.append('escalateDirectly', 'true');
+
+      if (ticketClientNumber.trim()) form.append('clientNumber', ticketClientNumber.trim());
+      if (ticketCedis) form.append('cedis', ticketCedis);
+      if (ticketGuia.trim()) form.append('trackingNumber', ticketGuia.trim());
 
       if (screenshot) {
         const uri = screenshot.uri;
@@ -154,6 +191,51 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
           ))}
         </View>
 
+        {/* Número de cliente + Cedis (solo para categorías relevantes) */}
+        {showClientFields && (
+          <>
+            <Text style={styles.label}>Número de cliente</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Ej. 10234"
+              placeholderTextColor="#aaa"
+              value={ticketClientNumber}
+              onChangeText={setTicketClientNumber}
+              keyboardType="default"
+            />
+
+            <Text style={styles.label}>Cedis</Text>
+            <View style={styles.cedisRow}>
+              {CEDIS_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt}
+                  style={[styles.cedisChip, ticketCedis === opt && styles.cedisChipActive]}
+                  onPress={() => setTicketCedis(opt)}
+                >
+                  <Text style={[styles.cedisChipText, ticketCedis === opt && styles.cedisChipTextActive]}>
+                    {opt}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </>
+        )}
+
+        {/* Número de guía (solo para tracking) */}
+        {showGuia && (
+          <>
+            <Text style={styles.label}>Número de guía</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Ej. 1Z999AA10123456784"
+              placeholderTextColor="#aaa"
+              value={ticketGuia}
+              onChangeText={setTicketGuia}
+              autoCapitalize="characters"
+            />
+          </>
+        )}
+
         {/* Descripción */}
         <Text style={styles.label}>Descripción del problema *</Text>
         <TextInput
@@ -237,6 +319,20 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   catLabel: { fontSize: 13, fontWeight: '500', color: '#333' },
+  textInput: {
+    backgroundColor: '#fff', borderRadius: 12, padding: 14,
+    fontSize: 14, color: '#111',
+    borderWidth: 1, borderColor: '#e0e0e0', marginBottom: 16,
+  },
+  cedisRow: { flexDirection: 'row', gap: 10, marginBottom: 16 },
+  cedisChip: {
+    flex: 1, alignItems: 'center', paddingVertical: 10,
+    borderRadius: 12, borderWidth: 1.5, borderColor: '#ddd',
+    backgroundColor: '#fff',
+  },
+  cedisChipActive: { backgroundColor: ORANGE, borderColor: ORANGE },
+  cedisChipText: { fontSize: 13, fontWeight: '600', color: '#555' },
+  cedisChipTextActive: { color: '#fff' },
   textArea: {
     backgroundColor: '#fff', borderRadius: 12, padding: 14,
     fontSize: 14, color: '#111', minHeight: 120,
