@@ -134,8 +134,10 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     { value: 'other', label: t('helpCenter.categories.other') },
   ];
 
-  // El número de guía es obligatorio para todas las categorías
-  const isTrackingRequired = ticketCategory !== '';
+  // Categorías que no necesitan número de guía
+  const NO_TRACKING_CATEGORIES = ['accounting', 'systemError', 'other'];
+  const isTrackingHidden = NO_TRACKING_CATEGORIES.includes(ticketCategory);
+  const isTrackingRequired = ticketCategory !== '' && !isTrackingHidden;
 
   // Opción 1: Hablar ahora (Asesor Virtual / AI)
   const handleTalkNow = () => {
@@ -520,43 +522,47 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
                 ))}
               </View>
 
-              {/* Número de guía */}
-              <Text style={styles.modalLabel}>
+              {/* Número de guía — oculto para categorías que no lo requieren */}
+              {!isTrackingHidden && <Text style={styles.modalLabel}>
                 {t('helpCenter.trackingLabel')} {isTrackingRequired ? '*' : `(${t('common.optional')})`}
-              </Text>
-              <RNTextInput
-                style={[
-                  styles.textInput,
-                  trackingValidation.status === 'invalid' && { borderColor: '#D32F2F', borderWidth: 1.5 },
-                  trackingValidation.status === 'valid' && { borderColor: '#4CAF50', borderWidth: 1.5 },
-                ]}
-                placeholder={t('helpCenter.trackingPlaceholder')}
-                placeholderTextColor="#999"
-                value={ticketTracking}
-                onChangeText={(text) => {
-                  setTicketTracking(text);
-                  if (trackingValidation.status !== 'idle') {
-                    setTrackingValidation({ status: 'idle', message: '' });
-                  }
-                }}
-                onBlur={() => {
-                  if (ticketTracking.trim()) {
-                    validateTrackingNumber(ticketTracking);
-                  }
-                }}
-                autoCapitalize="characters"
-              />
-              {trackingValidation.status !== 'idle' && (
-                <Text style={{
-                  fontSize: 12,
-                  marginTop: -4,
-                  marginBottom: 8,
-                  color: trackingValidation.status === 'valid' ? '#4CAF50' : 
-                         trackingValidation.status === 'invalid' ? '#D32F2F' : '#666',
-                  fontWeight: '600',
-                }}>
-                  {trackingValidation.status === 'validating' ? '⏳ Verificando guía...' : trackingValidation.message}
-                </Text>
+              </Text>}
+              {!isTrackingHidden && (
+                <>
+                  <RNTextInput
+                    style={[
+                      styles.textInput,
+                      trackingValidation.status === 'invalid' && { borderColor: '#D32F2F', borderWidth: 1.5 },
+                      trackingValidation.status === 'valid' && { borderColor: '#4CAF50', borderWidth: 1.5 },
+                    ]}
+                    placeholder={t('helpCenter.trackingPlaceholder')}
+                    placeholderTextColor="#999"
+                    value={ticketTracking}
+                    onChangeText={(text) => {
+                      setTicketTracking(text);
+                      if (trackingValidation.status !== 'idle') {
+                        setTrackingValidation({ status: 'idle', message: '' });
+                      }
+                    }}
+                    onBlur={() => {
+                      if (ticketTracking.trim()) {
+                        validateTrackingNumber(ticketTracking);
+                      }
+                    }}
+                    autoCapitalize="characters"
+                  />
+                  {trackingValidation.status !== 'idle' && (
+                    <Text style={{
+                      fontSize: 12,
+                      marginTop: -4,
+                      marginBottom: 8,
+                      color: trackingValidation.status === 'valid' ? '#4CAF50' :
+                             trackingValidation.status === 'invalid' ? '#D32F2F' : '#666',
+                      fontWeight: '600',
+                    }}>
+                      {trackingValidation.status === 'validating' ? '⏳ Verificando guía...' : trackingValidation.message}
+                    </Text>
+                  )}
+                </>
               )}
 
               {/* Descripción */}
