@@ -730,8 +730,19 @@ export default function CostingPanelMaritimo() {
     };
 
     // Funciones para el modal de gestión de archivos PDF
-    const openFileModal = (url: string, fieldKey: keyof ContainerCosts, label: string) => {
+    const openFileModal = async (url: string, fieldKey: keyof ContainerCosts, label: string) => {
         setFileModal({ open: true, url, fieldKey, fieldLabel: label });
+        // Si es una URL de S3 privada, firmarla para que el iframe pueda cargarla
+        if (url && (url.includes('amazonaws.com') || url.includes('s3.'))) {
+            try {
+                const token = localStorage.getItem('token') || '';
+                const res = await fetch(`${API_URL}/api/s3/sign?url=${encodeURIComponent(url)}`, {
+                    headers: { Authorization: `Bearer ${token}` },
+                });
+                const data = await res.json();
+                if (data.signed_url) setFileModal({ open: true, url: data.signed_url, fieldKey, fieldLabel: label });
+            } catch { /* mantener URL original */ }
+        }
     };
 
     const closeFileModal = () => {

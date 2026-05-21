@@ -1647,6 +1647,19 @@ app.post('/api/admin/migrate-base64-to-s3', authenticateToken, requireRole('supe
 });
 
 // Verificar estado de S3
+// GET /api/s3/sign?url=<s3url> — firma una URL privada de S3 (cualquier rol autenticado)
+app.get('/api/s3/sign', authenticateToken, async (req: Request, res: Response) => {
+  const url = String(req.query.url || '').trim();
+  if (!url) return res.status(400).json({ error: 'url requerida' });
+  try {
+    const { signS3UrlIfNeeded } = await import('./s3Service');
+    const signed = await signS3UrlIfNeeded(url, 3600);
+    return res.json({ signed_url: signed || url });
+  } catch (e: any) {
+    return res.json({ signed_url: url }); // fallback: devolver la URL original
+  }
+});
+
 app.get('/api/admin/s3-status', authenticateToken, requireRole('super_admin'), async (_req: Request, res: Response) => {
   const { isS3Configured } = await import('./s3Service');
   
