@@ -94,6 +94,17 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [serviceFilter, setServiceFilter] = useState<string>('all');
   const [instrEnabled, setInstrEnabled] = useState(true);
 
+  // Filter modal
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [tempServiceFilter, setTempServiceFilter] = useState<string>('all');
+  const [tempPaymentFilter, setTempPaymentFilter] = useState<'all' | 'paid' | 'pending'>('all');
+  const [tempInstructionsFilter, setTempInstructionsFilter] = useState<'all' | 'yes' | 'no'>('all');
+
+  // Selection mode
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedUids, setSelectedUids] = useState<string[]>([]);
+  const [selectionServiceType, setSelectionServiceType] = useState<string | null>(null);
+
   // Instruction assignment modal
   const [instrModal, setInstrModal] = useState(false);
   const [instrShipment, setInstrShipment] = useState<Shipment | null>(null);
@@ -104,6 +115,8 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [instrCarriers, setInstrCarriers] = useState<any[]>([]);
   const [instrCarrierKey, setInstrCarrierKey] = useState<string>('');
   const [instrCarriersLoading, setInstrCarriersLoading] = useState(false);
+
+  const activeFilterCount = [serviceFilter, paymentFilter, instructionsFilter].filter(v => v !== 'all').length;
 
   const buildUrl = useCallback(() => {
     let url = `${API_URL}/api/advisor/shipments?page=1&limit=50`;
@@ -156,6 +169,57 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       .then(d => setInstrEnabled(d.advisor_instructions_enabled !== false))
       .catch(() => {});
   }, []);
+
+  const openFilterModal = () => {
+    setTempServiceFilter(serviceFilter);
+    setTempPaymentFilter(paymentFilter);
+    setTempInstructionsFilter(instructionsFilter);
+    setFilterModalVisible(true);
+  };
+
+  const applyFilters = () => {
+    setServiceFilter(tempServiceFilter);
+    setPaymentFilter(tempPaymentFilter);
+    setInstructionsFilter(tempInstructionsFilter);
+    setFilterModalVisible(false);
+  };
+
+  const clearFilters = () => {
+    setTempServiceFilter('all');
+    setTempPaymentFilter('all');
+    setTempInstructionsFilter('all');
+  };
+
+  const handleLongPress = (item: Shipment) => {
+    if (selectionMode) return;
+    setSelectionMode(true);
+    setSelectedUids([item.uid]);
+    setSelectionServiceType(item.service_type);
+  };
+
+  const handleCardPress = (item: Shipment) => {
+    if (!selectionMode) return;
+    if (selectedUids.includes(item.uid)) {
+      const next = selectedUids.filter(u => u !== item.uid);
+      setSelectedUids(next);
+      if (next.length === 0) {
+        setSelectionMode(false);
+        setSelectionServiceType(null);
+      }
+    } else {
+      if (item.service_type !== selectionServiceType) {
+        Alert.alert('Tipos distintos', 'No puedes combinar diferentes tipos de servicio en la misma selección');
+        return;
+      }
+      setSelectedUids([...selectedUids, item.uid]);
+    }
+  };
+
+  const cancelSelection = () => {
+    setSelectionMode(false);
+    setSelectedUids([]);
+    setSelectionServiceType(null);
+  };
 
   const openInstrModal = async (item: Shipment) => {
     setInstrShipment(item);
@@ -216,6 +280,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       if (!res.ok) throw new Error();
       setInstrModal(false);
       Alert.alert('Listo', 'Instrucciones asignadas correctamente');
+      cancelSelection();
       load();
     } catch {
       Alert.alert('Error', 'No se pudo asignar la dirección');
@@ -229,9 +294,23 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       item.status === 'in_transit' ? '#2196F3' :
       item.status === 'delivered' ? '#4CAF50' :
       item.status === 'customs' ? '#FF9800' : '#9E9E9E';
+    const isSelected = selectedUids.includes(item.uid);
 
     return (
-      <View style={styles.card}>
+      <TouchableOpacity
+        activeOpacity={0.75}
+        onPress={() => handleCardPress(item)}
+        onLongPress={() => handleLongPress(item)}
+        style={[styles.card, isSelected && styles.cardSelected]}
+      >
+        {selectionMode && (
+          <View style={styles.selectionCircle}>
+            {isSelected
+              ? <Ionicons name="checkmark-circle" size={22} color={ORANGE} />
+              : <Ionicons name="ellipse-outline" size={22} color="#ccc" />
+            }
+          </View>
+        )}
         <View style={styles.cardHeader}>
           <Text style={styles.tracking} numberOfLines={1}>{item.tracking_number || item.uid}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -240,7 +319,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                 {STATUS_LABELS[item.status] || item.status}
               </Text>
             </View>
-            {instrEnabled && (
+            {instrEnabled && !selectionMode && (
               <TouchableOpacity
                 style={[styles.pencilBtn, { backgroundColor: item.has_instructions ? '#E8F5E9' : '#FFF3E0' }]}
                 onPress={() => openInstrModal(item)}
@@ -264,12 +343,13 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
             )}
           </View>
         </View>
-      </View>
+      </TouchableOpacity>
     );
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
+      {/* ─── Header ─── */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8 }}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
@@ -279,59 +359,34 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         <View style={styles.countBadge}>
           <Text style={styles.countText}>{shipments.length}</Text>
         </View>
+        <TouchableOpacity onPress={openFilterModal} style={styles.filterBtn}>
+          <Ionicons name="options-outline" size={20} color="#fff" />
+          {activeFilterCount > 0 && (
+            <View style={styles.filterBadge}>
+              <Text style={styles.filterBadgeText}>{activeFilterCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
-      {/* Service filter — single select */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: '#fff' }} contentContainerStyle={{ paddingHorizontal: 12, paddingVertical: 8, gap: 8, flexDirection: 'row' }}>
-        {([
-          { key: 'all',        label: 'Todos' },
-          { key: 'AIR_CHN_MX',  label: '✈️ Aéreo China' },
-          { key: 'SEA_CHN_MX',  label: '🚢 Marítimo' },
-          { key: 'AA_DHL',      label: '📦 DHL MTY' },
-          { key: 'POBOX_USA',   label: '📮 PO Box USA' },
-        ] as const).map(s => {
-          const active = serviceFilter === s.key;
-          return (
-            <TouchableOpacity key={s.key} style={[styles.chip, active && styles.chipActive]} onPress={() => setServiceFilter(s.key)}>
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{s.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      {/* Payment filter chips */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filtersRow} contentContainerStyle={styles.filtersRowContent}>
-        {(['all', 'paid', 'pending'] as const).map(val => {
-          const label = val === 'all' ? 'Todos' : val === 'paid' ? '✅ Pagado' : '🔴 Pendiente';
-          const active = paymentFilter === val;
-          return (
-            <TouchableOpacity
-              key={val}
-              style={[styles.chip, active && styles.chipActive]}
-              onPress={() => setPaymentFilter(val)}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
-
-      {/* Instructions filter chips */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.filtersRow, { borderTopWidth: 1, borderTopColor: '#f0f0f0' }]} contentContainerStyle={styles.filtersRowContent}>
-        {(['all', 'yes', 'no'] as const).map(val => {
-          const label = val === 'all' ? 'Todos' : val === 'yes' ? '✅ Con instrucciones' : '⚠️ Sin instrucciones';
-          const active = instructionsFilter === val;
-          return (
-            <TouchableOpacity
-              key={val}
-              style={[styles.chip, active && styles.chipActive]}
-              onPress={() => setInstructionsFilter(val)}
-            >
-              <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+      {/* Active filters summary */}
+      {activeFilterCount > 0 && (
+        <View style={styles.activeFilterBar}>
+          <Ionicons name="funnel" size={12} color={ORANGE} />
+          <Text style={styles.activeFilterText} numberOfLines={1}>
+            {[
+              serviceFilter !== 'all' && serviceFilter,
+              paymentFilter === 'paid' && 'Pagado',
+              paymentFilter === 'pending' && 'Pendiente',
+              instructionsFilter === 'yes' && 'Con instrucciones',
+              instructionsFilter === 'no' && 'Sin instrucciones',
+            ].filter(Boolean).join(' · ')}
+          </Text>
+          <TouchableOpacity onPress={() => { setServiceFilter('all'); setPaymentFilter('all'); setInstructionsFilter('all'); }}>
+            <Ionicons name="close-circle" size={14} color="#999" />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {loading ? (
         <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
@@ -341,10 +396,127 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           keyExtractor={(item) => item.uid || String(item.id)}
           renderItem={renderItem}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} colors={[ORANGE]} />}
-          contentContainerStyle={{ padding: 12 }}
+          contentContainerStyle={{ padding: 12, paddingBottom: selectionMode ? 90 : 12 }}
           ListEmptyComponent={<Text style={styles.empty}>No hay envíos en esta categoría.</Text>}
         />
       )}
+
+      {/* ─── Selection action bar ─── */}
+      {selectionMode && (
+        <View style={styles.selectionBar}>
+          <TouchableOpacity onPress={cancelSelection} style={styles.selectionCancelBtn}>
+            <Ionicons name="close" size={18} color="#666" />
+            <Text style={styles.selectionCancelText}>Cancelar</Text>
+          </TouchableOpacity>
+          <Text style={styles.selectionCount}>
+            {selectedUids.length} seleccionado{selectedUids.length !== 1 ? 's' : ''}
+          </Text>
+          {instrEnabled && selectedUids.length > 0 && (
+            <TouchableOpacity
+              style={styles.selectionActionBtn}
+              onPress={() => {
+                const first = shipments.find(s => s.uid === selectedUids[0]);
+                if (first) openInstrModal(first);
+              }}
+            >
+              <Ionicons name="pencil-outline" size={14} color="#fff" style={{ marginRight: 4 }} />
+              <Text style={styles.selectionActionText}>Asignar instrucciones</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* ─── Filter Modal ─── */}
+      <Modal
+        visible={filterModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setFilterModalVisible(false)}
+      >
+        <View style={styles.filterOverlay}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setFilterModalVisible(false)} />
+          <View style={styles.filterSheet}>
+            <View style={styles.filterHandle} />
+            <View style={styles.filterSheetHeader}>
+              <Text style={styles.filterSheetTitle}>Filtros</Text>
+              {(tempServiceFilter !== 'all' || tempPaymentFilter !== 'all' || tempInstructionsFilter !== 'all') && (
+                <TouchableOpacity onPress={clearFilters}>
+                  <Text style={styles.filterClearText}>Limpiar</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Service type */}
+            <Text style={styles.filterSectionTitle}>Tipo de servicio</Text>
+            <View style={styles.filterChipsWrap}>
+              {([
+                { key: 'all',        label: 'Todos' },
+                { key: 'AIR_CHN_MX', label: '✈️ Aéreo China' },
+                { key: 'SEA_CHN_MX', label: '🚢 Marítimo' },
+                { key: 'AA_DHL',     label: '📦 DHL MTY' },
+                { key: 'POBOX_USA',  label: '📮 PO Box USA' },
+              ] as const).map(s => {
+                const active = tempServiceFilter === s.key;
+                return (
+                  <TouchableOpacity
+                    key={s.key}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => setTempServiceFilter(s.key)}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{s.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Payment */}
+            <Text style={styles.filterSectionTitle}>Pago</Text>
+            <View style={styles.filterChipsWrap}>
+              {([
+                { key: 'all', label: 'Todos' },
+                { key: 'paid', label: '✅ Pagado' },
+                { key: 'pending', label: '🔴 Pendiente' },
+              ] as const).map(s => {
+                const active = tempPaymentFilter === s.key;
+                return (
+                  <TouchableOpacity
+                    key={s.key}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => setTempPaymentFilter(s.key)}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{s.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Instructions */}
+            <Text style={styles.filterSectionTitle}>Instrucciones</Text>
+            <View style={styles.filterChipsWrap}>
+              {([
+                { key: 'all', label: 'Todos' },
+                { key: 'yes', label: '✅ Con instrucciones' },
+                { key: 'no',  label: '⚠️ Sin instrucciones' },
+              ] as const).map(s => {
+                const active = tempInstructionsFilter === s.key;
+                return (
+                  <TouchableOpacity
+                    key={s.key}
+                    style={[styles.chip, active && styles.chipActive]}
+                    onPress={() => setTempInstructionsFilter(s.key)}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{s.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <TouchableOpacity style={styles.filterApplyBtn} onPress={applyFilters}>
+              <Text style={styles.filterApplyText}>Aplicar filtros</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* ─── Modal: Asignar Instrucciones ─── */}
       <Modal visible={instrModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setInstrModal(false)}>
@@ -526,16 +698,32 @@ const styles = StyleSheet.create({
   headerTitle: { color: '#fff', fontWeight: '700', fontSize: 16, marginLeft: 8, flex: 1 },
   countBadge: { backgroundColor: ORANGE, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 2 },
   countText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  filtersRow: {
-    backgroundColor: '#fff',
-    paddingVertical: 8,
-  },
-  filtersRowContent: {
-    flexDirection: 'row',
-    paddingHorizontal: 12,
-    gap: 6,
+  filterBtn: { marginLeft: 10, padding: 6, position: 'relative' },
+  filterBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    backgroundColor: ORANGE,
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
     alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: BLACK,
   },
+  filterBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  activeFilterBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF3E0',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    gap: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: '#FFE0B2',
+  },
+  activeFilterText: { flex: 1, fontSize: 12, color: '#BF360C', fontWeight: '500' },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#f5f5f5' },
   chipActive: { backgroundColor: ORANGE },
   chipText: { fontSize: 12, color: '#666', fontWeight: '500' },
@@ -550,6 +738,17 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  cardSelected: {
+    borderWidth: 2,
+    borderColor: ORANGE,
+    backgroundColor: '#FFF8F5',
+  },
+  selectionCircle: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    zIndex: 1,
+  },
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 },
   tracking: { fontWeight: '700', fontSize: 14, color: BLACK, flex: 1, marginRight: 8 },
   statusBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
@@ -562,6 +761,78 @@ const styles = StyleSheet.create({
   instrBadge: { backgroundColor: '#E8F5E9', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 },
   instrBadgeText: { fontSize: 10, color: '#2E7D32', fontWeight: '600' },
   empty: { textAlign: 'center', color: '#999', marginTop: 40, fontSize: 14 },
+  // Selection bar
+  selectionBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    paddingBottom: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+    gap: 10,
+  },
+  selectionCancelBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 6, paddingHorizontal: 8 },
+  selectionCancelText: { fontSize: 13, color: '#666' },
+  selectionCount: { flex: 1, textAlign: 'center', fontSize: 13, fontWeight: '700', color: BLACK },
+  selectionActionBtn: {
+    backgroundColor: ORANGE,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  selectionActionText: { color: '#fff', fontSize: 13, fontWeight: '700' },
+  // Filter modal
+  filterOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'flex-end',
+  },
+  filterSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingHorizontal: 20,
+    paddingBottom: 36,
+    paddingTop: 12,
+  },
+  filterHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#ddd',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  filterSheetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 20,
+  },
+  filterSheetTitle: { fontSize: 17, fontWeight: '700', color: BLACK },
+  filterClearText: { fontSize: 14, color: ORANGE, fontWeight: '600' },
+  filterSectionTitle: { fontSize: 12, color: '#888', fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10, marginTop: 4 },
+  filterChipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 18 },
+  filterApplyBtn: {
+    backgroundColor: BLACK,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  filterApplyText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   // Modal
   modalContainer: { flex: 1, backgroundColor: '#f5f5f5' },
   modalHeader: {
