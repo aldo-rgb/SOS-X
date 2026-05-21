@@ -55,7 +55,8 @@ interface TicketMessage {
 interface AttachedFile {
   uri: string;
   name: string;
-  type: string; // 'image' | 'pdf'
+  type: 'image' | 'pdf';
+  mimeType: string; // MIME type real del archivo
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string; bg: string }> = {
@@ -103,6 +104,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [deptName, setDeptName] = useState('');
   const [deptId, setDeptId] = useState<number | null>(null);
+  const [defaultCsDeptId, setDefaultCsDeptId] = useState<number | null>(null);
   const [filter, setFilter] = useState<string>('open');
 
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -147,7 +149,10 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         const res = await api.get('/api/support/departments', {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const depts: Array<{ id: number; name: string }> = Array.isArray(res.data) ? res.data : [];
+        const depts: Array<{ id: number; name: string; is_default_for_clients: boolean }> = Array.isArray(res.data) ? res.data : [];
+        // Guardar dept de Atención a Cliente (is_default_for_clients = true) para transferencias
+        const csDept = depts.find(d => d.is_default_for_clients === true);
+        if (csDept) setDefaultCsDeptId(csDept.id);
         const found = depts.find(d => d.name === deptName);
         if (found) {
           setDeptId(found.id);
@@ -223,7 +228,8 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
       const name = asset.fileName || `foto_${Date.now()}.jpg`;
-      setAttachedFile({ uri: asset.uri, name, type: 'image' });
+      const mimeType = asset.mimeType || 'image/jpeg';
+      setAttachedFile({ uri: asset.uri, name, type: 'image', mimeType });
     }
   };
 
@@ -231,7 +237,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      setAttachedFile({ uri: asset.uri, name: asset.name, type: 'pdf' });
+      setAttachedFile({ uri: asset.uri, name: asset.name, type: 'pdf', mimeType: 'application/pdf' });
     }
   };
 
@@ -260,44 +266,73 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
       const formData = new FormData();
       formData.append('message', replyText.trim() || '');
       if (attachedFile) {
-        const mimeType = attachedFile.type === 'pdf' ? 'application/pdf' : 'image/jpeg';
-        formData.append('images', { uri: attachedFile.uri, name: attachedFile.name, type: mimeType } as any);
+        formData.append('images', {
+          uri: attachedFile.uri,
+          name: attachedFile.name,
+          type: attachedFile.mimeType,
+        } as any);
       }
-      await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/reply`, {
+      const resp = await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/reply`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
+      if (!resp.ok) {
+        const errData = await resp.json().catch(() => ({}));
+        Alert.alert('Error', errData.error || `Error ${resp.status} al enviar la respuesta.`);
+        return;
+      }
+      const result = await resp.json().catch(() => ({}));
+      // Avisar si se adjuntó archivo pero no llegó al servidor
+      if (attachedFile && (!result.attachments || result.attachments.length === 0)) {
+        Alert.alert(
+          'Aviso',
+          'El mensaje fue enviado pero el archivo adjunto no se pudo subir. Intenta adjuntarlo de nuevo.',
+          [{ text: 'OK' }]
+        );
+      }
       setReplyText('');
       setAttachedFile(null);
       await reloadMessages(selectedTicket.id);
     } catch (e) {
-      Alert.alert('Error', 'No se pudo enviar el mensaje.');
+      Alert.alert('Error', 'No se pudo enviar el mensaje. Verifica tu conexión.');
     } finally {
       setSending(false);
     }
   };
 
-  const resolveTicket = async () => {
+  const transferToCS = async () => {
     if (!selectedTicket) return;
-    Alert.alert('Resolver Ticket', '¿Marcar este ticket como resuelto?', [
-      { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Resolver',
-        onPress: async () => {
-          try {
-            await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/resolve`, {
-              method: 'PUT',
-              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-            });
-            setShowDetail(false);
-            loadTickets(false);
-          } catch {
-            Alert.alert('Error', 'No se pudo resolver el ticket.');
-          }
+    Alert.alert(
+      '¿Listo para Atención al Cliente?',
+      'El ticket regresará a Atención al Cliente para que respondan al cliente. Se enviará una nota interna indicando que CEDIS ya revisó el caso.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Confirmar',
+          onPress: async () => {
+            try {
+              const resp = await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/transfer`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  department_id: defaultCsDeptId,
+                  note: `${deptName} revisó el caso. Listo para responder al cliente.`,
+                }),
+              });
+              if (!resp.ok) {
+                Alert.alert('Error', 'No se pudo transferir el ticket.');
+                return;
+              }
+              setShowDetail(false);
+              loadTickets(false);
+            } catch {
+              Alert.alert('Error', 'No se pudo transferir el ticket.');
+            }
+          },
         },
-      },
-    ]);
+      ]
+    );
   };
 
   const getStatusInfo = (status: string) => STATUS_CONFIG[status] || STATUS_CONFIG.open_ai;
@@ -465,9 +500,9 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
                 <Text style={styles.headerSub}>{selectedTicket?.client_name || 'Cliente'} · {CATEGORY_LABELS[selectedTicket?.category || ''] || selectedTicket?.category}</Text>
               </View>
               {selectedTicket && !['resolved', 'closed'].includes(selectedTicket.status) && (
-                <TouchableOpacity onPress={resolveTicket} style={styles.resolveBtn}>
-                  <Ionicons name="checkmark-done" size={16} color="#fff" />
-                  <Text style={styles.resolveBtnText}>Resolver</Text>
+                <TouchableOpacity onPress={transferToCS} style={styles.resolveBtn}>
+                  <Ionicons name="arrow-redo" size={16} color="#fff" />
+                  <Text style={styles.resolveBtnText}>Listo ✓</Text>
                 </TouchableOpacity>
               )}
             </View>

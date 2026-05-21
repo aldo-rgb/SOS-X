@@ -27,10 +27,9 @@ const multerUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB por archivo
   fileFilter: (_req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|webp|pdf/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const allowedMime = /image\/(jpeg|png|gif|webp)|application\/pdf/.test(file.mimetype);
-    cb(null, !!(extname && allowedMime));
+    // Aceptar cualquier imagen (incluyendo HEIC/HEIF de iPhone) y PDFs
+    const allowedMime = /^image\/|^application\/pdf$/.test(file.mimetype);
+    cb(null, allowedMime);
   }
 }).array('images', 10);
 
@@ -773,9 +772,11 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
 
     // Procesar adjuntos (imágenes + PDFs)
     const files = (req.files as Express.Multer.File[]) || [];
+    console.log(`[REPLY] ticket=${id} files_received=${files.length} files_info=${files.map(f => `${f.originalname}(${f.mimetype},${f.size}b)`).join(',')}`);
     const attachmentUrls: string[] = [];
+    let uploadFailed = false;
     for (const f of files) {
-      const ext = path.extname(f.originalname) || '.bin';
+      const ext = path.extname(f.originalname) || (f.mimetype.includes('pdf') ? '.pdf' : '.jpg');
       const filename = `support-reply-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
       try {
         if (isS3Configured()) {
@@ -789,7 +790,13 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
         }
       } catch (err) {
         console.error('⚠️ Error subiendo adjunto de respuesta:', err);
+        uploadFailed = true;
       }
+    }
+
+    // Si se enviaron archivos pero ninguno se guardó, retornar error
+    if (files.length > 0 && attachmentUrls.length === 0 && uploadFailed) {
+      return res.status(500).json({ error: 'No se pudo subir el archivo adjunto. Intenta de nuevo.' });
     }
 
     const attachmentsJson = attachmentUrls.length > 0 ? JSON.stringify(attachmentUrls) : null;
