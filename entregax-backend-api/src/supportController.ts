@@ -870,9 +870,13 @@ export const assignTicket = async (req: Request, res: Response): Promise<any> =>
 // ============================================================
 
 let _deptTableEnsured = false;
+let _deptTableEnsuring: Promise<void> | null = null;
 export const ensureDepartmentsSchema = async () => {
   if (_deptTableEnsured) return;
-  try {
+  // Evitar race condition: si ya está corriendo la migración, esperar a que termine
+  if (_deptTableEnsuring) return _deptTableEnsuring;
+  _deptTableEnsuring = (async () => {
+    try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS support_departments (
         id SERIAL PRIMARY KEY,
@@ -894,6 +898,8 @@ export const ensureDepartmentsSchema = async () => {
     await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS sender_id INT REFERENCES users(id)`);
     // Número de guía reportada al crear el ticket
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS tracking_number VARCHAR(100)`);
+    // Timestamp de resolución (para stats de tiempo promedio)
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP`);
     // Reasignar tickets que apuntan a IDs duplicados → conservar MIN(id) por nombre
     await pool.query(`
       UPDATE support_tickets
@@ -954,9 +960,13 @@ export const ensureDepartmentsSchema = async () => {
     `);
     _deptTableEnsured = true;
     console.log('✅ support_departments schema ensured');
-  } catch (e) {
-    console.error('Error ensuring departments schema:', e);
-  }
+    } catch (e) {
+      console.error('Error ensuring departments schema:', e);
+    } finally {
+      _deptTableEnsuring = null;
+    }
+  })();
+  return _deptTableEnsuring;
 };
 
 /**

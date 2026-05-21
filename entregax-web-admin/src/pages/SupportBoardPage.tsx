@@ -172,9 +172,15 @@ function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: ob
   }, [s3Url]);
 
   if (failed) return (
-    <Box sx={{ width: 100, height: 100, bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #ffcc80', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+    <Box
+      component="a"
+      href={s3Url}
+      target="_blank"
+      rel="noreferrer"
+      sx={{ width: 100, height: 100, bgcolor: '#fff3e0', borderRadius: 1, border: '1px solid #ffcc80', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 0.5, textDecoration: 'none', cursor: 'pointer' }}
+    >
       <span style={{ fontSize: 24 }}>🖼️</span>
-      <Typography variant="caption" color="warning.main">Sin acceso</Typography>
+      <Typography variant="caption" color="warning.main">Ver imagen</Typography>
     </Box>
   );
 
@@ -187,7 +193,14 @@ function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: ob
 
   return (
     <>
-      <Box component="img" src={src} alt={alt} sx={{ ...sx as object, cursor: 'zoom-in' }} onClick={() => setLightbox(true)} />
+      <Box
+        component="img"
+        src={src}
+        alt={alt}
+        sx={{ ...sx as object, cursor: 'zoom-in' }}
+        onClick={() => setLightbox(true)}
+        onError={() => setFailed(true)}
+      />
       <Dialog open={lightbox} onClose={() => setLightbox(false)} maxWidth="xl" PaperProps={{ sx: { bgcolor: 'transparent', boxShadow: 'none' } }}>
         <Box onClick={() => setLightbox(false)} sx={{ cursor: 'zoom-out', p: 1 }}>
           <Box component="img" src={src} alt={alt} sx={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 2, display: 'block' }} />

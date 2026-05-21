@@ -75,14 +75,16 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
 
   const loadData = async () => {
     setLoading(true);
-    try {
-      const [statsRes, ticketsRes] = await Promise.all([
-        api.get('/admin/support/stats'),
-        api.get('/admin/support/tickets', { params: { limit: 5 } }),
-      ]);
+    // Llamadas independientes para que un fallo en una no bloquee la otra
+    const [statsRes, ticketsRes] = await Promise.allSettled([
+      api.get('/admin/support/stats'),
+      api.get('/admin/support/tickets', { params: { limit: 5, status: undefined } }),
+    ]);
+
+    if (statsRes.status === 'fulfilled') {
       // PostgreSQL COUNT() devuelve strings — parsear a int
-      const raw = statsRes.data || {};
-      const parsed: SupportStats = {
+      const raw = statsRes.value.data || {};
+      setStats({
         ai_handling: parseInt(raw.ai_handling) || 0,
         needs_human: parseInt(raw.needs_human) || 0,
         waiting_client: parseInt(raw.waiting_client) || 0,
@@ -93,15 +95,19 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
         client_open: parseInt(raw.client_open) || 0,
         avg_resolution_time_min: parseInt(raw.avg_resolution_time_min) || 0,
         departments: raw.departments || [],
-      };
-      setStats(parsed);
-      setRecentTickets(ticketsRes.data?.tickets || ticketsRes.data || []);
-    } catch (error) {
-      console.error('Error cargando dashboard:', error);
-      setStats(null);
-    } finally {
-      setLoading(false);
+      });
+    } else {
+      console.error('Error cargando stats:', statsRes.reason);
     }
+
+    if (ticketsRes.status === 'fulfilled') {
+      const data = ticketsRes.value.data;
+      setRecentTickets(Array.isArray(data) ? data : (data?.tickets || []));
+    } else {
+      console.error('Error cargando tickets recientes:', ticketsRes.reason);
+    }
+
+    setLoading(false);
   };
 
   const getStatusColor = (status: string): 'default' | 'warning' | 'info' | 'error' | 'success' => {
