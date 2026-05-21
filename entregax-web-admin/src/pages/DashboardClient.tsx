@@ -222,6 +222,7 @@ interface PackageTracking {
   carrier?: string;
   gex_total_cost?: number;
   delivery_recipient_name?: string;
+  instructions_assigned_by_name?: string | null;
 }
 
 interface IncludedGuide {
@@ -10169,7 +10170,9 @@ export default function DashboardClient() {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                         <LocationOnIcon sx={{ color: 'success.main' }} />
                         <Typography variant="body2" fontWeight="bold" color="success.main">
-                          {t('cd.detail.instructionsAssigned')}
+                          {selectedPackage.instructions_assigned_by_name
+                            ? `Asignadas por ${selectedPackage.instructions_assigned_by_name}`
+                            : t('cd.detail.instructionsAssigned')}
                         </Typography>
                       </Box>
                       {(() => {

@@ -33,7 +33,7 @@ import CategoryIcon from '@mui/icons-material/Category';
 import PercentIcon from '@mui/icons-material/Percent';
 import PaymentIcon from '@mui/icons-material/Payment';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 
@@ -78,24 +78,30 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [togglingGex, setTogglingGex] = useState(false);
     const [togglingAdvisorInstr, setTogglingAdvisorInstr] = useState(false);
+    const [togglingReqPayment, setTogglingReqPayment] = useState(false);
+    const [togglingReqLabel, setTogglingReqLabel] = useState(false);
     // Estado local optimista que se sincroniza con el hook al cargar.
     const [localXpay, setLocalXpay] = useState<boolean | null>(null);
     const [localEntregax, setLocalEntregax] = useState<boolean | null>(null);
     const [localGex, setLocalGex] = useState<boolean | null>(null);
     const [localAdvisorInstr, setLocalAdvisorInstr] = useState<boolean | null>(null);
+    const [localReqPayment, setLocalReqPayment] = useState<boolean | null>(null);
+    const [localReqLabel, setLocalReqLabel] = useState<boolean | null>(null);
     useEffect(() => {
         if (!paymentsStatusLoading) {
             setLocalXpay(xpayEnabled);
             setLocalEntregax(entregaxPaymentsEnabled);
             setLocalGex(gexEnabled);
             setLocalAdvisorInstr(advisorInstructionsEnabled);
+            setLocalReqPayment(requirePaymentToLoad);
+            setLocalReqLabel(requireLabelToLoad);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -155,6 +161,36 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
         } finally {
             setTogglingAdvisorInstr(false);
+        }
+    };
+    const handleToggleReqPayment = async (checked: boolean) => {
+        setTogglingReqPayment(true);
+        const prev = localReqPayment;
+        setLocalReqPayment(checked);
+        try {
+            await toggleRequirePaymentToLoad(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Requisito de pago para carga ${checked ? 'activado' : 'desactivado'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalReqPayment(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
+        } finally {
+            setTogglingReqPayment(false);
+        }
+    };
+    const handleToggleReqLabel = async (checked: boolean) => {
+        setTogglingReqLabel(true);
+        const prev = localReqLabel;
+        setLocalReqLabel(checked);
+        try {
+            await toggleRequireLabelToLoad(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Requisito de etiqueta para carga ${checked ? 'activado' : 'desactivado'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalReqLabel(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
+        } finally {
+            setTogglingReqLabel(false);
         }
     };
 
@@ -423,6 +459,80 @@ export default function SettingsPage() {
                                             />
                                         }
                                         label={togglingAdvisorInstr ? '...' : (localAdvisorInstr ? 'Activado' : 'Desactivado')}
+                                        labelPlacement="start"
+                                        sx={{ m: 0 }}
+                                    />
+                                )}
+                            </Paper>
+                        </Stack>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Operaciones de Despacho — solo super_admin */}
+            {isSuperAdmin && (
+                <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3, mb: 3 }}>
+                    <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                            <Typography variant="h6" fontWeight={600}>🚚 Operaciones de Despacho</Typography>
+                            <Chip label="Super Admin" size="small" color="warning" sx={{ ml: 1 }} />
+                        </Box>
+                        <Alert severity="info" sx={{ mb: 3 }}>
+                            Controlan los requisitos que debe cumplir una guía para que el chofer pueda cargarla a su unidad.
+                            Desactivar un requisito aplica inmediatamente en la app del repartidor.
+                        </Alert>
+                        <Stack spacing={2}>
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                        💵 Requerir Pago para Cargar
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Si está activado, el chofer solo puede cargar guías cuyo cliente ya pagó. Si se desactiva,
+                                        se permite cargar guías con pago pendiente.
+                                    </Typography>
+                                </Box>
+                                {paymentsStatusLoading || localReqPayment === null ? (
+                                    <CircularProgress size={20} />
+                                ) : (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={!!localReqPayment}
+                                                onChange={(e) => handleToggleReqPayment(e.target.checked)}
+                                                disabled={togglingReqPayment}
+                                                color="success"
+                                            />
+                                        }
+                                        label={togglingReqPayment ? '...' : (localReqPayment ? 'Activado' : 'Desactivado')}
+                                        labelPlacement="start"
+                                        sx={{ m: 0 }}
+                                    />
+                                )}
+                            </Paper>
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                        🏷️ Requerir Etiqueta Impresa para Cargar
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Si está activado, el chofer solo puede cargar guías que ya tienen etiqueta de paquetería
+                                        generada (guía nacional, Skydropx, DHL, etc.). Si se desactiva, se permite cargar sin etiqueta.
+                                    </Typography>
+                                </Box>
+                                {paymentsStatusLoading || localReqLabel === null ? (
+                                    <CircularProgress size={20} />
+                                ) : (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={!!localReqLabel}
+                                                onChange={(e) => handleToggleReqLabel(e.target.checked)}
+                                                disabled={togglingReqLabel}
+                                                color="success"
+                                            />
+                                        }
+                                        label={togglingReqLabel ? '...' : (localReqLabel ? 'Activado' : 'Desactivado')}
                                         labelPlacement="start"
                                         sx={{ m: 0 }}
                                     />

@@ -2464,7 +2464,9 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           LIMIT 1
         )` : 'NULL'} as carrier_service_request_code,
         carrier,
-        gex_total_cost
+        gex_total_cost,
+        instructions_assigned_by_id,
+        (SELECT u2.full_name FROM users u2 WHERE u2.id = packages.instructions_assigned_by_id LIMIT 1) as instructions_assigned_by_name
       FROM packages
       WHERE (
         user_id = $1
@@ -9290,7 +9292,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -9317,6 +9319,16 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['advisor_instructions_enabled']?.enabled !== false
       : true;
 
+    // require_payment_to_load: si está desactivado, el chofer puede cargar sin que el cliente haya pagado
+    const requirePaymentToLoad = byKey['require_payment_to_load'] !== undefined
+      ? byKey['require_payment_to_load']?.enabled !== false
+      : true;
+
+    // require_label_to_load: si está desactivado, el chofer puede cargar sin etiqueta impresa
+    const requireLabelToLoad = byKey['require_label_to_load'] !== undefined
+      ? byKey['require_label_to_load']?.enabled !== false
+      : true;
+
     // payments_enabled: legacy (ambos activos si ambos activos)
     const paymentsEnabled = xpayEnabled && entregaxPaymentsEnabled;
 
@@ -9326,9 +9338,11 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       entregax_payments_enabled: entregaxPaymentsEnabled,
       gex_enabled: gexEnabled,
       advisor_instructions_enabled: advisorInstructionsEnabled,
+      require_payment_to_load: requirePaymentToLoad,
+      require_label_to_load: requireLabelToLoad,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true });
   }
 });
 
@@ -9432,6 +9446,46 @@ app.post('/api/admin/system/advisor-instructions-toggle', authenticateToken, req
   } catch (err: any) {
     console.error('[ADVISOR-INSTRUCTIONS-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de instrucciones de asesores' });
+  }
+});
+
+// POST /api/admin/system/require-payment-to-load-toggle — exigir pago para cargar unidad
+app.post('/api/admin/system/require-payment-to-load-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('require_payment_to_load', $1::jsonb, 'Exigir pago del cliente para que el chofer pueda cargar la guía a la unidad', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`💵 [REQUIRE-PAYMENT-TO-LOAD] ${enabled ? '✅ Requerido' : '🔴 Desactivado'} por user #${userId}`);
+    res.json({ success: true, require_payment_to_load: !!enabled });
+  } catch (err: any) {
+    console.error('[REQUIRE-PAYMENT-TO-LOAD-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar requisito de pago para carga' });
+  }
+});
+
+// POST /api/admin/system/require-label-to-load-toggle — exigir etiqueta impresa para cargar unidad
+app.post('/api/admin/system/require-label-to-load-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('require_label_to_load', $1::jsonb, 'Exigir etiqueta impresa para que el chofer pueda cargar la guía a la unidad', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`🏷️ [REQUIRE-LABEL-TO-LOAD] ${enabled ? '✅ Requerida' : '🔴 Desactivada'} por user #${userId}`);
+    res.json({ success: true, require_label_to_load: !!enabled });
+  } catch (err: any) {
+    console.error('[REQUIRE-LABEL-TO-LOAD-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar requisito de etiqueta para carga' });
   }
 });
 

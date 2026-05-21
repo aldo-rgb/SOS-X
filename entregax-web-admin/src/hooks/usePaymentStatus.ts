@@ -15,6 +15,8 @@ interface PaymentStatusCache {
   entregax_payments_enabled: boolean;
   gex_enabled: boolean;
   advisor_instructions_enabled: boolean;
+  require_payment_to_load: boolean;
+  require_label_to_load: boolean;
 }
 
 let cached: PaymentStatusCache | null = null;
@@ -27,6 +29,8 @@ const FALLBACK: PaymentStatusCache = {
   entregax_payments_enabled: true,
   gex_enabled: true,
   advisor_instructions_enabled: true,
+  require_payment_to_load: true,
+  require_label_to_load: true,
 };
 
 export function usePaymentStatus() {
@@ -53,6 +57,8 @@ export function usePaymentStatus() {
             entregax_payments_enabled: data.entregax_payments_enabled !== false,
             gex_enabled: data.gex_enabled !== false,
             advisor_instructions_enabled: data.advisor_instructions_enabled !== false,
+            require_payment_to_load: data.require_payment_to_load !== false,
+            require_label_to_load: data.require_label_to_load !== false,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -72,6 +78,8 @@ export function usePaymentStatus() {
     entregaxPaymentsEnabled: status.entregax_payments_enabled,
     gexEnabled: status.gex_enabled,
     advisorInstructionsEnabled: status.advisor_instructions_enabled,
+    requirePaymentToLoad: status.require_payment_to_load,
+    requireLabelToLoad: status.require_label_to_load,
     loading,
   };
 }
@@ -103,5 +111,17 @@ export async function toggleGEX(enabled: boolean): Promise<void> {
 /** Controla visibilidad del botón de instrucciones/edición de direcciones en panel asesor (solo Super Admin) */
 export async function toggleAdvisorInstructions(enabled: boolean): Promise<void> {
   await api.post('/admin/system/advisor-instructions-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Controla si se exige pago del cliente para cargar una guía a la unidad (solo Super Admin) */
+export async function toggleRequirePaymentToLoad(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/require-payment-to-load-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Controla si se exige etiqueta impresa para cargar una guía a la unidad (solo Super Admin) */
+export async function toggleRequireLabelToLoad(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/require-label-to-load-toggle', { enabled });
   invalidatePaymentStatusCache();
 }

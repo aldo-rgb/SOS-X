@@ -1558,9 +1558,10 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           national_carrier = $2,
           is_collect = $3,
           collect_carrier = $4,
-          wants_factura_paqueteria = $5
+          wants_factura_paqueteria = $5,
+          instructions_assigned_by_id = $7
          WHERE id = $6`,
-        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId]
+        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId]
       );
       if (files?.factura?.[0]) {
         const facturaUrl = `${baseUrl}/uploads/delivery/${files.factura[0].filename}`;

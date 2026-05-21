@@ -86,6 +86,35 @@ let inCedisWriteStatusCache: 'in_cedis' | 'received_mty' | null = null;
 let sentWriteStatusCache: 'sent' | 'delivered' | null = null;
 let pqtxShipmentsTableExistsCache: boolean | null = null;
 
+interface LoadingFlags { requirePayment: boolean; requireLabel: boolean; }
+let loadingFlagsCache: LoadingFlags | null = null;
+let loadingFlagsCacheAt: number | null = null;
+const LOADING_FLAGS_TTL_MS = 15_000;
+
+const getLoadingFlags = async (): Promise<LoadingFlags> => {
+    const now = Date.now();
+    if (loadingFlagsCache && loadingFlagsCacheAt && now - loadingFlagsCacheAt < LOADING_FLAGS_TTL_MS) {
+        return loadingFlagsCache;
+    }
+    try {
+        const r = await pool.query(
+            `SELECT config_key, config_value FROM system_configurations
+             WHERE config_key IN ('require_payment_to_load', 'require_label_to_load') AND is_active = TRUE`
+        );
+        const byKey: Record<string, any> = {};
+        r.rows.forEach((row: any) => { byKey[row.config_key] = row.config_value; });
+        loadingFlagsCache = {
+            requirePayment: byKey['require_payment_to_load'] !== undefined ? byKey['require_payment_to_load']?.enabled !== false : true,
+            requireLabel:   byKey['require_label_to_load']   !== undefined ? byKey['require_label_to_load']?.enabled   !== false : true,
+        };
+        loadingFlagsCacheAt = now;
+    } catch {
+        loadingFlagsCache = { requirePayment: true, requireLabel: true };
+        loadingFlagsCacheAt = now;
+    }
+    return loadingFlagsCache;
+};
+
 const getPackageStatusColumn = async (): Promise<'delivery_status' | 'status'> => {
         if (packageStatusColumnCache) return packageStatusColumnCache;
 
@@ -532,12 +561,11 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         );
         const hasPrintedLabel = hasExternalLabel || (isLocalDelivery && hasInstructions);
 
-        if (!isPaid || !hasPrintedLabel) {
+        const { requirePayment, requireLabel } = await getLoadingFlags();
+        if ((requirePayment && !isPaid) || (requireLabel && !hasPrintedLabel)) {
             const missing: string[] = [];
-            if (!isPaid) missing.push('pago del cliente');
-            if (!hasPrintedLabel) {
-                // Diferenciamos: tiene instrucciones pero falta etiqueta impresa
-                // vs. ni siquiera hay instrucciones todavía.
+            if (requirePayment && !isPaid) missing.push('pago del cliente');
+            if (requireLabel && !hasPrintedLabel) {
                 missing.push(hasInstructions ? 'etiqueta impresa (la guía tiene instrucciones pero aún no se imprimió la etiqueta)' : 'instrucciones de entrega y etiqueta');
             }
             const summary = `${isPaid ? '✅' : '❌'} Pago · ${hasPrintedLabel ? '✅' : '❌'} Etiqueta impresa · ${hasInstructions ? '✅' : '❌'} Instrucciones`;
@@ -694,9 +722,24 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
         // (pagados + etiquetados) tal como se ve en panel de etiquetado.
         // IMPORTANTE: excluimos masters (no son cajas físicas). Las hijas heredan
         // payment/label/carrier del master via LEFT JOIN.
+        const { requirePayment: reqPay, requireLabel: reqLabel } = await getLoadingFlags();
+        const paymentWhereClause = reqPay ? `AND (
+                        LOWER(COALESCE(to_jsonb(p)->>'payment_status', '')) = 'paid'
+                     OR LOWER(COALESCE(to_jsonb(m)->>'payment_status', '')) = 'paid'
+                  )` : '';
+        const labelWhereClause = reqLabel ? `AND (
+                        to_jsonb(p)->>'national_label_url' IS NOT NULL
+                     OR to_jsonb(p)->>'national_tracking' IS NOT NULL
+                     OR to_jsonb(p)->>'skydropx_label_id' IS NOT NULL
+                     OR to_jsonb(p)->>'dhl_awb' IS NOT NULL
+                     OR to_jsonb(m)->>'national_label_url' IS NOT NULL
+                     OR to_jsonb(m)->>'national_tracking' IS NOT NULL
+                     OR to_jsonb(m)->>'skydropx_label_id' IS NOT NULL
+                     OR to_jsonb(m)->>'dhl_awb' IS NOT NULL
+                  )` : '';
         const pendingRes = driverBranchId
             ? await pool.query(`
-                SELECT 
+                SELECT
                     p.id,
                     ${TRACKING_PUBLIC_SQL} as tracking_number,
                     ${DELIVERY_STATUS_SQL} as delivery_status,
@@ -715,29 +758,8 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 WHERE ${packageBranchSql} = $1
                   AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                   AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
-                  AND (
-                        -- Pago directo en la hija
-                        LOWER(COALESCE(to_jsonb(p)->>'payment_status', '')) = 'paid'
-                        -- O herencia del master (cuando la hija quedó en 'pending'
-                        -- por desincronización, alineado con scanPackageToLoad).
-                     OR LOWER(COALESCE(to_jsonb(m)->>'payment_status', '')) = 'paid'
-                  )
-                  AND (
-                        to_jsonb(p)->>'national_label_url' IS NOT NULL
-                     OR to_jsonb(p)->>'national_tracking' IS NOT NULL
-                     OR to_jsonb(p)->>'skydropx_label_id' IS NOT NULL
-                     OR to_jsonb(p)->>'dhl_awb' IS NOT NULL
-                     OR to_jsonb(m)->>'national_label_url' IS NOT NULL
-                     OR to_jsonb(m)->>'national_tracking' IS NOT NULL
-                     OR to_jsonb(m)->>'skydropx_label_id' IS NOT NULL
-                     OR to_jsonb(m)->>'dhl_awb' IS NOT NULL
-                     -- Antes había aquí un OR para entregas locales/EntregaX
-                     -- que aceptaba assigned_address_id como sustituto de
-                     -- la etiqueta. Lo removimos: aunque sea entrega local,
-                     -- exigimos etiqueta IMPRESA real para que la guía aparezca
-                     -- como "lista para cargar". Sin etiqueta no hay
-                     -- trazabilidad física en la caja.
-                  )
+                  ${paymentWhereClause}
+                  ${labelWhereClause}
                 ORDER BY p.updated_at ASC NULLS LAST, p.created_at ASC
             `, [driverBranchId])
             : await pool.query(`
