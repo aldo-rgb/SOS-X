@@ -1525,24 +1525,26 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
     const shipmentId = parseInt(rawId);
     if (!shipmentId) return res.status(400).json({ error: 'uid inválido' });
 
-    // Verify the address belongs to a client of this advisor
-    const addrCheck = await pool.query(`
-      SELECT a.id, a.user_id FROM addresses a
-      JOIN users u ON a.user_id = u.id
-      WHERE a.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2) AND u.role = 'client'
-    `, [addressId, advisorId]);
-    if (addrCheck.rows.length === 0) {
-      return res.status(403).json({ error: 'Dirección no válida para este cliente' });
-    }
-    const clientId = addrCheck.rows[0].user_id;
-
     const baseUrl = `${(req as any).protocol}://${(req as any).get('host')}`;
 
+    let clientId: number;
+
     if (type === 'PKG') {
-      const check = await pool.query(
-        `SELECT id FROM packages WHERE id = $1 AND user_id = $2`, [shipmentId, clientId]
+      // Verify package belongs to an advisor's client
+      const pkgCheck = await pool.query(`
+        SELECT p.id, p.user_id FROM packages p
+        JOIN users u ON p.user_id = u.id
+        WHERE p.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2 OR p.user_id = $2)
+      `, [shipmentId, advisorId]);
+      if (pkgCheck.rows.length === 0) return res.status(403).json({ error: 'Paquete no encontrado o sin permiso' });
+      clientId = pkgCheck.rows[0].user_id;
+
+      // Verify address belongs to same user
+      const addrCheck = await pool.query(
+        `SELECT id FROM addresses WHERE id = $1 AND user_id = $2`, [addressId, clientId]
       );
-      if (check.rows.length === 0) return res.status(403).json({ error: 'Paquete no encontrado' });
+      if (addrCheck.rows.length === 0) return res.status(403).json({ error: 'Dirección no válida para este cliente' });
+
       await pool.query(
         `UPDATE packages SET
           assigned_address_id = $1,
@@ -1553,7 +1555,6 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
          WHERE id = $6`,
         [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId]
       );
-      // Save uploaded documents
       if (files?.factura?.[0]) {
         const facturaUrl = `${baseUrl}/uploads/delivery/${files.factura[0].filename}`;
         await pool.query(
@@ -1569,18 +1570,36 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
         );
       }
     } else if (type === 'MAR') {
-      const check = await pool.query(
-        `SELECT id FROM maritime_orders WHERE id = $1 AND user_id = $2`, [shipmentId, clientId]
+      const marCheck = await pool.query(`
+        SELECT mo.id, mo.user_id FROM maritime_orders mo
+        JOIN users u ON mo.user_id = u.id
+        WHERE mo.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2 OR mo.user_id = $2)
+      `, [shipmentId, advisorId]);
+      if (marCheck.rows.length === 0) return res.status(403).json({ error: 'Orden marítima no encontrada o sin permiso' });
+      clientId = marCheck.rows[0].user_id;
+
+      const addrCheck = await pool.query(
+        `SELECT id FROM addresses WHERE id = $1 AND user_id = $2`, [addressId, clientId]
       );
-      if (check.rows.length === 0) return res.status(403).json({ error: 'Orden marítima no encontrada' });
+      if (addrCheck.rows.length === 0) return res.status(403).json({ error: 'Dirección no válida para este cliente' });
+
       await pool.query(
         `UPDATE maritime_orders SET delivery_address_id = $1 WHERE id = $2`, [addressId, shipmentId]
       );
     } else if (type === 'DHL') {
-      const check = await pool.query(
-        `SELECT id FROM dhl_shipments WHERE id = $1 AND user_id = $2`, [shipmentId, clientId]
+      const dhlCheck = await pool.query(`
+        SELECT ds.id, ds.user_id FROM dhl_shipments ds
+        JOIN users u ON ds.user_id = u.id
+        WHERE ds.id = $1 AND (u.advisor_id = $2 OR u.referred_by_id = $2 OR ds.user_id = $2)
+      `, [shipmentId, advisorId]);
+      if (dhlCheck.rows.length === 0) return res.status(403).json({ error: 'Envío DHL no encontrado o sin permiso' });
+      clientId = dhlCheck.rows[0].user_id;
+
+      const addrCheck = await pool.query(
+        `SELECT id FROM addresses WHERE id = $1 AND user_id = $2`, [addressId, clientId]
       );
-      if (check.rows.length === 0) return res.status(403).json({ error: 'Envío DHL no encontrado' });
+      if (addrCheck.rows.length === 0) return res.status(403).json({ error: 'Dirección no válida para este cliente' });
+
       await pool.query(
         `UPDATE dhl_shipments SET delivery_address_id = $1 WHERE id = $2`, [addressId, shipmentId]
       );

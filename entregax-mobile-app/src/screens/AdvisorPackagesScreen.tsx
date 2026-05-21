@@ -371,13 +371,16 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           body: JSON.stringify(body),
         });
       }
-      if (!res.ok) throw new Error();
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData.error || `Error ${res.status}`);
+      }
       setInstrModal(false);
       Alert.alert('Listo', 'Instrucciones asignadas correctamente');
       cancelSelection();
       load();
-    } catch {
-      Alert.alert('Error', 'No se pudo asignar la dirección');
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo asignar la dirección');
     } finally {
       setInstrSaving(false);
     }
