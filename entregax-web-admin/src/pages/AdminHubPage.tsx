@@ -1414,16 +1414,13 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                 <Grid container spacing={2}>
                     {modules
                         .filter((module) => {
-                            // Super admin ve todo
-                            if (isSuperAdmin) {
-                                // Filtrar módulos financieros solo para roles específicos
-                                if (['anticipos', 'transporte_control', 'demora_control'].includes(module.key)) {
-                                    return ['super_admin', 'admin', 'director'].includes(currentUser?.role);
-                                }
-                                return true;
+                            // Módulos financieros: acceso basado en rol, no en permisos de BD
+                            if (['anticipos', 'transporte_control', 'demora_control'].includes(module.key)) {
+                                return ['super_admin', 'admin', 'director'].includes(currentUser?.role);
                             }
-                            
-                            // Para otros usuarios, verificar permisos de módulo
+                            // Super admin ve todo lo demás
+                            if (isSuperAdmin) return true;
+                            // Para otros usuarios, verificar permisos de módulo en BD
                             return hasModulePermission(module.key);
                         })
                         .map((module) => {
