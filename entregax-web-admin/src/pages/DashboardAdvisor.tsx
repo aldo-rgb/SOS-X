@@ -41,6 +41,7 @@ import {
   useMediaQuery,
   alpha,
   Fade,
+  Collapse,
   Dialog,
   DialogTitle,
   DialogContent,
@@ -364,6 +365,13 @@ export default function DashboardAdvisor() {
   const [instrCarriers, setInstrCarriers] = useState<any[]>([]);
   const [instrCarrierKey, setInstrCarrierKey] = useState<string>('');
   const [instrCarriersLoading, setInstrCarriersLoading] = useState(false);
+  // Price estimate & COD documents
+  const [instrPriceEstimate, setInstrPriceEstimate] = useState<{ price: number; perBox: number; boxes: number; days: string } | null>(null);
+  const [instrPriceLoading, setInstrPriceLoading] = useState(false);
+  const [instrIsCollect, setInstrIsCollect] = useState(false);
+  const [instrFacturaFile, setInstrFacturaFile] = useState<File | null>(null);
+  const [instrGuiaFile, setInstrGuiaFile] = useState<File | null>(null);
+  const [instrWantsFactura, setInstrWantsFactura] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<AdvisorShipment | null>(null);
   const [repackChildren, setRepackChildren] = useState<any[]>([]);
   const [repackChildrenLoading, setRepackChildrenLoading] = useState(false);
@@ -724,6 +732,11 @@ export default function DashboardAdvisor() {
     setInstrSelectedId('');
     setInstrCarrierKey('');
     setInstrCarriers([]);
+    setInstrIsCollect(false);
+    setInstrFacturaFile(null);
+    setInstrGuiaFile(null);
+    setInstrWantsFactura(false);
+    setInstrPriceEstimate(null);
     setInstrDialogOpen(true);
     setInstrLoading(true);
     setInstrCarriersLoading(true);
@@ -743,13 +756,47 @@ export default function DashboardAdvisor() {
     }
   };
 
+  const fetchPqtxEstimate = async (zipCode: string, shipment: AdvisorShipment) => {
+    setInstrPriceLoading(true);
+    setInstrPriceEstimate(null);
+    try {
+      const boxes = (shipment.isMaster && shipment.childrenCount > 0) ? shipment.childrenCount + 1 : 1;
+      const res = await api.post('/shipping/pqtx-quote', {
+        destZipCode: zipCode,
+        packageCount: boxes,
+        weight: shipment.weight || 1,
+        length: shipment.lengthCm || 30,
+        width: shipment.widthCm || 30,
+        height: shipment.heightCm || 30,
+      });
+      if (res.data.success) {
+        setInstrPriceEstimate({ price: res.data.clientPrice, perBox: res.data.pricePerBox, boxes, days: res.data.estimatedDays || '2-4 días hábiles' });
+      }
+    } catch { /* ignore quote errors */ }
+    finally { setInstrPriceLoading(false); }
+  };
+
   const handleSelectInstrAddress = (addr: any) => {
     setInstrSelectedId(String(addr.id));
+    setInstrPriceEstimate(null);
     const serviceKey = instrShipment ? SHIPMENT_TYPE_TO_CARRIER_SERVICE[instrShipment.serviceType] : null;
-    if (serviceKey && addr.carrier_config?.[serviceKey]) {
-      setInstrCarrierKey(addr.carrier_config[serviceKey]);
-    } else {
-      setInstrCarrierKey('');
+    const preselected = serviceKey && addr.carrier_config?.[serviceKey] ? addr.carrier_config[serviceKey] : '';
+    setInstrCarrierKey(preselected);
+    const carrier = instrCarriers.find((c: any) => c.carrier_key === preselected);
+    setInstrIsCollect(carrier?.allows_collect || false);
+    if (preselected === 'paquete_express' && instrShipment && addr.zip_code) {
+      fetchPqtxEstimate(addr.zip_code, instrShipment);
+    }
+  };
+
+  const handleSelectInstrCarrier = (carrier: any, addrZip?: string) => {
+    const newKey = instrCarrierKey === carrier.carrier_key ? '' : carrier.carrier_key;
+    setInstrCarrierKey(newKey);
+    setInstrIsCollect(newKey ? (carrier.allows_collect || false) : false);
+    setInstrPriceEstimate(null);
+    if (newKey === 'paquete_express' && instrShipment) {
+      const zip = addrZip || instrAddresses.find((a: any) => String(a.id) === instrSelectedId)?.zip_code;
+      if (zip) fetchPqtxEstimate(zip, instrShipment);
     }
   };
 
@@ -764,15 +811,37 @@ export default function DashboardAdvisor() {
       const uids = selectedUids.size > 0 ? Array.from(selectedUids) : instrShipment ? [instrShipment.uid] : [];
       if (uids.length === 0) return;
       const serviceKey = instrShipment ? SHIPMENT_TYPE_TO_CARRIER_SERVICE[instrShipment.serviceType] : undefined;
-      const body: any = { addressId: instrSelectedId };
-      if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
-      await Promise.all(uids.map(uid =>
-        api.put(`/advisor/shipments/${uid}/instructions`, body)
-      ));
+
+      const hasFiles = instrFacturaFile || instrGuiaFile;
+      if (hasFiles || instrIsCollect) {
+        await Promise.all(uids.map(uid => {
+          const formData = new FormData();
+          formData.append('addressId', instrSelectedId);
+          if (instrCarrierKey && serviceKey) {
+            formData.append('carrierKey', instrCarrierKey);
+            formData.append('serviceKey', serviceKey);
+          }
+          formData.append('isCollect', String(instrIsCollect));
+          formData.append('wantsFacturaPaqueteria', String(instrWantsFactura));
+          if (instrFacturaFile) formData.append('factura', instrFacturaFile);
+          if (instrGuiaFile) formData.append('guiaExterna', instrGuiaFile);
+          return api.put(`/advisor/shipments/${uid}/instructions`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+        }));
+      } else {
+        const body: any = { addressId: instrSelectedId };
+        if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
+        await Promise.all(uids.map(uid => api.put(`/advisor/shipments/${uid}/instructions`, body)));
+      }
+
       const count = uids.length;
       setSnackbar({ open: true, message: count > 1 ? `${count} envíos actualizados` : 'Instrucciones asignadas correctamente', severity: 'success' });
       setInstrDialogOpen(false);
       setSelectedUids(new Set());
+      setInstrIsCollect(false);
+      setInstrFacturaFile(null);
+      setInstrGuiaFile(null);
+      setInstrWantsFactura(false);
+      setInstrPriceEstimate(null);
       fetchShipments();
     } catch {
       setSnackbar({ open: true, message: 'Error al guardar instrucciones', severity: 'error' });
@@ -3353,7 +3422,7 @@ export default function DashboardAdvisor() {
                       <Paper
                         key={carrier.carrier_key}
                         variant="outlined"
-                        onClick={() => setInstrCarrierKey(isCarrierSelected ? '' : carrier.carrier_key)}
+                        onClick={() => handleSelectInstrCarrier(carrier)}
                         sx={{
                           p: 1.5, cursor: 'pointer', borderRadius: 2, minWidth: 90, maxWidth: 120,
                           display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5,
@@ -3381,7 +3450,7 @@ export default function DashboardAdvisor() {
                           {carrier.name}
                         </Typography>
                         {carrier.price_label && (
-                          <Typography variant="caption" color="text.secondary" align="center" sx={{ fontSize: '0.65rem' }}>
+                          <Typography variant="caption" color={carrier.allows_collect ? 'warning.main' : 'text.secondary'} align="center" sx={{ fontSize: '0.65rem', fontWeight: carrier.allows_collect ? 700 : 400 }}>
                             {carrier.price_label}
                           </Typography>
                         )}
@@ -3390,6 +3459,77 @@ export default function DashboardAdvisor() {
                   })}
                 </Box>
               )}
+
+              {/* ── Estimado de costo ── */}
+              <Collapse in={!!instrCarrierKey && (instrPriceLoading || !!instrPriceEstimate)}>
+                <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#F3F8FF', border: '1px solid #BBDEFB', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  {instrPriceLoading ? (
+                    <>
+                      <CircularProgress size={18} sx={{ color: '#1976D2' }} />
+                      <Typography variant="body2" color="text.secondary">Calculando costo estimado…</Typography>
+                    </>
+                  ) : instrPriceEstimate ? (
+                    <>
+                      <Typography sx={{ fontSize: 22 }}>💰</Typography>
+                      <Box>
+                        <Typography variant="body2" fontWeight={700} color="#1565C0">
+                          Costo estimado: ${instrPriceEstimate.price.toFixed(2)} MXN
+                          {instrPriceEstimate.boxes > 1 && (
+                            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                              (${instrPriceEstimate.perBox.toFixed(2)}/caja × {instrPriceEstimate.boxes})
+                            </Typography>
+                          )}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">Entrega aprox. {instrPriceEstimate.days}</Typography>
+                      </Box>
+                    </>
+                  ) : null}
+                </Box>
+              </Collapse>
+
+              {/* ── Documentos para paquetería por cobrar ── */}
+              <Collapse in={instrIsCollect}>
+                <Box sx={{ mt: 2, p: 2, borderRadius: 2, border: '1px solid #FFB74D', bgcolor: '#FFFDE7' }}>
+                  <Typography variant="body2" fontWeight={700} sx={{ mb: 1.5, color: '#E65100', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    📄 Documentos requeridos
+                  </Typography>
+
+                  {/* Factura del embarque */}
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Factura del embarque</Typography>
+                  <Button
+                    component="label"
+                    variant="outlined"
+                    size="small"
+                    fullWidth
+                    startIcon={<AttachFileIcon />}
+                    sx={{ justifyContent: 'flex-start', textTransform: 'none', mb: 1.5, borderColor: instrFacturaFile ? '#4CAF50' : '#ccc', color: instrFacturaFile ? '#2E7D32' : 'text.secondary' }}
+                  >
+                    {instrFacturaFile ? `✓ ${instrFacturaFile.name}` : 'Subir factura (PDF o imagen)'}
+                    <input type="file" hidden accept=".pdf,image/*" onChange={(e) => setInstrFacturaFile(e.target.files?.[0] || null)} />
+                  </Button>
+
+                  {/* ¿Requiere factura de paquetería? */}
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>¿Requiere factura de la paquetería?</Typography>
+                  <Box sx={{ display: 'flex', gap: 1, mb: 1.5 }}>
+                    <Button size="small" variant={instrWantsFactura ? 'contained' : 'outlined'} onClick={() => setInstrWantsFactura(true)} sx={instrWantsFactura ? { bgcolor: '#E65100', '&:hover': { bgcolor: '#BF360C' } } : {}}>Sí</Button>
+                    <Button size="small" variant={!instrWantsFactura ? 'contained' : 'outlined'} onClick={() => setInstrWantsFactura(false)} sx={!instrWantsFactura ? { bgcolor: '#666', '&:hover': { bgcolor: '#555' } } : {}}>No</Button>
+                  </Box>
+
+                  {/* Guía externa */}
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 0.5 }}>Guía de paquetería (opcional)</Typography>
+                  <Button
+                    component="label"
+                    variant="outlined"
+                    size="small"
+                    fullWidth
+                    startIcon={<AttachFileIcon />}
+                    sx={{ justifyContent: 'flex-start', textTransform: 'none', borderColor: instrGuiaFile ? '#4CAF50' : '#ccc', color: instrGuiaFile ? '#2E7D32' : 'text.secondary' }}
+                  >
+                    {instrGuiaFile ? `✓ ${instrGuiaFile.name}` : 'Subir guía (PDF o imagen)'}
+                    <input type="file" hidden accept=".pdf,image/*" onChange={(e) => setInstrGuiaFile(e.target.files?.[0] || null)} />
+                  </Button>
+                </Box>
+              </Collapse>
             </Box>
           )}
         </DialogContent>

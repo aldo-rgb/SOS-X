@@ -4507,7 +4507,7 @@ app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWal
 app.get('/api/advisor/clients/:clientId/addresses', authenticateToken, getAdvisorClientAddresses);
 app.post('/api/advisor/clients/:clientId/addresses', authenticateToken, createAdvisorClientAddress);
 app.put('/api/advisor/clients/:clientId/addresses/:addressId/default-for-service', authenticateToken, setAdvisorClientDefaultForService);
-app.put('/api/advisor/shipments/:uid/instructions', authenticateToken, assignAdvisorShipmentInstructions);
+app.put('/api/advisor/shipments/:uid/instructions', authenticateToken, uploadDeliveryDocs, assignAdvisorShipmentInstructions);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
 app.get('/api/advisor/shipments/:id/children', authenticateToken, getRepackChildren);

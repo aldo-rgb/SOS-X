@@ -1510,8 +1510,12 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
     const { uid } = req.params;
-    const { addressId, carrierKey, serviceKey } = req.body;
+    const { addressId, carrierKey, serviceKey, isCollect, wantsFacturaPaqueteria } = req.body;
+    const files = (req as any).files as Record<string, Express.Multer.File[]> | undefined;
     if (!uid || !addressId) return res.status(400).json({ error: 'uid y addressId requeridos' });
+
+    const isCollectBool = isCollect === 'true' || isCollect === true;
+    const wantsFacturaBool = wantsFacturaPaqueteria === 'true' || wantsFacturaPaqueteria === true;
 
     // Parse uid
     const uidStr = String(uid);
@@ -1532,15 +1536,38 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
     }
     const clientId = addrCheck.rows[0].user_id;
 
+    const baseUrl = `${(req as any).protocol}://${(req as any).get('host')}`;
+
     if (type === 'PKG') {
-      // Verify package belongs to client of advisor
       const check = await pool.query(
         `SELECT id FROM packages WHERE id = $1 AND user_id = $2`, [shipmentId, clientId]
       );
       if (check.rows.length === 0) return res.status(403).json({ error: 'Paquete no encontrado' });
       await pool.query(
-        `UPDATE packages SET assigned_address_id = $1 WHERE id = $2`, [addressId, shipmentId]
+        `UPDATE packages SET
+          assigned_address_id = $1,
+          delivery_carrier = $2,
+          is_collect = $3,
+          collect_carrier = $4,
+          wants_factura_paqueteria = $5
+         WHERE id = $6`,
+        [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId]
       );
+      // Save uploaded documents
+      if (files?.factura?.[0]) {
+        const facturaUrl = `${baseUrl}/uploads/delivery/${files.factura[0].filename}`;
+        await pool.query(
+          `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'factura_embarque', $3, $4)`,
+          [shipmentId, advisorId, facturaUrl, files.factura[0].originalname]
+        );
+      }
+      if (files?.guiaExterna?.[0]) {
+        const guiaUrl = `${baseUrl}/uploads/delivery/${files.guiaExterna[0].filename}`;
+        await pool.query(
+          `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'guia_externa', $3, $4)`,
+          [shipmentId, advisorId, guiaUrl, files.guiaExterna[0].originalname]
+        );
+      }
     } else if (type === 'MAR') {
       const check = await pool.query(
         `SELECT id FROM maritime_orders WHERE id = $1 AND user_id = $2`, [shipmentId, clientId]
@@ -1561,7 +1588,7 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       return res.status(400).json({ error: `Tipo de envío no soportado: ${type}` });
     }
 
-    // Opcional: guardar preferencia de paquetería en carrier_config de la dirección
+    // Save carrier preference in address carrier_config
     if (carrierKey && serviceKey) {
       await pool.query(
         `UPDATE addresses SET carrier_config = COALESCE(carrier_config, '{}'::jsonb) || $1::jsonb WHERE id = $2`,

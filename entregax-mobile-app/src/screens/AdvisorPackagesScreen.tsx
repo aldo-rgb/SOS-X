@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as DocumentPicker from 'expo-document-picker';
 import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -115,6 +116,13 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [instrCarriers, setInstrCarriers] = useState<any[]>([]);
   const [instrCarrierKey, setInstrCarrierKey] = useState<string>('');
   const [instrCarriersLoading, setInstrCarriersLoading] = useState(false);
+  // Price estimate & COD documents
+  const [instrPriceEstimate, setInstrPriceEstimate] = useState<{ price: number; perBox: number; boxes: number; days: string } | null>(null);
+  const [instrPriceLoading, setInstrPriceLoading] = useState(false);
+  const [instrIsCollect, setInstrIsCollect] = useState(false);
+  const [instrFacturaFile, setInstrFacturaFile] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
+  const [instrGuiaFile, setInstrGuiaFile] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
+  const [instrWantsFactura, setInstrWantsFactura] = useState(false);
 
   const activeFilterCount = [serviceFilter, paymentFilter, instructionsFilter].filter(v => v !== 'all').length;
 
@@ -221,12 +229,62 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setSelectionServiceType(null);
   };
 
+  const fetchPqtxEstimate = async (zipCode: string, shipment: Shipment) => {
+    setInstrPriceLoading(true);
+    setInstrPriceEstimate(null);
+    try {
+      const boxes = (shipment.is_master && shipment.children_count > 0) ? shipment.children_count + 1 : 1;
+      const res = await fetch(`${API_URL}/api/shipping/pqtx-quote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          destZipCode: zipCode,
+          packageCount: boxes,
+          weight: shipment.weight || 1,
+          length: shipment.length_cm || 30,
+          width: shipment.width_cm || 30,
+          height: shipment.height_cm || 30,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setInstrPriceEstimate({ price: data.clientPrice, perBox: data.pricePerBox, boxes, days: data.estimatedDays || '2-4 días hábiles' });
+      }
+    } catch { /* ignore */ }
+    finally { setInstrPriceLoading(false); }
+  };
+
+  const pickDocument = async (setter: (f: { uri: string; name: string; mimeType?: string } | null) => void) => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'image/*'], copyToCacheDirectory: true });
+      if (!result.canceled && result.assets?.[0]) {
+        setter({ uri: result.assets[0].uri, name: result.assets[0].name, mimeType: result.assets[0].mimeType ?? undefined });
+      }
+    } catch { /* user cancelled */ }
+  };
+
+  const handleSelectInstrCarrier = (carrier: any) => {
+    const newKey = instrCarrierKey === carrier.carrier_key ? '' : carrier.carrier_key;
+    setInstrCarrierKey(newKey);
+    setInstrIsCollect(newKey ? (carrier.allows_collect || false) : false);
+    setInstrPriceEstimate(null);
+    if (newKey === 'paquete_express' && instrShipment) {
+      const addr = instrAddresses.find(a => a.id === instrSelectedId);
+      if (addr?.zip_code) fetchPqtxEstimate(addr.zip_code, instrShipment);
+    }
+  };
+
   const openInstrModal = async (item: Shipment) => {
     setInstrShipment(item);
     setInstrModal(true);
     setInstrSelectedId(null);
     setInstrCarrierKey('');
     setInstrCarriers([]);
+    setInstrIsCollect(false);
+    setInstrFacturaFile(null);
+    setInstrGuiaFile(null);
+    setInstrWantsFactura(false);
+    setInstrPriceEstimate(null);
     setInstrLoading(true);
     setInstrCarriersLoading(true);
     const carrierServiceType = SHIPMENT_TYPE_TO_CARRIER[item.service_type] ?? null;
@@ -253,11 +311,14 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
 
   const handleSelectInstrAddress = (addr: ClientAddress) => {
     setInstrSelectedId(addr.id);
+    setInstrPriceEstimate(null);
     const serviceKey = instrShipment ? SHIPMENT_TYPE_TO_CARRIER[instrShipment.service_type] : null;
-    if (serviceKey && addr.carrier_config?.[serviceKey]) {
-      setInstrCarrierKey(addr.carrier_config[serviceKey]);
-    } else {
-      setInstrCarrierKey('');
+    const preselected = serviceKey && addr.carrier_config?.[serviceKey] ? addr.carrier_config[serviceKey] : '';
+    setInstrCarrierKey(preselected);
+    const carrier = instrCarriers.find((c: any) => c.carrier_key === preselected);
+    setInstrIsCollect(carrier?.allows_collect || false);
+    if (preselected === 'paquete_express' && instrShipment && addr.zip_code) {
+      fetchPqtxEstimate(addr.zip_code, instrShipment);
     }
   };
 
@@ -270,13 +331,37 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setInstrSaving(true);
     try {
       const serviceKey = SHIPMENT_TYPE_TO_CARRIER[instrShipment.service_type];
-      const body: any = { addressId: instrSelectedId };
-      if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
-      const res = await fetch(`${API_URL}/api/advisor/shipments/${instrShipment.uid}/instructions`, {
-        method: 'PUT',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      const hasFiles = instrFacturaFile || instrGuiaFile;
+      let res: Response;
+      if (hasFiles || instrIsCollect) {
+        const formData = new FormData();
+        formData.append('addressId', String(instrSelectedId));
+        if (instrCarrierKey && serviceKey) {
+          formData.append('carrierKey', instrCarrierKey);
+          formData.append('serviceKey', serviceKey);
+        }
+        formData.append('isCollect', String(instrIsCollect));
+        formData.append('wantsFacturaPaqueteria', String(instrWantsFactura));
+        if (instrFacturaFile) {
+          formData.append('factura', { uri: instrFacturaFile.uri, name: instrFacturaFile.name, type: instrFacturaFile.mimeType || 'application/octet-stream' } as any);
+        }
+        if (instrGuiaFile) {
+          formData.append('guiaExterna', { uri: instrGuiaFile.uri, name: instrGuiaFile.name, type: instrGuiaFile.mimeType || 'application/octet-stream' } as any);
+        }
+        res = await fetch(`${API_URL}/api/advisor/shipments/${instrShipment.uid}/instructions`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData,
+        });
+      } else {
+        const body: any = { addressId: instrSelectedId };
+        if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
+        res = await fetch(`${API_URL}/api/advisor/shipments/${instrShipment.uid}/instructions`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+      }
       if (!res.ok) throw new Error();
       setInstrModal(false);
       Alert.alert('Listo', 'Instrucciones asignadas correctamente');
@@ -628,7 +713,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                           return (
                             <TouchableOpacity
                               key={carrier.carrier_key}
-                              onPress={() => setInstrCarrierKey(isSelected ? '' : carrier.carrier_key)}
+                              onPress={() => handleSelectInstrCarrier(carrier)}
                               style={{
                                 width: 100, padding: 10, borderRadius: 10, alignItems: 'center', gap: 4,
                                 borderWidth: isSelected ? 2 : 1,
@@ -647,16 +732,80 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                                 {carrier.name}
                               </Text>
                               {carrier.price_label && (
-                                <Text style={{ fontSize: 10, color: carrier.price_label === 'GRATIS' ? '#4CAF50' : '#666', fontWeight: '600', textAlign: 'center' }}>
+                                <Text style={{ fontSize: 10, color: carrier.price_label === 'GRATIS' ? '#4CAF50' : carrier.allows_collect ? '#FF9800' : '#666', fontWeight: carrier.allows_collect ? '700' : '600', textAlign: 'center' }}>
                                   {carrier.price_label}
                                 </Text>
-                              )}
-                              {carrier.price_mxn != null && carrier.price_mxn > 0 && (
-                                <Text style={{ fontSize: 11, color: ORANGE, fontWeight: '700' }}>${carrier.price_mxn.toFixed(2)}</Text>
                               )}
                             </TouchableOpacity>
                           );
                         })}
+                      </View>
+                    )}
+
+                    {/* ── Estimado de costo (Paquete Express) ── */}
+                    {instrCarrierKey === 'paquete_express' && (instrPriceLoading || instrPriceEstimate) && (
+                      <View style={{ marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: '#EFF6FF', borderWidth: 1, borderColor: '#BFDBFE', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        {instrPriceLoading ? (
+                          <>
+                            <ActivityIndicator size="small" color="#1D4ED8" />
+                            <Text style={{ fontSize: 13, color: '#555' }}>Calculando costo estimado…</Text>
+                          </>
+                        ) : instrPriceEstimate ? (
+                          <>
+                            <Text style={{ fontSize: 20 }}>💰</Text>
+                            <View>
+                              <Text style={{ fontSize: 14, fontWeight: '700', color: '#1D4ED8' }}>
+                                Estimado: ${instrPriceEstimate.price.toFixed(2)} MXN
+                              </Text>
+                              {instrPriceEstimate.boxes > 1 && (
+                                <Text style={{ fontSize: 11, color: '#666' }}>${instrPriceEstimate.perBox.toFixed(2)}/caja × {instrPriceEstimate.boxes} cajas</Text>
+                              )}
+                              <Text style={{ fontSize: 11, color: '#888' }}>{instrPriceEstimate.days}</Text>
+                            </View>
+                          </>
+                        ) : null}
+                      </View>
+                    )}
+
+                    {/* ── Documentos para paquetería por cobrar ── */}
+                    {instrIsCollect && (
+                      <View style={{ marginTop: 14, padding: 14, borderRadius: 10, backgroundColor: '#FFFDE7', borderWidth: 1, borderColor: '#FFB74D' }}>
+                        <Text style={{ fontWeight: '700', fontSize: 13, color: ORANGE, marginBottom: 12 }}>📄 Documentos requeridos</Text>
+
+                        {/* Factura */}
+                        <Text style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>Factura del embarque</Text>
+                        <TouchableOpacity
+                          style={[styles.docPickerBtn, instrFacturaFile && styles.docPickerBtnDone]}
+                          onPress={() => pickDocument(setInstrFacturaFile)}
+                        >
+                          <Ionicons name="attach-outline" size={16} color={instrFacturaFile ? '#2E7D32' : '#888'} />
+                          <Text style={{ fontSize: 12, color: instrFacturaFile ? '#2E7D32' : '#888', flex: 1 }} numberOfLines={1}>
+                            {instrFacturaFile ? `✓ ${instrFacturaFile.name}` : 'Subir factura (PDF o imagen)'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {/* ¿Requiere factura de paquetería? */}
+                        <Text style={{ fontSize: 12, color: '#666', marginTop: 12, marginBottom: 6 }}>¿Requiere factura de la paquetería?</Text>
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <TouchableOpacity style={[styles.yesNoBtn, instrWantsFactura && styles.yesNoBtnActive]} onPress={() => setInstrWantsFactura(true)}>
+                            <Text style={[styles.yesNoBtnText, instrWantsFactura && { color: '#fff' }]}>Sí</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.yesNoBtn, !instrWantsFactura && { backgroundColor: '#666', borderColor: '#666' }]} onPress={() => setInstrWantsFactura(false)}>
+                            <Text style={[styles.yesNoBtnText, !instrWantsFactura && { color: '#fff' }]}>No</Text>
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Guía externa */}
+                        <Text style={{ fontSize: 12, color: '#666', marginTop: 12, marginBottom: 6 }}>Guía de paquetería (opcional)</Text>
+                        <TouchableOpacity
+                          style={[styles.docPickerBtn, instrGuiaFile && styles.docPickerBtnDone]}
+                          onPress={() => pickDocument(setInstrGuiaFile)}
+                        >
+                          <Ionicons name="attach-outline" size={16} color={instrGuiaFile ? '#2E7D32' : '#888'} />
+                          <Text style={{ fontSize: 12, color: instrGuiaFile ? '#2E7D32' : '#888', flex: 1 }} numberOfLines={1}>
+                            {instrGuiaFile ? `✓ ${instrGuiaFile.name}` : 'Subir guía (PDF o imagen)'}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     )}
                   </View>
@@ -879,4 +1028,9 @@ const styles = StyleSheet.create({
   detailChip: { backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: '#e0e0e0', minWidth: 70 },
   detailChipLabel: { fontSize: 10, color: '#888', fontWeight: '600', textTransform: 'uppercase' as const },
   detailChipValue: { fontSize: 13, color: '#222', fontWeight: '700', marginTop: 1 },
+  docPickerBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#ccc', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff' },
+  docPickerBtnDone: { borderColor: '#4CAF50', backgroundColor: '#F1F8F1' },
+  yesNoBtn: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: ORANGE },
+  yesNoBtnActive: { backgroundColor: ORANGE, borderColor: ORANGE },
+  yesNoBtnText: { fontSize: 13, fontWeight: '600', color: ORANGE },
 });
