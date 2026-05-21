@@ -372,7 +372,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
-    const { filter, search, clientId, page = '1', limit = '50', payment, instructions } = req.query as any;
+    const { filter, search, clientId, page = '1', limit = '50', payment, instructions, unidentified } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     // ── Build dynamic WHERE parts (applied to each sub-query) ──
@@ -549,12 +549,13 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
 
     const unionQuery = unionParts.join(' UNION ALL ');
 
-    // Outer filters on computed columns (client_paid, has_instructions)
+    // Outer filters on computed columns (client_paid, has_instructions, client_box_id)
     const outerConditions: string[] = [];
     if (payment === 'paid')    outerConditions.push('client_paid = true');
     if (payment === 'pending') outerConditions.push('client_paid = false AND monto > 0');
     if (instructions === 'yes') outerConditions.push('has_instructions = true');
     if (instructions === 'no')  outerConditions.push("has_instructions = false AND status != 'delivered'");
+    if (unidentified === 'true') outerConditions.push("(client_box_id IS NULL OR client_box_id = '') AND status != 'delivered'");
     const outerWhere = outerConditions.length > 0 ? `WHERE ${outerConditions.join(' AND ')}` : '';
 
     // Main data query with pagination

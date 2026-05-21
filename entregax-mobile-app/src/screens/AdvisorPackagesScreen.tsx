@@ -92,6 +92,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'pending'>(initFilters.payment);
   const [instructionsFilter, setInstructionsFilter] = useState<'all' | 'yes' | 'no'>(initFilters.instructions);
+  const [unidentifiedFilter, setUnidentifiedFilter] = useState(false);
   const [serviceFilter, setServiceFilter] = useState<string>('all');
   const [clientSearch, setClientSearch] = useState('');
   const [instrEnabled, setInstrEnabled] = useState(true);
@@ -101,6 +102,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [tempServiceFilter, setTempServiceFilter] = useState<string>('all');
   const [tempPaymentFilter, setTempPaymentFilter] = useState<'all' | 'paid' | 'pending'>('all');
   const [tempInstructionsFilter, setTempInstructionsFilter] = useState<'all' | 'yes' | 'no'>('all');
+  const [tempUnidentifiedFilter, setTempUnidentifiedFilter] = useState(false);
 
   // Selection mode
   const [selectionMode, setSelectionMode] = useState(false);
@@ -128,7 +130,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [instrGuiaFile, setInstrGuiaFile] = useState<{ uri: string; name: string; mimeType?: string } | null>(null);
   const [instrWantsFactura, setInstrWantsFactura] = useState(false);
 
-  const activeFilterCount = [serviceFilter, paymentFilter, instructionsFilter].filter(v => v !== 'all').length;
+  const activeFilterCount = [serviceFilter, paymentFilter, instructionsFilter].filter(v => v !== 'all').length + (unidentifiedFilter ? 1 : 0);
 
   const filteredShipments = clientSearch.trim()
     ? shipments.filter(s => {
@@ -143,8 +145,9 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     if (paymentFilter !== 'all') url += `&payment=${paymentFilter}`;
     if (instructionsFilter !== 'all') url += `&instructions=${instructionsFilter}`;
     if (serviceFilter !== 'all') url += `&serviceType=${serviceFilter}`;
+    if (unidentifiedFilter) url += `&unidentified=true`;
     return url;
-  }, [statusFilter, paymentFilter, instructionsFilter, serviceFilter]);
+  }, [statusFilter, paymentFilter, instructionsFilter, serviceFilter, unidentifiedFilter]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -193,6 +196,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setTempServiceFilter(serviceFilter);
     setTempPaymentFilter(paymentFilter);
     setTempInstructionsFilter(instructionsFilter);
+    setTempUnidentifiedFilter(unidentifiedFilter);
     setFilterModalVisible(true);
   };
 
@@ -200,6 +204,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setServiceFilter(tempServiceFilter);
     setPaymentFilter(tempPaymentFilter);
     setInstructionsFilter(tempInstructionsFilter);
+    setUnidentifiedFilter(tempUnidentifiedFilter);
     setFilterModalVisible(false);
   };
 
@@ -207,6 +212,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setTempServiceFilter('all');
     setTempPaymentFilter('all');
     setTempInstructionsFilter('all');
+    setTempUnidentifiedFilter(false);
   };
 
   const handleLongPress = (item: Shipment) => {
@@ -510,9 +516,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
               paymentFilter === 'pending' && 'Pendiente',
               instructionsFilter === 'yes' && 'Con instrucciones',
               instructionsFilter === 'no' && 'Sin instrucciones',
+              unidentifiedFilter && 'Sin identificar',
             ].filter(Boolean).join(' · ')}
           </Text>
-          <TouchableOpacity onPress={() => { setServiceFilter('all'); setPaymentFilter('all'); setInstructionsFilter('all'); }}>
+          <TouchableOpacity onPress={() => { setServiceFilter('all'); setPaymentFilter('all'); setInstructionsFilter('all'); setUnidentifiedFilter(false); }}>
             <Ionicons name="close-circle" size={14} color="#999" />
           </TouchableOpacity>
         </View>
@@ -589,7 +596,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
             <View style={styles.filterHandle} />
             <View style={styles.filterSheetHeader}>
               <Text style={styles.filterSheetTitle}>Filtros</Text>
-              {(tempServiceFilter !== 'all' || tempPaymentFilter !== 'all' || tempInstructionsFilter !== 'all') && (
+              {(tempServiceFilter !== 'all' || tempPaymentFilter !== 'all' || tempInstructionsFilter !== 'all' || tempUnidentifiedFilter) && (
                 <TouchableOpacity onPress={clearFilters}>
                   <Text style={styles.filterClearText}>Limpiar</Text>
                 </TouchableOpacity>
@@ -660,6 +667,23 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                   </TouchableOpacity>
                 );
               })}
+            </View>
+
+            {/* Identificación */}
+            <Text style={styles.filterSectionTitle}>Identificación</Text>
+            <View style={styles.filterChipsWrap}>
+              <TouchableOpacity
+                style={[styles.chip, !tempUnidentifiedFilter && styles.chipActive]}
+                onPress={() => setTempUnidentifiedFilter(false)}
+              >
+                <Text style={[styles.chipText, !tempUnidentifiedFilter && styles.chipTextActive]}>Todos</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.chip, tempUnidentifiedFilter && styles.chipActive]}
+                onPress={() => setTempUnidentifiedFilter(true)}
+              >
+                <Text style={[styles.chipText, tempUnidentifiedFilter && styles.chipTextActive]}>🔍 Sin identificar</Text>
+              </TouchableOpacity>
             </View>
 
             <TouchableOpacity style={styles.filterApplyBtn} onPress={applyFilters}>
