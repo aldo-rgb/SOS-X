@@ -48,6 +48,7 @@ interface UserProfile {
   email: string;
   phone: string | null;
   box_id: string;
+  referral_code: string | null;
   role: string;
   profile_photo_url: string | null;
   created_at: string;
@@ -328,9 +329,11 @@ const MyProfilePage = ({ onBack }: MyProfilePageProps) => {
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
           {roleLabels[profile.role] || profile.role}
         </Typography>
-        {profile.box_id && (
+        {(['advisor', 'asesor', 'asesor_lider', 'sub_advisor'].includes(profile.role) ? profile.referral_code : profile.box_id) && (
           <Typography variant="caption" sx={{ color: ORANGE, mt: 0.5, bgcolor: `${ORANGE}10`, px: 1.5, py: 0.3, borderRadius: 1 }}>
-            📦 {profile.box_id}
+            {['advisor', 'asesor', 'asesor_lider', 'sub_advisor'].includes(profile.role)
+              ? `🔗 ${profile.referral_code}`
+              : `📦 ${profile.box_id}`}
           </Typography>
         )}
 

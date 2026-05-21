@@ -687,7 +687,7 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
         const userId = req.user?.userId;
         
         const userQuery = await pool.query(
-            `SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.warehouse_location, u.created_at,
+            `SELECT u.id, u.full_name, u.email, u.box_id, u.referral_code, u.role, u.warehouse_location, u.created_at,
                     u.is_verified, u.verification_status, u.is_employee_onboarded, u.profile_photo_url,
                     u.phone, u.phone_verified, u.rfc, u.referred_by_id, u.privacy_accepted_at,
                     u.gex_auto_enabled,
