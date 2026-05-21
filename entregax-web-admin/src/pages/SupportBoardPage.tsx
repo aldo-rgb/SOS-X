@@ -264,6 +264,8 @@ export default function SupportBoardPage() {
   };
 
   const canSeeDept = (deptName: string): boolean => {
+    // customer_service ve todos los departamentos
+    if (currentUserRole === 'customer_service') return true;
     if (isOperaciones) {
       // Si ya tenemos la sucursal: solo su CEDIS
       if (currentUserCedisDept) return deptName === currentUserCedisDept;
@@ -329,10 +331,10 @@ export default function SupportBoardPage() {
     return () => clearInterval(interval);
   }, [loadTickets, loadStats, loadDepartments]);
 
-  // Preseleccionar "Atención a Cliente" para agentes de atención al cliente
+  // counter_staff arranca en "Atención a Cliente"; customer_service arranca en "Todos"
   useEffect(() => {
     if (defaultDeptSet.current || departments.length === 0) return;
-    if (['customer_service', 'counter_staff'].includes(currentUserRole)) {
+    if (currentUserRole === 'counter_staff') {
       const atencion = departments.find(d => d.name === 'Atención a Cliente');
       if (atencion) { setDeptFilter(atencion.id); defaultDeptSet.current = true; }
     }
