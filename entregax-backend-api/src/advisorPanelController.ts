@@ -1554,7 +1554,8 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
       await pool.query(
         `UPDATE packages SET
           assigned_address_id = $1,
-          delivery_carrier = $2,
+          carrier = $2,
+          national_carrier = $2,
           is_collect = $3,
           collect_carrier = $4,
           wants_factura_paqueteria = $5
