@@ -300,7 +300,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       </ScrollView>
 
       {/* Payment filter chips */}
-      <View style={styles.filtersRow}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filtersRow} contentContainerStyle={styles.filtersRowContent}>
         {(['all', 'paid', 'pending'] as const).map(val => {
           const label = val === 'all' ? 'Todos' : val === 'paid' ? '✅ Pagado' : '🔴 Pendiente';
           const active = paymentFilter === val;
@@ -314,10 +314,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
 
       {/* Instructions filter chips */}
-      <View style={[styles.filtersRow, { borderTopWidth: 1, borderTopColor: '#f0f0f0' }]}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.filtersRow, { borderTopWidth: 1, borderTopColor: '#f0f0f0' }]} contentContainerStyle={styles.filtersRowContent}>
         {(['all', 'yes', 'no'] as const).map(val => {
           const label = val === 'all' ? 'Todos' : val === 'yes' ? '✅ Con instrucciones' : '⚠️ Sin instrucciones';
           const active = instructionsFilter === val;
@@ -331,7 +331,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
             </TouchableOpacity>
           );
         })}
-      </View>
+      </ScrollView>
 
       {loading ? (
         <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
@@ -527,12 +527,14 @@ const styles = StyleSheet.create({
   countBadge: { backgroundColor: ORANGE, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 2 },
   countText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   filtersRow: {
-    flexDirection: 'row',
     backgroundColor: '#fff',
-    paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  filtersRowContent: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
     gap: 6,
-    flexWrap: 'wrap',
+    alignItems: 'center',
   },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#f5f5f5' },
   chipActive: { backgroundColor: ORANGE },
