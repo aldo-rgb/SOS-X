@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../services/api';
+import { api, API_URL } from '../services/api';
 
 const BLUE = '#3F51B5';
 const BLACK = '#111';
@@ -132,13 +132,19 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     if (!deptName) return;
     (async () => {
       try {
-        const res = await api.get('/support/departments', {
+        const res = await api.get('/api/support/departments', {
           headers: { Authorization: `Bearer ${token}` },
         });
         const depts: Array<{ id: number; name: string }> = Array.isArray(res.data) ? res.data : [];
         const found = depts.find(d => d.name === deptName);
-        if (found) setDeptId(found.id);
-      } catch {}
+        if (found) {
+          setDeptId(found.id);
+        } else {
+          setLoading(false); // departamento no encontrado → salir del spinner
+        }
+      } catch {
+        setLoading(false);
+      }
     })();
   }, [deptName, token]);
 
@@ -146,11 +152,10 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     if (!deptId) return;
     if (showLoader) setLoading(true);
     try {
-      const params: Record<string, string> = { department_id: String(deptId), limit: '100' };
-      if (filter !== 'open') params.status = filter;
-      const res = await api.get('/admin/support/tickets', {
+      let url = `/api/admin/support/tickets?department_id=${deptId}&limit=100`;
+      if (filter !== 'open') url += `&status=${filter}`;
+      const res = await api.get(url, {
         headers: { Authorization: `Bearer ${token}` },
-        params,
       });
       const all: Ticket[] = Array.isArray(res.data) ? res.data : (res.data.tickets || []);
       const filtered = filter === 'open'
@@ -181,7 +186,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     setShowDetail(true);
     setDetailLoading(true);
     try {
-      const res = await api.get(`/admin/support/ticket/${ticket.id}/messages`, {
+      const res = await api.get(`/api/admin/support/ticket/${ticket.id}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const msgs: TicketMessage[] = Array.isArray(res.data) ? res.data : (res.data.messages || []);
@@ -198,14 +203,14 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     if (!replyText.trim() || !selectedTicket) return;
     setSending(true);
     try {
-      await api.post(`/admin/support/ticket/${selectedTicket.id}/reply`, {
+      await api.post(`/api/admin/support/ticket/${selectedTicket.id}/reply`, {
         message: replyText.trim(),
       }, {
         headers: { Authorization: `Bearer ${token}` },
       });
       setReplyText('');
       // Recargar mensajes
-      const res = await api.get(`/admin/support/ticket/${selectedTicket.id}/messages`, {
+      const res = await api.get(`/api/admin/support/ticket/${selectedTicket.id}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       const msgs: TicketMessage[] = Array.isArray(res.data) ? res.data : (res.data.messages || []);
@@ -226,8 +231,9 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
         text: 'Resolver',
         onPress: async () => {
           try {
-            await api.put(`/admin/support/ticket/${selectedTicket.id}/resolve`, {}, {
-              headers: { Authorization: `Bearer ${token}` },
+            await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/resolve`, {
+              method: 'PUT',
+              headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
             });
             setShowDetail(false);
             loadTickets(false);
