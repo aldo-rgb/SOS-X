@@ -117,6 +117,9 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [instrCarriers, setInstrCarriers] = useState<any[]>([]);
   const [instrCarrierKey, setInstrCarrierKey] = useState<string>('');
   const [instrCarriersLoading, setInstrCarriersLoading] = useState(false);
+  // Bulk selection context for the modal
+  const [instrBulkShipments, setInstrBulkShipments] = useState<Shipment[]>([]);
+
   // Price estimate & COD documents
   const [instrPriceEstimate, setInstrPriceEstimate] = useState<{ price: number; perBox: number; boxes: number; days: string } | null>(null);
   const [instrPriceLoading, setInstrPriceLoading] = useState(false);
@@ -238,11 +241,13 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setSelectionServiceType(null);
   };
 
-  const fetchPqtxEstimate = async (zipCode: string, shipment: Shipment) => {
+  const fetchPqtxEstimate = async (zipCode: string, shipment: Shipment, bulkCount?: number) => {
     setInstrPriceLoading(true);
     setInstrPriceEstimate(null);
     try {
-      const boxes = (shipment.is_master && shipment.children_count > 0) ? shipment.children_count + 1 : 1;
+      const boxes = bulkCount && bulkCount > 1
+        ? bulkCount
+        : (shipment.is_master && shipment.children_count > 0) ? shipment.children_count + 1 : 1;
       const res = await fetch(`${API_URL}/api/shipping/pqtx-quote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -279,12 +284,14 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     setInstrPriceEstimate(null);
     if (newKey === 'paquete_express' && instrShipment) {
       const addr = instrAddresses.find(a => a.id === instrSelectedId);
-      if (addr?.zip_code) fetchPqtxEstimate(addr.zip_code, instrShipment);
+      const bulkCount = instrBulkShipments.length > 1 ? instrBulkShipments.length : undefined;
+      if (addr?.zip_code) fetchPqtxEstimate(addr.zip_code, instrShipment, bulkCount);
     }
   };
 
-  const openInstrModal = async (item: Shipment) => {
+  const openInstrModal = async (item: Shipment, bulk: Shipment[] = []) => {
     setInstrShipment(item);
+    setInstrBulkShipments(bulk);
     setInstrModal(true);
     setInstrSelectedId(null);
     setInstrCarrierKey('');
@@ -327,7 +334,8 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     const carrier = instrCarriers.find((c: any) => c.carrier_key === preselected);
     setInstrIsCollect(carrier?.allows_collect || false);
     if (preselected === 'paquete_express' && instrShipment && addr.zip_code) {
-      fetchPqtxEstimate(addr.zip_code, instrShipment);
+      const bulkCount = instrBulkShipments.length > 1 ? instrBulkShipments.length : undefined;
+      fetchPqtxEstimate(addr.zip_code, instrShipment, bulkCount);
     }
   };
 
@@ -546,8 +554,9 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
             <TouchableOpacity
               style={styles.selectionActionBtn}
               onPress={() => {
-                const first = shipments.find(s => s.uid === selectedUids[0]);
-                if (first) openInstrModal(first);
+                const bulk = shipments.filter(s => selectedUids.includes(s.uid));
+                const first = bulk[0];
+                if (first) openInstrModal(first, bulk);
               }}
             >
               <Ionicons name="pencil-outline" size={14} color="#fff" style={{ marginRight: 4 }} />
@@ -656,9 +665,20 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           <View style={styles.modalHeader}>
             <View style={{ flex: 1 }}>
               <Text style={styles.modalTitle}>📍 Asignar Instrucciones</Text>
-              <Text style={styles.modalSubtitle} numberOfLines={1}>
-                {instrShipment?.tracking_number || instrShipment?.uid} · {instrShipment?.client_name}
-              </Text>
+              {instrBulkShipments.length > 1 ? (
+                <>
+                  <Text style={styles.modalSubtitle}>
+                    {instrBulkShipments.length} cajas · {instrShipment?.client_name}
+                  </Text>
+                  <Text style={[styles.modalSubtitle, { fontSize: 11, marginTop: 2 }]} numberOfLines={2}>
+                    {instrBulkShipments.map(s => s.tracking_number || s.uid).join(' · ')}
+                  </Text>
+                </>
+              ) : (
+                <Text style={styles.modalSubtitle} numberOfLines={1}>
+                  {instrShipment?.tracking_number || instrShipment?.uid} · {instrShipment?.client_name}
+                </Text>
+              )}
             </View>
             <TouchableOpacity onPress={() => setInstrModal(false)} style={styles.modalClose}>
               <Ionicons name="close" size={24} color="#fff" />
@@ -679,16 +699,21 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
               <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
 
                 {/* ── Detalles del embarque ── */}
-                {instrShipment && (instrShipment.weight > 0 || instrShipment.children_count > 0 || instrShipment.goods_name) && (
+                {instrShipment && (instrShipment.weight > 0 || instrShipment.children_count > 0 || instrShipment.goods_name || instrBulkShipments.length > 1) && (
                   <View style={{ backgroundColor: '#F8F8F8', borderRadius: 10, padding: 12, borderLeftWidth: 3, borderLeftColor: ORANGE }}>
                     <Text style={{ fontWeight: '700', fontSize: 13, color: '#333', marginBottom: 6 }}>📦 Detalles del embarque</Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                      {instrShipment.is_master && instrShipment.children_count > 0 && (
+                      {instrBulkShipments.length > 1 ? (
+                        <View style={styles.detailChip}>
+                          <Text style={styles.detailChipLabel}>Cajas</Text>
+                          <Text style={styles.detailChipValue}>{instrBulkShipments.length}</Text>
+                        </View>
+                      ) : instrShipment.is_master && instrShipment.children_count > 0 ? (
                         <View style={styles.detailChip}>
                           <Text style={styles.detailChipLabel}>Cajas</Text>
                           <Text style={styles.detailChipValue}>{instrShipment.children_count + 1}</Text>
                         </View>
-                      )}
+                      ) : null}
                       {instrShipment.weight > 0 && (
                         <View style={styles.detailChip}>
                           <Text style={styles.detailChipLabel}>Peso</Text>
