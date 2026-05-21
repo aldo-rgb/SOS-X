@@ -102,13 +102,30 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   const [sending, setSending] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Determinar el dpto CEDIS del usuario
+  // Determinar el dpto CEDIS del usuario (con fallback al perfil si no hay branch en el objeto)
   useEffect(() => {
-    const code = String(user.branch_code || user.branchCode || '');
-    const name = String(user.branch_name || user.branchName || '');
-    const cedis = getCedisDeptName(code, name);
-    setDeptName(cedis);
-  }, [user]);
+    const detect = async () => {
+      let code = String(user.branch_code || user.branchCode || '');
+      let name = String(user.branch_name || user.branchName || '');
+
+      // Si no hay branch info en el user, pedirla al perfil
+      if (!code && !name) {
+        try {
+          const res = await api.get('/api/auth/profile', {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const profile = res.data?.user || res.data || {};
+          code = String(profile.branch_code || '');
+          name = String(profile.branch_name || '');
+        } catch {}
+      }
+
+      const cedis = getCedisDeptName(code, name);
+      setDeptName(cedis);
+      if (!cedis) setLoading(false); // sin CEDIS → salir del spinner
+    };
+    detect();
+  }, [user, token]);
 
   // Cargar el ID del departamento una vez que tenemos el nombre
   useEffect(() => {

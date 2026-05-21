@@ -88,6 +88,9 @@ export default function BootstrapScreen({ navigation }: Props) {
           phone: fresh.phone || userData.phone,
           isVerified: fresh.isVerified ?? userData.isVerified,
           verificationStatus: fresh.verificationStatus || userData.verificationStatus,
+          branch_id: fresh.branch_id ?? userData.branch_id,
+          branch_code: fresh.branch_code || userData.branch_code,
+          branch_name: fresh.branch_name || userData.branch_name,
         };
         routeByRole(merged, token);
       } catch (err: any) {
