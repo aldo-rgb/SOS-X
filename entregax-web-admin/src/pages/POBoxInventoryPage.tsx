@@ -110,23 +110,18 @@ export default function POBoxInventoryPage({ onBack }: Props) {
 
     useEffect(() => { load(); }, [load]);
 
-    // Stats globales (sobre el set completo, ignoran filtros)
+    // Stats globales — suma cajas (totalBoxes) no guías
     const stats = useMemo(() => {
-        const s = {
-            total: packages.length,
-            received: 0,
-            in_transit: 0,
-            received_mty: 0,
-            ready_pickup: 0,
-            delivered: 0,
-        };
+        const s = { total: 0, received: 0, in_transit: 0, received_mty: 0, ready_pickup: 0, delivered: 0 };
         for (const p of packages) {
+            const boxes = (p.isMaster && p.totalBoxes && p.totalBoxes > 1) ? p.totalBoxes : 1;
+            s.total += boxes;
             switch (p.status) {
-                case 'received': s.received++; break;
-                case 'in_transit': s.in_transit++; break;
-                case 'received_mty': s.received_mty++; break;
-                case 'ready_pickup': s.ready_pickup++; break;
-                case 'delivered': s.delivered++; break;
+                case 'received':     s.received     += boxes; break;
+                case 'in_transit':   s.in_transit   += boxes; break;
+                case 'received_mty': s.received_mty += boxes; break;
+                case 'ready_pickup': s.ready_pickup  += boxes; break;
+                case 'delivered':    s.delivered    += boxes; break;
             }
         }
         return s;
