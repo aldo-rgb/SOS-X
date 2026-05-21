@@ -11,7 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_URL } from '../services/api';
+
+const ARCHIVED_KEY = 'advisor_archived_notif_ids';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111';
@@ -93,6 +96,19 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
   const [archivedIds, setArchivedIds] = useState<Set<number>>(new Set());
+
+  // Load persisted archived IDs on mount
+  useEffect(() => {
+    AsyncStorage.getItem(ARCHIVED_KEY)
+      .then(val => { if (val) setArchivedIds(new Set(JSON.parse(val) as number[])); })
+      .catch(() => {});
+  }, []);
+
+  // Persist archived IDs whenever they change
+  useEffect(() => {
+    if (archivedIds.size === 0) return;
+    AsyncStorage.setItem(ARCHIVED_KEY, JSON.stringify([...archivedIds])).catch(() => {});
+  }, [archivedIds]);
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -423,6 +439,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
 
       {/* Notifications List */}
       <FlatList
+        style={styles.notifList}
         data={filteredNotifications}
         keyExtractor={(item, index) => `${item.source}-${item.id}-${index}`}
         renderItem={renderNotification}
@@ -513,9 +530,13 @@ const styles = StyleSheet.create({
   tabTextActive: {
     color: '#fff',
   },
+  notifList: {
+    flex: 1,
+  },
   listContent: {
     padding: 12,
     paddingBottom: 40,
+    flexGrow: 1,
   },
   notifCard: {
     flexDirection: 'row',
@@ -592,8 +613,10 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   emptyState: {
+    flex: 1,
     alignItems: 'center',
-    paddingTop: 60,
+    justifyContent: 'center',
+    paddingTop: 40,
     paddingHorizontal: 40,
   },
   emptyTitle: {
