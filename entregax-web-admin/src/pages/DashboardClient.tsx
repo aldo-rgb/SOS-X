@@ -562,6 +562,8 @@ export default function DashboardClient() {
   const [supportMessage, setSupportMessage] = useState('');
   const [supportCategory, setSupportCategory] = useState('');
   const [supportTracking, setSupportTracking] = useState('');
+  const [supportClientNumber, setSupportClientNumber] = useState('');
+  const [supportCedis, setSupportCedis] = useState('');
   const [supportImages, setSupportImages] = useState<{ file: File; preview: string }[]>([]);
   const [trackingValidation, setTrackingValidation] = useState<{ status: 'idle' | 'validating' | 'valid' | 'invalid'; message: string }>({ status: 'idle', message: '' });
   
@@ -2921,12 +2923,15 @@ export default function DashboardClient() {
     { value: 'missing', label: t('cd.support.categories.missing') },
     { value: 'warranty', label: t('cd.support.categories.warranty') },
     { value: 'compensation', label: t('cd.support.categories.compensation') },
+    { value: 'instructionChange', label: 'Cambio de instrucciones' },
     { value: 'accounting', label: t('cd.support.categories.accounting') },
     { value: 'systemError', label: t('cd.support.categories.systemError') },
     { value: 'other', label: t('cd.support.categories.other') },
   ];
 
   const CATEGORIES_NO_TRACKING = ['accounting', 'systemError', 'other'];
+  const CATEGORIES_EXTRA_FIELDS = ['tracking', 'delay', 'missing', 'warranty', 'compensation', 'instructionChange'];
+  const CEDIS_OPTIONS = ['MTY', 'CDMX', 'USA', 'Otro'];
 
   // Validar formulario de soporte
   const isSupportFormValid = () => {
@@ -2978,6 +2983,12 @@ export default function DashboardClient() {
       if (supportTracking.trim()) {
         formData.append('trackingNumber', supportTracking.trim());
       }
+      if (supportClientNumber.trim()) {
+        formData.append('clientNumber', supportClientNumber.trim());
+      }
+      if (supportCedis.trim()) {
+        formData.append('cedisIncidence', supportCedis.trim());
+      }
       formData.append('escalateDirectly', 'true');
       
       // Agregar imágenes
@@ -2997,6 +3008,8 @@ export default function DashboardClient() {
       setSupportMessage('');
       setSupportCategory('');
       setSupportTracking('');
+      setSupportClientNumber('');
+      setSupportCedis('');
       setSupportImages([]);
       setTrackingValidation({ status: 'idle', message: '' });
       setSupportOpen(false);
@@ -11247,6 +11260,38 @@ export default function DashboardClient() {
                 }}
                 sx={{ mb: 2 }}
               />
+            </>
+          )}
+
+          {/* Campos extra: Número de cliente y Cedis de incidencia */}
+          {CATEGORIES_EXTRA_FIELDS.includes(supportCategory) && (
+            <>
+              <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                Número de cliente <Typography component="span" variant="caption" color="text.secondary">(Opcional)</Typography>
+              </Typography>
+              <TextField
+                fullWidth
+                placeholder="Ej: CLI-001234"
+                value={supportClientNumber}
+                onChange={(e) => setSupportClientNumber(e.target.value)}
+                sx={{ mb: 2 }}
+              />
+
+              <Typography variant="body2" fontWeight="bold" sx={{ mb: 1 }}>
+                Cedis de incidencia <Typography component="span" variant="caption" color="text.secondary">(Opcional)</Typography>
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', mb: 2 }}>
+                {CEDIS_OPTIONS.map((opt) => (
+                  <Chip
+                    key={opt}
+                    label={opt}
+                    onClick={() => setSupportCedis(supportCedis === opt ? '' : opt)}
+                    variant={supportCedis === opt ? 'filled' : 'outlined'}
+                    color={supportCedis === opt ? 'primary' : 'default'}
+                    sx={{ cursor: 'pointer' }}
+                  />
+                ))}
+              </Box>
             </>
           )}
 

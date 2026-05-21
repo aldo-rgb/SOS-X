@@ -83,6 +83,8 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
   const [ticketMessage, setTicketMessage] = useState('');
   const [ticketCategory, setTicketCategory] = useState('');
   const [ticketTracking, setTicketTracking] = useState('');
+  const [ticketClientNumber, setTicketClientNumber] = useState('');
+  const [ticketCedis, setTicketCedis] = useState('');
   const [ticketImages, setTicketImages] = useState<{ uri: string; name: string; type: string }[]>([]);
   const [trackingValidation, setTrackingValidation] = useState<{ status: 'idle' | 'validating' | 'valid' | 'invalid'; message: string }>({ status: 'idle', message: '' });
   const [loading, setLoading] = useState(false);
@@ -129,6 +131,7 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
     { value: 'missing', label: t('helpCenter.categories.missing') },
     { value: 'warranty', label: t('helpCenter.categories.warranty') },
     { value: 'compensation', label: t('helpCenter.categories.compensation') },
+    { value: 'instructionChange', label: 'Cambio de instrucciones' },
     { value: 'accounting', label: t('helpCenter.categories.accounting') },
     { value: 'systemError', label: t('helpCenter.categories.systemError') },
     { value: 'other', label: t('helpCenter.categories.other') },
@@ -138,6 +141,12 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
   const NO_TRACKING_CATEGORIES = ['accounting', 'systemError', 'other'];
   const isTrackingHidden = NO_TRACKING_CATEGORIES.includes(ticketCategory);
   const isTrackingRequired = ticketCategory !== '' && !isTrackingHidden;
+
+  // Categorías que muestran campos extra: Número de cliente y Cedis de incidencia
+  const EXTRA_FIELDS_CATEGORIES = ['tracking', 'delay', 'missing', 'warranty', 'compensation', 'instructionChange'];
+  const showExtraFields = EXTRA_FIELDS_CATEGORIES.includes(ticketCategory);
+
+  const CEDIS_OPTIONS = ['MTY', 'CDMX', 'USA', 'Otro'];
 
   // Opción 1: Hablar ahora (Asesor Virtual / AI)
   const handleTalkNow = () => {
@@ -298,6 +307,12 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
       formData.append('category', ticketCategory);
       if (ticketTracking.trim()) {
         formData.append('trackingNumber', ticketTracking.trim());
+      }
+      if (ticketClientNumber.trim()) {
+        formData.append('clientNumber', ticketClientNumber.trim());
+      }
+      if (ticketCedis.trim()) {
+        formData.append('cedisIncidence', ticketCedis.trim());
       }
       formData.append('escalateDirectly', 'true');
       
@@ -562,6 +577,39 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
                       {trackingValidation.status === 'validating' ? '⏳ Verificando guía...' : trackingValidation.message}
                     </Text>
                   )}
+                </>
+              )}
+
+              {/* Campos extra: Número de cliente y Cedis de incidencia */}
+              {showExtraFields && (
+                <>
+                  <Text style={styles.modalLabel}>Número de cliente <Text style={{ color: '#999', fontWeight: '400' }}>(Opcional)</Text></Text>
+                  <RNTextInput
+                    style={styles.textInput}
+                    placeholder="Ej: CLI-001234"
+                    placeholderTextColor="#999"
+                    value={ticketClientNumber}
+                    onChangeText={setTicketClientNumber}
+                    autoCapitalize="characters"
+                  />
+
+                  <Text style={styles.modalLabel}>Cedis de incidencia <Text style={{ color: '#999', fontWeight: '400' }}>(Opcional)</Text></Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                    {CEDIS_OPTIONS.map((opt) => (
+                      <TouchableOpacity
+                        key={opt}
+                        onPress={() => setTicketCedis(ticketCedis === opt ? '' : opt)}
+                        style={[
+                          styles.categoryChip,
+                          ticketCedis === opt && styles.categoryChipActive,
+                        ]}
+                      >
+                        <Text style={[styles.categoryChipText, ticketCedis === opt && styles.categoryChipTextActive]}>
+                          {opt}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
                 </>
               )}
 
