@@ -5332,10 +5332,35 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
       ]
     );
     await client.query('COMMIT');
+
+    const savedTracking = r.rows[0].tracking_internal;
+
+    // Notificar a asesores cuando se recibe una guía PO Box sin cliente identificado
+    if (!user) {
+      const notifTitle = '📦 Guía sin identificar';
+      const notifBody = `${savedTracking} — Sin cliente asignado`;
+      const notifData = { screen: 'AdvisorPackages', filter: 'unidentified', tracking: savedTracking };
+
+      pool.query(
+        `SELECT id FROM users WHERE role IN ('asesor','sub_advisor','advisor')`
+      ).then(async (nr: any) => {
+        const { createCustomNotification } = await import('./notificationController');
+        await Promise.all(nr.rows.map((row: any) =>
+          createCustomNotification(row.id, notifTitle, notifBody, 'info', 'search', notifData)
+        ));
+      }).catch(() => {});
+
+      import('./pushService').then(({ sendPushToRole }) => {
+        sendPushToRole(['asesor', 'sub_advisor', 'advisor'], {
+          title: notifTitle, body: notifBody, data: notifData,
+        }).catch(() => {});
+      }).catch(() => {});
+    }
+
     return res.status(201).json({
       success: true,
       masterId: r.rows[0].id,
-      masterTracking: r.rows[0].tracking_internal,
+      masterTracking: savedTracking,
       totalBoxes: r.rows[0].total_boxes,
       isSingleBox,
       isIndividual: r.rows[0].is_master === false,

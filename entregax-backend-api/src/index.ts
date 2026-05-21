@@ -692,6 +692,30 @@ import {
   getAnticiposStats
 } from './anticiposController';
 import {
+  getProveedoresTransporte,
+  createProveedorTransporte,
+  updateProveedorTransporte,
+  getBolsasTransporte,
+  createBolsaTransporte,
+  deleteBolsaTransporte,
+  getReferenciasByBolsaTransporte,
+  getTransporteByContainer,
+  getReferenciasValidasTransporte,
+  getStatsTransporte
+} from './transporteController';
+import {
+  getProveedoresDemora,
+  createProveedorDemora,
+  updateProveedorDemora,
+  getBolsasDemora,
+  createBolsaDemora,
+  deleteBolsaDemora,
+  getReferenciasByBolsaDemora,
+  getDemoraByContainer,
+  getReferenciasValidasDemora,
+  getStatsDemora
+} from './demoraController';
+import {
   // IA Extraction
   extractLogDataLcl,
   extractBlDataFcl,
@@ -861,7 +885,10 @@ import {
   listAssignableDrivers as pcListDrivers,
   listBranchesWithBalance as pcListBranches,
   getPettyCashStats as pcGetStats,
-  getCategories as pcGetCategories
+  getCategories as pcGetCategories,
+  listRouteBlocks as pcListRouteBlocks,
+  createRouteBlock as pcCreateRouteBlock,
+  finalizeRouteBlock as pcFinalizeRouteBlock,
 } from './pettyCashController';
 import {
   getWalletStatus,
@@ -2090,6 +2117,9 @@ app.get('/api/petty-cash/my-advances', authenticateToken, pcListMyAdvances);
 app.post('/api/petty-cash/advances/:id/accept', authenticateToken, pcAcceptAdvance);
 app.post('/api/petty-cash/expenses', authenticateToken, pcExpenseUpload, handlePettyCashExpenseUpload, pcRegisterExpense);
 app.post('/api/petty-cash/branch-expenses', authenticateToken, requireRole(...PCASH_ADMIN_ROLES), pcExpenseUpload, handlePettyCashExpenseUpload, pcRegisterBranchExpense);
+app.get('/api/petty-cash/route-blocks', authenticateToken, pcListRouteBlocks);
+app.post('/api/petty-cash/route-blocks', authenticateToken, pcCreateRouteBlock);
+app.post('/api/petty-cash/route-blocks/:id/finalize', authenticateToken, pcFinalizeRouteBlock);
 
 
 // --- RUTAS DE ASESORES ---
@@ -4953,6 +4983,38 @@ app.delete('/api/anticipos/asignaciones/:id/revertir', authenticateToken, requir
 
 // Estadísticas de Anticipos
 app.get('/api/anticipos/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAnticiposStats);
+
+// ========== MÓDULO CONTROL DE TRANSPORTES ==========
+const transporteUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.get('/api/transporte/proveedores', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProveedoresTransporte);
+app.post('/api/transporte/proveedores', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createProveedorTransporte);
+app.put('/api/transporte/proveedores/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateProveedorTransporte);
+
+app.get('/api/transporte/bolsas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBolsasTransporte);
+app.post('/api/transporte/bolsas', authenticateToken, requireMinLevel(ROLES.DIRECTOR), transporteUpload.fields([{ name: 'comprobante', maxCount: 1 }, { name: 'factura', maxCount: 1 }]), createBolsaTransporte);
+app.delete('/api/transporte/bolsas/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBolsaTransporte);
+app.get('/api/transporte/bolsas/:bolsaId/referencias', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getReferenciasByBolsaTransporte);
+
+app.get('/api/transporte/referencias/validas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getReferenciasValidasTransporte);
+app.get('/api/transporte/container/:containerId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getTransporteByContainer);
+app.get('/api/transporte/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getStatsTransporte);
+
+// ========== MÓDULO CONTROL DE DEMORAS ==========
+const demoraUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+app.get('/api/demora/proveedores', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProveedoresDemora);
+app.post('/api/demora/proveedores', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createProveedorDemora);
+app.put('/api/demora/proveedores/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateProveedorDemora);
+
+app.get('/api/demora/bolsas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBolsasDemora);
+app.post('/api/demora/bolsas', authenticateToken, requireMinLevel(ROLES.DIRECTOR), demoraUpload.fields([{ name: 'comprobante', maxCount: 1 }, { name: 'factura', maxCount: 1 }]), createBolsaDemora);
+app.delete('/api/demora/bolsas/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteBolsaDemora);
+app.get('/api/demora/bolsas/:bolsaId/referencias', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getReferenciasByBolsaDemora);
+
+app.get('/api/demora/referencias/validas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getReferenciasValidasDemora);
+app.get('/api/demora/container/:containerId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getDemoraByContainer);
+app.get('/api/demora/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getStatsDemora);
 
 // ========== MÓDULO MARÍTIMO CON IA (Nuevo Panel Bodega) ==========
 
@@ -9000,6 +9062,127 @@ async function ensureRequiredColumns() {
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS national_shipping_cost NUMERIC(12,2) DEFAULT 0;
     `);
     console.log('✅ [STARTUP] Columnas de paquetería nacional verificadas');
+
+    // ====================================================================
+    // 📦 ROUTE BLOCKS — Bloques de gastos de ruta vinculados a contenedores
+    // ====================================================================
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS petty_cash_route_blocks (
+        id SERIAL PRIMARY KEY,
+        user_id INT NOT NULL REFERENCES users(id),
+        status TEXT NOT NULL DEFAULT 'open',
+        notes TEXT,
+        total_allocated_mxn NUMERIC(12,2),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        finalized_at TIMESTAMPTZ
+      );
+      CREATE TABLE IF NOT EXISTS petty_cash_route_block_containers (
+        id SERIAL PRIMARY KEY,
+        block_id INT NOT NULL REFERENCES petty_cash_route_blocks(id) ON DELETE CASCADE,
+        container_id INT NOT NULL REFERENCES containers(id),
+        UNIQUE(block_id, container_id)
+      );
+      ALTER TABLE petty_cash_movements ADD COLUMN IF NOT EXISTS route_block_id INT REFERENCES petty_cash_route_blocks(id);
+    `);
+    console.log('✅ [STARTUP] Route blocks de caja chica verificados');
+
+    // ====================================================================
+    // 🚛 MÓDULO CONTROL DE TRANSPORTES
+    // ====================================================================
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS proveedores_transporte (
+        id SERIAL PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        referencia TEXT,
+        contacto_nombre TEXT,
+        contacto_email TEXT,
+        contacto_telefono TEXT,
+        banco TEXT,
+        cuenta_bancaria TEXT,
+        clabe TEXT,
+        notas TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS bolsas_transporte (
+        id SERIAL PRIMARY KEY,
+        proveedor_id INT NOT NULL REFERENCES proveedores_transporte(id),
+        monto_original NUMERIC(12,2) NOT NULL,
+        fecha_pago DATE NOT NULL,
+        comprobante_url TEXT,
+        factura_url TEXT,
+        referencia_pago TEXT,
+        numero_operacion TEXT,
+        banco_origen TEXT,
+        tipo_pago TEXT NOT NULL DEFAULT 'transferencia',
+        estado TEXT NOT NULL DEFAULT 'activo',
+        notas TEXT,
+        created_by INT REFERENCES users(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS transporte_referencias (
+        id SERIAL PRIMARY KEY,
+        bolsa_id INT NOT NULL REFERENCES bolsas_transporte(id) ON DELETE CASCADE,
+        referencia TEXT NOT NULL,
+        monto NUMERIC(12,2) NOT NULL,
+        estado TEXT NOT NULL DEFAULT 'aplicado',
+        container_id INT REFERENCES containers(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      ALTER TABLE container_costs ADD COLUMN IF NOT EXISTS transport_invoice_pdf TEXT;
+    `);
+    console.log('✅ [STARTUP] Módulo Transportes verificado');
+
+    // ====================================================================
+    // ⚓ MÓDULO CONTROL DE DEMORAS
+    // ====================================================================
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS proveedores_demora (
+        id SERIAL PRIMARY KEY,
+        nombre TEXT NOT NULL,
+        referencia TEXT,
+        contacto_nombre TEXT,
+        contacto_email TEXT,
+        contacto_telefono TEXT,
+        banco TEXT,
+        cuenta_bancaria TEXT,
+        clabe TEXT,
+        notas TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS bolsas_demora (
+        id SERIAL PRIMARY KEY,
+        proveedor_id INT NOT NULL REFERENCES proveedores_demora(id),
+        monto_original NUMERIC(12,2) NOT NULL,
+        fecha_pago DATE NOT NULL,
+        comprobante_url TEXT,
+        factura_url TEXT,
+        referencia_pago TEXT,
+        numero_operacion TEXT,
+        banco_origen TEXT,
+        tipo_pago TEXT NOT NULL DEFAULT 'transferencia',
+        estado TEXT NOT NULL DEFAULT 'activo',
+        notas TEXT,
+        created_by INT REFERENCES users(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE TABLE IF NOT EXISTS demora_referencias (
+        id SERIAL PRIMARY KEY,
+        bolsa_id INT NOT NULL REFERENCES bolsas_demora(id) ON DELETE CASCADE,
+        referencia TEXT NOT NULL,
+        monto NUMERIC(12,2) NOT NULL,
+        estado TEXT NOT NULL DEFAULT 'aplicado',
+        container_id INT REFERENCES containers(id),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      ALTER TABLE container_costs ADD COLUMN IF NOT EXISTS demurrage_invoice_pdf TEXT;
+    `);
+    console.log('✅ [STARTUP] Módulo Demoras verificado');
 
     // ====================================================================
     // 🤖 AUTO-INSTRUCCIONES DE ENTREGA

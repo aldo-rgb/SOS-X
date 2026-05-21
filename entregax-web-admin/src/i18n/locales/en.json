@@ -730,6 +730,8 @@
       "dhl_rates": "DHL Rates",
       "dhl_operations": "DHL Operations",
       "anticipos": "Advance Control",
+      "transporte_control": "Transport Control",
+      "demora_control": "Demurrage Control",
       "pobox_rates": "PO Box Rates",
       "carrier_options": "Carrier Options"
     },

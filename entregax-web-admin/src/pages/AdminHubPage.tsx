@@ -78,6 +78,8 @@ import ExchangeRateConfigPage from './ExchangeRateConfigPage';
 import BranchManagementPage from './BranchManagementPage';
 import CarouselSlidesPage from './CarouselSlidesPage';
 import AdvanceControlPanel from './AdvanceControlPanel';
+import TransportControlPanel from './TransportControlPanel';
+import DemurrageControlPanel from './DemurrageControlPanel';
 import FCLManagementPage from './FCLManagementPage';
 import AirManagementPage from './AirManagementPage';
 import CajoManagementPage from './CajoManagementPage';
@@ -88,6 +90,7 @@ import {
     Badge as BadgeIcon,
     DirectionsCar as DirectionsCarIcon,
     Smartphone as SmartphoneIcon,
+    AccessTime as AccessTimeIcon,
 } from '@mui/icons-material';
 
 // Importar páginas de HR y Fleet
@@ -150,6 +153,8 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     paquete_express: <ApiIcon />,
     dhl_rates: <SellIcon />,
     anticipos: <WalletIcon />,
+    transporte_control: <TruckIcon />,
+    demora_control: <AccessTimeIcon />,
     suppliers: <BranchIcon />,
     carrier_options: <LocalShippingIcon />,
 };
@@ -181,6 +186,8 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'inbound_emails', status: 'active' },
         { key: 'maritime_api', status: 'active' },
         { key: 'anticipos', status: 'active' },
+        { key: 'transporte_control', status: 'active' },
+        { key: 'demora_control', status: 'active' },
         { key: 'reports', status: 'pending' },
     ],
     usa_pobox: [
@@ -763,6 +770,32 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         />
                     </Box>
                     <AdvanceControlPanel />
+                </Box>
+            );
+        }
+
+        // Panel Control de Transportes - solo china_sea
+        if (selectedModule === 'transporte_control' && selectedService === 'china_sea') {
+            return (
+                <Box>
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip label={t('panels.backToAdmin')} onClick={() => { setSelectedService(null); setSelectedModule(null); }} sx={{ cursor: 'pointer' }} />
+                        <Chip label={`← ${t(`panels.services.${selectedService}.title`)}`} onClick={() => setSelectedModule(null)} sx={{ cursor: 'pointer' }} color="primary" variant="outlined" />
+                    </Box>
+                    <TransportControlPanel />
+                </Box>
+            );
+        }
+
+        // Panel Control de Demoras - solo china_sea
+        if (selectedModule === 'demora_control' && selectedService === 'china_sea') {
+            return (
+                <Box>
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip label={t('panels.backToAdmin')} onClick={() => { setSelectedService(null); setSelectedModule(null); }} sx={{ cursor: 'pointer' }} />
+                        <Chip label={`← ${t(`panels.services.${selectedService}.title`)}`} onClick={() => setSelectedModule(null)} sx={{ cursor: 'pointer' }} color="primary" variant="outlined" />
+                    </Box>
+                    <DemurrageControlPanel />
                 </Box>
             );
         }
@@ -1383,8 +1416,8 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         .filter((module) => {
                             // Super admin ve todo
                             if (isSuperAdmin) {
-                                // Filtrar anticipos solo para roles específicos
-                                if (module.key === 'anticipos') {
+                                // Filtrar módulos financieros solo para roles específicos
+                                if (['anticipos', 'transporte_control', 'demora_control'].includes(module.key)) {
                                     return ['super_admin', 'admin', 'director'].includes(currentUser?.role);
                                 }
                                 return true;

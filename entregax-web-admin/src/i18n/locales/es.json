@@ -775,6 +775,8 @@
       "dhl_rates": "Tarifas DHL",
       "dhl_operations": "Operaciones DHL",
       "anticipos": "Control de Anticipos",
+      "transporte_control": "Control de Transportes",
+      "demora_control": "Control de Demoras",
       "pobox_rates": "Tarifas PO Box",
       "carrier_options": "Paqueterías"
     },

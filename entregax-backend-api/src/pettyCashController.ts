@@ -733,7 +733,8 @@ export const registerExpense = async (req: Request, res: Response): Promise<any>
     gps_accuracy_m,
     odometer_km,
     advance_id,
-    vehicle_id
+    vehicle_id,
+    route_block_id,
   } = req.body || {};
 
   const amount = Number(amount_mxn);
@@ -765,13 +766,14 @@ export const registerExpense = async (req: Request, res: Response): Promise<any>
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    const blockId = route_block_id ? Number(route_block_id) : null;
     const m = await client.query(`
       INSERT INTO petty_cash_movements (
         wallet_id, movement_type, category, amount_mxn, status, concept,
         evidence_url, xml_url, odometer_photo_url, odometer_km,
         gps_lat, gps_lng, gps_accuracy_m, vehicle_id, advance_id,
-        branch_id, created_by
-      ) VALUES ($1, 'expense', $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        branch_id, created_by, route_block_id
+      ) VALUES ($1, 'expense', $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING id, created_at
     `, [
       walletId, category, amount, concept || null,
@@ -782,7 +784,7 @@ export const registerExpense = async (req: Request, res: Response): Promise<any>
       gps_accuracy_m ? Number(gps_accuracy_m) : null,
       vehicle_id ? Number(vehicle_id) : null,
       advance_id ? Number(advance_id) : null,
-      branchId, userId
+      branchId, userId, blockId,
     ]);
     await client.query('COMMIT');
     return res.json({ success: true, movement_id: m.rows[0].id, created_at: m.rows[0].created_at });
@@ -1286,5 +1288,131 @@ export const getPettyCashStats = async (req: Request, res: Response): Promise<an
     });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error', details: err.message });
+  }
+};
+
+// =====================================================================
+// ROUTE BLOCKS — Bloques de gastos por ruta de monitoreo
+// =====================================================================
+
+export const listRouteBlocks = async (req: Request, res: Response): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+  try {
+    const result = await pool.query(`
+      SELECT b.id, b.status, b.notes, b.created_at, b.finalized_at, b.total_allocated_mxn,
+        COALESCE(
+          json_agg(
+            json_build_object(
+              'id', c.id,
+              'container_number', c.container_number,
+              'bl_number', c.bl_number,
+              'status', c.status
+            ) ORDER BY c.container_number
+          ) FILTER (WHERE c.id IS NOT NULL), '[]'
+        ) AS containers,
+        COALESCE(SUM(m.amount_mxn) FILTER (WHERE m.id IS NOT NULL), 0) AS total_expenses,
+        COUNT(m.id) FILTER (WHERE m.id IS NOT NULL) AS expense_count
+      FROM petty_cash_route_blocks b
+      LEFT JOIN petty_cash_route_block_containers bc ON bc.block_id = b.id
+      LEFT JOIN containers c ON c.id = bc.container_id
+      LEFT JOIN petty_cash_movements m ON m.route_block_id = b.id AND m.movement_type = 'expense'
+      WHERE b.user_id = $1 AND b.status = 'open'
+      GROUP BY b.id
+      ORDER BY b.created_at DESC
+    `, [userId]);
+    return res.json({ blocks: result.rows });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error listando bloques', details: err.message });
+  }
+};
+
+export const createRouteBlock = async (req: Request, res: Response): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+  const { container_ids, notes } = req.body as { container_ids: number[]; notes?: string };
+  if (!Array.isArray(container_ids) || container_ids.length === 0) {
+    return res.status(400).json({ error: 'Selecciona al menos un contenedor' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const br = await client.query(
+      `INSERT INTO petty_cash_route_blocks (user_id, notes) VALUES ($1, $2) RETURNING id`,
+      [userId, notes || null]
+    );
+    const blockId = br.rows[0].id;
+    for (const cId of container_ids) {
+      await client.query(
+        `INSERT INTO petty_cash_route_block_containers (block_id, container_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [blockId, Number(cId)]
+      );
+    }
+    await client.query('COMMIT');
+    return res.status(201).json({ success: true, block_id: blockId });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: 'Error al crear bloque', details: err.message });
+  } finally {
+    client.release();
+  }
+};
+
+export const finalizeRouteBlock = async (req: Request, res: Response): Promise<any> => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+  const blockId = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(blockId)) return res.status(400).json({ error: 'ID inválido' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const br = await client.query(
+      `SELECT id FROM petty_cash_route_blocks WHERE id = $1 AND user_id = $2 AND status = 'open'`,
+      [blockId, userId]
+    );
+    if (br.rows.length === 0) return res.status(404).json({ error: 'Bloque no encontrado o ya finalizado' });
+
+    const cr = await client.query(
+      `SELECT container_id FROM petty_cash_route_block_containers WHERE block_id = $1`,
+      [blockId]
+    );
+    const containerCount = cr.rows.length;
+    if (containerCount === 0) return res.status(400).json({ error: 'El bloque no tiene contenedores' });
+
+    const tr = await client.query(
+      `SELECT COALESCE(SUM(amount_mxn), 0) AS total FROM petty_cash_movements WHERE route_block_id = $1 AND movement_type = 'expense'`,
+      [blockId]
+    );
+    const totalMxn = parseFloat(tr.rows[0].total);
+    const perContainer = Math.round((totalMxn / containerCount) * 100) / 100;
+
+    for (const row of cr.rows) {
+      await client.query(`
+        INSERT INTO container_costs (container_id, custody_amount)
+        VALUES ($1, $2)
+        ON CONFLICT (container_id) DO UPDATE
+          SET custody_amount = COALESCE(container_costs.custody_amount, 0) + EXCLUDED.custody_amount,
+              updated_at = NOW()
+      `, [row.container_id, perContainer]);
+    }
+
+    await client.query(`
+      UPDATE petty_cash_route_blocks
+      SET status = 'finalized', finalized_at = NOW(), total_allocated_mxn = $2
+      WHERE id = $1
+    `, [blockId, totalMxn]);
+
+    await client.query('COMMIT');
+    return res.json({ success: true, total_mxn: totalMxn, container_count: containerCount, per_container_mxn: perContainer });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: 'Error al finalizar bloque', details: err.message });
+  } finally {
+    client.release();
   }
 };
