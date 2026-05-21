@@ -50,6 +50,7 @@ import LoadingVanScreen from './src/screens/LoadingVanScreen';
 import ReturnScanScreen from './src/screens/ReturnScanScreen';
 import DeliveryConfirmScreen from './src/screens/DeliveryConfirmScreen';
 import EmployeeHomeScreen from './src/screens/EmployeeHomeScreen';
+import SupportTicketsScreen from './src/screens/SupportTicketsScreen';
 import AttendanceCheckerScreen from './src/screens/AttendanceCheckerScreen';
 import WarehouseScannerScreen from './src/screens/WarehouseScannerScreen';
 import FirmaAbandonoScreen from './src/screens/FirmaAbandonoScreen';
@@ -184,6 +185,7 @@ export type RootStackParamList = {
   AdvisorNotifications: { user: any; token: string };
   AdvisorPackages: { user: any; token: string; filter: string };
   AdvisorSupportTicket: { user: any; token: string };
+  SupportTickets: { user: any; token: string };
   // Chat interno staff
   ChatList: { user: any; token: string };
   ChatRoom: {
@@ -477,6 +479,7 @@ function App() {
           />
           <Stack.Screen name="AdvisorPackages" component={AdvisorPackagesScreen} />
           <Stack.Screen name="AdvisorSupportTicket" component={AdvisorSupportTicketScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="SupportTickets" component={SupportTicketsScreen} options={{ headerShown: false }} />
           {/* Chat interno staff */}
           <Stack.Screen name="ChatList" component={ChatListScreen} />
           <Stack.Screen name="ChatRoom" component={ChatRoomScreen} />

@@ -734,7 +734,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     }
 
     // Pantallas que aún no están implementadas
-    const notImplementedScreens = ['CounterPickup', 'CounterReception', 'SupportTickets', 'ClientLookup', 'BranchDashboard', 'TeamManagement', 'Dispatch', 'ShiftReport', 'WarehouseInventory'];
+    const notImplementedScreens = ['CounterPickup', 'CounterReception', 'ClientLookup', 'BranchDashboard', 'TeamManagement', 'Dispatch', 'ShiftReport', 'WarehouseInventory'];
     if (notImplementedScreens.includes(module.screen)) {
       Alert.alert(
         `📱 ${module.title}`,
