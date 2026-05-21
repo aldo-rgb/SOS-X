@@ -346,45 +346,55 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       return;
     }
     setInstrSaving(true);
+    const targets = instrBulkShipments.length > 1 ? instrBulkShipments : [instrShipment];
     try {
       const serviceKey = SHIPMENT_TYPE_TO_CARRIER[instrShipment.service_type];
       const hasFiles = instrFacturaFile || instrGuiaFile;
-      let res: Response;
-      if (hasFiles || instrIsCollect) {
-        const formData = new FormData();
-        formData.append('addressId', String(instrSelectedId));
-        if (instrCarrierKey && serviceKey) {
-          formData.append('carrierKey', instrCarrierKey);
-          formData.append('serviceKey', serviceKey);
+
+      const buildRequest = (uid: string): Promise<Response> => {
+        if (hasFiles || instrIsCollect) {
+          const formData = new FormData();
+          formData.append('addressId', String(instrSelectedId));
+          if (instrCarrierKey && serviceKey) {
+            formData.append('carrierKey', instrCarrierKey);
+            formData.append('serviceKey', serviceKey);
+          }
+          formData.append('isCollect', String(instrIsCollect));
+          formData.append('wantsFacturaPaqueteria', String(instrWantsFactura));
+          if (instrFacturaFile) {
+            formData.append('factura', { uri: instrFacturaFile.uri, name: instrFacturaFile.name, type: instrFacturaFile.mimeType || 'application/octet-stream' } as any);
+          }
+          if (instrGuiaFile) {
+            formData.append('guiaExterna', { uri: instrGuiaFile.uri, name: instrGuiaFile.name, type: instrGuiaFile.mimeType || 'application/octet-stream' } as any);
+          }
+          return fetch(`${API_URL}/api/advisor/shipments/${uid}/instructions`, {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${token}` },
+            body: formData,
+          });
+        } else {
+          const body: any = { addressId: instrSelectedId };
+          if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
+          return fetch(`${API_URL}/api/advisor/shipments/${uid}/instructions`, {
+            method: 'PUT',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+          });
         }
-        formData.append('isCollect', String(instrIsCollect));
-        formData.append('wantsFacturaPaqueteria', String(instrWantsFactura));
-        if (instrFacturaFile) {
-          formData.append('factura', { uri: instrFacturaFile.uri, name: instrFacturaFile.name, type: instrFacturaFile.mimeType || 'application/octet-stream' } as any);
+      };
+
+      const results = await Promise.all(targets.map(s => buildRequest(s.uid)));
+      const failed: string[] = [];
+      for (let i = 0; i < results.length; i++) {
+        if (!results[i].ok) {
+          const errData = await results[i].json().catch(() => ({}));
+          failed.push(`${targets[i].tracking_number || targets[i].uid}: ${errData.error || `Error ${results[i].status}`}`);
         }
-        if (instrGuiaFile) {
-          formData.append('guiaExterna', { uri: instrGuiaFile.uri, name: instrGuiaFile.name, type: instrGuiaFile.mimeType || 'application/octet-stream' } as any);
-        }
-        res = await fetch(`${API_URL}/api/advisor/shipments/${instrShipment.uid}/instructions`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}` },
-          body: formData,
-        });
-      } else {
-        const body: any = { addressId: instrSelectedId };
-        if (instrCarrierKey && serviceKey) { body.carrierKey = instrCarrierKey; body.serviceKey = serviceKey; }
-        res = await fetch(`${API_URL}/api/advisor/shipments/${instrShipment.uid}/instructions`, {
-          method: 'PUT',
-          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        });
       }
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Error ${res.status}`);
-      }
+      if (failed.length > 0) throw new Error(failed.join('\n'));
+
       setInstrModal(false);
-      Alert.alert('Listo', 'Instrucciones asignadas correctamente');
+      Alert.alert('Listo', targets.length > 1 ? `${targets.length} instrucciones asignadas correctamente` : 'Instrucciones asignadas correctamente');
       cancelSelection();
       load();
     } catch (e: any) {
