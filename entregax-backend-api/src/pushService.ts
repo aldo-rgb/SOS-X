@@ -102,3 +102,13 @@ export async function sendPushToUsers(userIds: number[], payload: PushPayload): 
     console.error('[push] error enviando FCM:', err.message);
   }
 }
+
+export async function sendPushToRole(roles: string[], payload: PushPayload): Promise<void> {
+  if (!roles.length) return;
+  const r = await pool.query(
+    `SELECT id FROM users WHERE role = ANY($1::text[]) AND id IN (SELECT user_id FROM user_push_tokens WHERE is_active = TRUE)`,
+    [roles]
+  );
+  if (r.rows.length === 0) return;
+  await sendPushToUsers(r.rows.map((row: any) => row.id), payload);
+}

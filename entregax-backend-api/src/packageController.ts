@@ -781,6 +781,32 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             client: user ? { id: user.id, name: user.full_name, email: user.email, boxId: user.box_id } : null
         });
 
+        // Notificar a asesores cuando se da de alta una guía sin cliente
+        if (!user) {
+            const weightStr = totalWeight > 0 ? ` · ${Math.round(totalWeight * 100) / 100} kg` : '';
+            const carrierStr = safeCarrier ? ` · ${safeCarrier}` : '';
+            const notifTitle = '📦 Guía sin identificar';
+            const notifBody = `${masterTracking}${carrierStr}${weightStr} — Sin cliente asignado`;
+            const notifData = { screen: 'AdvisorPackages', filter: 'unidentified', tracking: masterTracking };
+
+            // Insertar en tabla notifications para el centro de notificaciones
+            pool.query(
+                `SELECT id FROM users WHERE role IN ('asesor','sub_advisor','advisor') AND is_active = TRUE`
+            ).then(async (r: any) => {
+                const { createCustomNotification } = await import('./notificationController');
+                await Promise.all(r.rows.map((row: any) =>
+                    createCustomNotification(row.id, notifTitle, notifBody, 'info', 'search', notifData)
+                ));
+            }).catch(() => {});
+
+            // Push FCM
+            import('./pushService').then(({ sendPushToRole }) => {
+                sendPushToRole(['asesor', 'sub_advisor', 'advisor'], {
+                    title: notifTitle, body: notifBody, data: notifData,
+                }).catch(() => {});
+            }).catch(() => {});
+        }
+
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Error al crear envío:', error);

@@ -28,6 +28,7 @@ const FILTER_CONFIG: Record<string, { title: string; color: string; icon: string
   in_transit: { title: 'En Tránsito', color: '#2196F3', icon: 'airplane' },
   awaiting_payment: { title: 'Por Pagar', color: '#FF9800', icon: 'card' },
   missing_instructions: { title: 'Sin Instrucciones', color: '#f44336', icon: 'alert-circle' },
+  unidentified: { title: 'Sin Identificar', color: '#9C27B0', icon: 'help-circle' },
 };
 
 interface Shipment {
@@ -92,7 +93,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'pending'>(initFilters.payment);
   const [instructionsFilter, setInstructionsFilter] = useState<'all' | 'yes' | 'no'>(initFilters.instructions);
-  const [unidentifiedFilter, setUnidentifiedFilter] = useState(false);
+  const [unidentifiedFilter, setUnidentifiedFilter] = useState(routeFilter === 'unidentified');
   const [serviceFilter, setServiceFilter] = useState<string>('all');
   const [clientSearch, setClientSearch] = useState('');
   const [instrEnabled, setInstrEnabled] = useState(true);

@@ -59,6 +59,7 @@ interface AdvisorDashboardData {
     inTransit: number;
     awaitingPayment: number;
     missingInstructions: number;
+    unidentifiedPackages: number;
   };
   commissions: {
     monthVolumeMxn: number;
@@ -196,6 +197,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     { label: 'En Tránsito', value: data.shipments.inTransit, icon: 'airplane', color: '#2196F3', filter: 'in_transit' },
     { label: 'Por Pagar', value: data.shipments.awaitingPayment, icon: 'card', color: '#FF9800', filter: 'awaiting_payment' },
     { label: 'Sin Instruc.', value: data.shipments.missingInstructions, icon: 'alert-circle', color: '#f44336', filter: 'missing_instructions' },
+    { label: 'Sin Cliente', value: data.shipments.unidentifiedPackages, icon: 'help-circle', color: '#9C27B0', filter: 'unidentified' },
   ];
 
   return (

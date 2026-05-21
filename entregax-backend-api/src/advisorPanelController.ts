@@ -133,6 +133,15 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         AND p.status IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
     `, [advisorId]);
 
+    // Guías sin cliente (PO Box sin user_id)
+    const unidentifiedRes = await pool.query(`
+      SELECT COUNT(*) as total FROM packages
+      WHERE user_id IS NULL
+        AND (service_type = 'POBOX_USA' OR tracking_internal LIKE 'US-%')
+        AND status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
+        AND (is_master = true OR master_id IS NULL)
+    `);
+
     // Comisiones del mes actual
     const commissionsRes = await pool.query(`
       SELECT
@@ -198,6 +207,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         inTransit: parseInt(shipmentsRes.rows[0]?.total_in_transit) || 0,
         awaitingPayment: parseInt(shipmentsRes.rows[0]?.awaiting_payment) || 0,
         missingInstructions: parseInt(shipmentsRes.rows[0]?.missing_instructions) || 0,
+        unidentifiedPackages: parseInt(unidentifiedRes.rows[0]?.total) || 0,
       },
       commissions: {
         monthVolumeMxn: parseFloat(commissionsRes.rows[0]?.month_volume_mxn) || 0,
@@ -374,6 +384,79 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
 
     const { filter, search, clientId, page = '1', limit = '50', payment, instructions, unidentified } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // ── Caso especial: guías sin cliente (user_id IS NULL) ──
+    if (unidentified === 'true') {
+      const unidSQL = `
+        SELECT
+          'PKG-' || p.id::text AS uid,
+          p.id, p.tracking_internal AS tracking, p.tracking_provider AS international_tracking,
+          p.status::text AS status,
+          COALESCE(p.service_type, 'POBOX_USA') AS service_type,
+          0::numeric AS monto, false AS client_paid,
+          p.created_at,
+          NULL::int AS client_id,
+          'SIN CLIENTE' AS client_name,
+          '' AS client_box_id,
+          NULL AS client_phone,
+          false AS has_instructions,
+          COALESCE(p.is_master, false) AS is_master,
+          (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id)::int AS children_count,
+          COALESCE(p.weight, 0) AS weight,
+          COALESCE(p.pkg_length, 0) AS length_cm,
+          COALESCE(p.pkg_width, 0) AS width_cm,
+          COALESCE(p.pkg_height, 0) AS height_cm,
+          p.description,
+          p.tracking_provider AS carrier_tracking,
+          COALESCE(p.carrier, '') AS carrier_name
+        FROM packages p
+        WHERE p.user_id IS NULL
+          AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
+          AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
+          AND (p.is_master = true OR p.master_id IS NULL)
+        ORDER BY p.created_at DESC
+        LIMIT $1 OFFSET $2
+      `;
+      const countSQL = `
+        SELECT COUNT(*) AS total FROM packages p
+        WHERE p.user_id IS NULL
+          AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
+          AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
+          AND (p.is_master = true OR p.master_id IS NULL)
+      `;
+      const [dataRes, countRes] = await Promise.all([
+        pool.query(unidSQL, [parseInt(limit), offset]),
+        pool.query(countSQL),
+      ]);
+      return res.json({
+        shipments: dataRes.rows.map((s: any) => ({
+          uid: s.uid,
+          id: s.id,
+          tracking: s.tracking,
+          tracking_number: s.tracking,
+          status: s.status,
+          service_type: s.service_type,
+          description: s.description,
+          goods_name: s.description,
+          client_id: null,
+          client_name: 'SIN CLIENTE',
+          client_box_id: '',
+          saldo_pendiente: 0,
+          monto: 0,
+          client_paid: false,
+          has_instructions: false,
+          is_master: s.is_master,
+          children_count: s.children_count,
+          weight: s.weight,
+          length_cm: s.length_cm,
+          width_cm: s.width_cm,
+          height_cm: s.height_cm,
+          carrier_tracking: s.carrier_tracking,
+          carrier_name: s.carrier_name,
+        })),
+        total: parseInt(countRes.rows[0]?.total) || 0,
+      });
+    }
 
     // ── Build dynamic WHERE parts (applied to each sub-query) ──
     const buildFilterSQL = (statusCol: string, saldoCol: string, _montoCol: string, missingInstrSQL: string, extraInTransit: string[] = []) => {
