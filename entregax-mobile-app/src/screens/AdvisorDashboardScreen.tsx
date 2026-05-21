@@ -656,16 +656,18 @@ const styles = StyleSheet.create({
   },
   shipmentStats: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexWrap: 'wrap',
     backgroundColor: '#fff',
     borderRadius: 12,
-    padding: 16,
+    paddingHorizontal: 8,
+    paddingVertical: 12,
     marginBottom: 20,
     elevation: 1,
   },
   shipmentStatItem: {
     alignItems: 'center',
-    flex: 1,
+    width: '50%',
+    paddingVertical: 10,
   },
   shipmentIcon: {
     width: 40,
