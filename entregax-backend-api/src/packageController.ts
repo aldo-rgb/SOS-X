@@ -811,8 +811,9 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
                          FROM package_history ph
                         WHERE ph.package_id = p.id
                           AND ph.status::text = p.status::text
-                   ) AS status_date
-            FROM packages p 
+                   ) AS status_date,
+                   (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id) AS real_children_count
+            FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             WHERE (p.is_master = true OR p.master_id IS NULL)
@@ -876,7 +877,8 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
                 height: pkg.pkg_height ? parseFloat(pkg.pkg_height) : null,
                 formatted: formatDimensions(parseFloat(pkg.pkg_length), parseFloat(pkg.pkg_width), parseFloat(pkg.pkg_height))
             },
-            isMaster: pkg.is_master, totalBoxes: pkg.total_boxes || 1,
+            isMaster: pkg.is_master,
+            totalBoxes: parseInt(pkg.real_children_count) > 0 ? parseInt(pkg.real_children_count) : (pkg.total_boxes || 1),
             declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
             status: pkg.status, statusLabel: getStatusLabel(pkg.status),
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
