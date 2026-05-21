@@ -1355,17 +1355,19 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               </TouchableOpacity>
             )}
 
-            <TouchableOpacity 
-              style={styles.menuItem}
-              onPress={() => {
-                setShowMenu(false);
-                navigation.navigate('SupportChat', { user, token });
-              }}
-            >
-              <Ionicons name="help-circle-outline" size={24} color="#2196F3" />
-              <Text style={[styles.menuItemText, { color: '#2196F3' }]}>Ayuda</Text>
-              <Ionicons name="chevron-forward" size={20} color="#2196F3" />
-            </TouchableOpacity>
+            {!isAdvisor && (
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  setShowMenu(false);
+                  navigation.navigate('SupportChat', { user, token });
+                }}
+              >
+                <Ionicons name="help-circle-outline" size={24} color="#2196F3" />
+                <Text style={[styles.menuItemText, { color: '#2196F3' }]}>Ayuda</Text>
+                <Ionicons name="chevron-forward" size={20} color="#2196F3" />
+              </TouchableOpacity>
+            )}
 
             <Divider style={{ marginVertical: 8 }} />
 

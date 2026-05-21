@@ -39,6 +39,22 @@ const SOURCE_TABS = [
   { key: 'own', label: '🔔 Sistema' },
 ];
 
+const STATUS_LABELS: Record<string, string> = {
+  received_mty: 'Recibido MTY',
+  received: 'Recibido en bodega',
+  in_transit: 'En tránsito',
+  processing: 'En proceso',
+  delivered: 'Entregado',
+  ready_pickup: 'Listo para recoger',
+  customs: 'En aduana',
+  out_for_delivery: 'En camino',
+};
+
+const humanizeMessage = (msg: string) =>
+  msg.replace(/\(([a-z_]+)\)/g, (_, code) =>
+    STATUS_LABELS[code] ? `(${STATUS_LABELS[code]})` : `(${code})`
+  );
+
 const TYPE_COLORS: Record<string, string> = {
   success: '#4CAF50',
   error: '#F44336',
@@ -143,13 +159,18 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   const archiveSelected = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
+    // Archivar en backend solo las de source === 'own'
+    const ownIds = ids.filter(id => notifications.find(n => n.id === id)?.source === 'own');
     try {
-      await fetch(`${API_URL}/api/notifications/archive-bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ ids }),
-      });
-      setNotifications(prev => prev.filter(n => !(n.source === 'own' && ids.includes(n.id))));
+      if (ownIds.length > 0) {
+        await fetch(`${API_URL}/api/notifications/archive-bulk`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ ids: ownIds }),
+        });
+      }
+      // Remover todas las seleccionadas de la vista (incluidas client_package)
+      setNotifications(prev => prev.filter(n => !ids.includes(n.id)));
       setSelectedIds(new Set());
       setSelectionMode(false);
     } catch (e) {
@@ -160,7 +181,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   const archiveAllOwn = () => {
     Alert.alert(
       '¿Archivar todas?',
-      'Se ocultarán todas las notificaciones del sistema (no afecta actividad de clientes).',
+      'Se ocultarán todas las notificaciones visibles.',
       [
         { text: 'Cancelar', style: 'cancel' },
         {
@@ -168,11 +189,14 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Archivar en backend las de sistema
               await fetch(`${API_URL}/api/notifications/archive-all`, {
                 method: 'PUT',
                 headers: { Authorization: `Bearer ${token}` },
               });
-              setNotifications(prev => prev.filter(n => n.source !== 'own'));
+              // Limpiar toda la vista
+              setNotifications([]);
+              setStats(prev => ({ ...prev, ownUnread: 0 }));
               setSelectedIds(new Set());
               setSelectionMode(false);
             } catch (e) {
@@ -193,11 +217,11 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   };
 
   const toggleSelectAllOwn = () => {
-    const ownIds = notifications.filter(n => n.source === 'own').map(n => n.id);
-    if (selectedIds.size === ownIds.length && ownIds.length > 0) {
+    const visibleIds = filteredNotifications.map(n => n.id);
+    if (selectedIds.size === visibleIds.length && visibleIds.length > 0) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(ownIds));
+      setSelectedIds(new Set(visibleIds));
     }
   };
 
@@ -222,7 +246,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
       : notifications.filter(n => n.source === activeTab);
 
   const handleNotificationPress = (notif: Notification) => {
-    if (selectionMode && notif.source === 'own') {
+    if (selectionMode) {
       toggleSelect(notif.id);
       return;
     }
@@ -268,7 +292,6 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   };
 
   const handleLongPress = (notif: Notification) => {
-    if (notif.source !== 'own') return;
     setSelectionMode(true);
     toggleSelect(notif.id);
   };
@@ -276,7 +299,6 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   const renderNotification = ({ item }: { item: Notification }) => {
     const color = TYPE_COLORS[item.type] || '#666';
     const isUnread = (!item.is_read && item.source === 'own') || item.source === 'pending_verification' || item.source === 'own_verification';
-    const canArchive = item.source === 'own';
     const isSelected = selectedIds.has(item.id);
 
     return (
@@ -295,7 +317,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
             </Text>
             <Text style={styles.notifTime}>{formatTime(item.created_at)}</Text>
           </View>
-          <Text style={styles.notifMessage} numberOfLines={2}>{item.message}</Text>
+          <Text style={styles.notifMessage} numberOfLines={2}>{humanizeMessage(item.message)}</Text>
           {item.source !== 'own' && (
             <View style={[styles.sourceBadge, { backgroundColor: color + '15' }]}>
               <Text style={[styles.sourceBadgeText, { color }]}>
@@ -311,7 +333,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
           )}
         </View>
         {isUnread && !selectionMode && <View style={styles.unreadDot} />}
-        {canArchive && !selectionMode && (
+        {item.source === 'own' && !selectionMode && (
           <TouchableOpacity
             onPress={() => archiveOne(item.id)}
             style={{ padding: 6, marginLeft: 4 }}
@@ -319,6 +341,14 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
           >
             <Ionicons name="archive-outline" size={20} color="#999" />
           </TouchableOpacity>
+        )}
+        {selectionMode && (
+          <Ionicons
+            name={isSelected ? 'checkmark-circle' : 'ellipse-outline'}
+            size={22}
+            color={isSelected ? ORANGE : '#ccc'}
+            style={{ marginLeft: 4 }}
+          />
         )}
       </TouchableOpacity>
     );
@@ -368,7 +398,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
                 <Text style={styles.markAllText}>Leídas</Text>
               </TouchableOpacity>
             )}
-            {notifications.some(n => n.source === 'own') && (
+            {notifications.length > 0 && (
               <TouchableOpacity onPress={archiveAllOwn} style={[styles.markAllButton, { backgroundColor: '#11111115' }]}>
                 <Text style={[styles.markAllText, { color: '#333' }]}>Archivar todas</Text>
               </TouchableOpacity>
