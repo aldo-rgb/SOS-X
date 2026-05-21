@@ -123,7 +123,7 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
   const getStatusLabel = (status: string) => {
     const map: Record<string, string> = {
       open_ai: 'IA',
-      escalated_human: 'Humano',
+      escalated_human: 'Personal',
       waiting_client: 'Esperando',
       waiting_agent: 'En espera',
       resolved: 'Resuelto',
