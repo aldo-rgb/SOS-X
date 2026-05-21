@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
-  ActivityIndicator, RefreshControl, Modal, ScrollView, Alert,
+  ActivityIndicator, RefreshControl, Modal, ScrollView, Alert, TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -93,6 +93,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [paymentFilter, setPaymentFilter] = useState<'all' | 'paid' | 'pending'>(initFilters.payment);
   const [instructionsFilter, setInstructionsFilter] = useState<'all' | 'yes' | 'no'>(initFilters.instructions);
   const [serviceFilter, setServiceFilter] = useState<string>('all');
+  const [clientSearch, setClientSearch] = useState('');
   const [instrEnabled, setInstrEnabled] = useState(true);
 
   // Filter modal
@@ -125,6 +126,13 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [instrWantsFactura, setInstrWantsFactura] = useState(false);
 
   const activeFilterCount = [serviceFilter, paymentFilter, instructionsFilter].filter(v => v !== 'all').length;
+
+  const filteredShipments = clientSearch.trim()
+    ? shipments.filter(s => {
+        const q = clientSearch.toLowerCase();
+        return s.client_name.toLowerCase().includes(q) || s.client_box_id.toLowerCase().includes(q);
+      })
+    : shipments;
 
   const buildUrl = useCallback(() => {
     let url = `${API_URL}/api/advisor/shipments?page=1&limit=50`;
@@ -215,11 +223,12 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         setSelectionServiceType(null);
       }
     } else {
-      if (item.service_type !== selectionServiceType) {
+      if (selectionServiceType !== null && item.service_type !== selectionServiceType) {
         Alert.alert('Tipos distintos', 'No puedes combinar diferentes tipos de servicio en la misma selección');
         return;
       }
       setSelectedUids([...selectedUids, item.uid]);
+      if (selectionServiceType === null) setSelectionServiceType(item.service_type);
     }
   };
 
@@ -488,11 +497,30 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         </View>
       )}
 
+      {/* Search bar */}
+      <View style={styles.searchBar}>
+        <Ionicons name="search-outline" size={16} color="#999" style={{ marginRight: 6 }} />
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Buscar por cliente o ID..."
+          placeholderTextColor="#bbb"
+          value={clientSearch}
+          onChangeText={setClientSearch}
+          clearButtonMode="while-editing"
+          returnKeyType="search"
+        />
+        {clientSearch.length > 0 && (
+          <TouchableOpacity onPress={() => setClientSearch('')}>
+            <Ionicons name="close-circle" size={16} color="#bbb" />
+          </TouchableOpacity>
+        )}
+      </View>
+
       {loading ? (
         <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
       ) : (
         <FlatList
-          data={shipments}
+          data={filteredShipments}
           keyExtractor={(item) => item.uid || String(item.id)}
           renderItem={renderItem}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => load(true)} colors={[ORANGE]} />}
@@ -550,11 +578,12 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
             <Text style={styles.filterSectionTitle}>Tipo de servicio</Text>
             <View style={styles.filterChipsWrap}>
               {([
-                { key: 'all',        label: 'Todos' },
-                { key: 'AIR_CHN_MX', label: '✈️ Aéreo China' },
-                { key: 'SEA_CHN_MX', label: '🚢 Marítimo' },
-                { key: 'AA_DHL',     label: '📦 DHL MTY' },
-                { key: 'POBOX_USA',  label: '📮 PO Box USA' },
+                { key: 'all',         label: 'Todos' },
+                { key: 'AIR_CHN_MX',  label: '✈️ Aéreo China' },
+                { key: 'SEA_CHN_MX',  label: '🚢 Marítimo' },
+                { key: 'AA_DHL',      label: '📦 DHL MTY' },
+                { key: 'POBOX_USA',   label: '📮 PO Box USA' },
+                { key: 'TDI_EXPRESS', label: '🚚 TDI Express' },
               ] as const).map(s => {
                 const active = tempServiceFilter === s.key;
                 return (
@@ -1049,4 +1078,11 @@ const styles = StyleSheet.create({
   yesNoBtn: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: ORANGE },
   yesNoBtnActive: { backgroundColor: ORANGE, borderColor: ORANGE },
   yesNoBtnText: { fontSize: 13, fontWeight: '600', color: ORANGE },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#fff', marginHorizontal: 12, marginVertical: 8,
+    borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8,
+    borderWidth: 1, borderColor: '#E8E8E8',
+  },
+  searchInput: { flex: 1, fontSize: 14, color: '#111', padding: 0 },
 });
