@@ -855,7 +855,9 @@ export default function MyProfileScreen({ navigation, route }: Props) {
               <View style={styles.profileInfo}>
                 <Text style={styles.profileName}>{user.name}</Text>
                 <Text style={styles.profileEmail}>{user.email}</Text>
-                <Text style={styles.profileBoxId}>🏠 {t('profile.boxId')}: {user.boxId}</Text>
+                {!['advisor', 'asesor', 'asesor_lider', 'sub_advisor'].includes(user.role) && (
+                  <Text style={styles.profileBoxId}>🏠 {t('profile.boxId')}: {user.boxId}</Text>
+                )}
               </View>
             </View>
           </Card.Content>
