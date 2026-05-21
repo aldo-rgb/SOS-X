@@ -13,9 +13,12 @@ import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { api, API_URL } from '../services/api';
 
 const BLUE = '#3F51B5';
@@ -43,8 +46,16 @@ interface TicketMessage {
   sender_type: string;
   message: string;
   attachment_url: string | null;
+  attachments?: string[] | string | null;
+  is_internal?: boolean;
   created_at: string;
   sender_name?: string;
+}
+
+interface AttachedFile {
+  uri: string;
+  name: string;
+  type: string; // 'image' | 'pdf'
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; icon: string; bg: string }> = {
@@ -100,6 +111,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
+  const [attachedFile, setAttachedFile] = useState<AttachedFile | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   // Determinar el dpto CEDIS del usuario (con fallback al perfil si no hay branch en el objeto)
@@ -183,6 +195,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     setSelectedTicket(ticket);
     setMessages([]);
     setReplyText('');
+    setAttachedFile(null);
     setShowDetail(true);
     setDetailLoading(true);
     try {
@@ -199,23 +212,65 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
     }
   };
 
+  const pickImage = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') { Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      quality: 0.8,
+      allowsEditing: false,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      const name = asset.fileName || `foto_${Date.now()}.jpg`;
+      setAttachedFile({ uri: asset.uri, name, type: 'image' });
+    }
+  };
+
+  const pickDocument = async () => {
+    const result = await DocumentPicker.getDocumentAsync({ type: 'application/pdf', copyToCacheDirectory: true });
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+      setAttachedFile({ uri: asset.uri, name: asset.name, type: 'pdf' });
+    }
+  };
+
+  const showAttachMenu = () => {
+    Alert.alert('Adjuntar archivo', 'Selecciona el tipo de archivo', [
+      { text: 'Foto de galería', onPress: pickImage },
+      { text: 'Documento PDF', onPress: pickDocument },
+      { text: 'Cancelar', style: 'cancel' },
+    ]);
+  };
+
+  const reloadMessages = async (ticketId: number) => {
+    const res = await api.get(`/api/admin/support/ticket/${ticketId}/messages`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const msgs: TicketMessage[] = Array.isArray(res.data) ? res.data : (res.data.messages || []);
+    setMessages(msgs);
+    setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 200);
+  };
+
   const sendReply = async () => {
-    if (!replyText.trim() || !selectedTicket) return;
+    if (!replyText.trim() && !attachedFile) return;
+    if (!selectedTicket) return;
     setSending(true);
     try {
-      await api.post(`/api/admin/support/ticket/${selectedTicket.id}/reply`, {
-        message: replyText.trim(),
-      }, {
+      const formData = new FormData();
+      formData.append('message', replyText.trim() || '');
+      if (attachedFile) {
+        const mimeType = attachedFile.type === 'pdf' ? 'application/pdf' : 'image/jpeg';
+        formData.append('images', { uri: attachedFile.uri, name: attachedFile.name, type: mimeType } as any);
+      }
+      await fetch(`${API_URL}/api/admin/support/ticket/${selectedTicket.id}/reply`, {
+        method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
+        body: formData,
       });
       setReplyText('');
-      // Recargar mensajes
-      const res = await api.get(`/api/admin/support/ticket/${selectedTicket.id}/messages`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const msgs: TicketMessage[] = Array.isArray(res.data) ? res.data : (res.data.messages || []);
-      setMessages(msgs);
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 200);
+      setAttachedFile(null);
+      await reloadMessages(selectedTicket.id);
     } catch (e) {
       Alert.alert('Error', 'No se pudo enviar el mensaje.');
     } finally {
@@ -283,15 +338,52 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
   };
 
   const renderMessage = (msg: TicketMessage) => {
-    const isAdmin = msg.sender_type === 'admin' || msg.sender_type === 'staff';
+    const isAgent = msg.sender_type === 'agent' || msg.sender_type === 'admin' || msg.sender_type === 'staff';
+    const isInternal = !!msg.is_internal;
+    // Parsear adjuntos
+    let attachUrls: string[] = [];
+    if (Array.isArray(msg.attachments)) attachUrls = msg.attachments as string[];
+    else if (typeof msg.attachments === 'string') {
+      try { const p = JSON.parse(msg.attachments); if (Array.isArray(p)) attachUrls = p; } catch {}
+    }
+    if (attachUrls.length === 0 && msg.attachment_url) attachUrls = [msg.attachment_url];
+
+    const bubbleBg = isInternal ? '#FFF8E1' : isAgent ? BLUE : '#fff';
+    const textColor = isInternal ? '#333' : isAgent ? '#fff' : '#111';
+    const senderColor = isInternal ? '#F57F17' : isAgent ? '#ffffffcc' : '#00000099';
+
     return (
-      <View key={msg.id} style={[styles.msgRow, isAdmin ? styles.msgRowAdmin : styles.msgRowClient]}>
-        <View style={[styles.msgBubble, isAdmin ? styles.bubbleAdmin : styles.bubbleClient]}>
-          <Text style={[styles.msgSender, { color: isAdmin ? '#fff9' : '#0009' }]}>
-            {isAdmin ? (msg.sender_name || 'Soporte') : (msg.sender_name || 'Cliente')}
+      <View key={msg.id} style={[styles.msgRow, isAgent ? styles.msgRowAdmin : styles.msgRowClient]}>
+        <View style={[
+          styles.msgBubble,
+          { backgroundColor: bubbleBg },
+          isInternal && styles.bubbleInternal,
+        ]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+            <Text style={[styles.msgSender, { color: senderColor }]}>
+              {isAgent ? (msg.sender_name || 'Agente') : 'Cliente'}
+            </Text>
+            {isInternal && (
+              <View style={styles.internalBadge}>
+                <Text style={styles.internalBadgeText}>🔒 Interno</Text>
+              </View>
+            )}
+          </View>
+          <Text style={[styles.msgText, { color: textColor }]}>
+            {msg.message?.replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
           </Text>
-          <Text style={[styles.msgText, { color: isAdmin ? '#fff' : '#111' }]}>{msg.message}</Text>
-          <Text style={[styles.msgTime, { color: isAdmin ? '#fff8' : '#0006' }]}>
+          {attachUrls.map((url, i) => {
+            const isPdf = url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('pdf');
+            return isPdf ? (
+              <TouchableOpacity key={i} style={styles.attachPdf} onPress={() => Alert.alert('PDF', url)}>
+                <Ionicons name="document-outline" size={16} color="#E91E63" />
+                <Text style={styles.attachPdfText}>Ver PDF</Text>
+              </TouchableOpacity>
+            ) : (
+              <Image key={i} source={{ uri: url }} style={styles.attachImg} resizeMode="cover" />
+            );
+          })}
+          <Text style={[styles.msgTime, { color: isInternal ? '#F57F1799' : isAgent ? '#ffffff88' : '#00000066' }]}>
             {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
           </Text>
         </View>
@@ -390,6 +482,12 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
               </View>
             )}
 
+            {/* Internal chat banner */}
+            <View style={styles.internalBanner}>
+              <Ionicons name="lock-closed" size={13} color="#795548" />
+              <Text style={styles.internalBannerText}>Chat Interno · Solo visible para el equipo de oficina</Text>
+            </View>
+
             {/* Messages */}
             {detailLoading ? (
               <ActivityIndicator size="large" color={BLUE} style={{ marginTop: 48 }} />
@@ -405,27 +503,48 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
 
             {/* Reply box */}
             {selectedTicket && !['resolved', 'closed'].includes(selectedTicket.status) && (
-              <View style={[styles.replyBar, { paddingBottom: insets.bottom || 8 }]}>
-                <TextInput
-                  style={styles.replyInput}
-                  placeholder="Escribe una respuesta..."
-                  placeholderTextColor="#aaa"
-                  value={replyText}
-                  onChangeText={setReplyText}
-                  multiline
-                  maxLength={2000}
-                />
-                <TouchableOpacity
-                  style={[styles.sendBtn, (!replyText.trim() || sending) && { opacity: 0.4 }]}
-                  onPress={sendReply}
-                  disabled={!replyText.trim() || sending}
-                >
-                  {sending ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Ionicons name="send" size={18} color="#fff" />
-                  )}
-                </TouchableOpacity>
+              <View style={{ backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', paddingBottom: insets.bottom || 8 }}>
+                {/* Attached file preview */}
+                {attachedFile && (
+                  <View style={styles.attachPreviewRow}>
+                    {attachedFile.type === 'image' ? (
+                      <Image source={{ uri: attachedFile.uri }} style={styles.attachPreviewImg} />
+                    ) : (
+                      <View style={styles.attachPreviewPdf}>
+                        <Ionicons name="document-outline" size={18} color="#E91E63" />
+                        <Text style={styles.attachPreviewPdfText} numberOfLines={1}>{attachedFile.name}</Text>
+                      </View>
+                    )}
+                    <TouchableOpacity onPress={() => setAttachedFile(null)} style={styles.attachRemoveBtn}>
+                      <Ionicons name="close-circle" size={20} color="#f44336" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+                <View style={styles.replyBar}>
+                  <TouchableOpacity style={styles.attachBtn} onPress={showAttachMenu}>
+                    <Ionicons name="attach" size={22} color="#666" />
+                  </TouchableOpacity>
+                  <TextInput
+                    style={styles.replyInput}
+                    placeholder="Escribe una respuesta interna..."
+                    placeholderTextColor="#aaa"
+                    value={replyText}
+                    onChangeText={setReplyText}
+                    multiline
+                    maxLength={2000}
+                  />
+                  <TouchableOpacity
+                    style={[styles.sendBtn, (!replyText.trim() && !attachedFile || sending) && { opacity: 0.4 }]}
+                    onPress={sendReply}
+                    disabled={(!replyText.trim() && !attachedFile) || sending}
+                  >
+                    {sending ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="send" size={18} color="#fff" />
+                    )}
+                  </TouchableOpacity>
+                </View>
               </View>
             )}
           </View>
@@ -502,9 +621,39 @@ const styles = StyleSheet.create({
   msgSender: { fontSize: 10, fontWeight: '700', marginBottom: 2 },
   msgText: { fontSize: 14, lineHeight: 20 },
   msgTime: { fontSize: 10, marginTop: 4, textAlign: 'right' },
+  internalBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#FFF8E1', paddingHorizontal: 14, paddingVertical: 8,
+    borderBottomWidth: 1, borderBottomColor: '#FFE082',
+  },
+  internalBannerText: { fontSize: 12, color: '#795548', fontWeight: '600', flex: 1 },
+  bubbleInternal: { borderWidth: 1, borderColor: '#FFE082', borderBottomRightRadius: 4 },
+  internalBadge: {
+    backgroundColor: '#FFF3E0', paddingHorizontal: 6, paddingVertical: 1,
+    borderRadius: 6, borderWidth: 1, borderColor: '#FFE082',
+  },
+  internalBadgeText: { fontSize: 10, color: '#E65100', fontWeight: '700' },
+  attachImg: { width: '100%', height: 160, borderRadius: 8, marginTop: 6 },
+  attachPdf: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#FCE4EC', padding: 8, borderRadius: 8, marginTop: 6,
+  },
+  attachPdfText: { fontSize: 13, color: '#C2185B', fontWeight: '600' },
+  attachPreviewRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 12, paddingTop: 8,
+  },
+  attachPreviewImg: { width: 56, height: 56, borderRadius: 8 },
+  attachPreviewPdf: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#FCE4EC', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, flex: 1,
+  },
+  attachPreviewPdfText: { fontSize: 12, color: '#C2185B', flex: 1 },
+  attachRemoveBtn: { padding: 4 },
+  attachBtn: { padding: 6 },
   replyBar: {
     flexDirection: 'row', alignItems: 'flex-end', gap: 8,
-    backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#eee', padding: 10,
+    padding: 10,
   },
   replyInput: {
     flex: 1, backgroundColor: '#F5F5F5', borderRadius: 20,
