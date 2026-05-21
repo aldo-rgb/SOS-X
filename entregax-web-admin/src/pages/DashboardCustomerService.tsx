@@ -9,8 +9,6 @@ import {
   Typography,
   Paper,
   Grid,
-  Card,
-  CardActionArea,
   CircularProgress,
   Avatar,
   Chip,
@@ -24,10 +22,7 @@ import {
 } from '@mui/material';
 import {
   Chat as ChatIcon,
-  WhatsApp as WhatsAppIcon,
-  Person as PersonIcon,
   LocalShipping as ShippingIcon,
-  Search as SearchIcon,
   AccessTime as AccessTimeIcon,
   CheckCircle as CheckCircleIcon,
   Warning as WarningIcon,
@@ -309,47 +304,6 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
 
         {/* Panel Lateral */}
         <Grid size={{ xs: 12, md: 5 }}>
-          {/* Acciones Rápidas */}
-          <Paper sx={{ p: 3, mb: 3 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
-              Acciones Rápidas
-            </Typography>
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 6 }}>
-                <Card sx={{ textAlign: 'center', p: 2 }}>
-                  <CardActionArea>
-                    <SearchIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
-                    <Typography variant="body2" fontWeight="bold">Buscar Paquete</Typography>
-                  </CardActionArea>
-                </Card>
-              </Grid>
-              <Grid size={{ xs: 6 }}>
-                <Card sx={{ textAlign: 'center', p: 2 }}>
-                  <CardActionArea>
-                    <PersonIcon sx={{ fontSize: 40, color: 'secondary.main', mb: 1 }} />
-                    <Typography variant="body2" fontWeight="bold">Buscar Cliente</Typography>
-                  </CardActionArea>
-                </Card>
-              </Grid>
-              <Grid size={{ xs: 6 }}>
-                <Card sx={{ textAlign: 'center', p: 2 }}>
-                  <CardActionArea onClick={onNavigateToSupport}>
-                    <AssignmentIcon sx={{ fontSize: 40, color: 'warning.main', mb: 1 }} />
-                    <Typography variant="body2" fontWeight="bold">Ver Tickets</Typography>
-                  </CardActionArea>
-                </Card>
-              </Grid>
-              <Grid size={{ xs: 6 }}>
-                <Card sx={{ textAlign: 'center', p: 2 }}>
-                  <CardActionArea>
-                    <WhatsAppIcon sx={{ fontSize: 40, color: '#25D366', mb: 1 }} />
-                    <Typography variant="body2" fontWeight="bold">WhatsApp</Typography>
-                  </CardActionArea>
-                </Card>
-              </Grid>
-            </Grid>
-          </Paper>
-
           {/* Alertas */}
           <Paper sx={{ p: 3 }}>
             <Typography variant="h6" fontWeight="bold" gutterBottom>
