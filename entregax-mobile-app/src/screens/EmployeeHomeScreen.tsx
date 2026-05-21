@@ -476,8 +476,14 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       });
       if (response.ok) {
         const data = await response.json();
-        let count = data.count || data.unreadCount || 0;
-        // Si el asesor no está verificado, asegurar que al menos haya 1 notificación
+        // For advisors: only count actionable items (own unread + pending verifications),
+        // NOT clientActivity (informational event count that never resets on archive)
+        let count: number;
+        if (isAdvisor && data.ownUnread !== undefined) {
+          count = (data.ownUnread || 0) + (data.pendingVerification || 0) + (data.ownVerificationPending ? 1 : 0);
+        } else {
+          count = data.count || data.unreadCount || 0;
+        }
         if (isAdvisor && !user.isVerified) {
           count = Math.max(count, 1);
         }

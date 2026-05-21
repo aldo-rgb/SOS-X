@@ -4,6 +4,7 @@ import {
   Text,
   StyleSheet,
   FlatList,
+  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
@@ -418,24 +419,25 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
       )}
 
       {/* Filter Tabs */}
-      <FlatList
-        horizontal
-        data={SOURCE_TABS}
-        keyExtractor={t => t.key}
-        showsHorizontalScrollIndicator={false}
-        style={styles.tabsContainer}
-        contentContainerStyle={styles.tabsContent}
-        renderItem={({ item: tab }) => (
-          <TouchableOpacity
-            style={[styles.tab, activeTab === tab.key && styles.tabActive]}
-            onPress={() => setActiveTab(tab.key)}
-          >
-            <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
-              {tab.label}
-            </Text>
-          </TouchableOpacity>
-        )}
-      />
+      <View style={styles.tabsContainer}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsContent}
+        >
+          {SOURCE_TABS.map(tab => (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.tab, activeTab === tab.key && styles.tabActive]}
+              onPress={() => setActiveTab(tab.key)}
+            >
+              <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
+                {tab.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
 
       {/* Notifications List */}
       <FlatList
@@ -452,7 +454,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
             <Ionicons name="notifications-off-outline" size={64} color="#ccc" />
             <Text style={styles.emptyTitle}>Sin Notificaciones</Text>
             <Text style={styles.emptySubtitle}>
-              {activeTab === 'all' 
+              {activeTab === 'all'
                 ? 'No hay actividad reciente de tus clientes'
                 : 'No hay movimientos en esta categoría'}
             </Text>
@@ -536,7 +538,6 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 12,
     paddingBottom: 40,
-    flexGrow: 1,
   },
   notifCard: {
     flexDirection: 'row',
@@ -613,10 +614,8 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   emptyState: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 40,
+    paddingTop: 80,
     paddingHorizontal: 40,
   },
   emptyTitle: {
