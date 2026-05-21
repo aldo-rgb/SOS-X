@@ -388,44 +388,49 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         onLongPress={() => handleLongPress(item)}
         style={[styles.card, isSelected && styles.cardSelected]}
       >
-        {selectionMode && (
-          <View style={styles.selectionCircle}>
-            {isSelected
-              ? <Ionicons name="checkmark-circle" size={22} color={ORANGE} />
-              : <Ionicons name="ellipse-outline" size={22} color="#ccc" />
-            }
-          </View>
-        )}
-        <View style={styles.cardHeader}>
-          <Text style={styles.tracking} numberOfLines={1}>{item.tracking_number || item.uid}</Text>
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
-              <Text style={[styles.statusText, { color: statusColor }]}>
-                {STATUS_LABELS[item.status] || item.status}
-              </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          {selectionMode && (
+            <View style={styles.checkboxArea}>
+              <Ionicons
+                name={isSelected ? 'checkbox' : 'square-outline'}
+                size={24}
+                color={isSelected ? ORANGE : '#bbb'}
+              />
             </View>
-            {instrEnabled && !selectionMode && (
-              <TouchableOpacity
-                style={[styles.pencilBtn, { backgroundColor: item.has_instructions ? '#E8F5E9' : '#FFF3E0' }]}
-                onPress={() => openInstrModal(item)}
-              >
-                <Ionicons name="pencil" size={14} color={item.has_instructions ? GREEN : '#FF9800'} />
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-        {item.goods_name ? <Text style={styles.goodsName}>{item.goods_name}</Text> : null}
-        <View style={styles.cardFooter}>
-          <Text style={styles.clientName} numberOfLines={1}>{item.client_name} · {item.client_box_id}</Text>
-          <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
-            {item.saldo_pendiente > 0 && (
-              <Text style={styles.saldo}>${item.saldo_pendiente.toFixed(2)}</Text>
-            )}
-            {item.has_instructions && (
-              <View style={styles.instrBadge}>
-                <Text style={styles.instrBadgeText}>✓ Instr.</Text>
+          )}
+          <View style={{ flex: 1 }}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.tracking} numberOfLines={1}>{item.tracking_number || item.uid}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
+                  <Text style={[styles.statusText, { color: statusColor }]}>
+                    {STATUS_LABELS[item.status] || item.status}
+                  </Text>
+                </View>
+                {instrEnabled && !selectionMode && (
+                  <TouchableOpacity
+                    style={[styles.pencilBtn, { backgroundColor: item.has_instructions ? '#E8F5E9' : '#FFF3E0' }]}
+                    onPress={() => openInstrModal(item)}
+                  >
+                    <Ionicons name="pencil" size={14} color={item.has_instructions ? GREEN : '#FF9800'} />
+                  </TouchableOpacity>
+                )}
               </View>
-            )}
+            </View>
+            {item.goods_name ? <Text style={styles.goodsName}>{item.goods_name}</Text> : null}
+            <View style={styles.cardFooter}>
+              <Text style={styles.clientName} numberOfLines={1}>{item.client_name} · {item.client_box_id}</Text>
+              <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                {item.saldo_pendiente > 0 && (
+                  <Text style={styles.saldo}>${item.saldo_pendiente.toFixed(2)}</Text>
+                )}
+                {item.has_instructions && (
+                  <View style={styles.instrBadge}>
+                    <Text style={styles.instrBadgeText}>✓ Instr.</Text>
+                  </View>
+                )}
+              </View>
+            </View>
           </View>
         </View>
       </TouchableOpacity>
@@ -444,6 +449,16 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         <View style={styles.countBadge}>
           <Text style={styles.countText}>{shipments.length}</Text>
         </View>
+        {/* Select mode toggle */}
+        {!selectionMode ? (
+          <TouchableOpacity onPress={() => setSelectionMode(true)} style={{ padding: 8, marginLeft: 4 }}>
+            <Ionicons name="checkmark-done-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity onPress={cancelSelection} style={{ padding: 8, marginLeft: 4 }}>
+            <Ionicons name="close-circle-outline" size={22} color="#fff" />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity onPress={openFilterModal} style={styles.filterBtn}>
           <Ionicons name="options-outline" size={20} color="#fff" />
           {activeFilterCount > 0 && (
@@ -1028,6 +1043,7 @@ const styles = StyleSheet.create({
   detailChip: { backgroundColor: '#fff', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, borderWidth: 1, borderColor: '#e0e0e0', minWidth: 70 },
   detailChipLabel: { fontSize: 10, color: '#888', fontWeight: '600', textTransform: 'uppercase' as const },
   detailChipValue: { fontSize: 13, color: '#222', fontWeight: '700', marginTop: 1 },
+  checkboxArea: { paddingRight: 10, paddingLeft: 2, justifyContent: 'center' },
   docPickerBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: '#ccc', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, backgroundColor: '#fff' },
   docPickerBtnDone: { borderColor: '#4CAF50', backgroundColor: '#F1F8F1' },
   yesNoBtn: { paddingHorizontal: 20, paddingVertical: 8, borderRadius: 8, borderWidth: 1, borderColor: ORANGE },
