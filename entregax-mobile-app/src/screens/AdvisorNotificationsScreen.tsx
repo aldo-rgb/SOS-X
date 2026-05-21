@@ -92,6 +92,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
   const [stats, setStats] = useState({ ownUnread: 0, clientActivity: 0 });
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [archivedIds, setArchivedIds] = useState<Set<number>>(new Set());
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -142,24 +143,23 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
     } catch {}
   };
 
-  // Solo se pueden archivar notificaciones reales (source === 'own')
   const archiveOne = async (id: number) => {
+    setArchivedIds(prev => new Set([...prev, id]));
+    setSelectedIds(prev => { const s = new Set(prev); s.delete(id); return s; });
     try {
       await fetch(`${API_URL}/api/notifications/${id}/archive`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
       });
-      setNotifications(prev => prev.filter(n => !(n.id === id && n.source === 'own')));
-      setSelectedIds(prev => { const s = new Set(prev); s.delete(id); return s; });
-    } catch (e) {
-      console.error('archiveOne', e);
-    }
+    } catch {}
   };
 
   const archiveSelected = async () => {
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
-    // Archivar en backend solo las de source === 'own'
+    setArchivedIds(prev => new Set([...prev, ...ids]));
+    setSelectedIds(new Set());
+    setSelectionMode(false);
     const ownIds = ids.filter(id => notifications.find(n => n.id === id)?.source === 'own');
     try {
       if (ownIds.length > 0) {
@@ -169,13 +169,7 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
           body: JSON.stringify({ ids: ownIds }),
         });
       }
-      // Remover todas las seleccionadas de la vista (incluidas client_package)
-      setNotifications(prev => prev.filter(n => !ids.includes(n.id)));
-      setSelectedIds(new Set());
-      setSelectionMode(false);
-    } catch (e) {
-      console.error('archiveSelected', e);
-    }
+    } catch {}
   };
 
   const archiveAllOwn = () => {
@@ -188,20 +182,17 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
           text: 'Archivar',
           style: 'destructive',
           onPress: async () => {
+            const allIds = filteredNotifications.map(n => n.id);
+            setArchivedIds(prev => new Set([...prev, ...allIds]));
+            setStats(prev => ({ ...prev, ownUnread: 0 }));
+            setSelectedIds(new Set());
+            setSelectionMode(false);
             try {
-              // Archivar en backend las de sistema
               await fetch(`${API_URL}/api/notifications/archive-all`, {
                 method: 'PUT',
                 headers: { Authorization: `Bearer ${token}` },
               });
-              // Limpiar toda la vista
-              setNotifications([]);
-              setStats(prev => ({ ...prev, ownUnread: 0 }));
-              setSelectedIds(new Set());
-              setSelectionMode(false);
-            } catch (e) {
-              console.error('archiveAll', e);
-            }
+            } catch {}
           },
         },
       ]
@@ -239,11 +230,14 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
     return d.toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
   };
 
-  const filteredNotifications = activeTab === 'all' 
-    ? notifications 
-    : activeTab === 'pending_verification'
-      ? notifications.filter(n => n.source === 'pending_verification' || n.source === 'own_verification')
-      : notifications.filter(n => n.source === activeTab);
+  const filteredNotifications = (() => {
+    const base = activeTab === 'all'
+      ? notifications
+      : activeTab === 'pending_verification'
+        ? notifications.filter(n => n.source === 'pending_verification' || n.source === 'own_verification')
+        : notifications.filter(n => n.source === activeTab);
+    return base.filter(n => !archivedIds.has(n.id));
+  })();
 
   const handleNotificationPress = (notif: Notification) => {
     if (selectionMode) {
@@ -333,13 +327,13 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
           )}
         </View>
         {isUnread && !selectionMode && <View style={styles.unreadDot} />}
-        {item.source === 'own' && !selectionMode && (
+        {!selectionMode && (
           <TouchableOpacity
             onPress={() => archiveOne(item.id)}
             style={{ padding: 6, marginLeft: 4 }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="archive-outline" size={20} color="#999" />
+            <Ionicons name="archive-outline" size={20} color="#ccc" />
           </TouchableOpacity>
         )}
         {selectionMode && (
@@ -490,13 +484,14 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   tabsContainer: {
-    maxHeight: 48,
+    height: 52,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#E0E0E0',
   },
   tabsContent: {
     paddingHorizontal: 12,
+    paddingVertical: 8,
     gap: 8,
     alignItems: 'center',
   },
