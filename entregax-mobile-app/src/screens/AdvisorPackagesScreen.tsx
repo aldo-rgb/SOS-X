@@ -50,6 +50,14 @@ interface Shipment {
   height_cm: number;
   children_count: number;
   is_master: boolean;
+  is_unidentified?: boolean;
+}
+
+interface AdvisorClient {
+  id: number;
+  fullName: string;
+  boxId: string | null;
+  email: string;
 }
 
 interface ClientAddress {
@@ -109,6 +117,15 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedUids, setSelectedUids] = useState<string[]>([]);
   const [selectionServiceType, setSelectionServiceType] = useState<string | null>(null);
+
+  // Assign client modal (for unidentified packages)
+  const [assignClientModal, setAssignClientModal] = useState(false);
+  const [assignClientShipment, setAssignClientShipment] = useState<Shipment | null>(null);
+  const [assignClientList, setAssignClientList] = useState<AdvisorClient[]>([]);
+  const [assignClientSearch, setAssignClientSearch] = useState('');
+  const [assignClientLoading, setAssignClientLoading] = useState(false);
+  const [assignClientSaving, setAssignClientSaving] = useState(false);
+  const [assignClientSelectedId, setAssignClientSelectedId] = useState<number | null>(null);
 
   // Instruction assignment modal
   const [instrModal, setInstrModal] = useState(false);
@@ -174,6 +191,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         height_cm: parseFloat(s.heightCm ?? s.height_cm ?? 0),
         children_count: parseInt(s.childrenCount ?? s.children_count ?? 0),
         is_master: s.isMaster ?? s.is_master ?? false,
+        is_unidentified: s.is_unidentified ?? false,
       }));
       setShipments(list);
     } catch (e) {
@@ -282,6 +300,57 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         setter({ uri: result.assets[0].uri, name: result.assets[0].name, mimeType: result.assets[0].mimeType ?? undefined });
       }
     } catch { /* user cancelled */ }
+  };
+
+  // ── Asignar Cliente (guías sin identificar) ──
+  const openAssignClientModal = async (item: Shipment) => {
+    setAssignClientShipment(item);
+    setAssignClientSelectedId(null);
+    setAssignClientSearch('');
+    setAssignClientModal(true);
+    setAssignClientLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/clients?limit=200`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      const clients: AdvisorClient[] = (data.clients || []).map((c: any) => ({
+        id: c.id,
+        fullName: c.full_name ?? c.fullName ?? '',
+        boxId: c.box_id ?? c.boxId ?? null,
+        email: c.email ?? '',
+      }));
+      setAssignClientList(clients);
+    } catch {
+      Alert.alert('Error', 'No se pudo cargar la lista de clientes');
+      setAssignClientModal(false);
+    } finally {
+      setAssignClientLoading(false);
+    }
+  };
+
+  const saveAssignClient = async () => {
+    if (!assignClientShipment || assignClientSelectedId === null) return;
+    setAssignClientSaving(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/advisor/packages/${assignClientShipment.id}/assign-client`,
+        {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ clientId: assignClientSelectedId }),
+        }
+      );
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+      setAssignClientModal(false);
+      Alert.alert('✅ Cliente asignado', data.message || 'Cliente asignado correctamente');
+      setShipments(prev => prev.filter(s => s.id !== assignClientShipment.id));
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo asignar el cliente');
+    } finally {
+      setAssignClientSaving(false);
+    }
   };
 
   const handleSelectInstrCarrier = (carrier: any) => {
@@ -444,13 +513,22 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                     {STATUS_LABELS[item.status] || item.status}
                   </Text>
                 </View>
-                {instrEnabled && !selectionMode && (
-                  <TouchableOpacity
-                    style={[styles.pencilBtn, { backgroundColor: item.has_instructions ? '#E8F5E9' : '#FFF3E0' }]}
-                    onPress={() => openInstrModal(item)}
-                  >
-                    <Ionicons name="pencil" size={14} color={item.has_instructions ? GREEN : '#FF9800'} />
-                  </TouchableOpacity>
+                {!selectionMode && (
+                  item.is_unidentified ? (
+                    <TouchableOpacity
+                      style={[styles.pencilBtn, { backgroundColor: '#F3E5F5' }]}
+                      onPress={() => openAssignClientModal(item)}
+                    >
+                      <Ionicons name="person-add" size={14} color="#9C27B0" />
+                    </TouchableOpacity>
+                  ) : instrEnabled ? (
+                    <TouchableOpacity
+                      style={[styles.pencilBtn, { backgroundColor: item.has_instructions ? '#E8F5E9' : '#FFF3E0' }]}
+                      onPress={() => openInstrModal(item)}
+                    >
+                      <Ionicons name="pencil" size={14} color={item.has_instructions ? GREEN : '#FF9800'} />
+                    </TouchableOpacity>
+                  ) : null
                 )}
               </View>
             </View>
@@ -930,6 +1008,85 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                     : <Text style={styles.saveBtnText}>
                         {instrCarriers.length > 0 && !instrCarrierKey ? 'Selecciona paquetería' : 'Asignar instrucciones'}
                       </Text>
+                  }
+                </TouchableOpacity>
+              </View>
+            </>
+          )}
+        </View>
+      </Modal>
+
+      {/* ─── Modal: Asignar Cliente ─── */}
+      <Modal visible={assignClientModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAssignClientModal(false)}>
+        <View style={styles.modalContainer}>
+          <View style={[styles.modalHeader, { backgroundColor: '#7B1FA2' }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.modalTitle}>👤 Asignar Cliente</Text>
+              <Text style={styles.modalSubtitle} numberOfLines={1}>
+                {assignClientShipment?.tracking_number || assignClientShipment?.uid}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setAssignClientModal(false)} style={styles.modalClose}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+
+          {/* Buscador */}
+          <View style={[styles.searchBar, { marginTop: 12 }]}>
+            <Ionicons name="search-outline" size={16} color="#999" style={{ marginRight: 6 }} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Buscar cliente..."
+              placeholderTextColor="#bbb"
+              value={assignClientSearch}
+              onChangeText={setAssignClientSearch}
+              clearButtonMode="while-editing"
+            />
+          </View>
+
+          {assignClientLoading ? (
+            <View style={styles.centerContainer}><ActivityIndicator size="large" color="#7B1FA2" /></View>
+          ) : (
+            <>
+              <ScrollView contentContainerStyle={{ padding: 12, gap: 8 }}>
+                {assignClientList
+                  .filter(c => {
+                    const q = assignClientSearch.toLowerCase();
+                    return !q || c.fullName.toLowerCase().includes(q) || (c.boxId || '').toLowerCase().includes(q);
+                  })
+                  .map(c => {
+                    const selected = assignClientSelectedId === c.id;
+                    return (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={[styles.addrOption, selected && { borderColor: '#7B1FA2' }]}
+                        onPress={() => setAssignClientSelectedId(c.id)}
+                      >
+                        <View style={[styles.radioCircle, selected && { borderColor: '#7B1FA2' }]}>
+                          {selected && <View style={[styles.radioInner, { backgroundColor: '#7B1FA2' }]} />}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.addrAlias}>{c.fullName}</Text>
+                          {c.boxId ? <Text style={{ fontSize: 12, color: '#888' }}>Box: {c.boxId}</Text> : null}
+                          <Text style={{ fontSize: 11, color: '#bbb' }}>{c.email}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                {assignClientList.length === 0 && (
+                  <Text style={styles.empty}>No tienes clientes registrados.</Text>
+                )}
+              </ScrollView>
+
+              <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#f0f0f0' }}>
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: '#7B1FA2' }, (assignClientSaving || assignClientSelectedId === null) && { opacity: 0.5 }]}
+                  onPress={saveAssignClient}
+                  disabled={assignClientSaving || assignClientSelectedId === null}
+                >
+                  {assignClientSaving
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={styles.saveBtnText}>Asignar cliente</Text>
                   }
                 </TouchableOpacity>
               </View>

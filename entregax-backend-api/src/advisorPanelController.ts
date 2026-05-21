@@ -133,13 +133,15 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         AND p.status IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
     `, [advisorId]);
 
-    // Guías sin cliente (PO Box sin user_id)
+    // Guías sin cliente: user_id IS NULL y sin coincidencia en usuarios reales ni legacy_clients
     const unidentifiedRes = await pool.query(`
-      SELECT COUNT(*) as total FROM packages
-      WHERE user_id IS NULL
-        AND (service_type = 'POBOX_USA' OR tracking_internal LIKE 'US-%')
-        AND status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
-        AND (is_master = true OR master_id IS NULL)
+      SELECT COUNT(*) as total FROM packages p
+      WHERE p.user_id IS NULL
+        AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
+        AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
+        AND (p.is_master = true OR p.master_id IS NULL)
+        AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.box_id IS NOT NULL AND UPPER(u2.box_id) = UPPER(COALESCE(p.box_id, '')))
+        AND NOT EXISTS (SELECT 1 FROM legacy_clients lc WHERE lc.box_id IS NOT NULL AND UPPER(lc.box_id) = UPPER(COALESCE(p.box_id, '')))
     `);
 
     // Comisiones del mes actual
@@ -414,6 +416,9 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
           AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
+          -- Excluir si el box_id coincide con un usuario real o con un legacy_client
+          AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.box_id IS NOT NULL AND UPPER(u2.box_id) = UPPER(COALESCE(p.box_id, '')))
+          AND NOT EXISTS (SELECT 1 FROM legacy_clients lc WHERE lc.box_id IS NOT NULL AND UPPER(lc.box_id) = UPPER(COALESCE(p.box_id, '')))
         ORDER BY p.created_at DESC
         LIMIT $1 OFFSET $2
       `;
@@ -423,6 +428,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
           AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
+          AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.box_id IS NOT NULL AND UPPER(u2.box_id) = UPPER(COALESCE(p.box_id, '')))
+          AND NOT EXISTS (SELECT 1 FROM legacy_clients lc WHERE lc.box_id IS NOT NULL AND UPPER(lc.box_id) = UPPER(COALESCE(p.box_id, '')))
       `;
       const [dataRes, countRes] = await Promise.all([
         pool.query(unidSQL, [parseInt(limit), offset]),
@@ -453,6 +460,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           height_cm: s.height_cm,
           carrier_tracking: s.carrier_tracking,
           carrier_name: s.carrier_name,
+          is_unidentified: true,
         })),
         total: parseInt(countRes.rows[0]?.total) || 0,
       });
@@ -1711,5 +1719,56 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
   } catch (error) {
     console.error('Error assignAdvisorShipmentInstructions:', error);
     res.status(500).json({ error: 'Error al asignar instrucciones' });
+  }
+};
+
+// ─── Asignar cliente a paquete sin cliente ───
+// PUT /api/advisor/packages/:packageId/assign-client
+export const assignClientToPackage = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = getAdvisorId(req);
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    const { packageId } = req.params;
+    const { clientId } = req.body;
+    if (!clientId) return res.status(400).json({ error: 'clientId requerido' });
+
+    // Verificar que el cliente pertenece al asesor
+    const clientCheck = await pool.query(
+      `SELECT id, full_name, box_id FROM users
+       WHERE id = $1 AND role = 'client'
+         AND (advisor_id = $2 OR referred_by_id = $2)`,
+      [clientId, advisorId]
+    );
+    if (clientCheck.rows.length === 0) {
+      return res.status(403).json({ error: 'Cliente no pertenece a este asesor' });
+    }
+
+    const client = clientCheck.rows[0];
+
+    // El paquete debe existir y no tener cliente asignado
+    const pkgCheck = await pool.query(
+      `SELECT id, tracking_internal, master_id FROM packages WHERE id = $1 AND user_id IS NULL`,
+      [packageId]
+    );
+    if (pkgCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Paquete no encontrado o ya tiene cliente asignado' });
+    }
+
+    // Asignar user_id y box_id al master y a todos sus hijos
+    await pool.query(
+      `UPDATE packages SET user_id = $1, box_id = $2, updated_at = NOW()
+       WHERE id = $3 OR master_id = $3`,
+      [client.id, client.box_id, parseInt(packageId)]
+    );
+
+    res.json({
+      success: true,
+      message: `Cliente ${client.full_name} asignado correctamente`,
+      client: { id: client.id, fullName: client.full_name, boxId: client.box_id },
+    });
+  } catch (error) {
+    console.error('Error assignClientToPackage:', error);
+    res.status(500).json({ error: 'Error al asignar cliente' });
   }
 };
