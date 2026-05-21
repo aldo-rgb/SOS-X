@@ -321,9 +321,6 @@ export default function AdvanceControlPanel() {
         return refs;
     };
 
-    // Siempre se envían TODAS las referencias; las inválidas se marcan en el backend como 'no_encontrada'
-    const getReferenciasParaEnviar = () => parsedReferencias;
-
     // Manejar cambio en texto de referencias
     const handleReferenciasChange = (text: string) => {
         setReferenciasOmitidas(false); // resetear omisión si el usuario edita
