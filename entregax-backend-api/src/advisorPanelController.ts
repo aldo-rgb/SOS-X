@@ -1729,7 +1729,7 @@ export const assignClientToPackage = async (req: Request, res: Response): Promis
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
-    const { packageId } = req.params;
+    const packageId = req.params.packageId as string;
     const { clientId } = req.body;
     if (!clientId) return res.status(400).json({ error: 'clientId requerido' });
 
