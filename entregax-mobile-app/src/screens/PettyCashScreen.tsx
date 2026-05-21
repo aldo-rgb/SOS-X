@@ -76,6 +76,7 @@ type RouteBlock = {
   containers: ContainerInfo[];
   total_expenses: string | number;
   expense_count: string | number;
+  pending_expense_count: string | number;
 };
 
 // ─── Constants ───────────────────────────────────────────────────────────────
@@ -465,12 +466,21 @@ export default function PettyCashScreen({ navigation, route }: any) {
                 <Text style={styles.blockExpCount}>
                   {Number(block.expense_count)} gasto(s) · {block.containers.length} contenedor(es)
                 </Text>
+                {Number(block.pending_expense_count) > 0 && (
+                  <Text style={styles.pendingWarning}>
+                    ⏳ {Number(block.pending_expense_count)} gasto(s) pendientes de autorización
+                  </Text>
+                )}
                 <View style={styles.blockActions}>
                   <TouchableOpacity style={styles.blockAddBtn} onPress={() => { setHubOpen(true); }}>
                     <MaterialIcons name="add-circle-outline" size={16} color="#F05A28" />
                     <Text style={styles.blockAddBtnText}>Agregar gasto</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={styles.blockFinalizeBtn} onPress={() => finalizeBlock(block)}>
+                  <TouchableOpacity
+                    style={[styles.blockFinalizeBtn, Number(block.pending_expense_count) > 0 && { backgroundColor: '#B0BEC5' }]}
+                    onPress={() => finalizeBlock(block)}
+                    disabled={Number(block.pending_expense_count) > 0}
+                  >
                     <MaterialIcons name="check-circle-outline" size={16} color="#fff" />
                     <Text style={styles.blockFinalizeBtnText}>Finalizar</Text>
                   </TouchableOpacity>
@@ -610,6 +620,11 @@ export default function PettyCashScreen({ navigation, route }: any) {
                       </Text>
                     )}
 
+                    {Number(block.pending_expense_count) > 0 && (
+                      <Text style={styles.pendingWarning}>
+                        ⏳ {Number(block.pending_expense_count)} gasto(s) pendiente(s) de autorización
+                      </Text>
+                    )}
                     <View style={styles.blockActions}>
                       <TouchableOpacity
                         style={styles.blockAddBtn}
@@ -619,8 +634,9 @@ export default function PettyCashScreen({ navigation, route }: any) {
                         <Text style={styles.blockAddBtnText}>Agregar gasto</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={styles.blockFinalizeBtn}
+                        style={[styles.blockFinalizeBtn, Number(block.pending_expense_count) > 0 && { backgroundColor: '#B0BEC5' }]}
                         onPress={() => { setHubOpen(false); finalizeBlock(block); }}
+                        disabled={Number(block.pending_expense_count) > 0}
                       >
                         <MaterialIcons name="check-circle-outline" size={16} color="#fff" />
                         <Text style={styles.blockFinalizeBtnText}>Finalizar ruta</Text>
@@ -875,7 +891,8 @@ const styles = StyleSheet.create({
   blockDate: { fontSize: 12, color: '#666' },
   blockTotal: { fontSize: 16, fontWeight: 'bold', color: '#222' },
   blockContainers: { fontSize: 13, color: '#333', marginBottom: 2 },
-  blockExpCount: { fontSize: 11, color: '#999', marginBottom: 8 },
+  blockExpCount: { fontSize: 11, color: '#999', marginBottom: 4 },
+  pendingWarning: { fontSize: 11, color: '#E65100', fontWeight: 'bold', marginBottom: 8 },
   blockActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
   blockAddBtn: {
     flex: 1,

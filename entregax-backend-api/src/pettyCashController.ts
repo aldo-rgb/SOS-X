@@ -1301,24 +1301,32 @@ export const listRouteBlocks = async (req: Request, res: Response): Promise<any>
   try {
     const result = await pool.query(`
       SELECT b.id, b.status, b.notes, b.created_at, b.finalized_at, b.total_allocated_mxn,
-        COALESCE(
-          json_agg(
-            json_build_object(
-              'id', c.id,
-              'container_number', c.container_number,
-              'bl_number', c.bl_number,
-              'status', c.status
-            ) ORDER BY c.container_number
-          ) FILTER (WHERE c.id IS NOT NULL), '[]'
-        ) AS containers,
-        COALESCE(SUM(m.amount_mxn) FILTER (WHERE m.id IS NOT NULL), 0) AS total_expenses,
-        COUNT(m.id) FILTER (WHERE m.id IS NOT NULL) AS expense_count
+        COALESCE(cont.containers, '[]') AS containers,
+        COALESCE(exp.total_expenses, 0) AS total_expenses,
+        COALESCE(exp.expense_count, 0) AS expense_count,
+        COALESCE(exp.pending_expense_count, 0) AS pending_expense_count
       FROM petty_cash_route_blocks b
-      LEFT JOIN petty_cash_route_block_containers bc ON bc.block_id = b.id
-      LEFT JOIN containers c ON c.id = bc.container_id
-      LEFT JOIN petty_cash_movements m ON m.route_block_id = b.id AND m.movement_type = 'expense'
+      LEFT JOIN LATERAL (
+        SELECT json_agg(
+          json_build_object('id', sub.id, 'container_number', sub.container_number, 'bl_number', sub.bl_number, 'status', sub.status)
+          ORDER BY sub.container_number
+        ) AS containers
+        FROM (
+          SELECT DISTINCT ON (c.id) c.id, c.container_number, c.bl_number, c.status
+          FROM petty_cash_route_block_containers bc
+          JOIN containers c ON c.id = bc.container_id
+          WHERE bc.block_id = b.id
+        ) sub
+      ) cont ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(SUM(amount_mxn), 0) AS total_expenses,
+          COUNT(*) AS expense_count,
+          COUNT(*) FILTER (WHERE status = 'pending') AS pending_expense_count
+        FROM petty_cash_movements
+        WHERE route_block_id = b.id AND movement_type = 'expense'
+      ) exp ON true
       WHERE b.user_id = $1 AND b.status = 'open'
-      GROUP BY b.id
       ORDER BY b.created_at DESC
     `, [userId]);
     return res.json({ blocks: result.rows });
@@ -1376,6 +1384,16 @@ export const finalizeRouteBlock = async (req: Request, res: Response): Promise<a
       [blockId, userId]
     );
     if (br.rows.length === 0) return res.status(404).json({ error: 'Bloque no encontrado o ya finalizado' });
+
+    // Bloquear si hay gastos pendientes de autorización
+    const pendingCheck = await client.query(
+      `SELECT COUNT(*) AS cnt FROM petty_cash_movements WHERE route_block_id = $1 AND movement_type = 'expense' AND status = 'pending'`,
+      [blockId]
+    );
+    if (Number(pendingCheck.rows[0].cnt) > 0) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: `Hay ${pendingCheck.rows[0].cnt} gasto(s) pendientes de autorización. Espera a que el administrador los apruebe antes de finalizar.` });
+    }
 
     const cr = await client.query(
       `SELECT container_id FROM petty_cash_route_block_containers WHERE block_id = $1`,
