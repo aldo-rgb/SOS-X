@@ -339,8 +339,6 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         { value: 'customs_cleared', label: 'Liberado de aduana', description: 'Despacho aduanal completado, listo para movilizar', icon: '🛃' },
         { value: 'in_transit_clientfinal', label: 'En tránsito a destino', description: 'El contenedor va en tránsito hacia el destino del cliente final', icon: '🚛' },
         { value: 'delivered', label: 'Entregado', description: 'Contenedor entregado al cliente final', icon: '✅' },
-        // Status de recepción — asignado por el wizard cuando llega con faltantes; solo lectura en este panel
-        { value: 'received_partial', label: 'Recibido parcial', description: 'Contenedor recibido en bodega con órdenes faltantes', icon: '⚠️' },
     ];
 
     const updateFCLContainerStatus = async () => {
@@ -827,7 +825,9 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setSecondContainerId(null);
             // Preseleccionar el status actual del contenedor para no “avanzarlo”
             // cuando el usuario sólo quiere cambiar monitorista o ruta.
-            setFclStatus(c.status || 'in_transit_clientfinal');
+            // received_partial no es un status del flujo FCL — no pre-seleccionar
+            const validFclStatus = FCL_STATUSES.find((s) => s.value === c.status) ? c.status : '';
+            setFclStatus(validFclStatus || 'in_transit_clientfinal');
             // Cargar historial en paralelo
             loadHistory(c.id);
             setStep(1);
@@ -1286,7 +1286,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                             {selected.voyage_number && ` · Viaje ${selected.voyage_number}`}
                         </Typography>
                         <Stack direction="row" spacing={1} sx={{ mt: 1, flexWrap: 'wrap' }}>
-                            <Chip label={`Status actual: ${FCL_STATUSES.find((s) => s.value === selected.status)?.label || selected.status || '—'}`} size="small" sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700 }} />
+                            <Chip label={`Status actual: ${FCL_STATUSES.find((s) => s.value === selected.status)?.label || (selected.status === 'received_partial' ? '⚠️ Recibido parcial' : selected.status) || '—'}`} size="small" sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700 }} />
                             {selected.total_weight_kg && (
                                 <Chip label={`${Number(selected.total_weight_kg).toFixed(2)} kg`} size="small" variant="outlined" />
                             )}
@@ -1696,7 +1696,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                                         const isRoute = h.change_type === 'route';
                                                         const isMonitorChange = h.change_type === 'monitor';
                                                         const entryIcon = isMonitoringStart ? '📸' : isRoute ? '🚛' : isMonitorChange ? '👁️' : (meta?.icon || '·');
-                                                        const entryLabel = isMonitoringStart ? 'Inicio de monitoreo' : isRoute ? 'Asignación de operador' : isMonitorChange ? 'Asignación de monitorista' : (meta?.label || h.new_status);
+                                                        const EXTRA_STATUS_LABELS: Record<string, string> = { received_partial: '⚠️ Recibido parcial' };
+                                                        const entryLabel = isMonitoringStart ? 'Inicio de monitoreo' : isRoute ? 'Asignación de operador' : isMonitorChange ? 'Asignación de monitorista' : (meta?.label || EXTRA_STATUS_LABELS[h.new_status] || h.new_status);
                                                         return (
                                                             <ListItem key={h.id} sx={{ borderBottom: '1px solid #eee', alignItems: 'flex-start' }}>
                                                                 <ListItemText
