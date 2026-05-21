@@ -533,6 +533,12 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       unionParts = [`${marSelect} ${marWhere}`];
     } else if (serviceType === 'AA_DHL') {
       unionParts = [`${dhlSelect} ${dhlWhere}`];
+    } else if (serviceType === 'TDI_EXPRESS') {
+      // TDI packages: service_type stored lowercase, also identified by air_source
+      // Include child packages (don't enforce master_id IS NULL)
+      const tdiPkgSelect = pkgSelect.replace('AND p.master_id IS NULL', '');
+      pkgWhere += ` AND (LOWER(p.service_type) = 'tdi_express' OR p.air_source = 'tdi_express')`;
+      unionParts = [`${tdiPkgSelect} ${pkgWhere}`];
     } else {
       // AIR_CHN_MX, POBOX_USA, etc.
       pkgWhere += ` AND p.service_type = $${paramIdx}`;
