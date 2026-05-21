@@ -52,6 +52,8 @@ interface InventoryPackage {
     statusDate?: string;
     deliveredAt?: string;
     consolidationId?: number;
+    isMaster?: boolean;
+    totalBoxes?: number;
     client: {
         id: number;
         name: string;
@@ -269,7 +271,16 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                     return (
                                         <TableRow key={p.id} hover>
                                             <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE }}>
-                                                {p.tracking}
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                                    {p.tracking}
+                                                    {p.isMaster && p.totalBoxes && p.totalBoxes > 1 && (
+                                                        <Chip
+                                                            label={`${p.totalBoxes} cajas`}
+                                                            size="small"
+                                                            sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700, fontSize: 11, height: 20 }}
+                                                        />
+                                                    )}
+                                                </Box>
                                                 {p.description && (
                                                     <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontFamily: 'inherit' }}>
                                                         {p.description}
