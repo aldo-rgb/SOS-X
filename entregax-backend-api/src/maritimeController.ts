@@ -280,8 +280,8 @@ export const updateContainerStatus = async (req: AuthRequest, res: Response): Pr
       await pool.query(`UPDATE containers SET status = $1, updated_at = NOW() ${monitorClause} WHERE id = $2`, [status, id]);
     }
 
-    // Actualizar todos los envíos del contenedor
-    await pool.query('UPDATE maritime_shipments SET status = $1, updated_at = NOW() WHERE container_id = $2', [status, id]);
+    // NO propagamos el status del contenedor a los maritime_shipments (logs).
+    // El contenedor y sus logs tienen flujos de status independientes.
 
     // Registrar en historial (auditoría) — solo si hubo un cambio real.
     // change_type: 'status' (cambió el estatus), 'monitor' (se asignó/cambió

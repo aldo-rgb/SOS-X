@@ -339,6 +339,8 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
         { value: 'customs_cleared', label: 'Liberado de aduana', description: 'Despacho aduanal completado, listo para movilizar', icon: '🛃' },
         { value: 'in_transit_clientfinal', label: 'En tránsito a destino', description: 'El contenedor va en tránsito hacia el destino del cliente final', icon: '🚛' },
         { value: 'delivered', label: 'Entregado', description: 'Contenedor entregado al cliente final', icon: '✅' },
+        // Status de recepción — asignado por el wizard cuando llega con faltantes; solo lectura en este panel
+        { value: 'received_partial', label: 'Recibido parcial', description: 'Contenedor recibido en bodega con órdenes faltantes', icon: '⚠️' },
     ];
 
     const updateFCLContainerStatus = async () => {
