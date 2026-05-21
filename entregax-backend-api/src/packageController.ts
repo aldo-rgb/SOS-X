@@ -791,7 +791,7 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
 
             // Insertar en tabla notifications para el centro de notificaciones
             pool.query(
-                `SELECT id FROM users WHERE role IN ('asesor','sub_advisor','advisor') AND is_active = TRUE`
+                `SELECT id FROM users WHERE role IN ('asesor','sub_advisor','advisor')`
             ).then(async (r: any) => {
                 const { createCustomNotification } = await import('./notificationController');
                 await Promise.all(r.rows.map((row: any) =>
