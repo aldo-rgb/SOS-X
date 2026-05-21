@@ -8902,14 +8902,25 @@ export default function DashboardClient() {
                   ].includes(p2);
                   const inMetro = inMtyMetro || inCdmxMetro;
 
+                  // TDI Express (guías TDX) y TDI Aéreo (guías AIR): en zona metro
+                  // solo se ofrece EntregaX Local (MTY o CDMX) + Por Cobrar — sin Paquete Express.
+                  const isTdiService = selectedPackageIds.some(pkgId => {
+                    const pkg = packages.find(p => p.id === pkgId);
+                    const svc = String(pkg?.shipment_type || pkg?.servicio || '').toUpperCase();
+                    return svc === 'TDI_EXPRESS' || svc === 'TDI_AEREO';
+                  });
+
                   // Reglas de filtrado:
-                  //  - MTY metro  → Entregax Local MTY  + Paquete Express + Por Cobrar
-                  //  - CDMX metro → Entregax Local CDMX + Paquete Express + Por Cobrar
+                  //  - MTY metro  → Entregax Local MTY + (Paquete Express si !TDI) + Por Cobrar
+                  //  - CDMX metro → Entregax Local CDMX + (Paquete Express si !TDI) + Por Cobrar
                   //  - Fuera de ambas → ocultar locales (queda Paquete Express / Por Cobrar)
                   const filterByZip = (s: { id: string }) => {
                     const id = String(s.id || '').toLowerCase();
                     const isLocalMty = id === 'local' || id === 'entregax_local_mty' || id === 'entregax_local';
                     const isLocalCdmx = id === 'entregax_local_cdmx';
+                    const isPaqueteExpress = id === 'paquete_express' || id === 'paquete_express_pc';
+                    // TDI en zona metro: ocultar Paquete Express
+                    if (isTdiService && inMetro && isPaqueteExpress) return false;
                     // En MTY metro ocultamos Local CDMX y viceversa.
                     if (inMtyMetro)  return !isLocalCdmx;
                     if (inCdmxMetro) return !isLocalMty;
