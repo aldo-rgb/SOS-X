@@ -524,11 +524,12 @@ export const createBolsaAnticipo = async (req: AuthRequest, res: Response): Prom
       return;
     }
 
-    // VALIDACIÓN: Verificar que las referencias existan en containers.reference_code
+    // Verificar existencia de referencias; si omitir_invalidas=true, no se rechaza — se marcan como 'no_encontrada'
+    const omitirInvalidas = req.body.omitir_invalidas === 'true' || req.body.omitir_invalidas === true;
     const referenciasNoExisten: string[] = [];
     for (const ref of parsedReferencias) {
       const containerRef = await client.query(
-        'SELECT id, container_number FROM containers WHERE reference_code = $1',
+        'SELECT id FROM containers WHERE reference_code = $1',
         [ref.referencia]
       );
       if (containerRef.rows.length === 0) {
@@ -536,9 +537,9 @@ export const createBolsaAnticipo = async (req: AuthRequest, res: Response): Prom
       }
     }
 
-    if (referenciasNoExisten.length > 0) {
+    if (referenciasNoExisten.length > 0 && !omitirInvalidas) {
       await client.query('ROLLBACK');
-      res.status(400).json({ 
+      res.status(400).json({
         error: `Las siguientes referencias no existen en el sistema: ${referenciasNoExisten.join(', ')}`,
         referenciasInvalidas: referenciasNoExisten
       });
@@ -595,19 +596,20 @@ export const createBolsaAnticipo = async (req: AuthRequest, res: Response): Prom
 
     const bolsaId = bolsaResult.rows[0].id;
 
-    // Crear las referencias individuales (con container_id)
+    // Crear las referencias individuales (con container_id cuando existe)
     for (const ref of parsedReferencias) {
-      // Obtener el container_id para esta referencia
       const containerRes = await client.query(
         'SELECT id FROM containers WHERE reference_code = $1',
         [ref.referencia]
       );
       const containerId = containerRes.rows.length > 0 ? containerRes.rows[0].id : null;
-      
+      // Si no se encontró el contenedor, marcar como 'no_encontrada' en lugar de 'disponible'
+      const estado = containerId ? 'disponible' : 'no_encontrada';
+
       await client.query(`
         INSERT INTO anticipo_referencias (bolsa_anticipo_id, referencia, monto, estado, container_id)
-        VALUES ($1, $2, $3, 'disponible', $4)
-      `, [bolsaId, ref.referencia, ref.monto, containerId]);
+        VALUES ($1, $2, $3, $4, $5)
+      `, [bolsaId, ref.referencia, ref.monto, estado, containerId]);
     }
 
     await client.query('COMMIT');

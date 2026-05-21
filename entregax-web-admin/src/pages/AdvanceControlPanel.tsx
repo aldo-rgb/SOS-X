@@ -321,13 +321,8 @@ export default function AdvanceControlPanel() {
         return refs;
     };
 
-    // Referencias que se enviarán (excluyendo inválidas si el usuario optó por omitirlas)
-    const getReferenciasParaEnviar = () => {
-        if (referenciasOmitidas) {
-            return parsedReferencias.filter(ref => referenciasValidacion[ref.referencia]?.valida);
-        }
-        return parsedReferencias;
-    };
+    // Siempre se envían TODAS las referencias; las inválidas se marcan en el backend como 'no_encontrada'
+    const getReferenciasParaEnviar = () => parsedReferencias;
 
     // Manejar cambio en texto de referencias
     const handleReferenciasChange = (text: string) => {
@@ -366,10 +361,8 @@ export default function AdvanceControlPanel() {
         return parsedReferencias.some(ref => referenciasValidacion[ref.referencia]?.duplicada);
     };
 
-    // Calcular total de referencias (solo las que se van a registrar)
-    const getTotalReferencias = () => {
-        return getReferenciasParaEnviar().reduce((sum, ref) => sum + ref.monto, 0);
-    };
+    // Siempre usar el total completo del comprobante (todas las referencias)
+    const getTotalReferencias = () => parsedReferencias.reduce((sum, ref) => sum + ref.monto, 0);
 
     // Crear bolsa de anticipo con referencias
     const handleCreateBolsa = async () => {
@@ -396,11 +389,6 @@ export default function AdvanceControlPanel() {
             setSnackbar({ open: true, message: `⚠️ Las siguientes referencias no existen en el sistema: ${invalidas.join(', ')}`, severity: 'error' });
             return;
         }
-        const refsParaEnviar = getReferenciasParaEnviar();
-        if (refsParaEnviar.length === 0) {
-            setSnackbar({ open: true, message: '⚠️ No quedan referencias válidas para registrar', severity: 'error' });
-            return;
-        }
         if (newBolsa.tipo_pago === 'transferencia' && (!newBolsa.numero_operacion || !newBolsa.banco_origen)) {
             setSnackbar({ open: true, message: '⚠️ Para transferencia, el número de operación y banco son requeridos', severity: 'error' });
             return;
@@ -420,7 +408,8 @@ export default function AdvanceControlPanel() {
             formData.append('numero_operacion', newBolsa.tipo_pago === 'transferencia' ? newBolsa.numero_operacion : '');
             formData.append('banco_origen', newBolsa.tipo_pago === 'transferencia' ? newBolsa.banco_origen : '');
             formData.append('notas', newBolsa.notas);
-            formData.append('referencias', JSON.stringify(refsParaEnviar));
+            formData.append('referencias', JSON.stringify(parsedReferencias));
+            if (referenciasOmitidas) formData.append('omitir_invalidas', 'true');
             formData.append('comprobante', comprobanteFile);
 
             // Importante: NO setear Content-Type manualmente. Cuando se
@@ -432,7 +421,9 @@ export default function AdvanceControlPanel() {
                     Authorization: `Bearer ${getToken()}`,
                 },
             });
-            setSnackbar({ open: true, message: `✅ Depósito de $${formatCurrency(getTotalReferencias())} registrado con ${parsedReferencias.length} referencia(s)`, severity: 'success' });
+            const noEncontradas = parsedReferencias.filter(ref => !referenciasValidacion[ref.referencia]?.valida).length;
+            const msgExtra = noEncontradas > 0 ? ` (${noEncontradas} ref. sin contenedor en rojo)` : '';
+            setSnackbar({ open: true, message: `✅ Depósito de $${formatCurrency(getTotalReferencias())} registrado con ${parsedReferencias.length} referencia(s)${msgExtra}`, severity: 'success' });
             setBolsaDialog(false);
             setNewBolsa({
                 proveedor_id: 0,
@@ -824,20 +815,28 @@ export default function AdvanceControlPanel() {
                                                                 </TableRow>
                                                             </TableHead>
                                                             <TableBody>
-                                                                {referencias.map((ref) => (
-                                                                    <TableRow key={ref.id}>
+                                                                {referencias.map((ref) => {
+                                                                const noEncontrada = ref.estado === 'no_encontrada';
+                                                                return (
+                                                                    <TableRow key={ref.id} sx={{ bgcolor: noEncontrada ? '#FFEBEE' : 'inherit' }}>
                                                                         <TableCell>
-                                                                            <Typography variant="body2" fontFamily="monospace" fontWeight="bold">
+                                                                            <Typography variant="body2" fontFamily="monospace" fontWeight="bold" color={noEncontrada ? 'error.main' : 'inherit'}>
                                                                                 {ref.referencia}
                                                                             </Typography>
                                                                         </TableCell>
                                                                         <TableCell>
-                                                                            <Typography variant="body2" fontFamily="monospace" color="text.secondary">
-                                                                                {ref.container_number || '-'}
-                                                                            </Typography>
+                                                                            {noEncontrada ? (
+                                                                                <Typography variant="body2" color="error.main" fontWeight="bold">
+                                                                                    ✗ Sin contenedor
+                                                                                </Typography>
+                                                                            ) : (
+                                                                                <Typography variant="body2" fontFamily="monospace" color="text.secondary">
+                                                                                    {ref.container_number || '-'}
+                                                                                </Typography>
+                                                                            )}
                                                                         </TableCell>
                                                                         <TableCell align="right">
-                                                                            <Typography fontWeight="bold" color="success.main">
+                                                                            <Typography fontWeight="bold" color={noEncontrada ? 'error.main' : 'success.main'}>
                                                                                 ${formatCurrency(ref.monto)}
                                                                             </Typography>
                                                                         </TableCell>
@@ -845,7 +844,9 @@ export default function AdvanceControlPanel() {
                                                                             {new Date(ref.created_at).toLocaleDateString()}
                                                                         </TableCell>
                                                                         <TableCell>
-                                                                            {ref.estado === 'disponible' ? (
+                                                                            {noEncontrada ? (
+                                                                                <Chip label="✗ No encontrada" size="small" color="error" />
+                                                                            ) : ref.estado === 'disponible' ? (
                                                                                 <Chip label="✓ Disponible" size="small" color="success" />
                                                                             ) : ref.estado === 'usado' ? (
                                                                                 <Chip label="Usado" size="small" color="warning" />
@@ -854,7 +855,8 @@ export default function AdvanceControlPanel() {
                                                                             )}
                                                                         </TableCell>
                                                                     </TableRow>
-                                                                ))}
+                                                                );
+                                                                })}
                                                             </TableBody>
                                                         </Table>
                                                     </TableContainer>
@@ -1258,7 +1260,7 @@ export default function AdvanceControlPanel() {
                                             : newBolsa.tipo_pago === 'transferencia' && (!newBolsa.numero_operacion || !newBolsa.banco_origen)
                                                 ? '🏦 Completa los datos bancarios'
                                                 : referenciasOmitidas
-                                                    ? `💰 Total válido: $${formatCurrency(getTotalReferencias())} MXN (${invalidas.length} ref. omitida(s))`
+                                                    ? `💰 Total comprobante: $${formatCurrency(getTotalReferencias())} MXN (${invalidas.length} ref. sin contenedor — se guarda en rojo)`
                                                     : `💰 Total: $${formatCurrency(getTotalReferencias())} MXN`;
                         return (
                             <Typography variant="body2" color={bloqueante ? 'error' : 'text.secondary'}>
@@ -1278,7 +1280,6 @@ export default function AdvanceControlPanel() {
                                 parsedReferencias.length === 0 ||
                                 (tieneReferenciasInvalidas() && !referenciasOmitidas) ||
                                 tieneReferenciasDuplicadas() ||
-                                getReferenciasParaEnviar().length === 0 ||
                                 (newBolsa.tipo_pago === 'transferencia' && (!newBolsa.numero_operacion || !newBolsa.banco_origen))
                             }
                             sx={{ bgcolor: (tieneReferenciasDuplicadas() || (tieneReferenciasInvalidas() && !referenciasOmitidas) || !comprobanteFile) ? '#9E9E9E' : THEME_COLOR }}
@@ -1350,7 +1351,7 @@ export default function AdvanceControlPanel() {
                             ))}
                     </Box>
                     <Alert severity="warning">
-                        Solo se registrarán las referencias válidas encontradas en el sistema. ¿Deseas continuar?
+                        El depósito se registrará con el <strong>monto total del comprobante</strong> (${formatCurrency(getTotalReferencias())} MXN). Las referencias no encontradas se guardarán marcadas en <strong>rojo</strong> para revisión posterior.
                     </Alert>
                 </DialogContent>
                 <DialogActions>
