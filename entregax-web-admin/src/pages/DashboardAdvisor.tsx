@@ -2379,12 +2379,18 @@ export default function DashboardAdvisor() {
                     onChange={e => setTicketClientNumber(e.target.value)}
                     sx={{ flex: 1 }}
                   />
-                  <TextField
-                    size="small" label="Cedis de incidencia" placeholder="Ej: CEDIS-MTY"
-                    value={ticketCedis}
-                    onChange={e => setTicketCedis(e.target.value)}
-                    sx={{ flex: 1 }}
-                  />
+                  <FormControl size="small" sx={{ flex: 1 }}>
+                    <InputLabel>Cedis</InputLabel>
+                    <Select
+                      label="Cedis"
+                      value={ticketCedis}
+                      onChange={e => setTicketCedis(e.target.value)}
+                    >
+                      {['MTY', 'CDMX', 'USA', 'Otro'].map(opt => (
+                        <MenuItem key={opt} value={opt}>{opt}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
                 </Box>
                 <TextField
                   fullWidth size="small" label="Número de guía" placeholder="Ej: AIR123456789"
