@@ -167,6 +167,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   
   const isPaqueteExpress = (name: string) => /paquete\s*express/i.test(name || '');
   const isLocalCarrier = (name: string) => /entregax|local|pick\s*up|pickup|propio/i.test(name || '');
+  const isBodegaOrUnknown = (name: string) => !name || /^bodega$/i.test(name.trim());
 
   // Para entrega múltiple (cualquier paquetería con guía de carrier)
   const [isBulkDelivery, setIsBulkDelivery] = useState(false);
@@ -1097,7 +1098,41 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             </TouchableOpacity>
             {currentScanStep === 'carrier' && !isPaqueteExpress(bulkCarrierName) && (
               <View style={styles.carrierPickerSection}>
-                {selectedDropoffCarrier ? (
+                {/* CASO 1: Carrier asignado por el sistema (no BODEGA, no vacío) */}
+                {!isBodegaOrUnknown(bulkCarrierName) ? (
+                  <>
+                    <View style={styles.selectedCarrierRow}>
+                      <MaterialIcons name="local-shipping" size={20} color="#555" />
+                      <Text style={styles.selectedCarrierName}>{bulkCarrierName}</Text>
+                      <View style={styles.systemBadge}>
+                        <Text style={styles.systemBadgeText}>Sistema</Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.registerBoxButton}
+                      onPress={() => {
+                        const guide = manualCode.trim();
+                        const newPackage = {
+                          packageId: `${scannedPackages.length + 1}`,
+                          internalGuide: tempInternalGuide,
+                          carrierGuide: guide,
+                          selectedCarrierName: bulkCarrierName,
+                        };
+                        setScannedPackages([...scannedPackages, newPackage]);
+                        setTempInternalGuide('');
+                        setTempMasterTracking('');
+                        setCurrentScanStep('internal');
+                        setManualCode('');
+                        Vibration.vibrate(100);
+                        showFeedback({ type: 'success', message: `✅ Caja ${scannedPackages.length + 1} registrada → ${bulkCarrierName}. Siguiente caja...` });
+                      }}
+                    >
+                      <MaterialIcons name="check-circle" size={20} color="#fff" />
+                      <Text style={styles.registerBoxText}>Registrar en {bulkCarrierName}</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : selectedDropoffCarrier ? (
+                  /* CASO 2: Usuario seleccionó paquetería del picker */
                   <>
                     <View style={styles.selectedCarrierRow}>
                       <MaterialIcons name="local-shipping" size={20} color="#F05A28" />
@@ -1123,10 +1158,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                         setCurrentScanStep('internal');
                         setManualCode('');
                         Vibration.vibrate(100);
-                        showFeedback({
-                          type: 'success',
-                          message: `✅ Caja ${scannedPackages.length + 1} registrada → ${selectedDropoffCarrier.name}. Siguiente caja...`,
-                        });
+                        showFeedback({ type: 'success', message: `✅ Caja ${scannedPackages.length + 1} registrada → ${selectedDropoffCarrier.name}. Siguiente caja...` });
                       }}
                     >
                       <MaterialIcons name="check-circle" size={20} color="#fff" />
@@ -1134,6 +1166,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                     </TouchableOpacity>
                   </>
                 ) : (
+                  /* CASO 3: Sin carrier conocido (BODEGA) → mostrar selector */
                   <TouchableOpacity
                     style={styles.selectCarrierButton}
                     onPress={() => setShowCarrierPicker(true)}
@@ -1980,6 +2013,7 @@ const styles = StyleSheet.create({
   carrierPickerSection: {
     marginTop: 12,
     gap: 8,
+    alignSelf: 'stretch',
   },
   selectCarrierButton: {
     flexDirection: 'row',
@@ -1991,6 +2025,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: '#F05A28',
     backgroundColor: '#fff8f5',
+    alignSelf: 'stretch',
   },
   selectCarrierText: {
     flex: 1,
@@ -2005,15 +2040,26 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 14,
     borderRadius: 10,
-    backgroundColor: '#FFF0E8',
+    backgroundColor: '#F5F5F5',
     borderWidth: 1,
-    borderColor: '#F05A28',
+    borderColor: '#ddd',
   },
   selectedCarrierName: {
     flex: 1,
-    color: '#F05A28',
+    color: '#333',
     fontSize: 15,
     fontWeight: '700',
+  },
+  systemBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: '#E0E0E0',
+  },
+  systemBadgeText: {
+    color: '#555',
+    fontSize: 11,
+    fontWeight: '600',
   },
   changeCarrierBtn: {
     paddingHorizontal: 10,
@@ -2034,6 +2080,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 10,
     backgroundColor: '#2E7D32',
+    alignSelf: 'stretch',
   },
   registerBoxText: {
     color: '#fff',
