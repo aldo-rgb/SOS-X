@@ -31,6 +31,7 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { getMyPackagesApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
+import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import { useBrandAsset } from '../hooks/useBrandAssets';
@@ -59,7 +60,7 @@ type RootStackParamList = {
   MyProfile: { user: any; token: string };
   GEXContract: { package: Package; user: any; token: string };
   RequestAdvisor: { user: any; token: string };
-  SupportChat: { user: any; token: string; mode?: 'ai' | 'human' };
+  SupportChat: { user: any; token: string; mode?: 'ai' | 'human'; ticketId?: number };
   HelpCenter: { user: any; token: string };
   Notifications: { user: any; token: string };
   DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
@@ -530,9 +531,29 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   useEffect(() => {
     fetchPackages();
-    fetchCarouselSlides(); // Cargar slides del carrusel
-    fetchUnreadNotifications(); // 🔔 Cargar notificaciones no leídas
+    fetchCarouselSlides();
+    fetchUnreadNotifications();
   }, [fetchPackages, fetchCarouselSlides, fetchUnreadNotifications]);
+
+  // 🔔 Registrar push token y manejar deep-link desde notificaciones de ticket
+  useEffect(() => {
+    registerForPushNotifications(token).catch(() => {});
+    const cleanup = subscribeNotificationListeners({
+      onTapped: (response) => {
+        try {
+          const data: any = response.notification.request.content.data || {};
+          if (data.type === 'support_reply' && data.ticket_id) {
+            navigation.navigate('SupportChat', {
+              user,
+              token,
+              ticketId: Number(data.ticket_id),
+            });
+          }
+        } catch {}
+      },
+    });
+    return () => { if (cleanup) cleanup(); };
+  }, [token, user, navigation]);
 
   // 🔄 Refrescar al volver a la pantalla (después de contratar GEX o completar onboarding)
   useFocusEffect(

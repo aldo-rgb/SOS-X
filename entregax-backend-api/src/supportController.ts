@@ -9,6 +9,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { uploadToS3, isS3Configured, getSignedDownloadUrl } from './s3Service';
+import { sendPushToUsers } from './pushService';
 
 // ============================================================
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES DE SOPORTE
@@ -647,6 +648,36 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
       [id]
     );
 
+    // 🔔 Notificar al agente asignado si la conversación lleva >30 min pausada
+    try {
+      const agentInfoRes = await pool.query(
+        `SELECT t.assigned_agent_id, t.ticket_folio,
+                (SELECT created_at FROM ticket_messages
+                 WHERE ticket_id = $1 ORDER BY created_at DESC LIMIT 1 OFFSET 1) AS prev_msg_at
+         FROM support_tickets t WHERE t.id = $1`,
+        [id]
+      );
+      const info = agentInfoRes.rows[0];
+      if (info?.assigned_agent_id) {
+        const prevMsgAt: Date | null = info.prev_msg_at ? new Date(info.prev_msg_at) : null;
+        const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+        const shouldPush = !prevMsgAt || prevMsgAt < thirtyMinAgo;
+        if (shouldPush) {
+          sendPushToUsers([info.assigned_agent_id], {
+            title: '💬 Respuesta del cliente',
+            body: `${info.ticket_folio}: ${message.trim().substring(0, 100)}`,
+            data: {
+              type: 'support_client_reply',
+              ticket_id: String(id),
+              ticket_folio: info.ticket_folio,
+            },
+          }).catch((e: any) => console.error('Push error (client reply):', e));
+        }
+      }
+    } catch (e) {
+      console.error('Error enviando notificación al agente:', e);
+    }
+
     res.json({ success: true, message: reopened ? 'Ticket reabierto con nuevo mensaje' : 'Mensaje enviado', reopened });
   } catch (error) {
     console.error('Error enviando mensaje de cliente:', error);
@@ -812,6 +843,52 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
       `UPDATE support_tickets SET assigned_agent_id = $1, status = $2, updated_at = NOW() WHERE id = $3`,
       [agentId, newStatus, id]
     );
+
+    // 🔔 Notificar al cliente si el ticket no es interno
+    if (!isInternal) {
+      try {
+        const ticketInfoRes = await pool.query(
+          `SELECT t.user_id, t.ticket_folio,
+                  (SELECT created_at FROM ticket_messages
+                   WHERE ticket_id = $1 ORDER BY created_at DESC LIMIT 1 OFFSET 1) AS prev_msg_at
+           FROM support_tickets t WHERE t.id = $1`,
+          [id]
+        );
+        const info = ticketInfoRes.rows[0];
+        if (info?.user_id) {
+          const prevMsgAt: Date | null = info.prev_msg_at ? new Date(info.prev_msg_at) : null;
+          const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
+          const shouldPush = !prevMsgAt || prevMsgAt < thirtyMinAgo;
+
+          if (shouldPush) {
+            const msgPreview = message ? message.substring(0, 100) : 'Tienes una nueva respuesta';
+            // In-app notification
+            const { createCustomNotification } = await import('./notificationController');
+            await createCustomNotification(
+              info.user_id,
+              '🎧 Nueva respuesta en tu ticket',
+              `${info.ticket_folio}: ${msgPreview}`,
+              'support_reply',
+              'headset',
+              { ticket_id: String(id), ticket_folio: info.ticket_folio },
+              `/support/ticket/${id}`
+            );
+            // Push notification
+            sendPushToUsers([info.user_id], {
+              title: '🎧 Nueva respuesta en tu ticket',
+              body: msgPreview,
+              data: {
+                type: 'support_reply',
+                ticket_id: String(id),
+                ticket_folio: info.ticket_folio,
+              },
+            }).catch((e: any) => console.error('Push error (support reply):', e));
+          }
+        }
+      } catch (e) {
+        console.error('Error enviando notificación de respuesta de ticket:', e);
+      }
+    }
 
     res.json({ success: true, message: 'Respuesta enviada', is_internal: isInternal, attachments: attachmentUrls });
   } catch (error) {

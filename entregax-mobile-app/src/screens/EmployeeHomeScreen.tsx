@@ -612,6 +612,8 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
               title: data.title || data.sender_name,
               type: data.conversation_type || 'direct',
             });
+          } else if (data.type === 'support_client_reply' && data.ticket_id) {
+            navigation.navigate('SupportTickets', { user, token });
           }
         } catch {}
       },

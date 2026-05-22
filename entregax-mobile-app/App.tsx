@@ -121,7 +121,7 @@ export type RootStackParamList = {
   RequestAdvisor: { user: any; token: string };
   HelpCenter: { user: any; token: string };
   MyTickets: { user: any; token: string };
-  SupportChat: { user: any; token: string; mode?: 'ai' | 'human' };
+  SupportChat: { user: any; token: string; mode?: 'ai' | 'human'; ticketId?: number };
   Notifications: { user: any; token: string };
   DeliveryInstructions: { package: Package; packages?: Package[]; user: any; token: string };
   MaritimeDetail: { package: Package; user: any; token: string };
