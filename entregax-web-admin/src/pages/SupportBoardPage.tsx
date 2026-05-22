@@ -281,7 +281,13 @@ export default function SupportBoardPage() {
 
   const canSeeDept = (deptName: string): boolean => {
     if (currentUserRole === 'customer_service') return true;
-    if (isOperaciones || isBranchManager) {
+    if (isOperaciones) {
+      // Operaciones solo ve su CEDIS específico
+      if (currentUserCedisDept) return deptName === currentUserCedisDept;
+      return deptName.startsWith('CEDIS');
+    }
+    if (isBranchManager) {
+      // Gerente de sucursal ve atención a cliente, soporte técnico y su CEDIS
       if (['Atención a Cliente', 'Soporte Técnico'].includes(deptName)) return true;
       if (currentUserCedisDept) return deptName === currentUserCedisDept;
       return deptName.startsWith('CEDIS');
@@ -345,10 +351,14 @@ export default function SupportBoardPage() {
     return () => clearInterval(interval);
   }, [loadTickets, loadStats, loadDepartments]);
 
-  // counter_staff arranca en "Atención a Cliente"; customer_service arranca en "Todos"
+  // Seleccionar departamento por defecto según rol
   useEffect(() => {
     if (defaultDeptSet.current || departments.length === 0) return;
-    if (['counter_staff', 'branch_manager', 'Branch Manager', 'operaciones', 'Operaciones', 'warehouse_ops', 'Warehouse Ops'].includes(currentUserRole)) {
+    if (isOperaciones && currentUserCedisDept) {
+      const cedisDept = departments.find(d => d.name === currentUserCedisDept);
+      if (cedisDept) { setDeptFilter(cedisDept.id); defaultDeptSet.current = true; return; }
+    }
+    if (['counter_staff', 'branch_manager', 'Branch Manager'].includes(currentUserRole)) {
       const atencion = departments.find(d => d.name === 'Atención a Cliente');
       if (atencion) { setDeptFilter(atencion.id); defaultDeptSet.current = true; }
     }

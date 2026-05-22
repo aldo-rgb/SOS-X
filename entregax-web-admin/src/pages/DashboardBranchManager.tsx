@@ -1040,7 +1040,7 @@ export default function DashboardBranchManager() {
           <Grid container spacing={2} sx={{ mb: 3 }}>
             <Grid size={{ xs: 12, sm: 6, md: 4, lg: 3 }}>
               <Paper
-                onClick={() => setTicketDialogOpen(true)}
+                onClick={() => window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'service_tickets' } }))}
                 elevation={0}
                 sx={{
                   p: 2.25,
