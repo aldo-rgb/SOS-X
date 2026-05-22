@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import bcrypt from 'bcrypt';
+import { generateBoxId } from './authController';
 
 // ============================================================================
 // FUNCIONES ORIGINALES (APP Y CRM BÁSICO)
@@ -868,9 +869,7 @@ export const convertProspectToClient = async (req: Request, res: Response): Prom
       }
     }
 
-    // Generar box_id consecutivo S4XXX
-    const boxSeq = await pool.query("SELECT COALESCE(MAX(CAST(SUBSTRING(box_id FROM 2) AS INTEGER)), 3999) + 1 as next FROM users WHERE box_id ~ '^S[0-9]+$'");
-    const boxId = `S${boxSeq.rows[0].next}`;
+    const boxId = await generateBoxId();
 
     // Crear usuario
     const bcrypt = require('bcryptjs');

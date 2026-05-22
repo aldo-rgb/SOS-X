@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { generateBoxId } from './authController';
 
 // ============================================
 // SISTEMA DE COMISIONES Y REFERIDOS
@@ -374,9 +375,7 @@ export const createAdvisor = async (req: Request, res: Response): Promise<any> =
         // Generar código de referido
         const referralCode = generateReferralCode(full_name);
         
-        // Generar box_id consecutivo S4XXX
-        const boxSeq = await pool.query("SELECT COALESCE(MAX(CAST(SUBSTRING(box_id FROM 2) AS INTEGER)), 3999) + 1 as next FROM users WHERE box_id ~ '^S[0-9]+$'");
-        const boxId = `S${boxSeq.rows[0].next}`;
+        const boxId = await generateBoxId();
         
         // Hash de contraseña
         const bcrypt = require('bcrypt');

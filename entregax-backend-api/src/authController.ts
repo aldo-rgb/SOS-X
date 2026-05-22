@@ -8,26 +8,30 @@ import { sendPasswordResetEmail } from './emailService';
 import { sendWelcomeWhatsapp } from './whatsappService';
 
 // Función para generar un ID de Casillero único consecutivo (Ej. S4000, S4001, S4002...)
-const generateBoxId = async (): Promise<string> => {
-    try {
-        // Buscar el máximo número de casillero S4XXX ordenando numéricamente
-        const result = await pool.query(
-            "SELECT MAX(CAST(SUBSTRING(box_id FROM 2) AS INTEGER)) as max_num FROM users WHERE box_id ~ '^S[0-9]+$'"
+// Exportada para uso en otros controllers (commissionController, crmController, socialAuthController)
+export const generateBoxId = async (): Promise<string> => {
+    // Crear la secuencia si no existe (idempotente)
+    await pool.query(`
+        CREATE SEQUENCE IF NOT EXISTS box_id_seq
+            START WITH 3361
+            INCREMENT BY 1
+            NO MAXVALUE
+            NO CYCLE
+    `);
+
+    // Obtener el siguiente valor y verificar que no esté ocupado.
+    // Si está ocupado (ej. bloque S4000–S4040), avanza al siguiente automáticamente.
+    for (let i = 0; i < 2000; i++) {
+        const { rows } = await pool.query("SELECT nextval('box_id_seq') AS num");
+        const candidate = `S${rows[0].num}`;
+        const taken = await pool.query(
+            'SELECT 1 FROM users WHERE box_id = $1 LIMIT 1',
+            [candidate]
         );
-        
-        if (result.rows.length > 0 && result.rows[0].max_num !== null) {
-            const nextNumber = result.rows[0].max_num + 1;
-            return `S${nextNumber}`;
-        }
-        
-        // Si no hay casilleros S4XXX, empezar en S4000
-        return 'S4000';
-    } catch (error) {
-        console.error('Error generando box_id:', error);
-        // Fallback: buscar de forma simple
-        const fallback = await pool.query("SELECT COUNT(*) as total FROM users WHERE box_id LIKE 'S%'");
-        return `S${4000 + parseInt(fallback.rows[0].total)}`;
+        if (taken.rows.length === 0) return candidate;
     }
+
+    throw new Error('No se pudo generar un box_id disponible tras 2000 intentos');
 };
 
 // Generar token JWT

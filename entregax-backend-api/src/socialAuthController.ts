@@ -26,7 +26,7 @@ import { OAuth2Client } from 'google-auth-library';
 import { createRemoteJWKSet, jwtVerify } from 'jose';
 import { pool } from './db';
 import { generateReferralCode } from './commissionController';
-import { ROLE_PERMISSIONS } from './authController';
+import { ROLE_PERMISSIONS, generateBoxId } from './authController';
 import { sendWelcomeWhatsapp } from './whatsappService';
 
 // ============================================================
@@ -58,21 +58,7 @@ const ensureSocialColumns = async (): Promise<void> => {
     }
 };
 
-const generateBoxId = async (): Promise<string> => {
-    try {
-        const result = await pool.query(
-            "SELECT MAX(CAST(SUBSTRING(box_id FROM 2) AS INTEGER)) as max_num FROM users WHERE box_id ~ '^S[0-9]+$'"
-        );
-        if (result.rows.length > 0 && result.rows[0].max_num !== null) {
-            return `S${result.rows[0].max_num + 1}`;
-        }
-        return 'S4000';
-    } catch (error) {
-        console.error('[SOCIAL AUTH] Error generando box_id:', error);
-        const fallback = await pool.query("SELECT COUNT(*) as total FROM users WHERE box_id LIKE 'S%'");
-        return `S${4000 + parseInt(fallback.rows[0].total)}`;
-    }
-};
+// generateBoxId importada desde authController (secuencia atómica compartida)
 
 const signJwt = (userId: number, email: string, role: string): string => {
     const secret = process.env.JWT_SECRET || 'fallback_secret';
