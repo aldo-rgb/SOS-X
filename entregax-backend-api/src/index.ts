@@ -865,7 +865,8 @@ import {
   verifyLegacyName,
   deleteLegacyClient,
   uploadMiddleware,
-  syncExternalLegacyClients
+  syncExternalLegacyClients,
+  listCustomersForExternalSync
 } from './legacyController';
 import {
   listWallets as pcListWallets,
@@ -2046,6 +2047,9 @@ app.post(
 app.post('/api/legacy/claim', authRateLimit, claimLegacyAccount);
 app.get('/api/legacy/verify/:boxId', verifyLegacyBox);
 app.post('/api/legacy/verify-name', verifyLegacyName);
+// Endpoint público para sincronización inversa: sistema EX consulta nuestros clientes (autenticado con API key)
+app.get('/api/external/customers', listCustomersForExternalSync);
+
 // Protegidas (para admin)
 app.post('/api/legacy/import', authenticateToken, requireRole(ROLES.SUPER_ADMIN), uploadMiddleware, importLegacyClients);
 app.post('/api/legacy/sync-external', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.DIRECTOR), syncExternalLegacyClients);

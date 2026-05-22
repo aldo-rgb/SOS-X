@@ -370,6 +370,72 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
 };
 
 /**
+ * GET /api/external/customers
+ * Endpoint público (API key) para que el sistema EX consulte nuestros clientes.
+ * Devuelve el mismo formato que sistemaentregax.com/api/customers/list-customers-admin:
+ *   { data: [{ suite, nombre, correo, telefono, created_at }] }
+ *
+ * Query params opcionales:
+ *   ?since=YYYY-MM-DD  → solo clientes creados/actualizados desde esa fecha
+ *   ?page=1&limit=500  → paginación (default limit 1000)
+ */
+export const listCustomersForExternalSync = async (req: Request, res: Response): Promise<any> => {
+    const apiKey = req.headers['x-api-key'] || req.query.api_key;
+    const expectedKey = process.env.EXTERNAL_SYNC_API_KEY;
+
+    if (!expectedKey || apiKey !== expectedKey) {
+        return res.status(401).json({ error: 'API key inválida o no autorizada' });
+    }
+
+    try {
+        const since = req.query.since ? String(req.query.since) : null;
+        const limit = Math.min(Number(req.query.limit) || 1000, 5000);
+        const page = Math.max(Number(req.query.page) || 1, 1);
+        const offset = (page - 1) * limit;
+
+        const conditions: string[] = ["role = 'client'", "box_id IS NOT NULL"];
+        const params: any[] = [];
+
+        if (since) {
+            params.push(since);
+            conditions.push(`created_at >= $${params.length}`);
+        }
+
+        params.push(limit, offset);
+        const where = conditions.join(' AND ');
+
+        const result = await pool.query(`
+            SELECT
+                box_id   AS suite,
+                full_name AS nombre,
+                email    AS correo,
+                phone    AS telefono,
+                created_at
+            FROM users
+            WHERE ${where}
+            ORDER BY created_at DESC
+            LIMIT $${params.length - 1} OFFSET $${params.length}
+        `, params);
+
+        const countResult = await pool.query(
+            `SELECT COUNT(*) AS total FROM users WHERE ${where}`,
+            params.slice(0, params.length - 2)
+        );
+
+        return res.json({
+            success: true,
+            total: Number(countResult.rows[0].total),
+            page,
+            limit,
+            data: result.rows
+        });
+    } catch (error: any) {
+        console.error('Error en listCustomersForExternalSync:', error);
+        return res.status(500).json({ error: 'Error al obtener clientes', details: error?.message });
+    }
+};
+
+/**
  * Obtener lista de clientes legacy
  * GET /api/legacy/clients
  */
