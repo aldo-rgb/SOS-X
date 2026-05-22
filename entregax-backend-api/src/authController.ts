@@ -472,6 +472,7 @@ export const ROLES = {
     REPARTIDOR: 'repartidor',          // Repartidor / Delivery driver
     ACCOUNTANT: 'accountant',          // Contador (portal contable)
     MONITOREO: 'monitoreo',            // Monitoreo (rol de observación)
+    SOPORTE_TECNICO: 'soporte_tecnico', // Soporte Técnico (helpdesk interno)
     CLIENT: 'client'                   // Cliente final
 } as const;
 
@@ -488,6 +489,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
     'sub_advisor': 61,
     [ROLES.COUNTER_STAFF]: 60,
     [ROLES.ACCOUNTANT]: 55,
+    [ROLES.SOPORTE_TECNICO]: 63,
     [ROLES.MONITOREO]: 50,
     [ROLES.WAREHOUSE_OPS]: 40,
     [ROLES.REPARTIDOR]: 35,
@@ -505,6 +507,7 @@ const ROLE_HIERARCHY: Record<string, number> = {
     'Sub Advisor': 61,
     'Accountant': 55,
     'Contador': 55,
+    'Soporte Técnico': 63,
     'Monitoreo': 50,
     'Warehouse Ops': 40,
     'Repartidor': 35,
@@ -534,6 +537,8 @@ function normalizeRoleForHierarchy(role: string): string {
         'accountant': ROLES.ACCOUNTANT,
         'Contador': ROLES.ACCOUNTANT,
         'contador': ROLES.ACCOUNTANT,
+        'Soporte Técnico': ROLES.SOPORTE_TECNICO,
+        'soporte_tecnico': ROLES.SOPORTE_TECNICO,
         'Monitoreo': ROLES.MONITOREO,
         'monitoreo': ROLES.MONITOREO,
         'Warehouse Ops': ROLES.WAREHOUSE_OPS,
@@ -557,6 +562,7 @@ export const ROLE_PERMISSIONS: Record<string, string[]> = {
     [ROLES.OPERACIONES]: ['shipments:*', 'maritime:*', 'quotes:read', 'reports:read'], // Operaciones marítimas
     [ROLES.COUNTER_STAFF]: ['shipments:read', 'shipments:create', 'quotes:*', 'clients:read'],
     [ROLES.ACCOUNTANT]: ['accounting:*', 'invoices:*', 'reports:read'],
+    [ROLES.SOPORTE_TECNICO]: ['support:*', 'clients:read', 'shipments:read'],
     [ROLES.MONITOREO]: ['shipments:read', 'reports:read', 'inventory:read', 'clients:read'],
     [ROLES.WAREHOUSE_OPS]: ['shipments:read', 'shipments:update_status', 'inventory:*'],
     [ROLES.REPARTIDOR]: ['deliveries:*', 'shipments:read', 'shipments:update_status'], // Entregas

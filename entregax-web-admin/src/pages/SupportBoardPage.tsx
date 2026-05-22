@@ -271,7 +271,7 @@ export default function SupportBoardPage() {
   const DEPT_ALLOWED_ROLES: Record<string, string[]> = {
     'Dirección':         ['super_admin', 'admin', 'director'],
     'Contabilidad':      ['super_admin', 'admin', 'accountant'],
-    'Soporte Técnico':   ['super_admin', 'admin', 'customer_service', 'counter_staff'],
+    'Soporte Técnico':   ['super_admin', 'admin', 'customer_service', 'counter_staff', 'soporte_tecnico'],
     'Atención a Cliente':['super_admin', 'admin', 'customer_service', 'counter_staff'],
     'CEDIS MTY':         ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones'],
     'CEDIS CDMX':        ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones'],
@@ -1038,12 +1038,12 @@ export default function SupportBoardPage() {
                   Concluir y Transferir a Atn a Cliente
                 </Button>
               )}
-              {selectedTicket.status !== 'resolved' && ['customer_service', 'counter_staff'].includes(currentUserRole) && (
+              {selectedTicket.status !== 'resolved' && ['customer_service', 'counter_staff', 'soporte_tecnico'].includes(currentUserRole) && (
                 <Button variant="contained" color="success" onClick={handleResolveTicket} startIcon={<ResolvedIcon />}>
                   Marcar Resuelto
                 </Button>
               )}
-              {selectedTicket.status === 'resolved' && ['customer_service', 'counter_staff'].includes(currentUserRole) && (
+              {selectedTicket.status === 'resolved' && ['customer_service', 'counter_staff', 'soporte_tecnico'].includes(currentUserRole) && (
                 <Button
                   variant="outlined"
                   onClick={handleReactivateTicket}

@@ -409,7 +409,7 @@ export const listUsersWithPanelPermissions = async (req: Request, res: Response)
     // Roles que pueden tener permisos de paneles (staff + admin)
     const staffRoles = [
       'admin', 'director', 'advisor', 'sub_advisor', 'branch_manager',
-      'counter_staff', 'customer_service', 'warehouse_ops', 'repartidor',
+      'counter_staff', 'customer_service', 'soporte_tecnico', 'warehouse_ops', 'repartidor',
       'accountant', 'operaciones', 'monitoreo'
     ];
 

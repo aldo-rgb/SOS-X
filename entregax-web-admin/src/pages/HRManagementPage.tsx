@@ -76,6 +76,7 @@ const EMPLOYEE_ROLES = [
   { value: 'warehouse_ops', label: 'Bodega', color: 'success' as const },
   { value: 'counter_staff', label: 'Mostrador', color: 'info' as const },
   { value: 'customer_service', label: 'Servicio a Cliente', color: 'primary' as const },
+  { value: 'soporte_tecnico', label: 'Soporte Técnico', color: 'info' as const },
   { value: 'branch_manager', label: 'Operaciones', color: 'secondary' as const },
   { value: 'monitoreo', label: 'Monitoreo', color: 'default' as const },
   { value: 'abogado', label: 'Abogado', color: 'secondary' as const },

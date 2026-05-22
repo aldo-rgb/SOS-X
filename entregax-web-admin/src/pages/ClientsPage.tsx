@@ -126,6 +126,7 @@ const getRoleColor = (role: string): "error" | "warning" | "info" | "success" | 
     customer_service: 'primary',
     counter_staff: 'info',
     warehouse_ops: 'success',
+    soporte_tecnico: 'info',
     monitoreo: 'secondary',
     advisor: 'primary',
     sub_advisor: 'info',
@@ -147,6 +148,7 @@ const translateRole = (role: string): string => {
     customer_service: 'Servicio Cliente',
     counter_staff: 'Mostrador',
     warehouse_ops: 'Bodega',
+    soporte_tecnico: 'Soporte Técnico',
     monitoreo: 'Monitoreo',
     advisor: 'Asesor',
     sub_advisor: 'Sub-Asesor',
@@ -477,6 +479,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
               <MenuItem value="customer_service">{t('roles.customer_service')}</MenuItem>
               <MenuItem value="counter_staff">{t('roles.counter_staff')}</MenuItem>
               <MenuItem value="warehouse_ops">{t('roles.warehouse_ops')}</MenuItem>
+              <MenuItem value="soporte_tecnico">{t('roles.soporte_tecnico', 'Soporte Técnico')}</MenuItem>
               <MenuItem value="monitoreo">{t('roles.monitoreo')}</MenuItem>
               <MenuItem value="client">{t('roles.client')}</MenuItem>
             </Select>
@@ -1116,6 +1119,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                 <MenuItem value="warehouse_ops">Bodega</MenuItem>
                 <MenuItem value="counter_staff">Mostrador</MenuItem>
                 <MenuItem value="customer_service">Servicio a Cliente</MenuItem>
+                <MenuItem value="soporte_tecnico">Soporte Técnico</MenuItem>
                 <MenuItem value="branch_manager">Operaciones</MenuItem>
                 <MenuItem value="monitoreo">Monitoreo</MenuItem>
                 <MenuItem value="abogado">Abogado</MenuItem>
