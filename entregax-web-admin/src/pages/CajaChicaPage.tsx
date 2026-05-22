@@ -64,6 +64,7 @@ import {
   PictureAsPdf as PictureAsPdfIcon,
   WhatsApp as WhatsAppIcon,
   ArrowBack as ArrowBackIcon,
+  DeleteForever as DeleteForeverIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -284,6 +285,12 @@ const CajaChicaPage: React.FC = () => {
     severity: 'success' as 'success' | 'error' | 'warning' | 'info',
   });
 
+  const isSuperAdmin = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}')?.role === 'super_admin'; }
+    catch { return false; }
+  })();
+  const [deletingTxId, setDeletingTxId] = useState<number | null>(null);
+
   const categoriasEgreso = [
     { value: 'gastos_operativos', label: 'Gastos Operativos' },
     { value: 'compra_materiales', label: 'Compra de Materiales' },
@@ -297,6 +304,21 @@ const CajaChicaPage: React.FC = () => {
     { value: 'reembolso', label: 'Reembolso' },
     { value: 'otro_ingreso', label: 'Otro Ingreso' },
   ];
+
+  const handleDeleteTransaccion = async (txId: number) => {
+    if (!window.confirm('¿Eliminar esta transacción de Caja CC? El saldo se revertirá automáticamente.')) return;
+    setDeletingTxId(txId);
+    try {
+      await api.delete(`/caja-chica/transacciones/${txId}`);
+      setTransacciones(prev => prev.filter(t => t.id !== txId));
+      setSnackbar({ open: true, message: 'Transacción eliminada', severity: 'success' });
+      fetchStats();
+    } catch {
+      setSnackbar({ open: true, message: 'Error al eliminar', severity: 'error' });
+    } finally {
+      setDeletingTxId(null);
+    }
+  };
 
   const fetchStats = useCallback(async () => {
     try {
@@ -977,6 +999,7 @@ const CajaChicaPage: React.FC = () => {
                 <TableCell>Guías</TableCell>
                 <TableCell align="right">Monto</TableCell>
                 <TableCell>Registrado por</TableCell>
+                {isSuperAdmin && <TableCell align="center" width={48} />}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1058,10 +1081,26 @@ const CajaChicaPage: React.FC = () => {
                     </Typography>
                   </TableCell>
                   <TableCell>{tx.admin_name}</TableCell>
+                  {isSuperAdmin && (
+                    <TableCell align="center" onClick={e => e.stopPropagation()}>
+                      <Tooltip title="Eliminar transacción (solo super admin)">
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="error"
+                            disabled={deletingTxId === tx.id}
+                            onClick={() => handleDeleteTransaccion(tx.id)}
+                          >
+                            <DeleteForeverIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
+                    </TableCell>
+                  )}
                 </TableRow>
                 {expandable && isExpanded && (
                   <TableRow>
-                    <TableCell colSpan={8} sx={{ p: 0, bgcolor: 'grey.50' }}>
+                    <TableCell colSpan={isSuperAdmin ? 9 : 8} sx={{ p: 0, bgcolor: 'grey.50' }}>
                       <Box sx={{ p: 2 }}>
                         <Typography variant="subtitle2" gutterBottom>
                           Consolidaciones cubiertas por este pago
@@ -1116,7 +1155,7 @@ const CajaChicaPage: React.FC = () => {
               })}
               {transacciones.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={isSuperAdmin ? 9 : 8} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">No hay transacciones registradas</Typography>
                   </TableCell>
                 </TableRow>

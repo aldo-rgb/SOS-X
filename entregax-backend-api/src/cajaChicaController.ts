@@ -1570,3 +1570,27 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
     client.release();
   }
 };
+
+// ============================================================
+// DELETE /api/caja-chica/transacciones/:id — solo super_admin
+// Elimina una entrada específica de caja_chica_transacciones.
+// El saldo se recalcula automáticamente (es un SUM dinámico).
+// ============================================================
+export const deleteTransaccion = async (req: AuthRequest, res: Response): Promise<void> => {
+  const txId = parseInt(req.params['id'] as string, 10);
+  if (!txId) { res.status(400).json({ error: 'ID inválido' }); return; }
+  try {
+    const result = await pool.query(
+      'DELETE FROM caja_chica_transacciones WHERE id = $1 RETURNING id',
+      [txId]
+    );
+    if (result.rowCount === 0) {
+      res.status(404).json({ error: 'Transacción no encontrada' });
+      return;
+    }
+    res.json({ success: true, message: 'Transacción eliminada' });
+  } catch (error) {
+    console.error('Error en deleteTransaccion:', error);
+    res.status(500).json({ error: 'Error al eliminar transacción' });
+  }
+};
