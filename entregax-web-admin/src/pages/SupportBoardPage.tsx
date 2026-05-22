@@ -54,6 +54,8 @@ import {
   PictureAsPdf as PdfIcon,
   Phone as PhoneIcon,
   WhatsApp as WhatsAppIcon,
+  Archive as ArchiveIcon,
+  Unarchive as UnarchiveIcon,
 } from '@mui/icons-material';
 import PackageDetailDialog from './PackageDetailDialog';
 
@@ -94,6 +96,7 @@ interface SupportTicket {
   last_message?: string;
   created_at: string;
   updated_at: string;
+  archived_at?: string | null;
 }
 
 interface TicketMessage {
@@ -233,6 +236,9 @@ export default function SupportBoardPage() {
   const [creatorFilter, setCreatorFilter] = useState<'all' | 'client' | 'employee'>('all');
   const [packageDetailTracking, setPackageDetailTracking] = useState<string | null>(null);
 
+  // Archivados
+  const [archivedTickets, setArchivedTickets] = useState<SupportTicket[]>([]);
+
   // Adjuntos
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -309,6 +315,26 @@ export default function SupportBoardPage() {
     } catch { setTickets([]); }
   }, [token, deptFilter, creatorFilter]);
 
+  const loadArchivedTickets = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/admin/support/tickets?archived=true&limit=100`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setArchivedTickets(Array.isArray(data) ? data : []);
+    } catch { /* ignore */ }
+  }, [token]);
+
+  const handleArchiveTicket = async (ticketId: number, unarchive = false) => {
+    await fetch(`${API_URL}/admin/support/ticket/${ticketId}/archive`, {
+      method: 'PATCH',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ unarchive }),
+    });
+    await Promise.all([loadTickets(), loadArchivedTickets()]);
+  };
+
   const loadStats = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/admin/support/stats`, { headers: { Authorization: `Bearer ${token}` } });
@@ -343,11 +369,11 @@ export default function SupportBoardPage() {
   useEffect(() => {
     const init = async () => {
       setLoading(true);
-      await Promise.all([loadTickets(), loadStats(), loadDepartments()]);
+      await Promise.all([loadTickets(), loadStats(), loadDepartments(), loadArchivedTickets()]);
       setLoading(false);
     };
     init();
-    const interval = setInterval(() => { loadTickets(); loadStats(); }, 30000);
+    const interval = setInterval(() => { loadTickets(); loadStats(); loadArchivedTickets(); }, 30000);
     return () => clearInterval(interval);
   }, [loadTickets, loadStats, loadDepartments]);
 
@@ -709,6 +735,7 @@ export default function SupportBoardPage() {
                       formatTime={formatTimeAgo}
                       isUrgent={ticket.status === 'escalated_human'}
                       isResolved={ticket.status === 'resolved'}
+                      onArchive={handleArchiveTicket}
                     />
                   ))
                 )}
@@ -741,12 +768,38 @@ export default function SupportBoardPage() {
                     formatTime={formatTimeAgo}
                     isUrgent={urgent}
                     isResolved={status === 'resolved'}
+                    onArchive={handleArchiveTicket}
                   />
                 ))}
               </Paper>
             );
           })
         )}
+
+        {/* Columna Archivados — siempre al final */}
+        <Paper sx={{ flex: '0 0 280px', p: 2, bgcolor: '#F5F5F5', overflow: 'auto', borderRadius: 2, borderTop: '4px solid #9E9E9E', opacity: 0.92 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+            <ArchiveIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
+            <Typography variant="subtitle1" fontWeight="bold" sx={{ flex: 1, color: '#616161' }}>Archivados</Typography>
+            <Box sx={{ bgcolor: '#e0e0e0', borderRadius: 10, px: 0.8, fontSize: 11, fontWeight: 600, lineHeight: '18px', color: '#616161' }}>
+              {archivedTickets.length}
+            </Box>
+          </Box>
+          {archivedTickets.length === 0 ? (
+            <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>Sin archivados</Typography>
+          ) : (
+            archivedTickets.slice(0, 30).map((ticket) => (
+              <TicketCard
+                key={ticket.id}
+                ticket={ticket}
+                onClick={() => handleOpenTicket(ticket)}
+                formatTime={formatTimeAgo}
+                isArchived
+                onArchive={handleArchiveTicket}
+              />
+            ))
+          )}
+        </Paper>
       </Box>
 
       {/* Dialog: Detalle del Ticket */}
@@ -1153,12 +1206,16 @@ function TicketCard({
   formatTime,
   isUrgent = false,
   isResolved = false,
+  isArchived = false,
+  onArchive,
 }: {
   ticket: SupportTicket;
   onClick: () => void;
   formatTime: (d: string) => string;
   isUrgent?: boolean;
   isResolved?: boolean;
+  isArchived?: boolean;
+  onArchive?: (id: number, unarchive: boolean) => void;
 }) {
   return (
     <Card
@@ -1166,19 +1223,32 @@ function TicketCard({
         mb: 1.5,
         cursor: 'pointer',
         borderLeft: isUrgent ? `4px solid ${ORANGE}` : '4px solid transparent',
-        opacity: isResolved ? 0.7 : 1,
+        opacity: isResolved || isArchived ? 0.7 : 1,
         transition: 'transform 0.15s, box-shadow 0.15s',
         '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
       }}
       onClick={onClick}
     >
       <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
-        {/* Row 1: folio + time */}
+        {/* Row 1: folio + time + archive button */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
           <Typography variant="caption" color="text.secondary" fontWeight={600}>
             {ticket.ticket_folio}
           </Typography>
-          <Typography variant="caption" color="text.secondary">{formatTime(ticket.updated_at)}</Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <Typography variant="caption" color="text.secondary">{formatTime(ticket.updated_at)}</Typography>
+            {onArchive && (
+              <Tooltip title={isArchived ? 'Desarchivar' : 'Archivar'}>
+                <IconButton
+                  size="small"
+                  onClick={(e) => { e.stopPropagation(); onArchive(ticket.id, isArchived); }}
+                  sx={{ p: 0.25, color: isArchived ? '#F05A28' : '#999', '&:hover': { color: isArchived ? '#D44E20' : '#555' } }}
+                >
+                  {isArchived ? <UnarchiveIcon sx={{ fontSize: 15 }} /> : <ArchiveIcon sx={{ fontSize: 15 }} />}
+                </IconButton>
+              </Tooltip>
+            )}
+          </Box>
         </Box>
 
         {/* Subject */}
@@ -1198,7 +1268,6 @@ function TicketCard({
 
         {/* Badges row */}
         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-          {/* Creator type */}
           <Chip
             label={ticket.creator_type === 'employee' ? '🧑‍💼 Asesor' : '👤 Cliente'}
             size="small"
@@ -1209,7 +1278,6 @@ function TicketCard({
               fontWeight: 600,
             }}
           />
-          {/* Department */}
           {ticket.department_name && (
             <Chip
               label={ticket.department_name}
@@ -1222,7 +1290,6 @@ function TicketCard({
               }}
             />
           )}
-          {/* Category */}
           <Chip
             icon={ticket.category in categoryIcons ? categoryIcons[ticket.category] : <HelpIcon fontSize="small" />}
             label={categoryLabels[ticket.category] || ticket.category}
@@ -1230,18 +1297,15 @@ function TicketCard({
             variant="outlined"
             sx={{ height: 20, fontSize: 11, '& .MuiChip-icon': { fontSize: 12 } }}
           />
-          {/* Message count */}
           <Chip label={`${ticket.message_count} msgs`} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
         </Box>
 
-        {/* Assigned agent */}
         {ticket.assigned_agent_name && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
             → {ticket.assigned_agent_name}
           </Typography>
         )}
 
-        {/* Last message preview */}
         {ticket.last_message && (
           <Typography variant="caption" color="text.secondary"
             sx={{ display: 'block', mt: 0.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontStyle: 'italic' }}>

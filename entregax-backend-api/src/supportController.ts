@@ -714,17 +714,25 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
 export const getAdminTickets = async (req: Request, res: Response): Promise<any> => {
   try {
     await ensureDepartmentsSchema();
-    const { status, limit = 100, department_id, creator_type } = req.query;
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP`);
+    const { status, limit = 100, department_id, creator_type, archived } = req.query;
 
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
 
+    // Por defecto excluir archivados; con ?archived=true traer solo archivados
+    if (archived === 'true') {
+      conditions.push('t.archived_at IS NOT NULL');
+    } else {
+      conditions.push('t.archived_at IS NULL');
+    }
+
     if (status) { conditions.push(`t.status = $${idx++}`); params.push(status); }
     if (department_id) { conditions.push(`t.department_id = $${idx++}`); params.push(department_id); }
     if (creator_type) { conditions.push(`t.creator_type = $${idx++}`); params.push(creator_type); }
 
-    const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const where = `WHERE ${conditions.join(' AND ')}`;
 
     const query = `
       SELECT t.*,
@@ -754,6 +762,25 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
   } catch (error) {
     console.error('Error obteniendo tickets admin:', error);
     res.status(500).json({ error: 'Error obteniendo tickets' });
+  }
+};
+
+/**
+ * PATCH /api/admin/support/ticket/:id/archive
+ * Archivar o desarchivar un ticket
+ */
+export const archiveTicket = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { unarchive } = req.body;
+    await pool.query(
+      `UPDATE support_tickets SET archived_at = ${unarchive ? 'NULL' : 'NOW()'}, updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error archivando ticket:', error);
+    res.status(500).json({ error: 'Error al archivar ticket' });
   }
 };
 

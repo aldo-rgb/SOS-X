@@ -569,6 +569,7 @@ import {
   resolveTicket,
   reactivateTicket,
   assignTicket,
+  archiveTicket,
   uploadSupportImages,
   uploadAdminReplyFiles,
   aiEnhanceMessage,
@@ -4669,6 +4670,7 @@ app.put('/api/admin/support/ticket/:id/reactivate', authenticateToken, requireMi
 
 // Admin: Asignar ticket a agente
 app.put('/api/admin/support/ticket/:id/assign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignTicket);
+app.patch('/api/admin/support/ticket/:id/archive', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), archiveTicket);
 
 // Departamentos: listar (autenticado, cualquier rol)
 app.get('/api/support/departments', authenticateToken, getDepartments);
