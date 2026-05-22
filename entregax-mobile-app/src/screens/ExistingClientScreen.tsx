@@ -72,6 +72,7 @@ export default function ExistingClientScreen({ navigation }: ExistingClientScree
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   // Verificar si existe el número de cliente
   const handleCheckBoxId = async () => {
@@ -434,8 +435,14 @@ export default function ExistingClientScreen({ navigation }: ExistingClientScree
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               mode="outlined"
-              secureTextEntry={!showPassword}
+              secureTextEntry={!showConfirmPassword}
               left={<TextInput.Icon icon="lock-check" />}
+              right={
+                <TextInput.Icon
+                  icon={showConfirmPassword ? 'eye-off' : 'eye'}
+                  onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                />
+              }
               style={styles.input}
               outlineColor="#ddd"
               activeOutlineColor={ORANGE}
