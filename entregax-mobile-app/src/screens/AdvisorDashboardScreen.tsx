@@ -246,35 +246,35 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ORANGE]} tintColor={ORANGE} />}
         showsVerticalScrollIndicator={false}
       >
-        {/* Hero card */}
+        {/* Hero card — con código de asesor integrado */}
         <View style={s.hero}>
           <View style={s.heroAccent} />
-          <View style={{ flex: 1 }}>
-            <Text style={s.heroGreeting}>Bienvenido,</Text>
-            <Text style={s.heroName}>{firstName}</Text>
-            <Text style={s.heroDate}>{today}</Text>
+          {/* Fila superior: saludo + badge */}
+          <View style={s.heroTop}>
+            <View style={{ flex: 1 }}>
+              <Text style={s.heroGreeting}>Bienvenido,</Text>
+              <Text style={s.heroName}>{firstName}</Text>
+              <Text style={s.heroDate}>{today}</Text>
+            </View>
+            <View style={s.heroBadge}>
+              <Ionicons name="briefcase" size={13} color={ORANGE} />
+              <Text style={s.heroBadgeText}>ASESOR</Text>
+            </View>
           </View>
-          <View style={s.heroBadge}>
-            <Ionicons name="briefcase" size={13} color={ORANGE} />
-            <Text style={s.heroBadgeText}>ASESOR</Text>
-          </View>
-        </View>
-
-        {/* Referral code */}
-        <View style={s.refCard}>
-          <View style={s.refTop}>
-            <Ionicons name="gift" size={18} color={ORANGE} />
-            <Text style={s.refLabel}>CÓDIGO DE ASESOR</Text>
-          </View>
-          <Text style={s.refCode}>{data.advisor.referralCode || '—'}</Text>
-          <View style={s.refActions}>
-            <TouchableOpacity style={s.refBtnPrimary} onPress={copyReferralCode}>
-              <Ionicons name="copy-outline" size={16} color="#fff" />
-              <Text style={s.refBtnPrimaryText}>Copiar</Text>
+          {/* Divisor */}
+          <View style={s.heroDivider} />
+          {/* Fila inferior: código + botones */}
+          <View style={s.heroCodeRow}>
+            <Ionicons name="gift" size={14} color={ORANGE} />
+            <Text style={s.heroCode}>{data.advisor.referralCode || '—'}</Text>
+            <View style={{ flex: 1 }} />
+            <TouchableOpacity style={s.heroCodeBtn} onPress={copyReferralCode}>
+              <Ionicons name="copy-outline" size={15} color="#fff" />
+              <Text style={s.heroCodeBtnText}>Copiar</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.refBtnSecondary} onPress={shareReferralCode}>
-              <Ionicons name="share-social-outline" size={16} color={ORANGE} />
-              <Text style={s.refBtnSecondaryText}>Compartir</Text>
+            <TouchableOpacity style={s.heroCodeBtnOutline} onPress={shareReferralCode}>
+              <Ionicons name="share-social-outline" size={15} color={ORANGE} />
+              <Text style={s.heroCodeBtnOutlineText}>Compartir</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -417,38 +417,28 @@ const s = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 16,
     borderRadius: CARD_RADIUS,
-    padding: 20,
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    paddingTop: 18,
+    paddingHorizontal: 20,
+    paddingBottom: 14,
     borderWidth: 1,
     borderColor: '#E8E8E8',
     overflow: 'hidden',
   },
-  heroAccent:   { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: ORANGE, borderTopLeftRadius: CARD_RADIUS, borderBottomLeftRadius: CARD_RADIUS },
-  heroGreeting: { color: '#888', fontSize: 13, fontWeight: '500', letterSpacing: 1, textTransform: 'uppercase' },
-  heroName:     { color: TEXT, fontSize: 26, fontWeight: '800', marginTop: 2 },
-  heroDate:     { color: SUBTEXT, fontSize: 12, marginTop: 6, textTransform: 'capitalize' },
-  heroBadge:    { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: ORANGE + '22', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start' },
-  heroBadgeText:{ color: ORANGE, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  heroAccent:      { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: ORANGE, borderTopLeftRadius: CARD_RADIUS, borderBottomLeftRadius: CARD_RADIUS },
+  heroTop:         { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 14 },
+  heroGreeting:    { color: '#888', fontSize: 12, fontWeight: '500', letterSpacing: 1, textTransform: 'uppercase' },
+  heroName:        { color: '#111', fontSize: 26, fontWeight: '900', marginTop: 2 },
+  heroDate:        { color: '#888', fontSize: 12, marginTop: 5, textTransform: 'capitalize' },
+  heroBadge:       { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: ORANGE + '18', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start' },
+  heroBadgeText:   { color: ORANGE, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
+  heroDivider:     { height: 1, backgroundColor: '#F0F0F0', marginBottom: 12 },
+  heroCodeRow:     { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  heroCode:        { color: '#111', fontSize: 15, fontWeight: '800', letterSpacing: 1.5 },
+  heroCodeBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  heroCodeBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
+  heroCodeBtnOutline:     { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1.5, borderColor: ORANGE, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  heroCodeBtnOutlineText: { color: ORANGE, fontSize: 12, fontWeight: '700' },
 
-  // Referral
-  refCard: {
-    backgroundColor: CARD_BG,
-    marginHorizontal: 16,
-    marginTop: 12,
-    borderRadius: CARD_RADIUS,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#E8E8E8',
-  },
-  refTop:           { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
-  refLabel:         { color: '#888', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
-  refCode:          { fontSize: 30, fontWeight: '900', color: TEXT, textAlign: 'center', letterSpacing: 4, marginBottom: 14 },
-  refActions:       { flexDirection: 'row', gap: 10 },
-  refBtnPrimary:    { flex: 1, backgroundColor: ORANGE, borderRadius: 10, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  refBtnPrimaryText:{ color: '#fff', fontWeight: '700', fontSize: 14 },
-  refBtnSecondary:  { flex: 1, borderWidth: 1.5, borderColor: ORANGE, borderRadius: 10, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
-  refBtnSecondaryText: { color: ORANGE, fontWeight: '700', fontSize: 14 },
 
   // Section header
   sectionHeader: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginTop: 20, marginBottom: 10, gap: 8 },
