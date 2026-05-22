@@ -243,9 +243,6 @@ export default function FinanceDashboardPage() {
   // Estado de Cuenta
   const [estadoCuentaRaw, setEstadoCuentaRaw] = useState('');
   const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [numeroCuenta, setNumeroCuenta] = useState('');
-  const [cuentasDisponibles, setCuentasDisponibles] = useState<string[]>([]);
-  const [cuentaFiltro, setCuentaFiltro] = useState('');
   interface EstadoCuentaRow {
     fecha: string;
     concepto: string;
@@ -514,17 +511,46 @@ export default function FinanceDashboardPage() {
       return;
     }
 
-    // 1. Guardar en BD y obtener solo las nuevas
+    // 1. Verificar continuidad con el último movimiento guardado
     const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
     if (!empresaFilt) {
       setSnackbar({ open: true, message: '⚠️ Selecciona un servicio/empresa para guardar los movimientos.', severity: 'error' });
       return;
     }
-    if (!numeroCuenta.trim()) {
-      setSnackbar({ open: true, message: '⚠️ Escribe el alias de la cuenta (ej: BBVA-OPER) antes de guardar.', severity: 'error' });
-      return;
+
+    // Ordenar nuevas filas para obtener la más antigua (último elemento desc = más antigua)
+    const sortedNew = sortRowsDesc(rows);
+    const newOldest = sortedNew[sortedNew.length - 1]; // más antiguo del nuevo upload
+    const newNewest = sortedNew[0];                    // más reciente del nuevo upload
+
+    try {
+      const lastRes = await api.get(`/admin/finance/bank-entries/last?empresa_id=${empresaFilt.id}`);
+      const dbLast = lastRes.data.entry; // { fecha, saldo, concepto }
+
+      if (dbLast && dbLast.saldo != null && newOldest) {
+        const dbSaldo = parseFloat(dbLast.saldo);
+        const newStartSaldo = newOldest.saldo;
+        const diff = Math.abs(newStartSaldo - dbSaldo);
+        const pct = dbSaldo > 0 ? diff / dbSaldo : 1;
+
+        // Alerta si la diferencia es mayor al 15% del saldo guardado y > $5,000
+        if (pct > 0.15 && diff > 5000) {
+          const confirmed = window.confirm(
+            `⚠️ ADVERTENCIA: El saldo no cuadra con el historial guardado.\n\n` +
+            `Último saldo en BD: $${dbSaldo.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${dbLast.fecha})\n` +
+            `Saldo inicial del nuevo estado: $${newStartSaldo.toLocaleString('es-MX', { minimumFractionDigits: 2 })} (${newOldest.fecha})\n` +
+            `Diferencia: $${diff.toLocaleString('es-MX', { minimumFractionDigits: 2 })}\n\n` +
+            `Esto puede indicar que estás subiendo el estado de cuenta de una cuenta diferente.\n\n` +
+            `¿Deseas continuar de todos modos?`
+          );
+          if (!confirmed) return;
+        }
+      }
+    } catch (_) {
+      // Si no hay historial previo, continuar normalmente
     }
 
+    // 2. Guardar en BD y obtener solo las nuevas
     let newEntries: EstadoCuentaRow[] = [];
     let duplicateCount = 0;
     try {
@@ -533,7 +559,6 @@ export default function FinanceDashboardPage() {
         empresa_id: empresaFilt.id,
         service_type: empresaFilt.servicio_asignado,
         banco: estadoCuentaBanco,
-        numero_cuenta: numeroCuenta.trim(),
       });
       newEntries = saveRes.data.new_entries || [];
       duplicateCount = saveRes.data.duplicate_count || 0;
@@ -1797,44 +1822,6 @@ export default function FinanceDashboardPage() {
               {bancoFijo && <><br/><em>Banco detectado automáticamente desde la configuración de {empresaFiltrada?.alias}.</em></>}
             </Alert>
 
-            {/* Selector/filtro de cuenta cuando hay varias guardadas */}
-            {cuentasDisponibles.length > 0 && (
-              <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
-                <Typography variant="body2" fontWeight={600} color="text.secondary">Cuenta guardada:</Typography>
-                {cuentasDisponibles.map(c => (
-                  <Chip
-                    key={c}
-                    label={c}
-                    onClick={() => { setCuentaFiltro(c); setNumeroCuenta(c); loadSavedBankEntries(c); }}
-                    color={cuentaFiltro === c ? 'primary' : 'default'}
-                    variant={cuentaFiltro === c ? 'filled' : 'outlined'}
-                    size="small"
-                  />
-                ))}
-                {cuentaFiltro && (
-                  <Chip
-                    label="Ver todas"
-                    onClick={() => { setCuentaFiltro(''); loadSavedBankEntries(''); }}
-                    variant="outlined"
-                    size="small"
-                    color="warning"
-                  />
-                )}
-              </Box>
-            )}
-
-            {/* Campo alias de cuenta para nueva subida */}
-            <TextField
-              size="small"
-              label="Alias de cuenta"
-              placeholder="Ej: BBVA-OPER, BBVA-NOMINA"
-              value={numeroCuenta}
-              onChange={(e) => setNumeroCuenta(e.target.value.toUpperCase())}
-              helperText="Identifica a qué cuenta pertenece este estado de cuenta. Usa siempre el mismo alias para la misma cuenta."
-              sx={{ mb: 2, width: 300 }}
-              inputProps={{ maxLength: 50 }}
-            />
-
             {bancoActivo === 'banregio' ? (
               <Box sx={{ mb: 2 }}>
                 <Button
@@ -1889,29 +1876,16 @@ export default function FinanceDashboardPage() {
                   onClick={async () => {
                     const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
                     if (!empresaFilt) return;
-                    const cuentaMsg = cuentaFiltro ? ` (cuenta: ${cuentaFiltro})` : ' (TODAS las cuentas)';
-                    const confirmed = window.confirm(`¿Borrar los movimientos de ${empresaFilt.alias}${cuentaMsg} de la base de datos? Esta acción no se puede deshacer.`);
+                    const confirmed = window.confirm(`¿Borrar TODOS los movimientos de ${empresaFilt.alias} de la base de datos? Esta acción no se puede deshacer.`);
                     if (!confirmed) return;
                     try {
-                      const deleteUrl = cuentaFiltro
-                        ? `/admin/finance/bank-entries?empresa_id=${empresaFilt.id}&numero_cuenta=${encodeURIComponent(cuentaFiltro)}`
-                        : `/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`;
-                      await api.delete(deleteUrl, {
+                      await api.delete(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`, {
                         headers: { Authorization: `Bearer ${token}` },
                       });
                       setEstadoCuentaRows([]);
                       setEstadoCuentaRaw('');
                       setCsvFile(null);
                       setSavedEntriesCount(null);
-                      if (cuentaFiltro) {
-                        setCuentasDisponibles(prev => prev.filter(c => c !== cuentaFiltro));
-                        setCuentaFiltro('');
-                        setNumeroCuenta('');
-                      } else {
-                        setCuentasDisponibles([]);
-                        setCuentaFiltro('');
-                        setNumeroCuenta('');
-                      }
                       setSnackbar({ open: true, message: 'Movimientos eliminados correctamente', severity: 'success' });
                     } catch (err: any) {
                       setSnackbar({ open: true, message: 'Error al borrar: ' + (err.response?.data?.error || err.message), severity: 'error' });
@@ -1926,12 +1900,6 @@ export default function FinanceDashboardPage() {
             {/* Results */}
             {estadoCuentaRows.length > 0 && (
               <>
-                {cuentaFiltro && (
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                    <Typography variant="body2" color="text.secondary">Mostrando cuenta:</Typography>
-                    <Chip label={cuentaFiltro} color="primary" size="small" />
-                  </Box>
-                )}
                 {/* Summary cards */}
                 <Grid container spacing={2} sx={{ mb: 3 }}>
                   <Grid size={{ xs: 12, sm: 4 }}>
