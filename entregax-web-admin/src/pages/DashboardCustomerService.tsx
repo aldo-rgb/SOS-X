@@ -28,6 +28,8 @@ import {
   Warning as WarningIcon,
   Assignment as AssignmentIcon,
   FiberNew as NewIcon,
+  VerifiedUser as VerifiedUserIcon,
+  HourglassEmpty as HourglassEmptyIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -54,8 +56,16 @@ interface RecentTicket {
   full_name?: string;
 }
 
+interface VerificationStats {
+  pending: number;
+  approved: number;
+  rejected: number;
+  total: number;
+}
+
 interface Props {
   onNavigateToSupport?: () => void;
+  onNavigateToVerifications?: () => void;
 }
 
 // Colores de marca
@@ -125,11 +135,12 @@ function KpiCard({ title, value, caption, icon, gradient, badge, onClick }: KpiC
   );
 }
 
-export default function DashboardCustomerService({ onNavigateToSupport }: Props) {
+export default function DashboardCustomerService({ onNavigateToSupport, onNavigateToVerifications }: Props) {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<SupportStats | null>(null);
   const [recentTickets, setRecentTickets] = useState<RecentTicket[]>([]);
   const [userName, setUserName] = useState('');
+  const [verificationStats, setVerificationStats] = useState<VerificationStats | null>(null);
 
   useEffect(() => {
     loadData();
@@ -142,9 +153,10 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
 
   const loadData = async () => {
     setLoading(true);
-    const [statsRes, ticketsRes] = await Promise.allSettled([
+    const [statsRes, ticketsRes, verifRes] = await Promise.allSettled([
       api.get('/admin/support/stats'),
       api.get('/admin/support/tickets', { params: { limit: 5, status: undefined } }),
+      api.get('/admin/verifications/stats'),
     ]);
 
     if (statsRes.status === 'fulfilled') {
@@ -166,6 +178,16 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
     if (ticketsRes.status === 'fulfilled') {
       const data = ticketsRes.value.data;
       setRecentTickets(Array.isArray(data) ? data : (data?.tickets || []));
+    }
+
+    if (verifRes.status === 'fulfilled') {
+      const raw = verifRes.value.data || {};
+      setVerificationStats({
+        pending: parseInt(raw.pending) || 0,
+        approved: parseInt(raw.approved) || 0,
+        rejected: parseInt(raw.rejected) || 0,
+        total: parseInt(raw.total) || 0,
+      });
     }
 
     setLoading(false);
@@ -380,6 +402,64 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
                   </Typography>
                   <Typography variant="caption" color="text.secondary">Clientes pendientes de contestar</Typography>
                 </Box>
+              </Box>
+
+              <Box
+                sx={{
+                  p: 2,
+                  bgcolor: verificationStats && verificationStats.pending > 0
+                    ? 'rgba(33,150,243,0.08)'
+                    : 'rgba(76,175,80,0.06)',
+                  border: verificationStats && verificationStats.pending > 0
+                    ? '1px solid rgba(33,150,243,0.35)'
+                    : '1px solid rgba(76,175,80,0.25)',
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                  cursor: onNavigateToVerifications ? 'pointer' : 'default',
+                  transition: 'background 0.15s',
+                  '&:hover': onNavigateToVerifications
+                    ? { bgcolor: verificationStats && verificationStats.pending > 0 ? 'rgba(33,150,243,0.14)' : 'rgba(76,175,80,0.12)' }
+                    : {},
+                }}
+                onClick={onNavigateToVerifications}
+              >
+                {verificationStats && verificationStats.pending > 0
+                  ? <HourglassEmptyIcon sx={{ color: '#1976D2' }} />
+                  : <VerifiedUserIcon sx={{ color: '#388E3C' }} />
+                }
+                <Box sx={{ flex: 1 }}>
+                  <Typography
+                    variant="subtitle2"
+                    fontWeight={700}
+                    sx={{ color: verificationStats && verificationStats.pending > 0 ? '#1976D2' : '#388E3C' }}
+                  >
+                    {verificationStats?.pending ?? 0} Verificaciones de identidad pendientes
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {onNavigateToVerifications ? 'Click para revisar' : 'Identidades por aprobar'}
+                  </Typography>
+                </Box>
+                {verificationStats && verificationStats.pending > 0 && (
+                  <Box
+                    sx={{
+                      bgcolor: '#1976D2',
+                      color: 'white',
+                      borderRadius: '50%',
+                      width: 28,
+                      height: 28,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontWeight: 800,
+                      fontSize: '0.8rem',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {verificationStats.pending}
+                  </Box>
+                )}
               </Box>
             </Box>
           </Paper>

@@ -1521,9 +1521,14 @@ function App() {
           case 'Customer Service':
           case 'soporte_tecnico':
           case 'Soporte Técnico':
-            return <DashboardCustomerService onNavigateToSupport={() => {
-              window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'service_tickets' } }));
-            }} />;
+            return <DashboardCustomerService
+              onNavigateToSupport={() => {
+                window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'service_tickets' } }));
+              }}
+              onNavigateToVerifications={() => {
+                window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'verifications' } }));
+              }}
+            />;
           case 'counter_staff':
           case 'Counter Staff':
           case 'mostrador':
