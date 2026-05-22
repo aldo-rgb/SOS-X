@@ -69,6 +69,7 @@ interface UserProfile {
   created_at: string;
   two_factor_enabled: boolean;
   rfc: string;
+  whatsapp_verified: boolean;
 }
 
 const ProfileClient = ({ onBack }: ProfileClientProps) => {
@@ -148,6 +149,12 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
   const [phonePassword, setPhonePassword] = useState('');
   const [savingPhone, setSavingPhone] = useState(false);
 
+  // WhatsApp verification
+  const [waStep, setWaStep] = useState<'idle' | 'sent' | 'verified'>('idle');
+  const [waCode, setWaCode] = useState('');
+  const [waSending, setWaSending] = useState(false);
+  const [waVerifying, setWaVerifying] = useState(false);
+
   const loadProfile = useCallback(async () => {
     try {
       setLoading(true);
@@ -157,6 +164,8 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
       if (response.data.gex_auto_enabled !== undefined) {
         setGexAutoEnabled(!!response.data.gex_auto_enabled);
       }
+      // Sync WhatsApp step
+      if (response.data.whatsapp_verified) setWaStep('verified');
     } catch (error) {
       console.error('Error loading profile:', error);
       // Fallback from localStorage
@@ -662,6 +671,124 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
                 : profile?.verification_status === 'rejected' 
                   ? 'Reintentar Verificación' 
                   : 'Iniciar Verificación'}
+            </Button>
+          )}
+        </Box>
+      </Paper>
+
+      {/* Verificación de WhatsApp */}
+      <Typography variant="overline" sx={{ color: '#999', fontWeight: 600, letterSpacing: 1, ml: 1, display: 'block', mb: 1 }}>
+        VERIFICACIÓN DE WHATSAPP
+      </Typography>
+      <Paper sx={{ borderRadius: 3, mb: 3, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+        <Box sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          {/* Ícono */}
+          <Box sx={{
+            width: 44, height: 44, borderRadius: '12px',
+            bgcolor: waStep === 'verified' ? '#E8F5E9' : '#F0FFF4',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+          }}>
+            <Typography sx={{ fontSize: 24 }}>📱</Typography>
+          </Box>
+
+          <Box sx={{ flex: 1, minWidth: 160 }}>
+            {waStep === 'verified' || profile?.whatsapp_verified ? (
+              <>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#2E7D32', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  ✅ WhatsApp Verificado
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#888' }}>
+                  {profile?.phone || 'Número verificado'}
+                </Typography>
+              </>
+            ) : waStep === 'sent' ? (
+              <>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#F05A28' }}>
+                  Código enviado a {profile?.phone}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#888' }}>
+                  Revisa tu WhatsApp e ingresa el código de 6 dígitos
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 1, mt: 1, flexWrap: 'wrap' }}>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={waCode}
+                    onChange={e => setWaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    style={{
+                      width: 110, padding: '8px 12px', fontSize: 20, letterSpacing: 6,
+                      border: '1.5px solid #F05A28', borderRadius: 8, outline: 'none',
+                      textAlign: 'center', fontWeight: 700,
+                    }}
+                  />
+                  <Button
+                    variant="contained"
+                    size="small"
+                    disabled={waCode.length < 6 || waVerifying}
+                    onClick={async () => {
+                      setWaVerifying(true);
+                      try {
+                        await api.post('/auth/whatsapp/verify-otp', { code: waCode });
+                        setWaStep('verified');
+                        setProfile(prev => prev ? { ...prev, whatsapp_verified: true } : prev);
+                        setSnackbar({ open: true, message: '✅ WhatsApp verificado exitosamente', severity: 'success' });
+                      } catch (e: any) {
+                        setSnackbar({ open: true, message: e.response?.data?.error || 'Código incorrecto', severity: 'error' });
+                      } finally {
+                        setWaVerifying(false);
+                      }
+                    }}
+                    sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 2 }}
+                  >
+                    {waVerifying ? 'Verificando…' : 'Verificar'}
+                  </Button>
+                  <Button
+                    variant="text" size="small"
+                    onClick={() => { setWaStep('idle'); setWaCode(''); }}
+                    sx={{ color: '#999', textTransform: 'none', fontSize: 12 }}
+                  >
+                    Reenviar
+                  </Button>
+                </Box>
+              </>
+            ) : (
+              <>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>
+                  Verificar WhatsApp
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#888' }}>
+                  {profile?.phone
+                    ? `Enviaremos un código al ${profile.phone}`
+                    : 'Agrega tu teléfono primero para verificar por WhatsApp'}
+                </Typography>
+              </>
+            )}
+          </Box>
+
+          {/* Botón principal: solo cuando no verificado y no en paso "sent" */}
+          {waStep === 'idle' && !profile?.whatsapp_verified && profile?.phone && (
+            <Button
+              variant="contained"
+              size="small"
+              disabled={waSending}
+              onClick={async () => {
+                setWaSending(true);
+                try {
+                  await api.post('/auth/whatsapp/send-otp');
+                  setWaStep('sent');
+                  setWaCode('');
+                  setSnackbar({ open: true, message: `Código enviado a ${profile?.phone}`, severity: 'info' });
+                } catch (e: any) {
+                  setSnackbar({ open: true, message: e.response?.data?.error || 'No se pudo enviar el código', severity: 'error' });
+                } finally {
+                  setWaSending(false);
+                }
+              }}
+              sx={{ bgcolor: '#25D366', '&:hover': { bgcolor: '#1EB45A' }, borderRadius: 2, textTransform: 'none', fontWeight: 600, px: 2, whiteSpace: 'nowrap' }}
+            >
+              {waSending ? 'Enviando…' : 'Verificar por WhatsApp'}
             </Button>
           )}
         </Box>

@@ -74,7 +74,7 @@ import {
   verifyPhoneCode,
   phoneVerificationStatus,
 } from './phoneVerificationController';
-import { whatsappStatus } from './whatsappService';
+import { whatsappStatus, sendVerificationCodeWhatsapp } from './whatsappService';
 import jsonwebtokenLib from 'jsonwebtoken';
 
 /**
@@ -2044,6 +2044,63 @@ app.post(
   optionalAuth,
   verifyPhoneCode
 );
+
+// --- VERIFICACIÓN DE WHATSAPP ---
+app.post('/api/auth/whatsapp/send-otp', authRateLimit, authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user?.userId || (req as any).user?.id;
+    // Migrate column if needed
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_verified BOOLEAN DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_otp VARCHAR(10)`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS whatsapp_otp_expires_at TIMESTAMP`);
+
+    const userRow = await pool.query(`SELECT phone FROM users WHERE id = $1`, [userId]);
+    const phone = userRow.rows[0]?.phone;
+    if (!phone) return res.status(400).json({ error: 'No tienes un teléfono registrado. Agrega tu número primero.' });
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const expires = new Date(Date.now() + 10 * 60 * 1000); // 10 min
+    await pool.query(
+      `UPDATE users SET whatsapp_otp = $1, whatsapp_otp_expires_at = $2 WHERE id = $3`,
+      [code, expires, userId]
+    );
+
+    const result = await sendVerificationCodeWhatsapp({ phone, code });
+    if (!result.ok && !result.skipped) {
+      return res.status(500).json({ error: result.error || 'No se pudo enviar el código por WhatsApp' });
+    }
+    res.json({ success: true, phone, skipped: result.skipped || false });
+  } catch (err: any) {
+    console.error('whatsapp send-otp error:', err);
+    res.status(500).json({ error: 'Error enviando código' });
+  }
+});
+
+app.post('/api/auth/whatsapp/verify-otp', authRateLimit, authenticateToken, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = (req as any).user?.userId || (req as any).user?.id;
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: 'Código requerido' });
+
+    const row = await pool.query(
+      `SELECT whatsapp_otp, whatsapp_otp_expires_at FROM users WHERE id = $1`,
+      [userId]
+    );
+    const { whatsapp_otp, whatsapp_otp_expires_at } = row.rows[0] || {};
+    if (!whatsapp_otp) return res.status(400).json({ error: 'No hay código pendiente. Solicita uno nuevo.' });
+    if (new Date() > new Date(whatsapp_otp_expires_at)) return res.status(400).json({ error: 'El código expiró. Solicita uno nuevo.' });
+    if (String(code).trim() !== String(whatsapp_otp).trim()) return res.status(400).json({ error: 'Código incorrecto.' });
+
+    await pool.query(
+      `UPDATE users SET whatsapp_verified = TRUE, whatsapp_otp = NULL, whatsapp_otp_expires_at = NULL WHERE id = $1`,
+      [userId]
+    );
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('whatsapp verify-otp error:', err);
+    res.status(500).json({ error: 'Error verificando código' });
+  }
+});
 
 // --- RUTAS DE CLIENTES LEGACY (Migración) ---
 // Públicas (para registro)
