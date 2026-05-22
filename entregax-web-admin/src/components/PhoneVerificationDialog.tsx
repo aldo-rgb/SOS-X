@@ -82,20 +82,24 @@ const PhoneVerificationDialog: React.FC<Props> = ({
         { phone },
         { headers: authHeaders() }
       );
-      setInfo(data?.message || 'Código enviado por WhatsApp.');
       setCooldown(RESEND_COOLDOWN);
       // Modo dev: si backend devuelve devCode, lo prerrellenamos para QA
       if (data?.devCode) {
         setCode(String(data.devCode));
         setInfo(`(DEV) Código: ${data.devCode}`);
+      } else {
+        setInfo(data?.message || 'Código enviado por WhatsApp.');
       }
     } catch (err: any) {
       const apiErr = err?.response?.data;
       if (err?.response?.status === 429 && apiErr?.retryAfterSeconds) {
         setCooldown(apiErr.retryAfterSeconds);
-        setError(apiErr?.error || 'Espera unos segundos.');
+        setError(apiErr?.error || 'Espera unos segundos antes de pedir otro código.');
       } else {
-        setError(apiErr?.error || 'No se pudo enviar el código.');
+        // 422 = WhatsApp falló; mostrar el error real de Meta + hint
+        const msg = apiErr?.error || 'No se pudo enviar el código.';
+        const hint = apiErr?.hint ? `\n${apiErr.hint}` : '';
+        setError(msg + hint);
       }
     } finally {
       setSending(false);

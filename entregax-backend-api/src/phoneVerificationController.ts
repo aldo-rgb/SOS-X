@@ -126,17 +126,19 @@ export const sendPhoneVerificationCode = async (req: AuthRequest, res: Response)
         const result = await sendVerificationCodeWhatsapp({ phone: normalized, code });
 
         if (!result.ok && !result.skipped) {
-            // Fallo de Meta → no exponemos detalle pero devolvemos 502.
-            res.status(502).json({
-                error: 'No se pudo enviar el código por WhatsApp. Intenta de nuevo o usa otro canal.',
-                details: process.env.NODE_ENV !== 'production' ? result.error : undefined,
+            // Fallo de Meta → 422 para que el CDN no intercepte el body JSON.
+            res.status(422).json({
+                error: result.error || 'No se pudo enviar el código por WhatsApp.',
+                hint: 'Verifica que el número tenga WhatsApp activo y que el código de país sea correcto (ej. +52 para México).',
             });
             return;
         }
 
         res.json({
             ok: true,
-            message: 'Código enviado por WhatsApp.',
+            message: result.skipped
+                ? 'El servicio de WhatsApp no está activo en este entorno. Contacta a soporte.'
+                : 'Código enviado por WhatsApp.',
             expiresInMinutes: CODE_TTL_MIN,
             // En desarrollo facilitamos el código para QA. NUNCA en prod.
             devCode: process.env.NODE_ENV !== 'production' && result.skipped ? code : undefined,
