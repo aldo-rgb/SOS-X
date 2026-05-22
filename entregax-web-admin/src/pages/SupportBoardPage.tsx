@@ -97,6 +97,9 @@ interface SupportTicket {
   created_at: string;
   updated_at: string;
   archived_at?: string | null;
+  ticket_status?: 'nuevo' | 'en_progreso' | 'finalizado' | null;
+  first_response_at?: string | null;
+  resolution_time_minutes?: number | null;
 }
 
 interface TicketMessage {
@@ -1201,6 +1204,22 @@ export default function SupportBoardPage() {
   );
 }
 
+const TICKET_STATUS_CONFIG = {
+  nuevo:       { label: 'Nuevo',       bg: '#E3F2FD', color: '#1565C0' },
+  en_progreso: { label: 'En progreso', bg: '#FFF3E0', color: '#E65100' },
+  finalizado:  { label: 'Finalizado',  bg: '#E8F5E9', color: '#2E7D32' },
+};
+
+function formatResolutionTime(minutes: number): string {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h < 24) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  const d = Math.floor(h / 24);
+  const rh = h % 24;
+  return rh > 0 ? `${d}d ${rh}h` : `${d}d`;
+}
+
 function TicketCard({
   ticket,
   onClick,
@@ -1218,6 +1237,9 @@ function TicketCard({
   isArchived?: boolean;
   onArchive?: (id: number, unarchive: boolean) => void;
 }) {
+  const tStatus = ticket.ticket_status || 'nuevo';
+  const statusCfg = TICKET_STATUS_CONFIG[tStatus as keyof typeof TICKET_STATUS_CONFIG] || TICKET_STATUS_CONFIG.nuevo;
+
   return (
     <Card
       sx={{
@@ -1299,7 +1321,22 @@ function TicketCard({
             sx={{ height: 20, fontSize: 11, '& .MuiChip-icon': { fontSize: 12 } }}
           />
           <Chip label={`${ticket.message_count} msgs`} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
+          {/* Status chip */}
+          <Chip
+            label={statusCfg.label}
+            size="small"
+            sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: statusCfg.bg, color: statusCfg.color }}
+          />
         </Box>
+
+        {/* Tiempo de resolución (solo finalizado) */}
+        {tStatus === 'finalizado' && ticket.resolution_time_minutes != null && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
+            <Typography variant="caption" sx={{ color: '#2E7D32', fontWeight: 600, fontSize: 11 }}>
+              ⏱ Resuelto en {formatResolutionTime(ticket.resolution_time_minutes)}
+            </Typography>
+          </Box>
+        )}
 
         {ticket.assigned_agent_name && (
           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>

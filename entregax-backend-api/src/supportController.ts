@@ -715,6 +715,9 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
   try {
     await ensureDepartmentsSchema();
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS ticket_status VARCHAR(20) DEFAULT 'nuevo'`);
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS first_response_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS resolution_time_minutes INTEGER`);
     const { status, limit = 100, department_id, creator_type, archived } = req.query;
 
     const conditions: string[] = [];
@@ -885,7 +888,13 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
 
     const newStatus = isInternal ? 'escalated_human' : 'waiting_client';
     await pool.query(
-      `UPDATE support_tickets SET assigned_agent_id = $1, status = $2, updated_at = NOW() WHERE id = $3`,
+      `UPDATE support_tickets
+       SET assigned_agent_id = $1,
+           status = $2,
+           updated_at = NOW(),
+           ticket_status = CASE WHEN ticket_status = 'nuevo' OR ticket_status IS NULL THEN 'en_progreso' ELSE ticket_status END,
+           first_response_at = CASE WHEN first_response_at IS NULL THEN NOW() ELSE first_response_at END
+       WHERE id = $3`,
       [agentId, newStatus, id]
     );
 
@@ -951,8 +960,12 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
     const { id } = req.params;
 
     await pool.query(
-      `UPDATE support_tickets 
-       SET status = 'resolved', resolved_at = NOW(), updated_at = NOW() 
+      `UPDATE support_tickets
+       SET status = 'resolved',
+           resolved_at = NOW(),
+           updated_at = NOW(),
+           ticket_status = 'finalizado',
+           resolution_time_minutes = EXTRACT(EPOCH FROM (NOW() - created_at))::int / 60
        WHERE id = $1`,
       [id]
     );
@@ -974,7 +987,11 @@ export const reactivateTicket = async (req: Request, res: Response): Promise<any
 
     const result = await pool.query(
       `UPDATE support_tickets
-       SET status = 'escalated_human', resolved_at = NULL, updated_at = NOW()
+       SET status = 'escalated_human',
+           resolved_at = NULL,
+           updated_at = NOW(),
+           ticket_status = 'en_progreso',
+           resolution_time_minutes = NULL
        WHERE id = $1 AND status = 'resolved'
        RETURNING id`,
       [id]
@@ -1175,6 +1192,7 @@ export const transferTicket = async (req: Request, res: Response): Promise<any> 
     if (department_id) { updates.push(`department_id = $${idx++}`); params.push(department_id); }
     if (assigned_to) { updates.push(`assigned_to = $${idx++}`, `assigned_agent_id = $${idx++}`); params.push(assigned_to, assigned_to); }
     updates.push(`status = $${idx++}`); params.push('escalated_human');
+    updates.push(`ticket_status = CASE WHEN ticket_status = 'nuevo' OR ticket_status IS NULL THEN 'en_progreso' ELSE ticket_status END`);
     params.push(id);
 
     await pool.query(
