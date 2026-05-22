@@ -346,19 +346,19 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           <Text style={s.sectionTitle}>SOPORTE Y ATENCIÓN</Text>
         </View>
         <View style={s.supportRow}>
-          <TouchableOpacity style={s.supportBtn} onPress={() => navigation.navigate('SupportChat', { user, token })}>
-            <View style={[s.supportIcon, { backgroundColor: '#1565C022' }]}>
-              <Ionicons name="headset" size={26} color="#1E88E5" />
+          <TouchableOpacity style={s.supportBtn} onPress={() => navigation.navigate('AdvisorSupportTicket', { user, token })}>
+            <View style={[s.supportIcon, { backgroundColor: ORANGE + '22' }]}>
+              <Ionicons name="add-circle" size={26} color={ORANGE} />
             </View>
-            <Text style={s.supportBtnLabel}>Soporte</Text>
-            <Text style={s.supportBtnSub}>Chat en vivo</Text>
+            <Text style={s.supportBtnLabel}>Levantar Ticket</Text>
+            <Text style={s.supportBtnSub}>Nuevo reporte</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.supportBtn} onPress={() => navigation.navigate('AdvisorClientTickets', { user, token })}>
-            <View style={[s.supportIcon, { backgroundColor: ORANGE + '22' }]}>
-              <Ionicons name="ticket" size={26} color={ORANGE} />
+            <View style={[s.supportIcon, { backgroundColor: '#1565C022' }]}>
+              <Ionicons name="ticket" size={26} color="#1E88E5" />
             </View>
-            <Text style={s.supportBtnLabel}>Tickets</Text>
-            <Text style={s.supportBtnSub}>Mis solicitudes</Text>
+            <Text style={s.supportBtnLabel}>Mis Tickets</Text>
+            <Text style={s.supportBtnSub}>Ver historial</Text>
           </TouchableOpacity>
         </View>
 
