@@ -438,7 +438,11 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   const [advisorData, setAdvisorData] = useState<AdvisorDashboardData | null>(null);
   const [advisorLoading, setAdvisorLoading] = useState(false);
   const [hideCommission, setHideCommission] = useState(false);
+  const [isOffline, setIsOffline] = useState(false);
   const isAdvisor = ADVISOR_ROLES.includes(user.role);
+
+  const isNetworkError = (err: any) =>
+    err instanceof TypeError && /network request failed|failed to fetch|network error/i.test(err?.message || '');
 
   // Estados para idioma y notificaciones
   const [showLanguageModal, setShowLanguageModal] = useState(false);
@@ -461,6 +465,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       }
     } catch (err) {
       console.error('Error loading advisor dashboard:', err);
+      if (isNetworkError(err)) setIsOffline(true);
     } finally {
       setAdvisorLoading(false);
     }
@@ -675,6 +680,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       }
     } catch (error) {
       console.error('Error refreshing user data:', error);
+      if (isNetworkError(error)) setIsOffline(true);
     }
   }, [token]);
 
@@ -690,6 +696,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       // Agregar más stats para otros roles según se desarrollen
     } catch (error) {
       console.error('Error loading stats:', error);
+      if (isNetworkError(error)) setIsOffline(true);
     }
   }, [user.role]);
 
@@ -803,6 +810,27 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     );
   };
 
+  // ── Pantalla sin conexión ────────────────────────────────────────────
+  if (isOffline) {
+    return (
+      <SafeAreaView style={[styles.container, { justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 }]} edges={[]}>
+        <Ionicons name="cloud-offline-outline" size={72} color="#ccc" />
+        <Text style={{ fontSize: 20, fontWeight: '700', color: '#333', marginTop: 16, textAlign: 'center' }}>
+          Sin conexión
+        </Text>
+        <Text style={{ fontSize: 14, color: '#888', marginTop: 8, textAlign: 'center', lineHeight: 20 }}>
+          No se pudo conectar al servidor. Revisa tu conexión a internet e inténtalo de nuevo.
+        </Text>
+        <TouchableOpacity
+          style={{ marginTop: 28, backgroundColor: ORANGE, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 32 }}
+          onPress={() => { setIsOffline(false); onRefresh(); }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Reintentar</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container} edges={[]}>
       {/* Header */}
@@ -850,8 +878,17 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                 </View>
               )}
             </View>
-            <TouchableOpacity onPress={() => setShowMenu(true)} style={{ padding: 8 }} hitSlop={8}>
-              <Ionicons name="menu" size={26} color="white" />
+            <TouchableOpacity onPress={() => setShowMenu(true)} style={{ padding: 4 }} hitSlop={8}>
+              {user.profilePhotoUrl ? (
+                <Avatar.Image size={36} source={{ uri: user.profilePhotoUrl }} />
+              ) : (
+                <Avatar.Text
+                  size={36}
+                  label={(user.name || 'U').split(' ').map((w: string) => w[0]).slice(0, 2).join('').toUpperCase()}
+                  style={{ backgroundColor: ORANGE }}
+                  labelStyle={{ fontSize: 14, fontWeight: '700' }}
+                />
+              )}
             </TouchableOpacity>
           </View>
         </View>
