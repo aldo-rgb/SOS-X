@@ -1437,7 +1437,9 @@ export const finalizeRouteBlock = async (req: Request, res: Response): Promise<a
 
 // ============================================================
 // DELETE /api/admin/petty-cash/movements/:id  — solo super_admin
-// Elimina un movimiento y revierte su efecto en el saldo del wallet.
+// Elimina un movimiento, revierte el saldo del wallet y, si es un
+// fondeo (type=fund), también elimina el egreso vinculado en
+// caja_chica_transacciones (columna caja_chica_transaccion_id).
 // ============================================================
 export const deleteMovement = async (req: Request, res: Response): Promise<any> => {
   const id = req.params['id'] as string;
@@ -1460,9 +1462,10 @@ export const deleteMovement = async (req: Request, res: Response): Promise<any> 
     const walletId = mov.wallet_id;
     const amount = Number(mov.amount_mxn) || 0;
 
-    // Revertir saldo del wallet solo si el movimiento fue aprobado/liquidado.
-    // fund/return → sumaron saldo → revertir restando; advance → restó saldo → revertir sumando.
-    // expense → no afecta el wallet de sucursal.
+    // 1. Revertir saldo del wallet si fue aprobado/liquidado.
+    //    fund/return → sumaron saldo → revertir restando.
+    //    advance → restó saldo → revertir sumando.
+    //    expense → no afecta wallet de sucursal.
     if (['approved', 'settled'].includes(mov.status)) {
       const signMap: Record<string, number> = { fund: -1, return: -1, advance: 1, adjustment: -1 };
       const sign = signMap[mov.movement_type] ?? 0;
@@ -1474,10 +1477,37 @@ export const deleteMovement = async (req: Request, res: Response): Promise<any> 
       }
     }
 
+    // 2. Si es un fondeo, eliminar también el egreso vinculado en caja_chica_transacciones
+    //    para que el saldo de Caja CC se revierta automáticamente.
+    if (mov.movement_type === 'fund' && mov.caja_chica_transaccion_id) {
+      const ccId = Number(mov.caja_chica_transaccion_id);
+      // También buscar si había un ingreso de fondeo externo justo antes (mismo branch_id y
+      // concepto que empiece con 'Ingreso a Caja CC') para borrarlo también.
+      const ccRow = await client.query(
+        `SELECT created_at, branch_id, currency FROM caja_chica_transacciones WHERE id = $1`,
+        [ccId]
+      );
+      if (ccRow.rows.length > 0) {
+        const { created_at, branch_id: ccBranchId, currency: ccCurrency } = ccRow.rows[0];
+        // Borrar el egreso del fondeo
+        await client.query('DELETE FROM caja_chica_transacciones WHERE id = $1', [ccId]);
+        // Si existía un ingreso externo generado en el mismo segundo (fondeo de origen 'otro'),
+        // también lo eliminamos para mantener coherencia.
+        await client.query(`
+          DELETE FROM caja_chica_transacciones
+          WHERE tipo = 'ingreso'
+            AND categoria = 'ingreso_fondeo_externo'
+            AND branch_id = $1
+            AND COALESCE(currency,'MXN') = $2
+            AND ABS(EXTRACT(EPOCH FROM (created_at - $3::timestamptz))) < 5
+        `, [ccBranchId, ccCurrency, created_at]);
+      }
+    }
+
     await client.query('DELETE FROM petty_cash_movements WHERE id = $1', [movId]);
     await client.query('COMMIT');
 
-    return res.json({ success: true, message: 'Movimiento eliminado' });
+    return res.json({ success: true, message: 'Movimiento eliminado y saldo revertido' });
   } catch (err: any) {
     await client.query('ROLLBACK');
     return res.status(500).json({ error: 'Error al eliminar movimiento', details: err.message });
