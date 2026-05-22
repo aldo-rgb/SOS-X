@@ -9510,6 +9510,13 @@ async function ensureRequiredColumns() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_saved_at ON legal_document_versions(document_id, saved_at DESC)`);
     // Columnas de usuario que pueden no existir en instancias antiguas
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gex_auto_enabled BOOLEAN DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS warehouse_location VARCHAR(100)`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_id INTEGER`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_accepted_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_employee_onboarded BOOLEAN DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE`);
+    // Columna code en branches (puede no existir en instancias antiguas)
+    await pool.query(`ALTER TABLE branches ADD COLUMN IF NOT EXISTS code VARCHAR(50)`);
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }

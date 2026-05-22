@@ -697,13 +697,17 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
         const userId = req.user?.userId;
         
         const userQuery = await pool.query(
-            `SELECT u.id, u.full_name, u.email, u.box_id, u.referral_code, u.role, u.warehouse_location, u.created_at,
-                    u.is_verified, u.verification_status, u.is_employee_onboarded, u.profile_photo_url,
-                    u.phone, u.phone_verified, u.rfc, u.referred_by_id, u.privacy_accepted_at,
-                    u.gex_auto_enabled,
+            `SELECT u.id, u.full_name, u.email, u.box_id, u.referral_code, u.role, u.created_at,
+                    COALESCE(u.is_verified, FALSE) as is_verified,
+                    COALESCE(u.verification_status, 'not_started') as verification_status,
+                    COALESCE(u.is_employee_onboarded, FALSE) as is_employee_onboarded,
+                    u.profile_photo_url,
+                    u.phone,
+                    COALESCE(u.phone_verified, FALSE) as phone_verified,
+                    u.rfc, u.advisor_id, u.branch_id,
                     COALESCE(u.whatsapp_verified, FALSE) as whatsapp_verified,
-                    u.advisor_id, u.branch_id,
-                    b.name as branch_name, b.code as branch_code,
+                    COALESCE(u.gex_auto_enabled, FALSE) as gex_auto_enabled,
+                    b.name as branch_name,
                     a.full_name as advisor_name,
                     a.phone as advisor_phone,
                     a.email as advisor_email,
