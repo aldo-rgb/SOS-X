@@ -265,7 +265,8 @@ export default function SupportBoardPage() {
     } catch { return ''; }
   })();
 
-  const isOperaciones = currentUserRole === 'operaciones' || currentUserRole === 'Operaciones';
+  const isOperaciones = ['operaciones', 'Operaciones', 'warehouse_ops', 'Warehouse Ops'].includes(currentUserRole);
+  const isBranchManager = ['branch_manager', 'Branch Manager'].includes(currentUserRole);
 
   // Reglas de visibilidad por nombre de departamento
   const DEPT_ALLOWED_ROLES: Record<string, string[]> = {
@@ -273,20 +274,16 @@ export default function SupportBoardPage() {
     'Contabilidad':      ['super_admin', 'admin', 'accountant'],
     'Soporte Técnico':   ['super_admin', 'admin', 'customer_service', 'counter_staff', 'soporte_tecnico'],
     'Atención a Cliente':['super_admin', 'admin', 'customer_service', 'counter_staff'],
-    'CEDIS MTY':         ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones'],
-    'CEDIS CDMX':        ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones'],
-    'CEDIS USA':         ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones'],
+    'CEDIS MTY':         ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones', 'warehouse_ops'],
+    'CEDIS CDMX':        ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones', 'warehouse_ops'],
+    'CEDIS USA':         ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones', 'warehouse_ops'],
   };
 
   const canSeeDept = (deptName: string): boolean => {
-    // customer_service ve todos los departamentos
     if (currentUserRole === 'customer_service') return true;
-    if (isOperaciones) {
-      // Departamentos principales de atención a cliente (siempre visibles para operaciones con permisos cs_)
+    if (isOperaciones || isBranchManager) {
       if (['Atención a Cliente', 'Soporte Técnico'].includes(deptName)) return true;
-      // Su CEDIS específico
       if (currentUserCedisDept) return deptName === currentUserCedisDept;
-      // Fallback: todos los CEDIS
       return deptName.startsWith('CEDIS');
     }
     const allowed = DEPT_ALLOWED_ROLES[deptName];
@@ -351,7 +348,7 @@ export default function SupportBoardPage() {
   // counter_staff arranca en "Atención a Cliente"; customer_service arranca en "Todos"
   useEffect(() => {
     if (defaultDeptSet.current || departments.length === 0) return;
-    if (currentUserRole === 'counter_staff') {
+    if (['counter_staff', 'branch_manager', 'Branch Manager', 'operaciones', 'Operaciones', 'warehouse_ops', 'Warehouse Ops'].includes(currentUserRole)) {
       const atencion = departments.find(d => d.name === 'Atención a Cliente');
       if (atencion) { setDeptFilter(atencion.id); defaultDeptSet.current = true; }
     }
