@@ -124,7 +124,12 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
         let escalatedTickets = 0;
         if (supportRes.ok) {
           const supportData = await supportRes.json();
-          openTickets = Number(supportData.ai_handling || 0) + Number(supportData.needs_human || 0) + Number(supportData.waiting_client || 0);
+          if (currentUser?.role === 'soporte_tecnico') {
+            const dept = (supportData.departments || []).find((d: any) => d.name === 'Soporte Técnico');
+            openTickets = Number(dept?.open_count || 0);
+          } else {
+            openTickets = Number(supportData.ai_handling || 0) + Number(supportData.needs_human || 0) + Number(supportData.waiting_client || 0);
+          }
           escalatedTickets = Number(supportData.needs_human || 0);
         }
 
