@@ -33,7 +33,8 @@ type FleetBranchScope =
 const resolveFleetBranchScope = async (req: Request): Promise<FleetBranchScope> => {
   const email = ((req as any).user?.email || '').toLowerCase();
   const role = ((req as any).user?.role || '').toLowerCase();
-  if (role === 'super_admin' || email === 'sistemamty@entregax.com') {
+  const ALL_FLEET_ROLES = new Set(['super_admin', 'admin', 'director', 'accountant', 'customer_service']);
+  if (ALL_FLEET_ROLES.has(role) || email === 'sistemamty@entregax.com') {
     return { allBranches: true, branchId: null };
   }
   const userId = getAuthUserId(req);
