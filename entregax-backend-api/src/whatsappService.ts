@@ -168,7 +168,7 @@ export const sendVerificationCodeWhatsapp = async (params: {
     phone: string;
     code: string;
 }): Promise<{ ok: boolean; error?: string; skipped?: boolean }> => {
-    const templateName = process.env.WHATSAPP_OTP_TEMPLATE || 'verification_code';
+    const templateName = process.env.WHATSAPP_OTP_TEMPLATE || 'autenticacion_entregax';
     // Algunos templates AUTHENTICATION requieren parámetros también en el botón.
     // Construimos el payload manualmente para soportar ambos formatos.
     if (!isEnabled()) {
