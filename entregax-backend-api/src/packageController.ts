@@ -785,7 +785,9 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
         if (!user) {
             const weightStr = totalWeight > 0 ? ` · ${Math.round(totalWeight * 100) / 100} kg` : '';
             const carrierStr = safeCarrier ? ` · ${safeCarrier}` : '';
-            const notifTitle = '📦 Guía sin identificar';
+            const serviceLabels: Record<string, string> = { POBOX_USA: 'PO Box USA', AIR_CHN_MX: 'Aéreo China', SEA_CHN_MX: 'Marítimo China', AA_DHL: 'DHL' };
+            const serviceLabel = serviceLabels[serviceType] || serviceType;
+            const notifTitle = `📦 Guía sin identificar · ${serviceLabel}`;
             const notifBody = `${masterTracking}${carrierStr}${weightStr} — Sin cliente asignado`;
             const notifData = { screen: 'AdvisorPackages', filter: 'unidentified', tracking: masterTracking };
 
@@ -5337,7 +5339,7 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
 
     // Notificar a asesores cuando se recibe una guía PO Box sin cliente identificado
     if (!user) {
-      const notifTitle = '📦 Guía sin identificar';
+      const notifTitle = '📦 Guía sin identificar · PO Box USA';
       const notifBody = `${savedTracking} — Sin cliente asignado`;
       const notifData = { screen: 'AdvisorPackages', filter: 'unidentified', tracking: savedTracking };
 

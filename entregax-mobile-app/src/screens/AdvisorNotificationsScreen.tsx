@@ -280,7 +280,11 @@ export default function AdvisorNotificationsScreen({ navigation, route }: any) {
       return;
     }
 
-    // Notificaciones propias (source === 'own'): usar action_url
+    // Notificaciones propias (source === 'own'): navegar por data o action_url
+    if (data?.screen === 'AdvisorPackages' && data?.filter) {
+      navigation.navigate('AdvisorPackages', { user, token, filter: data.filter });
+      return;
+    }
     if (notif.action_url) {
       const m = notif.action_url.match(/\/(packages?|paquetes?)\/([\w-]+)/i);
       if (m) {
