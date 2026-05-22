@@ -85,6 +85,7 @@ import LocalAtmIcon from '@mui/icons-material/LocalAtm';
 // AccountBalanceWalletIcon removido - Tesorería oculta
 import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
+import PettyCashHubPage from './pages/PettyCashHubPage';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import AccountingHubPage from './pages/AccountingHubPage';
@@ -219,7 +220,14 @@ const menuItemsConfig: Array<{
       // { key: 'tesoreriaSucursal', icon: <AccountBalanceWalletIcon /> }, // Tesorería Sucursal - OCULTO
     ]
   },
-  { key: 'cajaChica', icon: <LocalAtmIcon /> }, // Caja CC (Control Cobros) - pagos de clientes
+  {
+    key: 'cajaChicaGroup',
+    icon: <LocalAtmIcon />,
+    subItems: [
+      { key: 'cajaChica', icon: <LocalAtmIcon /> },        // Caja CC (Control Cobros)
+      { key: 'pettyCash', icon: <LocalAtmIcon /> },         // Caja Chica Sucursales
+    ]
+  },
   { key: 'commissions', icon: <MonetizationOnIcon /> },
   { key: 'permissions', icon: <SecurityIcon /> },
   { key: 'legalDocs', icon: <DescriptionIcon /> }, // Documentos Legales - super_admin y abogado
@@ -262,6 +270,7 @@ function App() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedSubIndex, setSelectedSubIndex] = useState<number | null>(null); // Para submenús
   const [panelsExpanded, setPanelsExpanded] = useState(false); // Estado del submenú expandido
+  const [cajaChicaExpanded, setCajaChicaExpanded] = useState(false); // Estado del submenú Caja Chica
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
@@ -608,17 +617,17 @@ function App() {
       
       // admin: Dashboard, Reportes Ventas, Herramientas (incluye Contabilidad/Tesorería), Caja CC
       if (role === 'admin') {
-        return ['dashboard', 'salesReport', 'panels', 'cajaChica'].includes(item.key);
+        return ['dashboard', 'salesReport', 'panels', 'cajaChicaGroup'].includes(item.key);
       }
       
       // director: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC
       if (role === 'director') {
-        return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
+        return ['dashboard', 'panels', 'cajaChicaGroup'].includes(item.key);
       }
       
       // finanzas: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC
       if (role === 'finanzas') {
-        return ['dashboard', 'panels', 'cajaChica'].includes(item.key);
+        return ['dashboard', 'panels', 'cajaChicaGroup'].includes(item.key);
       }
 
       // accountant: solo Dashboard + Herramientas (donde solo verá Contabilidad)
@@ -664,9 +673,9 @@ function App() {
         }))
       };
     })
-    // Ocultar el menú "Herramientas" si no tiene subItems disponibles
+    // Ocultar menús colapsables si no tienen subItems disponibles
     .filter(item => {
-      if (item.key === 'panels' && item.subItems && item.subItems.length === 0) {
+      if ((item.key === 'panels' || item.key === 'cajaChicaGroup') && item.subItems && item.subItems.length === 0) {
         return false;
       }
       return true;
@@ -1397,8 +1406,8 @@ function App() {
                 selected={selectedIndex === index && selectedSubIndex === null}
                 onClick={() => {
                   if (item.subItems) {
-                    // Si tiene submenú, expandir/colapsar
-                    setPanelsExpanded(!panelsExpanded);
+                    if (item.key === 'cajaChicaGroup') setCajaChicaExpanded(!cajaChicaExpanded);
+                    else setPanelsExpanded(!panelsExpanded);
                   } else {
                     setSelectedIndex(index);
                     setSelectedSubIndex(null);
@@ -1425,14 +1434,16 @@ function App() {
                   primaryTypographyProps={{ fontWeight: 500, fontSize: '0.9rem' }}
                 />
                 {item.subItems && (
-                  panelsExpanded ? <ExpandLess sx={{ color: 'rgba(255,255,255,0.5)' }} /> : <ExpandMore sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                  (item.key === 'cajaChicaGroup' ? cajaChicaExpanded : panelsExpanded)
+                    ? <ExpandLess sx={{ color: 'rgba(255,255,255,0.5)' }} />
+                    : <ExpandMore sx={{ color: 'rgba(255,255,255,0.5)' }} />
                 )}
               </ListItemButton>
             </ListItem>
             
             {/* Submenú */}
             {item.subItems && (
-              <Collapse in={panelsExpanded} timeout="auto" unmountOnExit>
+              <Collapse in={item.key === 'cajaChicaGroup' ? cajaChicaExpanded : panelsExpanded} timeout="auto" unmountOnExit>
                 <List component="div" disablePadding>
                   {item.subItems.map((subItem, subIndex) => (
                     <ListItem key={subItem.key} disablePadding sx={{ mb: 0.5 }}>
@@ -1507,6 +1518,16 @@ function App() {
         default: return null;
       }
     }
+
+    // Submenú Caja Chica
+    if (selectedSubIndex !== null && currentMenuKey === 'cajaChicaGroup') {
+      const currentSubKey = menuItems[selectedIndex]?.subItems?.[selectedSubIndex]?.key;
+      switch (currentSubKey) {
+        case 'cajaChica': return <CajaChicaPage />;
+        case 'pettyCash': return <PettyCashHubPage />;
+        default: return null;
+      }
+    }
     
     // Renderizar según el key del menú actual
     switch (currentMenuKey) {
@@ -1553,14 +1574,20 @@ function App() {
         }
       case 'salesReport': return <SalesReportPage />; // CRM - Reportes de Ventas
       case 'clients': return <ClientsPage users={users} loading={loading} onRefresh={fetchUsers} currentUser={currentUser} />;
-      case 'panels': 
+      case 'panels':
         // Si panels está seleccionado pero no hay submenú, expandir automáticamente
         if (!panelsExpanded) {
           setPanelsExpanded(true);
         }
         return null; // No renderiza nada, debe seleccionar un submenú
+      case 'cajaChicaGroup':
+        // Si cajaChicaGroup está seleccionado pero no hay submenú, expandir automáticamente
+        if (!cajaChicaExpanded) {
+          setCajaChicaExpanded(true);
+        }
+        return null;
       case 'commissions': return <CommissionsPage />; // Comisiones (incluye tipos de servicio)
-      case 'cajaChica': return <CajaChicaPage />; // Caja CC (Control de Cobros)
+      case 'cajaChica': return <CajaChicaPage />; // Caja CC (fallback legacy)
       case 'accounting': return <AccountingHubPage />; // Portal Contable multi-empresa
       case 'tesoreriaSucursal': return <TesoreriaSucursalPage />; // Tesorería por Sucursal
       case 'permissions': return <PermissionsPage />; // Matriz de Permisos
