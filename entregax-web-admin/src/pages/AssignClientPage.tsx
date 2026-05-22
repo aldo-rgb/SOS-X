@@ -324,15 +324,19 @@ export default function AssignClientPage({ onBack }: Props) {
                                                 />
                                             </TableCell>
                                             <TableCell align="center">
-                                                <Button
-                                                    variant="contained"
-                                                    size="small"
-                                                    startIcon={<PersonIcon />}
-                                                    onClick={() => openAssign(p)}
-                                                    sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#C1272D' } }}
-                                                >
-                                                    Asignar
-                                                </Button>
+                                                {!p.currentBoxId && !p.legacyMatch ? (
+                                                    <Button
+                                                        variant="contained"
+                                                        size="small"
+                                                        startIcon={<PersonIcon />}
+                                                        onClick={() => openAssign(p)}
+                                                        sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#C1272D' } }}
+                                                    >
+                                                        Asignar
+                                                    </Button>
+                                                ) : (
+                                                    <Typography variant="caption" color="text.disabled">—</Typography>
+                                                )}
                                             </TableCell>
                                         </TableRow>
                                     );
