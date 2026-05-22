@@ -1107,8 +1107,21 @@ export default function DashboardBranchManager() {
             <Typography color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>No hay tickets pendientes.</Typography>
           ) : (
             branchTickets.map((t: any) => (
-              <Paper key={t.id} elevation={0} sx={{ p: 2, mb: 1.5, border: '1px solid #E5E7EB', borderRadius: 2,
-                borderLeft: `4px solid ${t.category === 'urgent' ? '#DC2626' : '#2563EB'}` }}>
+              <Paper
+                key={t.id}
+                elevation={0}
+                onClick={() => {
+                  setTicketDialogOpen(false);
+                  window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'service_tickets' } }));
+                  setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('open-support-ticket', { detail: { ticketId: t.id } }));
+                  }, 300);
+                }}
+                sx={{ p: 2, mb: 1.5, border: '1px solid #E5E7EB', borderRadius: 2, cursor: 'pointer',
+                  borderLeft: `4px solid ${t.category === 'urgent' ? '#DC2626' : '#2563EB'}`,
+                  '&:hover': { bgcolor: '#F8FAFF', borderColor: '#2563EB' },
+                }}
+              >
                 <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography sx={{ fontWeight: 700, fontSize: 14, color: '#0F172A' }}>{t.subject}</Typography>

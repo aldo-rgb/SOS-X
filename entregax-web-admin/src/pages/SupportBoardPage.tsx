@@ -355,6 +355,26 @@ export default function SupportBoardPage() {
     }
   }, [departments, currentUserRole]);
 
+  // Abrir ticket específico cuando se navega desde el Dashboard
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const ticketId = (e as CustomEvent).detail?.ticketId;
+      if (!ticketId) return;
+      const found = tickets.find(t => t.id === ticketId);
+      if (found) {
+        handleOpenTicket(found);
+      } else {
+        // Ticket no está en la lista actual — recargar y reintentar
+        loadTickets().then(() => {
+          const t2 = tickets.find(t => t.id === ticketId);
+          if (t2) handleOpenTicket(t2);
+        });
+      }
+    };
+    window.addEventListener('open-support-ticket', handler);
+    return () => window.removeEventListener('open-support-ticket', handler);
+  }, [tickets, loadTickets]);
+
   const handleOpenTicket = async (ticket: SupportTicket) => {
     setSelectedTicket(ticket);
     setDialogOpen(true);

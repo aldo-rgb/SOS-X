@@ -827,6 +827,9 @@ function App() {
   const handleLoginSuccess = (data: { user: AuthUser; access: any }) => {
     setCurrentUser(data.user);
     setIsAuthenticated(true);
+    setSelectedIndex(0);
+    setSelectedSubIndex(null);
+    setPanelsExpanded(false);
     if (data.access?.mustChangePassword) {
       setForcePwdOpen(true);
     }
@@ -859,6 +862,9 @@ function App() {
     localStorage.removeItem('permissions');
     setCurrentUser(null);
     setIsAuthenticated(false);
+    setSelectedIndex(0);
+    setSelectedSubIndex(null);
+    setPanelsExpanded(false);
     setAnchorEl(null);
   };
 
