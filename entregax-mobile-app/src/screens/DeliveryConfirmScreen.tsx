@@ -141,6 +141,8 @@ const extractMasterGuide = (scannedCode: string): { masterGuide: string; extraNu
 export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const preSelectedPackage = route?.params?.package;
   const token = route?.params?.token;
+  const currentUser = route?.params?.user;
+  const userBranchUpper = String(currentUser?.branch_code || currentUser?.branch_name || '').toUpperCase();
   const initialScanMode: ScanMode = route?.params?.scanMode === 'scanner' ? 'scanner' : 'camera';
   
   const [currentStep, setCurrentStep] = useState<Step>(preSelectedPackage ? 'signature' : 'scan');
@@ -1111,7 +1113,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                     <TouchableOpacity
                       style={styles.registerBoxButton}
                       onPress={() => {
-                        const guide = manualCode.trim();
+                        const guide = manualCode.trim() || bulkCarrierName;
                         const newPackage = {
                           packageId: `${scannedPackages.length + 1}`,
                           internalGuide: tempInternalGuide,
@@ -1144,7 +1146,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                     <TouchableOpacity
                       style={styles.registerBoxButton}
                       onPress={() => {
-                        const guide = manualCode.trim();
+                        const guide = manualCode.trim() || selectedDropoffCarrier.name;
                         const newPackage = {
                           packageId: `${scannedPackages.length + 1}`,
                           internalGuide: tempInternalGuide,
@@ -1211,40 +1213,12 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                 <MaterialIcons name="close" size={24} color="#333" />
               </TouchableOpacity>
             </View>
-            {deliveryCarriers.length === 0 ? (
-              <View style={styles.carrierModalEmpty}>
-                <MaterialIcons name="local-shipping" size={40} color="#ccc" />
-                <Text style={styles.carrierModalEmptyText}>No hay paqueterías configuradas.</Text>
-                <Text style={styles.carrierModalEmptySubtext}>Configura paqueterías en Operaciones → Nacional México.</Text>
-              </View>
-            ) : (
-              <FlatList
-                data={deliveryCarriers}
-                keyExtractor={item => item.carrier_key}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[
-                      styles.carrierOption,
-                      selectedDropoffCarrier?.carrier_key === item.carrier_key && styles.carrierOptionSelected,
-                    ]}
-                    onPress={() => {
-                      setSelectedDropoffCarrier({ carrier_key: item.carrier_key, name: item.name });
-                      setShowCarrierPicker(false);
-                    }}
-                  >
-                    {item.icon ? (
-                      <Image source={{ uri: item.icon }} style={styles.carrierOptionIcon} />
-                    ) : (
-                      <MaterialIcons name="local-shipping" size={24} color="#F05A28" />
-                    )}
-                    <Text style={styles.carrierOptionName}>{item.name}</Text>
-                    {selectedDropoffCarrier?.carrier_key === item.carrier_key && (
-                      <MaterialIcons name="check-circle" size={20} color="#F05A28" />
-                    )}
-                  </TouchableOpacity>
-                )}
-              />
-            )}
+            <CarrierList
+              carriers={deliveryCarriers}
+              userBranchUpper={userBranchUpper}
+              selectedKey={selectedDropoffCarrier?.carrier_key}
+              onSelect={(carrier) => { setSelectedDropoffCarrier(carrier); setShowCarrierPicker(false); }}
+            />
           </View>
         </View>
       </Modal>
@@ -2578,3 +2552,67 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
+
+// ─────────────────────────────────────────────
+// CarrierList — subcomponente para el picker de paquetería
+// Filtra carriers según la sucursal del usuario
+// ─────────────────────────────────────────────
+function CarrierList({
+  carriers,
+  userBranchUpper,
+  selectedKey,
+  onSelect,
+}: {
+  carriers: Array<{ carrier_key: string; name: string; icon?: string }>;
+  userBranchUpper: string;
+  selectedKey?: string;
+  onSelect: (carrier: { carrier_key: string; name: string }) => void;
+}) {
+  const isMTY = userBranchUpper.includes('MTY') || userBranchUpper.includes('MONTERREY');
+  const isCDMX = userBranchUpper.includes('CDMX');
+
+  const filtered = carriers.filter((c) => {
+    const n = c.name.toUpperCase();
+    if (isMTY && (n.includes('CDMX') || n.includes('CIUDAD DE MX'))) return false;
+    if (isCDMX && (n.includes(' MTY') || n.includes('MONTERREY'))) return false;
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    return (
+      <View style={styles.carrierModalEmpty}>
+        <MaterialIcons name="local-shipping" size={40} color="#ccc" />
+        <Text style={styles.carrierModalEmptyText}>No hay paqueterías configuradas.</Text>
+        <Text style={styles.carrierModalEmptySubtext}>
+          Configura paqueterías en Operaciones → Nacional México.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <FlatList
+      data={filtered}
+      keyExtractor={(item) => item.carrier_key}
+      renderItem={({ item }) => (
+        <TouchableOpacity
+          style={[
+            styles.carrierOption,
+            selectedKey === item.carrier_key && styles.carrierOptionSelected,
+          ]}
+          onPress={() => onSelect({ carrier_key: item.carrier_key, name: item.name })}
+        >
+          {item.icon ? (
+            <Image source={{ uri: item.icon }} style={styles.carrierOptionIcon} />
+          ) : (
+            <MaterialIcons name="local-shipping" size={24} color="#F05A28" />
+          )}
+          <Text style={styles.carrierOptionName}>{item.name}</Text>
+          {selectedKey === item.carrier_key && (
+            <MaterialIcons name="check-circle" size={20} color="#F05A28" />
+          )}
+        </TouchableOpacity>
+      )}
+    />
+  );
+}
