@@ -1228,6 +1228,16 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               setActivationFlowSelected(true);
               setActivationQuestionDialog(false);
               resetExistingClientForm();
+              // Preserve referral code from URL after reset
+              const urlRef = new URLSearchParams(window.location.search).get('ref');
+              if (urlRef) {
+                const clean = urlRef.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12);
+                if (clean.length >= 4) {
+                  setExistingReferralCode(clean);
+                  setRefFromUrl(true);
+                  validateReferralCodeFromUrl(clean);
+                }
+              }
               setExistingClientDialog(true);
             }}
             sx={{
