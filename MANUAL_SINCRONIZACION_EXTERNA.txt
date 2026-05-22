@@ -1,0 +1,176 @@
+====================================================
+  MANUAL DE SINCRONIZACIÓN DE CLIENTES
+  EntregaX → Sistema EX
+  Versión 1.0 — Mayo 2026
+====================================================
+
+Este documento explica cómo el Sistema EX puede consultar
+la base de clientes de EntregaX para mantener sus registros
+sincronizados automáticamente.
+
+----------------------------------------------------
+1. ENDPOINT DISPONIBLE
+----------------------------------------------------
+
+URL:
+  GET https://[tu-dominio]/api/external/customers
+
+Este endpoint devuelve la lista de clientes registrados
+en EntregaX con su número de suite, nombre y correo.
+
+
+----------------------------------------------------
+2. AUTENTICACIÓN (API KEY)
+----------------------------------------------------
+
+Toda petición debe incluir la API Key. Se puede enviar
+de dos formas (usar cualquiera de las dos):
+
+  OPCIÓN A — Como encabezado HTTP (recomendado):
+    X-Api-Key: be56b1523a3032a8b7b755299f19a784c3d226b7c14071ccc2316a48c37cfad7
+
+  OPCIÓN B — Como parámetro en la URL:
+    ?api_key=be56b1523a3032a8b7b755299f19a784c3d226b7c14071ccc2316a48c37cfad7
+
+Si la API Key es incorrecta o no se envía, el servidor
+responde con:
+  HTTP 401 — { "error": "API key inválida o no autorizada" }
+
+
+----------------------------------------------------
+3. PARÁMETROS OPCIONALES
+----------------------------------------------------
+
+?since=YYYY-MM-DD
+  Devuelve solo los clientes creados desde esa fecha.
+  Útil para sincronizaciones incrementales (diarias/semanales).
+  Ejemplo: ?since=2026-05-01
+
+?page=N
+  Número de página (empieza en 1).
+  Por defecto: 1
+
+?limit=N
+  Cantidad de registros por página.
+  Por defecto: 1000 | Máximo permitido: 5000
+
+
+----------------------------------------------------
+4. EJEMPLOS DE PETICIONES
+----------------------------------------------------
+
+// Todos los clientes (primera página)
+GET https://[tu-dominio]/api/external/customers
+Headers: X-Api-Key: be56b1523a3032a8b7b755299f19a784c3d226b7c14071ccc2316a48c37cfad7
+
+// Solo clientes nuevos desde el 1 de mayo 2026
+GET https://[tu-dominio]/api/external/customers?since=2026-05-01
+Headers: X-Api-Key: be56b1523a3032a8b7b755299f19a784c3d226b7c14071ccc2316a48c37cfad7
+
+// Segunda página con 500 registros por página
+GET https://[tu-dominio]/api/external/customers?page=2&limit=500
+Headers: X-Api-Key: be56b1523a3032a8b7b755299f19a784c3d226b7c14071ccc2316a48c37cfad7
+
+// Usando API Key en la URL (alternativa)
+GET https://[tu-dominio]/api/external/customers?since=2026-05-01&api_key=be56b1523a3032a8b7b755299f19a784c3d226b7c14071ccc2316a48c37cfad7
+
+
+----------------------------------------------------
+5. ESTRUCTURA DE LA RESPUESTA
+----------------------------------------------------
+
+{
+  "success": true,
+  "total": 105,       // Total de clientes que coinciden con el filtro
+  "page": 1,          // Página actual
+  "limit": 1000,      // Registros por página
+  "data": [
+    {
+      "suite":    "S001",             // Número de suite/caja del cliente
+      "nombre":   "Juan Pérez",       // Nombre completo
+      "correo":   "juan@gmail.com",   // Correo electrónico
+      "telefono": "8181234567",       // Teléfono (puede ser null)
+      "created_at": "2026-03-15T10:22:00.000Z"  // Fecha de registro
+    },
+    {
+      "suite":    "S002",
+      "nombre":   "María López",
+      "correo":   "maria@hotmail.com",
+      "telefono": "8119876543",
+      "created_at": "2026-04-02T08:15:00.000Z"
+    }
+    // ...más clientes
+  ]
+}
+
+
+----------------------------------------------------
+6. ESTRATEGIA DE SINCRONIZACIÓN RECOMENDADA
+----------------------------------------------------
+
+Para mantener el Sistema EX actualizado sin consultar todos
+los clientes cada vez, se recomienda el siguiente proceso:
+
+SINCRONIZACIÓN DIARIA (programar una vez por día):
+
+  1. Guardar la fecha de la última sincronización exitosa.
+  2. Llamar al endpoint con ?since=FECHA_ULTIMA_SYNC
+  3. Para cada cliente en "data":
+       - Si ya existe en Sistema EX (por suite): actualizar nombre/correo
+       - Si no existe: crear registro nuevo
+  4. Actualizar la fecha de última sincronización a hoy.
+
+Ejemplo de fecha para filtro diario:
+  ?since=2026-05-21   (ayer, para asegurarse de no perder ninguno)
+
+
+----------------------------------------------------
+7. PAGINACIÓN (para bases de datos grandes)
+----------------------------------------------------
+
+Si el total de clientes supera el límite por página,
+iterar con ?page=1, ?page=2, etc. hasta que "data"
+devuelva menos registros que "limit":
+
+  Petición 1: ?page=1&limit=500  → recibe 500 registros
+  Petición 2: ?page=2&limit=500  → recibe 500 registros
+  Petición 3: ?page=3&limit=500  → recibe 87 registros → FIN
+
+También se puede usar el campo "total" para calcular
+cuántas páginas existen:
+  total_paginas = CEIL(total / limit)
+
+
+----------------------------------------------------
+8. CÓDIGOS DE RESPUESTA HTTP
+----------------------------------------------------
+
+200 OK          → Petición exitosa, datos en "data"
+401 Unauthorized → API Key incorrecta o no enviada
+500 Server Error → Error interno, reintentar más tarde
+
+
+----------------------------------------------------
+9. NOTAS IMPORTANTES
+----------------------------------------------------
+
+- El endpoint NO requiere login de usuario, solo la API Key.
+- Solo se exponen clientes con rol "client" y con suite asignada.
+- Los campos "telefono" y "correo" pueden ser null si el cliente
+  no los registró.
+- La API Key debe mantenerse confidencial. Si se compromete,
+  contactar a EntregaX para generar una nueva.
+- Para solicitar cambios en el formato de la respuesta o campos
+  adicionales, contactar al equipo de desarrollo de EntregaX.
+
+
+----------------------------------------------------
+10. CONTACTO TÉCNICO
+----------------------------------------------------
+
+Para dudas de integración o reporte de problemas:
+  Email: aldo@zaia.mx
+
+====================================================
+  FIN DEL MANUAL
+====================================================

@@ -17,7 +17,7 @@ const ORANGE = '#F05A28';
 
 type SlotKey = 'photo1' | 'photo2';
 const SLOTS: { key: SlotKey; label: string; hint: string }[] = [
-  { key: 'photo1', label: 'Foto 1 — Operador / cabina', hint: 'Toma al chofer junto a la unidad o dentro de la cabina.' },
+  { key: 'photo1', label: 'Foto 1 — Candado Fiscal', hint: 'Toma al chofer junto a la unidad o dentro de la cabina.' },
   { key: 'photo2', label: 'Foto 2 — Unidad / contenedor', hint: 'Toma la unidad completa con el contenedor enganchado.' },
 ];
 

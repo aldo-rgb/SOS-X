@@ -823,11 +823,10 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
             setEditingRoute(!hasPersisted);
             setTruckMode('sencillo');
             setSecondContainerId(null);
-            // Preseleccionar el status actual del contenedor para no “avanzarlo”
-            // cuando el usuario sólo quiere cambiar monitorista o ruta.
-            // received_partial no es un status del flujo FCL — no pre-seleccionar
-            const validFclStatus = FCL_STATUSES.find((s) => s.value === c.status) ? c.status : '';
-            setFclStatus(validFclStatus || 'in_transit_clientfinal');
+            // received_partial implica que el contenedor ya llegó a CEDIS → equivale a 'delivered'
+            const resolvedStatus = c.status === 'received_partial' ? 'delivered' : c.status;
+            const validFclStatus = FCL_STATUSES.find((s) => s.value === resolvedStatus) ? resolvedStatus : 'in_transit_clientfinal';
+            setFclStatus(validFclStatus);
             // Cargar historial en paralelo
             loadHistory(c.id);
             setStep(1);
