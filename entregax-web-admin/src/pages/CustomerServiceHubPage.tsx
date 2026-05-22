@@ -163,7 +163,9 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           if (unassignedRes.ok && !cancelled) {
             const unassignedData = await unassignedRes.json();
             const list = Array.isArray(unassignedData) ? unassignedData : (unassignedData.packages || []);
-            setHubStats((prev) => ({ ...prev, unassignedPackages: list.length }));
+            // Solo cuentan los que no tienen cliente asignado NI legacy match
+            const pending = list.filter((p: any) => !p.currentBoxId && !p.legacyMatch);
+            setHubStats((prev) => ({ ...prev, unassignedPackages: pending.length }));
           }
         } catch {}
       } catch (err) {
