@@ -174,6 +174,12 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
 
   const getToken = () => localStorage.getItem('token') || '';
 
+  // Solo admin, super_admin y director ven la columna GASTADO
+  const currentUserRole = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; }
+  })();
+  const canViewSpent = ['super_admin', 'admin', 'director'].includes(currentUserRole);
+
   // Cargar datos
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -550,7 +556,7 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
                 <TableCell><strong>{t('crmClients.mailbox')}</strong></TableCell>
                 <TableCell><strong>{t('crmClients.advisor')}</strong></TableCell>
                 <TableCell align="center"><strong>{t('crmClients.shipments')}</strong></TableCell>
-                <TableCell align="right"><strong>{t('crmClients.spent')}</strong></TableCell>
+                {canViewSpent && <TableCell align="right"><strong>{t('crmClients.spent')}</strong></TableCell>}
                 <TableCell><strong>{t('crmClients.lastTransaction')}</strong></TableCell>
                 <TableCell align="center"><strong>{t('crmClients.daysInactive')}</strong></TableCell>
                 <TableCell><strong>{t('crmClients.status')}</strong></TableCell>
@@ -560,13 +566,13 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={canViewSpent ? 9 : 8} align="center" sx={{ py: 4 }}>
                     <CircularProgress size={40} />
                   </TableCell>
                 </TableRow>
               ) : clients.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={canViewSpent ? 9 : 8} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('crmClients.noClientsToShow')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -610,9 +616,11 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
                     <TableCell align="center">
                       <Typography variant="body2" fontWeight={600}>{client.total_shipments}</Typography>
                     </TableCell>
-                    <TableCell align="right">
-                      <Typography variant="body2">{formatMoney(Number(client.total_spent))}</Typography>
-                    </TableCell>
+                    {canViewSpent && (
+                      <TableCell align="right">
+                        <Typography variant="body2">{formatMoney(Number(client.total_spent))}</Typography>
+                      </TableCell>
+                    )}
                     <TableCell>
                       <Box>
                         <Typography variant="body2">{formatDate(client.last_transaction_date)}</Typography>
