@@ -558,6 +558,18 @@ export default function SupportBoardPage() {
     } finally { setTransferring(false); }
   };
 
+  const isOverdue = (t: SupportTicket) =>
+    t.status !== 'resolved' &&
+    t.ticket_status !== 'finalizado' &&
+    (Date.now() - new Date(t.created_at).getTime()) > 3 * 24 * 60 * 60 * 1000;
+
+  const sortWithOverdueFirst = (list: SupportTicket[]) =>
+    [...list].sort((a, b) => {
+      const aO = isOverdue(a) ? 0 : 1;
+      const bO = isOverdue(b) ? 0 : 1;
+      return aO - bO;
+    });
+
   const getTicketsByStatus = (status: string) => {
     let filtered = tickets.filter((t) => t.status === status);
     if (searchQuery) {
@@ -569,7 +581,7 @@ export default function SupportBoardPage() {
           t.subject?.toLowerCase().includes(q)
       );
     }
-    return filtered;
+    return sortWithOverdueFirst(filtered);
   };
 
   const formatTimeAgo = (dateStr: string) => {
@@ -710,7 +722,7 @@ export default function SupportBoardPage() {
                 t.subject?.toLowerCase().includes(q)
               );
             };
-            const col = applySearch(tickets.filter(t => t.department_id === dept.id));
+            const col = sortWithOverdueFirst(applySearch(tickets.filter(t => t.department_id === dept.id)));
             const urgent = col.filter(t => t.status === 'escalated_human').length;
             return (
               <Paper key={dept.id} sx={{ flex: '0 0 280px', p: 2, bgcolor: '#fafafa', overflow: 'auto', borderRadius: 2, borderTop: `4px solid ${dept.color || '#999'}` }}>
@@ -1204,11 +1216,24 @@ export default function SupportBoardPage() {
   );
 }
 
-const TICKET_STATUS_CONFIG = {
-  nuevo:       { label: 'Nuevo',       bg: '#E3F2FD', color: '#1565C0' },
-  en_progreso: { label: 'En progreso', bg: '#FFF3E0', color: '#E65100' },
-  finalizado:  { label: 'Finalizado',  bg: '#E8F5E9', color: '#2E7D32' },
+// card_bg / border_color / chip_bg / chip_color
+const TICKET_VISUAL = {
+  nuevo:         { label: 'Nuevo',             cardBg: '#FFF0F0', border: '#EF9A9A', chipBg: '#FFCDD2', chipColor: '#C62828' },
+  en_progreso:   { label: 'En progreso',        cardBg: '#EFF6FF', border: '#90CAF9', chipBg: '#BBDEFB', chipColor: '#1565C0' },
+  overdue:       { label: '+3 días sin resolver', cardBg: '#FFEBEE', border: '#EF5350', chipBg: '#FFCDD2', chipColor: '#B71C1C' },
+  finalizado:    { label: 'Resuelto',           cardBg: '#F0FDF4', border: '#A5D6A7', chipBg: '#C8E6C9', chipColor: '#2E7D32' },
+  archived:      { label: 'Archivado',          cardBg: '#F5F5F5', border: '#BDBDBD', chipBg: '#E0E0E0', chipColor: '#616161' },
 };
+
+function getTicketVisual(ticket: SupportTicket, isArchived: boolean) {
+  if (isArchived) return TICKET_VISUAL.archived;
+  if (ticket.ticket_status === 'finalizado' || ticket.status === 'resolved') return TICKET_VISUAL.finalizado;
+  // Más de 3 días sin resolver
+  const daysSinceCreated = (Date.now() - new Date(ticket.created_at).getTime()) / (1000 * 60 * 60 * 24);
+  if (ticket.ticket_status !== 'finalizado' && ticket.status !== 'resolved' && daysSinceCreated > 3) return TICKET_VISUAL.overdue;
+  if (ticket.ticket_status === 'en_progreso') return TICKET_VISUAL.en_progreso;
+  return TICKET_VISUAL.nuevo;
+}
 
 function formatResolutionTime(minutes: number): string {
   if (minutes < 60) return `${minutes}m`;
@@ -1237,18 +1262,19 @@ function TicketCard({
   isArchived?: boolean;
   onArchive?: (id: number, unarchive: boolean) => void;
 }) {
+  const visual = getTicketVisual(ticket, isArchived);
   const tStatus = ticket.ticket_status || 'nuevo';
-  const statusCfg = TICKET_STATUS_CONFIG[tStatus as keyof typeof TICKET_STATUS_CONFIG] || TICKET_STATUS_CONFIG.nuevo;
 
   return (
     <Card
       sx={{
         mb: 1.5,
         cursor: 'pointer',
-        borderLeft: isUrgent ? `4px solid ${ORANGE}` : '4px solid transparent',
-        opacity: isResolved || isArchived ? 0.7 : 1,
+        bgcolor: visual.cardBg,
+        borderLeft: `4px solid ${visual.border}`,
+        opacity: isArchived ? 0.75 : 1,
         transition: 'transform 0.15s, box-shadow 0.15s',
-        '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 },
+        '&:hover': { transform: 'translateY(-2px)', boxShadow: `0 4px 12px ${visual.border}66` },
       }}
       onClick={onClick}
     >
@@ -1323,14 +1349,14 @@ function TicketCard({
           <Chip label={`${ticket.message_count} msgs`} size="small" variant="outlined" sx={{ height: 20, fontSize: 11 }} />
           {/* Status chip */}
           <Chip
-            label={statusCfg.label}
+            label={visual.label}
             size="small"
-            sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: statusCfg.bg, color: statusCfg.color }}
+            sx={{ height: 20, fontSize: 11, fontWeight: 700, bgcolor: visual.chipBg, color: visual.chipColor }}
           />
         </Box>
 
         {/* Tiempo de resolución (solo finalizado) */}
-        {tStatus === 'finalizado' && ticket.resolution_time_minutes != null && (
+        {(tStatus === 'finalizado' || ticket.status === 'resolved') && ticket.resolution_time_minutes != null && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
             <Typography variant="caption" sx={{ color: '#2E7D32', fontWeight: 600, fontSize: 11 }}>
               ⏱ Resuelto en {formatResolutionTime(ticket.resolution_time_minutes)}
