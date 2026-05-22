@@ -185,6 +185,7 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
           created_at: parsed.created_at || '',
           two_factor_enabled: parsed.twoFactorEnabled ?? parsed.two_factor_enabled ?? false,
           rfc: parsed.rfc || '',
+          whatsapp_verified: parsed.whatsapp_verified ?? false,
         });
       }
     } finally {

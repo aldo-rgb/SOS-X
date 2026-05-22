@@ -276,7 +276,8 @@ export default function SupportBoardPage() {
 
   const isOperaciones = ['operaciones', 'Operaciones', 'warehouse_ops', 'Warehouse Ops'].includes(currentUserRole);
   const isBranchManager = ['branch_manager', 'Branch Manager'].includes(currentUserRole);
-  const canArchive = ['super_admin', 'admin', 'service_a_cliente', 'atencion_cliente', 'counter_staff'].includes(currentUserRole);
+  const isSoporteTecnico = currentUserRole === 'soporte_tecnico';
+  const canArchive = ['super_admin', 'admin', 'service_a_cliente', 'atencion_cliente', 'counter_staff', 'soporte_tecnico', 'customer_service'].includes(currentUserRole);
 
   // Reglas de visibilidad por nombre de departamento
   const DEPT_ALLOWED_ROLES: Record<string, string[]> = {
@@ -291,13 +292,12 @@ export default function SupportBoardPage() {
 
   const canSeeDept = (deptName: string): boolean => {
     if (currentUserRole === 'customer_service') return true;
+    if (isSoporteTecnico) return deptName === 'Soporte Técnico';
     if (isOperaciones) {
-      // Operaciones solo ve su CEDIS específico
       if (currentUserCedisDept) return deptName === currentUserCedisDept;
       return deptName.startsWith('CEDIS');
     }
     if (isBranchManager) {
-      // Gerente de sucursal ve atención a cliente, soporte técnico y su CEDIS
       if (['Atención a Cliente', 'Soporte Técnico'].includes(deptName)) return true;
       if (currentUserCedisDept) return deptName === currentUserCedisDept;
       return deptName.startsWith('CEDIS');
@@ -321,14 +321,14 @@ export default function SupportBoardPage() {
 
   const loadArchivedTickets = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/admin/support/tickets?archived=true&limit=100`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      let url = `${API_URL}/admin/support/tickets?archived=true&limit=100`;
+      if (deptFilter !== 'all') url += `&department_id=${deptFilter}`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) return;
       const data = await res.json();
       setArchivedTickets(Array.isArray(data) ? data : []);
     } catch { /* ignore */ }
-  }, [token]);
+  }, [token, deptFilter]);
 
   const handleArchiveTicket = async (ticketId: number, unarchive = false) => {
     await fetch(`${API_URL}/admin/support/ticket/${ticketId}/archive`, {
@@ -388,11 +388,15 @@ export default function SupportBoardPage() {
       const cedisDept = departments.find(d => d.name === currentUserCedisDept);
       if (cedisDept) { setDeptFilter(cedisDept.id); defaultDeptSet.current = true; return; }
     }
+    if (isSoporteTecnico) {
+      const soporte = departments.find(d => d.name === 'Soporte Técnico');
+      if (soporte) { setDeptFilter(soporte.id); defaultDeptSet.current = true; return; }
+    }
     if (['counter_staff', 'branch_manager', 'Branch Manager'].includes(currentUserRole)) {
       const atencion = departments.find(d => d.name === 'Atención a Cliente');
       if (atencion) { setDeptFilter(atencion.id); defaultDeptSet.current = true; }
     }
-  }, [departments, currentUserRole]);
+  }, [departments, currentUserRole, isSoporteTecnico]);
 
   // Abrir ticket específico cuando se navega desde el Dashboard
   useEffect(() => {
@@ -1230,7 +1234,7 @@ function getTicketVisual(ticket: SupportTicket, isArchived: boolean) {
   if (ticket.ticket_status === 'finalizado' || ticket.status === 'resolved') return TICKET_VISUAL.finalizado;
   // Más de 3 días sin resolver
   const daysSinceCreated = (Date.now() - new Date(ticket.created_at).getTime()) / (1000 * 60 * 60 * 24);
-  if (ticket.ticket_status !== 'finalizado' && ticket.status !== 'resolved' && daysSinceCreated > 3) return TICKET_VISUAL.overdue;
+  if (daysSinceCreated > 3) return TICKET_VISUAL.overdue;
   if (ticket.ticket_status === 'en_progreso') return TICKET_VISUAL.en_progreso;
   return TICKET_VISUAL.nuevo;
 }
@@ -1249,8 +1253,6 @@ function TicketCard({
   ticket,
   onClick,
   formatTime,
-  isUrgent = false,
-  isResolved = false,
   isArchived = false,
   onArchive,
 }: {
