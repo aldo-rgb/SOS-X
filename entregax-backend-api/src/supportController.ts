@@ -718,20 +718,20 @@ export const getSupportStats = async (req: Request, res: Response): Promise<any>
     const [stats, deptStats] = await Promise.all([
       pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE status IN ('open_ai','open')) as ai_handling,
-          COUNT(*) FILTER (WHERE status IN ('escalated_human','needs_human')) as needs_human,
+          COUNT(*) FILTER (WHERE status = 'open_ai') as ai_handling,
+          COUNT(*) FILTER (WHERE status = 'escalated_human') as needs_human,
           COUNT(*) FILTER (WHERE status = 'waiting_client') as waiting_client,
-          COUNT(*) FILTER (WHERE status IN ('resolved','closed')) as resolved,
+          COUNT(*) FILTER (WHERE status = 'resolved') as resolved,
           COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as today_new,
           COUNT(*) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours') as today_resolved,
-          COUNT(*) FILTER (WHERE creator_type = 'employee' AND status NOT IN ('resolved','closed')) as employee_open,
-          COUNT(*) FILTER (WHERE COALESCE(creator_type, 'client') != 'employee' AND status NOT IN ('resolved','closed')) as client_open,
+          COUNT(*) FILTER (WHERE creator_type = 'employee' AND status != 'resolved') as employee_open,
+          COUNT(*) FILTER (WHERE COALESCE(creator_type, 'client') != 'employee' AND status != 'resolved') as client_open,
           COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours'))::int, 0) as avg_resolution_time_min
         FROM support_tickets
       `),
       pool.query(`
         SELECT d.id, d.name, d.color, d.icon,
-               COUNT(t.id) FILTER (WHERE t.status NOT IN ('resolved','closed')) as open_count
+               COUNT(t.id) FILTER (WHERE t.status != 'resolved') as open_count
         FROM support_departments d
         LEFT JOIN support_tickets t ON t.department_id = d.id
         GROUP BY d.id, d.name, d.color, d.icon, d.sort_order
