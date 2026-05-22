@@ -13,6 +13,10 @@
       "destination": "https://api.entregax.app/account-deletion"
     },
     {
+      "source": "/api/external/:path*",
+      "destination": "https://api.entregax.app/api/external/:path*"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
