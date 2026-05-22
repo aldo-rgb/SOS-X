@@ -120,7 +120,7 @@ const getRowBgColor = (color: string) => {
   }
 };
 
-export default function CRMClientsPage() {
+export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boolean } = {}) {
   const { t } = useTranslation();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
@@ -170,7 +170,7 @@ export default function CRMClientsPage() {
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
 
   // Permisos del panel cs_clients
-  const [canEditClients, setCanEditClients] = useState(false);
+  const [canEditClients, setCanEditClients] = useState(canEditProp ?? false);
 
   const getToken = () => localStorage.getItem('token') || '';
 
@@ -229,6 +229,8 @@ export default function CRMClientsPage() {
   useEffect(() => {
     fetchAdvisors();
     fetchPromotions();
+    // Si el prop canEdit ya viene del componente padre, no hace falta fetch
+    if (canEditProp !== undefined) return;
     // Verificar permiso de edición en panel cs_clients
     const savedUser = JSON.parse(localStorage.getItem('user') || '{}');
     if (savedUser?.role === 'super_admin' || savedUser?.role === 'admin' || savedUser?.role === 'director') {

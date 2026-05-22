@@ -263,7 +263,7 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
             {t('customerService.clients.title', 'Control de Clientes')}
           </Typography>
         </Box>
-        <CRMClientsPage />
+        <CRMClientsPage canEdit={isSuperAdmin || userPermissions['cs_clients']?.can_edit === true} />
       </Box>
     );
   }
