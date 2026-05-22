@@ -939,7 +939,7 @@ export const createEmployee = async (req: Request, res: Response): Promise<void>
     }
 
     // Validar rol permitido para empleados
-    const allowedRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'abogado', 'operaciones', 'director'];
+    const allowedRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'soporte_tecnico', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'abogado', 'operaciones', 'director'];
     if (!allowedRoles.includes(role)) {
       res.status(400).json({ error: 'Rol no válido para empleado' });
       return;
@@ -1020,7 +1020,7 @@ export const updateEmployee = async (req: Request, res: Response): Promise<void>
     } = req.body;
 
     // Validar rol permitido
-    const allowedRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'abogado', 'operaciones', 'director'];
+    const allowedRoles = ['repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'soporte_tecnico', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'abogado', 'operaciones', 'director'];
     if (role && !allowedRoles.includes(role)) {
       res.status(400).json({ error: 'Rol no válido para empleado' });
       return;
