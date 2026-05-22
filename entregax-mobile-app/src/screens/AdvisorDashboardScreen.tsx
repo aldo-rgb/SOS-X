@@ -31,6 +31,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { API_URL } from '../services/api';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
+import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 
 const { width } = Dimensions.get('window');
 const ORANGE = '#F05A28';
@@ -116,6 +117,22 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   useEffect(() => {
     loadDashboard();
   }, [loadDashboard]);
+
+  // Push notifications: registro y manejo de taps
+  useEffect(() => {
+    registerForPushNotifications(token).catch(() => {});
+    const cleanup = subscribeNotificationListeners({
+      onTapped: (response) => {
+        const data: any = response.notification.request.content.data || {};
+        if (data.screen === 'AdvisorPackages' && data.filter) {
+          (navigation as any).navigate('AdvisorPackages', { user, token, filter: data.filter });
+        } else if (data.type === 'support_reply' && data.ticket_id) {
+          (navigation as any).navigate('SupportChat', { user, token, ticketId: Number(data.ticket_id) });
+        }
+      },
+    });
+    return () => { if (cleanup) cleanup(); };
+  }, [token, user, navigation]);
 
   const onRefresh = () => {
     setRefreshing(true);
