@@ -34,31 +34,49 @@ const STATUS_COLOR: Record<string, string> = {
   reempacado: '#795548',
 };
 
-interface PackageDetail {
+const SERVICE_LABEL: Record<string, string> = {
+  POBOX_USA: 'PO Box USA',
+  AIR_CHN_MX: 'Aéreo China',
+  SEA_CHN_MX: 'Marítimo China',
+  AA_DHL: 'DHL',
+  TDI_EXPRESS: 'TDI Express',
+};
+
+function formatDate(val: string | null | undefined): string {
+  if (!val) return '—';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+interface ShipmentDetail {
+  uid: string;
   id: number;
-  tracking_internal: string;
+  service_type: string;
+  tracking_internal: string | null;
   tracking_provider: string | null;
   origin_carrier: string | null;
   description: string | null;
   weight: number | null;
-  dimensions: string | null;
-  declared_value: number | null;
-  status: string;
-  carrier: string | null;
+  length_cm: number | null;
+  width_cm: number | null;
+  height_cm: number | null;
   image_url: string | null;
+  status: string;
+  warehouse_location: string | null;
+  is_master: boolean;
+  total_boxes: number;
   assigned_cost_mxn: number;
   saldo_pendiente: number;
   monto_pagado: number;
-  warehouse_location: string | null;
-  service_type: string | null;
-  is_master: boolean;
-  total_boxes: number;
-  created_at: string;
+  created_at: string | null;
+  client_name: string | null;
+  client_box_id: string | null;
 }
 
 export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
-  const { packageId, token, clientName, clientBoxId } = route.params;
-  const [pkg, setPkg] = useState<PackageDetail | null>(null);
+  const { uid, token, clientName: paramClientName, clientBoxId: paramClientBoxId } = route.params;
+  const [pkg, setPkg] = useState<ShipmentDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photoModal, setPhotoModal] = useState(false);
@@ -71,7 +89,7 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_URL}/api/packages/${packageId}`, {
+      const res = await fetch(`${API_URL}/api/advisor/shipment/${encodeURIComponent(uid)}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`Error ${res.status}`);
@@ -86,6 +104,11 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
 
   const statusColor = pkg ? (STATUS_COLOR[pkg.status] || '#9E9E9E') : '#9E9E9E';
   const statusLabel = pkg ? (STATUS_LABELS[pkg.status] || pkg.status) : '';
+  const clientName = pkg?.client_name || paramClientName;
+  const clientBoxId = pkg?.client_box_id || paramClientBoxId;
+  const dimensions = pkg && pkg.length_cm && pkg.width_cm && pkg.height_cm
+    ? `${pkg.length_cm} × ${pkg.width_cm} × ${pkg.height_cm} cm`
+    : null;
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -95,8 +118,15 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle} numberOfLines={1}>
-          {pkg?.tracking_internal || `Paquete #${packageId}`}
+          {pkg?.tracking_internal || uid}
         </Text>
+        {pkg && (
+          <View style={[styles.serviceTag, { backgroundColor: ORANGE + '33' }]}>
+            <Text style={styles.serviceTagText}>
+              {SERVICE_LABEL[pkg.service_type] || pkg.service_type}
+            </Text>
+          </View>
+        )}
       </View>
 
       {loading ? (
@@ -114,7 +144,7 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
       ) : pkg ? (
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
 
-          {/* Status badge */}
+          {/* Status */}
           <View style={[styles.statusBanner, { backgroundColor: statusColor + '18', borderColor: statusColor + '40' }]}>
             <View style={[styles.statusDot, { backgroundColor: statusColor }]} />
             <Text style={[styles.statusLabel, { color: statusColor }]}>{statusLabel}</Text>
@@ -124,11 +154,7 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
           <Section title="Foto de Recepción" icon="camera">
             {pkg.image_url ? (
               <TouchableOpacity onPress={() => setPhotoModal(true)} activeOpacity={0.85}>
-                <Image
-                  source={{ uri: pkg.image_url }}
-                  style={styles.receptionPhoto}
-                  resizeMode="cover"
-                />
+                <Image source={{ uri: pkg.image_url }} style={styles.receptionPhoto} resizeMode="cover" />
                 <View style={styles.photoHint}>
                   <Ionicons name="expand-outline" size={14} color="#fff" />
                   <Text style={styles.photoHintText}>Toca para ampliar</Text>
@@ -144,29 +170,27 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
 
           {/* Guías */}
           <Section title="Guías" icon="barcode-outline">
-            <InfoRow label="Guía Interna" value={pkg.tracking_internal} mono />
+            <InfoRow label="Guía Interna" value={pkg.tracking_internal || '—'} mono />
             <InfoRow label="Guía Proveedor / Origen" value={pkg.tracking_provider || '—'} mono />
-            {pkg.origin_carrier && <InfoRow label="Transportista Origen" value={pkg.origin_carrier} />}
-            {pkg.carrier && <InfoRow label="Carrier" value={pkg.carrier} />}
+            {pkg.origin_carrier ? <InfoRow label="Transportista" value={pkg.origin_carrier} /> : null}
           </Section>
 
           {/* Cliente */}
           {(clientName || clientBoxId) && (
             <Section title="Cliente" icon="person-outline">
-              {clientName && <InfoRow label="Nombre" value={clientName} />}
-              {clientBoxId && <InfoRow label="Box ID" value={clientBoxId} mono />}
+              {clientName ? <InfoRow label="Nombre" value={clientName} /> : null}
+              {clientBoxId ? <InfoRow label="Box ID" value={clientBoxId} mono /> : null}
             </Section>
           )}
 
-          {/* Detalles del paquete */}
+          {/* Detalles */}
           <Section title="Detalles del Paquete" icon="cube-outline">
-            {pkg.description && <InfoRow label="Descripción" value={pkg.description} />}
-            {pkg.service_type && <InfoRow label="Tipo de Servicio" value={pkg.service_type} />}
-            {pkg.weight != null && <InfoRow label="Peso" value={`${pkg.weight.toFixed(2)} kg`} />}
-            {pkg.dimensions && <InfoRow label="Dimensiones" value={pkg.dimensions} />}
-            {pkg.warehouse_location && <InfoRow label="Ubicación en Bodega" value={pkg.warehouse_location} />}
-            {pkg.is_master && <InfoRow label="Cajas Totales" value={`${pkg.total_boxes || '—'}`} />}
-            <InfoRow label="Recibido" value={new Date(pkg.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })} />
+            {pkg.description ? <InfoRow label="Descripción" value={pkg.description} /> : null}
+            {pkg.weight ? <InfoRow label="Peso" value={`${pkg.weight.toFixed(2)} kg`} /> : null}
+            {dimensions ? <InfoRow label="Dimensiones" value={dimensions} /> : null}
+            {pkg.warehouse_location ? <InfoRow label="Ubicación en Bodega" value={pkg.warehouse_location} /> : null}
+            {pkg.is_master && pkg.total_boxes > 0 ? <InfoRow label="Cajas Totales" value={String(pkg.total_boxes)} /> : null}
+            <InfoRow label="Recibido" value={formatDate(pkg.created_at)} />
           </Section>
 
           {/* Costos */}
@@ -181,14 +205,10 @@ export default function AdvisorPackageDetailScreen({ navigation, route }: any) {
         </ScrollView>
       ) : null}
 
-      {/* Modal foto ampliada */}
+      {/* Modal foto */}
       <Modal visible={photoModal} transparent animationType="fade" onRequestClose={() => setPhotoModal(false)}>
         <Pressable style={styles.modalBg} onPress={() => setPhotoModal(false)}>
-          <Image
-            source={{ uri: pkg?.image_url || '' }}
-            style={styles.fullPhoto}
-            resizeMode="contain"
-          />
+          <Image source={{ uri: pkg?.image_url || '' }} style={styles.fullPhoto} resizeMode="contain" />
           <TouchableOpacity style={styles.closePhotoBtn} onPress={() => setPhotoModal(false)}>
             <Ionicons name="close-circle" size={36} color="#fff" />
           </TouchableOpacity>
@@ -214,7 +234,7 @@ function InfoRow({ label, value, mono, highlight }: { label: string; value: stri
   return (
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={[styles.infoValue, mono && styles.monoValue, highlight && styles.highlightValue]}>
+      <Text style={[styles.infoValue, mono && styles.monoValue, highlight && styles.highlightValue]} numberOfLines={2}>
         {value}
       </Text>
     </View>
@@ -227,7 +247,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', backgroundColor: BLACK,
     paddingHorizontal: 8, paddingVertical: 12, gap: 8,
   },
-  headerTitle: { flex: 1, color: '#fff', fontSize: 17, fontWeight: '700' },
+  headerTitle: { flex: 1, color: '#fff', fontSize: 16, fontWeight: '700' },
+  serviceTag: {
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  serviceTagText: { color: ORANGE, fontSize: 11, fontWeight: '700' },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   errorText: { color: '#F44336', textAlign: 'center', marginTop: 12, fontSize: 15 },
   retryBtn: { marginTop: 16, backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 24, paddingVertical: 10 },
@@ -240,8 +264,7 @@ const styles = StyleSheet.create({
   statusDot: { width: 10, height: 10, borderRadius: 5 },
   statusLabel: { fontSize: 15, fontWeight: '700' },
   section: {
-    backgroundColor: '#fff', borderRadius: 12,
-    overflow: 'hidden',
+    backgroundColor: '#fff', borderRadius: 12, overflow: 'hidden',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.06, shadowRadius: 3, elevation: 2,
   },
@@ -250,18 +273,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 10,
     borderBottomWidth: 1, borderBottomColor: '#F0F0F0',
   },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: BLACK, textTransform: 'uppercase', letterSpacing: 0.5 },
+  sectionTitle: { fontSize: 12, fontWeight: '700', color: BLACK, textTransform: 'uppercase', letterSpacing: 0.5 },
   sectionBody: { paddingHorizontal: 14, paddingVertical: 8 },
-  receptionPhoto: { width: '100%', height: 220, borderRadius: 6, marginTop: 4 },
+  receptionPhoto: { width: '100%', height: 220, borderRadius: 6, marginVertical: 4 },
   photoHint: {
     flexDirection: 'row', alignItems: 'center', gap: 4,
-    position: 'absolute', bottom: 8, right: 8,
+    position: 'absolute', bottom: 12, right: 8,
     backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 6,
     paddingHorizontal: 8, paddingVertical: 4,
   },
   photoHintText: { color: '#fff', fontSize: 11 },
   noPhoto: {
-    height: 120, justifyContent: 'center', alignItems: 'center', gap: 8,
+    height: 100, justifyContent: 'center', alignItems: 'center', gap: 8,
     backgroundColor: '#F9F9F9', borderRadius: 8, marginVertical: 4,
   },
   noPhotoText: { color: '#bbb', fontSize: 13 },
@@ -273,10 +296,7 @@ const styles = StyleSheet.create({
   infoValue: { fontSize: 13, color: BLACK, fontWeight: '600', flex: 2, textAlign: 'right' },
   monoValue: { fontFamily: 'Courier', fontSize: 12 },
   highlightValue: { color: ORANGE },
-  modalBg: {
-    flex: 1, backgroundColor: 'rgba(0,0,0,0.92)',
-    justifyContent: 'center', alignItems: 'center',
-  },
+  modalBg: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', alignItems: 'center' },
   fullPhoto: { width: '95%', height: '80%' },
   closePhotoBtn: { position: 'absolute', top: 50, right: 16 },
 });

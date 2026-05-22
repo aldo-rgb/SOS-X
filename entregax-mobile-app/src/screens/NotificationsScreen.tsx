@@ -47,7 +47,7 @@ interface Notification {
   id: number;
   title: string;
   message: string;
-  type: 'success' | 'error' | 'info' | 'promo';
+  type: 'success' | 'error' | 'info' | 'promo' | 'ticket_created' | 'support_reply' | string;
   icon: string;
   is_read: boolean;
   action_url?: string;
@@ -267,6 +267,16 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
       return;
     }
 
+    // Ticket de soporte: creado o respuesta → abrir SupportChat con el ticketId
+    if ((item.type === 'ticket_created' || item.type === 'support_reply') && item.data?.ticket_id) {
+      (navigation as any).navigate('SupportChat', {
+        user,
+        token,
+        ticketId: Number(item.data.ticket_id),
+      });
+      return;
+    }
+
     // Guías sin identificar → va directo al filtro del asesor
     if (item.data?.screen === 'AdvisorPackages' && item.data?.filter) {
       (navigation as any).navigate('AdvisorPackages', { user, token, filter: item.data.filter });
@@ -319,7 +329,7 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
             />
           )}
           <View style={[styles.iconContainer, { backgroundColor: typeColor + '20' }]}>
-            <Icon name={item.icon || 'bell'} size={24} color={typeColor} />
+            <Icon name={(item.icon || 'bell') as any} size={24} color={typeColor} />
           </View>
           
           <View style={styles.contentContainer}>

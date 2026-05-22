@@ -431,6 +431,24 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       currentTicketId = newTicket.rows[0].id;
       ticketFolio = newTicket.rows[0].ticket_folio;
       console.log(`🎫 Nuevo ticket creado: ${folio} (${initialStatus})${imageUrls.length > 0 ? ` con ${imageUrls.length} imágenes` : ''}`);
+
+      // 🔔 Notificación in-app al cliente confirmando la apertura del ticket
+      if (userId) {
+        try {
+          const { createCustomNotification } = await import('./notificationController');
+          await createCustomNotification(
+            userId,
+            `🎫 Ticket ${ticketFolio} abierto`,
+            'Tu ticket fue recibido. Un agente te atenderá pronto.',
+            'ticket_created',
+            'headset',
+            { ticket_id: String(currentTicketId), ticket_folio: ticketFolio },
+            `/support/ticket/${currentTicketId}`
+          );
+        } catch (e) {
+          console.error('Error creando notificación de ticket:', e);
+        }
+      }
       
       // Si es escalado directo, guardar mensaje con imágenes y retornar inmediatamente
       if (escalateDirectly) {

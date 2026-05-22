@@ -526,7 +526,8 @@ import {
   getAdvisorUnreadCount,
   getAdvisorPackages,
   assignAdvisorShipmentInstructions,
-  assignClientToPackage
+  assignClientToPackage,
+  getAdvisorShipmentDetail
 } from './advisorPanelController';
 import {
   requestAdvisor,
@@ -4561,6 +4562,7 @@ app.put('/api/advisor/clients/:clientId/addresses/:addressId/default-for-service
 app.put('/api/advisor/shipments/:uid/instructions', authenticateToken, uploadDeliveryDocs, assignAdvisorShipmentInstructions);
 app.put('/api/advisor/packages/:packageId/assign-client', authenticateToken, assignClientToPackage);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
+app.get('/api/advisor/shipment/:uid', authenticateToken, getAdvisorShipmentDetail);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
 app.get('/api/advisor/shipments/:id/children', authenticateToken, getRepackChildren);
 app.get('/api/advisor/commissions', authenticateToken, getAdvisorCommissions);

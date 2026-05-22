@@ -1772,3 +1772,170 @@ export const assignClientToPackage = async (req: Request, res: Response): Promis
     res.status(500).json({ error: 'Error al asignar cliente' });
   }
 };
+
+/**
+ * GET /api/advisor/shipment/:uid
+ * Detalle unificado para PKG / MAR / DHL
+ */
+export const getAdvisorShipmentDetail = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const rawUid: string = (Array.isArray(req.params.uid) ? req.params.uid[0] : req.params.uid) as string;
+    const uidParam: string = rawUid || '';
+    const dashIdx: number = uidParam.indexOf('-');
+    const prefix: string = dashIdx >= 0 ? uidParam.substring(0, dashIdx) : '';
+    const id: number = dashIdx >= 0 ? parseInt(uidParam.substring(dashIdx + 1), 10) : NaN;
+    if (!prefix || isNaN(id)) return res.status(400).json({ error: 'UID inválido' });
+
+    let row: any = null;
+
+    if (prefix === 'PKG') {
+      const r = await pool.query(
+        `SELECT p.id,
+                p.tracking_internal,
+                p.tracking_provider,
+                p.description,
+                COALESCE(p.weight, 0) AS weight,
+                COALESCE(p.pkg_length, p.long_cm, 0) AS length_cm,
+                COALESCE(p.pkg_width, p.width_cm, 0) AS width_cm,
+                COALESCE(p.pkg_height, p.height_cm, 0) AS height_cm,
+                p.image_url,
+                p.status::text AS status,
+                p.service_type,
+                p.warehouse_location,
+                COALESCE(p.is_master, false) AS is_master,
+                COALESCE(p.total_boxes, 0) AS total_boxes,
+                COALESCE(p.assigned_cost_mxn, 0) AS assigned_cost_mxn,
+                COALESCE(p.saldo_pendiente, 0) AS saldo_pendiente,
+                COALESCE(p.monto_pagado, 0) AS monto_pagado,
+                p.carrier AS origin_carrier,
+                p.created_at,
+                u.full_name AS client_name,
+                u.box_id AS client_box_id
+         FROM packages p
+         LEFT JOIN users u ON p.user_id = u.id
+         WHERE p.id = $1`,
+        [id]
+      );
+      if (r.rows.length === 0) return res.status(404).json({ error: 'Paquete no encontrado' });
+      const p = r.rows[0];
+      row = {
+        uid: uidParam, id, service_type: p.service_type || 'POBOX_USA',
+        tracking_internal: p.tracking_internal || null,
+        tracking_provider: p.tracking_provider || null,
+        origin_carrier: p.origin_carrier || null,
+        description: p.description || null,
+        weight: parseFloat(p.weight) || null,
+        length_cm: parseFloat(p.length_cm) || null,
+        width_cm: parseFloat(p.width_cm) || null,
+        height_cm: parseFloat(p.height_cm) || null,
+        image_url: p.image_url || null,
+        status: p.status,
+        warehouse_location: p.warehouse_location || null,
+        is_master: p.is_master,
+        total_boxes: p.total_boxes,
+        assigned_cost_mxn: parseFloat(p.assigned_cost_mxn) || 0,
+        saldo_pendiente: parseFloat(p.saldo_pendiente) || 0,
+        monto_pagado: parseFloat(p.monto_pagado) || 0,
+        created_at: p.created_at,
+        client_name: p.client_name || null,
+        client_box_id: p.client_box_id || null,
+      };
+
+    } else if (prefix === 'MAR') {
+      const r = await pool.query(
+        `SELECT mo.id,
+                mo.ordersn AS tracking_internal,
+                mo.ship_number AS tracking_provider,
+                mo.bl_number AS origin_carrier,
+                mo.goods_name AS description,
+                COALESCE(mo.weight, 0) AS weight,
+                mo.status,
+                COALESCE(mo.assigned_cost_mxn, 0) AS assigned_cost_mxn,
+                COALESCE(mo.saldo_pendiente, 0) AS saldo_pendiente,
+                COALESCE(mo.monto_pagado, 0) AS monto_pagado,
+                mo.created_at,
+                u.full_name AS client_name,
+                u.box_id AS client_box_id
+         FROM maritime_orders mo
+         LEFT JOIN users u ON mo.user_id = u.id
+         WHERE mo.id = $1`,
+        [id]
+      );
+      if (r.rows.length === 0) return res.status(404).json({ error: 'Orden marítima no encontrada' });
+      const m = r.rows[0];
+      row = {
+        uid: uidParam, id, service_type: 'SEA_CHN_MX',
+        tracking_internal: m.tracking_internal || null,
+        tracking_provider: m.tracking_provider || null,
+        origin_carrier: m.origin_carrier || null,
+        description: m.description || null,
+        weight: parseFloat(m.weight) || null,
+        length_cm: null, width_cm: null, height_cm: null,
+        image_url: null,
+        status: m.status,
+        warehouse_location: null,
+        is_master: false, total_boxes: 0,
+        assigned_cost_mxn: parseFloat(m.assigned_cost_mxn) || 0,
+        saldo_pendiente: parseFloat(m.saldo_pendiente) || 0,
+        monto_pagado: parseFloat(m.monto_pagado) || 0,
+        created_at: m.created_at,
+        client_name: m.client_name || null,
+        client_box_id: m.client_box_id || null,
+      };
+
+    } else if (prefix === 'DHL') {
+      const r = await pool.query(
+        `SELECT ds.id,
+                ds.inbound_tracking AS tracking_internal,
+                ds.national_tracking AS tracking_provider,
+                ds.description,
+                COALESCE(ds.weight_kg, 0) AS weight,
+                COALESCE(ds.length_cm, 0) AS length_cm,
+                COALESCE(ds.width_cm, 0) AS width_cm,
+                COALESCE(ds.height_cm, 0) AS height_cm,
+                ds.status,
+                COALESCE(ds.total_cost_mxn, ds.saldo_pendiente, ds.import_cost_mxn, 0) AS assigned_cost_mxn,
+                COALESCE(ds.saldo_pendiente, 0) AS saldo_pendiente,
+                COALESCE(ds.monto_pagado, 0) AS monto_pagado,
+                ds.created_at,
+                u.full_name AS client_name,
+                u.box_id AS client_box_id
+         FROM dhl_shipments ds
+         LEFT JOIN users u ON ds.user_id = u.id
+         WHERE ds.id = $1`,
+        [id]
+      );
+      if (r.rows.length === 0) return res.status(404).json({ error: 'Envío DHL no encontrado' });
+      const d = r.rows[0];
+      row = {
+        uid: uidParam, id, service_type: 'AA_DHL',
+        tracking_internal: d.tracking_internal || null,
+        tracking_provider: d.tracking_provider || null,
+        origin_carrier: 'DHL',
+        description: d.description || null,
+        weight: parseFloat(d.weight) || null,
+        length_cm: parseFloat(d.length_cm) || null,
+        width_cm: parseFloat(d.width_cm) || null,
+        height_cm: parseFloat(d.height_cm) || null,
+        image_url: null,
+        status: d.status,
+        warehouse_location: null,
+        is_master: false, total_boxes: 0,
+        assigned_cost_mxn: parseFloat(d.assigned_cost_mxn) || 0,
+        saldo_pendiente: parseFloat(d.saldo_pendiente) || 0,
+        monto_pagado: parseFloat(d.monto_pagado) || 0,
+        created_at: d.created_at,
+        client_name: d.client_name || null,
+        client_box_id: d.client_box_id || null,
+      };
+
+    } else {
+      return res.status(400).json({ error: `Tipo de paquete desconocido: ${prefix}` });
+    }
+
+    res.json(row);
+  } catch (error) {
+    console.error('Error getAdvisorShipmentDetail:', error);
+    res.status(500).json({ error: 'Error al obtener detalle del paquete' });
+  }
+};

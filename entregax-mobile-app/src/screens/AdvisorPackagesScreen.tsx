@@ -244,7 +244,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   const handleCardPress = (item: Shipment) => {
     if (!selectionMode) {
       navigation.navigate('AdvisorPackageDetail', {
-        packageId: item.id,
+        uid: item.uid,
         token,
         clientName: item.client_name || undefined,
         clientBoxId: item.client_box_id || undefined,

@@ -185,7 +185,7 @@ export type RootStackParamList = {
   AdvisorClientTickets: { user: any; token: string };
   AdvisorNotifications: { user: any; token: string };
   AdvisorPackages: { user: any; token: string; filter: string };
-  AdvisorPackageDetail: { packageId: number; token: string; clientName?: string; clientBoxId?: string };
+  AdvisorPackageDetail: { uid: string; token: string; clientName?: string; clientBoxId?: string };
   AdvisorSupportTicket: { user: any; token: string };
   SupportTickets: { user: any; token: string };
   // Chat interno staff
