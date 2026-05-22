@@ -641,9 +641,9 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
     const ticket = ticketCheck.rows[0];
     const reopened = ticket.status === 'resolved' || ticket.status === 'closed';
 
-    // Actualizar estado del ticket a waiting_agent (reabrir si estaba cerrado)
+    // Actualizar estado del ticket a escalated_human (reabrir si estaba resuelto)
     await pool.query(
-      `UPDATE support_tickets SET status = 'waiting_agent', updated_at = NOW() WHERE id = $1`,
+      `UPDATE support_tickets SET status = 'escalated_human', updated_at = NOW() WHERE id = $1`,
       [id]
     );
 
@@ -853,7 +853,7 @@ export const reactivateTicket = async (req: Request, res: Response): Promise<any
     const result = await pool.query(
       `UPDATE support_tickets
        SET status = 'escalated_human', resolved_at = NULL, updated_at = NOW()
-       WHERE id = $1 AND status IN ('resolved', 'closed')
+       WHERE id = $1 AND status = 'resolved'
        RETURNING id`,
       [id]
     );
