@@ -716,7 +716,7 @@ export const getTransacciones = async (req: AuthRequest, res: Response): Promise
       paramIndex++;
     }
     
-    query += ` ORDER BY t.created_at DESC LIMIT 200`;
+    query += ` ORDER BY t.created_at DESC, CASE WHEN t.tipo = 'egreso' THEN 0 ELSE 1 END ASC LIMIT 200`;
     
     const result = await pool.query(query, params);
 
