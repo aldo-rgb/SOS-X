@@ -7,6 +7,7 @@ import { Request, Response } from 'express';
 import { pool } from './db';
 import { calculateQuote } from './pricingEngine';
 import * as skydropx from './services/skydropxService';
+import bcrypt from 'bcrypt';
 
 // ============================================
 // CONSTANTES DE UBICACIONES
@@ -1584,50 +1585,56 @@ export const getBranchGeofence = async (req: Request, res: Response): Promise<vo
 // VALIDACIÓN DE SUPERVISOR Y RECEPCIÓN DHL
 // ============================================
 
-// POST /api/warehouse/validate-supervisor - Validar PIN de supervisor
+// POST /api/warehouse/validate-supervisor - Validar contraseña de supervisor/operaciones
 export const validateSupervisor = async (req: AuthRequest, res: Response): Promise<void> => {
     try {
         const { pin, branch_id, action_type } = req.body;
         const requesterId = req.user?.userId;
-        
+
         if (!pin) {
-            res.status(400).json({ error: 'PIN requerido' });
+            res.status(400).json({ error: 'Contraseña requerida' });
             return;
         }
-        
-        // Buscar usuario supervisor/gerente con ese PIN en la sucursal
-        // El PIN es el campo supervisor_pin en la tabla users
-        // Cualquier usuario con PIN válido puede autorizar, sin importar quién esté logueado
-        const result = await pool.query(`
-            SELECT u.id, u.full_name, u.email, u.role, u.branch_id
+
+        // Obtener todos los usuarios autorizados con su password hash.
+        // Se valida contra la contraseña de login de cada uno (bcrypt).
+        // Roles autorizados: branch_manager (Operaciones), admin, super_admin, director.
+        const candidates = await pool.query(`
+            SELECT u.id, u.full_name, u.email, u.role, u.branch_id, u.password
             FROM users u
-            WHERE u.supervisor_pin = $1
-              AND u.role IN ('super_admin', 'admin', 'director', 'gerente_sucursal', 'branch_manager')
-            LIMIT 1
-        `, [pin]);
-        
-        if (result.rows.length === 0) {
-            console.log(`🔐 [SUPERVISOR] PIN inválido intentado por usuario ${requesterId}`);
-            
-            // Registrar intento fallido
+            WHERE u.role IN ('super_admin', 'admin', 'director', 'gerente_sucursal', 'branch_manager')
+              AND u.password IS NOT NULL
+        `);
+
+        let authorizedSupervisor: any = null;
+        for (const candidate of candidates.rows) {
+            const match = await bcrypt.compare(String(pin), candidate.password);
+            if (match) {
+                authorizedSupervisor = candidate;
+                break;
+            }
+        }
+
+        if (!authorizedSupervisor) {
+            console.log(`🔐 [SUPERVISOR] Contraseña inválida intentada por usuario ${requesterId}`);
+
             await pool.query(`
                 INSERT INTO supervisor_authorizations (requester_id, branch_id, action_type, success, ip_address, created_at)
                 VALUES ($1, $2, $3, FALSE, $4, NOW())
             `, [requesterId, branch_id || null, action_type || 'dhl_reception', req.ip]);
-            
-            res.json({ valid: false, message: 'PIN de supervisor incorrecto' });
+
+            res.json({ valid: false, message: 'Contraseña incorrecta' });
             return;
         }
-        
-        const supervisor = result.rows[0];
+
+        const supervisor = authorizedSupervisor;
         console.log(`🔐 [SUPERVISOR] Autorización exitosa: ${supervisor.full_name} (${supervisor.email})`);
-        
-        // Registrar autorización exitosa
+
         await pool.query(`
             INSERT INTO supervisor_authorizations (supervisor_id, supervisor_name, requester_id, branch_id, action_type, success, ip_address, created_at)
             VALUES ($1, $2, $3, $4, $5, TRUE, $6, NOW())
         `, [supervisor.id, supervisor.full_name, requesterId, branch_id || supervisor.branch_id, action_type || 'dhl_reception', req.ip]);
-        
+
         res.json({
             valid: true,
             supervisor: {

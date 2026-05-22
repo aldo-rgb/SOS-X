@@ -9508,6 +9508,8 @@ async function ensureRequiredColumns() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_version ON legal_document_versions(document_id, version DESC)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_saved_at ON legal_document_versions(document_id, saved_at DESC)`);
+    // Columnas de usuario que pueden no existir en instancias antiguas
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gex_auto_enabled BOOLEAN DEFAULT FALSE`);
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }
