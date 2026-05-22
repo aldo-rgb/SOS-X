@@ -29,6 +29,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Appbar, Avatar, Divider, Icon, Chip, Surface } from 'react-native-paper';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import QRCode from 'react-native-qrcode-svg';
 import { api, API_URL } from '../services/api';
 import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
@@ -516,11 +517,14 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     }
   };
 
+  const [qrModalVisible, setQrModalVisible] = useState(false);
+
   // Funciones del asesor
   const copyReferralCode = () => {
     if (advisorData?.advisor.referralCode) {
-      Clipboard.setString(advisorData.advisor.referralCode);
-      Alert.alert(`✅ ${t('advisorPanel.copied')}`, t('advisorPanel.codeCopied'));
+      const link = `https://entregax.app/register?ref=${advisorData.advisor.referralCode}`;
+      Clipboard.setString(link);
+      Alert.alert('✅ Copiado', 'Enlace de registro copiado al portapapeles');
     }
   };
 
@@ -991,14 +995,32 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                 <Text style={advStyles.referralCode}>{advisorData.advisor.referralCode || t('advisorPanel.noCode')}</Text>
                 <View style={advStyles.referralActions}>
                   <TouchableOpacity style={advStyles.referralButton} onPress={copyReferralCode}>
-                    <Ionicons name="copy-outline" size={20} color="#fff" />
-                    <Text style={advStyles.referralButtonText}>{t('advisorPanel.copy')}</Text>
+                    <Ionicons name="copy-outline" size={22} color="#fff" />
                   </TouchableOpacity>
                   <TouchableOpacity style={[advStyles.referralButton, advStyles.shareButton]} onPress={shareReferralCode}>
-                    <Ionicons name="share-social-outline" size={20} color={ORANGE} />
-                    <Text style={[advStyles.referralButtonText, { color: ORANGE }]}>{t('advisorPanel.share')}</Text>
+                    <Ionicons name="share-social-outline" size={22} color={ORANGE} />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[advStyles.referralButton, advStyles.shareButton]} onPress={() => setQrModalVisible(true)}>
+                    <Ionicons name="qr-code-outline" size={22} color={ORANGE} />
                   </TouchableOpacity>
                 </View>
+
+                {/* Modal QR */}
+                <Modal visible={qrModalVisible} transparent animationType="fade" onRequestClose={() => setQrModalVisible(false)}>
+                  <TouchableOpacity style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center' }} activeOpacity={1} onPress={() => setQrModalVisible(false)}>
+                    <View style={{ backgroundColor: '#fff', borderRadius: 20, padding: 32, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 16, fontWeight: '700', color: '#111', marginBottom: 4 }}>Escanea para registrarte</Text>
+                      <Text style={{ fontSize: 13, color: '#666', marginBottom: 20 }}>Código referido: {advisorData.advisor.referralCode}</Text>
+                      <QRCode
+                        value={`https://entregax.app/register?ref=${advisorData.advisor.referralCode}`}
+                        size={220}
+                        color="#111"
+                        backgroundColor="#fff"
+                      />
+                      <Text style={{ fontSize: 11, color: '#999', marginTop: 16 }}>Toca fuera para cerrar</Text>
+                    </View>
+                  </TouchableOpacity>
+                </Modal>
               </View>
             ) : null /* Cliente pidió ocultar la card de "Código de Referido
                        Bloqueado" — el banner "Acceso Restringido" de
