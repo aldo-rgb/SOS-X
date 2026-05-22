@@ -431,24 +431,12 @@ export default function FinanceDashboardPage() {
     return Object.entries(refMap).map(([ref, entries]) => ({ ref, entries }));
   };
 
-  const loadSavedBankEntries = async (cuentaOverride?: string) => {
+  const loadSavedBankEntries = async () => {
     const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
     if (!empresaFilt) return;
     setLoadingSavedEntries(true);
     try {
-      const cuenta = cuentaOverride !== undefined ? cuentaOverride : cuentaFiltro;
-      const url = `/admin/finance/bank-entries?empresa_id=${empresaFilt.id}${cuenta ? `&numero_cuenta=${encodeURIComponent(cuenta)}` : ''}`;
-      const res = await api.get(url);
-
-      // Actualizar lista de cuentas disponibles
-      if (res.data.cuentas_disponibles) {
-        setCuentasDisponibles(res.data.cuentas_disponibles);
-        // Si no hay cuenta seleccionada y solo hay una, seleccionarla automáticamente
-        if (!cuenta && res.data.cuentas_disponibles.length === 1) {
-          setCuentaFiltro(res.data.cuentas_disponibles[0]);
-        }
-      }
-
+      const res = await api.get(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`);
       if (res.data.entries && res.data.entries.length > 0) {
         const mapped = res.data.entries.map((e: any) => {
           let fechaStr = '';
@@ -470,9 +458,8 @@ export default function FinanceDashboardPage() {
         setSavedEntriesCount(mapped.length);
         setSnackbar({ open: true, message: `📋 ${mapped.length} movimientos cargados desde la base de datos`, severity: 'success' });
       } else {
-        setEstadoCuentaRows([]);
         setSavedEntriesCount(0);
-        setSnackbar({ open: true, message: 'No hay movimientos guardados para esta cuenta', severity: 'info' });
+        setSnackbar({ open: true, message: 'No hay movimientos guardados para esta empresa', severity: 'info' });
       }
     } catch (err: any) {
       setSnackbar({ open: true, message: 'Error cargando historial: ' + (err.response?.data?.error || err.message), severity: 'error' });
