@@ -191,7 +191,7 @@ export const getMyReferralCode = async (req: AuthRequest, res: Response): Promis
       success: true,
       data: {
         codigo,
-        share_link: `https://app.entregax.com/referido/${codigo}`,
+        share_link: `https://entregax.app/register?ref=${codigo}`,
         share_message: `¡Regístrate en EntregaX con mi código ${codigo} y recibe $${settings.referred_bonus} MXN de bono! 🎁`,
         bonos: {
           al_referir: settings.referrer_bonus,

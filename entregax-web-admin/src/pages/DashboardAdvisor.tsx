@@ -853,7 +853,7 @@ export default function DashboardAdvisor() {
   const copyReferralLink = () => {
     const code = dashboardData?.advisor.referralCode;
     if (!code) return;
-    const link = `https://app.entregax.com/register?ref=${code}`;
+    const link = `https://entregax.app/register?ref=${code}`;
     navigator.clipboard.writeText(link);
     setSnackbar({ open: true, message: t('advisor.linkCopied'), severity: 'success' });
   };
@@ -861,7 +861,7 @@ export default function DashboardAdvisor() {
   const shareWhatsApp = () => {
     const code = dashboardData?.advisor.referralCode;
     if (!code) return;
-    const link = `https://app.entregax.com/register?ref=${code}`;
+    const link = `https://entregax.app/register?ref=${code}`;
     const text = encodeURIComponent(t('advisor.whatsappMessage').replace('{link}', link));
     window.open(`https://wa.me/?text=${text}`, '_blank');
   };
@@ -2171,7 +2171,7 @@ export default function DashboardAdvisor() {
 
   const renderTools = () => {
     const code = dashboardData?.advisor.referralCode;
-    const referralLink = `https://app.entregax.com/register?ref=${code || ''}`;
+    const referralLink = `https://entregax.app/register?ref=${code || ''}`;
 
     return (
       <Fade in timeout={400}>

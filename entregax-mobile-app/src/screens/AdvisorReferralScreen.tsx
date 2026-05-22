@@ -55,7 +55,7 @@ const AdvisorReferralScreen: React.FC<Props> = ({ route, navigation }) => {
         const data = await response.json();
         setReferralData({
           referralCode: data.referral_code || user.referral_code || 'N/A',
-          referralLink: `https://entregax.com/registro?ref=${data.referral_code || user.referral_code}`,
+          referralLink: `https://entregax.app/register?ref=${data.referral_code || user.referral_code}`,
           totalReferrals: data.total_referrals || 0,
           monthlyReferrals: data.monthly_referrals || 0,
           pendingCommission: data.pending_commission || 0,
