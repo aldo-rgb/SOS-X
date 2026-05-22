@@ -273,6 +273,7 @@ export default function SupportBoardPage() {
 
   const isOperaciones = ['operaciones', 'Operaciones', 'warehouse_ops', 'Warehouse Ops'].includes(currentUserRole);
   const isBranchManager = ['branch_manager', 'Branch Manager'].includes(currentUserRole);
+  const canArchive = ['super_admin', 'admin', 'service_a_cliente', 'atencion_cliente', 'counter_staff'].includes(currentUserRole);
 
   // Reglas de visibilidad por nombre de departamento
   const DEPT_ALLOWED_ROLES: Record<string, string[]> = {
@@ -735,7 +736,7 @@ export default function SupportBoardPage() {
                       formatTime={formatTimeAgo}
                       isUrgent={ticket.status === 'escalated_human'}
                       isResolved={ticket.status === 'resolved'}
-                      onArchive={handleArchiveTicket}
+                      onArchive={canArchive ? handleArchiveTicket : undefined}
                     />
                   ))
                 )}
