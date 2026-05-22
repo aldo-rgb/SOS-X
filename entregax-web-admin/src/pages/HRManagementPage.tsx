@@ -72,15 +72,16 @@ import {
 
 // Roles disponibles para empleados
 const EMPLOYEE_ROLES = [
-  { value: 'repartidor', label: 'Repartidor', color: 'warning' as const },
-  { value: 'warehouse_ops', label: 'Bodega', color: 'success' as const },
-  { value: 'counter_staff', label: 'Mostrador', color: 'info' as const },
-  { value: 'customer_service', label: 'Servicio a Cliente', color: 'primary' as const },
-  { value: 'soporte_tecnico', label: 'Soporte Técnico', color: 'info' as const },
-  { value: 'branch_manager', label: 'Operaciones', color: 'secondary' as const },
-  { value: 'monitoreo', label: 'Monitoreo', color: 'default' as const },
-  { value: 'abogado', label: 'Abogado', color: 'secondary' as const },
-  { value: 'accountant', label: 'Contador', color: 'default' as const },
+  { value: 'repartidor', label: 'Repartidor', color: 'warning' as const, superAdminOnly: false },
+  { value: 'warehouse_ops', label: 'Bodega', color: 'success' as const, superAdminOnly: false },
+  { value: 'counter_staff', label: 'Mostrador', color: 'info' as const, superAdminOnly: false },
+  { value: 'customer_service', label: 'Servicio a Cliente', color: 'primary' as const, superAdminOnly: false },
+  { value: 'soporte_tecnico', label: 'Soporte Técnico', color: 'info' as const, superAdminOnly: false },
+  { value: 'branch_manager', label: 'Operaciones', color: 'secondary' as const, superAdminOnly: false },
+  { value: 'monitoreo', label: 'Monitoreo', color: 'default' as const, superAdminOnly: false },
+  { value: 'abogado', label: 'Abogado', color: 'secondary' as const, superAdminOnly: false },
+  { value: 'accountant', label: 'Contador', color: 'default' as const, superAdminOnly: false },
+  { value: 'director', label: 'Director', color: 'secondary' as const, superAdminOnly: true },
 ];
 
 interface Employee {
@@ -209,6 +210,9 @@ const getInitials = (name: string): string => {
 
 export default function HRManagementPage() {
   const { t: _t } = useTranslation();
+  const isSuperAdmin = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; }
+  })();
   const [tab, setTab] = useState(0);
   const [viewProfileId, setViewProfileId] = useState<number | null>(null);
   const [vacQuintaEmp, setVacQuintaEmp] = useState<Employee | null>(null);
@@ -1395,7 +1399,7 @@ export default function HRManagementPage() {
                   label="Rol / Puesto"
                   onChange={(e) => setNewEmployee({ ...newEmployee, role: e.target.value })}
                 >
-                  {EMPLOYEE_ROLES.map((role) => (
+                  {EMPLOYEE_ROLES.filter(r => !r.superAdminOnly || isSuperAdmin).map((role) => (
                     <MenuItem key={role.value} value={role.value}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         <Chip label={role.label} color={role.color} size="small" variant="outlined" />
