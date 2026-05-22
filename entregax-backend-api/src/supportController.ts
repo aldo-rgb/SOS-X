@@ -369,11 +369,12 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
     const isAdvisorRole = advisorRoles.includes(userRole);
 
     let deptQuery: string;
-    if (creatorType === 'employee' && !isAdvisorRole) {
+    // systemError siempre va a Soporte Técnico, sin importar quién lo creó
+    if (category === 'systemError') {
       deptQuery = `SELECT id FROM support_departments WHERE name = 'Soporte Técnico' LIMIT 1`;
-    } else if (creatorType === 'client' && category === 'systemError') {
+    } else if (creatorType === 'employee' && !isAdvisorRole) {
       deptQuery = `SELECT id FROM support_departments WHERE name = 'Soporte Técnico' LIMIT 1`;
-    } else if (creatorType === 'client' && category === 'accounting') {
+    } else if (category === 'accounting') {
       deptQuery = `SELECT id FROM support_departments WHERE name = 'Contabilidad' LIMIT 1`;
     } else {
       deptQuery = `SELECT id FROM support_departments WHERE is_default_for_clients = TRUE LIMIT 1`;
