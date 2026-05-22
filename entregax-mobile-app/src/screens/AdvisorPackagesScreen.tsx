@@ -242,7 +242,15 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   };
 
   const handleCardPress = (item: Shipment) => {
-    if (!selectionMode) return;
+    if (!selectionMode) {
+      navigation.navigate('AdvisorPackageDetail', {
+        packageId: item.id,
+        token,
+        clientName: item.client_name || undefined,
+        clientBoxId: item.client_box_id || undefined,
+      });
+      return;
+    }
     if (selectedUids.includes(item.uid)) {
       const next = selectedUids.filter(u => u !== item.uid);
       setSelectedUids(next);

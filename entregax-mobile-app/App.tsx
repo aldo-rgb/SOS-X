@@ -87,6 +87,7 @@ import AdvisorTeamScreen from './src/screens/AdvisorTeamScreen';
 import AdvisorClientTicketsScreen from './src/screens/AdvisorClientTicketsScreen';
 import AdvisorNotificationsScreen from './src/screens/AdvisorNotificationsScreen';
 import AdvisorPackagesScreen from './src/screens/AdvisorPackagesScreen';
+import AdvisorPackageDetailScreen from './src/screens/AdvisorPackageDetailScreen';
 import AdvisorSupportTicketScreen from './src/screens/AdvisorSupportTicketScreen';
 // Chat Screens (módulo interno staff)
 import ChatListScreen from './src/screens/ChatListScreen';
@@ -184,6 +185,7 @@ export type RootStackParamList = {
   AdvisorClientTickets: { user: any; token: string };
   AdvisorNotifications: { user: any; token: string };
   AdvisorPackages: { user: any; token: string; filter: string };
+  AdvisorPackageDetail: { packageId: number; token: string; clientName?: string; clientBoxId?: string };
   AdvisorSupportTicket: { user: any; token: string };
   SupportTickets: { user: any; token: string };
   // Chat interno staff
@@ -478,6 +480,7 @@ function App() {
             }}
           />
           <Stack.Screen name="AdvisorPackages" component={AdvisorPackagesScreen} />
+          <Stack.Screen name="AdvisorPackageDetail" component={AdvisorPackageDetailScreen} options={{ headerShown: false }} />
           <Stack.Screen name="AdvisorSupportTicket" component={AdvisorSupportTicketScreen} options={{ headerShown: false }} />
           <Stack.Screen name="SupportTickets" component={SupportTicketsScreen} options={{ headerShown: false }} />
           {/* Chat interno staff */}
