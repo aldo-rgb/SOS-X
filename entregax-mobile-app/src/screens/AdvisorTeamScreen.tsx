@@ -9,18 +9,20 @@ import {
   ActivityIndicator,
   RefreshControl,
   Linking,
+  Dimensions,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { API_URL } from '../services/api';
 
+const { width } = Dimensions.get('window');
+const ORANGE = '#F05A28';
+const BLACK  = '#111111';
+const BG     = '#F4F4F6';
+const RED    = '#C62828';
+
 interface Props {
-  route: {
-    params: {
-      user: any;
-      token: string;
-    };
-  };
+  route: { params: { user: any; token: string } };
   navigation: any;
 }
 
@@ -36,6 +38,7 @@ interface TeamMember {
   monthly_revenue: number;
   commission_rate: number;
   status: 'active' | 'inactive';
+  blocked?: boolean;
   created_at: string;
 }
 
@@ -50,477 +53,300 @@ interface TeamStats {
 
 const AdvisorTeamScreen: React.FC<Props> = ({ route, navigation }) => {
   const { user, token } = route.params;
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [activeTab, setActiveTab]   = useState<'team' | 'rates'>('team');
   const [stats, setStats] = useState<TeamStats>({
-    totalMembers: 0,
-    activeMembers: 0,
-    totalClients: 0,
-    monthlyClients: 0,
-    teamRevenue: 0,
-    myCommission: 0,
+    totalMembers: 0, activeMembers: 0, totalClients: 0,
+    monthlyClients: 0, teamRevenue: 0, myCommission: 0,
   });
 
   const fetchTeamData = useCallback(async () => {
     try {
       const response = await fetch(`${API_URL}/api/advisor/team`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
-      
       if (response.ok) {
         const data = await response.json();
-        
         if (data.team) {
           setTeamMembers(data.team);
-          
-          // Calculate stats from team data
           const active = data.team.filter((m: TeamMember) => m.status === 'active').length;
-          const totalClients = data.team.reduce((sum: number, m: TeamMember) => sum + (m.total_clients || 0), 0);
-          const monthlyClients = data.team.reduce((sum: number, m: TeamMember) => sum + (m.monthly_clients || 0), 0);
-          const teamRevenue = data.team.reduce((sum: number, m: TeamMember) => sum + (m.total_revenue || 0), 0);
-          
           setStats({
             totalMembers: data.team.length,
             activeMembers: active,
-            totalClients: totalClients,
-            monthlyClients: monthlyClients,
-            teamRevenue: teamRevenue,
+            totalClients: data.team.reduce((s: number, m: TeamMember) => s + (m.total_clients || 0), 0),
+            monthlyClients: data.team.reduce((s: number, m: TeamMember) => s + (m.monthly_clients || 0), 0),
+            teamRevenue: data.team.reduce((s: number, m: TeamMember) => s + (m.total_revenue || 0), 0),
             myCommission: data.my_commission || 0,
           });
         }
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('Error fetching team:', errorData);
-        
-        if (response.status === 403) {
-          Alert.alert(
-            'Sin Acceso',
-            'Solo los asesores líderes pueden ver esta información'
-          );
-          navigation.goBack();
-        }
+      } else if (response.status === 403) {
+        Alert.alert('Sin Acceso', 'Solo los asesores líderes pueden ver esta información');
+        navigation.goBack();
       }
-    } catch (error) {
-      console.error('Error fetching team data:', error);
+    } catch (err) {
+      console.error('Error fetching team data:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [token]);
 
-  useEffect(() => {
-    fetchTeamData();
-  }, [fetchTeamData]);
+  useEffect(() => { fetchTeamData(); }, [fetchTeamData]);
+  const onRefresh = useCallback(() => { setRefreshing(true); fetchTeamData(); }, [fetchTeamData]);
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchTeamData();
-  }, [fetchTeamData]);
+  const handlePayCommissions = () => Alert.alert('Pagar Comisiones', '¿Confirmas el pago de comisiones del equipo?', [
+    { text: 'Cancelar', style: 'cancel' },
+    { text: 'Confirmar', style: 'default', onPress: () => {} },
+  ]);
 
-  const callMember = (phone: string) => {
-    const phoneNumber = phone.replace(/[^0-9+]/g, '');
-    Linking.openURL(`tel:${phoneNumber}`);
-  };
-
-  const whatsAppMember = (phone: string) => {
-    const phoneNumber = phone.replace(/[^0-9]/g, '');
-    Linking.openURL(`whatsapp://send?phone=52${phoneNumber}`);
-  };
-
-  const emailMember = (email: string) => {
-    Linking.openURL(`mailto:${email}`);
-  };
-
-  const renderMemberCard = (member: TeamMember) => (
-    <View key={member.id} style={styles.memberCard}>
-      <View style={styles.memberHeader}>
-        <View style={styles.memberAvatar}>
-          <Text style={styles.memberInitial}>
-            {member.name.charAt(0).toUpperCase()}
-          </Text>
-        </View>
-        <View style={styles.memberInfo}>
-          <Text style={styles.memberName}>{member.name}</Text>
-          <View style={styles.memberCodeRow}>
-            <Text style={styles.memberCode}>Código: {member.referral_code}</Text>
-            <View style={[
-              styles.statusBadge,
-              { backgroundColor: member.status === 'active' ? '#E8F5E9' : '#FFEBEE' }
-            ]}>
-              <Text style={[
-                styles.statusText,
-                { color: member.status === 'active' ? '#4CAF50' : '#F44336' }
-              ]}>
-                {member.status === 'active' ? 'Activo' : 'Inactivo'}
-              </Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.memberStats}>
-        <View style={styles.memberStat}>
-          <Text style={styles.memberStatValue}>{member.total_clients || 0}</Text>
-          <Text style={styles.memberStatLabel}>Clientes</Text>
-        </View>
-        <View style={styles.memberStat}>
-          <Text style={styles.memberStatValue}>{member.monthly_clients || 0}</Text>
-          <Text style={styles.memberStatLabel}>Este Mes</Text>
-        </View>
-        <View style={styles.memberStat}>
-          <Text style={styles.memberStatValue}>
-            ${((member.total_revenue || 0) / 1000).toFixed(1)}k
-          </Text>
-          <Text style={styles.memberStatLabel}>Generado</Text>
-        </View>
-      </View>
-
-      <View style={styles.memberActions}>
-        {member.phone && (
-          <>
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={() => callMember(member.phone)}
-            >
-              <Ionicons name="call" size={20} color="#4CAF50" />
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={() => whatsAppMember(member.phone)}
-            >
-              <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
-            </TouchableOpacity>
-          </>
-        )}
-        {member.email && (
-          <TouchableOpacity 
-            style={styles.actionButton}
-            onPress={() => emailMember(member.email)}
-          >
-            <Ionicons name="mail" size={20} color="#2196F3" />
-          </TouchableOpacity>
-        )}
-      </View>
-    </View>
-  );
+  const handleAssignRate = () => Alert.alert('Asignar Tarifa', 'Funcionalidad disponible próximamente.');
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#F05A28" />
-        <Text style={styles.loadingText}>Cargando equipo...</Text>
+      <View style={s.center}>
+        <ActivityIndicator size="large" color={ORANGE} />
+        <Text style={s.loadingText}>Cargando equipo...</Text>
       </View>
     );
   }
 
+  const renderMemberCard = (member: TeamMember) => (
+    <View key={member.id} style={s.memberCard}>
+      {/* Accent bar top */}
+      <View style={[s.memberCardBar, { backgroundColor: member.blocked ? RED : ORANGE }]} />
+
+      <View style={s.memberHeader}>
+        <View style={[s.memberAvatar, { backgroundColor: member.blocked ? RED : ORANGE }]}>
+          <Text style={s.memberInitial}>{member.name.charAt(0).toUpperCase()}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={s.memberName}>{member.name}</Text>
+            {member.blocked && (
+              <View style={s.blockedBadge}><Text style={s.blockedText}>BLOQUEADO</Text></View>
+            )}
+          </View>
+          <Text style={s.memberCode}>Código: {member.referral_code}</Text>
+        </View>
+        {/* Status dot */}
+        <View style={[s.statusDot, { backgroundColor: member.status === 'active' ? '#4CAF50' : '#9E9E9E' }]} />
+      </View>
+
+      <View style={s.memberStats}>
+        {[
+          { value: member.total_clients || 0, label: 'Clientes' },
+          { value: member.monthly_clients || 0, label: 'Este Mes' },
+          { value: `$${((member.total_revenue || 0) / 1000).toFixed(1)}k`, label: 'Generado' },
+        ].map((st, i) => (
+          <View key={i} style={s.memberStat}>
+            <Text style={s.memberStatValue}>{st.value}</Text>
+            <Text style={s.memberStatLabel}>{st.label}</Text>
+          </View>
+        ))}
+      </View>
+
+      <View style={s.memberFooter}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          {member.phone && (
+            <>
+              <TouchableOpacity style={s.iconBtn} onPress={() => Linking.openURL(`tel:${member.phone.replace(/[^0-9+]/g, '')}`)}>
+                <Ionicons name="call" size={18} color="#4CAF50" />
+              </TouchableOpacity>
+              <TouchableOpacity style={s.iconBtn} onPress={() => Linking.openURL(`whatsapp://send?phone=52${member.phone.replace(/[^0-9]/g, '')}`)}>
+                <Ionicons name="logo-whatsapp" size={18} color="#25D366" />
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+        <TouchableOpacity onPress={() => navigation.navigate('AdvisorClients', { user, token, subAdvisorId: member.id })}>
+          <Text style={s.detailsBtn}>Ver Detalles →</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+
+  const renderRatesTab = () => (
+    <View style={s.emptyState}>
+      <Ionicons name="pricetag-outline" size={56} color="#ccc" />
+      <Text style={s.emptyTitle}>Tarifas del Equipo</Text>
+      <Text style={s.emptyText}>Administra las tarifas asignadas a tu equipo de asesores.</Text>
+      <TouchableOpacity style={s.ghostBtn} onPress={handleAssignRate}>
+        <Text style={s.ghostBtnText}>Asignar Tarifa</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
+    <SafeAreaView style={s.container} edges={['bottom']}>
+
+      {/* ── TABS ── */}
+      <View style={s.tabBar}>
+        {(['team', 'rates'] as const).map(tab => (
+          <TouchableOpacity key={tab} style={s.tabItem} onPress={() => setActiveTab(tab)}>
+            <Text style={[s.tabText, activeTab === tab && s.tabTextActive]}>
+              {tab === 'team' ? 'Asesores' : 'Tarifas'}
+            </Text>
+            {activeTab === tab && <View style={s.tabIndicator} />}
+          </TouchableOpacity>
+        ))}
+      </View>
+
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            colors={['#F05A28']}
-            tintColor="#F05A28"
-          />
-        }
+        contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ORANGE]} tintColor={ORANGE} />}
       >
-        {/* Header */}
-        <View style={styles.headerCard}>
-          <Ionicons name="people-circle" size={48} color="#fff" />
-          <Text style={styles.headerTitle}>Mi Equipo</Text>
-          <Text style={styles.headerSubtitle}>
-            {stats.totalMembers} sub-asesores registrados
-          </Text>
-        </View>
-
-        {/* Stats Grid */}
-        <View style={styles.statsGrid}>
-          <View style={styles.statCard}>
-            <Ionicons name="people" size={24} color="#F05A28" />
-            <Text style={styles.statValue}>{stats.activeMembers}</Text>
-            <Text style={styles.statLabel}>Activos</Text>
+        {/* ── KPI CARD ── */}
+        <View style={s.kpiCard}>
+          <View style={s.kpiGrid}>
+            {[
+              { label: 'Ventas del mes', value: `$${(stats.teamRevenue / 1000).toFixed(1)}k` },
+              { label: 'Comisiones', value: `$${stats.myCommission.toFixed(0)}` },
+              { label: 'Sub-Asesores', value: `${stats.totalMembers}` },
+              { label: 'Clientes equipo', value: `${stats.totalClients}` },
+            ].map((kpi, i) => (
+              <View key={i} style={s.kpiItem}>
+                <Text style={s.kpiLabel}>{kpi.label}</Text>
+                <Text style={s.kpiValue}>{kpi.value}</Text>
+              </View>
+            ))}
           </View>
-          <View style={styles.statCard}>
-            <Ionicons name="person-add" size={24} color="#2196F3" />
-            <Text style={styles.statValue}>{stats.totalClients}</Text>
-            <Text style={styles.statLabel}>Clientes Total</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Ionicons name="trending-up" size={24} color="#4CAF50" />
-            <Text style={styles.statValue}>{stats.monthlyClients}</Text>
-            <Text style={styles.statLabel}>Este Mes</Text>
-          </View>
-          <View style={styles.statCard}>
-            <Ionicons name="cash" size={24} color="#9C27B0" />
-            <Text style={styles.statValue}>
-              ${(stats.teamRevenue / 1000).toFixed(1)}k
-            </Text>
-            <Text style={styles.statLabel}>Generado</Text>
+          {/* Botones de acción */}
+          <View style={s.kpiActions}>
+            <TouchableOpacity style={s.primaryBtn} onPress={handlePayCommissions}>
+              <Ionicons name="wallet" size={16} color="#fff" />
+              <Text style={s.primaryBtnText}>Pagar Comisiones</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={s.ghostBtn} onPress={handleAssignRate}>
+              <Text style={s.ghostBtnText}>Asignar Tarifa</Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        {/* My Commission from Team */}
-        <View style={styles.commissionCard}>
-          <View style={styles.commissionLeft}>
-            <Ionicons name="wallet" size={32} color="#4CAF50" />
-            <View style={styles.commissionInfo}>
-              <Text style={styles.commissionLabel}>Mi Comisión del Equipo</Text>
-              <Text style={styles.commissionValue}>
-                ${stats.myCommission.toFixed(2)} MXN
-              </Text>
+        {activeTab === 'team' ? (
+          <>
+            <View style={s.sectionRow}>
+              <Text style={s.sectionTitle}>Miembros del Equipo</Text>
+              <View style={s.countBadge}><Text style={s.countBadgeText}>{teamMembers.length}</Text></View>
             </View>
-          </View>
-        </View>
-
-        {/* Team Members */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Miembros del Equipo</Text>
-          <Text style={styles.sectionCount}>{teamMembers.length}</Text>
-        </View>
-
-        {teamMembers.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyTitle}>Sin Sub-Asesores</Text>
-            <Text style={styles.emptyText}>
-              Aún no tienes sub-asesores en tu equipo
-            </Text>
-          </View>
-        ) : (
-          teamMembers.map(renderMemberCard)
-        )}
+            {teamMembers.length === 0 ? (
+              <View style={s.emptyState}>
+                <Ionicons name="people-outline" size={56} color="#ccc" />
+                <Text style={s.emptyTitle}>Sin Sub-Asesores</Text>
+                <Text style={s.emptyText}>Aún no tienes sub-asesores en tu equipo</Text>
+              </View>
+            ) : (
+              teamMembers.map(renderMemberCard)
+            )}
+          </>
+        ) : renderRatesTab()}
       </ScrollView>
     </SafeAreaView>
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
+const s = StyleSheet.create({
+  container:   { flex: 1, backgroundColor: BG },
+  center:      { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  loadingText: { marginTop: 12, color: '#aaa', fontSize: 15 },
+
+  // Tabs
+  tabBar: {
+    flexDirection: 'row',
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E8E8E8',
   },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 32,
-  },
-  loadingContainer: {
+  tabItem: {
     flex: 1,
-    justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
+    paddingVertical: 14,
+    position: 'relative',
   },
-  loadingText: {
-    marginTop: 16,
-    fontSize: 16,
-    color: '#666',
-  },
-  headerCard: {
-    backgroundColor: '#9C27B0',
+  tabText:       { fontSize: 14, fontWeight: '600', color: '#9E9E9E' },
+  tabTextActive: { color: BLACK },
+  tabIndicator:  { position: 'absolute', bottom: 0, left: '15%', right: '15%', height: 3, backgroundColor: ORANGE, borderRadius: 2 },
+
+  // KPI card
+  kpiCard: {
+    backgroundColor: BLACK,
     borderRadius: 16,
-    padding: 24,
-    alignItems: 'center',
-    marginBottom: 16,
+    padding: 20,
+    marginBottom: 20,
   },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginTop: 12,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.9)',
-    marginTop: 4,
-  },
-  statsGrid: {
+  kpiGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 12,
-    marginBottom: 16,
+    gap: 16,
+    marginBottom: 20,
   },
-  statCard: {
-    width: '47%',
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    elevation: 2,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#333',
-    marginTop: 8,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-  },
-  commissionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#E8F5E9',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 24,
-  },
-  commissionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  commissionInfo: {
-    marginLeft: 12,
-  },
-  commissionLabel: {
-    fontSize: 14,
-    color: '#666',
-  },
-  commissionValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#4CAF50',
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  sectionCount: {
-    fontSize: 14,
-    color: '#666',
-    backgroundColor: '#eee',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
+  kpiItem:  { width: (width - 72) / 2 },
+  kpiLabel: { color: '#888', fontSize: 11, fontWeight: '500', letterSpacing: 0.5, textTransform: 'uppercase' },
+  kpiValue: { color: ORANGE, fontSize: 28, fontWeight: '900', marginTop: 2 },
+
+  // Buttons
+  kpiActions:     { flexDirection: 'row', gap: 10 },
+  primaryBtn:     { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: ORANGE, borderRadius: 10, paddingVertical: 12 },
+  primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
+  ghostBtn:       { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent', borderWidth: 1.5, borderColor: '#fff', borderRadius: 10, paddingVertical: 12 },
+  ghostBtnText:   { color: '#fff', fontWeight: '700', fontSize: 13 },
+
+  // Section
+  sectionRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
+  sectionTitle:{ fontSize: 14, fontWeight: '800', color: '#888', letterSpacing: 1.5, textTransform: 'uppercase' },
+  countBadge:  { backgroundColor: '#E8E8E8', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 3 },
+  countBadgeText: { fontSize: 13, color: '#666', fontWeight: '600' },
+
+  // Member card
   memberCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 16,
-    marginBottom: 12,
-    elevation: 2,
+    marginBottom: 10,
+    overflow: 'hidden',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
     shadowRadius: 4,
+    elevation: 2,
   },
-  memberHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  memberAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#F05A28',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  memberInitial: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#fff',
-  },
-  memberInfo: {
-    flex: 1,
-  },
-  memberName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333',
-  },
-  memberCodeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 4,
-    gap: 8,
-  },
-  memberCode: {
-    fontSize: 13,
-    color: '#666',
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-  },
-  statusText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
+  memberCardBar: { position: 'absolute', top: 0, left: 0, right: 0, height: 3, borderTopLeftRadius: 14, borderTopRightRadius: 14 },
+  memberHeader:  { flexDirection: 'row', alignItems: 'center', marginBottom: 14, marginTop: 6 },
+  memberAvatar:  { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  memberInitial: { fontSize: 18, fontWeight: '800', color: '#fff' },
+  memberName:    { fontSize: 15, fontWeight: '700', color: BLACK },
+  memberCode:    { fontSize: 12, color: '#888', marginTop: 2 },
+  statusDot:     { width: 10, height: 10, borderRadius: 5 },
+
+  blockedBadge: { backgroundColor: RED, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
+  blockedText:  { color: '#fff', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
+
   memberStats: {
     flexDirection: 'row',
     justifyContent: 'space-around',
     paddingVertical: 12,
     borderTopWidth: 1,
     borderBottomWidth: 1,
-    borderColor: '#eee',
+    borderColor: '#F0F0F0',
   },
-  memberStat: {
-    alignItems: 'center',
-  },
-  memberStatValue: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  memberStatLabel: {
-    fontSize: 11,
-    color: '#666',
-    marginTop: 2,
-  },
-  memberActions: {
+  memberStat:       { alignItems: 'center' },
+  memberStatValue:  { fontSize: 18, fontWeight: '800', color: BLACK },
+  memberStatLabel:  { fontSize: 11, color: '#888', marginTop: 2 },
+
+  memberFooter: {
     flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 12,
   },
-  actionButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f5f5f5',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyState: {
-    alignItems: 'center',
-    padding: 40,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-    marginTop: 16,
-  },
-  emptyText: {
-    fontSize: 14,
-    color: '#666',
-    marginTop: 8,
-    textAlign: 'center',
-  },
+  iconBtn:    { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F5F5F5', justifyContent: 'center', alignItems: 'center' },
+  detailsBtn: { color: ORANGE, fontSize: 13, fontWeight: '700' },
+
+  // Empty
+  emptyState: { alignItems: 'center', padding: 40, backgroundColor: '#fff', borderRadius: 14 },
+  emptyTitle: { fontSize: 16, fontWeight: '700', color: '#333', marginTop: 14 },
+  emptyText:  { fontSize: 13, color: '#888', marginTop: 6, textAlign: 'center', lineHeight: 19 },
 });
 
 export default AdvisorTeamScreen;
