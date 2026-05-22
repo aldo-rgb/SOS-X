@@ -7056,17 +7056,37 @@ app.get('/api/admin/finance/payment-details/:referencia', authenticateToken, req
 // ============================================
 app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const { empresa_id } = req.query;
+    const { empresa_id, numero_cuenta } = req.query;
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
 
-    const result = await pool.query(`
-      SELECT id, fecha, concepto, referencia, cargo, abono, saldo, banco, uploaded_at
+    // Obtener lista de cuentas disponibles para esta empresa
+    const cuentasRes = await pool.query(`
+      SELECT DISTINCT numero_cuenta
       FROM bank_statement_entries
-      WHERE empresa_id = $1
-      ORDER BY fecha DESC, id ASC
+      WHERE empresa_id = $1 AND numero_cuenta IS NOT NULL
+      ORDER BY numero_cuenta
     `, [empresa_id]);
+    const cuentasDisponibles: string[] = cuentasRes.rows.map((r: any) => r.numero_cuenta);
 
-    res.json({ success: true, entries: result.rows, count: result.rows.length });
+    // Filtrar por cuenta si se especifica
+    let result;
+    if (numero_cuenta && String(numero_cuenta).trim()) {
+      result = await pool.query(`
+        SELECT id, fecha, concepto, referencia, cargo, abono, saldo, banco, numero_cuenta, uploaded_at
+        FROM bank_statement_entries
+        WHERE empresa_id = $1 AND numero_cuenta = $2
+        ORDER BY fecha DESC, id ASC
+      `, [empresa_id, String(numero_cuenta).trim()]);
+    } else {
+      result = await pool.query(`
+        SELECT id, fecha, concepto, referencia, cargo, abono, saldo, banco, numero_cuenta, uploaded_at
+        FROM bank_statement_entries
+        WHERE empresa_id = $1
+        ORDER BY fecha DESC, id ASC
+      `, [empresa_id]);
+    }
+
+    res.json({ success: true, entries: result.rows, count: result.rows.length, cuentas_disponibles: cuentasDisponibles });
   } catch (error: any) {
     console.error('Error fetching bank entries:', error);
     res.status(500).json({ error: 'Error obteniendo movimientos', details: error.message });
@@ -7079,13 +7099,23 @@ app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(RO
 // ============================================
 app.delete('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
-    const { empresa_id } = req.query;
+    const { empresa_id, numero_cuenta } = req.query;
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
 
-    const result = await pool.query(
-      'DELETE FROM bank_statement_entries WHERE empresa_id = $1 RETURNING id',
-      [empresa_id]
-    );
+    let result;
+    if (numero_cuenta && String(numero_cuenta).trim()) {
+      // Borrar solo la cuenta especificada
+      result = await pool.query(
+        'DELETE FROM bank_statement_entries WHERE empresa_id = $1 AND numero_cuenta = $2 RETURNING id',
+        [empresa_id, String(numero_cuenta).trim()]
+      );
+    } else {
+      // Borrar todo (backward compat)
+      result = await pool.query(
+        'DELETE FROM bank_statement_entries WHERE empresa_id = $1 RETURNING id',
+        [empresa_id]
+      );
+    }
 
     res.json({ success: true, deleted: result.rowCount });
   } catch (error: any) {
@@ -7105,7 +7135,7 @@ app.delete('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel
 app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (req: AuthRequest, res: Response): Promise<any> => {
   try {
     const adminId = (req.user as any)?.userId || (req.user as any)?.id;
-    const { entries, empresa_id, service_type, banco } = req.body;
+    const { entries, empresa_id, service_type, banco, numero_cuenta } = req.body;
     // entries = [{ fecha, concepto, referencia, cargo, abono, saldo }]
 
     if (!entries || !Array.isArray(entries) || entries.length === 0) {
@@ -7114,26 +7144,34 @@ app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLe
     if (!empresa_id) {
       return res.status(400).json({ error: 'Falta empresa_id' });
     }
+    if (!numero_cuenta || !String(numero_cuenta).trim()) {
+      return res.status(400).json({ error: 'Falta el alias/número de cuenta. Especifica a qué cuenta pertenece este estado de cuenta.' });
+    }
 
+    // Ensure numero_cuenta column exists
+    await pool.query(`ALTER TABLE bank_statement_entries ADD COLUMN IF NOT EXISTS numero_cuenta VARCHAR(100)`).catch(() => {});
+
+    const cuentaClean = String(numero_cuenta).trim();
     const crypto = require('crypto');
     const newEntries: any[] = [];
     const duplicateCount = { count: 0 };
 
     for (const entry of entries) {
-      // Generar hash para deduplicar
-      const hashInput = `${entry.fecha}|${entry.concepto}|${entry.referencia || ''}|${entry.cargo || ''}|${entry.abono || ''}|${entry.saldo || ''}`;
+      // Hash incluye numero_cuenta — transacciones del mismo día/monto en cuentas distintas no colisionan
+      const hashInput = `${cuentaClean}|${entry.fecha}|${entry.concepto}|${entry.referencia || ''}|${entry.cargo || ''}|${entry.abono || ''}|${entry.saldo || ''}`;
       const entryHash = crypto.createHash('sha256').update(hashInput).digest('hex').substring(0, 64);
 
       try {
         const result = await pool.query(`
-          INSERT INTO bank_statement_entries (empresa_id, service_type, banco, fecha, concepto, referencia, cargo, abono, saldo, entry_hash, uploaded_by)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          INSERT INTO bank_statement_entries (empresa_id, service_type, banco, numero_cuenta, fecha, concepto, referencia, cargo, abono, saldo, entry_hash, uploaded_by)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
           ON CONFLICT (empresa_id, entry_hash) DO NOTHING
           RETURNING *
         `, [
           empresa_id,
           service_type || null,
           banco || 'bbva',
+          cuentaClean,
           entry.fecha ? parseDateDDMMYYYY(entry.fecha) : new Date(),
           entry.concepto || '',
           entry.referencia || '',

@@ -243,6 +243,9 @@ export default function FinanceDashboardPage() {
   // Estado de Cuenta
   const [estadoCuentaRaw, setEstadoCuentaRaw] = useState('');
   const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [numeroCuenta, setNumeroCuenta] = useState('');
+  const [cuentasDisponibles, setCuentasDisponibles] = useState<string[]>([]);
+  const [cuentaFiltro, setCuentaFiltro] = useState('');
   interface EstadoCuentaRow {
     fecha: string;
     concepto: string;
@@ -431,19 +434,29 @@ export default function FinanceDashboardPage() {
     return Object.entries(refMap).map(([ref, entries]) => ({ ref, entries }));
   };
 
-  const loadSavedBankEntries = async () => {
+  const loadSavedBankEntries = async (cuentaOverride?: string) => {
     const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
     if (!empresaFilt) return;
     setLoadingSavedEntries(true);
     try {
-      const res = await api.get(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`);
+      const cuenta = cuentaOverride !== undefined ? cuentaOverride : cuentaFiltro;
+      const url = `/admin/finance/bank-entries?empresa_id=${empresaFilt.id}${cuenta ? `&numero_cuenta=${encodeURIComponent(cuenta)}` : ''}`;
+      const res = await api.get(url);
+
+      // Actualizar lista de cuentas disponibles
+      if (res.data.cuentas_disponibles) {
+        setCuentasDisponibles(res.data.cuentas_disponibles);
+        // Si no hay cuenta seleccionada y solo hay una, seleccionarla automáticamente
+        if (!cuenta && res.data.cuentas_disponibles.length === 1) {
+          setCuentaFiltro(res.data.cuentas_disponibles[0]);
+        }
+      }
+
       if (res.data.entries && res.data.entries.length > 0) {
         const mapped = res.data.entries.map((e: any) => {
-          // Parse date from ISO string directly to avoid timezone shift
-          // e.fecha = "2026-04-15T00:00:00.000Z" → extract "2026-04-15" → "15-04-2026"
           let fechaStr = '';
           if (e.fecha) {
-            const isoDate = e.fecha.substring(0, 10); // "2026-04-15"
+            const isoDate = e.fecha.substring(0, 10);
             const [yyyy, mm, dd] = isoDate.split('-');
             fechaStr = `${dd}-${mm}-${yyyy}`;
           }
@@ -460,8 +473,9 @@ export default function FinanceDashboardPage() {
         setSavedEntriesCount(mapped.length);
         setSnackbar({ open: true, message: `📋 ${mapped.length} movimientos cargados desde la base de datos`, severity: 'success' });
       } else {
+        setEstadoCuentaRows([]);
         setSavedEntriesCount(0);
-        setSnackbar({ open: true, message: 'No hay movimientos guardados para este período', severity: 'info' });
+        setSnackbar({ open: true, message: 'No hay movimientos guardados para esta cuenta', severity: 'info' });
       }
     } catch (err: any) {
       setSnackbar({ open: true, message: 'Error cargando historial: ' + (err.response?.data?.error || err.message), severity: 'error' });
@@ -506,6 +520,10 @@ export default function FinanceDashboardPage() {
       setSnackbar({ open: true, message: '⚠️ Selecciona un servicio/empresa para guardar los movimientos.', severity: 'error' });
       return;
     }
+    if (!numeroCuenta.trim()) {
+      setSnackbar({ open: true, message: '⚠️ Escribe el alias de la cuenta (ej: BBVA-OPER) antes de guardar.', severity: 'error' });
+      return;
+    }
 
     let newEntries: EstadoCuentaRow[] = [];
     let duplicateCount = 0;
@@ -515,6 +533,7 @@ export default function FinanceDashboardPage() {
         empresa_id: empresaFilt.id,
         service_type: empresaFilt.servicio_asignado,
         banco: estadoCuentaBanco,
+        numero_cuenta: numeroCuenta.trim(),
       });
       newEntries = saveRes.data.new_entries || [];
       duplicateCount = saveRes.data.duplicate_count || 0;
@@ -1778,6 +1797,44 @@ export default function FinanceDashboardPage() {
               {bancoFijo && <><br/><em>Banco detectado automáticamente desde la configuración de {empresaFiltrada?.alias}.</em></>}
             </Alert>
 
+            {/* Selector/filtro de cuenta cuando hay varias guardadas */}
+            {cuentasDisponibles.length > 0 && (
+              <Box sx={{ display: 'flex', gap: 2, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Typography variant="body2" fontWeight={600} color="text.secondary">Cuenta guardada:</Typography>
+                {cuentasDisponibles.map(c => (
+                  <Chip
+                    key={c}
+                    label={c}
+                    onClick={() => { setCuentaFiltro(c); setNumeroCuenta(c); loadSavedBankEntries(c); }}
+                    color={cuentaFiltro === c ? 'primary' : 'default'}
+                    variant={cuentaFiltro === c ? 'filled' : 'outlined'}
+                    size="small"
+                  />
+                ))}
+                {cuentaFiltro && (
+                  <Chip
+                    label="Ver todas"
+                    onClick={() => { setCuentaFiltro(''); loadSavedBankEntries(''); }}
+                    variant="outlined"
+                    size="small"
+                    color="warning"
+                  />
+                )}
+              </Box>
+            )}
+
+            {/* Campo alias de cuenta para nueva subida */}
+            <TextField
+              size="small"
+              label="Alias de cuenta"
+              placeholder="Ej: BBVA-OPER, BBVA-NOMINA"
+              value={numeroCuenta}
+              onChange={(e) => setNumeroCuenta(e.target.value.toUpperCase())}
+              helperText="Identifica a qué cuenta pertenece este estado de cuenta. Usa siempre el mismo alias para la misma cuenta."
+              sx={{ mb: 2, width: 300 }}
+              inputProps={{ maxLength: 50 }}
+            />
+
             {bancoActivo === 'banregio' ? (
               <Box sx={{ mb: 2 }}>
                 <Button
@@ -1832,16 +1889,29 @@ export default function FinanceDashboardPage() {
                   onClick={async () => {
                     const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
                     if (!empresaFilt) return;
-                    const confirmed = window.confirm(`¿Borrar TODOS los movimientos de ${empresaFilt.alias} de la base de datos? Esta acción no se puede deshacer.`);
+                    const cuentaMsg = cuentaFiltro ? ` (cuenta: ${cuentaFiltro})` : ' (TODAS las cuentas)';
+                    const confirmed = window.confirm(`¿Borrar los movimientos de ${empresaFilt.alias}${cuentaMsg} de la base de datos? Esta acción no se puede deshacer.`);
                     if (!confirmed) return;
                     try {
-                      await api.delete(`/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`, {
+                      const deleteUrl = cuentaFiltro
+                        ? `/admin/finance/bank-entries?empresa_id=${empresaFilt.id}&numero_cuenta=${encodeURIComponent(cuentaFiltro)}`
+                        : `/admin/finance/bank-entries?empresa_id=${empresaFilt.id}`;
+                      await api.delete(deleteUrl, {
                         headers: { Authorization: `Bearer ${token}` },
                       });
                       setEstadoCuentaRows([]);
                       setEstadoCuentaRaw('');
                       setCsvFile(null);
                       setSavedEntriesCount(null);
+                      if (cuentaFiltro) {
+                        setCuentasDisponibles(prev => prev.filter(c => c !== cuentaFiltro));
+                        setCuentaFiltro('');
+                        setNumeroCuenta('');
+                      } else {
+                        setCuentasDisponibles([]);
+                        setCuentaFiltro('');
+                        setNumeroCuenta('');
+                      }
                       setSnackbar({ open: true, message: 'Movimientos eliminados correctamente', severity: 'success' });
                     } catch (err: any) {
                       setSnackbar({ open: true, message: 'Error al borrar: ' + (err.response?.data?.error || err.message), severity: 'error' });
@@ -1856,6 +1926,12 @@ export default function FinanceDashboardPage() {
             {/* Results */}
             {estadoCuentaRows.length > 0 && (
               <>
+                {cuentaFiltro && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                    <Typography variant="body2" color="text.secondary">Mostrando cuenta:</Typography>
+                    <Chip label={cuentaFiltro} color="primary" size="small" />
+                  </Box>
+                )}
                 {/* Summary cards */}
                 <Grid container spacing={2} sx={{ mb: 3 }}>
                   <Grid size={{ xs: 12, sm: 4 }}>
