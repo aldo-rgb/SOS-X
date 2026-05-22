@@ -1218,11 +1218,11 @@ export default function SupportBoardPage() {
 
 // card_bg / border_color / chip_bg / chip_color
 const TICKET_VISUAL = {
-  nuevo:         { label: 'Nuevo',             cardBg: '#FFF0F0', border: '#EF9A9A', chipBg: '#FFCDD2', chipColor: '#C62828' },
-  en_progreso:   { label: 'En progreso',        cardBg: '#EFF6FF', border: '#90CAF9', chipBg: '#BBDEFB', chipColor: '#1565C0' },
-  overdue:       { label: '+3 días sin resolver', cardBg: '#FFEBEE', border: '#EF5350', chipBg: '#FFCDD2', chipColor: '#B71C1C' },
-  finalizado:    { label: 'Resuelto',           cardBg: '#F0FDF4', border: '#A5D6A7', chipBg: '#C8E6C9', chipColor: '#2E7D32' },
-  archived:      { label: 'Archivado',          cardBg: '#F5F5F5', border: '#BDBDBD', chipBg: '#E0E0E0', chipColor: '#616161' },
+  nuevo:       { label: 'Nuevo',               cardBg: '#FFE4E4', border: '#F87171', chipBg: '#FECACA', chipColor: '#B91C1C' },
+  en_progreso: { label: 'En progreso',          cardBg: '#DBEAFE', border: '#60A5FA', chipBg: '#BFDBFE', chipColor: '#1D4ED8' },
+  overdue:     { label: '+3 días sin resolver', cardBg: '#FECACA', border: '#EF4444', chipBg: '#FCA5A5', chipColor: '#7F1D1D' },
+  finalizado:  { label: 'Resuelto',             cardBg: '#D1FAE5', border: '#34D399', chipBg: '#A7F3D0', chipColor: '#065F46' },
+  archived:    { label: 'Archivado',            cardBg: '#F3F4F6', border: '#9CA3AF', chipBg: '#E5E7EB', chipColor: '#4B5563' },
 };
 
 function getTicketVisual(ticket: SupportTicket, isArchived: boolean) {
@@ -1267,14 +1267,16 @@ function TicketCard({
 
   return (
     <Card
+      elevation={0}
       sx={{
         mb: 1.5,
         cursor: 'pointer',
-        bgcolor: visual.cardBg,
+        backgroundColor: `${visual.cardBg} !important`,
         borderLeft: `4px solid ${visual.border}`,
+        border: `1px solid ${visual.border}`,
         opacity: isArchived ? 0.75 : 1,
         transition: 'transform 0.15s, box-shadow 0.15s',
-        '&:hover': { transform: 'translateY(-2px)', boxShadow: `0 4px 12px ${visual.border}66` },
+        '&:hover': { transform: 'translateY(-2px)', boxShadow: `0 4px 16px ${visual.border}88` },
       }}
       onClick={onClick}
     >
