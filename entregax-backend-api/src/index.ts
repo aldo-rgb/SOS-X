@@ -7059,6 +7059,9 @@ app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(RO
     const { empresa_id, numero_cuenta } = req.query;
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
 
+    // Ensure column exists (idempotent, safe to run every time)
+    await pool.query(`ALTER TABLE bank_statement_entries ADD COLUMN IF NOT EXISTS numero_cuenta VARCHAR(100)`).catch(() => {});
+
     // Obtener lista de cuentas disponibles para esta empresa
     const cuentasRes = await pool.query(`
       SELECT DISTINCT numero_cuenta
@@ -7101,6 +7104,7 @@ app.delete('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel
   try {
     const { empresa_id, numero_cuenta } = req.query;
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
+    await pool.query(`ALTER TABLE bank_statement_entries ADD COLUMN IF NOT EXISTS numero_cuenta VARCHAR(100)`).catch(() => {});
 
     let result;
     if (numero_cuenta && String(numero_cuenta).trim()) {
