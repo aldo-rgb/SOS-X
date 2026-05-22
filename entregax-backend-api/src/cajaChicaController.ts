@@ -543,15 +543,21 @@ export const registrarPagoCliente = async (req: AuthRequest, res: Response): Pro
 // ============================================
 export const registrarIngreso = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
+    // Ensure columns that may be missing in older DB instances exist
+    await pool.query(`ALTER TABLE caja_chica_transacciones ADD COLUMN IF NOT EXISTS saldo_despues_movimiento NUMERIC(14,2)`).catch(() => {});
+    await pool.query(`ALTER TABLE caja_chica_transacciones ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'MXN'`).catch(() => {});
+    await pool.query(`ALTER TABLE caja_chica_transacciones ADD COLUMN IF NOT EXISTS categoria VARCHAR(50)`).catch(() => {});
+
     const { monto, concepto, categoria, notas, currency = 'MXN' } = req.body;
-    const userId = req.user?.id;
-    const userName = req.user?.name;
-    
+    const userId = (req.user as any)?.userId ?? (req.user as any)?.id ?? null;
+    const userRow = userId ? await pool.query('SELECT full_name FROM users WHERE id = $1', [userId]).catch(() => ({ rows: [] })) : { rows: [] };
+    const userName = (userRow as any).rows[0]?.full_name ?? null;
+
     if (!monto || monto <= 0 || !concepto) {
       res.status(400).json({ message: 'Monto y concepto son requeridos' });
       return;
     }
-    
+
     // Calcular saldo después del movimiento (por moneda)
     const saldoResult = await pool.query(`
       SELECT COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0) as saldo
@@ -559,14 +565,14 @@ export const registrarIngreso = async (req: AuthRequest, res: Response): Promise
       WHERE COALESCE(currency, 'MXN') = $1
     `, [currency]);
     const nuevoSaldo = parseFloat(saldoResult.rows[0].saldo) + parseFloat(monto);
-    
+
     const result = await pool.query(`
-      INSERT INTO caja_chica_transacciones 
+      INSERT INTO caja_chica_transacciones
         (tipo, monto, concepto, categoria, admin_id, admin_name, saldo_despues_movimiento, notas, currency)
       VALUES ('ingreso', $1, $2, $3, $4, $5, $6, $7, $8)
       RETURNING *
-    `, [monto, concepto, categoria || 'otro_ingreso', userId, userName, nuevoSaldo, notas, currency]);
-    
+    `, [monto, concepto, categoria || 'otro_ingreso', userId, userName, nuevoSaldo, notas || null, currency]);
+
     res.json({
       success: true,
       message: `Ingreso en ${currency} registrado`,
@@ -584,8 +590,9 @@ export const registrarIngreso = async (req: AuthRequest, res: Response): Promise
 export const registrarEgreso = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { monto, concepto, categoria, notas, referencia, evidencia_url, currency = 'MXN' } = req.body;
-    const userId = req.user?.id;
-    const userName = req.user?.name;
+    const userId = (req.user as any)?.userId ?? (req.user as any)?.id ?? null;
+    const userRow = userId ? await pool.query('SELECT full_name FROM users WHERE id = $1', [userId]).catch(() => ({ rows: [] })) : { rows: [] };
+    const userName = (userRow as any).rows[0]?.full_name ?? null;
     
     if (!monto || monto <= 0 || !concepto) {
       res.status(400).json({ message: 'Monto y concepto son requeridos' });
