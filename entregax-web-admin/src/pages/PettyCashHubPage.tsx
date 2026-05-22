@@ -21,7 +21,8 @@ import {
   Description as XmlIcon,
   Speed as OdometerIcon,
   ReceiptLong as MovementsIcon,
-  DeleteForever as DeleteIcon
+  DeleteForever as DeleteIcon,
+  LocalAtm as CajaCCIcon
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -219,6 +220,7 @@ export default function PettyCashHubPage() {
   const [detailMovs, setDetailMovs] = useState<Movement[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [deletingMovId, setDeletingMovId] = useState<number | null>(null);
+  const [cajaMxnBalance, setCajaMxnBalance] = useState<number | null>(null);
 
   // Visor de foto de evidencia
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -229,18 +231,20 @@ export default function PettyCashHubPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, bw, dw, pe, st] = await Promise.all([
+      const [s, bw, dw, pe, st, cc] = await Promise.all([
         fetch(`${API_URL}/api/admin/petty-cash/stats`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/api/admin/petty-cash/wallets?owner_type=branch`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/api/admin/petty-cash/wallets?owner_type=driver`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/api/admin/petty-cash/pending`, { headers }).then(r => r.json()),
-        fetch(`${API_URL}/api/admin/petty-cash/settlements`, { headers }).then(r => r.json())
+        fetch(`${API_URL}/api/admin/petty-cash/settlements`, { headers }).then(r => r.json()),
+        fetch(`${API_URL}/api/caja-chica/stats`, { headers }).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       setStats(s);
       setBranchWallets(bw.wallets || []);
       setDriverWallets(dw.wallets || []);
       setPendingExpenses(pe.movements || []);
       setSettlements(st.settlements || []);
+      if (cc) setCajaMxnBalance(parseFloat(cc.saldo_mxn ?? cc.saldo_actual ?? 0));
     } catch (err) {
       console.error(err);
     } finally {
@@ -535,7 +539,7 @@ export default function PettyCashHubPage() {
       {/* Stats */}
       {stats && (
         <Grid container spacing={2} sx={{ mb: 3 }}>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
             <Card>
               <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <BranchIcon sx={{ fontSize: 36, color: 'primary.main' }} />
@@ -546,7 +550,7 @@ export default function PettyCashHubPage() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
             <Card>
               <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <DriverIcon sx={{ fontSize: 36, color: 'info.main' }} />
@@ -557,7 +561,20 @@ export default function PettyCashHubPage() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+            <Card sx={{ borderLeft: '4px solid #F05A28' }}>
+              <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                <CajaCCIcon sx={{ fontSize: 36, color: '#F05A28' }} />
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Saldo Caja CC</Typography>
+                  <Typography variant="h5" fontWeight="bold" color="#F05A28">
+                    {cajaMxnBalance !== null ? fmtMoney(cajaMxnBalance) : '—'}
+                  </Typography>
+                </Box>
+              </CardContent>
+            </Card>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, md: 6 }}>
             <Card>
               <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <WalletIcon sx={{ fontSize: 36, color: 'warning.main' }} />
@@ -570,7 +587,7 @@ export default function PettyCashHubPage() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid size={{ xs: 12, md: 3 }}>
+          <Grid size={{ xs: 12, sm: 6, md: 6 }}>
             <Card>
               <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
                 <ApproveIcon sx={{ fontSize: 36, color: 'error.main' }} />
