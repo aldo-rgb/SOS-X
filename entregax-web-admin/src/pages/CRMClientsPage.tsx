@@ -179,6 +179,7 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
     try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; }
   })();
   const canViewSpent = ['super_admin', 'admin', 'director'].includes(currentUserRole);
+  const canViewCRMStats = currentUserRole !== 'soporte_tecnico';
 
   // Cargar datos
   const fetchClients = useCallback(async () => {
@@ -401,30 +402,32 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
             {t('crmClients.subtitle')}
           </Typography>
         </Box>
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <Tooltip title={t('crmClients.detectRisk')}>
+        {canViewCRMStats && (
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Tooltip title={t('crmClients.detectRisk')}>
+              <Button
+                variant="outlined"
+                color="warning"
+                startIcon={<WarningIcon />}
+                onClick={handleDetectAtRisk}
+              >
+                {t('crmClients.detectRisk')}
+              </Button>
+            </Tooltip>
             <Button
-              variant="outlined"
-              color="warning"
-              startIcon={<WarningIcon />}
-              onClick={handleDetectAtRisk}
+              variant="contained"
+              startIcon={<DownloadIcon />}
+              onClick={handleExport}
+              sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}
             >
-              {t('crmClients.detectRisk')}
+              {t('crmClients.exportExcel')}
             </Button>
-          </Tooltip>
-          <Button
-            variant="contained"
-            startIcon={<DownloadIcon />}
-            onClick={handleExport}
-            sx={{ background: 'linear-gradient(90deg, #C1272D 0%, #F05A28 100%)' }}
-          >
-            {t('crmClients.exportExcel')}
-          </Button>
-        </Box>
+          </Box>
+        )}
       </Box>
 
       {/* Stats Cards */}
-      {stats && (
+      {canViewCRMStats && stats && (
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid size={{ xs: 12, sm: 6, md: 3 }}>
             <Card sx={{ bgcolor: 'rgba(255, 152, 0, 0.1)', border: '1px solid rgba(255, 152, 0, 0.3)' }}>
@@ -474,23 +477,25 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
       )}
 
       {/* Legend */}
-      <Paper sx={{ p: 2, mb: 2, borderRadius: 2 }}>
-        <Typography variant="subtitle2" gutterBottom>{t('crmClients.colorLegend')}</Typography>
-        <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ width: 20, height: 20, bgcolor: 'rgba(211, 47, 47, 0.3)', borderRadius: 1 }} />
-            <Typography variant="body2">🔴 {t('crmClients.redInactive')}</Typography>
+      {canViewCRMStats && (
+        <Paper sx={{ p: 2, mb: 2, borderRadius: 2 }}>
+          <Typography variant="subtitle2" gutterBottom>{t('crmClients.colorLegend')}</Typography>
+          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ width: 20, height: 20, bgcolor: 'rgba(211, 47, 47, 0.3)', borderRadius: 1 }} />
+              <Typography variant="body2">🔴 {t('crmClients.redInactive')}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ width: 20, height: 20, bgcolor: 'rgba(255, 193, 7, 0.3)', borderRadius: 1 }} />
+              <Typography variant="body2">🟡 {t('crmClients.yellowNoShipment')}</Typography>
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Box sx={{ width: 20, height: 20, bgcolor: 'rgba(255, 152, 0, 0.3)', borderRadius: 1 }} />
+              <Typography variant="body2">🟠 {t('crmClients.orangeFalseStart')}</Typography>
+            </Box>
           </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ width: 20, height: 20, bgcolor: 'rgba(255, 193, 7, 0.3)', borderRadius: 1 }} />
-            <Typography variant="body2">🟡 {t('crmClients.yellowNoShipment')}</Typography>
-          </Box>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ width: 20, height: 20, bgcolor: 'rgba(255, 152, 0, 0.3)', borderRadius: 1 }} />
-            <Typography variant="body2">🟠 {t('crmClients.orangeFalseStart')}</Typography>
-          </Box>
-        </Box>
-      </Paper>
+        </Paper>
+      )}
 
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 3, borderRadius: 2 }}>
