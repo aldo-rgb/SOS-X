@@ -19,11 +19,15 @@ function resolveDevApiUrl(): string {
     if (host && host !== 'localhost' && host !== '127.0.0.1') {
       return `http://${host}:3001`;
     }
+    // Simulator: localhost apunta a la Mac
+    if (host === 'localhost' || host === '127.0.0.1') {
+      return 'http://localhost:3001';
+    }
   } catch {
     // ignore
   }
   // Fallback manual (ajustar si el auto-detect falla)
-  return 'http://192.168.1.113:3001';
+  return 'http://192.168.1.118:3001';
 }
 
 const DEV_API_URL = resolveDevApiUrl();
