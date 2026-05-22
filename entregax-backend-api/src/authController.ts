@@ -693,9 +693,9 @@ export const requireMinLevel = (minRole: string) => {
 
 // ============ OBTENER PERFIL (RUTA PROTEGIDA) ============
 export const getProfile = async (req: AuthRequest, res: Response): Promise<void> => {
+    const userId = req.user?.userId;
     try {
-        const userId = req.user?.userId;
-        
+        // Intento con query completo
         const userQuery = await pool.query(
             `SELECT u.id, u.full_name, u.email, u.box_id, u.referral_code, u.role, u.created_at,
                     COALESCE(u.is_verified, FALSE) as is_verified,
@@ -718,16 +718,33 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
              WHERE u.id = $1`,
             [userId]
         );
-
         if (userQuery.rows.length === 0) {
             res.status(404).json({ error: 'Usuario no encontrado' });
             return;
         }
-
         res.json(userQuery.rows[0]);
-    } catch (error) {
-        console.error('Error al obtener perfil:', error);
-        res.status(500).json({ error: 'Error al obtener perfil' });
+    } catch (fullQueryError) {
+        // Fallback: query mínimo con sólo columnas seguras del schema original
+        console.warn('[getProfile] Query completo falló, usando fallback:', (fullQueryError as Error).message);
+        try {
+            const fallback = await pool.query(
+                `SELECT u.id, u.full_name, u.email, u.role, u.created_at,
+                        u.phone, u.box_id, u.branch_id,
+                        b.name as branch_name
+                 FROM users u
+                 LEFT JOIN branches b ON b.id = u.branch_id
+                 WHERE u.id = $1`,
+                [userId]
+            );
+            if (fallback.rows.length === 0) {
+                res.status(404).json({ error: 'Usuario no encontrado' });
+                return;
+            }
+            res.json(fallback.rows[0]);
+        } catch (fallbackError) {
+            console.error('[getProfile] Fallback también falló:', (fallbackError as Error).message);
+            res.status(500).json({ error: 'Error al obtener perfil' });
+        }
     }
 };
 
