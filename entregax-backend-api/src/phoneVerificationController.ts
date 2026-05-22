@@ -95,6 +95,22 @@ export const sendPhoneVerificationCode = async (req: AuthRequest, res: Response)
             userId = byPhone.rows[0].id;
         }
 
+        // Verificar que el número no esté ya verificado en otra cuenta.
+        const taken = await pool.query(
+            `SELECT id FROM users
+             WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') = $1
+               AND phone_verified = TRUE
+               AND id <> $2
+             LIMIT 1`,
+            [normalized, userId]
+        );
+        if (taken.rows.length > 0) {
+            res.status(409).json({
+                error: 'Este número de WhatsApp ya está verificado en otra cuenta. Usa un número diferente o contacta a soporte.',
+            });
+            return;
+        }
+
         // Rate limit suave: si mandamos uno hace < 60s, rechaza.
         const last = await pool.query(
             'SELECT phone_verification_sent_at FROM users WHERE id = $1',
@@ -215,6 +231,22 @@ export const verifyPhoneCode = async (req: AuthRequest, res: Response): Promise<
                 [userRow.id]
             );
             res.status(400).json({ error: 'Código incorrecto.' });
+            return;
+        }
+
+        // Verificación final: el número no fue tomado por otra cuenta mientras esperaba.
+        const takenFinal = await pool.query(
+            `SELECT id FROM users
+             WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') = $1
+               AND phone_verified = TRUE
+               AND id <> $2
+             LIMIT 1`,
+            [normalized, userRow.id]
+        );
+        if (takenFinal.rows.length > 0) {
+            res.status(409).json({
+                error: 'Este número ya fue verificado en otra cuenta. Contacta a soporte si crees que es un error.',
+            });
             return;
         }
 
