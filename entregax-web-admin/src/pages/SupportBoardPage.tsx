@@ -56,6 +56,7 @@ import {
   WhatsApp as WhatsAppIcon,
   Archive as ArchiveIcon,
   Unarchive as UnarchiveIcon,
+  Lock as LockIcon,
 } from '@mui/icons-material';
 import PackageDetailDialog from './PackageDetailDialog';
 
@@ -250,6 +251,9 @@ export default function SupportBoardPage() {
   const [enhancing, setEnhancing] = useState(false);
   const [originalText, setOriginalText] = useState<string | null>(null);
 
+  // Nota interna toggle (false = respuesta al cliente, true = nota interna)
+  const [isInternalNote, setIsInternalNote] = useState(false);
+
   // Traducción bajo demanda — caché en memoria: msgId → translated text
   const [translations, setTranslations] = useState<Record<number, string>>({});
   const [translatingId, setTranslatingId] = useState<number | null>(null);
@@ -421,6 +425,7 @@ export default function SupportBoardPage() {
   const handleOpenTicket = async (ticket: SupportTicket) => {
     setSelectedTicket(ticket);
     setDialogOpen(true);
+    setIsInternalNote(false);
     await loadMessages(ticket.id);
   };
 
@@ -429,14 +434,16 @@ export default function SupportBoardPage() {
     const text = replyText.trim();
     const ticketId = selectedTicket.id;
     const tempId = Date.now();
-    setMessages(prev => [...prev, { id: tempId, sender_type: 'agent', message: text, is_internal: false, created_at: new Date().toISOString() }]);
+    setMessages(prev => [...prev, { id: tempId, sender_type: 'agent', message: text, is_internal: isInternalNote, created_at: new Date().toISOString() }]);
     setReplyText('');
     setAttachedFiles([]);
     setOriginalText(null);
+    setIsInternalNote(false);
     setSending(true);
     try {
       const body = new FormData();
       body.append('message', text);
+      body.append('is_internal', isInternalNote ? 'true' : 'false');
       attachedFiles.forEach(f => body.append('images', f));
       const res = await fetch(`${API_URL}/admin/support/ticket/${ticketId}/reply`, {
         method: 'POST',
@@ -1023,13 +1030,11 @@ export default function SupportBoardPage() {
 
               <Divider />
 
-              {selectedTicket.status !== 'resolved' && (
+              {selectedTicket.status !== 'resolved' && isInternalNote && (
                 <Box sx={{ px: 2, pt: 1 }}>
-                  {selectedTicket.department_name && selectedTicket.department_name !== 'Atención a Cliente' && (
-                    <Alert severity="warning" icon={false} sx={{ mb: 1, py: 0.5, fontSize: 12 }}>
-                      🔒 Respuesta interna — el cliente <strong>NO verá</strong> este mensaje. Solo lo ve Atención a Cliente.
-                    </Alert>
-                  )}
+                  <Alert severity="warning" icon={false} sx={{ mb: 1, py: 0.5, fontSize: 12 }}>
+                    🔒 Nota interna — el cliente <strong>NO verá</strong> este mensaje.
+                  </Alert>
                 </Box>
               )}
               {selectedTicket.status !== 'resolved' && (
@@ -1054,6 +1059,20 @@ export default function SupportBoardPage() {
 
                   {/* Barra de herramientas IA + adjunto */}
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+                    <Tooltip title={isInternalNote ? 'Cambiar a respuesta para cliente' : 'Escribir nota interna (solo visible para el equipo)'}>
+                      <IconButton
+                        size="small"
+                        onClick={() => setIsInternalNote(prev => !prev)}
+                        sx={{
+                          color: isInternalNote ? '#F57F17' : '#9E9E9E',
+                          bgcolor: isInternalNote ? '#FFF8E1' : 'transparent',
+                          border: isInternalNote ? '1px solid #F9A825' : '1px solid transparent',
+                          '&:hover': { bgcolor: isInternalNote ? '#FFF3CD' : 'rgba(0,0,0,0.04)' },
+                        }}
+                      >
+                        <LockIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <Tooltip title="Adjuntar imagen o PDF">
                       <IconButton size="small" onClick={() => fileInputRef.current?.click()} sx={{ color: '#666' }}>
                         <AttachFileIcon fontSize="small" />
@@ -1098,14 +1117,18 @@ export default function SupportBoardPage() {
                   <Box sx={{ display: 'flex', gap: 1 }}>
                     <TextField
                       fullWidth multiline maxRows={4}
-                      placeholder={selectedTicket.department_name && selectedTicket.department_name !== 'Atención a Cliente'
-                        ? '🔒 Mensaje interno (solo para Atención a Cliente)...'
-                        : 'Escribe una respuesta...'}
+                      placeholder={isInternalNote ? '🔒 Nota interna (solo visible para el equipo)...' : 'Escribe tu respuesta al cliente...'}
                       value={replyText}
                       onChange={(e) => { setReplyText(e.target.value); if (originalText !== null) setOriginalText(null); }}
                       onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendReply(); } }}
                       slotProps={{ htmlInput: { spellCheck: true, lang: 'es' } }}
-                      sx={{ '& .MuiOutlinedInput-root': originalText !== null ? { borderColor: '#7B1FA2' } : {} }}
+                      sx={{
+                        '& .MuiOutlinedInput-root': isInternalNote
+                          ? { borderColor: '#F9A825', bgcolor: '#FFFDE7' }
+                          : originalText !== null
+                          ? { borderColor: '#7B1FA2' }
+                          : {},
+                      }}
                     />
                     <IconButton onClick={handleSendReply} disabled={sending || (!replyText.trim() && attachedFiles.length === 0)}>
                       {sending ? <CircularProgress size={24} /> : <SendIcon sx={{ color: ORANGE }} />}

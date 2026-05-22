@@ -840,15 +840,7 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
       return res.status(400).json({ error: 'Mensaje o adjunto requerido' });
     }
 
-    const ticketRes = await pool.query(
-      `SELECT t.department_id, d.is_default_for_clients
-       FROM support_tickets t
-       LEFT JOIN support_departments d ON t.department_id = d.id
-       WHERE t.id = $1`,
-      [id]
-    );
-    const isDefaultDept = ticketRes.rows[0]?.is_default_for_clients ?? true;
-    const isInternal = !isDefaultDept;
+    const isInternal = req.body.is_internal === 'true' || req.body.is_internal === true;
 
     // Procesar adjuntos (imágenes + PDFs)
     const files = (req.files as Express.Multer.File[]) || [];
