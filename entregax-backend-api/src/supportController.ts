@@ -725,7 +725,7 @@ export const getSupportStats = async (req: Request, res: Response): Promise<any>
           COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '24 hours') as today_new,
           COUNT(*) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours') as today_resolved,
           COUNT(*) FILTER (WHERE creator_type = 'employee' AND status NOT IN ('resolved','closed')) as employee_open,
-          COUNT(*) FILTER (WHERE creator_type NOT IN ('employee') AND status NOT IN ('resolved','closed')) as client_open,
+          COUNT(*) FILTER (WHERE COALESCE(creator_type, 'client') != 'employee' AND status NOT IN ('resolved','closed')) as client_open,
           COALESCE(ROUND(AVG(EXTRACT(EPOCH FROM (resolved_at - created_at))/60) FILTER (WHERE resolved_at > NOW() - INTERVAL '24 hours'))::int, 0) as avg_resolution_time_min
         FROM support_tickets
       `),

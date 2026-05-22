@@ -7810,7 +7810,7 @@ app.post('/api/hr/track-gps', authenticateToken, trackGPSLocation);
 app.get('/api/admin/hr/employees', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeesWithAttendance);
 app.get('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.ACCOUNTANT), getEmployeeDetail);
 app.post('/api/admin/hr/employees', authenticateToken, requireMinLevel(ROLES.ADMIN), createEmployee);
-app.put('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), updateEmployee);
+app.put('/api/admin/hr/employees/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), updateEmployee);
 app.delete('/api/admin/hr/employees/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), deleteEmployee);
 app.post('/api/admin/hr/employees/:id/reactivate', authenticateToken, requireMinLevel(ROLES.ADMIN), async (req, res) => {
   const mod = await import('./hrController');

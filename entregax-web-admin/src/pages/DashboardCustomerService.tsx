@@ -141,7 +141,7 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
     return `hace ${Math.floor(hrs / 24)}d`;
   };
 
-  const totalOpen = (stats?.client_open ?? 0) + (stats?.employee_open ?? 0);
+  const totalOpen = (stats?.ai_handling ?? 0) + (stats?.needs_human ?? 0) + (stats?.waiting_client ?? 0);
 
   if (loading) {
     return (
