@@ -17,6 +17,7 @@ interface PaymentStatusCache {
   advisor_instructions_enabled: boolean;
   require_payment_to_load: boolean;
   require_label_to_load: boolean;
+  external_sync_enabled: boolean;
 }
 
 let cached: PaymentStatusCache | null = null;
@@ -31,6 +32,7 @@ const FALLBACK: PaymentStatusCache = {
   advisor_instructions_enabled: true,
   require_payment_to_load: true,
   require_label_to_load: true,
+  external_sync_enabled: true,
 };
 
 export function usePaymentStatus() {
@@ -59,6 +61,7 @@ export function usePaymentStatus() {
             advisor_instructions_enabled: data.advisor_instructions_enabled !== false,
             require_payment_to_load: data.require_payment_to_load !== false,
             require_label_to_load: data.require_label_to_load !== false,
+            external_sync_enabled: data.external_sync_enabled !== false,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -80,6 +83,7 @@ export function usePaymentStatus() {
     advisorInstructionsEnabled: status.advisor_instructions_enabled,
     requirePaymentToLoad: status.require_payment_to_load,
     requireLabelToLoad: status.require_label_to_load,
+    externalSyncEnabled: status.external_sync_enabled,
     loading,
   };
 }
@@ -123,5 +127,11 @@ export async function toggleRequirePaymentToLoad(enabled: boolean): Promise<void
 /** Controla si se exige etiqueta impresa para cargar una guía a la unidad (solo Super Admin) */
 export async function toggleRequireLabelToLoad(enabled: boolean): Promise<void> {
   await api.post('/admin/system/require-label-to-load-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Habilita o deshabilita el acceso al endpoint de sincronización de clientes con Sistema EX (solo Super Admin) */
+export async function toggleExternalSync(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/external-sync-toggle', { enabled });
   invalidatePaymentStatusCache();
 }

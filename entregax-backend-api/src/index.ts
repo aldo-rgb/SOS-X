@@ -9561,7 +9561,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load', 'external_sync_enabled')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -9601,6 +9601,11 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     // payments_enabled: legacy (ambos activos si ambos activos)
     const paymentsEnabled = xpayEnabled && entregaxPaymentsEnabled;
 
+    // external_sync_enabled: controla el acceso al endpoint GET /api/external/customers
+    const externalSyncEnabled = byKey['external_sync_enabled'] !== undefined
+      ? byKey['external_sync_enabled']?.enabled !== false
+      : true; // fallback activo si nunca se ha configurado
+
     res.json({
       payments_enabled: paymentsEnabled,
       xpay_enabled: xpayEnabled,
@@ -9609,9 +9614,10 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       advisor_instructions_enabled: advisorInstructionsEnabled,
       require_payment_to_load: requirePaymentToLoad,
       require_label_to_load: requireLabelToLoad,
+      external_sync_enabled: externalSyncEnabled,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true });
   }
 });
 
@@ -9755,6 +9761,60 @@ app.post('/api/admin/system/require-label-to-load-toggle', authenticateToken, re
   } catch (err: any) {
     console.error('[REQUIRE-LABEL-TO-LOAD-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar requisito de etiqueta para carga' });
+  }
+});
+
+// POST /api/admin/system/external-sync-toggle — habilita/deshabilita sincronización EX
+app.post('/api/admin/system/external-sync-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled !== false;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('external_sync_enabled', $1::jsonb, 'Habilita o deshabilita el acceso al endpoint de sincronización de clientes con Sistema EX', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled: !!enabled }), userId]
+    );
+    console.log(`🔌 [EXTERNAL-SYNC] ${enabled ? '✅ Habilitado' : '🔴 Deshabilitado'} por user #${userId}`);
+    res.json({ success: true, external_sync_enabled: !!enabled });
+  } catch (err: any) {
+    console.error('[EXTERNAL-SYNC-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar estado de sincronización externa' });
+  }
+});
+
+// GET /api/admin/system/external-sync-key — devuelve la API key actual (solo Super Admin)
+app.get('/api/admin/system/external-sync-key', authenticateToken, requireRole('super_admin'), async (_req: AuthRequest, res: Response) => {
+  try {
+    const r = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'external_sync_api_key' AND is_active = TRUE`
+    );
+    const key: string | null = r.rows[0]?.config_value?.key || null;
+    res.json({ success: true, key });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Error al obtener API key' });
+  }
+});
+
+// POST /api/admin/system/external-sync-key/regenerate — genera y guarda una nueva API key (solo Super Admin)
+app.post('/api/admin/system/external-sync-key/regenerate', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const crypto = await import('crypto');
+    const newKey = crypto.randomBytes(32).toString('hex');
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('external_sync_api_key', $1::jsonb, 'API Key para autenticar solicitudes del Sistema EX al endpoint de clientes', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ key: newKey }), userId]
+    );
+    console.log(`🔑 [EXTERNAL-SYNC-KEY] Regenerada por user #${userId}`);
+    res.json({ success: true, key: newKey });
+  } catch (err: any) {
+    console.error('[EXTERNAL-SYNC-KEY-REGEN]', err.message);
+    res.status(500).json({ error: 'Error al regenerar API key' });
   }
 });
 

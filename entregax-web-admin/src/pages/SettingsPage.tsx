@@ -32,8 +32,13 @@ import SaveIcon from '@mui/icons-material/Save';
 import CategoryIcon from '@mui/icons-material/Category';
 import PercentIcon from '@mui/icons-material/Percent';
 import PaymentIcon from '@mui/icons-material/Payment';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import RefreshIcon from '@mui/icons-material/Refresh';
+import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleExternalSync, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 
@@ -78,7 +83,7 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [togglingGex, setTogglingGex] = useState(false);
@@ -92,6 +97,13 @@ export default function SettingsPage() {
     const [localAdvisorInstr, setLocalAdvisorInstr] = useState<boolean | null>(null);
     const [localReqPayment, setLocalReqPayment] = useState<boolean | null>(null);
     const [localReqLabel, setLocalReqLabel] = useState<boolean | null>(null);
+    const [togglingExternalSync, setTogglingExternalSync] = useState(false);
+    const [localExternalSync, setLocalExternalSync] = useState<boolean | null>(null);
+    const [externalSyncKey, setExternalSyncKey] = useState<string | null>(null);
+    const [externalSyncKeyVisible, setExternalSyncKeyVisible] = useState(false);
+    const [loadingKey, setLoadingKey] = useState(false);
+    const [regeneratingKey, setRegeneratingKey] = useState(false);
+
     useEffect(() => {
         if (!paymentsStatusLoading) {
             setLocalXpay(xpayEnabled);
@@ -100,8 +112,9 @@ export default function SettingsPage() {
             setLocalAdvisorInstr(advisorInstructionsEnabled);
             setLocalReqPayment(requirePaymentToLoad);
             setLocalReqLabel(requireLabelToLoad);
+            setLocalExternalSync(externalSyncEnabled);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -191,6 +204,60 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
         } finally {
             setTogglingReqLabel(false);
+        }
+    };
+
+    const handleToggleExternalSync = async (checked: boolean) => {
+        setTogglingExternalSync(true);
+        const prev = localExternalSync;
+        setLocalExternalSync(checked);
+        try {
+            await toggleExternalSync(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Sincronización EX ${checked ? 'activada' : 'desactivada'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalExternalSync(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar el estado de sincronización', severity: 'error' });
+        } finally {
+            setTogglingExternalSync(false);
+        }
+    };
+
+    const fetchExternalSyncKey = async () => {
+        setLoadingKey(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${API_URL}/admin/system/external-sync-key`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await res.json();
+            setExternalSyncKey(data.key || null);
+            setExternalSyncKeyVisible(true);
+        } catch {
+            setSnackbar({ open: true, message: 'No se pudo obtener la API key', severity: 'error' });
+        } finally {
+            setLoadingKey(false);
+        }
+    };
+
+    const handleRegenerateKey = async () => {
+        setRegeneratingKey(true);
+        try {
+            const token = localStorage.getItem('token');
+            const res = await fetch(`${API_URL}/admin/system/external-sync-key/regenerate`, {
+                method: 'POST',
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (data.success) {
+                setExternalSyncKey(data.key);
+                setExternalSyncKeyVisible(true);
+                setSnackbar({ open: true, message: 'API Key regenerada. Compártela con el equipo de sistemas.', severity: 'success' });
+            }
+        } catch {
+            setSnackbar({ open: true, message: 'No se pudo regenerar la API key', severity: 'error' });
+        } finally {
+            setRegeneratingKey(false);
         }
     };
 
@@ -545,6 +612,125 @@ export default function SettingsPage() {
 
             {/* Identidad Visual / Logos (solo super_admin) */}
             {isSuperAdmin && <BrandAssetsManager />}
+
+            {/* Integraciones Externas — solo super_admin */}
+            {isSuperAdmin && (
+                <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3, mb: 3 }}>
+                    <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                            <SyncIcon sx={{ color: 'text.secondary' }} />
+                            <Typography variant="h6" fontWeight={600}>Integraciones Externas</Typography>
+                            <Chip label="Super Admin" size="small" color="warning" sx={{ ml: 1 }} />
+                        </Box>
+                        <Alert severity="warning" sx={{ mb: 3 }}>
+                            Controla el flujo de datos hacia sistemas externos. Al desactivar, el endpoint de sincronización
+                            deja de responder inmediatamente y ningún sistema externo puede consultar clientes.
+                        </Alert>
+                        <Stack spacing={2}>
+                            {/* Toggle habilitado/deshabilitado */}
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                        🔌 Sincronización con Sistema EX
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Permite que el Sistema EX consulte la lista de clientes vía{' '}
+                                        <code style={{ background: '#f0f0f0', padding: '1px 6px', borderRadius: 4 }}>GET /api/external/customers</code>.
+                                        Al desactivar se bloquea inmediatamente.
+                                    </Typography>
+                                </Box>
+                                {paymentsStatusLoading || localExternalSync === null ? (
+                                    <CircularProgress size={20} />
+                                ) : (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={!!localExternalSync}
+                                                onChange={(e) => handleToggleExternalSync(e.target.checked)}
+                                                disabled={togglingExternalSync}
+                                                color="success"
+                                            />
+                                        }
+                                        label={togglingExternalSync ? '...' : (localExternalSync ? 'Activado' : 'Desactivado')}
+                                        labelPlacement="start"
+                                        sx={{ m: 0 }}
+                                    />
+                                )}
+                            </Paper>
+
+                            {/* Gestión de API Key */}
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                                    🔑 API Key de acceso
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                                    El Sistema EX debe enviar esta clave en el header{' '}
+                                    <code style={{ background: '#f0f0f0', padding: '1px 6px', borderRadius: 4 }}>x-api-key</code>{' '}
+                                    o como parámetro{' '}
+                                    <code style={{ background: '#f0f0f0', padding: '1px 6px', borderRadius: 4 }}>?api_key=</code>.
+                                </Typography>
+                                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                                    {externalSyncKey && externalSyncKeyVisible ? (
+                                        <TextField
+                                            value={externalSyncKey}
+                                            size="small"
+                                            InputProps={{
+                                                readOnly: true,
+                                                sx: { fontFamily: 'monospace', fontSize: '0.85rem' },
+                                                endAdornment: (
+                                                    <InputAdornment position="end">
+                                                        <Tooltip title="Copiar">
+                                                            <IconButton size="small" onClick={() => {
+                                                                navigator.clipboard.writeText(externalSyncKey);
+                                                                setSnackbar({ open: true, message: 'API Key copiada', severity: 'success' });
+                                                            }}>
+                                                                <ContentCopyIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                        <Tooltip title="Ocultar">
+                                                            <IconButton size="small" onClick={() => setExternalSyncKeyVisible(false)}>
+                                                                <VisibilityOffIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    </InputAdornment>
+                                                ),
+                                            }}
+                                            sx={{ flex: 1, minWidth: 260 }}
+                                        />
+                                    ) : (
+                                        <Button
+                                            variant="outlined"
+                                            size="small"
+                                            startIcon={loadingKey ? <CircularProgress size={16} /> : <VisibilityIcon />}
+                                            onClick={fetchExternalSyncKey}
+                                            disabled={loadingKey}
+                                            sx={{ textTransform: 'none' }}
+                                        >
+                                            Ver API Key
+                                        </Button>
+                                    )}
+                                    <Button
+                                        variant="contained"
+                                        size="small"
+                                        color="warning"
+                                        startIcon={regeneratingKey ? <CircularProgress size={16} color="inherit" /> : <RefreshIcon />}
+                                        onClick={handleRegenerateKey}
+                                        disabled={regeneratingKey}
+                                        sx={{ textTransform: 'none', fontWeight: 600 }}
+                                    >
+                                        {externalSyncKey ? 'Regenerar Key' : 'Generar Key'}
+                                    </Button>
+                                </Box>
+                                {externalSyncKey === null && !loadingKey && (
+                                    <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                                        No hay API key configurada. Haz clic en "Generar Key" para crear una.
+                                    </Typography>
+                                )}
+                            </Paper>
+                        </Stack>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Tarifas de Comisión por Servicio (incluye GEX con comisión fija) */}
             <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>

@@ -380,11 +380,32 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
  *   ?page=1&limit=500  → paginación (default limit 1000)
  */
 export const listCustomersForExternalSync = async (req: Request, res: Response): Promise<any> => {
-    const apiKey = req.headers['x-api-key'] || req.query.api_key;
-    const expectedKey = process.env.EXTERNAL_SYNC_API_KEY;
+    // 1. Verificar flag de habilitación y obtener API key desde DB
+    try {
+        const cfgRows = await pool.query(
+            `SELECT config_key, config_value FROM system_configurations
+             WHERE config_key IN ('external_sync_enabled', 'external_sync_api_key') AND is_active = TRUE`
+        );
+        const byKey: Record<string, any> = {};
+        cfgRows.rows.forEach((row: any) => { byKey[row.config_key] = row.config_value; });
 
-    if (!expectedKey || apiKey !== expectedKey) {
-        return res.status(401).json({ error: 'API key inválida o no autorizada' });
+        const syncEnabled = byKey['external_sync_enabled'] !== undefined
+            ? byKey['external_sync_enabled']?.enabled !== false
+            : true; // fallback: activo si nunca se ha configurado
+
+        if (!syncEnabled) {
+            return res.status(503).json({ success: false, error: 'La sincronización externa está desactivada.' });
+        }
+
+        const dbKey = byKey['external_sync_api_key']?.key || null;
+        const expectedKey = dbKey || process.env.EXTERNAL_SYNC_API_KEY || null;
+        const apiKey = req.headers['x-api-key'] || req.query.api_key;
+
+        if (!expectedKey || apiKey !== expectedKey) {
+            return res.status(401).json({ success: false, error: 'API Key inválida o no autorizada.' });
+        }
+    } catch (_e) {
+        return res.status(500).json({ success: false, error: 'Error interno al validar acceso.' });
     }
 
     try {
