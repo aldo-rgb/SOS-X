@@ -195,7 +195,17 @@ export const listWallets = async (req: Request, res: Response): Promise<any> => 
         (
           SELECT COUNT(*) FROM petty_cash_movements m
           WHERE m.wallet_id = w.id AND m.status = 'pending' AND m.movement_type = 'expense'
-        ) AS pending_expenses_count
+        ) AS pending_expenses_count,
+        (
+          SELECT u2.full_name FROM users u2
+          WHERE u2.branch_id = w.branch_id
+            AND LOWER(u2.role) IN ('operaciones', 'branch_manager', 'monitoreo')
+            AND COALESCE(u2.is_active, true) = true
+          ORDER BY CASE WHEN LOWER(u2.role) = 'operaciones' THEN 0
+                        WHEN LOWER(u2.role) = 'branch_manager' THEN 1
+                        ELSE 2 END, u2.id
+          LIMIT 1
+        ) AS ops_user_name
       FROM petty_cash_wallets w
       LEFT JOIN branches b ON b.id = w.branch_id
       LEFT JOIN users u ON (w.owner_type = 'driver' AND u.id = w.owner_id)

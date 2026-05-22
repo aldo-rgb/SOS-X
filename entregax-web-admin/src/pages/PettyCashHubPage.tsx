@@ -42,6 +42,7 @@ interface Wallet {
   status: string;
   pending_expenses_count: string | number;
   updated_at: string;
+  ops_user_name?: string | null;
 }
 
 interface Movement {
@@ -628,6 +629,11 @@ export default function PettyCashHubPage() {
                         <Typography variant="caption" color="text.secondary">
                           Sucursal · {w.status === 'active' ? '🟢 Activa' : `⚠️ ${w.status}`}
                         </Typography>
+                        {w.ops_user_name && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            👤 {w.ops_user_name}
+                          </Typography>
+                        )}
                       </Box>
                     </Box>
                   </Box>
