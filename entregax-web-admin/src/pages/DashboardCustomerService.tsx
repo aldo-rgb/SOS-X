@@ -58,6 +58,73 @@ interface Props {
   onNavigateToSupport?: () => void;
 }
 
+// Colores de marca
+const BRAND = {
+  orange: '#F05A28',
+  orangeLight: '#FF7A45',
+  red: '#C1272D',
+  redLight: '#E53935',
+  black: '#1A1A1A',
+  blackLight: '#3D3D3D',
+  darkOrange: '#BF360C',
+  darkOrangeLight: '#E64A19',
+};
+
+interface KpiCardProps {
+  title: string;
+  value: React.ReactNode;
+  caption: string;
+  icon: React.ReactNode;
+  gradient: string;
+  badge?: number;
+  onClick?: () => void;
+}
+
+function KpiCard({ title, value, caption, icon, gradient, badge, onClick }: KpiCardProps) {
+  return (
+    <Paper
+      sx={{
+        p: 3,
+        background: gradient,
+        color: 'white',
+        cursor: onClick ? 'pointer' : 'default',
+        transition: 'transform 0.15s, box-shadow 0.15s',
+        borderRadius: 3,
+        minHeight: 140,
+        display: 'flex',
+        alignItems: 'stretch',
+        '&:hover': onClick ? { transform: 'translateY(-2px)', boxShadow: 6 } : {},
+      }}
+      onClick={onClick}
+    >
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: 90 }}>
+          <Typography variant="body2" sx={{ opacity: 0.9, fontWeight: 500, letterSpacing: 0.3 }}>
+            {title}
+          </Typography>
+          <Typography variant="h3" fontWeight={800} sx={{ lineHeight: 1, my: 0.5 }}>
+            {value}
+          </Typography>
+          <Typography variant="caption" sx={{ opacity: 0.75 }}>
+            {caption}
+          </Typography>
+        </Box>
+        {badge !== undefined ? (
+          <Badge badgeContent={badge} color="error">
+            <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.18)', width: 52, height: 52 }}>
+              {icon}
+            </Avatar>
+          </Badge>
+        ) : (
+          <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.18)', width: 52, height: 52 }}>
+            {icon}
+          </Avatar>
+        )}
+      </Box>
+    </Paper>
+  );
+}
+
 export default function DashboardCustomerService({ onNavigateToSupport }: Props) {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<SupportStats | null>(null);
@@ -75,14 +142,12 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
 
   const loadData = async () => {
     setLoading(true);
-    // Llamadas independientes para que un fallo en una no bloquee la otra
     const [statsRes, ticketsRes] = await Promise.allSettled([
       api.get('/admin/support/stats'),
       api.get('/admin/support/tickets', { params: { limit: 5, status: undefined } }),
     ]);
 
     if (statsRes.status === 'fulfilled') {
-      // PostgreSQL COUNT() devuelve strings — parsear a int
       const raw = statsRes.value.data || {};
       setStats({
         ai_handling: parseInt(raw.ai_handling) || 0,
@@ -96,15 +161,11 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
         avg_resolution_time_min: parseInt(raw.avg_resolution_time_min) || 0,
         departments: raw.departments || [],
       });
-    } else {
-      console.error('Error cargando stats:', statsRes.reason);
     }
 
     if (ticketsRes.status === 'fulfilled') {
       const data = ticketsRes.value.data;
       setRecentTickets(Array.isArray(data) ? data : (data?.tickets || []));
-    } else {
-      console.error('Error cargando tickets recientes:', ticketsRes.reason);
     }
 
     setLoading(false);
@@ -146,7 +207,7 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
   if (loading) {
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+        <CircularProgress sx={{ color: BRAND.orange }} />
       </Box>
     );
   }
@@ -156,105 +217,72 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
       {/* Header */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h4" fontWeight={700}>
-          ¡Hola, <span style={{ color: '#F05A28' }}>{userName}</span>!
+          ¡Hola, <span style={{ color: BRAND.orange }}>{userName}</span>!
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          Panel de Servicio al Cliente - {new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}
+          Panel de Servicio al Cliente — {new Date().toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'long' })}
         </Typography>
       </Box>
 
-      {/* KPIs Principales */}
+      {/* KPIs */}
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {/* Tickets Abiertos */}
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Paper
-            sx={{
-              p: 3,
-              background: 'linear-gradient(135deg, #FF9800 0%, #FFB74D 100%)',
-              color: 'white',
-              cursor: onNavigateToSupport ? 'pointer' : 'default',
-              transition: 'transform 0.15s',
-              '&:hover': onNavigateToSupport ? { transform: 'scale(1.02)' } : {},
-            }}
+          <KpiCard
+            title="Tickets Abiertos"
+            value={totalOpen}
+            caption={onNavigateToSupport ? 'Click para ver todos' : ' '}
+            icon={<AssignmentIcon />}
+            gradient={`linear-gradient(135deg, ${BRAND.orange} 0%, ${BRAND.orangeLight} 100%)`}
+            badge={stats?.needs_human ?? 0}
             onClick={onNavigateToSupport}
-          >
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Tickets Abiertos</Typography>
-                <Typography variant="h3" fontWeight="bold">{totalOpen}</Typography>
-                {onNavigateToSupport && (
-                  <Typography variant="caption" sx={{ opacity: 0.8 }}>Click para ver todos</Typography>
-                )}
-              </Box>
-              <Badge badgeContent={stats?.needs_human ?? 0} color="error">
-                <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                  <AssignmentIcon />
-                </Avatar>
-              </Badge>
-            </Box>
-          </Paper>
+          />
         </Grid>
-
-        {/* Resueltos Hoy */}
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Paper sx={{ p: 3, background: 'linear-gradient(135deg, #4CAF50 0%, #81C784 100%)', color: 'white' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Resueltos Hoy</Typography>
-                <Typography variant="h3" fontWeight="bold">{stats?.today_resolved ?? 0}</Typography>
-              </Box>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <CheckCircleIcon />
-              </Avatar>
-            </Box>
-          </Paper>
+          <KpiCard
+            title="Resueltos Hoy"
+            value={stats?.today_resolved ?? 0}
+            caption="Tickets cerrados hoy"
+            icon={<CheckCircleIcon />}
+            gradient={`linear-gradient(135deg, ${BRAND.red} 0%, ${BRAND.redLight} 100%)`}
+          />
         </Grid>
-
-        {/* Tiempo Promedio de Resolución */}
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Paper sx={{ p: 3, background: 'linear-gradient(135deg, #2196F3 0%, #64B5F6 100%)', color: 'white' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Tiempo Promedio</Typography>
-                <Typography variant="h3" fontWeight="bold">
-                  {stats?.avg_resolution_time_min ?? 0}<small>min</small>
-                </Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8 }}>Resolución hoy</Typography>
-              </Box>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <AccessTimeIcon />
-              </Avatar>
-            </Box>
-          </Paper>
+          <KpiCard
+            title="Tiempo Promedio"
+            value={<>{stats?.avg_resolution_time_min ?? 0}<small style={{ fontSize: '0.45em', fontWeight: 600 }}>min</small></>}
+            caption="Resolución hoy"
+            icon={<AccessTimeIcon />}
+            gradient={`linear-gradient(135deg, ${BRAND.black} 0%, ${BRAND.blackLight} 100%)`}
+          />
         </Grid>
-
-        {/* Tickets Nuevos Hoy */}
         <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-          <Paper sx={{ p: 3, background: 'linear-gradient(135deg, #9C27B0 0%, #BA68C8 100%)', color: 'white' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Box>
-                <Typography variant="body2" sx={{ opacity: 0.9 }}>Tickets Nuevos</Typography>
-                <Typography variant="h3" fontWeight="bold">{stats?.today_new ?? 0}</Typography>
-                <Typography variant="caption" sx={{ opacity: 0.8 }}>Últimas 24 horas</Typography>
-              </Box>
-              <Avatar sx={{ bgcolor: 'rgba(255,255,255,0.2)' }}>
-                <NewIcon />
-              </Avatar>
-            </Box>
-          </Paper>
+          <KpiCard
+            title="Tickets Nuevos"
+            value={stats?.today_new ?? 0}
+            caption="Últimas 24 horas"
+            icon={<NewIcon />}
+            gradient={`linear-gradient(135deg, ${BRAND.darkOrange} 0%, ${BRAND.darkOrangeLight} 100%)`}
+          />
         </Grid>
       </Grid>
 
       <Grid container spacing={3}>
         {/* Tickets Recientes */}
         <Grid size={{ xs: 12, md: 7 }}>
-          <Paper sx={{ p: 3, height: '100%' }}>
+          <Paper sx={{ p: 3, height: '100%', borderRadius: 3 }}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-              <Typography variant="h6" fontWeight="bold">
+              <Typography variant="h6" fontWeight={700}>
                 Tickets Recientes
               </Typography>
               {onNavigateToSupport && (
-                <Button size="small" variant="outlined" onClick={onNavigateToSupport}>Ver todos</Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={onNavigateToSupport}
+                  sx={{ borderColor: BRAND.orange, color: BRAND.orange, '&:hover': { borderColor: BRAND.red, color: BRAND.red } }}
+                >
+                  Ver todos
+                </Button>
               )}
             </Box>
 
@@ -263,14 +291,11 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
                 No hay tickets recientes
               </Typography>
             ) : (
-              <List>
+              <List disablePadding>
                 {recentTickets.map((ticket, index) => (
                   <Box key={ticket.id}>
                     <ListItem
-                      sx={{
-                        py: 2,
-                        '&:hover': { bgcolor: 'action.hover', borderRadius: 2 },
-                      }}
+                      sx={{ py: 1.5, '&:hover': { bgcolor: 'action.hover', borderRadius: 2 } }}
                       secondaryAction={
                         <Chip
                           label={getStatusLabel(ticket.status)}
@@ -280,22 +305,20 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
                       }
                     >
                       <ListItemAvatar>
-                        <Avatar sx={{ bgcolor: 'grey.200', color: 'text.secondary', fontSize: 12 }}>
-                          <ChatIcon />
+                        <Avatar sx={{ bgcolor: 'rgba(240,90,40,0.12)', color: BRAND.orange }}>
+                          <ChatIcon fontSize="small" />
                         </Avatar>
                       </ListItemAvatar>
                       <ListItemText
                         primary={
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Typography variant="subtitle2" fontWeight="bold">
-                              {ticket.full_name || ticket.ticket_folio}
-                            </Typography>
-                          </Box>
+                          <Typography variant="subtitle2" fontWeight={700}>
+                            {ticket.full_name || ticket.ticket_folio}
+                          </Typography>
                         }
                         secondary={
                           <>
-                            <Typography variant="body2" color="text.secondary">{ticket.subject}</Typography>
-                            <Typography variant="caption" color="text.secondary">{formatTimeAgo(ticket.created_at)}</Typography>
+                            <Typography variant="body2" color="text.secondary" noWrap>{ticket.subject}</Typography>
+                            <Typography variant="caption" color="text.disabled">{formatTimeAgo(ticket.created_at)}</Typography>
                           </>
                         }
                       />
@@ -310,84 +333,90 @@ export default function DashboardCustomerService({ onNavigateToSupport }: Props)
 
         {/* Panel Lateral */}
         <Grid size={{ xs: 12, md: 5 }}>
-          {/* Alertas */}
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+          <Paper sx={{ p: 3, borderRadius: 3, height: '100%' }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
               Atención Requerida
             </Typography>
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
               <Box
                 sx={{
                   p: 2,
-                  bgcolor: 'error.light',
+                  bgcolor: 'rgba(193,39,45,0.08)',
+                  border: '1px solid rgba(193,39,45,0.25)',
                   borderRadius: 2,
                   display: 'flex',
                   alignItems: 'center',
                   gap: 2,
                   cursor: onNavigateToSupport ? 'pointer' : 'default',
+                  transition: 'background 0.15s',
+                  '&:hover': onNavigateToSupport ? { bgcolor: 'rgba(193,39,45,0.14)' } : {},
                 }}
                 onClick={onNavigateToSupport}
               >
-                <WarningIcon color="error" />
+                <WarningIcon sx={{ color: BRAND.red }} />
                 <Box>
-                  <Typography variant="subtitle2" fontWeight="bold" color="error.dark">
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ color: BRAND.red }}>
                     {stats?.needs_human ?? 0} Tickets requieren atención
                   </Typography>
-                  <Typography variant="caption" color="error.dark">Escalados, sin respuesta de agente</Typography>
+                  <Typography variant="caption" color="text.secondary">Escalados, sin respuesta de agente</Typography>
                 </Box>
               </Box>
-              <Box sx={{ p: 2, bgcolor: 'warning.light', borderRadius: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
-                <ShippingIcon color="warning" />
+
+              <Box
+                sx={{
+                  p: 2,
+                  bgcolor: 'rgba(240,90,40,0.08)',
+                  border: '1px solid rgba(240,90,40,0.25)',
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 2,
+                }}
+              >
+                <ShippingIcon sx={{ color: BRAND.orange }} />
                 <Box>
-                  <Typography variant="subtitle2" fontWeight="bold" color="warning.dark">
+                  <Typography variant="subtitle2" fontWeight={700} sx={{ color: BRAND.orange }}>
                     {stats?.waiting_client ?? 0} Esperando respuesta del cliente
                   </Typography>
-                  <Typography variant="caption" color="warning.dark">Clientes pendientes de contestar</Typography>
+                  <Typography variant="caption" color="text.secondary">Clientes pendientes de contestar</Typography>
                 </Box>
               </Box>
             </Box>
           </Paper>
         </Grid>
 
-        {/* Estadísticas del Día */}
+        {/* Resumen del Día */}
         <Grid size={{ xs: 12 }}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" fontWeight="bold" gutterBottom>
+          <Paper sx={{ p: 3, borderRadius: 3 }}>
+            <Typography variant="h6" fontWeight={700} gutterBottom>
               Resumen del Día
             </Typography>
             <Grid container spacing={3}>
-              <Grid size={{ xs: 6, md: 3 }}>
-                <Box sx={{ textAlign: 'center', p: 2 }}>
-                  <Typography variant="h3" fontWeight="bold" color="primary.main">
-                    {totalOpen}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">Tickets Abiertos</Typography>
-                </Box>
-              </Grid>
-              <Grid size={{ xs: 6, md: 3 }}>
-                <Box sx={{ textAlign: 'center', p: 2 }}>
-                  <Typography variant="h3" fontWeight="bold" color="success.main">
-                    {stats?.today_resolved ?? 0}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">Resueltos Hoy</Typography>
-                </Box>
-              </Grid>
-              <Grid size={{ xs: 6, md: 3 }}>
-                <Box sx={{ textAlign: 'center', p: 2 }}>
-                  <Typography variant="h3" fontWeight="bold" color="info.main">
-                    {stats?.client_open ?? 0}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">De Clientes</Typography>
-                </Box>
-              </Grid>
-              <Grid size={{ xs: 6, md: 3 }}>
-                <Box sx={{ textAlign: 'center', p: 2 }}>
-                  <Typography variant="h3" fontWeight="bold" color="secondary.main">
-                    {stats?.employee_open ?? 0}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">De Empleados</Typography>
-                </Box>
-              </Grid>
+              {[
+                { value: totalOpen, label: 'Tickets Abiertos', color: BRAND.orange },
+                { value: stats?.today_resolved ?? 0, label: 'Resueltos Hoy', color: BRAND.red },
+                { value: stats?.client_open ?? 0, label: 'De Clientes', color: BRAND.black },
+                { value: stats?.employee_open ?? 0, label: 'De Empleados', color: BRAND.darkOrange },
+              ].map((item) => (
+                <Grid key={item.label} size={{ xs: 6, md: 3 }}>
+                  <Box
+                    sx={{
+                      textAlign: 'center',
+                      p: 2,
+                      borderRadius: 2,
+                      bgcolor: `${item.color}0D`,
+                      border: `1px solid ${item.color}33`,
+                    }}
+                  >
+                    <Typography variant="h3" fontWeight={800} sx={{ color: item.color }}>
+                      {item.value}
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                      {item.label}
+                    </Typography>
+                  </Box>
+                </Grid>
+              ))}
             </Grid>
           </Paper>
         </Grid>
