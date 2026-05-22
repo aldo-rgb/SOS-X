@@ -531,7 +531,7 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         u.privacy_accepted_at,
         CASE WHEN u.privacy_signature_url IS NOT NULL THEN TRUE ELSE FALSE END AS has_privacy_signature
       FROM users u
-      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor')
+      WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'soporte_tecnico', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor')
         ${showInactive ? '' : 'AND COALESCE(u.is_active, TRUE) = TRUE AND COALESCE(u.is_blocked, FALSE) = FALSE'}
       ORDER BY u.role, u.full_name
     `);
@@ -1079,7 +1079,7 @@ export const deleteEmployee = async (req: Request, res: Response): Promise<void>
         deleted_at = NOW()
       WHERE id = $1
         AND role IN (
-          'repartidor', 'warehouse_ops', 'counter_staff', 'customer_service',
+          'repartidor', 'warehouse_ops', 'counter_staff', 'customer_service', 'soporte_tecnico',
           'branch_manager', 'monitoreo', 'accountant', 'contador',
           'operaciones', 'operations', 'abogado', 'sales', 'manager',
           'driver', 'support', 'director',
@@ -1154,7 +1154,7 @@ export const checkOnboardingStatus = async (req: Request, res: Response): Promis
     const userData = result.rows[0];
     
     // Solo roles de empleados requieren onboarding
-    const employeeRoles = ['warehouse_ops', 'counter_staff', 'repartidor', 'monitoreo', 'customer_service', 'branch_manager'];
+    const employeeRoles = ['warehouse_ops', 'counter_staff', 'repartidor', 'monitoreo', 'customer_service', 'soporte_tecnico', 'branch_manager'];
     const advisorRoles = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
     const isEmployee = employeeRoles.includes(userData.role);
     const isAdvisor = advisorRoles.includes(userData.role);
