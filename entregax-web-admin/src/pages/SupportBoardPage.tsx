@@ -379,7 +379,7 @@ export default function SupportBoardPage() {
     init();
     const interval = setInterval(() => { loadTickets(); loadStats(); loadArchivedTickets(); }, 30000);
     return () => clearInterval(interval);
-  }, [loadTickets, loadStats, loadDepartments]);
+  }, [loadTickets, loadStats, loadDepartments, loadArchivedTickets]);
 
   // Seleccionar departamento por defecto según rol
   useEffect(() => {
