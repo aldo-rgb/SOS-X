@@ -843,6 +843,33 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
 };
 
 /**
+ * PUT /api/admin/support/ticket/:id/reactivate
+ * Reactivar un ticket resuelto/cerrado → vuelve a escalated_human
+ */
+export const reactivateTicket = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(
+      `UPDATE support_tickets
+       SET status = 'escalated_human', resolved_at = NULL, updated_at = NOW()
+       WHERE id = $1 AND status IN ('resolved', 'closed')
+       RETURNING id`,
+      [id]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(400).json({ error: 'El ticket no está resuelto o no existe' });
+    }
+
+    res.json({ success: true, message: 'Ticket reactivado' });
+  } catch (error) {
+    console.error('Error reactivando ticket:', error);
+    res.status(500).json({ error: 'Error al reactivar ticket' });
+  }
+};
+
+/**
  * PUT /api/admin/support/ticket/:id/assign
  * Asignar ticket a un agente
  */

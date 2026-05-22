@@ -447,6 +447,18 @@ export default function SupportBoardPage() {
     await loadStats();
   };
 
+  const handleReactivateTicket = async () => {
+    if (!selectedTicket) return;
+    await fetch(`${API_URL}/admin/support/ticket/${selectedTicket.id}/reactivate`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    setDialogOpen(false);
+    setSelectedTicket(null);
+    await loadTickets();
+    await loadStats();
+  };
+
   const handleTransferToAtencion = async () => {
     if (!selectedTicket) return;
     const atencionDept = departments.find(d => d.name === 'Atención a Cliente');
@@ -1029,6 +1041,16 @@ export default function SupportBoardPage() {
               {selectedTicket.status !== 'resolved' && ['customer_service', 'counter_staff'].includes(currentUserRole) && (
                 <Button variant="contained" color="success" onClick={handleResolveTicket} startIcon={<ResolvedIcon />}>
                   Marcar Resuelto
+                </Button>
+              )}
+              {selectedTicket.status === 'resolved' && ['customer_service', 'counter_staff'].includes(currentUserRole) && (
+                <Button
+                  variant="outlined"
+                  onClick={handleReactivateTicket}
+                  startIcon={<ResolvedIcon />}
+                  sx={{ borderColor: ORANGE, color: ORANGE, '&:hover': { borderColor: ORANGE, bgcolor: '#FFF3EE' } }}
+                >
+                  Reactivar Ticket
                 </Button>
               )}
             </DialogActions>

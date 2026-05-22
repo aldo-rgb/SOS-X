@@ -566,6 +566,7 @@ import {
   getSupportStats,
   adminReplyTicket,
   resolveTicket,
+  reactivateTicket,
   assignTicket,
   uploadSupportImages,
   uploadAdminReplyFiles,
@@ -4660,6 +4661,9 @@ app.post('/api/support/ai-translate', authenticateToken, aiTranslateMessage);
 
 // Admin: Resolver ticket
 app.put('/api/admin/support/ticket/:id/resolve', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resolveTicket);
+
+// Admin: Reactivar ticket resuelto
+app.put('/api/admin/support/ticket/:id/reactivate', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), reactivateTicket);
 
 // Admin: Asignar ticket a agente
 app.put('/api/admin/support/ticket/:id/assign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignTicket);
