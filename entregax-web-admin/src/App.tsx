@@ -1513,6 +1513,8 @@ function App() {
             return <DashboardBranchManager />;
           case 'customer_service':
           case 'Customer Service':
+          case 'soporte_tecnico':
+          case 'Soporte Técnico':
             return <DashboardCustomerService onNavigateToSupport={() => {
               window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'service_tickets' } }));
             }} />;
