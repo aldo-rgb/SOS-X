@@ -528,7 +528,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
     if (advisorData?.advisor.referralCode) {
       try {
         await Share.share({
-          message: `¡Únete a EntregaX con mi código ${advisorData.advisor.referralCode} y obtén beneficios exclusivos! 📦✈️ Descarga la app: https://entregax.com/app`,
+          message: `¡Únete a EntregaX con mi código ${advisorData.advisor.referralCode} y obtén beneficios exclusivos! 📦✈️\n\nhttps://entregax.app/register?ref=${advisorData.advisor.referralCode}`,
         });
       } catch (err) {
         console.error('Error sharing:', err);
