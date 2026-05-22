@@ -20,7 +20,8 @@ import {
   LocationOn as GpsIcon,
   Description as XmlIcon,
   Speed as OdometerIcon,
-  ReceiptLong as MovementsIcon
+  ReceiptLong as MovementsIcon,
+  DeleteForever as DeleteIcon
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -163,6 +164,7 @@ export default function PettyCashHubPage() {
     } catch { return ''; }
   })();
   const canFundBranch = ['super_admin', 'admin', 'director'].includes(currentUserRole);
+  const isSuperAdmin = currentUserRole === 'super_admin';
 
   const [tab, setTab] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -216,6 +218,7 @@ export default function PettyCashHubPage() {
   const [detailWallet, setDetailWallet] = useState<Wallet | null>(null);
   const [detailMovs, setDetailMovs] = useState<Movement[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [deletingMovId, setDeletingMovId] = useState<number | null>(null);
 
   // Visor de foto de evidencia
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -431,6 +434,34 @@ export default function PettyCashHubPage() {
       setSnack({ severity: 'error', msg: 'Error de red' });
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const handleDeleteMovement = async (movId: number) => {
+    if (!window.confirm('¿Eliminar este movimiento? Esta acción revierte el saldo y no se puede deshacer.')) return;
+    setDeletingMovId(movId);
+    try {
+      const r = await fetch(`${API_URL}/api/admin/petty-cash/movements/${movId}`, {
+        method: 'DELETE', headers
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setDetailMovs(prev => prev.filter(m => m.id !== movId));
+        setSnack({ severity: 'success', msg: 'Movimiento eliminado' });
+        // Actualizar saldo en detailWallet recargando el wallet
+        if (detailWallet) {
+          const wr = await fetch(`${API_URL}/api/admin/petty-cash/wallets/${detailWallet.id}`, { headers });
+          const wd = await wr.json();
+          if (wr.ok && wd.wallet) setDetailWallet(prev => ({ ...(prev as Wallet), ...wd.wallet }));
+        }
+        loadAll();
+      } else {
+        setSnack({ severity: 'error', msg: d.error || 'Error al eliminar' });
+      }
+    } catch {
+      setSnack({ severity: 'error', msg: 'Error de red' });
+    } finally {
+      setDeletingMovId(null);
     }
   };
 
@@ -1143,6 +1174,7 @@ export default function PettyCashHubPage() {
                     <TableCell align="right">Saldo</TableCell>
                     <TableCell align="center">Estado</TableCell>
                     <TableCell align="center">Evidencia</TableCell>
+                    {isSuperAdmin && <TableCell align="center" />}
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -1206,12 +1238,28 @@ export default function PettyCashHubPage() {
                               </Tooltip>
                             ) : '—'}
                           </TableCell>
+                          {isSuperAdmin && (
+                            <TableCell align="center">
+                              <Tooltip title="Eliminar movimiento (solo super admin)">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    disabled={deletingMovId === m.id}
+                                    onClick={() => handleDeleteMovement(m.id)}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
+                            </TableCell>
+                          )}
                         </TableRow>
                       );
                     });
                   })()}
                   {detailMovs.length === 0 && !detailLoading && (
-                    <TableRow><TableCell colSpan={8} align="center">Sin movimientos registrados</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">Sin movimientos registrados</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>

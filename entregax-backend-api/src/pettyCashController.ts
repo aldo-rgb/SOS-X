@@ -1434,3 +1434,54 @@ export const finalizeRouteBlock = async (req: Request, res: Response): Promise<a
     client.release();
   }
 };
+
+// ============================================================
+// DELETE /api/admin/petty-cash/movements/:id  — solo super_admin
+// Elimina un movimiento y revierte su efecto en el saldo del wallet.
+// ============================================================
+export const deleteMovement = async (req: Request, res: Response): Promise<any> => {
+  const id = req.params['id'] as string;
+  const movId = parseInt(id, 10);
+  if (!movId) return res.status(400).json({ error: 'ID inválido' });
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const movRes = await client.query(
+      `SELECT * FROM petty_cash_movements WHERE id = $1 LIMIT 1`,
+      [movId]
+    );
+    if (movRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Movimiento no encontrado' });
+    }
+    const mov = movRes.rows[0];
+    const walletId = mov.wallet_id;
+    const amount = Number(mov.amount_mxn) || 0;
+
+    // Revertir saldo del wallet solo si el movimiento fue aprobado/liquidado.
+    // fund/return → sumaron saldo → revertir restando; advance → restó saldo → revertir sumando.
+    // expense → no afecta el wallet de sucursal.
+    if (['approved', 'settled'].includes(mov.status)) {
+      const signMap: Record<string, number> = { fund: -1, return: -1, advance: 1, adjustment: -1 };
+      const sign = signMap[mov.movement_type] ?? 0;
+      if (sign !== 0) {
+        await client.query(
+          `UPDATE petty_cash_wallets SET balance_mxn = balance_mxn + $1 WHERE id = $2`,
+          [sign * amount, walletId]
+        );
+      }
+    }
+
+    await client.query('DELETE FROM petty_cash_movements WHERE id = $1', [movId]);
+    await client.query('COMMIT');
+
+    return res.json({ success: true, message: 'Movimiento eliminado' });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: 'Error al eliminar movimiento', details: err.message });
+  } finally {
+    client.release();
+  }
+};
