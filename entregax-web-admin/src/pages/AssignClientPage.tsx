@@ -201,11 +201,12 @@ export default function AssignClientPage({ onBack }: Props) {
         } finally { setAssigning(false); }
     };
 
-    // Stats
+    // Stats — solo cuentan los que realmente necesitan asignación (sin boxId ni legacyMatch)
     const stats = useMemo(() => {
-        const total = packages.length;
+        const needsAssignment = packages.filter(p => !p.currentBoxId && !p.legacyMatch);
+        const total = needsAssignment.length;
         let urgent = 0, mid = 0, recent = 0;
-        for (const p of packages) {
+        for (const p of needsAssignment) {
             if (p.daysInWarehouse >= 14) urgent++;
             else if (p.daysInWarehouse >= 7) mid++;
             else recent++;
