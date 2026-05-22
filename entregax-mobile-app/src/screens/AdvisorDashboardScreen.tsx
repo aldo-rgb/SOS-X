@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Text, Avatar, ActivityIndicator, Chip, Divider } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
+import QRCode from 'react-native-qrcode-svg';
 import { API_URL } from '../services/api';
 import { useTranslation } from 'react-i18next';
 import { changeLanguage, getCurrentLanguage } from '../i18n';
@@ -68,6 +69,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [hideCommission, setHideCommission] = useState(false);
   const [unreadNotif, setUnreadNotif]   = useState(0);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(user.profilePhotoUrl || null);
+  const [showQrModal, setShowQrModal]   = useState(false);
 
   const loadDashboard = useCallback(async () => {
     try {
@@ -310,8 +312,27 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
               <Ionicons name="share-social-outline" size={15} color={ORANGE} />
               <Text style={s.heroCodeBtnOutlineText}>Compartir</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={s.heroCodeBtnOutline} onPress={() => setShowQrModal(true)}>
+              <Ionicons name="qr-code-outline" size={15} color={ORANGE} />
+            </TouchableOpacity>
           </View>
         </View>
+
+        {/* Modal QR */}
+        <Modal visible={showQrModal} transparent animationType="fade" onRequestClose={() => setShowQrModal(false)}>
+          <TouchableOpacity style={s.qrOverlay} activeOpacity={1} onPress={() => setShowQrModal(false)}>
+            <View style={s.qrBox}>
+              <Text style={s.qrTitle}>Mi código de asesor</Text>
+              <Text style={s.qrCode}>{data?.advisor.referralCode || '—'}</Text>
+              {data?.advisor.referralCode ? (
+                <QRCode value={data.advisor.referralCode} size={200} color={BLACK} backgroundColor="#fff" />
+              ) : null}
+              <TouchableOpacity style={s.qrClose} onPress={() => setShowQrModal(false)}>
+                <Text style={s.qrCloseText}>Cerrar</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         {/* Embarques */}
         <View style={s.sectionHeader}>
@@ -476,6 +497,12 @@ const s = StyleSheet.create({
   heroCodeBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
   heroCodeBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
   heroCodeBtnOutline:     { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1.5, borderColor: ORANGE, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  qrOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
+  qrBox:       { backgroundColor: '#fff', borderRadius: 16, padding: 28, alignItems: 'center', gap: 12, width: 280 },
+  qrTitle:     { fontSize: 16, fontWeight: '700', color: BLACK },
+  qrCode:      { fontSize: 18, fontWeight: '800', color: ORANGE, letterSpacing: 1 },
+  qrClose:     { marginTop: 8, backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 32, paddingVertical: 10 },
+  qrCloseText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   heroCodeBtnOutlineText: { color: ORANGE, fontSize: 12, fontWeight: '700' },
 
 
