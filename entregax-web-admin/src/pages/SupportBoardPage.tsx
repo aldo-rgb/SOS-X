@@ -282,9 +282,11 @@ export default function SupportBoardPage() {
     // customer_service ve todos los departamentos
     if (currentUserRole === 'customer_service') return true;
     if (isOperaciones) {
-      // Si ya tenemos la sucursal: solo su CEDIS
+      // Departamentos principales de atención a cliente (siempre visibles para operaciones con permisos cs_)
+      if (['Atención a Cliente', 'Soporte Técnico'].includes(deptName)) return true;
+      // Su CEDIS específico
       if (currentUserCedisDept) return deptName === currentUserCedisDept;
-      // Fallback mientras no hay branch_code en localStorage: solo CEDIS (no depts internos)
+      // Fallback: todos los CEDIS
       return deptName.startsWith('CEDIS');
     }
     const allowed = DEPT_ALLOWED_ROLES[deptName];
