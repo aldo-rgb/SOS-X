@@ -127,6 +127,13 @@ interface Inspection {
   manager_review_status: string;
   economic_number: string;
   driver_name: string;
+  front_photo_url?: string | null;
+  back_photo_url?: string | null;
+  left_side_photo_url?: string | null;
+  right_side_photo_url?: string | null;
+  cabin_photo_url?: string | null;
+  damage_photo_url?: string | null;
+  odometer_photo_url?: string | null;
 }
 
 interface FleetAlert {
@@ -285,6 +292,8 @@ export default function FleetManagementPage() {
 
   // Lightbox para ver fotos del vehículo en modal (no abrir nueva pestaña)
   const [photoLightbox, setPhotoLightbox] = useState<{ url: string; label: string } | null>(null);
+  // Modal para ver fotos de una inspección
+  const [inspectionPhotosModal, setInspectionPhotosModal] = useState<Inspection | null>(null);
   // Visor de archivos de documentos (PDF / imagen) en modal
   const [documentViewer, setDocumentViewer] = useState<{ url: string; label: string } | null>(null);
 
@@ -312,7 +321,10 @@ export default function FleetManagementPage() {
   // Roles que pueden ver el detalle (👁) de la unidad pero NO editar/eliminar
   const canViewVehicle = isSuperAdmin
     || currentUserRole === 'branch_manager'
-    || currentUserRole === 'counter_staff';
+    || currentUserRole === 'counter_staff'
+    || currentUserRole === 'customer_service';
+  // Puede gestionar documentos (pólizas, etc.) pero no editar el vehículo
+  const canManageDocs = canEditVehicle || currentUserRole === 'customer_service';
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const getToken = () => localStorage.getItem('token') || '';
@@ -1104,15 +1116,25 @@ export default function FleetManagementPage() {
                       />
                     </TableCell>
                     <TableCell align="center">
-                      <Button 
-                        size="small" 
-                        variant="outlined"
-                        color="success"
-                        onClick={() => handleReviewInspection(insp.id, 'reviewed')}
-                        disabled={insp.manager_review_status === 'reviewed'}
-                      >
-                        Aprobar
-                      </Button>
+                      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center' }}>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="info"
+                          onClick={() => setInspectionPhotosModal(insp)}
+                        >
+                          Ver Fotos
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="success"
+                          onClick={() => handleReviewInspection(insp.id, 'reviewed')}
+                          disabled={insp.manager_review_status === 'reviewed'}
+                        >
+                          Aprobar
+                        </Button>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))
@@ -1278,25 +1300,30 @@ export default function FleetManagementPage() {
 
               {/* Acciones Rápidas */}
               <Box sx={{ display: 'flex', gap: 1, mb: 3 }}>
-                <Button 
-                  variant="outlined" 
-                  startIcon={<PersonIcon />}
-                  onClick={() => setAssignDriverOpen(true)}
-                >
-                  {vehicleDetailData.vehicle.driver_name ? 'Cambiar Conductor' : 'Asignar Conductor'}
-                </Button>
+                {canEditVehicle && (
+                  <Button
+                    variant="outlined"
+                    startIcon={<PersonIcon />}
+                    onClick={() => setAssignDriverOpen(true)}
+                  >
+                    {vehicleDetailData.vehicle.driver_name ? 'Cambiar Conductor' : 'Asignar Conductor'}
+                  </Button>
+                )}
+                {canEditVehicle && (
+                  <Button
+                    variant="outlined"
+                    startIcon={<TruckIcon />}
+                    onClick={() => {
+                      setSelectedBranchId(vehicleDetailData.vehicle.branch_id || '');
+                      setAssignBranchOpen(true);
+                    }}
+                  >
+                    {vehicleDetailData.vehicle.branch_id ? 'Cambiar Ubicación' : 'Asignar Ubicación'}
+                  </Button>
+                )}
+                {canManageDocs && (
                 <Button
                   variant="outlined"
-                  startIcon={<TruckIcon />}
-                  onClick={() => {
-                    setSelectedBranchId(vehicleDetailData.vehicle.branch_id || '');
-                    setAssignBranchOpen(true);
-                  }}
-                >
-                  {vehicleDetailData.vehicle.branch_id ? 'Cambiar Ubicación' : 'Asignar Ubicación'}
-                </Button>
-                <Button 
-                  variant="outlined" 
                   startIcon={<DocumentIcon />}
                   onClick={() => {
                     setEditingDocId(null);
@@ -1317,8 +1344,10 @@ export default function FleetManagementPage() {
                 >
                   Agregar Documento
                 </Button>
-                <Button 
-                  variant="outlined" 
+                )}
+                {canEditVehicle && (
+                <Button
+                  variant="outlined"
                   startIcon={<BuildIcon />}
                   onClick={() => {
                     setNewMaintenance({ ...newMaintenance, mileage_at_service: vehicleDetailData.vehicle.current_mileage });
@@ -1327,6 +1356,7 @@ export default function FleetManagementPage() {
                 >
                   Registrar Servicio
                 </Button>
+                )}
               </Box>
 
               <Divider sx={{ my: 2 }} />
@@ -2452,6 +2482,61 @@ export default function FleetManagementPage() {
                 title={documentViewer.label}
                 sx={{ width: '100%', height: '100%', border: 0, bgcolor: '#fff' }}
               />
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal: Fotos de Inspección */}
+      <Dialog
+        open={!!inspectionPhotosModal}
+        onClose={() => setInspectionPhotosModal(null)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box>
+            <Typography variant="h6">Fotos de Inspección</Typography>
+            {inspectionPhotosModal && (
+              <Typography variant="caption" color="text.secondary">
+                {inspectionPhotosModal.economic_number} · {inspectionPhotosModal.driver_name} · {new Date(inspectionPhotosModal.inspection_date).toLocaleString('es-MX')}
+              </Typography>
+            )}
+          </Box>
+          <IconButton onClick={() => setInspectionPhotosModal(null)}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent>
+          {inspectionPhotosModal && (() => {
+            const photos = [
+              { label: 'Frente', url: inspectionPhotosModal.front_photo_url },
+              { label: 'Atrás', url: inspectionPhotosModal.back_photo_url },
+              { label: 'Lado Izquierdo', url: inspectionPhotosModal.left_side_photo_url },
+              { label: 'Lado Derecho', url: inspectionPhotosModal.right_side_photo_url },
+              { label: 'Cabina', url: inspectionPhotosModal.cabin_photo_url },
+              { label: 'Daño', url: inspectionPhotosModal.damage_photo_url },
+              { label: 'Odómetro', url: inspectionPhotosModal.odometer_photo_url },
+            ].filter(p => p.url);
+
+            if (photos.length === 0) {
+              return <Typography color="text.secondary" sx={{ py: 3, textAlign: 'center' }}>Sin fotos registradas en esta inspección.</Typography>;
+            }
+
+            return (
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 2, pt: 1 }}>
+                {photos.map(({ label, url }) => (
+                  <Box key={label} sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    <Box
+                      component="img"
+                      src={url!}
+                      alt={label}
+                      onClick={() => setPhotoLightbox({ url: url!, label })}
+                      sx={{ width: '100%', aspectRatio: '4/3', objectFit: 'cover', borderRadius: 1, cursor: 'pointer', border: '1px solid #e0e0e0',
+                        '&:hover': { opacity: 0.85 } }}
+                    />
+                    <Typography variant="caption" align="center" color="text.secondary">{label}</Typography>
+                  </Box>
+                ))}
+              </Box>
             );
           })()}
         </DialogContent>

@@ -28,7 +28,7 @@ import { useTranslation } from 'react-i18next';
 
 // Importar los paneles específicos
 import WarehouseReceptionPage from './WarehouseReceptionPage';
-import QuotesPage from './QuotesPage';
+import NacionalMexicoPage from './NacionalMexicoPage';
 import MaritimeWarehousePage from './MaritimeWarehousePage';
 import DhlOperationsPage from './DhlOperationsPage';
 import UnifiedWarehousePanel from './UnifiedWarehousePanel';
@@ -302,7 +302,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 ) : selectedPanel === 'china_sea_legacy' ? (
                     <MaritimeWarehousePage />
                 ) : selectedPanel === 'mx_national' ? (
-                    <QuotesPage />
+                    <NacionalMexicoPage />
                 ) : selectedPanel === 'mx_cedis' ? (
                     <DhlOperationsPage onBack={handleBackToHub} />
                 ) : selectedPanel === 'scanner_unificado' ? (

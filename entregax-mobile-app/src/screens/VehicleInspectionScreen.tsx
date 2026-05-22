@@ -64,7 +64,7 @@ const STEPS = [
 export default function VehicleInspectionScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const user = route?.params?.user;
-  // 👁️ Rol Monitoreo: NO es inspección semanal; es asignación cada vez
+  // 👁️ Rol Monitoreo: NO es inspección diaria; es asignación cada vez
   // que recibe la unidad (puede pasar varias veces al día).
   const isMonitoreo = String(user?.role || '').toLowerCase() === 'monitoreo';
   // mode: 'check_in' (recibir) | 'check_out' (devolver). Solo aplica a monitoreo.
@@ -73,7 +73,7 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
   const preselectedVehicle = route?.params?.vehicle || null;
   const screenTitle = isMonitoreo
     ? (isReturn ? 'Devolver Unidad' : 'Recibir Unidad')
-    : 'Inspección Semanal';
+    : 'Inspección Diaria';
   const [currentStep, setCurrentStep] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -124,6 +124,15 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
         ? vehiclesRes.data
         : (vehiclesRes.data?.vehicles || []);
       setVehicles(vehiclesData);
+      // Preseleccionar el vehículo asignado (sin avanzar el paso)
+      const assigned = vehiclesData.find((v: any) => v.is_assigned);
+      if (assigned) {
+        setInspectionData(prev => ({
+          ...prev,
+          vehicle_id: assigned.id,
+          reported_mileage: assigned.current_mileage?.toString() || '',
+        }));
+      }
 
       // Verificar si ya hizo inspección hoy.
       // Para rol Monitoreo NO se aplica el bloqueo: pueden recibir/asignar
@@ -284,7 +293,7 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
           ? 'La unidad fue devuelta y queda disponible.'
           : isMonitoreo
             ? 'La asignación de la unidad ha sido registrada. ¡Puedes iniciar tu jornada!'
-            : 'Tu inspección semanal ha sido registrada. ¡Puedes iniciar tu ruta!',
+            : 'Tu inspección diaria ha sido registrada. ¡Puedes iniciar tu ruta!',
         [{ text: 'OK', onPress: () => navigation.goBack() }]
       );
     } catch (error: any) {
@@ -568,7 +577,7 @@ export default function VehicleInspectionScreen({ navigation, route }: any) {
           <Text style={styles.completedSubtitle}>
             {isMonitoreo
               ? 'Ya registraste la asignación de la unidad para esta jornada.'
-              : 'Ya realizaste tu inspección semanal. Puedes continuar con tu ruta.'}
+              : 'Ya realizaste tu inspección diaria. Puedes continuar con tu ruta.'}
           </Text>
           <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
             <Text style={styles.backButtonText}>Volver al inicio</Text>

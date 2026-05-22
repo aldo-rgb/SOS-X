@@ -733,28 +733,31 @@ export const getAvailableVehicles = async (req: Request, res: Response) => {
       return res.json(monitorVehicles.rows);
     }
 
-    // Vehículos activos asignados al chofer autenticado
-    const assigned = await pool.query(`
-      SELECT id, economic_number, vehicle_type, brand, model, year, license_plates, current_mileage
-      FROM vehicles
-      WHERE status = 'active' AND assigned_driver_id = $1
-      ORDER BY economic_number
-    `, [userId]);
-
-    if (assigned.rows.length > 0) {
-      return res.json(assigned.rows);
-    }
-
-    // Fallback: si no tiene vehículo asignado, mostrar todos los vehículos activos de su sucursal
+    // Todos los vehículos activos de la sucursal del chofer,
+    // marcando el asignado a él para preseleccionarlo en la app
     const branchVehicles = await pool.query(`
-      SELECT v.id, v.economic_number, v.vehicle_type, v.brand, v.model, v.year, v.license_plates, v.current_mileage
+      SELECT v.id, v.economic_number, v.vehicle_type, v.brand, v.model, v.year,
+             v.license_plates, v.current_mileage,
+             (v.assigned_driver_id = $1) AS is_assigned
       FROM vehicles v
       JOIN users u ON u.id = $1
       WHERE v.status = 'active'
         AND u.branch_id IS NOT NULL
         AND v.branch_id = u.branch_id
-      ORDER BY v.economic_number
+      ORDER BY (v.assigned_driver_id = $1) DESC, v.economic_number
     `, [userId]);
+
+    // Si no está en ninguna sucursal, mostrar solo el asignado como fallback
+    if (branchVehicles.rows.length === 0) {
+      const assigned = await pool.query(`
+        SELECT id, economic_number, vehicle_type, brand, model, year, license_plates,
+               current_mileage, true AS is_assigned
+        FROM vehicles
+        WHERE status = 'active' AND assigned_driver_id = $1
+        ORDER BY economic_number
+      `, [userId]);
+      return res.json(assigned.rows);
+    }
 
     res.json(branchVehicles.rows);
   } catch (error) {
@@ -787,18 +790,18 @@ export const submitDailyInspection = async (req: Request, res: Response) => {
     const userRole = String(userRoleRes.rows[0]?.role || '').toLowerCase();
     const isMonitoreo = userRole === 'monitoreo';
 
-    // Verificar si ya existe inspección esta semana (lun-dom, zona CDMX) para este vehículo y tipo
+    // Verificar si ya existe inspección hoy (zona CDMX) para este vehículo y tipo
     // Monitoreo NO tiene este límite (recibe unidades varias veces al día)
     if (!isMonitoreo) {
       const existing = await pool.query(`
-        SELECT id FROM daily_vehicle_inspections 
+        SELECT id FROM daily_vehicle_inspections
         WHERE vehicle_id = $1 AND driver_id = $2 AND inspection_type = $3
-          AND date_trunc('week', (inspection_date AT TIME ZONE 'America/Mexico_City'))
-              = date_trunc('week', (NOW() AT TIME ZONE 'America/Mexico_City'))
+          AND date_trunc('day', (inspection_date AT TIME ZONE 'America/Mexico_City'))
+              = date_trunc('day', (NOW() AT TIME ZONE 'America/Mexico_City'))
       `, [vehicle_id, userId, inspection_type || 'check_in']);
-      
+
       if (existing.rows.length > 0) {
-        return res.status(400).json({ error: 'Ya registraste una inspección de este tipo esta semana' });
+        return res.status(400).json({ error: 'Ya registraste una inspección de este tipo hoy' });
       }
     }
     
@@ -984,8 +987,8 @@ export const checkTodayInspection = async (req: Request, res: Response) => {
       FROM daily_vehicle_inspections dvi
       JOIN vehicles v ON dvi.vehicle_id = v.id
       WHERE dvi.driver_id = $1
-        AND date_trunc('week', (dvi.inspection_date AT TIME ZONE 'America/Mexico_City'))
-            = date_trunc('week', (NOW() AT TIME ZONE 'America/Mexico_City'))
+        AND date_trunc('day', (dvi.inspection_date AT TIME ZONE 'America/Mexico_City'))
+            = date_trunc('day', (NOW() AT TIME ZONE 'America/Mexico_City'))
       ${type ? 'AND dvi.inspection_type = $2' : ''}
       ORDER BY dvi.inspection_date DESC
     `, type ? [userId, type] : [userId]);

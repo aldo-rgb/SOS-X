@@ -461,14 +461,10 @@ function App() {
               headerTintColor: '#9C27B0',
             }}
           />
-          <Stack.Screen 
-            name="AdvisorClientTickets" 
+          <Stack.Screen
+            name="AdvisorClientTickets"
             component={AdvisorClientTicketsScreen}
-            options={{
-              headerShown: true,
-              headerTitle: 'Tickets de Clientes',
-              headerTintColor: '#E91E63',
-            }}
+            options={{ headerShown: false }}
           />
           <Stack.Screen 
             name="AdvisorNotifications"

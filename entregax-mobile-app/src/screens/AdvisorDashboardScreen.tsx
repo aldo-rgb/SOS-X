@@ -66,15 +66,30 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [showLangModal, setShowLangModal] = useState(false);
   const [currentLang, setCurrentLang]   = useState(getCurrentLanguage());
   const [hideCommission, setHideCommission] = useState(false);
+  const [unreadNotif, setUnreadNotif]   = useState(0);
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(user.profilePhotoUrl || null);
 
   const loadDashboard = useCallback(async () => {
     try {
       setError(null);
-      const res = await fetch(`${API_URL}/api/advisor/dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) throw new Error('Error al cargar datos');
-      setData(await res.json());
+      const [dashRes, photoRes, notifRes] = await Promise.allSettled([
+        fetch(`${API_URL}/api/advisor/dashboard`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/auth/profile-photo`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/notifications/unread-count`, { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
+      if (dashRes.status === 'fulfilled' && dashRes.value.ok) {
+        setData(await dashRes.value.json());
+      } else {
+        throw new Error('Error al cargar datos');
+      }
+      if (photoRes.status === 'fulfilled' && photoRes.value.ok) {
+        const pd = await photoRes.value.json();
+        if (pd.profile_photo_url) setProfilePhoto(pd.profile_photo_url);
+      }
+      if (notifRes.status === 'fulfilled' && notifRes.value.ok) {
+        const nd = await notifRes.value.json();
+        setUnreadNotif(nd.count || nd.unread || 0);
+      }
     } catch (err: any) {
       console.error('Error loading advisor dashboard:', err);
       setError(err.message || 'Error al cargar el dashboard');
@@ -185,8 +200,25 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         <TouchableOpacity onPress={() => setShowLangModal(true)} style={s.langBtn}>
           <Text style={s.langFlag}>{getLanguageFlag(currentLang)}</Text>
         </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('ChatList', { user, token })} style={s.headerIconBtn}>
+          <Ionicons name="chatbubble-outline" size={22} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => navigation.navigate('AdvisorNotifications', { user, token })} style={s.headerIconBtn}>
+          <View>
+            <Ionicons name="notifications-outline" size={22} color="#fff" />
+            {unreadNotif > 0 && (
+              <View style={s.notifBadge}>
+                <Text style={s.notifBadgeText}>{unreadNotif > 99 ? '99+' : unreadNotif}</Text>
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setShowMenu(true)} style={s.avatarBtn}>
-          <Avatar.Text size={38} label={initials} style={{ backgroundColor: ORANGE }} />
+          {profilePhoto ? (
+            <Image source={{ uri: profilePhoto }} style={s.avatarImg} />
+          ) : (
+            <Avatar.Text size={38} label={initials} style={{ backgroundColor: ORANGE }} />
+          )}
         </TouchableOpacity>
       </View>
 
@@ -212,7 +244,11 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         <TouchableOpacity style={s.overlay} activeOpacity={1} onPress={() => setShowMenu(false)}>
           <View style={s.menuModal}>
             <View style={s.menuTop}>
-              <Avatar.Text size={48} label={initials} style={{ backgroundColor: ORANGE }} />
+              {profilePhoto ? (
+                <Image source={{ uri: profilePhoto }} style={s.menuAvatarImg} />
+              ) : (
+                <Avatar.Text size={48} label={initials} style={{ backgroundColor: ORANGE }} />
+              )}
               <View style={{ marginLeft: 12, flex: 1 }}>
                 <Text style={s.menuName}>{data.advisor.fullName || user.name}</Text>
                 <Text style={s.menuEmail}>{data.advisor.email || user.email}</Text>
@@ -221,9 +257,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             </View>
             <Divider style={{ backgroundColor: '#2A2A2A', marginVertical: 8 }} />
             {[
-              { icon: 'person-outline',           label: 'Mi Perfil',        screen: 'MyProfile',    color: '#fff' },
-              { icon: 'shield-checkmark-outline', label: 'Verificación',     screen: 'Verification', color: '#fff' },
-              { icon: 'help-circle-outline',      label: 'Centro de Ayuda',  screen: 'HelpCenter',   color: '#fff' },
+              { icon: 'person-outline', label: 'Mi Perfil', screen: 'MyProfile' },
             ].map(item => (
               <TouchableOpacity key={item.screen} style={s.menuItem} onPress={() => { setShowMenu(false); navigation.navigate(item.screen, { user, token }); }}>
                 <Ionicons name={item.icon as any} size={20} color="#aaa" />
@@ -405,6 +439,11 @@ const s = StyleSheet.create({
   },
   logo:    { width: 192, height: 58, resizeMode: 'contain' },
   langBtn: { padding: 8, marginRight: 4 },
+  headerIconBtn: { padding: 8, marginRight: 2 },
+  notifBadge: { position: 'absolute', top: -4, right: -4, backgroundColor: RED, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3 },
+  notifBadgeText: { color: '#fff', fontSize: 9, fontWeight: '700' },
+  avatarImg: { width: 38, height: 38, borderRadius: 19, borderWidth: 2, borderColor: ORANGE },
+  menuAvatarImg: { width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: ORANGE },
   langFlag:{ fontSize: 22 },
   avatarBtn: { marginLeft: 4 },
 
@@ -473,7 +512,7 @@ const s = StyleSheet.create({
     borderColor: '#E8E8E8',
     overflow: 'hidden',
   },
-  shipCardAccent: { borderColor: '#3A2020' },
+  shipCardAccent: {},
   shipCardBar:    { position: 'absolute', top: 0, left: 0, right: 0, height: 3, borderTopLeftRadius: CARD_RADIUS, borderTopRightRadius: CARD_RADIUS },
   shipIcon:       { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   shipValue:      { fontSize: 30, fontWeight: '900', color: TEXT },

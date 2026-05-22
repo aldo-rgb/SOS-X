@@ -111,9 +111,15 @@ export default function BootstrapScreen({ navigation }: Props) {
     }
   };
 
+  const ADVISOR_ROLES = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
+
   const routeByRole = (user: any, token: string) => {
     if (user.role === 'repartidor' || user.role === 'monitoreo') {
       navigation.replace('DriverHome', { user, token });
+      return;
+    }
+    if (ADVISOR_ROLES.includes(user.role)) {
+      navigation.replace('AdvisorDashboard', { user, token });
       return;
     }
     if (EMPLOYEE_ROLES.includes(user.role)) {

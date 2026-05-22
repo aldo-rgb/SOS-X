@@ -23,6 +23,8 @@ import {
   ScrollView,
   Platform,
   Keyboard,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -163,15 +165,23 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   // Lote de cajas adicionales que se entregan con la MISMA firma/foto/nombre (entrega local)
   const [batchPackages, setBatchPackages] = useState<PackageInfo[]>([]);
   
+  const isPaqueteExpress = (name: string) => /paquete\s*express/i.test(name || '');
+  const isLocalCarrier = (name: string) => /entregax|local|pick\s*up|pickup|propio/i.test(name || '');
+
   // Para entrega múltiple (cualquier paquetería con guía de carrier)
   const [isBulkDelivery, setIsBulkDelivery] = useState(false);
-  const [scannedPackages, setScannedPackages] = useState<Array<{packageId: string, internalGuide: string, carrierGuide: string}>>([]);
+  const [scannedPackages, setScannedPackages] = useState<Array<{packageId: string, internalGuide: string, carrierGuide: string, selectedCarrierName?: string}>>([]);
   const [currentScanStep, setCurrentScanStep] = useState<'internal' | 'carrier'>('internal');
   const [tempInternalGuide, setTempInternalGuide] = useState('');
   const [tempMasterTracking, setTempMasterTracking] = useState('');
   const [tempCarrierGuide, setTempCarrierGuide] = useState('');
-  const [bulkCarrierName, setBulkCarrierName] = useState<string>('Paquete Express');
+  const [bulkCarrierName, setBulkCarrierName] = useState<string>('');
   const [deliveryTypeAsked, setDeliveryTypeAsked] = useState(false);
+
+  // Selector de paquetería para entrega a carrier externo
+  const [deliveryCarriers, setDeliveryCarriers] = useState<Array<{carrier_key: string, name: string, icon?: string}>>([]);
+  const [showCarrierPicker, setShowCarrierPicker] = useState(false);
+  const [selectedDropoffCarrier, setSelectedDropoffCarrier] = useState<{carrier_key: string, name: string} | null>(null);
   
   const [permission, requestPermission] = useCameraPermissions();
   const signatureRef = useRef<any>(null);
@@ -196,11 +206,19 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   useEffect(() => {
     if (!deliveryTypeAsked && !preSelectedPackage) {
       setDeliveryTypeAsked(true);
-      // Iniciar directo en individual, sin preguntar
       setIsBulkDelivery(false);
       setCurrentStep('scan');
     }
   }, [deliveryTypeAsked, preSelectedPackage]);
+
+  // Cargar paqueterías configuradas en Nacional México
+  useEffect(() => {
+    api.get('/api/carrier-options/by-service/mx_national', {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    }).then(res => {
+      if (res.data?.data?.length) setDeliveryCarriers(res.data.data);
+    }).catch(() => {});
+  }, [token]);
 
   useEffect(() => {
     if (currentStep === 'scan' && !route?.params?.scanMode && !hasAskedModeRef.current && !isBulkDelivery) {
@@ -283,7 +301,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     if (!data || isScanning) return;
     if (source === 'camera' && (!scannerActive || data === lastScannedCode)) return;
 
-    // Modo múltiple (Paquete Express)
+    // Modo múltiple (multi-caja con carrier)
     if (isBulkDelivery) {
       setIsScanning(true);
       if (source === 'camera') setScannerActive(false);
@@ -300,21 +318,12 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             Vibration.vibrate([0, 200, 100, 200]);
             showFeedback({
               type: 'error',
-              message: 'Guía interna no encontrada o no es Paquete Express',
+              message: 'Guía interna no encontrada',
             });
             return;
           }
 
           const pkg = res.data.package;
-          // Aceptar cualquier paquete con guía de carrier nacional o multi-caja
-          if (!pkg.has_children && !pkg.national_carrier && !pkg.national_tracking) {
-            Vibration.vibrate([0, 200, 100, 200]);
-            showFeedback({
-              type: 'error',
-              message: `❌ Esta guía (${data}) no tiene paquetería nacional asignada.`,
-            });
-            return;
-          }
 
           // Verificar que no esté duplicada
           if (scannedPackages.some(p => p.internalGuide === data)) {
@@ -326,16 +335,20 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             return;
           }
 
-          const carrierName = (pkg.national_carrier || bulkCarrierName || 'Paquetería').toString().trim() || 'Paquetería';
+          const carrierName = (pkg.national_carrier || bulkCarrierName || '').toString().trim();
           setBulkCarrierName(carrierName);
           setTempInternalGuide(data);
           setTempMasterTracking((pkg.national_tracking || '').toString().toUpperCase());
+          setSelectedDropoffCarrier(null);
           setCurrentScanStep('carrier');
           Vibration.vibrate(50);
-          showFeedback({
-            type: 'success',
-            message: `✅ Guía interna ${data} validada. Escanea guía de ${carrierName}.`,
-          });
+
+          if (!isPaqueteExpress(carrierName) && !isLocalCarrier(carrierName)) {
+            showFeedback({ type: 'success', message: `✅ Guía interna ${data} validada. Selecciona paquetería de entrega.` });
+            setShowCarrierPicker(true);
+          } else {
+            showFeedback({ type: 'success', message: `✅ Guía interna ${data} validada. Escanea guía de ${carrierName || 'carrier'}.` });
+          }
           setManualCode('');
         } else {
           // Validar que no es la misma que la interna
@@ -343,76 +356,64 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             Vibration.vibrate([0, 200, 100, 200]);
             showFeedback({
               type: 'error',
-              message: `❌ La guía de Paquete Express NO puede ser la misma que la guía interna (${data})`,
+              message: `❌ La guía del carrier no puede ser la misma que la guía interna (${data})`,
             });
             return;
           }
 
-          // Validar que NO sea la guía MASTER de Paquete Express — debe ser la guía HIJA (caja específica)
-          // Master: ~14 chars (ej: MTY01WE0A18456)
-          // Hija:   master + 3 a 6 dígitos de pieza (ej: MTY01WE0A18456001, MTY01WE0A18456001002)
           const dataUpper = data.toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-          // Rechazar lectura demasiado corta (parcial del scanner)
-          if (dataUpper.length < 14) {
-            Vibration.vibrate([0, 200, 100, 200]);
-            showFeedback({
-              type: 'error',
-              message: `❌ Lectura incompleta (${data}). Vuelve a escanear la guía HIJA completa de Paquete Express.`,
-            });
-            return;
-          }
-
-          // Detectar prefijo "master" extrayendo letras+dígitos hasta el último bloque alfa
-          // Ej: MTY01WE0A18456001 → base "MTY01WE0A" + dígitos "18456001"
-          const baseAlphaMatch = dataUpper.match(/^([A-Z]+\d+[A-Z]+\d*[A-Z]*)(\d*)$/);
-          const totalDigits = (dataUpper.match(/\d+$/)?.[0] || '');
-
-          // Considerar MASTER si NO tiene sufijo de pieza adicional (longitud cercana a 14)
-          // En PQTX multipieza, master son 14 chars y hijas tienen al menos +3 dígitos extra
-          if (dataUpper.length <= 14) {
-            Vibration.vibrate([0, 200, 100, 200]);
-            showFeedback({
-              type: 'error',
-              message: `❌ Escaneaste la guía MASTER (${data}). Debes escanear la guía HIJA de cada caja (master + dígitos de pieza).`,
-            });
-            return;
-          }
-
-          // Comparación contra master capturada (si la tenemos y coincide exactamente)
-          const masterUpper = (tempMasterTracking || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-          if (masterUpper && dataUpper === masterUpper) {
-            Vibration.vibrate([0, 200, 100, 200]);
-            showFeedback({
-              type: 'error',
-              message: `❌ Escaneaste la guía MASTER (${data}). Debes escanear la guía HIJA de cada caja.`,
-            });
-            return;
-          }
-
-          // Si tenemos master de referencia, la HIJA debe comenzar con ese prefijo
-          // Esto evita aceptar guías de OTRAS paqueterías (UPS, DHL, FedEx, etc.) que no son Paquete Express
-          if (masterUpper && !dataUpper.startsWith(masterUpper)) {
-            Vibration.vibrate([0, 200, 100, 200]);
-            showFeedback({
-              type: 'error',
-              message: `❌ La guía escaneada (${data}) no pertenece a Paquete Express o no corresponde al master ${tempMasterTracking}. Verifica que estés escaneando la etiqueta correcta.`,
-            });
-            return;
-          }
-
-          // Validación de formato Paquete Express cuando NO hay master de referencia:
-          // PQTX usa patrón alfanumérico mixto (letras+dígitos+letras+dígitos), ej: MTY01WE0A18456001
-          // Rechaza patrones de otras paqueterías como "US25973313740001" (2 letras + solo dígitos)
-          if (!masterUpper) {
-            const isPqtxFormat = /^[A-Z]{2,}\d+[A-Z]+/.test(dataUpper);
-            if (!isPqtxFormat) {
+          // Validaciones específicas de Paquete Express (multi-pieza con guía MASTER/HIJA)
+          if (isPaqueteExpress(bulkCarrierName)) {
+            // Rechazar lectura demasiado corta (parcial del scanner)
+            if (dataUpper.length < 14) {
               Vibration.vibrate([0, 200, 100, 200]);
               showFeedback({
                 type: 'error',
-                message: `❌ La guía (${data}) no parece ser de Paquete Express. Verifica que estés escaneando la etiqueta correcta.`,
+                message: `❌ Lectura incompleta (${data}). Vuelve a escanear la guía HIJA completa de Paquete Express.`,
               });
               return;
+            }
+
+            // Considerar MASTER si NO tiene sufijo de pieza adicional (longitud cercana a 14)
+            if (dataUpper.length <= 14) {
+              Vibration.vibrate([0, 200, 100, 200]);
+              showFeedback({
+                type: 'error',
+                message: `❌ Escaneaste la guía MASTER (${data}). Debes escanear la guía HIJA de cada caja (master + dígitos de pieza).`,
+              });
+              return;
+            }
+
+            const masterUpper = (tempMasterTracking || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+            if (masterUpper && dataUpper === masterUpper) {
+              Vibration.vibrate([0, 200, 100, 200]);
+              showFeedback({
+                type: 'error',
+                message: `❌ Escaneaste la guía MASTER (${data}). Debes escanear la guía HIJA de cada caja.`,
+              });
+              return;
+            }
+
+            if (masterUpper && !dataUpper.startsWith(masterUpper)) {
+              Vibration.vibrate([0, 200, 100, 200]);
+              showFeedback({
+                type: 'error',
+                message: `❌ La guía escaneada (${data}) no corresponde al master ${tempMasterTracking}. Verifica que estés escaneando la etiqueta correcta.`,
+              });
+              return;
+            }
+
+            if (!masterUpper) {
+              const isPqtxFormat = /^[A-Z]{2,}\d+[A-Z]+/.test(dataUpper);
+              if (!isPqtxFormat) {
+                Vibration.vibrate([0, 200, 100, 200]);
+                showFeedback({
+                  type: 'error',
+                  message: `❌ La guía (${data}) no parece ser de Paquete Express. Verifica que estés escaneando la etiqueta correcta.`,
+                });
+                return;
+              }
             }
           }
 
@@ -432,7 +433,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             Vibration.vibrate([0, 200, 100, 200]);
             showFeedback({
               type: 'error',
-              message: `❌ Esta guía de Paquete Express (${data}) ya fue escaneada (Caja ${dupFound.packageId}).`,
+              message: `❌ Esta guía de carrier (${data}) ya fue escaneada (Caja ${dupFound.packageId}).`,
             });
             return;
           }
@@ -457,15 +458,16 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             console.warn('check-carrier-guide falló, continuando:', e);
           }
 
-          // Escanear guía Paquete Express
           const newPackage = {
             packageId: `${scannedPackages.length + 1}`,
             internalGuide: tempInternalGuide,
             carrierGuide: data,
+            selectedCarrierName: selectedDropoffCarrier?.name,
           };
           setScannedPackages([...scannedPackages, newPackage]);
           setTempInternalGuide('');
           setTempMasterTracking('');
+          setSelectedDropoffCarrier(null);
           setCurrentScanStep('internal');
           Vibration.vibrate(100);
           showFeedback({
@@ -748,6 +750,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           packages: scannedPackages.map(pkg => ({
             internalGuide: pkg.internalGuide,
             carrierGuide: pkg.carrierGuide,
+            selectedCarrierName: pkg.selectedCarrierName,
           })),
           photoBase64: photo,
           signatureBase64: signature,
@@ -1007,7 +1010,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
     const instruction = currentScanStep === 'internal' 
       ? `Escanea Guía Interna (Caja ${scannedPackages.length + 1})`
-      : `Escanea Guía ${bulkCarrierName} (Caja ${scannedPackages.length + 1})`;
+      : `Escanea Guía ${bulkCarrierName || 'del Carrier'} (Caja ${scannedPackages.length + 1})`;
 
     return (
       <View style={styles.stepContent}>
@@ -1066,7 +1069,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             <TextInput
               ref={manualInputRef}
               style={styles.scannerInput}
-              placeholder={`${currentScanStep === 'internal' ? 'Guía Interna' : 'Guía Paquete Express'}`}
+              placeholder={currentScanStep === 'internal' ? 'Guía Interna' : `Guía ${bulkCarrierName || 'del Carrier'}`}
               value={manualCode}
               autoCapitalize="characters"
               autoCorrect={false}
@@ -1092,6 +1095,56 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                 </>
               )}
             </TouchableOpacity>
+            {currentScanStep === 'carrier' && !isPaqueteExpress(bulkCarrierName) && (
+              <View style={styles.carrierPickerSection}>
+                {selectedDropoffCarrier ? (
+                  <>
+                    <View style={styles.selectedCarrierRow}>
+                      <MaterialIcons name="local-shipping" size={20} color="#F05A28" />
+                      <Text style={styles.selectedCarrierName}>{selectedDropoffCarrier.name}</Text>
+                      <TouchableOpacity onPress={() => setShowCarrierPicker(true)} style={styles.changeCarrierBtn}>
+                        <Text style={styles.changeCarrierText}>Cambiar</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.registerBoxButton}
+                      onPress={() => {
+                        const guide = manualCode.trim();
+                        const newPackage = {
+                          packageId: `${scannedPackages.length + 1}`,
+                          internalGuide: tempInternalGuide,
+                          carrierGuide: guide,
+                          selectedCarrierName: selectedDropoffCarrier.name,
+                        };
+                        setScannedPackages([...scannedPackages, newPackage]);
+                        setTempInternalGuide('');
+                        setTempMasterTracking('');
+                        setSelectedDropoffCarrier(null);
+                        setCurrentScanStep('internal');
+                        setManualCode('');
+                        Vibration.vibrate(100);
+                        showFeedback({
+                          type: 'success',
+                          message: `✅ Caja ${scannedPackages.length + 1} registrada → ${selectedDropoffCarrier.name}. Siguiente caja...`,
+                        });
+                      }}
+                    >
+                      <MaterialIcons name="check-circle" size={20} color="#fff" />
+                      <Text style={styles.registerBoxText}>Registrar en {selectedDropoffCarrier.name}</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.selectCarrierButton}
+                    onPress={() => setShowCarrierPicker(true)}
+                  >
+                    <MaterialIcons name="local-shipping" size={20} color="#F05A28" />
+                    <Text style={styles.selectCarrierText}>Seleccionar paquetería de entrega</Text>
+                    <MaterialIcons name="chevron-right" size={20} color="#F05A28" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </View>
         )}
 
@@ -1110,6 +1163,58 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             </Text>
           </TouchableOpacity>
         )}
+      {/* Modal selector de paquetería */}
+      <Modal
+        visible={showCarrierPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCarrierPicker(false)}
+      >
+        <View style={styles.carrierModalOverlay}>
+          <View style={styles.carrierModalSheet}>
+            <View style={styles.carrierModalHeader}>
+              <Text style={styles.carrierModalTitle}>Selecciona paquetería</Text>
+              <TouchableOpacity onPress={() => setShowCarrierPicker(false)}>
+                <MaterialIcons name="close" size={24} color="#333" />
+              </TouchableOpacity>
+            </View>
+            {deliveryCarriers.length === 0 ? (
+              <View style={styles.carrierModalEmpty}>
+                <MaterialIcons name="local-shipping" size={40} color="#ccc" />
+                <Text style={styles.carrierModalEmptyText}>No hay paqueterías configuradas.</Text>
+                <Text style={styles.carrierModalEmptySubtext}>Configura paqueterías en Operaciones → Nacional México.</Text>
+              </View>
+            ) : (
+              <FlatList
+                data={deliveryCarriers}
+                keyExtractor={item => item.carrier_key}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={[
+                      styles.carrierOption,
+                      selectedDropoffCarrier?.carrier_key === item.carrier_key && styles.carrierOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setSelectedDropoffCarrier({ carrier_key: item.carrier_key, name: item.name });
+                      setShowCarrierPicker(false);
+                    }}
+                  >
+                    {item.icon ? (
+                      <Image source={{ uri: item.icon }} style={styles.carrierOptionIcon} />
+                    ) : (
+                      <MaterialIcons name="local-shipping" size={24} color="#F05A28" />
+                    )}
+                    <Text style={styles.carrierOptionName}>{item.name}</Text>
+                    {selectedDropoffCarrier?.carrier_key === item.carrier_key && (
+                      <MaterialIcons name="check-circle" size={20} color="#F05A28" />
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
+        </View>
+      </Modal>
       </View>
     );
   };
@@ -1872,7 +1977,136 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  
+  carrierPickerSection: {
+    marginTop: 12,
+    gap: 8,
+  },
+  selectCarrierButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: '#F05A28',
+    backgroundColor: '#fff8f5',
+  },
+  selectCarrierText: {
+    flex: 1,
+    color: '#F05A28',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  selectedCarrierRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: '#FFF0E8',
+    borderWidth: 1,
+    borderColor: '#F05A28',
+  },
+  selectedCarrierName: {
+    flex: 1,
+    color: '#F05A28',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  changeCarrierBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    backgroundColor: '#F05A28',
+  },
+  changeCarrierText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  registerBoxButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 10,
+    backgroundColor: '#2E7D32',
+  },
+  registerBoxText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  // Carrier Picker Modal
+  carrierModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  carrierModalSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '70%',
+    paddingBottom: 30,
+  },
+  carrierModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
+  },
+  carrierModalTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#1a1a1a',
+  },
+  carrierModalEmpty: {
+    alignItems: 'center',
+    padding: 40,
+    gap: 12,
+  },
+  carrierModalEmptyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#888',
+    textAlign: 'center',
+  },
+  carrierModalEmptySubtext: {
+    fontSize: 13,
+    color: '#aaa',
+    textAlign: 'center',
+  },
+  carrierOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f0f0f0',
+  },
+  carrierOptionSelected: {
+    backgroundColor: '#FFF8F5',
+  },
+  carrierOptionIcon: {
+    width: 32,
+    height: 32,
+    resizeMode: 'contain',
+    borderRadius: 4,
+  },
+  carrierOptionName: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1a1a1a',
+  },
+
   // Permission
   permissionTitle: {
     fontSize: 18,

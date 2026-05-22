@@ -1295,6 +1295,7 @@ export const getAdvisorNotifications = async (req: Request, res: Response): Prom
              'own' as source
       FROM notifications
       WHERE user_id = $1
+        AND (archived_at IS NULL)
     `;
     if (unreadOnly === 'true') {
       ownQuery += ' AND is_read = false';
@@ -1464,7 +1465,7 @@ export const getAdvisorNotifications = async (req: Request, res: Response): Prom
 
     // Contar no leídas propias
     const unreadCount = await pool.query(
-      'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false',
+      'SELECT COUNT(*) as count FROM notifications WHERE user_id = $1 AND is_read = false AND (archived_at IS NULL)',
       [advisorId]
     );
 

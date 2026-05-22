@@ -325,7 +325,14 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={styles.container} edges={['bottom']}>
+        <View style={[styles.header, { paddingTop: insets.top }]}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBack}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Tickets de Clientes</Text>
+          <View style={{ width: 40 }} />
+        </View>
         <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
       </SafeAreaView>
     );
@@ -333,6 +340,15 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
 
   return (
     <SafeAreaView style={styles.container} edges={['bottom']}>
+      {/* Header */}
+      <View style={[styles.header, { paddingTop: insets.top }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerBack}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Tickets de Clientes</Text>
+        <View style={{ width: 40 }} />
+      </View>
+
       {/* View Mode Toggle */}
       <View style={styles.toggleRow}>
         <TouchableOpacity
@@ -558,6 +574,24 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F5F5F5',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: ORANGE,
+    paddingHorizontal: 8,
+    paddingBottom: 12,
+  },
+  headerBack: {
+    padding: 8,
+    width: 40,
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#fff',
   },
   toggleRow: {
     flexDirection: 'row',

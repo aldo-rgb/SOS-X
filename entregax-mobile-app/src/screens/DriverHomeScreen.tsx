@@ -310,17 +310,17 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const quickActions: QuickAction[] = [
     {
       id: 'inspection',
-      // 🔧 Para rol Monitoreo el flujo NO es inspección semanal del propio
+      // 🔧 Para rol Monitoreo el flujo NO es inspección diaria del propio
       // vehículo, sino la asignación/recepción de un vehículo a su cargo.
       // Si ya recibió una unidad, el botón cambia a "Devolver Unidad".
       title: isMonitoreo
         ? (monitorAssignment ? 'Devolver Unidad' : 'Recibir Unidad')
-        : 'Inspección Semanal',
+        : 'Inspección Diaria',
       subtitle: isMonitoreo
         ? (monitorAssignment
             ? `Unidad: ${monitorAssignment.economic_number || ''}${monitorAssignment.license_plates ? ' · ' + monitorAssignment.license_plates : ''}`
             : 'Asignación de vehículo')
-        : (inspectionDone ? 'Completada ✓' : 'Requerida una vez por semana'),
+        : (inspectionDone ? 'Completada ✓' : 'Requerida requerida cada día'),
       icon: 'assignment',
       color: isMonitoreo
         ? (monitorAssignment ? '#9C27B0' : '#FF9800')

@@ -1333,7 +1333,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
         const hasAssignedDriverColumnBulk = await hasPackageColumn('assigned_driver_id');
 
         for (const pkg of packages) {
-            const { internalGuide, carrierGuide } = pkg;
+            const { internalGuide, carrierGuide, selectedCarrierName } = pkg;
 
             if (!internalGuide) {
                 errors.push('Guía interna requerida');
@@ -1344,9 +1344,9 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                 console.log(`📦 [BULK] Procesando: internal="${internalGuide}" carrier="${carrierGuide || 'N/A'}"`);
                 // Buscar paquete por guía interna (incluyendo carrier para decidir status)
                 const pkgRes = await pool.query(`
-                    SELECT 
-                        p.id, 
-                        ${statusColumn} as status,
+                    SELECT
+                        p.id,
+                        p.${statusColumn} as status,
                         COALESCE(
                             to_jsonb(p)->>'national_carrier',
                             to_jsonb(p)->>'carrier',
@@ -1373,14 +1373,22 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                 const packageId = row.id;
                 const carrierLower = String(row.national_carrier || '').toLowerCase();
                 const isLocalDelivery = carrierLower.includes('entregax') || carrierLower.includes('local') || carrierLower.includes('pick up') || carrierLower.includes('pickup');
-                // Si tiene guía nacional externa → 'sent'; entrega directa al cliente → 'delivered'
-                const finalStatus = (!isLocalDelivery && (row.national_tracking || carrierGuide)) ? sentStatus : 'delivered';
+                // selectedCarrierName = paquetería elegida por el repartidor en el selector
+                const hasExternalDelivery = !!carrierGuide || !!selectedCarrierName || !!row.national_tracking;
+                const finalStatus = (!isLocalDelivery && hasExternalDelivery) ? sentStatus : 'delivered';
 
-                console.log(`✅ [BULK] Paquete ID=${packageId} carrier="${row.national_carrier || 'local'}" status=${row.status} → '${finalStatus}'`);
-                
+                console.log(`✅ [BULK] Paquete ID=${packageId} carrier="${row.national_carrier || selectedCarrierName || 'local'}" status=${row.status} → '${finalStatus}'`);
+
                 // Construir UPDATE dinámicamente
                 const setParts: string[] = [`${statusColumn} = '${finalStatus}'`, 'updated_at = NOW()'];
                 const values: any[] = [packageId];
+
+                // Si el repartidor seleccionó una paquetería y el paquete no tenía una asignada, guardarla
+                const hasNationalCarrierColumn = await hasPackageColumn('national_carrier');
+                if (selectedCarrierName && hasNationalCarrierColumn && !row.national_carrier) {
+                    values.push(selectedCarrierName);
+                    setParts.push(`national_carrier = $${values.length}`);
+                }
 
                 // Actualizar con guía del carrier si está presente
                 if (carrierGuide && hasNationalTrackingColumn) {

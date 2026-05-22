@@ -180,7 +180,14 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           return;
         }
 
-        // Verificar si es empleado (incluyendo asesores) - van al EmployeeHomeScreen
+        // Asesores van directo a su panel
+        const ADVISOR_ROLES = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
+        if (ADVISOR_ROLES.includes(userData.role)) {
+          navigation.replace('AdvisorDashboard', { user: userData, token });
+          return;
+        }
+
+        // Verificar si es empleado - van al EmployeeHomeScreen
         if (EMPLOYEE_ROLES.includes(userData.role)) {
           navigation.replace('EmployeeHome', {
             user: userData,
@@ -243,6 +250,11 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 
     if (userData.role === 'repartidor' || userData.role === 'monitoreo') {
       navigation.replace('DriverHome', { user: userData, token });
+      return;
+    }
+    const ADVISOR_ROLES_2 = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
+    if (ADVISOR_ROLES_2.includes(userData.role)) {
+      navigation.replace('AdvisorDashboard', { user: userData, token });
       return;
     }
     if (EMPLOYEE_ROLES.includes(userData.role)) {
