@@ -532,7 +532,7 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         sx={{ cursor: 'pointer' }}
                     />
                 </Box>
-                <FinanceDashboardPage />
+                <FinanceDashboardPage onBack={() => setShowFinanceDashboard(false)} />
             </Box>
         );
     }

@@ -214,7 +214,7 @@ const getEmpresaAsignada = (empresas: Empresa[], serviceType: string): Empresa |
   return empresas?.find(e => e.servicio_asignado === serviceType);
 };
 
-export default function FinanceDashboardPage() {
+export default function FinanceDashboardPage({ onBack }: { onBack?: () => void } = {}) {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
@@ -508,7 +508,6 @@ export default function FinanceDashboardPage() {
     // Ordenar nuevas filas para obtener la más antigua (último elemento desc = más antigua)
     const sortedNew = sortRowsDesc(rows);
     const newOldest = sortedNew[sortedNew.length - 1]; // más antiguo del nuevo upload
-    const newNewest = sortedNew[0];                    // más reciente del nuevo upload
 
     try {
       const lastRes = await api.get(`/admin/finance/bank-entries/last?empresa_id=${empresaFilt.id}`);
@@ -843,7 +842,7 @@ export default function FinanceDashboardPage() {
       {/* Header */}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <IconButton onClick={() => navigate('/admin')} sx={{ bgcolor: 'grey.100' }}>
+          <IconButton onClick={() => onBack ? onBack() : navigate('/admin')} sx={{ bgcolor: 'grey.100' }}>
             <ArrowBack />
           </IconButton>
           <Box>
