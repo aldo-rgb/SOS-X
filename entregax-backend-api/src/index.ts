@@ -3894,12 +3894,14 @@ app.post('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.DIRECTO
 app.get('/api/verification/status', authenticateToken, getVerificationStatus);
 
 // --- RUTAS DE VERIFICACIÓN ADMIN (Revisión Manual KYC) ---
-app.get('/api/admin/verifications/pending', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getPendingVerifications);
-app.get('/api/admin/verifications/stats', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getVerificationStats);
-app.get('/api/admin/verifications/:userId/details', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getVerificationDetails);
-app.post('/api/admin/verifications/:userId/approve', authenticateToken, requireMinLevel(ROLES.DIRECTOR), approveVerification);
-app.post('/api/admin/verifications/:userId/reject', authenticateToken, requireMinLevel(ROLES.DIRECTOR), rejectVerification);
-app.post('/api/admin/verifications/:userId/reanalyze', authenticateToken, requireMinLevel(ROLES.DIRECTOR), reanalyzeVerification);
+// soporte_tecnico puede verificar identidad (pero no descuentos — ese control va en el frontend)
+const canVerifyIdentity = requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.BRANCH_MANAGER, ROLES.CUSTOMER_SERVICE, ROLES.COUNTER_STAFF, ROLES.SOPORTE_TECNICO);
+app.get('/api/admin/verifications/pending', authenticateToken, canVerifyIdentity, getPendingVerifications);
+app.get('/api/admin/verifications/stats', authenticateToken, canVerifyIdentity, getVerificationStats);
+app.get('/api/admin/verifications/:userId/details', authenticateToken, canVerifyIdentity, getVerificationDetails);
+app.post('/api/admin/verifications/:userId/approve', authenticateToken, canVerifyIdentity, approveVerification);
+app.post('/api/admin/verifications/:userId/reject', authenticateToken, canVerifyIdentity, rejectVerification);
+app.post('/api/admin/verifications/:userId/reanalyze', authenticateToken, canVerifyIdentity, reanalyzeVerification);
 
 // --- RUTAS DE FACTURACIÓN FISCAL ---
 // Admin: Gestión de empresas emisoras

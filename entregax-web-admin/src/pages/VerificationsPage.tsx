@@ -135,6 +135,10 @@ interface DiscountStats {
 
 export default function VerificationsPage() {
   const { i18n } = useTranslation();
+  const currentUserRole: string = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; }
+  })();
+  const isSoporteTecnico = currentUserRole === 'soporte_tecnico';
   const [activeTab, setActiveTab] = useState(0);
   const [pendingUsers, setPendingUsers] = useState<PendingUser[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -377,9 +381,9 @@ export default function VerificationsPage() {
             🔐 {i18n.language === 'es' ? 'Verificaciones' : 'Verifications'}
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            {i18n.language === 'es' 
-              ? 'Verificación de identidad y aprobación de descuentos' 
-              : 'Identity verification and discount approvals'}
+            {isSoporteTecnico
+              ? (i18n.language === 'es' ? 'Verificación de identidad de clientes' : 'Customer identity verification')
+              : (i18n.language === 'es' ? 'Verificación de identidad y aprobación de descuentos' : 'Identity verification and discount approvals')}
           </Typography>
         </Box>
         <Tooltip title={i18n.language === 'es' ? 'Actualizar' : 'Refresh'}>
@@ -396,10 +400,12 @@ export default function VerificationsPage() {
             icon={<Badge badgeContent={stats?.pending || 0} color="warning"><VerifiedUserIcon /></Badge>}
             label={i18n.language === 'es' ? 'Verificar Identidad' : 'Identity Verification'}
           />
-          <Tab
-            icon={<Badge badgeContent={discountStats?.pendientes || 0} color="error"><DiscountIcon /></Badge>}
-            label={i18n.language === 'es' ? 'Verificar Descuento' : 'Discount Verification'}
-          />
+          {!isSoporteTecnico && (
+            <Tab
+              icon={<Badge badgeContent={discountStats?.pendientes || 0} color="error"><DiscountIcon /></Badge>}
+              label={i18n.language === 'es' ? 'Verificar Descuento' : 'Discount Verification'}
+            />
+          )}
         </Tabs>
       </Paper>
 
