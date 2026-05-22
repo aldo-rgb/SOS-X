@@ -33,8 +33,11 @@ import {
   TextField,
   Alert,
   CircularProgress,
+  InputAdornment,
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import ArchiveIcon from '@mui/icons-material/Archive';
 import CloseIcon from '@mui/icons-material/Close';
@@ -277,6 +280,8 @@ function App() {
   const [forcePwdConfirm, setForcePwdConfirm] = useState('');
   const [forcePwdLoading, setForcePwdLoading] = useState(false);
   const [forcePwdError, setForcePwdError] = useState('');
+  const [showForcePwdNew, setShowForcePwdNew] = useState(false);
+  const [showForcePwdConfirm, setShowForcePwdConfirm] = useState(false);
   const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   const [authResolved, setAuthResolved] = useState(false);
 
@@ -1724,13 +1729,33 @@ function App() {
           </Typography>
           {forcePwdError && <Alert severity="error" sx={{ mb: 2 }}>{forcePwdError}</Alert>}
           <TextField
-            fullWidth label="Nueva contraseña" type="password"
+            fullWidth label="Nueva contraseña"
+            type={showForcePwdNew ? 'text' : 'password'}
             value={forcePwdNew} onChange={e => setForcePwdNew(e.target.value)}
             sx={{ mb: 2 }} autoFocus
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton onClick={() => setShowForcePwdNew(v => !v)} edge="end">
+                    {showForcePwdNew ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                  </IconButton>
+                </InputAdornment>
+              )
+            }}
           />
           <TextField
-            fullWidth label="Confirmar contraseña" type="password"
+            fullWidth label="Confirmar contraseña"
+            type={showForcePwdConfirm ? 'text' : 'password'}
             value={forcePwdConfirm} onChange={e => setForcePwdConfirm(e.target.value)}
+            InputProps={{
+              endAdornment: (
+                <InputAdornment position="end">
+                  <IconButton onClick={() => setShowForcePwdConfirm(v => !v)} edge="end">
+                    {showForcePwdConfirm ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                  </IconButton>
+                </InputAdornment>
+              )
+            }}
           />
         </DialogContent>
         <DialogActions>
