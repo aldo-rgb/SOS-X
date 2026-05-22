@@ -111,6 +111,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [existingPhone, setExistingPhone] = useState('');
   const [existingPassword, setExistingPassword] = useState('');
   const [existingConfirmPassword, setExistingConfirmPassword] = useState('');
+  const [showExistingPassword, setShowExistingPassword] = useState(false);
+  const [showExistingConfirmPassword, setShowExistingConfirmPassword] = useState(false);
   const [existingClientData, setExistingClientData] = useState<any>(null);
   const [existingReferralCode, setExistingReferralCode] = useState('');
   const [existingCodeValidation, setExistingCodeValidation] = useState<{
@@ -1515,7 +1517,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               <TextField
                 fullWidth
                 label="Nueva contraseña"
-                type="password"
+                type={showExistingPassword ? 'text' : 'password'}
                 value={existingPassword}
                 onChange={(e) => setExistingPassword(e.target.value)}
                 required
@@ -1526,13 +1528,20 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                       <LockOutlinedIcon sx={{ color: 'text.secondary' }} />
                     </InputAdornment>
                   ),
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => setShowExistingPassword(v => !v)} edge="end" size="small">
+                        {showExistingPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
                 }}
                 sx={{ mb: 2 }}
               />
               <TextField
                 fullWidth
                 label="Confirmar contraseña"
-                type="password"
+                type={showExistingConfirmPassword ? 'text' : 'password'}
                 value={existingConfirmPassword}
                 onChange={(e) => setExistingConfirmPassword(e.target.value)}
                 required
@@ -1542,6 +1551,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   startAdornment: (
                     <InputAdornment position="start">
                       <LockOutlinedIcon sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton onClick={() => setShowExistingConfirmPassword(v => !v)} edge="end" size="small">
+                        {showExistingConfirmPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
+                      </IconButton>
                     </InputAdornment>
                   ),
                 }}
