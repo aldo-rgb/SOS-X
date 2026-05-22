@@ -1153,7 +1153,10 @@ export default function SupportBoardPage() {
                   </Tooltip>
                 )}
               </Box>
-              {selectedTicket.status !== 'resolved' && selectedTicket.department_name !== 'Atención a Cliente' && (
+              {selectedTicket.status !== 'resolved'
+                && selectedTicket.department_name !== 'Atención a Cliente'
+                && selectedTicket.department_name !== 'Soporte Técnico'
+                && !isSoporteTecnico && (
                 <Button
                   variant="outlined"
                   onClick={handleTransferToAtencion}
@@ -1163,12 +1166,12 @@ export default function SupportBoardPage() {
                   Concluir y Transferir a Atn a Cliente
                 </Button>
               )}
-              {selectedTicket.status !== 'resolved' && ['customer_service', 'counter_staff', 'soporte_tecnico'].includes(currentUserRole) && (
+              {selectedTicket.status !== 'resolved' && ['customer_service', 'counter_staff', 'soporte_tecnico', 'admin', 'super_admin', 'atencion_cliente', 'service_a_cliente'].includes(currentUserRole) && (
                 <Button variant="contained" color="success" onClick={handleResolveTicket} startIcon={<ResolvedIcon />}>
                   Marcar Resuelto
                 </Button>
               )}
-              {selectedTicket.status === 'resolved' && ['customer_service', 'counter_staff', 'soporte_tecnico'].includes(currentUserRole) && (
+              {selectedTicket.status === 'resolved' && ['customer_service', 'counter_staff', 'soporte_tecnico', 'admin', 'super_admin', 'atencion_cliente', 'service_a_cliente'].includes(currentUserRole) && (
                 <Button
                   variant="outlined"
                   onClick={handleReactivateTicket}
