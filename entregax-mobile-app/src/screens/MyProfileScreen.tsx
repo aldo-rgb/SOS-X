@@ -33,7 +33,7 @@ const ORANGE = '#F05A28';
 const BLACK = '#111111';
 
 // Roles que pueden tener PIN de supervisor
-const SUPERVISOR_ROLES = ['super_admin', 'admin', 'director', 'gerente_sucursal'];
+const SUPERVISOR_ROLES = ['super_admin', 'admin', 'director', 'gerente_sucursal', 'branch_manager'];
 
 type RootStackParamList = {
   Home: { user: any; token: string };

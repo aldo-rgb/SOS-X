@@ -590,19 +590,20 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
         </DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
           <Alert severity="warning" sx={{ mb: 3 }}>
-            La recepción de paquetes DHL requiere autorización de un gerente u operaciones. Ingresa tu contraseña de acceso al sistema.
+            La recepción de paquetes DHL requiere autorización de un gerente o supervisor de operaciones.
           </Alert>
 
           <TextField
             fullWidth
-            label="Contraseña del supervisor"
-            type="password"
-            autoComplete="new-password"
+            label="PIN de Supervisor"
+            type="tel"
+            inputMode="numeric"
+            autoComplete="off"
             value={supervisorPin}
             onChange={(e) => setSupervisorPin(e.target.value)}
             onKeyPress={(e) => e.key === 'Enter' && validateSupervisor()}
             error={!!supervisorError}
-            helperText={supervisorError || 'Usa tu contraseña de inicio de sesión'}
+            helperText={supervisorError || 'Configura tu PIN en la app móvil > Mi Perfil'}
             autoFocus
             InputProps={{
               startAdornment: (
@@ -610,6 +611,10 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
                   <LockIcon color="action" />
                 </InputAdornment>
               ),
+              sx: {
+                '-webkit-text-security': 'disc',
+                'input': { '-webkit-text-security': 'disc' }
+              }
             }}
           />
         </DialogContent>
