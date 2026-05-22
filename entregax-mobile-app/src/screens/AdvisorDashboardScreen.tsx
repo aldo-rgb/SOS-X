@@ -24,7 +24,7 @@ const { width } = Dimensions.get('window');
 const ORANGE  = '#F05A28';
 const BLACK   = '#111111';
 const RED     = '#C62828';
-const CARD_BG = '#1C1C1E';
+const CARD_BG = '#000000';
 
 interface AdvisorDashboardData {
   advisor: {
@@ -383,8 +383,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
 const CARD_RADIUS = 14;
 
 const s = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: '#0D0D0D' },
-  center:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#0D0D0D', padding: 24 },
+  container:   { flex: 1, backgroundColor: '#000000' },
+  center:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000000', padding: 24 },
   loadingText: { marginTop: 12, color: '#aaa', fontSize: 15 },
   errorText:   { marginTop: 12, color: RED, fontSize: 15, textAlign: 'center' },
   retryBtn:    { marginTop: 20, backgroundColor: ORANGE, paddingHorizontal: 28, paddingVertical: 13, borderRadius: 10 },
@@ -419,7 +419,7 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#1E1E1E',
     overflow: 'hidden',
   },
   heroAccent:   { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: ORANGE, borderTopLeftRadius: CARD_RADIUS, borderBottomLeftRadius: CARD_RADIUS },
@@ -437,7 +437,7 @@ const s = StyleSheet.create({
     borderRadius: CARD_RADIUS,
     padding: 18,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#1E1E1E',
   },
   refTop:           { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   refLabel:         { color: '#888', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
@@ -463,7 +463,7 @@ const s = StyleSheet.create({
     width: (width - 40) / 2,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#1E1E1E',
     overflow: 'hidden',
   },
   clientCardBar:   { position: 'absolute', top: 0, left: 0, right: 0, height: 3, borderTopLeftRadius: CARD_RADIUS, borderTopRightRadius: CARD_RADIUS },
@@ -478,7 +478,7 @@ const s = StyleSheet.create({
     width: (width - 40) / 2,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#1E1E1E',
     overflow: 'hidden',
   },
   shipCardAccent: { borderColor: '#3A2020' },
@@ -494,7 +494,7 @@ const s = StyleSheet.create({
     borderRadius: CARD_RADIUS,
     padding: 18,
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#1E1E1E',
     marginBottom: 4,
   },
   commRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
@@ -513,7 +513,7 @@ const s = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2A2A2A',
+    borderColor: '#1E1E1E',
   },
   supportIcon:    { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   supportBtnLabel:{ color: '#fff', fontSize: 14, fontWeight: '700' },
