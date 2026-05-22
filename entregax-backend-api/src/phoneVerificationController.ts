@@ -95,18 +95,20 @@ export const sendPhoneVerificationCode = async (req: AuthRequest, res: Response)
             userId = byPhone.rows[0].id;
         }
 
-        // Verificar que el número no esté ya verificado en otra cuenta.
+        // Verificar que el número no esté registrado en otra cuenta (verificada o no).
         const taken = await pool.query(
-            `SELECT id FROM users
+            `SELECT id, phone_verified FROM users
              WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') = $1
-               AND phone_verified = TRUE
                AND id <> $2
              LIMIT 1`,
             [normalized, userId]
         );
         if (taken.rows.length > 0) {
+            const alreadyVerified = taken.rows[0].phone_verified === true;
             res.status(409).json({
-                error: 'Este número de WhatsApp ya está verificado en otra cuenta. Usa un número diferente o contacta a soporte.',
+                error: alreadyVerified
+                    ? 'Este número de WhatsApp ya está verificado en otra cuenta. Usa un número diferente o contacta a soporte.'
+                    : 'Este número ya está asociado a otra cuenta. Si este número es tuyo, contacta a soporte para vincularlo.',
             });
             return;
         }
@@ -238,14 +240,13 @@ export const verifyPhoneCode = async (req: AuthRequest, res: Response): Promise<
         const takenFinal = await pool.query(
             `SELECT id FROM users
              WHERE regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') = $1
-               AND phone_verified = TRUE
                AND id <> $2
              LIMIT 1`,
             [normalized, userRow.id]
         );
         if (takenFinal.rows.length > 0) {
             res.status(409).json({
-                error: 'Este número ya fue verificado en otra cuenta. Contacta a soporte si crees que es un error.',
+                error: 'Este número ya está asociado a otra cuenta. Contacta a soporte si crees que es un error.',
             });
             return;
         }
