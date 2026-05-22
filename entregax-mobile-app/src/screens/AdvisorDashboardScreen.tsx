@@ -24,7 +24,10 @@ const { width } = Dimensions.get('window');
 const ORANGE  = '#F05A28';
 const BLACK   = '#111111';
 const RED     = '#C62828';
-const CARD_BG = '#000000';
+const CARD_BG = '#FFFFFF';
+const BG      = '#F4F4F6';
+const TEXT    = '#111111';
+const SUBTEXT = '#666666';
 
 interface AdvisorDashboardData {
   advisor: {
@@ -276,22 +279,6 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           </View>
         </View>
 
-        {/* Mis Clientes */}
-        <View style={s.sectionHeader}>
-          <View style={s.sectionBar} />
-          <Text style={s.sectionTitle}>MIS CLIENTES</Text>
-        </View>
-        <View style={s.grid2}>
-          {clientStats.map((st, i) => (
-            <TouchableOpacity key={i} style={s.clientCard} onPress={() => navigation.navigate('AdvisorClients', { user, token })}>
-              <View style={[s.clientCardBar, { backgroundColor: st.color }]} />
-              <Ionicons name={st.icon as any} size={22} color={st.color} style={{ marginBottom: 8 }} />
-              <Text style={s.clientCardValue}>{st.value}</Text>
-              <Text style={s.clientCardLabel}>{st.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
         {/* Embarques */}
         <View style={s.sectionHeader}>
           <View style={s.sectionBar} />
@@ -304,13 +291,28 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
               style={[s.shipCard, st.accent && s.shipCardAccent]}
               onPress={() => navigation.navigate('AdvisorPackages', { user, token, filter: st.filter })}
             >
-              <View style={[s.shipCardBar, { backgroundColor: st.color }]} />
+              <View style={[s.shipCardBar, { backgroundColor: ORANGE }]} />
               <View style={[s.shipIcon, { backgroundColor: st.color + '22' }]}>
                 <Ionicons name={st.icon as any} size={22} color={st.color} />
               </View>
               <Text style={[s.shipValue, st.accent && { color: st.color }]}>{st.value}</Text>
               <Text style={s.shipLabel}>{st.label}</Text>
-              <Ionicons name="chevron-forward" size={13} color="#555" style={{ marginTop: 4 }} />
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* Mis Clientes */}
+        <View style={s.sectionHeader}>
+          <View style={s.sectionBar} />
+          <Text style={s.sectionTitle}>MIS CLIENTES</Text>
+        </View>
+        <View style={s.grid2}>
+          {clientStats.map((st, i) => (
+            <TouchableOpacity key={i} style={s.clientCard} onPress={() => navigation.navigate('AdvisorClients', { user, token })}>
+              <View style={[s.clientCardBar, { backgroundColor: ORANGE }]} />
+              <Ionicons name={st.icon as any} size={22} color={st.color} style={{ marginBottom: 8 }} />
+              <Text style={s.clientCardValue}>{st.value}</Text>
+              <Text style={s.clientCardLabel}>{st.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -383,8 +385,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
 const CARD_RADIUS = 14;
 
 const s = StyleSheet.create({
-  container:   { flex: 1, backgroundColor: '#000000' },
-  center:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000000', padding: 24 },
+  container:   { flex: 1, backgroundColor: BG },
+  center:      { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: BG, padding: 24 },
   loadingText: { marginTop: 12, color: '#aaa', fontSize: 15 },
   errorText:   { marginTop: 12, color: RED, fontSize: 15, textAlign: 'center' },
   retryBtn:    { marginTop: 20, backgroundColor: ORANGE, paddingHorizontal: 28, paddingVertical: 13, borderRadius: 10 },
@@ -419,13 +421,13 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     borderWidth: 1,
-    borderColor: '#1E1E1E',
+    borderColor: '#E8E8E8',
     overflow: 'hidden',
   },
   heroAccent:   { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, backgroundColor: ORANGE, borderTopLeftRadius: CARD_RADIUS, borderBottomLeftRadius: CARD_RADIUS },
   heroGreeting: { color: '#888', fontSize: 13, fontWeight: '500', letterSpacing: 1, textTransform: 'uppercase' },
-  heroName:     { color: '#fff', fontSize: 26, fontWeight: '800', marginTop: 2 },
-  heroDate:     { color: '#666', fontSize: 12, marginTop: 6, textTransform: 'capitalize' },
+  heroName:     { color: TEXT, fontSize: 26, fontWeight: '800', marginTop: 2 },
+  heroDate:     { color: SUBTEXT, fontSize: 12, marginTop: 6, textTransform: 'capitalize' },
   heroBadge:    { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: ORANGE + '22', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start' },
   heroBadgeText:{ color: ORANGE, fontSize: 11, fontWeight: '700', letterSpacing: 1 },
 
@@ -437,11 +439,11 @@ const s = StyleSheet.create({
     borderRadius: CARD_RADIUS,
     padding: 18,
     borderWidth: 1,
-    borderColor: '#1E1E1E',
+    borderColor: '#E8E8E8',
   },
   refTop:           { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   refLabel:         { color: '#888', fontSize: 11, fontWeight: '700', letterSpacing: 1 },
-  refCode:          { fontSize: 30, fontWeight: '900', color: '#fff', textAlign: 'center', letterSpacing: 4, marginBottom: 14 },
+  refCode:          { fontSize: 30, fontWeight: '900', color: TEXT, textAlign: 'center', letterSpacing: 4, marginBottom: 14 },
   refActions:       { flexDirection: 'row', gap: 10 },
   refBtnPrimary:    { flex: 1, backgroundColor: ORANGE, borderRadius: 10, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
   refBtnPrimaryText:{ color: '#fff', fontWeight: '700', fontSize: 14 },
@@ -463,12 +465,12 @@ const s = StyleSheet.create({
     width: (width - 40) / 2,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#1E1E1E',
+    borderColor: '#E8E8E8',
     overflow: 'hidden',
   },
   clientCardBar:   { position: 'absolute', top: 0, left: 0, right: 0, height: 3, borderTopLeftRadius: CARD_RADIUS, borderTopRightRadius: CARD_RADIUS },
-  clientCardValue: { fontSize: 30, fontWeight: '900', color: '#fff', marginTop: 4 },
-  clientCardLabel: { fontSize: 12, color: '#666', marginTop: 4, textAlign: 'center' },
+  clientCardValue: { fontSize: 30, fontWeight: '900', color: TEXT, marginTop: 4 },
+  clientCardLabel: { fontSize: 12, color: SUBTEXT, marginTop: 4, textAlign: 'center' },
 
   // Shipment cards
   shipCard: {
@@ -478,14 +480,14 @@ const s = StyleSheet.create({
     width: (width - 40) / 2,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#1E1E1E',
+    borderColor: '#E8E8E8',
     overflow: 'hidden',
   },
   shipCardAccent: { borderColor: '#3A2020' },
   shipCardBar:    { position: 'absolute', top: 0, left: 0, right: 0, height: 3, borderTopLeftRadius: CARD_RADIUS, borderTopRightRadius: CARD_RADIUS },
   shipIcon:       { width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
-  shipValue:      { fontSize: 30, fontWeight: '900', color: '#fff' },
-  shipLabel:      { fontSize: 12, color: '#666', marginTop: 3, textAlign: 'center' },
+  shipValue:      { fontSize: 30, fontWeight: '900', color: TEXT },
+  shipLabel:      { fontSize: 12, color: SUBTEXT, marginTop: 3, textAlign: 'center' },
 
   // Commissions
   commCard: {
@@ -494,7 +496,7 @@ const s = StyleSheet.create({
     borderRadius: CARD_RADIUS,
     padding: 18,
     borderWidth: 1,
-    borderColor: '#1E1E1E',
+    borderColor: '#E8E8E8',
     marginBottom: 4,
   },
   commRow:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
@@ -513,7 +515,7 @@ const s = StyleSheet.create({
     padding: 16,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#1E1E1E',
+    borderColor: '#E8E8E8',
   },
   supportIcon:    { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   supportBtnLabel:{ color: '#fff', fontSize: 14, fontWeight: '700' },
