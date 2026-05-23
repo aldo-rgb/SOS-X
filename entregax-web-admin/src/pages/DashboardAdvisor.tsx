@@ -402,6 +402,11 @@ export default function DashboardAdvisor() {
   const EMPTY_ADDR = { alias: '', recipientName: '', street: '', exteriorNumber: '', interiorNumber: '', neighborhood: '', city: '', state: '', zipCode: '' };
   const [newAddrForm, setNewAddrForm] = useState(EMPTY_ADDR);
 
+  // Team tab
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [teamMyCommission, setTeamMyCommission] = useState(0);
+  const [teamLoading, setTeamLoading] = useState(false);
+
   // Tickets tab
   const [ticketCategory, setTicketCategory] = useState('');
   const [ticketTracking, setTicketTracking] = useState('');
@@ -536,6 +541,21 @@ export default function DashboardAdvisor() {
   useEffect(() => {
     if (activeTab === 5) fetchAdvisorTickets();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab === 6) fetchTeam();
+  }, [activeTab]);
+
+  const fetchTeam = async () => {
+    setTeamLoading(true);
+    try {
+      const res = await api.get('/advisor/team');
+      setTeamMembers(res.data?.team || []);
+      setTeamMyCommission(res.data?.my_commission || 0);
+    } catch { /* silencioso */ } finally {
+      setTeamLoading(false);
+    }
+  };
 
   // ─── Actions ───
 
@@ -2309,6 +2329,127 @@ export default function DashboardAdvisor() {
   };
 
   // ════════════════════════════════════
+  // RENDER TEAM
+  // ════════════════════════════════════
+  const renderTeam = () => {
+    const active = teamMembers.filter(m => m.status === 'active').length;
+    const totalClients = teamMembers.reduce((s: number, m: any) => s + (m.total_clients || 0), 0);
+    const monthlyClients = teamMembers.reduce((s: number, m: any) => s + (m.monthly_clients || 0), 0);
+
+    return (
+      <Fade in timeout={400}>
+        <Box>
+          {/* KPI strip */}
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            {[
+              { label: 'Sub-Asesores', value: teamMembers.length },
+              { label: 'Activos', value: active },
+              { label: 'Clientes totales', value: totalClients },
+              { label: 'Clientes este mes', value: monthlyClients },
+              { label: 'Mi comisión del mes', value: `$${teamMyCommission.toFixed(2)}` },
+            ].map((kpi, i) => (
+              <Grid key={i} size={{ xs: 6, sm: 4, md: 2.4 }}>
+                <Paper sx={{ p: 2, borderRadius: 2, textAlign: 'center' }}>
+                  <Typography variant="h5" fontWeight={800} color="primary.main">{kpi.value}</Typography>
+                  <Typography variant="caption" color="text.secondary">{kpi.label}</Typography>
+                </Paper>
+              </Grid>
+            ))}
+          </Grid>
+
+          <Paper sx={{ borderRadius: 2, overflow: 'hidden' }}>
+            <Box sx={{ px: 2.5, py: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Typography fontWeight={700}>Sub-Asesores</Typography>
+              <IconButton size="small" onClick={fetchTeam}><RefreshIcon /></IconButton>
+            </Box>
+
+            {teamLoading ? (
+              <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress size={32} /></Box>
+            ) : teamMembers.length === 0 ? (
+              <Box sx={{ p: 6, textAlign: 'center' }}>
+                <PeopleIcon sx={{ fontSize: 56, color: 'text.disabled', mb: 1 }} />
+                <Typography color="text.secondary">Aún no tienes sub-asesores en tu equipo.</Typography>
+              </Box>
+            ) : (
+              <TableContainer>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.50' }}>
+                      <TableCell><Typography variant="caption" fontWeight={700}>Asesor</Typography></TableCell>
+                      <TableCell><Typography variant="caption" fontWeight={700}>Código</Typography></TableCell>
+                      <TableCell align="center"><Typography variant="caption" fontWeight={700}>Clientes</Typography></TableCell>
+                      <TableCell align="center"><Typography variant="caption" fontWeight={700}>Este mes</Typography></TableCell>
+                      <TableCell align="right"><Typography variant="caption" fontWeight={700}>Generado</Typography></TableCell>
+                      <TableCell align="center"><Typography variant="caption" fontWeight={700}>Estado</Typography></TableCell>
+                      <TableCell align="center"><Typography variant="caption" fontWeight={700}>Contacto</Typography></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {teamMembers.map((m: any) => (
+                      <TableRow key={m.id} hover>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                            <Avatar sx={{ width: 34, height: 34, bgcolor: '#F05A28', fontSize: 14, fontWeight: 800 }}>
+                              {(m.name || '').charAt(0).toUpperCase()}
+                            </Avatar>
+                            <Box>
+                              <Typography variant="body2" fontWeight={600}>{m.name}</Typography>
+                              <Typography variant="caption" color="text.secondary">{m.email}</Typography>
+                            </Box>
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Chip label={m.referral_code} size="small" variant="outlined" />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Typography variant="body2" fontWeight={700}>{m.total_clients || 0}</Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Typography variant="body2" fontWeight={700}>{m.monthly_clients || 0}</Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="body2" fontWeight={700}>
+                            ${((m.total_revenue || 0) / 1000).toFixed(1)}k
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip
+                            label={m.status === 'active' ? 'Activo' : 'Inactivo'}
+                            color={m.status === 'active' ? 'success' : 'default'}
+                            size="small"
+                          />
+                        </TableCell>
+                        <TableCell align="center">
+                          <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                            {m.phone && (
+                              <>
+                                <Tooltip title="Llamar">
+                                  <IconButton size="small" href={`tel:${m.phone}`} component="a">
+                                    <PhoneIcon fontSize="small" sx={{ color: '#4CAF50' }} />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="WhatsApp">
+                                  <IconButton size="small" href={`https://wa.me/52${m.phone.replace(/\D/g, '')}`} target="_blank" component="a">
+                                    <WhatsAppIcon fontSize="small" sx={{ color: '#25D366' }} />
+                                  </IconButton>
+                                </Tooltip>
+                              </>
+                            )}
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+          </Paper>
+        </Box>
+      </Fade>
+    );
+  };
+
+  // ════════════════════════════════════
   // RENDER TICKETS
   // ════════════════════════════════════
 
@@ -2598,6 +2739,7 @@ export default function DashboardAdvisor() {
     { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
     { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
     { label: isMobile ? 'Tickets' : 'Tickets', icon: <TicketIcon />, shortLabel: 'Tickets' },
+    { label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' },
   ], [t, isMobile]);
 
   // ─── GATE: Verificación + Aviso de privacidad firmado ───
@@ -2755,6 +2897,7 @@ export default function DashboardAdvisor() {
             if (activeTab === 2) fetchShipments();
             if (activeTab === 3) fetchCommissions();
             if (activeTab === 5) fetchAdvisorTickets();
+            if (activeTab === 6) fetchTeam();
           }}
           size={isMobile ? 'small' : 'medium'}
         >
@@ -2794,6 +2937,7 @@ export default function DashboardAdvisor() {
         {activeTab === 3 && renderCommissions()}
         {activeTab === 4 && renderTools()}
         {activeTab === 5 && renderTickets()}
+        {activeTab === 6 && renderTeam()}
       </Box>
 
       {/* Bottom Navigation - Mobile Only */}
