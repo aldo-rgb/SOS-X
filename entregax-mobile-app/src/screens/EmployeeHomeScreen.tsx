@@ -384,7 +384,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     icon: 'people-outline',
     iconFamily: 'ionicons',
     color: '#673AB7',
-    screen: 'TeamManagement',
+    screen: 'AdvisorTeam',
     roles: ['branch_manager', 'director', 'admin', 'super_admin'],
     requiresOnboarding: true,
     panelKey: 'ops_mx_cedis',
