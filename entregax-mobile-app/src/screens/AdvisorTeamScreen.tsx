@@ -56,7 +56,6 @@ const AdvisorTeamScreen: React.FC<Props> = ({ route, navigation }) => {
   const [loading, setLoading]       = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [activeTab, setActiveTab]   = useState<'team' | 'rates'>('team');
   const [stats, setStats] = useState<TeamStats>({
     totalMembers: 0, activeMembers: 0, totalClients: 0,
     monthlyClients: 0, teamRevenue: 0, myCommission: 0,
@@ -100,8 +99,6 @@ const AdvisorTeamScreen: React.FC<Props> = ({ route, navigation }) => {
     { text: 'Cancelar', style: 'cancel' },
     { text: 'Confirmar', style: 'default', onPress: () => {} },
   ]);
-
-  const handleAssignRate = () => Alert.alert('Asignar Tarifa', 'Funcionalidad disponible próximamente.');
 
   if (loading) {
     return (
@@ -167,31 +164,8 @@ const AdvisorTeamScreen: React.FC<Props> = ({ route, navigation }) => {
     </View>
   );
 
-  const renderRatesTab = () => (
-    <View style={s.emptyState}>
-      <Ionicons name="pricetag-outline" size={56} color="#ccc" />
-      <Text style={s.emptyTitle}>Tarifas del Equipo</Text>
-      <Text style={s.emptyText}>Administra las tarifas asignadas a tu equipo de asesores.</Text>
-      <TouchableOpacity style={s.ghostBtn} onPress={handleAssignRate}>
-        <Text style={s.ghostBtnText}>Asignar Tarifa</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
   return (
     <SafeAreaView style={s.container} edges={['bottom']}>
-
-      {/* ── TABS ── */}
-      <View style={s.tabBar}>
-        {(['team', 'rates'] as const).map(tab => (
-          <TouchableOpacity key={tab} style={s.tabItem} onPress={() => setActiveTab(tab)}>
-            <Text style={[s.tabText, activeTab === tab && s.tabTextActive]}>
-              {tab === 'team' ? 'Asesores' : 'Tarifas'}
-            </Text>
-            {activeTab === tab && <View style={s.tabIndicator} />}
-          </TouchableOpacity>
-        ))}
-      </View>
 
       <ScrollView
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
@@ -218,29 +192,22 @@ const AdvisorTeamScreen: React.FC<Props> = ({ route, navigation }) => {
               <Ionicons name="wallet" size={16} color="#fff" />
               <Text style={s.primaryBtnText}>Pagar Comisiones</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={s.ghostBtn} onPress={handleAssignRate}>
-              <Text style={s.ghostBtnText}>Asignar Tarifa</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
-        {activeTab === 'team' ? (
-          <>
-            <View style={s.sectionRow}>
-              <Text style={s.sectionTitle}>Miembros del Equipo</Text>
-              <View style={s.countBadge}><Text style={s.countBadgeText}>{teamMembers.length}</Text></View>
-            </View>
-            {teamMembers.length === 0 ? (
-              <View style={s.emptyState}>
-                <Ionicons name="people-outline" size={56} color="#ccc" />
-                <Text style={s.emptyTitle}>Sin Sub-Asesores</Text>
-                <Text style={s.emptyText}>Aún no tienes sub-asesores en tu equipo</Text>
-              </View>
-            ) : (
-              teamMembers.map(renderMemberCard)
-            )}
-          </>
-        ) : renderRatesTab()}
+        <View style={s.sectionRow}>
+          <Text style={s.sectionTitle}>Miembros del Equipo</Text>
+          <View style={s.countBadge}><Text style={s.countBadgeText}>{teamMembers.length}</Text></View>
+        </View>
+        {teamMembers.length === 0 ? (
+          <View style={s.emptyState}>
+            <Ionicons name="people-outline" size={56} color="#ccc" />
+            <Text style={s.emptyTitle}>Sin Sub-Asesores</Text>
+            <Text style={s.emptyText}>Aún no tienes sub-asesores en tu equipo</Text>
+          </View>
+        ) : (
+          teamMembers.map(renderMemberCard)
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -250,23 +217,6 @@ const s = StyleSheet.create({
   container:   { flex: 1, backgroundColor: BG },
   center:      { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   loadingText: { marginTop: 12, color: '#aaa', fontSize: 15 },
-
-  // Tabs
-  tabBar: {
-    flexDirection: 'row',
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E8E8E8',
-  },
-  tabItem: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: 14,
-    position: 'relative',
-  },
-  tabText:       { fontSize: 14, fontWeight: '600', color: '#9E9E9E' },
-  tabTextActive: { color: BLACK },
-  tabIndicator:  { position: 'absolute', bottom: 0, left: '15%', right: '15%', height: 3, backgroundColor: ORANGE, borderRadius: 2 },
 
   // KPI card
   kpiCard: {
