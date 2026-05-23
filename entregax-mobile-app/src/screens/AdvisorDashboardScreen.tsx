@@ -134,7 +134,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
       const url = `https://entregax.app/register?ref=${data.advisor.referralCode}`;
       const message = `¡Hola! Te invito a usar EntregaX para tus envíos internacionales. Regístrate aquí: ${url}`;
       try {
-        await Share.share({ message, url });
+        await Share.share({ message });
       } catch {}
     }
   };
