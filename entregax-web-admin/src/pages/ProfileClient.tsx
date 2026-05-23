@@ -104,6 +104,10 @@ const ProfileClient = ({ onBack }: ProfileClientProps) => {
   // GEX auto-config
   const [gexAutoEnabled, setGexAutoEnabled] = useState(false);
   const [gexAutoLoading, setGexAutoLoading] = useState(false);
+
+  // Preferencias de notificaciones
+  const [notifPrefs, setNotifPrefs] = useState({ whatsapp: true, push: true, air: true, maritime: true, dhl: true, pobox: true });
+  const [notifLoading, setNotifLoading] = useState(false);
   const [gexPolicyModalOpen, setGexPolicyModalOpen] = useState(false);
   const [gexPolicyScrolled, setGexPolicyScrolled] = useState(false);
   const [gexPolicyAccepted, setGexPolicyAccepted] = useState(false);
@@ -195,7 +199,28 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
 
   useEffect(() => {
     loadProfile();
+    loadNotifPrefs();
   }, [loadProfile]);
+
+  const loadNotifPrefs = async () => {
+    setNotifLoading(true);
+    try {
+      const r = await api.get('/notifications/preferences');
+      setNotifPrefs(r.data);
+    } catch {}
+    setNotifLoading(false);
+  };
+
+  const updateNotifPref = async (key: keyof typeof notifPrefs, value: boolean) => {
+    const prev = { ...notifPrefs };
+    setNotifPrefs({ ...notifPrefs, [key]: value });
+    try {
+      await api.put('/notifications/preferences', { [key]: value });
+    } catch {
+      setNotifPrefs(prev);
+      setSnackbar({ open: true, message: 'Error al guardar preferencia', severity: 'error' });
+    }
+  };
 
   const handleToggleGexAuto = (enabled: boolean) => {
     if (enabled) {
@@ -969,11 +994,119 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
         </Box>
       </Paper>
 
+      {/* 🔔 Centro de Notificaciones */}
+      <Typography variant="overline" sx={{ color: '#999', fontWeight: 600, letterSpacing: 1, ml: 1, display: 'block', mb: 1 }}>
+        NOTIFICACIONES
+      </Typography>
+      <Paper sx={{ borderRadius: 3, mb: 3, boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
+        {notifLoading ? (
+          <Box sx={{ p: 3, display: 'flex', justifyContent: 'center' }}>
+            <CircularProgress size={24} sx={{ color: ORANGE }} />
+          </Box>
+        ) : (
+          <>
+            {/* Canal header */}
+            <Typography variant="caption" sx={{ color: '#bbb', fontWeight: 700, letterSpacing: 0.8, display: 'block', px: 2.5, pt: 2, pb: 0.5, textTransform: 'uppercase' }}>
+              Canal
+            </Typography>
+
+            {/* WhatsApp */}
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box sx={{ width: 40, height: 40, borderRadius: '10px', bgcolor: '#e8f5e9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                💬
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>WhatsApp</Typography>
+                <Typography variant="caption" sx={{ color: '#999' }}>Recibir notificaciones por WhatsApp</Typography>
+              </Box>
+              <Switch checked={notifPrefs.whatsapp} onChange={(e) => updateNotifPref('whatsapp', e.target.checked)}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }} />
+            </Box>
+
+            <Divider sx={{ mx: 2 }} />
+
+            {/* Push */}
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box sx={{ width: 40, height: 40, borderRadius: '10px', bgcolor: '#fff3e0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                🔔
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>Notificaciones en app</Typography>
+                <Typography variant="caption" sx={{ color: '#999' }}>Alertas dentro de la plataforma</Typography>
+              </Box>
+              <Switch checked={notifPrefs.push} onChange={(e) => updateNotifPref('push', e.target.checked)}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }} />
+            </Box>
+
+            <Divider sx={{ mx: 2 }} />
+
+            {/* Servicios header */}
+            <Typography variant="caption" sx={{ color: '#bbb', fontWeight: 700, letterSpacing: 0.8, display: 'block', px: 2.5, pt: 2, pb: 0.5, textTransform: 'uppercase' }}>
+              Servicios
+            </Typography>
+
+            {/* Aéreo */}
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box sx={{ width: 40, height: 40, borderRadius: '10px', bgcolor: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                ✈️
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>Aéreo</Typography>
+              </Box>
+              <Switch checked={notifPrefs.air} onChange={(e) => updateNotifPref('air', e.target.checked)}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }} />
+            </Box>
+
+            <Divider sx={{ mx: 2 }} />
+
+            {/* Marítimo */}
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box sx={{ width: 40, height: 40, borderRadius: '10px', bgcolor: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                🚢
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>Marítimo</Typography>
+              </Box>
+              <Switch checked={notifPrefs.maritime} onChange={(e) => updateNotifPref('maritime', e.target.checked)}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }} />
+            </Box>
+
+            <Divider sx={{ mx: 2 }} />
+
+            {/* DHL */}
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box sx={{ width: 40, height: 40, borderRadius: '10px', bgcolor: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                📦
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>DHL</Typography>
+              </Box>
+              <Switch checked={notifPrefs.dhl} onChange={(e) => updateNotifPref('dhl', e.target.checked)}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }} />
+            </Box>
+
+            <Divider sx={{ mx: 2 }} />
+
+            {/* Casillero */}
+            <Box sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box sx={{ width: 40, height: 40, borderRadius: '10px', bgcolor: '#f5f5f5', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
+                🏠
+              </Box>
+              <Box sx={{ flex: 1 }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>Casillero (PO Box / Suite)</Typography>
+              </Box>
+              <Switch checked={notifPrefs.pobox} onChange={(e) => updateNotifPref('pobox', e.target.checked)}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }} />
+            </Box>
+          </>
+        )}
+      </Paper>
+
       {/* Dialog: Cambiar Contraseña */}
-      <Dialog 
-        open={showChangePassword} 
-        onClose={() => setShowChangePassword(false)} 
-        maxWidth="xs" 
+      <Dialog
+        open={showChangePassword}
+        onClose={() => setShowChangePassword(false)}
+        maxWidth="xs"
         fullWidth
         PaperProps={{ sx: { borderRadius: 3 } }}
       >

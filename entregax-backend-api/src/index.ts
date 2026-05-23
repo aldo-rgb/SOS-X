@@ -9561,6 +9561,13 @@ async function ensureRequiredColumns() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS privacy_accepted_at TIMESTAMP`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_employee_onboarded BOOLEAN DEFAULT FALSE`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_verified BOOLEAN DEFAULT FALSE`);
+    // Preferencias de notificaciones
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_whatsapp BOOLEAN DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_push BOOLEAN DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_air BOOLEAN DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_maritime BOOLEAN DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_dhl BOOLEAN DEFAULT TRUE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_pobox BOOLEAN DEFAULT TRUE`);
     // Columna code en branches (puede no existir en instancias antiguas)
     await pool.query(`ALTER TABLE branches ADD COLUMN IF NOT EXISTS code VARCHAR(50)`);
   } catch (err: any) {
@@ -9878,6 +9885,55 @@ app.post('/api/admin/system/external-sync-key/regenerate', authenticateToken, re
 // (si se registran antes, el catchall 404 atrapa cualquier ruta
 // declarada más abajo y nunca llega al handler real).
 // ============================================================
+
+// ============================================================
+// PREFERENCIAS DE NOTIFICACIONES
+// ============================================================
+
+// GET /api/notifications/preferences
+app.get('/api/notifications/preferences', authenticateToken, async (req: any, res) => {
+  try {
+    const r = await pool.query(
+      `SELECT notif_whatsapp, notif_push, notif_air, notif_maritime, notif_dhl, notif_pobox
+       FROM users WHERE id = $1`,
+      [req.user.userId]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Usuario no encontrado' });
+    const row = r.rows[0];
+    res.json({
+      whatsapp: row.notif_whatsapp ?? true,
+      push: row.notif_push ?? true,
+      air: row.notif_air ?? true,
+      maritime: row.notif_maritime ?? true,
+      dhl: row.notif_dhl ?? true,
+      pobox: row.notif_pobox ?? true,
+    });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// PUT /api/notifications/preferences
+app.put('/api/notifications/preferences', authenticateToken, async (req: any, res) => {
+  try {
+    const { whatsapp, push, air, maritime, dhl, pobox } = req.body;
+    const fields: string[] = [];
+    const values: any[] = [];
+    let idx = 1;
+    if (whatsapp !== undefined) { fields.push(`notif_whatsapp = $${idx++}`); values.push(!!whatsapp); }
+    if (push !== undefined) { fields.push(`notif_push = $${idx++}`); values.push(!!push); }
+    if (air !== undefined) { fields.push(`notif_air = $${idx++}`); values.push(!!air); }
+    if (maritime !== undefined) { fields.push(`notif_maritime = $${idx++}`); values.push(!!maritime); }
+    if (dhl !== undefined) { fields.push(`notif_dhl = $${idx++}`); values.push(!!dhl); }
+    if (pobox !== undefined) { fields.push(`notif_pobox = $${idx++}`); values.push(!!pobox); }
+    if (!fields.length) return res.status(400).json({ error: 'Sin campos para actualizar' });
+    values.push(req.user.userId);
+    await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = $${idx}`, values);
+    res.json({ ok: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // Manejador de rutas no encontradas (404) - Devolver JSON en lugar de HTML
 app.use((_req: Request, res: Response) => {

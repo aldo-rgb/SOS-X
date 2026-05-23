@@ -155,6 +155,18 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [profilePhoto, setProfilePhoto] = useState<string | null>(user.profilePhotoUrl || null);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
+  // 🔔 Preferencias de notificaciones
+  const [notifPrefs, setNotifPrefs] = useState({
+    whatsapp: true,
+    push: true,
+    air: true,
+    maritime: true,
+    dhl: true,
+    pobox: true,
+  });
+  const [notifLoading, setNotifLoading] = useState(false);
+  const [notifSaving, setNotifSaving] = useState(false);
+
   // Verificar si el usuario puede tener PIN de supervisor
   const canHaveSupervisorPin = SUPERVISOR_ROLES.includes(user.role);
 
@@ -162,6 +174,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   useEffect(() => {
     fetchProfilePhoto();
     fetchGexAutoConfig();
+    fetchNotifPrefs();
   }, []);
 
   const fetchGexAutoConfig = async () => {
@@ -206,6 +219,36 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     } finally {
       setGexAutoLoading(false);
     }
+  };
+
+  const fetchNotifPrefs = async () => {
+    setNotifLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/notifications/preferences`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        const data = await r.json();
+        setNotifPrefs(data);
+      }
+    } catch {}
+    setNotifLoading(false);
+  };
+
+  const updateNotifPref = async (key: keyof typeof notifPrefs, value: boolean) => {
+    const updated = { ...notifPrefs, [key]: value };
+    setNotifPrefs(updated);
+    setNotifSaving(true);
+    try {
+      await fetch(`${API_URL}/api/notifications/preferences`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ [key]: value }),
+      });
+    } catch {
+      setNotifPrefs(notifPrefs);
+    }
+    setNotifSaving(false);
   };
 
   const fetchProfilePhoto = async () => {
@@ -1072,6 +1115,113 @@ export default function MyProfileScreen({ navigation, route }: Props) {
               </View>
               <Ionicons name="chevron-forward" size={20} color="#999" />
             </TouchableOpacity>
+          </Card.Content>
+        </Card>
+
+        {/* 🔔 Notificaciones */}
+        <Text style={styles.sectionTitle}>🔔 Centro de Notificaciones</Text>
+        <Card style={styles.card}>
+          <Card.Content>
+            {notifLoading ? (
+              <ActivityIndicator size="small" color={ORANGE} style={{ paddingVertical: 12 }} />
+            ) : (
+              <>
+                {/* Canal */}
+                <Text style={{ fontSize: 12, color: '#999', marginBottom: 8, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>Canal</Text>
+                <View style={styles.menuItem}>
+                  <Ionicons name="logo-whatsapp" size={22} color="#25D366" />
+                  <View style={styles.menuItemContent}>
+                    <Text style={styles.menuItemTitle}>WhatsApp</Text>
+                    <Text style={styles.menuItemSubtitle}>Recibir notificaciones por WhatsApp</Text>
+                  </View>
+                  <Switch
+                    value={notifPrefs.whatsapp}
+                    onValueChange={(v) => updateNotifPref('whatsapp', v)}
+                    trackColor={{ false: '#ddd', true: ORANGE + '80' }}
+                    thumbColor={notifPrefs.whatsapp ? ORANGE : '#f4f3f4'}
+                  />
+                </View>
+
+                <Divider style={styles.divider} />
+
+                <View style={styles.menuItem}>
+                  <Ionicons name="notifications-outline" size={22} color={ORANGE} />
+                  <View style={styles.menuItemContent}>
+                    <Text style={styles.menuItemTitle}>Notificaciones en app</Text>
+                    <Text style={styles.menuItemSubtitle}>Push y alertas dentro de la app</Text>
+                  </View>
+                  <Switch
+                    value={notifPrefs.push}
+                    onValueChange={(v) => updateNotifPref('push', v)}
+                    trackColor={{ false: '#ddd', true: ORANGE + '80' }}
+                    thumbColor={notifPrefs.push ? ORANGE : '#f4f3f4'}
+                  />
+                </View>
+
+                <Divider style={{ ...styles.divider, marginVertical: 14 }} />
+
+                {/* Servicios */}
+                <Text style={{ fontSize: 12, color: '#999', marginBottom: 8, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 }}>Servicios</Text>
+
+                <View style={styles.menuItem}>
+                  <Ionicons name="airplane-outline" size={22} color="#555" />
+                  <View style={styles.menuItemContent}>
+                    <Text style={styles.menuItemTitle}>Aéreo</Text>
+                  </View>
+                  <Switch
+                    value={notifPrefs.air}
+                    onValueChange={(v) => updateNotifPref('air', v)}
+                    trackColor={{ false: '#ddd', true: ORANGE + '80' }}
+                    thumbColor={notifPrefs.air ? ORANGE : '#f4f3f4'}
+                  />
+                </View>
+
+                <Divider style={styles.divider} />
+
+                <View style={styles.menuItem}>
+                  <Ionicons name="boat-outline" size={22} color="#555" />
+                  <View style={styles.menuItemContent}>
+                    <Text style={styles.menuItemTitle}>Marítimo</Text>
+                  </View>
+                  <Switch
+                    value={notifPrefs.maritime}
+                    onValueChange={(v) => updateNotifPref('maritime', v)}
+                    trackColor={{ false: '#ddd', true: ORANGE + '80' }}
+                    thumbColor={notifPrefs.maritime ? ORANGE : '#f4f3f4'}
+                  />
+                </View>
+
+                <Divider style={styles.divider} />
+
+                <View style={styles.menuItem}>
+                  <Ionicons name="cube-outline" size={22} color="#555" />
+                  <View style={styles.menuItemContent}>
+                    <Text style={styles.menuItemTitle}>DHL</Text>
+                  </View>
+                  <Switch
+                    value={notifPrefs.dhl}
+                    onValueChange={(v) => updateNotifPref('dhl', v)}
+                    trackColor={{ false: '#ddd', true: ORANGE + '80' }}
+                    thumbColor={notifPrefs.dhl ? ORANGE : '#f4f3f4'}
+                  />
+                </View>
+
+                <Divider style={styles.divider} />
+
+                <View style={styles.menuItem}>
+                  <Ionicons name="home-outline" size={22} color="#555" />
+                  <View style={styles.menuItemContent}>
+                    <Text style={styles.menuItemTitle}>Casillero (PO Box / Suite)</Text>
+                  </View>
+                  <Switch
+                    value={notifPrefs.pobox}
+                    onValueChange={(v) => updateNotifPref('pobox', v)}
+                    trackColor={{ false: '#ddd', true: ORANGE + '80' }}
+                    thumbColor={notifPrefs.pobox ? ORANGE : '#f4f3f4'}
+                  />
+                </View>
+              </>
+            )}
           </Card.Content>
         </Card>
 

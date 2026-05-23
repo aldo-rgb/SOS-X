@@ -430,6 +430,10 @@ export default function DashboardAdvisor() {
   const [ticketReply, setTicketReply] = useState('');
   const [ticketReplySending, setTicketReplySending] = useState(false);
 
+  // Preferencias de notificaciones
+  const [notifPrefs, setNotifPrefs] = useState({ whatsapp: true, push: true, air: true, maritime: true, dhl: true, pobox: true });
+  const [notifLoading, setNotifLoading] = useState(false);
+
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
     open: false, message: '', severity: 'info'
@@ -522,7 +526,28 @@ export default function DashboardAdvisor() {
 
   useEffect(() => {
     fetchDashboard();
+    fetchNotifPrefs();
   }, [fetchDashboard]);
+
+  const fetchNotifPrefs = async () => {
+    setNotifLoading(true);
+    try {
+      const r = await api.get('/notifications/preferences');
+      setNotifPrefs(r.data);
+    } catch {}
+    setNotifLoading(false);
+  };
+
+  const updateNotifPref = async (key: keyof typeof notifPrefs, value: boolean) => {
+    const prev = { ...notifPrefs };
+    setNotifPrefs({ ...notifPrefs, [key]: value });
+    try {
+      await api.put('/notifications/preferences', { [key]: value });
+    } catch {
+      setNotifPrefs(prev);
+      setSnackbar({ open: true, message: 'Error al guardar preferencia', severity: 'error' });
+    }
+  };
 
   useEffect(() => {
     if (activeTab === 1) fetchClients();
@@ -2348,6 +2373,72 @@ export default function DashboardAdvisor() {
                 </Paper>
               </Grid>
             )}
+
+            {/* 🔔 Centro de Notificaciones */}
+            <Grid size={ { xs: 12 } }>
+              <Paper sx={{ p: 3, borderRadius: 2 }}>
+                <Typography variant="subtitle1" fontWeight={600} gutterBottom>
+                  🔔 Centro de Notificaciones
+                </Typography>
+                {notifLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                    <CircularProgress size={24} sx={{ color: '#F05A28' }} />
+                  </Box>
+                ) : (
+                  <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                    <Grid size={ { xs: 12 } }>
+                      <Typography variant="caption" sx={{ color: '#999', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                        Canal
+                      </Typography>
+                    </Grid>
+                    {[
+                      { key: 'whatsapp' as const, label: 'WhatsApp', sub: 'Recibir alertas por WhatsApp', icon: '💬' },
+                      { key: 'push' as const, label: 'Notificaciones en app', sub: 'Alertas dentro de la plataforma', icon: '🔔' },
+                    ].map(({ key, label, sub, icon }) => (
+                      <Grid size={ { xs: 12, sm: 6 } } key={key}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, border: '1px solid #f0f0f0', borderRadius: 2 }}>
+                          <Typography sx={{ fontSize: 22 }}>{icon}</Typography>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="subtitle2" fontWeight={700}>{label}</Typography>
+                            <Typography variant="caption" color="text.secondary">{sub}</Typography>
+                          </Box>
+                          <Switch
+                            checked={notifPrefs[key]}
+                            onChange={(e) => updateNotifPref(key, e.target.checked)}
+                            sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#F05A28' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#F05A28' } }}
+                          />
+                        </Box>
+                      </Grid>
+                    ))}
+                    <Grid size={ { xs: 12 } } sx={{ mt: 1 }}>
+                      <Typography variant="caption" sx={{ color: '#999', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.8 }}>
+                        Servicios
+                      </Typography>
+                    </Grid>
+                    {[
+                      { key: 'air' as const, label: 'Aéreo', icon: '✈️' },
+                      { key: 'maritime' as const, label: 'Marítimo', icon: '🚢' },
+                      { key: 'dhl' as const, label: 'DHL', icon: '📦' },
+                      { key: 'pobox' as const, label: 'Casillero (PO Box / Suite)', icon: '🏠' },
+                    ].map(({ key, label, icon }) => (
+                      <Grid size={ { xs: 12, sm: 6 } } key={key}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, border: '1px solid #f0f0f0', borderRadius: 2 }}>
+                          <Typography sx={{ fontSize: 22 }}>{icon}</Typography>
+                          <Box sx={{ flex: 1 }}>
+                            <Typography variant="subtitle2" fontWeight={700}>{label}</Typography>
+                          </Box>
+                          <Switch
+                            checked={notifPrefs[key]}
+                            onChange={(e) => updateNotifPref(key, e.target.checked)}
+                            sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#F05A28' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#F05A28' } }}
+                          />
+                        </Box>
+                      </Grid>
+                    ))}
+                  </Grid>
+                )}
+              </Paper>
+            </Grid>
           </Grid>
         </Box>
       </Fade>
@@ -2922,15 +3013,20 @@ export default function DashboardAdvisor() {
   // MAIN RENDER
   // ════════════════════════════════════
 
-  const tabConfig = useMemo(() => [
-    { label: isMobile ? 'Inicio' : t('advisor.tabDashboard'), icon: <DashboardIcon />, shortLabel: 'Inicio' },
-    { label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: <PeopleIcon />, shortLabel: 'Clientes' },
-    { label: isMobile ? 'Envíos' : t('advisor.tabShipments'), icon: <ShippingIcon />, shortLabel: 'Envíos' },
-    { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
-    { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
-    { label: isMobile ? 'Tickets' : 'Tickets', icon: <TicketIcon />, shortLabel: 'Tickets' },
-    { label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' },
-  ], [t, isMobile]);
+  const tabConfig = useMemo(() => {
+    const tabs = [
+      { label: isMobile ? 'Inicio' : t('advisor.tabDashboard'), icon: <DashboardIcon />, shortLabel: 'Inicio' },
+      { label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: <PeopleIcon />, shortLabel: 'Clientes' },
+      { label: isMobile ? 'Envíos' : t('advisor.tabShipments'), icon: <ShippingIcon />, shortLabel: 'Envíos' },
+      { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
+      { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
+      { label: isMobile ? 'Tickets' : 'Tickets', icon: <TicketIcon />, shortLabel: 'Tickets' },
+      ...(dashboardData && dashboardData.subAdvisors > 0
+        ? [{ label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' }]
+        : []),
+    ];
+    return tabs;
+  }, [t, isMobile, dashboardData]);
 
   // ─── GATE: Verificación + Aviso de privacidad firmado ───
   const onboardingComplete = !!(
