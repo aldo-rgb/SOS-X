@@ -5707,7 +5707,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     const saldosPorEmpresaRes = await pool.query(`
       SELECT DISTINCT ON (empresa_id) empresa_id, saldo, fecha
       FROM bank_statement_entries
-      ORDER BY empresa_id, fecha DESC, id DESC
+      ORDER BY empresa_id, fecha DESC, id ASC
     `);
 
     res.json({
