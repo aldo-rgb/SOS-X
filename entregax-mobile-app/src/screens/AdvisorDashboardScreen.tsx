@@ -81,7 +81,9 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         fetch(`${API_URL}/api/notifications/unread-count`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (dashRes.status === 'fulfilled' && dashRes.value.ok) {
-        setData(await dashRes.value.json());
+        const dashData = await dashRes.value.json();
+        setData(dashData);
+        if (dashData?.advisor?.profilePhotoUrl) setProfilePhoto(dashData.advisor.profilePhotoUrl);
       } else {
         throw new Error('Error al cargar datos');
       }
@@ -312,12 +314,10 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             <Text style={s.heroCode}>{data.advisor.referralCode || '—'}</Text>
             <View style={{ flex: 1 }} />
             <TouchableOpacity style={s.heroCodeBtn} onPress={copyReferralCode}>
-              <Ionicons name="copy-outline" size={15} color="#fff" />
-              <Text style={s.heroCodeBtnText}>Copiar</Text>
+              <Ionicons name="copy-outline" size={18} color="#fff" />
             </TouchableOpacity>
             <TouchableOpacity style={s.heroCodeBtnOutline} onPress={shareReferralCode}>
-              <Ionicons name="share-social-outline" size={15} color={ORANGE} />
-              <Text style={s.heroCodeBtnOutlineText}>Compartir</Text>
+              <Ionicons name="share-social-outline" size={18} color={ORANGE} />
             </TouchableOpacity>
             <TouchableOpacity style={s.heroCodeBtnOutline} onPress={() => setShowQrModal(true)}>
               <Ionicons name="qr-code-outline" size={15} color={ORANGE} />
@@ -501,9 +501,9 @@ const s = StyleSheet.create({
   heroDivider:     { height: 1, backgroundColor: '#F0F0F0', marginBottom: 12 },
   heroCodeRow:     { flexDirection: 'row', alignItems: 'center', gap: 6 },
   heroCode:        { color: '#111', fontSize: 15, fontWeight: '800', letterSpacing: 1.5 },
-  heroCodeBtn:     { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  heroCodeBtn:     { alignItems: 'center', justifyContent: 'center', backgroundColor: ORANGE, borderRadius: 8, padding: 8 },
   heroCodeBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  heroCodeBtnOutline:     { flexDirection: 'row', alignItems: 'center', gap: 4, borderWidth: 1.5, borderColor: ORANGE, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6 },
+  heroCodeBtnOutline:     { alignItems: 'center', justifyContent: 'center', borderWidth: 1.5, borderColor: ORANGE, borderRadius: 8, padding: 8 },
   qrOverlay:   { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' },
   qrBox:       { backgroundColor: '#fff', borderRadius: 16, padding: 28, alignItems: 'center', gap: 12, width: 280 },
   qrTitle:     { fontSize: 16, fontWeight: '700', color: BLACK },
