@@ -72,6 +72,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
+  const [showLoadedModal, setShowLoadedModal] = useState(false);
   const [stats, setStats] = useState<DayStats>({
     totalAssigned: 0,
     loadedToday: 0,
@@ -520,11 +521,15 @@ export default function DriverHomeScreen({ navigation, route }: any) {
               <Text style={styles.statNumber}>{stats.totalAssigned}</Text>
               <Text style={styles.statLabel}>{isMonitoreo ? 'Contenedores en Ruta' : 'Asignados Hoy'}</Text>
             </TouchableOpacity>
-            <View style={styles.statCard}>
+            <TouchableOpacity
+              style={styles.statCard}
+              activeOpacity={0.85}
+              onPress={() => !isMonitoreo && loadedPackages.length > 0 && setShowLoadedModal(true)}
+            >
               <MaterialIcons name={isMonitoreo ? 'visibility' : 'local-shipping'} size={28} color="#2196F3" />
               <Text style={[styles.statNumber, { color: '#2196F3' }]}>{stats.loadedToday}</Text>
               <Text style={styles.statLabel}>{isMonitoreo ? 'Monitoreando' : 'Cargados'}</Text>
-            </View>
+            </TouchableOpacity>
           </View>
           
           <View style={styles.statsRow}>
@@ -731,6 +736,59 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                 <Text style={styles.modalBtnPrimaryText}>Escáner</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL PAQUETES CARGADOS ── */}
+      <Modal visible={showLoadedModal} animationType="slide" transparent onRequestClose={() => setShowLoadedModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%' }}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <MaterialIcons name="local-shipping" size={24} color="#2196F3" />
+                <Text style={{ fontSize: 17, fontWeight: '800', color: '#111' }}>Paquetes Cargados</Text>
+                <View style={{ backgroundColor: '#2196F3', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 }}>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{loadedPackages.length}</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowLoadedModal(false)}>
+                <MaterialIcons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Lista */}
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
+              {loadedPackages.map((pkg, i) => (
+                <View key={pkg.id} style={{
+                  backgroundColor: '#F8F9FA', borderRadius: 12, padding: 14,
+                  marginBottom: 10, borderLeftWidth: 4, borderLeftColor: '#2196F3',
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#2196F3' }}>{pkg.tracking_number}</Text>
+                    <Text style={{ fontSize: 11, color: '#999' }}>#{i + 1}</Text>
+                  </View>
+                  {pkg.recipient_name ? (
+                    <Text style={{ fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 4 }}>{pkg.recipient_name}</Text>
+                  ) : null}
+                  {(pkg.delivery_address || pkg.delivery_city) ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                      <MaterialIcons name="location-on" size={14} color="#888" />
+                      <Text style={{ fontSize: 12, color: '#666', flex: 1 }} numberOfLines={2}>
+                        {[pkg.delivery_address, pkg.delivery_city, pkg.delivery_zip].filter(Boolean).join(', ')}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {pkg.national_carrier ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                      <MaterialIcons name="local-post-office" size={14} color="#888" />
+                      <Text style={{ fontSize: 12, color: '#888' }}>{pkg.national_carrier}: {pkg.national_tracking || '—'}</Text>
+                    </View>
+                  ) : null}
+                </View>
+              ))}
+            </ScrollView>
           </View>
         </View>
       </Modal>
