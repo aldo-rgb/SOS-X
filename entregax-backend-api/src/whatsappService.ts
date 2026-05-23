@@ -21,6 +21,18 @@
  *      body con UNA variable: {{1}} = código de 6 dígitos
  *      Ej: "*{{1}}* es tu código de verificación. Por seguridad, no lo compartas con nadie."
  *
+ *   3) name: "ticket_recibido"          — confirmación al cliente al abrir ticket de soporte
+ *      categoría: UTILITY
+ *      idioma: es_MX
+ *      body con dos variables: {{1}} = nombre, {{2}} = ticket_folio
+ *      Ej: "¡Hola {{1}}! 🎫 Tu ticket de soporte *{{2}}* fue recibido. Nuestro equipo lo está atendiendo y te contactaremos pronto. Gracias por comunicarte con EntregaX."
+ *
+ *   4) name: "ticket_resuelto"          — notificación al cliente cuando el ticket es cerrado/resuelto
+ *      categoría: UTILITY
+ *      idioma: es_MX
+ *      body con dos variables: {{1}} = nombre, {{2}} = ticket_folio
+ *      Ej: "¡Hola {{1}}! ✅ Tu ticket *{{2}}* ha sido marcado como resuelto. Si el problema persiste o necesitas continuar, puedes reabrirlo en la sección *Atención a Cliente* de tu portal EntregaX."
+ *
  * Si WHATSAPP_ACCESS_TOKEN o WHATSAPP_PHONE_NUMBER_ID no están definidas, las
  * funciones loggean en lugar de mandar — el registro NO se rompe.
  */
@@ -245,6 +257,44 @@ export const sendVerificationCodeWhatsapp = async (params: {
         const msg = meta?.message || err?.message || 'Error desconocido';
         console.error(`[WHATSAPP] ❌ OTP a ${normalized} falló:`, msg, meta);
         return { ok: false, error: msg };
+    }
+};
+
+/**
+ * Envía confirmación de ticket al cliente por WhatsApp.
+ * Requiere plantilla "ticket_recibido" aprobada en Meta Business (UTILITY, es_MX).
+ * Variables: {{1}} = nombre, {{2}} = folio del ticket.
+ */
+export const sendTicketConfirmation = async (phone: string, nombre: string, ticketFolio: string): Promise<void> => {
+    const templateName = process.env.WHATSAPP_TICKET_TEMPLATE || 'ticket_recibido';
+    try {
+        await sendTemplate({
+            to: phone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [nombre.split(' ')[0] ?? nombre, ticketFolio],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] Error enviando confirmación de ticket:', e);
+    }
+};
+
+/**
+ * Notifica al cliente que su ticket fue resuelto/cerrado.
+ * Requiere plantilla "ticket_resuelto" aprobada en Meta Business (UTILITY, es_MX).
+ * Variables: {{1}} = nombre, {{2}} = folio del ticket.
+ */
+export const sendTicketResolved = async (phone: string, nombre: string, ticketFolio: string): Promise<void> => {
+    const templateName = process.env.WHATSAPP_TICKET_RESOLVED_TEMPLATE || 'ticket_resuelto';
+    try {
+        await sendTemplate({
+            to: phone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [nombre.split(' ')[0] ?? nombre, ticketFolio],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] Error enviando resolución de ticket:', e);
     }
 };
 

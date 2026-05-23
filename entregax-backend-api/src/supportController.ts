@@ -10,6 +10,7 @@ import path from 'path';
 import fs from 'fs';
 import { uploadToS3, isS3Configured, getSignedDownloadUrl } from './s3Service';
 import { sendPushToUsers } from './pushService';
+import { sendTicketConfirmation, sendTicketResolved } from './whatsappService';
 
 // ============================================================
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES DE SOPORTE
@@ -448,6 +449,17 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
           );
         } catch (e) {
           console.error('Error creando notificación de ticket:', e);
+        }
+
+        // 📲 WhatsApp al cliente confirmando número de ticket
+        try {
+          const userRow = await pool.query('SELECT full_name, phone FROM users WHERE id = $1', [userId]);
+          const { full_name, phone } = userRow.rows[0] || {};
+          if (phone) {
+            sendTicketConfirmation(phone, full_name || 'Cliente', ticketFolio).catch(() => {});
+          }
+        } catch (e) {
+          console.error('Error enviando WhatsApp de confirmación de ticket:', e);
         }
       }
       
@@ -952,16 +964,28 @@ export const resolveTicket = async (req: Request, res: Response): Promise<any> =
   try {
     const { id } = req.params;
 
-    await pool.query(
+    const updated = await pool.query(
       `UPDATE support_tickets
        SET status = 'resolved',
            resolved_at = NOW(),
            updated_at = NOW(),
            ticket_status = 'finalizado',
            resolution_time_minutes = EXTRACT(EPOCH FROM (NOW() - created_at))::int / 60
-       WHERE id = $1`,
+       WHERE id = $1
+       RETURNING ticket_folio, user_id`,
       [id]
     );
+
+    // 📲 WhatsApp al cliente notificando que el ticket fue resuelto
+    if (updated.rows[0]?.user_id) {
+      const { ticket_folio, user_id } = updated.rows[0];
+      pool.query('SELECT full_name, phone FROM users WHERE id = $1', [user_id])
+        .then(r => {
+          const { full_name, phone } = r.rows[0] || {};
+          if (phone) sendTicketResolved(phone, full_name || 'Cliente', ticket_folio).catch(() => {});
+        })
+        .catch(() => {});
+    }
 
     res.json({ success: true, message: 'Ticket resuelto' });
   } catch (error) {
