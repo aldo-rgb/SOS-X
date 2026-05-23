@@ -406,6 +406,13 @@ export default function DashboardAdvisor() {
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [teamMyCommission, setTeamMyCommission] = useState(0);
   const [teamLoading, setTeamLoading] = useState(false);
+  // Team member detail modal
+  const [teamModalOpen, setTeamModalOpen] = useState(false);
+  const [teamModalMember, setTeamModalMember] = useState<any | null>(null);
+  const [teamModalTab, setTeamModalTab] = useState(0);
+  const [teamModalClients, setTeamModalClients] = useState<any[]>([]);
+  const [teamModalTickets, setTeamModalTickets] = useState<any[]>([]);
+  const [teamModalLoading, setTeamModalLoading] = useState(false);
 
   // Tickets tab
   const [ticketCategory, setTicketCategory] = useState('');
@@ -554,6 +561,25 @@ export default function DashboardAdvisor() {
       setTeamMyCommission(res.data?.my_commission || 0);
     } catch { /* silencioso */ } finally {
       setTeamLoading(false);
+    }
+  };
+
+  const openTeamMemberModal = async (member: any) => {
+    setTeamModalMember(member);
+    setTeamModalTab(0);
+    setTeamModalClients([]);
+    setTeamModalTickets([]);
+    setTeamModalOpen(true);
+    setTeamModalLoading(true);
+    try {
+      const [clientsRes, ticketsRes] = await Promise.all([
+        api.get('/advisor/clients', { params: { subAdvisorId: member.id, limit: 100 } }),
+        api.get('/advisor/client-tickets', { params: { subAdvisorId: member.id } }),
+      ]);
+      setTeamModalClients(clientsRes.data?.clients || []);
+      setTeamModalTickets(ticketsRes.data?.tickets || []);
+    } catch { /* silencioso */ } finally {
+      setTeamModalLoading(false);
     }
   };
 
@@ -2336,6 +2362,14 @@ export default function DashboardAdvisor() {
     const totalClients = teamMembers.reduce((s: number, m: any) => s + (m.total_clients || 0), 0);
     const monthlyClients = teamMembers.reduce((s: number, m: any) => s + (m.monthly_clients || 0), 0);
 
+    const ticketStatusMap: Record<string, { label: string; color: 'default' | 'warning' | 'info' | 'error' | 'success' }> = {
+      open_ai:          { label: 'En revisión',   color: 'info' },
+      escalated_human:  { label: 'Con agente',    color: 'warning' },
+      waiting_client:   { label: 'Esperando resp.', color: 'default' },
+      resolved:         { label: 'Resuelto',      color: 'success' },
+      closed:           { label: 'Cerrado',        color: 'default' },
+    };
+
     return (
       <Fade in timeout={400}>
         <Box>
@@ -2386,10 +2420,18 @@ export default function DashboardAdvisor() {
                   </TableHead>
                   <TableBody>
                     {teamMembers.map((m: any) => (
-                      <TableRow key={m.id} hover>
+                      <TableRow
+                        key={m.id}
+                        hover
+                        sx={{ cursor: 'pointer' }}
+                        onClick={() => openTeamMemberModal(m)}
+                      >
                         <TableCell>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                            <Avatar sx={{ width: 34, height: 34, bgcolor: '#F05A28', fontSize: 14, fontWeight: 800 }}>
+                            <Avatar
+                              src={m.profile_photo_url || undefined}
+                              sx={{ width: 38, height: 38, bgcolor: '#F05A28', fontSize: 14, fontWeight: 800 }}
+                            >
                               {(m.name || '').charAt(0).toUpperCase()}
                             </Avatar>
                             <Box>
@@ -2398,7 +2440,7 @@ export default function DashboardAdvisor() {
                             </Box>
                           </Box>
                         </TableCell>
-                        <TableCell>
+                        <TableCell onClick={e => e.stopPropagation()}>
                           <Chip label={m.referral_code} size="small" variant="outlined" />
                         </TableCell>
                         <TableCell align="center">
@@ -2419,7 +2461,7 @@ export default function DashboardAdvisor() {
                             size="small"
                           />
                         </TableCell>
-                        <TableCell align="center">
+                        <TableCell align="center" onClick={e => e.stopPropagation()}>
                           <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
                             {m.phone && (
                               <>
@@ -2444,6 +2486,150 @@ export default function DashboardAdvisor() {
               </TableContainer>
             )}
           </Paper>
+
+          {/* ── MODAL DETALLE SUB-ASESOR ── */}
+          <Dialog open={teamModalOpen} onClose={() => setTeamModalOpen(false)} maxWidth="md" fullWidth>
+            {teamModalMember && (
+              <>
+                <DialogTitle sx={{ pb: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <Avatar
+                      src={teamModalMember.profile_photo_url || undefined}
+                      sx={{ width: 52, height: 52, bgcolor: '#F05A28', fontSize: 20, fontWeight: 800 }}
+                    >
+                      {(teamModalMember.name || '').charAt(0).toUpperCase()}
+                    </Avatar>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography fontWeight={800} fontSize={18}>{teamModalMember.name}</Typography>
+                      <Typography variant="body2" color="text.secondary">{teamModalMember.email}</Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                      <Chip label={teamModalMember.referral_code} size="small" variant="outlined" />
+                      <Chip
+                        label={teamModalMember.status === 'active' ? 'Activo' : 'Inactivo'}
+                        color={teamModalMember.status === 'active' ? 'success' : 'default'}
+                        size="small"
+                      />
+                      <IconButton onClick={() => setTeamModalOpen(false)}><CloseIcon /></IconButton>
+                    </Box>
+                  </Box>
+                  {/* Stats rápidos */}
+                  <Box sx={{ display: 'flex', gap: 3, mt: 1.5, pl: 0.5 }}>
+                    {[
+                      { label: 'Clientes', value: teamModalMember.total_clients },
+                      { label: 'Este mes', value: teamModalMember.monthly_clients },
+                      { label: 'Generado', value: `$${((teamModalMember.total_revenue || 0) / 1000).toFixed(1)}k` },
+                    ].map((s, i) => (
+                      <Box key={i}>
+                        <Typography variant="caption" color="text.secondary">{s.label}</Typography>
+                        <Typography fontWeight={700} fontSize={15}>{s.value}</Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                </DialogTitle>
+
+                <Box sx={{ borderBottom: 1, borderColor: 'divider', px: 3 }}>
+                  <Tabs value={teamModalTab} onChange={(_, v) => setTeamModalTab(v)}>
+                    <Tab label={`Clientes (${teamModalClients.length})`} />
+                    <Tab label={`Tickets (${teamModalTickets.length})`} />
+                  </Tabs>
+                </Box>
+
+                <DialogContent sx={{ p: 0, minHeight: 300 }}>
+                  {teamModalLoading ? (
+                    <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>
+                  ) : teamModalTab === 0 ? (
+                    /* ── CLIENTES ── */
+                    teamModalClients.length === 0 ? (
+                      <Box sx={{ p: 5, textAlign: 'center' }}>
+                        <Typography color="text.secondary">Sin clientes registrados.</Typography>
+                      </Box>
+                    ) : (
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: 'grey.50' }}>
+                              <TableCell>Cliente</TableCell>
+                              <TableCell>Casillero</TableCell>
+                              <TableCell align="center">Verificado</TableCell>
+                              <TableCell align="center">Embarques</TableCell>
+                              <TableCell align="center">En Tránsito</TableCell>
+                              <TableCell align="right">Saldo Pdte.</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {teamModalClients.map((c: any) => (
+                              <TableRow key={c.id} hover>
+                                <TableCell>
+                                  <Typography variant="body2" fontWeight={600}>{c.full_name}</Typography>
+                                  <Typography variant="caption" color="text.secondary">{c.email}</Typography>
+                                </TableCell>
+                                <TableCell><Chip label={c.box_id} size="small" variant="outlined" /></TableCell>
+                                <TableCell align="center">
+                                  {c.is_verified
+                                    ? <CheckCircleIcon sx={{ color: '#4CAF50', fontSize: 18 }} />
+                                    : <PendingIcon sx={{ color: '#FF9800', fontSize: 18 }} />}
+                                </TableCell>
+                                <TableCell align="center">{c.total_packages ?? 0}</TableCell>
+                                <TableCell align="center">{c.in_transit_count ?? 0}</TableCell>
+                                <TableCell align="right">
+                                  <Typography variant="body2" color={c.total_pending > 0 ? 'error' : 'text.primary'}>
+                                    ${(c.total_pending || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                  </Typography>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )
+                  ) : (
+                    /* ── TICKETS ── */
+                    teamModalTickets.length === 0 ? (
+                      <Box sx={{ p: 5, textAlign: 'center' }}>
+                        <Typography color="text.secondary">Sin tickets de soporte.</Typography>
+                      </Box>
+                    ) : (
+                      <TableContainer>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow sx={{ bgcolor: 'grey.50' }}>
+                              <TableCell>Folio</TableCell>
+                              <TableCell>Cliente</TableCell>
+                              <TableCell>Categoría</TableCell>
+                              <TableCell align="center">Estado</TableCell>
+                              <TableCell align="right">Fecha</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {teamModalTickets.map((t: any) => {
+                              const st = ticketStatusMap[t.status] || { label: t.status, color: 'default' as const };
+                              return (
+                                <TableRow key={t.id} hover>
+                                  <TableCell><Typography variant="body2" fontWeight={700}>{t.ticket_folio}</Typography></TableCell>
+                                  <TableCell>
+                                    <Typography variant="body2">{t.client_name}</Typography>
+                                    <Typography variant="caption" color="text.secondary">{t.client_box_id}</Typography>
+                                  </TableCell>
+                                  <TableCell><Typography variant="body2">{t.category || '—'}</Typography></TableCell>
+                                  <TableCell align="center"><Chip label={st.label} color={st.color} size="small" /></TableCell>
+                                  <TableCell align="right">
+                                    <Typography variant="caption" color="text.secondary">
+                                      {new Date(t.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit' })}
+                                    </Typography>
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    )
+                  )}
+                </DialogContent>
+              </>
+            )}
+          </Dialog>
         </Box>
       </Fade>
     );
