@@ -5427,6 +5427,39 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
 
     const savedTracking = r.rows[0].tracking_internal;
 
+    // Notificar al cliente cuando se identifica su paquete PO Box
+    if (user?.id) {
+      const notifTitle = '📦 Paquete recibido · PO Box USA';
+      const notifBody = `Tu paquete ${savedTracking} llegó a la bodega.`;
+      const notifData = { screen: 'Home', tracking: savedTracking };
+
+      pool.query(
+        `SELECT notif_push, notif_whatsapp, notif_pobox AS notif_service, phone, phone_verified, whatsapp_verified, full_name FROM users WHERE id = $1`,
+        [user.id]
+      ).then(async (prefRow: any) => {
+        const prefs = prefRow.rows[0] || {};
+        const wantPush = prefs.notif_push !== false;
+        const wantService = prefs.notif_service !== false;
+        const wantWhatsapp = prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true);
+
+        const { createCustomNotification } = await import('./notificationController');
+        await createCustomNotification(user.id!, notifTitle, notifBody, 'info', 'package', notifData);
+
+        if (wantPush && wantService) {
+          const { sendPushToUsers } = await import('./pushService');
+          await sendPushToUsers([user.id!], { title: notifTitle, body: notifBody, data: notifData });
+        }
+
+        if (wantWhatsapp && wantService && prefs.phone) {
+          const { sendPackageArrival } = await import('./whatsappService').catch(() => ({ sendPackageArrival: undefined })) as any;
+          if (typeof sendPackageArrival === 'function') {
+            const firstName = (prefs.full_name || user.full_name || '').split(' ')[0] || 'Cliente';
+            await sendPackageArrival(prefs.phone, firstName, savedTracking, 'PO Box USA').catch(() => {});
+          }
+        }
+      }).catch((e: any) => console.warn('[notif] bulk client notify failed:', e?.message));
+    }
+
     // Notificar a asesores cuando se recibe una guía PO Box sin cliente identificado
     if (!user) {
       const notifTitle = '📦 Guía sin identificar · PO Box USA';
