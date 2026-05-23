@@ -289,8 +289,8 @@ const s = StyleSheet.create({
   kpiActions:     { flexDirection: 'row', gap: 10 },
   primaryBtn:     { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: ORANGE, borderRadius: 10, paddingVertical: 12 },
   primaryBtnText: { color: '#fff', fontWeight: '700', fontSize: 13 },
-  ghostBtn:       { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent', borderWidth: 1.5, borderColor: '#fff', borderRadius: 10, paddingVertical: 12 },
-  ghostBtnText:   { color: '#fff', fontWeight: '700', fontSize: 13 },
+  ghostBtn:       { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff', borderWidth: 1.5, borderColor: BLACK, borderRadius: 10, paddingVertical: 12 },
+  ghostBtnText:   { color: BLACK, fontWeight: '700', fontSize: 13 },
 
   // Section
   sectionRow:  { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
