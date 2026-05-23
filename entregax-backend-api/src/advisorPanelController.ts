@@ -1090,10 +1090,11 @@ export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> 
     }
     
     const advisor = advisorCheck.rows[0];
-    const isLeader = ['asesor_lider', 'admin', 'super_admin', 'director'].includes(advisor.role);
-    
+    const roleNorm = String(advisor.role || '').toLowerCase();
+    const isLeader = ['asesor_lider', 'admin', 'super_admin', 'director'].includes(roleNorm);
+
     if (!isLeader) {
-      return res.status(403).json({ error: 'Solo asesores líderes pueden ver el equipo' });
+      return res.status(403).json({ error: 'Solo asesores líderes pueden ver el equipo', role: advisor.role });
     }
 
     // Buscar sub-asesores (los que fueron referidos por este asesor líder y son asesores)
