@@ -2419,7 +2419,7 @@ export default function DashboardAdvisor() {
                       { key: 'air' as const, label: 'Aéreo', icon: '✈️' },
                       { key: 'maritime' as const, label: 'Marítimo', icon: '🚢' },
                       { key: 'dhl' as const, label: 'DHL', icon: '📦' },
-                      { key: 'pobox' as const, label: 'Casillero (PO Box / Suite)', icon: '🏠' },
+                      { key: 'pobox' as const, label: '(PO Box / Suite)', icon: '🏠' },
                     ].map(({ key, label, icon }) => (
                       <Grid size={ { xs: 12, sm: 6 } } key={key}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 1.5, border: '1px solid #f0f0f0', borderRadius: 2 }}>

@@ -1093,7 +1093,7 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
                 🏠
               </Box>
               <Box sx={{ flex: 1 }}>
-                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>Casillero (PO Box / Suite)</Typography>
+                <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>(PO Box / Suite)</Typography>
               </Box>
               <Switch checked={notifPrefs.pobox} onChange={(e) => updateNotifPref('pobox', e.target.checked)}
                 sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }} />

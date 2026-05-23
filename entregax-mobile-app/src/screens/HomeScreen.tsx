@@ -103,6 +103,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   
   // 🔍 Filtro simple: null = todos, true = con instrucciones, false = sin instrucciones
   const [instructionFilter, setInstructionFilter] = useState<boolean | null>(null);
+  // 🔍 Búsqueda por TRN inline
+  const [trnFilter, setTrnFilter] = useState('');
+  const [showTrnSearch, setShowTrnSearch] = useState(false);
 
   // 🎠 Estado para slides del carrusel desde el backend
   const [carouselSlides, setCarouselSlides] = useState<Opportunity[]>([]);
@@ -238,6 +241,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         const hasInstructions = !!(pkg as any).delivery_address_id || !!(pkg as any).assigned_address_id;
         if (instructionFilter !== hasInstructions) return false;
       }
+      if (trnFilter.trim()) {
+        const q = trnFilter.trim().toLowerCase();
+        const trn = String(pkg.tracking_internal || '').toLowerCase();
+        if (!trn.includes(q)) return false;
+      }
       return true;
     });
 
@@ -319,7 +327,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     });
 
     return grouped;
-  }, [packages, serviceFilter, instructionFilter]);
+  }, [packages, serviceFilter, instructionFilter, trnFilter]);
 
   // 📊 Conteo de paquetes por servicio. Sirve para esconder los
   // chips de filtro cuando el cliente no tiene paquetes de ese
@@ -995,6 +1003,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     ) : null}
                     <View style={styles.trackingRow}>
                       <Text style={styles.trackingNumber}>TRN: {item.tracking_internal}</Text>
+                      {item.tracking_internal ? (
+                        <TouchableOpacity onPress={() => Clipboard.setString(String(item.tracking_internal))} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                          <Ionicons name="copy-outline" size={13} color="#E87722" />
+                        </TouchableOpacity>
+                      ) : null}
                       {/* 📦 Indicador de Multi-Guía — gradiente
                           corporativo naranja→rojo (los mismos colores
                           de la X del logo). */}
@@ -1285,11 +1298,19 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   const renderEmptyList = () => (
     <View style={styles.emptyContainer}>
-      <Text style={styles.emptyEmoji}>📭</Text>
-      <Text style={styles.emptyTitle}>{t('home.noPackages')}</Text>
-      <Text style={styles.emptySubtitle}>
-        {t('home.noPackagesDesc')}
-      </Text>
+      {trnFilter.trim() ? (
+        <>
+          <Text style={styles.emptyEmoji}>🔍</Text>
+          <Text style={styles.emptyTitle}>Guía no encontrada</Text>
+          <Text style={styles.emptySubtitle}>No encontramos ningún paquete con el número "{trnFilter.trim()}" en tu cuenta.</Text>
+        </>
+      ) : (
+        <>
+          <Text style={styles.emptyEmoji}>📭</Text>
+          <Text style={styles.emptyTitle}>{t('home.noPackages')}</Text>
+          <Text style={styles.emptySubtitle}>{t('home.noPackagesDesc')}</Text>
+        </>
+      )}
     </View>
   );
 
@@ -1936,18 +1957,20 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         <View style={styles.headerActionButtons}>
           {/* 🔍 Rastreo */}
           <Pressable
-            style={styles.headerActionButton}
+            style={[styles.headerActionButton, showTrnSearch && { opacity: 1 }]}
             onPress={() => {
-              setTrackingSearch('');
-              setTrackedPackage(null);
-              setTrackingError('');
-              setShowTrackingModal(true);
+              if (showTrnSearch) {
+                setShowTrnSearch(false);
+                setTrnFilter('');
+              } else {
+                setShowTrnSearch(true);
+              }
             }}
           >
-            <View style={styles.headerActionIcon}>
-              <Ionicons name="search" size={20} color="#374151" />
+            <View style={[styles.headerActionIcon, showTrnSearch && { backgroundColor: ORANGE + '20', borderColor: ORANGE }]}>
+              <Ionicons name={showTrnSearch ? 'close' : 'search'} size={20} color={showTrnSearch ? ORANGE : '#374151'} />
             </View>
-            <Text style={styles.headerActionLabel}>Rastreo</Text>
+            <Text style={[styles.headerActionLabel, showTrnSearch && { color: ORANGE }]}>Rastreo</Text>
           </Pressable>
 
           {/* ❌ Sin Instrucciones */}
@@ -2042,6 +2065,30 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <Text style={styles.headerActionLabel}>Historial</Text>
           </Pressable>
         </View>
+
+        {/* 🔍 Barra de búsqueda TRN inline */}
+        {showTrnSearch && (
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F5', borderRadius: 10, borderWidth: 1.5, borderColor: ORANGE, paddingHorizontal: 10, height: 40 }}>
+              <Ionicons name="search" size={16} color={ORANGE} style={{ marginRight: 6 }} />
+              <TextInput
+                style={{ flex: 1, fontSize: 14, color: '#111' }}
+                placeholder="Buscar por número de guía..."
+                placeholderTextColor="#999"
+                value={trnFilter}
+                onChangeText={setTrnFilter}
+                autoFocus
+                autoCapitalize="characters"
+                returnKeyType="search"
+              />
+              {trnFilter.length > 0 && (
+                <Pressable onPress={() => setTrnFilter('')}>
+                  <Ionicons name="close-circle" size={16} color="#999" />
+                </Pressable>
+              )}
+            </View>
+          </View>
+        )}
       </Surface>
 
       {/* 👷 Banner de onboarding de empleado pendiente */}

@@ -132,16 +132,10 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const shareReferralCode = async () => {
     if (data?.advisor.referralCode) {
       const url = `https://entregax.app/register?ref=${data.advisor.referralCode}`;
-      const msg = encodeURIComponent(`¡Hola! Te invito a usar EntregaX para tus envíos internacionales. Regístrate aquí: ${url}`);
-      const whatsappUrl = `whatsapp://send?text=${msg}`;
-      const canOpen = await Linking.canOpenURL(whatsappUrl);
-      if (canOpen) {
-        await Linking.openURL(whatsappUrl);
-      } else {
-        try {
-          await Share.share({ message: `¡Hola! Te invito a usar EntregaX para tus envíos internacionales. Regístrate aquí: ${url}` });
-        } catch {}
-      }
+      const message = `¡Hola! Te invito a usar EntregaX para tus envíos internacionales. Regístrate aquí: ${url}`;
+      try {
+        await Share.share({ message, url });
+      } catch {}
     }
   };
 
@@ -316,14 +310,14 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             <Ionicons name="gift" size={14} color={ORANGE} />
             <Text style={s.heroCode}>{data.advisor.referralCode || '—'}</Text>
             <View style={{ flex: 1 }} />
-            <TouchableOpacity style={s.heroCodeBtn} onPress={copyReferralCode}>
-              <Ionicons name="copy-outline" size={18} color="#fff" />
+            <TouchableOpacity style={s.heroCodeBtnOutline} onPress={copyReferralCode}>
+              <Ionicons name="copy-outline" size={18} color={ORANGE} />
             </TouchableOpacity>
             <TouchableOpacity style={s.heroCodeBtnOutline} onPress={shareReferralCode}>
               <Ionicons name="share-social-outline" size={18} color={ORANGE} />
             </TouchableOpacity>
             <TouchableOpacity style={s.heroCodeBtnOutline} onPress={() => setShowQrModal(true)}>
-              <Ionicons name="qr-code-outline" size={15} color={ORANGE} />
+              <Ionicons name="qr-code-outline" size={18} color={ORANGE} />
             </TouchableOpacity>
           </View>
         </View>
@@ -405,8 +399,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           ))}
         </View>
 
-        {/* Mi Equipo — solo asesor líder / admin */}
-        {['asesor_lider', 'advisor', 'super_admin', 'admin', 'director'].includes(String(data.advisor.role || user.role)) && (
+        {/* Mi Equipo — solo cuando tiene sub-asesores */}
+        {data.subAdvisors > 0 && (
           <>
             <View style={s.sectionHeader}>
               <View style={s.sectionBar} />
