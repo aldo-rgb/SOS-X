@@ -52,14 +52,7 @@ export default function MonitorContainersScreen({ navigation, route }: any) {
         }
       } else if (confirmMode) {
         // Solo los que ya iniciaron monitoreo y aún no confirmaron entrega
-        const inMonitoring = list.filter((c: any) => c.monitoring_started_at && !c.delivery_confirmed_at);
-        list = inMonitoring;
-        if (inMonitoring.length === 1) {
-          setLoading(false);
-          setRefreshing(false);
-          navigation.replace('ConfirmDelivery', { user, token, container: inMonitoring[0] });
-          return;
-        }
+        list = list.filter((c: any) => c.monitoring_started_at && !c.delivery_confirmed_at);
       }
       setContainers(list);
     } catch (e: any) {

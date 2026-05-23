@@ -477,7 +477,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           <View style={{ flex: 1, alignItems: 'center' }}>
             <Image
               source={logoUrl ? { uri: logoUrl } : require('../../assets/logo-negro.png')}
-              style={{ width: 173, height: 44, resizeMode: 'contain' }}
+              style={{ width: 130, height: 34, resizeMode: 'contain' }}
             />
           </View>
 
