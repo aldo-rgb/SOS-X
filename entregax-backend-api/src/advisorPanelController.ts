@@ -1075,7 +1075,7 @@ export const getClientWallet = async (req: Request, res: Response): Promise<any>
 // ─── 7. VER EQUIPO (para asesor líder) ───
 export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> => {
   try {
-    if (!(await ensureAdvisorOnboarded(req, res))) return;
+    await ensureAdvisorColumns();
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
