@@ -86,7 +86,6 @@ import LocalAtmIcon from '@mui/icons-material/LocalAtm';
 import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
 import PettyCashHubPage from './pages/PettyCashHubPage';
-import CarteraVencidaPage from './pages/CarteraVencidaPage';
 import FinanceDashboardPage from './pages/FinanceDashboardPage';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
