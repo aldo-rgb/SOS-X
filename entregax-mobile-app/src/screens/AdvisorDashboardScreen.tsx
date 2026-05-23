@@ -366,22 +366,6 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           ))}
         </View>
 
-        {/* Mis Clientes */}
-        <View style={s.sectionHeader}>
-          <View style={s.sectionBar} />
-          <Text style={s.sectionTitle}>MIS CLIENTES</Text>
-        </View>
-        <View style={s.grid2}>
-          {clientStats.map((st, i) => (
-            <TouchableOpacity key={i} style={s.clientCard} onPress={() => navigation.navigate('AdvisorClients', { user, token })}>
-              <View style={[s.clientCardBar, { backgroundColor: ORANGE }]} />
-              <Ionicons name={st.icon as any} size={22} color={st.color} style={{ marginBottom: 8 }} />
-              <Text style={s.clientCardValue}>{st.value}</Text>
-              <Text style={s.clientCardLabel}>{st.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
         {/* Comisiones */}
         <View style={s.sectionHeader}>
           <View style={s.sectionBar} />
@@ -403,6 +387,22 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             <Text style={s.commLinkText}>Ver historial completo</Text>
             <Ionicons name="arrow-forward" size={16} color={ORANGE} />
           </TouchableOpacity>
+        </View>
+
+        {/* Mis Clientes */}
+        <View style={s.sectionHeader}>
+          <View style={s.sectionBar} />
+          <Text style={s.sectionTitle}>MIS CLIENTES</Text>
+        </View>
+        <View style={s.grid2}>
+          {clientStats.map((st, i) => (
+            <TouchableOpacity key={i} style={s.clientCard} onPress={() => navigation.navigate('AdvisorClients', { user, token })}>
+              <View style={[s.clientCardBar, { backgroundColor: ORANGE }]} />
+              <Ionicons name={st.icon as any} size={22} color={st.color} style={{ marginBottom: 8 }} />
+              <Text style={s.clientCardValue}>{st.value}</Text>
+              <Text style={s.clientCardLabel}>{st.label}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
 
         {/* Mi Equipo — solo asesor líder / admin */}
