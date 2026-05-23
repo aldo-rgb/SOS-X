@@ -86,6 +86,7 @@ import LocalAtmIcon from '@mui/icons-material/LocalAtm';
 import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
 import PettyCashHubPage from './pages/PettyCashHubPage';
+import CarteraVencidaPage from './pages/CarteraVencidaPage';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import AccountingHubPage from './pages/AccountingHubPage';
@@ -226,6 +227,7 @@ const menuItemsConfig: Array<{
     subItems: [
       { key: 'cajaChica', icon: <LocalAtmIcon /> },        // Caja CC (Control Cobros)
       { key: 'pettyCash', icon: <LocalAtmIcon /> },         // Caja Chica Sucursales
+      { key: 'cobranza', icon: <ReceiptLongIcon /> },         // Dashboard de Cobranza
     ]
   },
   { key: 'commissions', icon: <MonetizationOnIcon /> },
@@ -1525,6 +1527,7 @@ function App() {
       switch (currentSubKey) {
         case 'cajaChica': return <CajaChicaPage />;
         case 'pettyCash': return <PettyCashHubPage />;
+        case 'cobranza': return <CarteraVencidaPage />;
         default: return null;
       }
     }
