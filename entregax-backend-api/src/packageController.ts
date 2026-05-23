@@ -793,13 +793,14 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             const weightStr = totalWeight > 0 ? ` · ${Math.round(totalWeight * 100) / 100} kg` : '';
 
             pool.query(
-                `SELECT notif_push, notif_whatsapp, ${serviceKey} AS notif_service, phone, phone_verified FROM users WHERE id = $1`,
+                `SELECT notif_push, notif_whatsapp, ${serviceKey} AS notif_service, phone, phone_verified, whatsapp_verified FROM users WHERE id = $1`,
                 [user.id]
             ).then(async (prefRow: any) => {
                 const prefs = prefRow.rows[0] || {};
                 const wantPush = prefs.notif_push !== false;
                 const wantService = prefs.notif_service !== false;
-                const wantWhatsapp = prefs.notif_whatsapp !== false && prefs.phone_verified === true;
+                // Acepta phone_verified (app) o whatsapp_verified (web) — cualquiera habilita WA
+                const wantWhatsapp = prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true);
 
                 const notifTitle = `📦 Paquete recibido · ${serviceLabel}`;
                 const notifBody = `Tu paquete ${masterTracking}${weightStr} llegó a la bodega.`;
@@ -1977,7 +1978,7 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
 
             pool.query(
                 `SELECT u.notif_push, u.notif_whatsapp, u.${svcKey} AS notif_service,
-                        u.phone, u.phone_verified, u.full_name
+                        u.phone, u.phone_verified, u.whatsapp_verified, u.full_name
                  FROM users u WHERE u.id = $1`,
                 [pkg.user_id]
             ).then(async (prefRow: any) => {
@@ -1994,7 +1995,7 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
                     await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData });
                 }
 
-                if (prefs.notif_whatsapp !== false && prefs.phone_verified === true && prefs.notif_service !== false && prefs.phone) {
+                if (prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true) && prefs.notif_service !== false && prefs.phone) {
                     const { sendTemplate } = await import('./whatsappService').catch(() => ({ sendTemplate: undefined })) as any;
                     if (typeof sendTemplate === 'function') {
                         const firstName = (prefs.full_name || '').split(' ')[0] || 'Cliente';

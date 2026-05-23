@@ -1017,9 +1017,19 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
               </Box>
               <Box sx={{ flex: 1 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#333' }}>WhatsApp</Typography>
-                <Typography variant="caption" sx={{ color: '#999' }}>Recibir notificaciones por WhatsApp</Typography>
+                <Typography variant="caption" sx={{ color: profile?.whatsapp_verified ? '#999' : '#e65100' }}>
+                  {profile?.whatsapp_verified ? 'Recibir notificaciones por WhatsApp' : '🔒 Requiere verificación de WhatsApp'}
+                </Typography>
               </Box>
-              <Switch checked={notifPrefs.whatsapp} onChange={(e) => updateNotifPref('whatsapp', e.target.checked)}
+              <Switch
+                checked={notifPrefs.whatsapp && !!profile?.whatsapp_verified}
+                onChange={(e) => {
+                  if (e.target.checked && !profile?.whatsapp_verified) {
+                    setSnackbar({ open: true, message: 'Debes verificar tu WhatsApp primero. Usa la sección de verificación en esta página.', severity: 'warning' });
+                    return;
+                  }
+                  updateNotifPref('whatsapp', e.target.checked);
+                }}
                 sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }} />
             </Box>
 
