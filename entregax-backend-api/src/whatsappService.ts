@@ -298,6 +298,25 @@ export const sendTicketResolved = async (phone: string, nombre: string, ticketFo
     }
 };
 
+/**
+ * Notificación de paquete recibido en bodega.
+ * Requiere plantilla "paquete_recibido" aprobada en Meta (UTILITY, es_MX).
+ * Variables: {{1}} = nombre, {{2}} = tracking, {{3}} = servicio
+ */
+export const sendPackageArrival = async (phone: string, nombre: string, tracking: string, servicio: string): Promise<void> => {
+    const templateName = process.env.WHATSAPP_PACKAGE_TEMPLATE || 'paquete_recibido';
+    try {
+        await sendTemplate({
+            to: phone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [nombre.split(' ')[0] ?? nombre, tracking, servicio],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] Error enviando notificación de paquete:', e);
+    }
+};
+
 export const whatsappStatus = (): { enabled: boolean; phoneNumberId: string | null } => {
     return {
         enabled: isEnabled(),

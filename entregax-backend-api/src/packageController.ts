@@ -781,6 +781,50 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             client: user ? { id: user.id, name: user.full_name, email: user.email, boxId: user.box_id } : null
         });
 
+        // Notificar al CLIENTE cuando llega su paquete (respetando preferencias)
+        if (user?.id) {
+            const serviceLabels: Record<string, string> = { POBOX_USA: 'PO Box USA', AIR_CHN_MX: 'Aéreo China', SEA_CHN_MX: 'Marítimo China', AA_DHL: 'DHL' };
+            const serviceLabel = serviceLabels[serviceType] || serviceType;
+            const serviceKey = serviceType === 'POBOX_USA' ? 'notif_pobox'
+                : serviceType === 'AIR_CHN_MX' ? 'notif_air'
+                : serviceType === 'SEA_CHN_MX' ? 'notif_maritime'
+                : serviceType === 'AA_DHL' ? 'notif_dhl'
+                : 'notif_push';
+            const weightStr = totalWeight > 0 ? ` · ${Math.round(totalWeight * 100) / 100} kg` : '';
+
+            pool.query(
+                `SELECT notif_push, notif_whatsapp, ${serviceKey} AS notif_service, phone FROM users WHERE id = $1`,
+                [user.id]
+            ).then(async (prefRow: any) => {
+                const prefs = prefRow.rows[0] || {};
+                const wantPush = prefs.notif_push !== false;
+                const wantService = prefs.notif_service !== false;
+                const wantWhatsapp = prefs.notif_whatsapp !== false;
+
+                const notifTitle = `📦 Paquete recibido · ${serviceLabel}`;
+                const notifBody = `Tu paquete ${masterTracking}${weightStr} llegó a la bodega.`;
+                const notifData = { screen: 'Home', tracking: masterTracking };
+
+                // Siempre crear notificación in-app
+                const { createCustomNotification } = await import('./notificationController');
+                await createCustomNotification(user.id!, notifTitle, notifBody, 'info', 'package', notifData);
+
+                // Push FCM según preferencias
+                if (wantPush && wantService) {
+                    const { sendPushToUsers } = await import('./pushService');
+                    await sendPushToUsers([user.id!], { title: notifTitle, body: notifBody, data: notifData });
+                }
+
+                // WhatsApp según preferencias (requiere template aprobado en Meta)
+                if (wantWhatsapp && wantService && prefs.phone) {
+                    const { sendPackageArrival } = await import('./whatsappService').catch(() => ({ sendPackageArrival: undefined })) as any;
+                    if (typeof sendPackageArrival === 'function') {
+                        await sendPackageArrival(prefs.phone, user.full_name, masterTracking, serviceLabel).catch(() => {});
+                    }
+                }
+            }).catch((e: any) => console.warn('[notif] client notify failed:', e?.message));
+        }
+
         // Notificar a asesores cuando se da de alta una guía sin cliente
         if (!user) {
             const weightStr = totalWeight > 0 ? ` · ${Math.round(totalWeight * 100) / 100} kg` : '';
