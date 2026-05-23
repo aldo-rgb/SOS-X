@@ -56,7 +56,7 @@ interface ClientAddress {
 }
 
 export default function AdvisorClientsScreen({ navigation, route }: any) {
-  const { user, token, filter: initialFilter } = route.params;
+  const { user, token, filter: initialFilter, subAdvisorId, subAdvisorName } = route.params;
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -150,6 +150,7 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
       let url = `${API_URL}/api/advisor/clients?page=${currentPage}&limit=20`;
       if (search) url += `&search=${encodeURIComponent(search)}`;
       if (filter !== 'all') url += `&status=${filter}`;
+      if (subAdvisorId) url += `&subAdvisorId=${subAdvisorId}`;
       const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const data = await response.json();
@@ -332,7 +333,7 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Mis Clientes</Text>
+        <Text style={styles.headerTitle}>{subAdvisorName ? `Clientes de ${subAdvisorName.split(' ')[0]}` : 'Mis Clientes'}</Text>
         <Text style={styles.clientCount}>{clients.length} clientes</Text>
       </View>
 

@@ -452,13 +452,14 @@ function App() {
               headerTintColor: '#F05A28',
             }}
           />
-          <Stack.Screen 
-            name="AdvisorTeam" 
+          <Stack.Screen
+            name="AdvisorTeam"
             component={AdvisorTeamScreen}
             options={{
               headerShown: true,
               headerTitle: 'Mi Equipo',
               headerTintColor: '#9C27B0',
+              headerBackTitle: 'Atrás',
             }}
           />
           <Stack.Screen

@@ -157,7 +157,7 @@ const AdvisorTeamScreen: React.FC<Props> = ({ route, navigation }) => {
             </>
           )}
         </View>
-        <TouchableOpacity onPress={() => navigation.navigate('AdvisorClients', { user, token, subAdvisorId: member.id })}>
+        <TouchableOpacity onPress={() => navigation.navigate('AdvisorClients', { user, token, subAdvisorId: member.id, subAdvisorName: member.name })}>
           <Text style={s.detailsBtn}>Ver Detalles →</Text>
         </TouchableOpacity>
       </View>
