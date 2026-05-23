@@ -87,6 +87,7 @@ import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
 import PettyCashHubPage from './pages/PettyCashHubPage';
 import CarteraVencidaPage from './pages/CarteraVencidaPage';
+import FinanceDashboardPage from './pages/FinanceDashboardPage';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import AccountingHubPage from './pages/AccountingHubPage';
@@ -1527,7 +1528,7 @@ function App() {
       switch (currentSubKey) {
         case 'cajaChica': return <CajaChicaPage />;
         case 'pettyCash': return <PettyCashHubPage />;
-        case 'cobranza': return <CarteraVencidaPage />;
+        case 'cobranza': return <FinanceDashboardPage />;
         default: return null;
       }
     }
