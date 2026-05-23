@@ -44,6 +44,8 @@ async function ensureAdvisorOnboarded(req: Request, res: Response): Promise<bool
     return false;
   }
   const u = q.rows[0];
+  const ADMIN_ROLES = new Set(['super_admin', 'admin', 'director']);
+  if (ADMIN_ROLES.has(String(u.role).toLowerCase())) return true;
   const isVerified = !!u.is_verified && u.verification_status === 'verified';
   const hasTerms = !!u.privacy_accepted_at && !!u.privacy_signature_url;
   if (!isVerified || !hasTerms) {
