@@ -232,15 +232,29 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
 // ─── 2. MIS CLIENTES ───
 export const getAdvisorClients = async (req: Request, res: Response): Promise<any> => {
   try {
-    if (!(await ensureAdvisorOnboarded(req, res))) return;
+    await ensureAdvisorColumns();
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
-    const { search, status, page = '1', limit = '50' } = req.query as any;
+    const { search, status, page = '1', limit = '50', subAdvisorId } = req.query as any;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
+    // Si se pide el equipo de un sub-asesor, verificar que pertenezca al líder
+    let targetId = advisorId;
+    if (subAdvisorId) {
+      const subCheck = await pool.query(
+        `SELECT id FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2)`,
+        [parseInt(subAdvisorId), advisorId]
+      );
+      if (subCheck.rows.length === 0) return res.status(403).json({ error: 'Sub-asesor no pertenece a tu equipo' });
+      targetId = parseInt(subAdvisorId);
+    } else {
+      // Solo verificar onboarding cuando consulta sus propios clientes
+      if (!(await ensureAdvisorOnboarded(req, res))) return;
+    }
+
     let whereClause = `u.role = 'client' AND (u.advisor_id = $1 OR u.referred_by_id = $1)`;
-    const params: any[] = [advisorId];
+    const params: any[] = [targetId];
     let paramIdx = 2;
 
     if (search) {
