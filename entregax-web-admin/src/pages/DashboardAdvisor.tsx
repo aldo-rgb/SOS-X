@@ -54,6 +54,7 @@ import {
   FormGroup,
   List,
   ListItem,
+  Switch,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -2404,7 +2405,7 @@ export default function DashboardAdvisor() {
                           </Box>
                           <Switch
                             checked={notifPrefs[key]}
-                            onChange={(e) => updateNotifPref(key, e.target.checked)}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateNotifPref(key, e.target.checked)}
                             sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#F05A28' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#F05A28' } }}
                           />
                         </Box>
@@ -2429,7 +2430,7 @@ export default function DashboardAdvisor() {
                           </Box>
                           <Switch
                             checked={notifPrefs[key]}
-                            onChange={(e) => updateNotifPref(key, e.target.checked)}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateNotifPref(key, e.target.checked)}
                             sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#F05A28' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#F05A28' } }}
                           />
                         </Box>
