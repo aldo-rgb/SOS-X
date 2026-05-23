@@ -182,7 +182,7 @@ export default function PettyCashHubPage() {
   const [fundBranchId, setFundBranchId] = useState<number | ''>('');
   const [fundAmount, setFundAmount] = useState('');
   const [fundConcept, setFundConcept] = useState('');
-  const [fundOrigin, setFundOrigin] = useState<'caja_cc' | 'otro'>('caja_cc');
+  const [fundOrigin, setFundOrigin] = useState<'caja_cc' | 'otro' | ''>('');
   const [fundOriginDetail, setFundOriginDetail] = useState('');
   const [fundBusy, setFundBusy] = useState(false);
   // FX (sólo si la sucursal opera en otra moneda)
@@ -261,7 +261,7 @@ export default function PettyCashHubPage() {
     setFundBranchId('');
     setFundAmount('');
     setFundConcept('');
-    setFundOrigin('caja_cc');
+    setFundOrigin('');
     setFundOriginDetail('');
     setFundFxRate('');
     setFundSourceAmountMxn('');
@@ -867,7 +867,7 @@ export default function PettyCashHubPage() {
           <Alert severity="info" sx={{ mb: 2 }}>
             {needsFx
               ? `Esta sucursal opera en ${selectedCurrency}. Caja CC egresará en MXN (compra de divisas) y entregará ${selectedCurrency} a la sucursal según el tipo de cambio.`
-              : fundOrigin === 'caja_cc'
+              : !fundOrigin || fundOrigin === 'caja_cc'
                 ? 'Este movimiento se registrará como egreso en Caja CC y entrará al saldo de la sucursal.'
                 : 'Como el origen no es Caja CC, se registrará automáticamente un ingreso (origen externo) y un egreso (fondeo) en Caja CC.'}
           </Alert>
@@ -877,7 +877,6 @@ export default function PettyCashHubPage() {
             onChange={e => setFundBranchId(Number(e.target.value))}
           >
             {branchesOpts
-              .filter(b => !/centro\s*cc/i.test(b.name || ''))
               .map(b => {
                 const cur = (b.currency || 'MXN').toUpperCase();
                 return (
@@ -890,8 +889,9 @@ export default function PettyCashHubPage() {
           <TextField
             select fullWidth margin="normal" label="Origen de los fondos"
             value={fundOrigin}
-            onChange={e => setFundOrigin(e.target.value as 'caja_cc' | 'otro')}
+            onChange={e => setFundOrigin(e.target.value as 'caja_cc' | 'otro' | '')}
           >
+            <MenuItem value="" disabled><em>Selecciona origen</em></MenuItem>
             <MenuItem value="caja_cc">Caja CC</MenuItem>
             <MenuItem value="otro">Otro</MenuItem>
           </TextField>
@@ -964,7 +964,7 @@ export default function PettyCashHubPage() {
             variant="contained"
             onClick={handleFund}
             disabled={
-              fundBusy || !fundBranchId || !fundAmount ||
+              fundBusy || !fundBranchId || !fundOrigin || !fundAmount ||
               (fundOrigin === 'otro' && !fundOriginDetail.trim()) ||
               (needsFx && (!fundFxRate || !fundSourceAmountMxn))
             }
