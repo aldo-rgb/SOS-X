@@ -269,8 +269,11 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             <Divider style={{ backgroundColor: '#2A2A2A', marginVertical: 8 }} />
             {[
               { icon: 'person-outline', label: 'Mi Perfil', screen: 'MyProfile' },
+              ...(['asesor_lider', 'advisor', 'super_admin', 'admin', 'director'].includes(String(data.advisor.role || user.role))
+                ? [{ icon: 'people-outline', label: 'Mi Equipo', screen: 'AdvisorTeam' }]
+                : []),
             ].map(item => (
-              <TouchableOpacity key={item.screen} style={s.menuItem} onPress={() => { setShowMenu(false); navigation.navigate(item.screen, { user, token }); }}>
+              <TouchableOpacity key={item.screen} style={s.menuItem} onPress={() => { setShowMenu(false); navigation.navigate(item.screen as any, { user, token }); }}>
                 <Ionicons name={item.icon as any} size={20} color="#aaa" />
                 <Text style={s.menuItemText}>{item.label}</Text>
                 <Ionicons name="chevron-forward" size={18} color="#444" />
@@ -401,6 +404,29 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             <Ionicons name="arrow-forward" size={16} color={ORANGE} />
           </TouchableOpacity>
         </View>
+
+        {/* Mi Equipo — solo asesor líder / admin */}
+        {['asesor_lider', 'advisor', 'super_admin', 'admin', 'director'].includes(String(data.advisor.role || user.role)) && (
+          <>
+            <View style={s.sectionHeader}>
+              <View style={s.sectionBar} />
+              <Text style={s.sectionTitle}>MI EQUIPO</Text>
+            </View>
+            <TouchableOpacity
+              style={s.teamCard}
+              onPress={() => navigation.navigate('AdvisorTeam' as any, { user, token })}
+            >
+              <View style={[s.supportIcon, { backgroundColor: '#673AB722' }]}>
+                <Ionicons name="people" size={26} color="#673AB7" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.teamCardTitle}>Gestionar Sub-Asesores</Text>
+                <Text style={s.teamCardSub}>Comisiones, tarifas y rendimiento del equipo</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#aaa" />
+            </TouchableOpacity>
+          </>
+        )}
 
         {/* Soporte */}
         <View style={s.sectionHeader}>
@@ -570,6 +596,15 @@ const s = StyleSheet.create({
   commLinkText: { color: ORANGE, fontWeight: '600', fontSize: 13 },
 
   // Support
+  teamCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: CARD_BG, marginHorizontal: 16, borderRadius: CARD_RADIUS,
+    padding: 16, marginBottom: 4,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.06, shadowRadius: 4, elevation: 2,
+  },
+  teamCardTitle: { fontSize: 14, fontWeight: '700', color: BLACK },
+  teamCardSub:   { fontSize: 12, color: SUBTEXT, marginTop: 2 },
+
   supportRow: { flexDirection: 'row', marginHorizontal: 12, gap: 8, marginBottom: 4 },
   supportBtn: {
     flex: 1,
