@@ -69,6 +69,8 @@ interface Branch {
   wifi_validation_enabled: boolean;
   // Pagos
   recibe_pagos: boolean;
+  // Moneda de operación
+  wallet_currency: 'MXN' | 'USD';
 }
 
 interface User {
@@ -174,8 +176,10 @@ export default function BranchManagementPage() {
     wifi_validation_enabled: false,
     // Pagos
     recibe_pagos: true,
+    // Moneda
+    wallet_currency: 'MXN' as 'MXN' | 'USD',
   });
-  
+
   // Estados para asignación
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [selectedBranch, setSelectedBranch] = useState<number | null>(null);
@@ -265,6 +269,8 @@ export default function BranchManagementPage() {
         wifi_validation_enabled: branch.wifi_validation_enabled || false,
         // Pagos
         recibe_pagos: branch.recibe_pagos !== false,
+        // Moneda
+        wallet_currency: (branch.wallet_currency || 'MXN') as 'MXN' | 'USD',
       });
     } else {
       setEditingBranch(null);
@@ -284,6 +290,8 @@ export default function BranchManagementPage() {
         wifi_validation_enabled: false,
         // Pagos
         recibe_pagos: true,
+        // Moneda
+        wallet_currency: 'MXN',
       });
     }
     setOpenBranchDialog(true);
@@ -660,6 +668,22 @@ export default function BranchManagementPage() {
                         <LocationIcon sx={{ fontSize: 14, color: FINTECH.textMuted }} />
                         <Box component="span">{branch.city || '—'}</Box>
                       </Box>
+                      {(branch.wallet_currency || 'MXN') === 'USD' && (
+                        <>
+                          <Box component="span" sx={{ color: FINTECH.border }}>|</Box>
+                          <Box
+                            sx={{
+                              display: 'inline-flex', alignItems: 'center', gap: 0.4,
+                              px: 0.8, py: 0.2, borderRadius: 1,
+                              bgcolor: 'rgba(46,125,50,0.12)', color: '#2e7d32',
+                              border: '1px solid rgba(46,125,50,0.3)',
+                              fontSize: 11, fontWeight: 700,
+                            }}
+                          >
+                            🇺🇸 USD
+                          </Box>
+                        </>
+                      )}
                       {branch.wifi_validation_enabled && branch.wifi_ssid && (
                         <>
                           <Box component="span" sx={{ color: FINTECH.border }}>|</Box>
@@ -1344,6 +1368,33 @@ export default function BranchManagementPage() {
                 <Box display="flex" alignItems="center" gap={1}>
                   <PaymentIcon fontSize="small" />
                   Recibe Pagos de Clientes
+                </Box>
+              }
+            />
+
+            <FormControlLabel
+              control={
+                <Switch
+                  checked={branchForm.wallet_currency === 'USD'}
+                  onChange={(e) => setBranchForm({ ...branchForm, wallet_currency: e.target.checked ? 'USD' : 'MXN' })}
+                  sx={{
+                    '& .MuiSwitch-switchBase.Mui-checked': { color: '#2e7d32' },
+                    '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#4caf50' },
+                  }}
+                />
+              }
+              label={
+                <Box display="flex" alignItems="center" gap={1}>
+                  <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                    {branchForm.wallet_currency === 'USD'
+                      ? '🇺🇸 Caja Chica en USD (dólares)'
+                      : '🇲🇽 Caja Chica en MXN (pesos)'}
+                  </Typography>
+                  {branchForm.wallet_currency === 'USD' && (
+                    <Typography variant="caption" sx={{ color: '#999' }}>
+                      — Fondeos requieren tipo de cambio
+                    </Typography>
+                  )}
                 </Box>
               }
             />

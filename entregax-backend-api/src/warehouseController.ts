@@ -1253,10 +1253,12 @@ export const assignWorkerToBranch = async (req: Request, res: Response): Promise
 export const getAllBranches = async (_req: Request, res: Response): Promise<void> => {
     try {
         const result = await pool.query(`
-            SELECT id, name, code, city, address, phone, allowed_services, is_active, created_at,
-                   latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos
-            FROM branches
-            ORDER BY name
+            SELECT b.id, b.name, b.code, b.city, b.address, b.phone, b.allowed_services, b.is_active, b.created_at,
+                   b.latitud, b.longitud, b.radio_geocerca_metros, b.wifi_ssid, b.wifi_validation_enabled, b.recibe_pagos,
+                   COALESCE(w.currency, 'MXN') AS wallet_currency
+            FROM branches b
+            LEFT JOIN petty_cash_wallets w ON w.branch_id = b.id AND w.owner_type = 'branch'
+            ORDER BY b.name
         `);
 
         res.json({ branches: result.rows });
@@ -1286,8 +1288,11 @@ export const createBranch = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
-        const { recibe_pagos } = req.body;
-        
+        const { recibe_pagos, wallet_currency } = req.body;
+        const currency = ['USD', 'MXN'].includes((wallet_currency || '').toUpperCase())
+            ? (wallet_currency as string).toUpperCase()
+            : 'MXN';
+
         const result = await pool.query(`
             INSERT INTO branches (name, code, city, address, phone, allowed_services, is_active,
                                   latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos)
@@ -1299,10 +1304,17 @@ export const createBranch = async (req: Request, res: Response): Promise<void> =
             recibe_pagos !== false
         ]);
 
-        res.json({ 
-            success: true, 
+        const branchId = result.rows[0].id;
+        // Sync currency to petty_cash_wallet if it already exists
+        await pool.query(
+            `UPDATE petty_cash_wallets SET currency = $1 WHERE branch_id = $2 AND owner_type = 'branch'`,
+            [currency, branchId]
+        );
+
+        res.json({
+            success: true,
             message: 'Sucursal creada exitosamente',
-            branch: result.rows[0]
+            branch: { ...result.rows[0], wallet_currency: currency }
         });
     } catch (error: any) {
         console.error('Error creando sucursal:', error);
@@ -1314,9 +1326,10 @@ export const createBranch = async (req: Request, res: Response): Promise<void> =
 export const updateBranch = async (req: Request, res: Response): Promise<void> => {
     try {
         const { id } = req.params;
-        const { 
+        const {
             name, code, city, address, phone, allowed_services, is_active,
-            latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos
+            latitud, longitud, radio_geocerca_metros, wifi_ssid, wifi_validation_enabled, recibe_pagos,
+            wallet_currency
         } = req.body;
 
         console.log('Updating branch:', id, 'with data:', JSON.stringify(req.body));
@@ -1362,14 +1375,31 @@ export const updateBranch = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
-        res.json({ 
-            success: true, 
+        // Sync wallet currency if provided
+        if (wallet_currency && ['USD', 'MXN'].includes(wallet_currency.toUpperCase())) {
+            const currency = wallet_currency.toUpperCase();
+            await pool.query(
+                `UPDATE petty_cash_wallets SET currency = $1 WHERE branch_id = $2 AND owner_type = 'branch'`,
+                [currency, id]
+            );
+            // Also update driver wallets assigned to this branch (inherit currency)
+            await pool.query(
+                `UPDATE petty_cash_wallets pw
+                 SET currency = $1
+                 FROM users u
+                 WHERE u.branch_id = $2 AND pw.owner_id = u.id AND pw.owner_type = 'driver'`,
+                [currency, id]
+            );
+        }
+
+        res.json({
+            success: true,
             message: 'Sucursal actualizada exitosamente',
-            branch: result.rows[0]
+            branch: { ...result.rows[0], wallet_currency: wallet_currency?.toUpperCase() || 'MXN' }
         });
     } catch (error: any) {
         console.error('Error actualizando sucursal:', error);
-        res.status(500).json({ 
+        res.status(500).json({
             error: 'Error al actualizar sucursal',
             details: error.message || String(error)
         });

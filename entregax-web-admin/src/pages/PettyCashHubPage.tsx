@@ -277,6 +277,11 @@ export default function PettyCashHubPage() {
   const selectedCurrency = (selectedBranch?.currency || 'MXN').toUpperCase();
   const needsFx = selectedCurrency !== 'MXN';
 
+  // Currency helpers for Anticipo and Gasto
+  const advBranch = branchesOpts.find(b => b.id === Number(advBranchId));
+  const advCurrency = (advBranch?.currency || 'MXN').toUpperCase();
+  const gastoCurrency = (gastoWallet?.currency || 'MXN').toUpperCase();
+
   const handleFund = async () => {
     if (!fundBranchId || !fundAmount) return;
     if (needsFx && (!fundFxRate || !fundSourceAmountMxn)) {
@@ -991,7 +996,7 @@ export default function PettyCashHubPage() {
             >
               {branchesOpts.map(b => (
                 <MenuItem key={b.id} value={b.id}>
-                  {b.name} — saldo: {fmtMoney(b.balance_mxn)}
+                  {b.name} — saldo: {fmtMoney(b.balance_mxn, (b.currency || 'MXN').toUpperCase())}
                 </MenuItem>
               ))}
             </TextField>
@@ -1008,9 +1013,9 @@ export default function PettyCashHubPage() {
             ))}
           </TextField>
           <TextField
-            fullWidth margin="normal" label="Monto (MXN)" type="number"
+            fullWidth margin="normal" label={`Monto (${advCurrency})`} type="number"
             value={advAmount} onChange={e => setAdvAmount(e.target.value)}
-            InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+            InputProps={{ startAdornment: <InputAdornment position="start">{advCurrency === 'USD' ? 'US$' : '$'}</InputAdornment> }}
           />
           <TextField
             fullWidth margin="normal" label="Motivo / Ruta (opcional)"
@@ -1044,10 +1049,10 @@ export default function PettyCashHubPage() {
             ))}
           </TextField>
           <TextField
-            fullWidth margin="normal" label="Monto" type="number"
+            fullWidth margin="normal" label={`Monto (${gastoCurrency})`} type="number"
             value={gastoAmount}
             onChange={e => setGastoAmount(e.target.value)}
-            InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+            InputProps={{ startAdornment: <InputAdornment position="start">{gastoCurrency === 'USD' ? 'US$' : '$'}</InputAdornment> }}
           />
           <TextField
             fullWidth margin="normal" label="Concepto / descripción (opcional)"
