@@ -1091,7 +1091,7 @@ export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> 
     
     const advisor = advisorCheck.rows[0];
     const roleNorm = String(advisor.role || '').toLowerCase();
-    const isLeader = ['asesor_lider', 'admin', 'super_admin', 'director'].includes(roleNorm);
+    const isLeader = ['asesor_lider', 'advisor', 'admin', 'super_admin', 'director'].includes(roleNorm);
 
     if (!isLeader) {
       return res.status(403).json({ error: 'Solo asesores líderes pueden ver el equipo', role: advisor.role });
