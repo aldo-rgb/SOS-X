@@ -9,6 +9,7 @@ import {
   Share,
   Alert,
   Clipboard,
+  Linking,
   Modal,
   StatusBar,
   Image,
@@ -128,11 +129,17 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
 
   const shareReferralCode = async () => {
     if (data?.advisor.referralCode) {
-      try {
-        await Share.share({
-          message: `¡Únete a EntregaX con mi código ${data.advisor.referralCode} y obtén beneficios exclusivos! 📦✈️`,
-        });
-      } catch {}
+      const url = `https://entregax.app/register?ref=${data.advisor.referralCode}`;
+      const msg = encodeURIComponent(`¡Hola! Te invito a usar EntregaX para tus envíos internacionales. Regístrate aquí: ${url}`);
+      const whatsappUrl = `whatsapp://send?text=${msg}`;
+      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      if (canOpen) {
+        await Linking.openURL(whatsappUrl);
+      } else {
+        try {
+          await Share.share({ message: `¡Hola! Te invito a usar EntregaX para tus envíos internacionales. Regístrate aquí: ${url}` });
+        } catch {}
+      }
     }
   };
 
@@ -325,7 +332,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
               <Text style={s.qrTitle}>Mi código de asesor</Text>
               <Text style={s.qrCode}>{data?.advisor.referralCode || '—'}</Text>
               {data?.advisor.referralCode ? (
-                <QRCode value={data.advisor.referralCode} size={200} color={BLACK} backgroundColor="#fff" />
+                <QRCode value={`https://entregax.app/register?ref=${data.advisor.referralCode}`} size={200} color={BLACK} backgroundColor="#fff" />
               ) : null}
               <TouchableOpacity style={s.qrClose} onPress={() => setShowQrModal(false)}>
                 <Text style={s.qrCloseText}>Cerrar</Text>
