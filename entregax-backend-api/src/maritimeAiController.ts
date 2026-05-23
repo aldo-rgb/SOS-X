@@ -222,7 +222,7 @@ export const saveLclReception = async (req: AuthRequest, res: Response): Promise
     if (userId) {
       await pool.query(`
         INSERT INTO notifications (user_id, title, message, type, icon, data)
-        VALUES ($1, $2, $3, 'warning', 'ship', $4)
+        VALUES ($1, $2, $3, 'warning', 'ferry', $4)
       `, [
         userId,
         '📦 Nueva mercancía en China',
@@ -304,7 +304,7 @@ export const saveFclWithBl = async (req: AuthRequest, res: Response): Promise<an
     if (clientUserId) {
       await pool.query(`
         INSERT INTO notifications (user_id, title, message, type, icon, data)
-        VALUES ($1, $2, $3, 'info', 'ship', $4)
+        VALUES ($1, $2, $3, 'info', 'ferry', $4)
       `, [
         clientUserId,
         '🚢 BL Cargado - Contenedor en Tránsito',
@@ -639,7 +639,7 @@ export const assignClientToLcl = async (req: AuthRequest, res: Response): Promis
     // Notificar al cliente
     await pool.query(`
       INSERT INTO notifications (user_id, title, message, type, icon)
-      VALUES ($1, $2, $3, 'info', 'ship')
+      VALUES ($1, $2, $3, 'info', 'ferry')
     `, [
       targetUserId,
       '📦 Mercancía asignada',

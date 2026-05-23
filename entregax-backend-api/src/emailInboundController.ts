@@ -1808,7 +1808,7 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
           '📦 Mercancía recibida en China',
           `Tu carga ${finalData.logNumber || ''} ha sido recibida en bodega China. ${finalData.boxCount || 0} cajas, ${finalData.weightKg || 0}kg.`,
           'success',
-          'ship',
+          'ferry',
           JSON.stringify({ logNumber: finalData.logNumber, type: 'LOG' })
         ]);
       }
@@ -2048,7 +2048,7 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
                 '🚢 Mercancía consolidada',
                 `Tu carga ${log.log} ha sido consolidada para envío marítimo. ${log.boxes || 0} cajas, ${log.volume || 0} CBM.`,
                 'success',
-                'ship',
+                'ferry',
                 JSON.stringify({ logNumber: log.log, containerId, type: 'LCL' })
               ]);
               clientsNotified.add(existingUserId);

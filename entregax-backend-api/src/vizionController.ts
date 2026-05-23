@@ -284,7 +284,7 @@ export const handleVizionWebhook = async (req: Request, res: Response): Promise<
                 try {
                     await pool.query(`
                         INSERT INTO notifications (user_id, title, message, type, icon, data)
-                        VALUES ($1, $2, $3, 'tracking', 'ship', $4)
+                        VALUES ($1, $2, $3, 'tracking', 'ferry', $4)
                     `, [
                         user.id,
                         `${milestoneInfo.icon} Actualización de Embarque`,

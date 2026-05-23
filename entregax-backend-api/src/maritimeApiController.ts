@@ -312,7 +312,7 @@ const processOrder = async (order: ChinaOrderItem): Promise<void> => {
                 '📦 Nueva Recepción Marítimo',
                 `Tu carga ${order.ordersn} ha sido recibida en bodega China.${addressNote}`,
                 'info',
-                'ship',
+                'ferry',
                 JSON.stringify({ ordersn: order.ordersn, goods_num: order.goods_num, autoAssignedAddress: !!defaultAddressId })
             ]);
         }
@@ -850,7 +850,7 @@ export const assignOrderToClient = async (req: Request, res: Response): Promise<
             '📦 Carga Asignada',
             `Se te ha asignado la carga ${ordersn}. Sube tu Packing List para continuar.`,
             'info',
-            'ship',
+            'ferry',
             JSON.stringify({ ordersn })
         ]);
 
@@ -1076,7 +1076,7 @@ const notifyTrackingUpdate = async (
                 '🚢 Actualización de Envío',
                 `Tu carga ${order.ordersn}: ${detail}`,
                 'info',
-                'ship',
+                'ferry',
                 JSON.stringify({ ordersn: order.ordersn, status })
             ]);
         }
