@@ -1113,7 +1113,7 @@ export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> 
 
     // Buscar sub-asesores (los que fueron referidos por este asesor líder y son asesores)
     const teamRes = await pool.query(`
-      SELECT 
+      SELECT
         u.id,
         u.full_name as name,
         u.email,
@@ -1121,6 +1121,7 @@ export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> 
         u.referral_code,
         u.role,
         u.created_at,
+        u.profile_photo_url,
         CASE WHEN u.is_verified = true THEN 'active' ELSE 'inactive' END as status,
         (SELECT COUNT(*) FROM users c WHERE (c.advisor_id = u.id OR c.referred_by_id = u.id) AND c.role = 'client') as total_clients,
         (SELECT COUNT(*) FROM users c WHERE (c.advisor_id = u.id OR c.referred_by_id = u.id) AND c.role = 'client' 
@@ -1161,6 +1162,7 @@ export const getAdvisorTeam = async (req: Request, res: Response): Promise<any> 
         email: m.email,
         phone: m.phone,
         referral_code: m.referral_code,
+        profile_photo_url: m.profile_photo_url || null,
         total_clients: parseInt(m.total_clients) || 0,
         monthly_clients: parseInt(m.monthly_clients) || 0,
         total_revenue: parseFloat(m.total_revenue) || 0,
@@ -1182,10 +1184,21 @@ export const getAdvisorClientTickets = async (req: Request, res: Response): Prom
     const advisorId = getAdvisorId(req);
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
-    const { status, client_id } = req.query;
+    const { status, client_id, subAdvisorId } = req.query;
+
+    // Si se pide por sub-asesor, verificar pertenencia
+    let targetId = advisorId;
+    if (subAdvisorId) {
+      const subCheck = await pool.query(
+        `SELECT id FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2)`,
+        [parseInt(subAdvisorId as string), advisorId]
+      );
+      if (subCheck.rows.length === 0) return res.status(403).json({ error: 'Sub-asesor no pertenece a tu equipo' });
+      targetId = parseInt(subAdvisorId as string);
+    }
 
     let query = `
-      SELECT 
+      SELECT
         t.id,
         t.ticket_folio,
         t.category,
@@ -1207,7 +1220,7 @@ export const getAdvisorClientTickets = async (req: Request, res: Response): Prom
       JOIN users u ON t.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
     `;
-    const params: any[] = [advisorId];
+    const params: any[] = [targetId];
 
     if (status && status !== 'all') {
       params.push(status);
@@ -1233,7 +1246,7 @@ export const getAdvisorClientTickets = async (req: Request, res: Response): Prom
 
     // Stats
     const statsRes = await pool.query(`
-      SELECT 
+      SELECT
         COUNT(*) as total,
         COUNT(*) FILTER (WHERE t.status = 'open_ai') as open_ai,
         COUNT(*) FILTER (WHERE t.status = 'escalated_human') as escalated,
@@ -1243,7 +1256,7 @@ export const getAdvisorClientTickets = async (req: Request, res: Response): Prom
       FROM support_tickets t
       JOIN users u ON t.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
-    `, [advisorId]);
+    `, [targetId]);
 
     res.json({
       success: true,
