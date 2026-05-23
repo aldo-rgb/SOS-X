@@ -79,6 +79,13 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [edit2FACode, setEdit2FACode] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // Estados para verificación de teléfono (WhatsApp)
+  const [showPhoneVerifModal, setShowPhoneVerifModal] = useState(false);
+  const [phoneVerifCode, setPhoneVerifCode] = useState('');
+  const [phoneVerifSending, setPhoneVerifSending] = useState(false);
+  const [phoneVerifVerifying, setPhoneVerifVerifying] = useState(false);
+  const [phoneVerifSent, setPhoneVerifSent] = useState(false);
+
   // Estados para PIN de supervisor
   const [showPinModal, setShowPinModal] = useState(false);
   const [currentPin, setCurrentPin] = useState('');
@@ -249,6 +256,68 @@ export default function MyProfileScreen({ navigation, route }: Props) {
       setNotifPrefs(notifPrefs);
     }
     setNotifSaving(false);
+  };
+
+  const handleWhatsappToggle = (value: boolean) => {
+    if (value && !user.phoneVerified) {
+      // No verificado → mostrar modal de verificación
+      setPhoneVerifCode('');
+      setPhoneVerifSent(false);
+      setShowPhoneVerifModal(true);
+      return;
+    }
+    updateNotifPref('whatsapp', value);
+  };
+
+  const handleSendPhoneVerifCode = async () => {
+    if (!user.phone) {
+      Alert.alert('Sin teléfono', 'Primero agrega un número de teléfono en tu perfil.');
+      return;
+    }
+    setPhoneVerifSending(true);
+    try {
+      const r = await fetch(`${API_URL}/api/auth/phone/send-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ phone: user.phone }),
+      });
+      const data = await r.json();
+      if (r.ok) {
+        setPhoneVerifSent(true);
+      } else {
+        Alert.alert('Error', data.error || 'No se pudo enviar el código.');
+      }
+    } catch {
+      Alert.alert('Error', 'Problema de conexión. Intenta de nuevo.');
+    }
+    setPhoneVerifSending(false);
+  };
+
+  const handleVerifyPhoneCode = async () => {
+    if (phoneVerifCode.length !== 6) {
+      Alert.alert('Código inválido', 'Ingresa el código de 6 dígitos.');
+      return;
+    }
+    setPhoneVerifVerifying(true);
+    try {
+      const r = await fetch(`${API_URL}/api/auth/phone/verify-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ phone: user.phone, code: phoneVerifCode }),
+      });
+      const data = await r.json();
+      if (r.ok && data.verified) {
+        setUser((prev: any) => ({ ...prev, phoneVerified: true }));
+        setShowPhoneVerifModal(false);
+        updateNotifPref('whatsapp', true);
+        Alert.alert('✅ Verificado', 'Tu WhatsApp fue verificado y las notificaciones están activadas.');
+      } else {
+        Alert.alert('Código incorrecto', data.error || 'Verifica el código e intenta de nuevo.');
+      }
+    } catch {
+      Alert.alert('Error', 'Problema de conexión. Intenta de nuevo.');
+    }
+    setPhoneVerifVerifying(false);
   };
 
   const fetchProfilePhoto = async () => {
@@ -1083,13 +1152,15 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                   <Ionicons name="logo-whatsapp" size={22} color="#25D366" />
                   <View style={styles.menuItemContent}>
                     <Text style={styles.menuItemTitle}>WhatsApp</Text>
-                    <Text style={styles.menuItemSubtitle}>Recibir notificaciones por WhatsApp</Text>
+                    <Text style={styles.menuItemSubtitle}>
+                      {user.phoneVerified ? 'Recibir notificaciones por WhatsApp' : '🔒 Requiere teléfono verificado'}
+                    </Text>
                   </View>
                   <Switch
-                    value={notifPrefs.whatsapp}
-                    onValueChange={(v) => updateNotifPref('whatsapp', v)}
+                    value={notifPrefs.whatsapp && user.phoneVerified === true}
+                    onValueChange={handleWhatsappToggle}
                     trackColor={{ false: '#ddd', true: ORANGE + '80' }}
-                    thumbColor={notifPrefs.whatsapp ? ORANGE : '#f4f3f4'}
+                    thumbColor={notifPrefs.whatsapp && user.phoneVerified ? ORANGE : '#f4f3f4'}
                   />
                 </View>
 
@@ -1673,6 +1744,70 @@ export default function MyProfileScreen({ navigation, route }: Props) {
           </View>
         </View>
       </Modal>
+
+      {/* Modal verificación WhatsApp */}
+      <Modal visible={showPhoneVerifModal} animationType="slide" transparent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '100%' }}>
+            <Text style={{ fontSize: 18, fontWeight: '700', color: BLACK, marginBottom: 8 }}>
+              📱 Verificar WhatsApp
+            </Text>
+            {!phoneVerifSent ? (
+              <>
+                <Text style={{ color: '#555', marginBottom: 20, lineHeight: 20 }}>
+                  Para activar notificaciones por WhatsApp necesitas verificar tu número.{'\n\n'}
+                  Te enviaremos un código de 6 dígitos al número:{'\n'}
+                  <Text style={{ fontWeight: '700', color: BLACK }}>{user.phone || '(sin teléfono)'}</Text>
+                </Text>
+                {!user.phone && (
+                  <Text style={{ color: '#e53935', marginBottom: 16, fontSize: 13 }}>
+                    ⚠️ Primero agrega un número en tu perfil.
+                  </Text>
+                )}
+                <TouchableOpacity
+                  onPress={handleSendPhoneVerifCode}
+                  disabled={phoneVerifSending || !user.phone}
+                  style={{ backgroundColor: user.phone ? '#25D366' : '#ccc', borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>
+                    {phoneVerifSending ? 'Enviando...' : 'Enviar código por WhatsApp'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={{ color: '#555', marginBottom: 16, lineHeight: 20 }}>
+                  Código enviado a <Text style={{ fontWeight: '700' }}>{user.phone}</Text>.{'\n'}Ingresa los 6 dígitos:
+                </Text>
+                <TextInput
+                  value={phoneVerifCode}
+                  onChangeText={setPhoneVerifCode}
+                  placeholder="000000"
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 14, fontSize: 24, textAlign: 'center', letterSpacing: 8, marginBottom: 12 }}
+                />
+                <TouchableOpacity
+                  onPress={handleVerifyPhoneCode}
+                  disabled={phoneVerifVerifying || phoneVerifCode.length !== 6}
+                  style={{ backgroundColor: phoneVerifCode.length === 6 ? ORANGE : '#ccc', borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 8 }}>
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>
+                    {phoneVerifVerifying ? 'Verificando...' : 'Verificar código'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleSendPhoneVerifCode} disabled={phoneVerifSending}>
+                  <Text style={{ color: ORANGE, textAlign: 'center', fontSize: 13, marginBottom: 4 }}>
+                    {phoneVerifSending ? 'Reenviando...' : 'Reenviar código'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+            <TouchableOpacity onPress={() => setShowPhoneVerifModal(false)} style={{ marginTop: 8 }}>
+              <Text style={{ color: '#999', textAlign: 'center' }}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }

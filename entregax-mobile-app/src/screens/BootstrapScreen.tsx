@@ -86,6 +86,7 @@ export default function BootstrapScreen({ navigation }: Props) {
           boxId: fresh.boxId || fresh.box_id || userData.boxId,
           role: fresh.role || userData.role,
           phone: fresh.phone || userData.phone,
+          phoneVerified: fresh.phone_verified ?? fresh.phoneVerified ?? userData.phoneVerified ?? false,
           isVerified: fresh.isVerified ?? userData.isVerified,
           verificationStatus: fresh.verificationStatus || userData.verificationStatus,
           branch_id: fresh.branch_id ?? userData.branch_id,
