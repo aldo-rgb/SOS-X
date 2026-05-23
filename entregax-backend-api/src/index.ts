@@ -5703,11 +5703,24 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     const comisionesMes = (speiMesTotal - speiNetoMesTotal) + (paypalMes - paypalNetoMes);
     const totalMes = efectivoMes + speiMesTotal + paypalMes;
 
-    // Saldo más reciente por empresa desde bank_statement_entries
+    // Saldo final por empresa: el saldo cuya fila no es el "saldo inicial"
+    // de ninguna otra fila del mismo día. Funciona sin importar si el banco
+    // entrega el estado de cuenta en orden ascendente o descendente.
     const saldosPorEmpresaRes = await pool.query(`
       SELECT DISTINCT ON (empresa_id) empresa_id, saldo, fecha
-      FROM bank_statement_entries
-      ORDER BY empresa_id, fecha DESC, id ASC
+      FROM bank_statement_entries b1
+      WHERE NOT EXISTS (
+        SELECT 1 FROM bank_statement_entries b2
+        WHERE b2.empresa_id = b1.empresa_id
+          AND b2.fecha = b1.fecha
+          AND b2.id != b1.id
+          AND ROUND(
+            CAST(b2.saldo AS numeric)
+            - COALESCE(CAST(b2.abono AS numeric), 0)
+            + COALESCE(CAST(b2.cargo AS numeric), 0),
+          2) = ROUND(CAST(b1.saldo AS numeric), 2)
+      )
+      ORDER BY empresa_id, fecha DESC
     `);
 
     res.json({
@@ -7080,9 +7093,20 @@ app.get('/api/admin/finance/bank-entries/last', authenticateToken, requireMinLev
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
     const result = await pool.query(`
       SELECT fecha, concepto, referencia, cargo, abono, saldo
-      FROM bank_statement_entries
+      FROM bank_statement_entries b1
       WHERE empresa_id = $1
-      ORDER BY fecha DESC, id DESC
+        AND NOT EXISTS (
+          SELECT 1 FROM bank_statement_entries b2
+          WHERE b2.empresa_id = b1.empresa_id
+            AND b2.fecha = b1.fecha
+            AND b2.id != b1.id
+            AND ROUND(
+              CAST(b2.saldo AS numeric)
+              - COALESCE(CAST(b2.abono AS numeric), 0)
+              + COALESCE(CAST(b2.cargo AS numeric), 0),
+            2) = ROUND(CAST(b1.saldo AS numeric), 2)
+        )
+      ORDER BY fecha DESC
       LIMIT 1
     `, [empresa_id]);
     const entry = result.rows[0] || null;
