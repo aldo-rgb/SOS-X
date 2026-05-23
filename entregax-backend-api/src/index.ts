@@ -2032,6 +2032,24 @@ app.post('/api/auth/apple', authRateLimit, validateBody(appleAuthSchema), appleA
 //   - Con JWT: para cambio de teléfono de usuario logueado
 app.get('/api/auth/phone/status', phoneVerificationStatus);
 app.get('/api/whatsapp/status', (_req, res) => res.json(whatsappStatus()));
+
+// Endpoint de diagnóstico temporal — permite probar envío directo de WhatsApp
+app.post('/api/whatsapp/test', authenticateToken, async (req: any, res) => {
+  const role = String(req.user?.role || '').toLowerCase();
+  if (!['super_admin', 'admin', 'director'].includes(role)) {
+    return res.status(403).json({ error: 'Solo admins' });
+  }
+  const { phone, name, folio } = req.body;
+  if (!phone) return res.status(400).json({ error: 'Falta phone' });
+  const { sendTicketConfirmation, normalizePhone } = await import('./whatsappService');
+  const normalized = normalizePhone(phone);
+  try {
+    await sendTicketConfirmation(phone, name || 'Test', folio || 'TEST-0001');
+    res.json({ ok: true, normalized, phone, message: 'Enviado — revisa WhatsApp y logs de Railway' });
+  } catch (e: any) {
+    res.status(500).json({ ok: false, error: e?.message });
+  }
+});
 app.post(
   '/api/auth/phone/send-code',
   authRateLimit,
