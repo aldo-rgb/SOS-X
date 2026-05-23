@@ -85,6 +85,10 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [phoneVerifSending, setPhoneVerifSending] = useState(false);
   const [phoneVerifVerifying, setPhoneVerifVerifying] = useState(false);
   const [phoneVerifSent, setPhoneVerifSent] = useState(false);
+  // Estado de verificación obtenido directamente del perfil (no del user object de nav)
+  const [isPhoneVerified, setIsPhoneVerified] = useState<boolean>(
+    (initialUser as any).phoneVerified === true || (initialUser as any).phone_verified === true
+  );
 
   // Estados para PIN de supervisor
   const [showPinModal, setShowPinModal] = useState(false);
@@ -182,6 +186,11 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     fetchProfilePhoto();
     fetchGexAutoConfig();
     fetchNotifPrefs();
+    // Obtener phone_verified directamente del perfil (no depender del user object de nav)
+    fetch(`${API_URL}/api/auth/profile`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.phone_verified != null) setIsPhoneVerified(data.phone_verified === true); })
+      .catch(() => {});
   }, []);
 
   const fetchGexAutoConfig = async () => {
@@ -259,7 +268,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   };
 
   const handleWhatsappToggle = (value: boolean) => {
-    if (value && !user.phoneVerified) {
+    if (value && !isPhoneVerified) {
       // No verificado → mostrar modal de verificación
       setPhoneVerifCode('');
       setPhoneVerifSent(false);
@@ -307,7 +316,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
       });
       const data = await r.json();
       if (r.ok && data.verified) {
-        setUser((prev: any) => ({ ...prev, phoneVerified: true }));
+        setIsPhoneVerified(true);
         setShowPhoneVerifModal(false);
         updateNotifPref('whatsapp', true);
         Alert.alert('✅ Verificado', 'Tu WhatsApp fue verificado y las notificaciones están activadas.');
@@ -1153,14 +1162,14 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                   <View style={styles.menuItemContent}>
                     <Text style={styles.menuItemTitle}>WhatsApp</Text>
                     <Text style={styles.menuItemSubtitle}>
-                      {user.phoneVerified ? 'Recibir notificaciones por WhatsApp' : '🔒 Requiere teléfono verificado'}
+                      {isPhoneVerified ? 'Recibir notificaciones por WhatsApp' : '🔒 Requiere teléfono verificado'}
                     </Text>
                   </View>
                   <Switch
-                    value={notifPrefs.whatsapp && user.phoneVerified === true}
+                    value={notifPrefs.whatsapp && isPhoneVerified === true}
                     onValueChange={handleWhatsappToggle}
                     trackColor={{ false: '#ddd', true: ORANGE + '80' }}
-                    thumbColor={notifPrefs.whatsapp && user.phoneVerified ? ORANGE : '#f4f3f4'}
+                    thumbColor={notifPrefs.whatsapp && isPhoneVerified ? ORANGE : '#f4f3f4'}
                   />
                 </View>
 
