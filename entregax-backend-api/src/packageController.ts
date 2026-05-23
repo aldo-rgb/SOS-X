@@ -793,13 +793,13 @@ export const createShipment = async (req: Request, res: Response): Promise<void>
             const weightStr = totalWeight > 0 ? ` · ${Math.round(totalWeight * 100) / 100} kg` : '';
 
             pool.query(
-                `SELECT notif_push, notif_whatsapp, ${serviceKey} AS notif_service, phone FROM users WHERE id = $1`,
+                `SELECT notif_push, notif_whatsapp, ${serviceKey} AS notif_service, phone, phone_verified FROM users WHERE id = $1`,
                 [user.id]
             ).then(async (prefRow: any) => {
                 const prefs = prefRow.rows[0] || {};
                 const wantPush = prefs.notif_push !== false;
                 const wantService = prefs.notif_service !== false;
-                const wantWhatsapp = prefs.notif_whatsapp !== false;
+                const wantWhatsapp = prefs.notif_whatsapp !== false && prefs.phone_verified === true;
 
                 const notifTitle = `📦 Paquete recibido · ${serviceLabel}`;
                 const notifBody = `Tu paquete ${masterTracking}${weightStr} llegó a la bodega.`;
@@ -1964,6 +1964,51 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
         res.json({ success: true, message: `Estado: ${getStatusLabel(status)}`,
             package: { id: pkg.id, tracking: pkg.tracking_internal, status, statusLabel: getStatusLabel(status), isMaster: pkg.is_master }
         });
+
+        // Notificar al cliente cuando el paquete es entregado
+        if (status === 'delivered' && pkg.user_id) {
+            const svcLabels: Record<string, string> = { POBOX_USA: 'PO Box USA', AIR_CHN_MX: 'Aéreo China', SEA_CHN_MX: 'Marítimo China', AA_DHL: 'DHL' };
+            const svcLabel = svcLabels[pkg.service_type] || pkg.service_type || 'EntregaX';
+            const svcKey = pkg.service_type === 'POBOX_USA' ? 'notif_pobox'
+                : pkg.service_type === 'AIR_CHN_MX' ? 'notif_air'
+                : pkg.service_type === 'SEA_CHN_MX' ? 'notif_maritime'
+                : pkg.service_type === 'AA_DHL' ? 'notif_dhl'
+                : 'notif_push';
+
+            pool.query(
+                `SELECT u.notif_push, u.notif_whatsapp, u.${svcKey} AS notif_service,
+                        u.phone, u.phone_verified, u.full_name
+                 FROM users u WHERE u.id = $1`,
+                [pkg.user_id]
+            ).then(async (prefRow: any) => {
+                const prefs = prefRow.rows[0] || {};
+                const notifTitle = `🎉 ¡Paquete entregado! · ${svcLabel}`;
+                const notifBody = `Tu paquete ${pkg.tracking_internal} ha sido entregado exitosamente.`;
+                const notifData = { screen: 'Home', tracking: pkg.tracking_internal };
+
+                const { createCustomNotification } = await import('./notificationController');
+                await createCustomNotification(pkg.user_id, notifTitle, notifBody, 'success', 'package', notifData);
+
+                if (prefs.notif_push !== false && prefs.notif_service !== false) {
+                    const { sendPushToUsers } = await import('./pushService');
+                    await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData });
+                }
+
+                if (prefs.notif_whatsapp !== false && prefs.phone_verified === true && prefs.notif_service !== false && prefs.phone) {
+                    const { sendTemplate } = await import('./whatsappService').catch(() => ({ sendTemplate: undefined })) as any;
+                    if (typeof sendTemplate === 'function') {
+                        const firstName = (prefs.full_name || '').split(' ')[0] || 'Cliente';
+                        await sendTemplate({
+                            to: prefs.phone,
+                            template: process.env.WHATSAPP_PACKAGE_DELIVERED_TEMPLATE || 'paquete_entregado',
+                            languageCode: 'es_MX',
+                            parameters: [firstName, pkg.tracking_internal, svcLabel],
+                        }).catch(() => {});
+                    }
+                }
+            }).catch((e: any) => console.warn('[notif] delivered notify failed:', e?.message));
+        }
+
     } catch (error) {
         await client.query('ROLLBACK');
         console.error('Error:', error);
