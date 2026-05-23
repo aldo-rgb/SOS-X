@@ -52,7 +52,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshingStatus, setRefreshingStatus] = useState(false);
-  const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
+  const [twoFactorEnabled] = useState(false);
 
   // GEX auto-config
   const { gexEnabled } = usePaymentStatus();
@@ -626,61 +626,12 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     return uso ? `${uso.clave} - ${uso.descripcion}` : 'G03 - Gastos en general';
   };
 
-  const handleToggle2FA = async (value: boolean) => {
-    if (value) {
-      // Activar 2FA
-      Alert.alert(
-        t('profile.activate2FATitle'),
-        t('profile.activate2FAMsg'),
-        [
-          { text: t('common.cancel'), style: 'cancel' },
-          {
-            text: t('profile.activate'),
-            onPress: async () => {
-              try {
-                const response = await fetch(`${API_URL}/api/auth/2fa/enable`, {
-                  method: 'POST',
-                  headers: { Authorization: `Bearer ${token}` },
-                });
-                if (response.ok) {
-                  setTwoFactorEnabled(true);
-                  Alert.alert(t('common.success'), t('profile.2faEnabled'));
-                }
-              } catch (error) {
-                Alert.alert(t('common.error'), t('errors.networkError'));
-              }
-            },
-          },
-        ]
-      );
-    } else {
-      // Desactivar 2FA
-      Alert.alert(
-        t('profile.deactivate2FATitle'),
-        t('profile.deactivate2FAMsg'),
-        [
-          { text: t('common.cancel'), style: 'cancel' },
-          {
-            text: t('profile.deactivate'),
-            style: 'destructive',
-            onPress: async () => {
-              try {
-                const response = await fetch(`${API_URL}/api/auth/2fa/disable`, {
-                  method: 'POST',
-                  headers: { Authorization: `Bearer ${token}` },
-                });
-                if (response.ok) {
-                  setTwoFactorEnabled(false);
-                  Alert.alert(t('common.success'), t('profile.2faDisabled'));
-                }
-              } catch (error) {
-                Alert.alert(t('common.error'), t('errors.networkError'));
-              }
-            },
-          },
-        ]
-      );
-    }
+  const handleToggle2FA = (_value: boolean) => {
+    Alert.alert(
+      'Autenticación 2FA',
+      'Esta función aún no está disponible. Para activarla contacta a soporte.',
+      [{ text: 'Entendido', style: 'default' }]
+    );
   };
 
   // Guardar teléfono (requiere contraseña y 2FA si está activo)
@@ -1211,7 +1162,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 <View style={styles.menuItem}>
                   <Ionicons name="home-outline" size={22} color="#555" />
                   <View style={styles.menuItemContent}>
-                    <Text style={styles.menuItemTitle}>Casillero (PO Box / Suite)</Text>
+                    <Text style={styles.menuItemTitle}>PO Box / Suite</Text>
                   </View>
                   <Switch
                     value={notifPrefs.pobox}
