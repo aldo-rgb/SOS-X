@@ -2550,7 +2550,7 @@ export default function DashboardAdvisor() {
                           <TableHead>
                             <TableRow sx={{ bgcolor: 'grey.50' }}>
                               <TableCell>Cliente</TableCell>
-                              <TableCell>Casillero</TableCell>
+                              <TableCell>Suite</TableCell>
                               <TableCell align="center">Verificado</TableCell>
                               <TableCell align="center">Embarques</TableCell>
                               <TableCell align="center">En Tránsito</TableCell>
@@ -2561,10 +2561,14 @@ export default function DashboardAdvisor() {
                             {teamModalClients.map((c: any) => (
                               <TableRow key={c.id} hover>
                                 <TableCell>
-                                  <Typography variant="body2" fontWeight={600}>{c.full_name}</Typography>
-                                  <Typography variant="caption" color="text.secondary">{c.email}</Typography>
+                                  <Typography variant="body2" fontWeight={600}>{c.full_name || c.email}</Typography>
+                                  {c.full_name && <Typography variant="caption" color="text.secondary">{c.email}</Typography>}
                                 </TableCell>
-                                <TableCell><Chip label={c.box_id} size="small" variant="outlined" /></TableCell>
+                                <TableCell>
+                                  {c.box_id
+                                    ? <Chip label={c.box_id} size="small" variant="outlined" />
+                                    : <Typography variant="caption" color="text.disabled">—</Typography>}
+                                </TableCell>
                                 <TableCell align="center">
                                   {c.is_verified
                                     ? <CheckCircleIcon sx={{ color: '#4CAF50', fontSize: 18 }} />
