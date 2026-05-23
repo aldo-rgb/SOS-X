@@ -304,7 +304,7 @@ export const sendTicketResolved = async (phone: string, nombre: string, ticketFo
  * Variables: {{1}} = nombre, {{2}} = tracking, {{3}} = servicio
  */
 export const sendPackageArrival = async (phone: string, nombre: string, tracking: string, servicio: string): Promise<void> => {
-    const templateName = process.env.WHATSAPP_PACKAGE_TEMPLATE || 'paquete_recibido';
+    const templateName = process.env.WHATSAPP_PACKAGE_TEMPLATE || 'paquete_entregado';
     try {
         await sendTemplate({
             to: phone,
