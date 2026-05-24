@@ -150,8 +150,6 @@ export default function EmployeeProfilePage({ employeeId, onBack }: EmployeeProf
   }
 
   const { user, documents, payroll, loans, antiguedad, vacation_legal, alerts } = profile;
-  const currentUserRole: string = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; } })();
-  const isAdmin = currentUserRole === 'super_admin' || currentUserRole === 'admin';
 
   // Agrupar docs por tipo
   const docsByType: Record<string, any[]> = {};
@@ -384,6 +382,8 @@ function ExpedienteTab({ profile, docsByType, onChange, onMsg }: any) {
     <Grid container spacing={2}>
       {(() => {
         const isAdvisor = !!profile?.user?.is_advisor;
+        const currentRole: string = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; } })();
+        const isAdmin = currentRole === 'super_admin' || currentRole === 'admin';
         const p = profile?.payroll || {};
         const hasImss = !!(
           (p.nss && String(p.nss).trim()) ||
