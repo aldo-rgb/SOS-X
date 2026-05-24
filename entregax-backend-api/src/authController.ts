@@ -1051,6 +1051,20 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             `
         );
 
+        // Totales históricos por tipo de servicio
+        const totalesResult = await pool.query(`
+            SELECT
+              (SELECT COUNT(*)::int FROM packages
+               WHERE service_type = 'POBOX_USA'
+                  OR (service_type IS NULL AND tracking_internal LIKE 'US-%')) as usa,
+              (SELECT COUNT(*)::int FROM china_receipts) as tdi,
+              (SELECT COUNT(*)::int FROM packages WHERE service_type = 'AA_DHL') as dhl,
+              (SELECT COUNT(*)::int FROM packages WHERE air_source = 'tdi_express' AND is_master = true) as tdi_express,
+              (SELECT COUNT(*)::int FROM maritime_shipments) as maritimo,
+              (SELECT COUNT(*)::int FROM containers) as contenedores
+        `);
+        const tot = totalesResult.rows[0] || {};
+
         // Equipo (solo sucursal del gerente y con checador real)
         const branchId = user.branch_id || null;
         
@@ -1120,6 +1134,14 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 empleados_activos: empleadosActivos,
                 en_turno: enTurno,
             },
+            totales_historicos: {
+                usa: parseInt(tot.usa || 0) || 0,
+                tdi: parseInt(tot.tdi || 0) || 0,
+                dhl: parseInt(tot.dhl || 0) || 0,
+                tdi_express: parseInt(tot.tdi_express || 0) || 0,
+                maritimo: parseInt(tot.maritimo || 0) || 0,
+                contenedores: parseInt(tot.contenedores || 0) || 0,
+            },
         });
     } catch (error) {
         console.error('Error al obtener dashboard branch manager:', error);
@@ -1152,6 +1174,14 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             equipo: {
                 empleados_activos: 0,
                 en_turno: 0,
+            },
+            totales_historicos: {
+                usa: 0,
+                tdi: 0,
+                dhl: 0,
+                tdi_express: 0,
+                maritimo: 0,
+                contenedores: 0,
             },
             warning: 'dashboard_fallback',
         });

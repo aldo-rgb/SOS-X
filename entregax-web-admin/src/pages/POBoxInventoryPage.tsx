@@ -65,6 +65,9 @@ interface InventoryPackage {
         width: number | null;
         height: number | null;
     };
+    driverName?: string | null;
+    vehicleNumber?: string | null;
+    vehiclePlates?: string | null;
 }
 
 const STATUS_LABELS: Record<string, { label: string; color: string }> = {

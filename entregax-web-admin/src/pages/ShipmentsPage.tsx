@@ -1021,7 +1021,15 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     const length = parseFloat(currentBox.length);
     const width = parseFloat(currentBox.width);
     const height = parseFloat(currentBox.height);
-    
+
+    if (!currentBox.trackingCourier.trim()) {
+      const msg = i18n.language === 'es' ? '⚠️ La guía del proveedor (Amazon, UPS, FedEx…) es obligatoria' : '⚠️ Supplier tracking number is required';
+      setFormError(msg);
+      setSnackbar({ open: true, message: msg, severity: 'error' });
+      guideInputRef.current?.focus();
+      return;
+    }
+
     if (!currentBox.weight || weight <= 0) {
       setFormError(t('errors.enterBoxWeight'));
       setSnackbar({ open: true, message: '⚠️ El peso debe ser mayor a 0', severity: 'error' });
@@ -1855,12 +1863,14 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                   >
                     {/* Sección 1: Guía del proveedor */}
                     <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1 }}>
-                      1 · {i18n.language === 'es' ? 'Guía del Proveedor' : 'Supplier Tracking'}
+                      1 · {i18n.language === 'es' ? 'Guía del Proveedor *' : 'Supplier Tracking *'}
                     </Typography>
                     <TextField
                       fullWidth
+                      required
                       autoFocus
                       inputRef={guideInputRef}
+                      label={i18n.language === 'es' ? 'Guía del courier (obligatoria)' : 'Courier tracking (required)'}
                       placeholder={i18n.language === 'es' ? 'Escanea o escribe la guía (Amazon, UPS, etc.)...' : 'Scan or type tracking...'}
                       value={currentBox.trackingCourier}
                       onChange={(e) => setCurrentBox(p => ({ ...p, trackingCourier: e.target.value.toUpperCase() }))}
@@ -1874,6 +1884,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                         startAdornment: <InputAdornment position="start"><QrCodeScannerIcon sx={{ color: ORANGE }} /></InputAdornment>,
                         sx: { bgcolor: 'white', borderRadius: 2 },
                       }}
+                      helperText={i18n.language === 'es' ? 'Requerida para identificar el paquete (Amazon, UPS, FedEx…)' : 'Required to identify the package'}
                       sx={{ mt: 1, mb: 2 }}
                     />
 

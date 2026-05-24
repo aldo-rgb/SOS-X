@@ -39,6 +39,7 @@ import {
   HeadsetMicOutlined as HeadsetIcon,
   VerifiedUserOutlined as VerifiedUserIcon,
   GavelOutlined as GavelIcon,
+  AllInboxOutlined as AllInboxIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import DelayedPackagesPage from './DelayedPackagesPage';
@@ -72,6 +73,14 @@ interface BranchStats {
   equipo: {
     empleados_activos: number;
     en_turno: number;
+  };
+  totales_historicos?: {
+    usa: number;
+    tdi: number;
+    dhl: number;
+    tdi_express: number;
+    maritimo: number;
+    contenedores: number;
   };
 }
 
@@ -851,6 +860,148 @@ export default function DashboardBranchManager() {
         </>
       )}
 
+
+      {/* === Sección: Guías Registradas (totales históricos) === */}
+      {stats?.totales_historicos && (
+        <>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5, mt: 1 }}>
+            <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
+            <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9rem', letterSpacing: 0.2, textTransform: 'uppercase' }}>
+              Guías Registradas
+            </Typography>
+            <Divider sx={{ flex: 1, ml: 1, borderColor: '#E5E7EB' }} />
+            <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 600, whiteSpace: 'nowrap' }}>
+              Total{' '}
+              <Box component="span" sx={{ color: '#0F172A', fontWeight: 700 }}>
+                {(
+                  (stats.totales_historicos.usa || 0) +
+                  (stats.totales_historicos.tdi || 0) +
+                  (stats.totales_historicos.dhl || 0) +
+                  (stats.totales_historicos.tdi_express || 0) +
+                  (stats.totales_historicos.maritimo || 0)
+                ).toLocaleString()}
+              </Box>{' '}
+              guías · {(stats.totales_historicos.contenedores || 0).toLocaleString()} contenedores
+            </Typography>
+          </Stack>
+
+          <Grid container spacing={2} sx={{ mb: 3 }}>
+            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+              <Paper elevation={0} sx={{
+                p: 2, bgcolor: '#fff', borderRadius: 2, border: '1px solid #E5E7EB',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                borderTop: '3px solid #F05A28',
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <LocalShippingIcon sx={{ fontSize: 16, color: '#F05A28' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
+                    USA
+                  </Typography>
+                </Box>
+                <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#0F172A', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  {(stats.totales_historicos.usa || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>PO Box USA</Typography>
+              </Paper>
+            </Grid>
+
+            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+              <Paper elevation={0} sx={{
+                p: 2, bgcolor: '#fff', borderRadius: 2, border: '1px solid #E5E7EB',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                borderTop: '3px solid #7C3AED',
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <FlightTakeoffIcon sx={{ fontSize: 16, color: '#7C3AED' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
+                    TDI
+                  </Typography>
+                </Box>
+                <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#0F172A', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  {(stats.totales_historicos.tdi || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>Aéreo China</Typography>
+              </Paper>
+            </Grid>
+
+            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+              <Paper elevation={0} sx={{
+                p: 2, bgcolor: '#fff', borderRadius: 2, border: '1px solid #E5E7EB',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                borderTop: '3px solid #DC2626',
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <LocalShippingIcon sx={{ fontSize: 16, color: '#DC2626' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
+                    DHL
+                  </Typography>
+                </Box>
+                <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#0F172A', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  {(stats.totales_historicos.dhl || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>DHL / AA DHL</Typography>
+              </Paper>
+            </Grid>
+
+            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+              <Paper elevation={0} sx={{
+                p: 2, bgcolor: '#fff', borderRadius: 2, border: '1px solid #E5E7EB',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                borderTop: '3px solid #0EA5E9',
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <FlightTakeoffIcon sx={{ fontSize: 16, color: '#0EA5E9' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
+                    TDI Express
+                  </Typography>
+                </Box>
+                <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#0F172A', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  {(stats.totales_historicos.tdi_express || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>TDX Express</Typography>
+              </Paper>
+            </Grid>
+
+            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+              <Paper elevation={0} sx={{
+                p: 2, bgcolor: '#fff', borderRadius: 2, border: '1px solid #E5E7EB',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                borderTop: '3px solid #0E7490',
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <DirectionsBoatIcon sx={{ fontSize: 16, color: '#0E7490' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
+                    Marítimo
+                  </Typography>
+                </Box>
+                <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#0F172A', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  {(stats.totales_historicos.maritimo || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>LOGs registrados</Typography>
+              </Paper>
+            </Grid>
+
+            <Grid size={{ xs: 6, sm: 4, md: 2 }}>
+              <Paper elevation={0} sx={{
+                p: 2, bgcolor: '#fff', borderRadius: 2, border: '1px solid #E5E7EB',
+                boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                borderTop: '3px solid #059669',
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+                  <AllInboxIcon sx={{ fontSize: 16, color: '#059669' }} />
+                  <Typography variant="caption" sx={{ fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: 0.3, fontSize: '0.68rem' }}>
+                    Contenedores
+                  </Typography>
+                </Box>
+                <Typography sx={{ fontWeight: 700, fontSize: '1.6rem', color: '#0F172A', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  {(stats.totales_historicos.contenedores || 0).toLocaleString()}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#94A3B8' }}>FCL / LCL</Typography>
+              </Paper>
+            </Grid>
+          </Grid>
+        </>
+      )}
 
       {/* Modal: Abandonos Listos para Proceso */}
       <Dialog
