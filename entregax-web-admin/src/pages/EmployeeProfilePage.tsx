@@ -41,10 +41,10 @@ const C = {
   danger:    '#dc2626',
 };
 
-const DOC_GROUPS: { key: string; label: string; icon?: string; optional?: boolean; imssOnly?: boolean; advisorRequired?: boolean }[] = [
+const DOC_GROUPS: { key: string; label: string; icon?: string; optional?: boolean; imssOnly?: boolean; advisorRequired?: boolean; adminOnly?: boolean }[] = [
   { key: 'ine_front', label: 'INE — Anverso', advisorRequired: true },
   { key: 'ine_back', label: 'INE — Reverso', advisorRequired: true },
-  { key: 'firma_digital', label: 'Firma Digital', advisorRequired: true },
+  { key: 'firma_digital', label: 'Firma Digital', advisorRequired: true, adminOnly: true },
   { key: 'contract', label: 'Contrato Laboral', advisorRequired: true },
   { key: 'comprobante_domicilio', label: 'Comprobante de Domicilio' },
   { key: 'rfc', label: 'RFC / Constancia Fiscal', optional: true, advisorRequired: true },
@@ -150,6 +150,8 @@ export default function EmployeeProfilePage({ employeeId, onBack }: EmployeeProf
   }
 
   const { user, documents, payroll, loans, antiguedad, vacation_legal, alerts } = profile;
+  const currentUserRole: string = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; } })();
+  const isAdmin = currentUserRole === 'super_admin' || currentUserRole === 'admin';
 
   // Agrupar docs por tipo
   const docsByType: Record<string, any[]> = {};
@@ -390,9 +392,10 @@ function ExpedienteTab({ profile, docsByType, onChange, onMsg }: any) {
         );
         // Para asesores: SOLO INE (ambos lados), Contrato laboral y RFC. Todos obligatorios.
         // Para empleados: filtra los docs IMSS si no está dado de alta.
-        const visibleGroups = isAdvisor
+        const visibleGroups = (isAdvisor
           ? DOC_GROUPS.filter(g => g.advisorRequired)
-          : DOC_GROUPS.filter(g => !g.imssOnly || hasImss);
+          : DOC_GROUPS.filter(g => !g.imssOnly || hasImss)
+        ).filter(g => !g.adminOnly || isAdmin);
         return visibleGroups.map(g => {
         const docs = docsByType[g.key] || [];
         const latest = docs[0];
