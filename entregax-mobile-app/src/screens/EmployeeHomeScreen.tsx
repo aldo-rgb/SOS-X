@@ -850,7 +850,7 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
             <Image
               source={entregaxLogoUrl ? { uri: entregaxLogoUrl } : require('../../assets/logo.png')}
-              style={{ width: 276, height: 70, resizeMode: 'contain' }}
+              style={{ width: 140, height: 36, resizeMode: 'contain' }}
             />
           </View>
 
