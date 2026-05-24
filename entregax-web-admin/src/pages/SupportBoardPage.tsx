@@ -64,6 +64,21 @@ const ORANGE = '#F05A28';
 const BLACK = '#111';
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
+const ROLE_LABELS: Record<string, string> = {
+  super_admin: 'Super Admin', admin: 'Admin', branch_manager: 'Branch Manager',
+  advisor: 'Asesor', asesor: 'Asesor', asesor_lider: 'Asesor Líder', sub_advisor: 'Sub-Asesor',
+  warehouse_ops: 'Almacén', counter_staff: 'Mostrador', repartidor: 'Repartidor',
+  customer_service: 'Atención a Cliente', soporte_tecnico: 'Soporte Técnico',
+  monitoreo: 'Monitoreo', accountant: 'Contador', contador: 'Contador',
+  operaciones: 'Operaciones', director: 'Director',
+};
+const creatorLabel = (t: { creator_type?: string; creator_role?: string }) => {
+  if (t.creator_type === 'employee' && t.creator_role) {
+    return `🧑‍💼 ${ROLE_LABELS[t.creator_role] || t.creator_role.replace(/_/g, ' ')}`;
+  }
+  return t.creator_type === 'employee' ? '🧑‍💼 Empleado' : '👤 Cliente';
+};
+
 interface Department {
   id: number;
   name: string;
@@ -86,6 +101,7 @@ interface SupportTicket {
   status: 'open_ai' | 'waiting_client' | 'escalated_human' | 'resolved';
   priority: string;
   creator_type?: 'client' | 'employee';
+  creator_role?: string;
   department_id?: number;
   department_name?: string;
   department_color?: string;
@@ -923,7 +939,7 @@ export default function SupportBoardPage() {
                     />
                   )}
                   <Chip
-                    label={selectedTicket.creator_type === 'employee' ? '🧑‍💼 Asesor' : '👤 Cliente'}
+                    label={creatorLabel(selectedTicket)}
                     size="small"
                     sx={{ bgcolor: selectedTicket.creator_type === 'employee' ? '#9C27B0' : '#2196F3', color: '#fff' }}
                   />
@@ -1348,7 +1364,7 @@ function TicketCard({
         {/* Badges row */}
         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
           <Chip
-            label={ticket.creator_type === 'employee' ? '🧑‍💼 Asesor' : '👤 Cliente'}
+            label={creatorLabel(ticket)}
             size="small"
             sx={{
               height: 20, fontSize: 11,
