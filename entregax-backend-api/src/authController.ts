@@ -1057,7 +1057,7 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
         const BASE_DHL          = 31100;
         const BASE_TDI_EXPRESS  = 1661;
         const BASE_MARITIMO     = 1736;
-        const BASE_CONTENEDORES = 226;
+        const BASE_CONTENEDORES = 0; // Contenedores son 100% del sistema nuevo
 
         const totalesResult = await pool.query(`
             SELECT

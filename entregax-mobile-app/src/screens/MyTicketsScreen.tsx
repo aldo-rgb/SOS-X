@@ -59,6 +59,12 @@ const timeAgo = (dateStr: string): string => {
   return new Date(dateStr).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
 };
 
+const EMPLOYEE_CATEGORIES = [
+  { key: 'systemError', label: 'Error del Sistema', icon: 'bug-outline', color: '#F44336' },
+  { key: 'accounting',  label: 'Contabilidad',       icon: 'wallet-outline', color: '#2196F3' },
+  { key: 'other',       label: 'Consulta General',   icon: 'help-circle-outline', color: '#9C27B0' },
+];
+
 export default function MyTicketsScreen({ navigation, route }: any) {
   const { user, token } = route.params;
   const insets = useSafeAreaInsets();
@@ -73,6 +79,12 @@ export default function MyTicketsScreen({ navigation, route }: any) {
   const [showDetail, setShowDetail] = useState(false);
   const [reply, setReply] = useState('');
   const [replySending, setReplySending] = useState(false);
+
+  // Nuevo ticket
+  const [showNew, setShowNew] = useState(false);
+  const [newCategory, setNewCategory] = useState('other');
+  const [newMessage, setNewMessage] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const loadTickets = useCallback(async () => {
     try {
@@ -103,6 +115,28 @@ export default function MyTicketsScreen({ navigation, route }: any) {
       setMessages(Array.isArray(data) ? data : []);
     } catch { /* silent */ } finally {
       setMsgLoading(false);
+    }
+  };
+
+  const createTicket = async () => {
+    if (!newMessage.trim()) return;
+    setCreating(true);
+    try {
+      const res = await fetch(`${API_URL}/api/support/message`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: newMessage.trim(), category: newCategory, escalateDirectly: true }),
+      });
+      if (!res.ok) throw new Error();
+      setShowNew(false);
+      setNewMessage('');
+      setNewCategory('other');
+      await loadTickets();
+      Alert.alert('✅ Ticket creado', 'Tu ticket fue enviado. Un agente te responderá pronto.');
+    } catch {
+      Alert.alert('Error', 'No se pudo crear el ticket. Intenta de nuevo.');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -162,7 +196,9 @@ export default function MyTicketsScreen({ navigation, route }: any) {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Mis Tickets</Text>
-        <View style={{ width: 40 }} />
+        <TouchableOpacity onPress={() => setShowNew(true)} style={styles.newBtn}>
+          <Ionicons name="add" size={26} color="#fff" />
+        </TouchableOpacity>
       </View>
 
       {loading ? (
@@ -178,12 +214,73 @@ export default function MyTicketsScreen({ navigation, route }: any) {
           ListEmptyComponent={
             <View style={styles.center}>
               <Ionicons name="ticket-outline" size={52} color="#ccc" />
-              <Text style={styles.emptyText}>No tienes tickets de servicio</Text>
-              <Text style={styles.emptySubtext}>Los tickets que crees en el Centro de Ayuda aparecerán aquí</Text>
+              <Text style={styles.emptyText}>No tienes tickets aún</Text>
+              <Text style={styles.emptySubtext}>Toca el botón + para crear tu primer ticket</Text>
+              <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowNew(true)}>
+                <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                <Text style={styles.emptyBtnText}>Nuevo Ticket</Text>
+              </TouchableOpacity>
             </View>
           }
         />
       )}
+
+      {/* Modal: Nuevo Ticket */}
+      <Modal visible={showNew} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowNew(false)}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+          <View style={styles.detailContainer}>
+            <View style={[styles.detailHeader, { paddingTop: insets.top + 10 }]}>
+              <Text style={[styles.detailFolio, { fontSize: 18 }]}>Nuevo Ticket</Text>
+              <TouchableOpacity onPress={() => setShowNew(false)} style={[styles.closeBtn, { marginLeft: 'auto' }]}>
+                <Ionicons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView contentContainerStyle={{ padding: 18 }}>
+              {/* Categoría */}
+              <Text style={styles.newLabel}>Categoría</Text>
+              <View style={styles.catSelectRow}>
+                {EMPLOYEE_CATEGORIES.map(c => (
+                  <TouchableOpacity
+                    key={c.key}
+                    style={[styles.catOption, newCategory === c.key && { borderColor: c.color, backgroundColor: c.color + '15' }]}
+                    onPress={() => setNewCategory(c.key)}
+                  >
+                    <Ionicons name={c.icon as any} size={20} color={newCategory === c.key ? c.color : '#888'} />
+                    <Text style={[styles.catOptionText, newCategory === c.key && { color: c.color, fontWeight: '700' }]}>
+                      {c.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              {/* Mensaje */}
+              <Text style={styles.newLabel}>Describe tu situación</Text>
+              <TextInput
+                style={styles.newMsgInput}
+                placeholder="Escribe los detalles del problema o consulta..."
+                placeholderTextColor="#aaa"
+                value={newMessage}
+                onChangeText={setNewMessage}
+                multiline
+                numberOfLines={6}
+                textAlignVertical="top"
+              />
+
+              <TouchableOpacity
+                style={[styles.submitBtn, (!newMessage.trim() || creating) && { opacity: 0.45 }]}
+                onPress={createTicket}
+                disabled={!newMessage.trim() || creating}
+              >
+                {creating
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <><Ionicons name="send" size={18} color="#fff" /><Text style={styles.submitBtnText}>Enviar Ticket</Text></>
+                }
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Modal detalle de ticket */}
       <Modal visible={showDetail} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowDetail(false)}>
@@ -356,4 +453,31 @@ const styles = StyleSheet.create({
     backgroundColor: ORANGE,
     justifyContent: 'center', alignItems: 'center',
   },
+  newBtn: { width: 40, alignItems: 'flex-end' },
+  emptyBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    marginTop: 18, backgroundColor: ORANGE,
+    borderRadius: 22, paddingHorizontal: 20, paddingVertical: 10,
+  },
+  emptyBtnText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  newLabel: { fontSize: 13, fontWeight: '700', color: BLACK, marginBottom: 10, marginTop: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+  catSelectRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 20 },
+  catOption: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1.5, borderColor: '#ddd', borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 9,
+    backgroundColor: '#fff',
+  },
+  catOptionText: { fontSize: 13, color: '#555' },
+  newMsgInput: {
+    borderWidth: 1.5, borderColor: '#ddd', borderRadius: 12,
+    padding: 14, fontSize: 14, color: '#333',
+    minHeight: 120, backgroundColor: '#fff', marginBottom: 22,
+  },
+  submitBtn: {
+    backgroundColor: ORANGE, borderRadius: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 8, paddingVertical: 14,
+  },
+  submitBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
 });
