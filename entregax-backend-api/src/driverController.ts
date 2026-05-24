@@ -651,6 +651,24 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
             setParts.push('loaded_at = NOW()');
         }
 
+        // Auto-detectar vehículo desde la inspección de hoy del chofer
+        const hasLoadedVehicleColumn = await hasPackageColumn('loaded_vehicle_id');
+        if (hasLoadedVehicleColumn) {
+            try {
+                const inspRes = await pool.query(`
+                    SELECT dvi.vehicle_id FROM daily_vehicle_inspections dvi
+                    WHERE dvi.driver_id = $1
+                      AND dvi.created_at >= NOW() AT TIME ZONE 'America/Monterrey' - INTERVAL '20 hours'
+                    ORDER BY dvi.created_at DESC
+                    LIMIT 1
+                `, [driverId]);
+                if (inspRes.rows[0]?.vehicle_id) {
+                    values.push(inspRes.rows[0].vehicle_id);
+                    setParts.push(`loaded_vehicle_id = $${values.length}`);
+                }
+            } catch { /* no crítico */ }
+        }
+
         await pool.query(
             `UPDATE packages SET ${setParts.join(', ')} WHERE id = $1`,
             values

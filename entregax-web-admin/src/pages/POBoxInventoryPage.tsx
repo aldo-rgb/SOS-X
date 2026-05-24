@@ -248,12 +248,14 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Estado</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Consolidación</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Recibido</TableCell>
+                                    <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Chofer</TableCell>
+                                    <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Unidad</TableCell>
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {paged.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={8} sx={{ textAlign: 'center', py: 4 }}>
+                                        <TableCell colSpan={10} sx={{ textAlign: 'center', py: 4 }}>
                                             <Typography color="text.secondary">Sin resultados</Typography>
                                         </TableCell>
                                     </TableRow>
@@ -323,6 +325,19 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                                         </Box>
                                                     );
                                                 })()}
+                                            </TableCell>
+                                            <TableCell>
+                                                {p.driverName
+                                                    ? <Typography variant="body2" sx={{ fontWeight: 600 }}>{p.driverName}</Typography>
+                                                    : <Typography variant="caption" color="text.secondary">—</Typography>}
+                                            </TableCell>
+                                            <TableCell>
+                                                {(p.vehicleNumber || p.vehiclePlates)
+                                                    ? <Box>
+                                                        {p.vehicleNumber && <Typography variant="body2" sx={{ fontWeight: 700 }}>{p.vehicleNumber}</Typography>}
+                                                        {p.vehiclePlates && <Typography variant="caption" color="text.secondary">{p.vehiclePlates}</Typography>}
+                                                      </Box>
+                                                    : <Typography variant="caption" color="text.secondary">—</Typography>}
                                             </TableCell>
                                         </TableRow>
                                     );

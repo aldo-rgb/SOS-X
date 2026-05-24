@@ -9168,6 +9168,9 @@ async function ensureRequiredColumns() {
       -- (sea master multipieza o consolidación de varios envíos en una guía).
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS pqtx_shipment_id INTEGER;
       CREATE INDEX IF NOT EXISTS idx_packages_pqtx_shipment_id ON packages(pqtx_shipment_id);
+      -- 🚛 Vehículo y chofer que cargaron el paquete (registrado al escanear en LoadingVan)
+      ALTER TABLE packages ADD COLUMN IF NOT EXISTS loaded_vehicle_id INTEGER REFERENCES vehicles(id);
+      CREATE INDEX IF NOT EXISTS idx_packages_loaded_vehicle_id ON packages(loaded_vehicle_id);
 
       -- 🚛 Info de la ruta hacia destino (operador, placas, teléfono, empresa) para contenedores FCL
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_name TEXT;

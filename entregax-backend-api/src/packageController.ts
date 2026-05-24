@@ -879,6 +879,9 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
         let query = `
             SELECT p.*, u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
                    lc.full_name as legacy_name, lc.box_id as legacy_box_id,
+                   du.full_name as driver_full_name,
+                   v.economic_number as vehicle_economic_number,
+                   v.license_plates as vehicle_license_plates,
                    (
                        SELECT MAX(ph.created_at)
                          FROM package_history ph
@@ -889,6 +892,8 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
+            LEFT JOIN users du ON p.assigned_driver_id = du.id
+            LEFT JOIN vehicles v ON p.loaded_vehicle_id = v.id
             WHERE (p.is_master = true OR p.master_id IS NULL)
             AND (p.service_type = 'POBOX_USA' OR p.service_type = 'air' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
             -- 🩹 Anti-duplicado: si el tracking termina en "-NNNN" se trata
@@ -961,9 +966,12 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             statusDate: pkg.status_date || pkg.received_at || pkg.created_at,
             consolidationId: pkg.consolidation_id,
             supplierId: pkg.supplier_id,
-            client: pkg.user_id 
-                ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.user_box_id || 'N/A' } 
-                : pkg.legacy_name 
+            driverName: pkg.driver_full_name || null,
+            vehicleNumber: pkg.vehicle_economic_number || null,
+            vehiclePlates: pkg.vehicle_license_plates || null,
+            client: pkg.user_id
+                ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.user_box_id || 'N/A' }
+                : pkg.legacy_name
                     ? { id: 0, name: pkg.legacy_name, email: '', boxId: pkg.legacy_box_id || pkg.box_id || 'N/A', isLegacy: true }
                     : { id: 0, name: pkg.box_id ? `Casillero ${pkg.box_id}` : 'Sin Cliente', email: '', boxId: pkg.box_id || 'N/A' }
         }));
