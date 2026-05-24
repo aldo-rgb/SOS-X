@@ -150,7 +150,13 @@ export default function MyTicketsScreen({ navigation, route }: any) {
         body: JSON.stringify({ message: reply.trim() }),
       });
       if (!res.ok) throw new Error();
+      const json = await res.json();
       setReply('');
+      // Si se reabrió, actualizar estado local del ticket
+      if (json.reopened) {
+        setSelectedTicket(prev => prev ? { ...prev, status: 'escalated_human' } : prev);
+        await loadTickets();
+      }
       // Reload messages
       const res2 = await fetch(`${API_URL}/api/support/ticket/${selectedTicket.id}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -335,9 +341,8 @@ export default function MyTicketsScreen({ navigation, route }: any) {
               </ScrollView>
             )}
 
-            {/* Reply box — only if not resolved */}
-            {selectedTicket?.status !== 'resolved' && (
-              <View style={[styles.replyBox, { paddingBottom: insets.bottom + 10 }]}>
+            {/* Reply box — always visible; sends reopen if resolved */}
+            <View style={[styles.replyBox, { paddingBottom: insets.bottom + 10 }]}>
                 <TextInput
                   style={styles.replyInput}
                   placeholder="Escribe un mensaje..."
@@ -357,7 +362,6 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                   }
                 </TouchableOpacity>
               </View>
-            )}
           </View>
         </KeyboardAvoidingView>
       </Modal>
