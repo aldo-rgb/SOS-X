@@ -906,18 +906,6 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
         {/* Header de Usuario */}
         <View style={styles.userHeader}>
           <View style={styles.userRow}>
-            {user.profilePhotoUrl ? (
-              <Avatar.Image 
-                size={48} 
-                source={{ uri: user.profilePhotoUrl }}
-              />
-            ) : (
-              <Avatar.Text 
-                size={48} 
-                label={user.name?.charAt(0) || 'E'} 
-                style={{ backgroundColor: ORANGE }}
-              />
-            )}
             <View style={styles.userInfo}>
               <Text style={styles.greeting}>{getGreeting()}</Text>
               <Text style={styles.userName}>{user.name}</Text>
