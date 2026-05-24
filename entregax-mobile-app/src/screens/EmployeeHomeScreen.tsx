@@ -1302,13 +1302,12 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                   <Ionicons name="person-outline" size={24} color={ORANGE} />
                   <Text style={styles.quickActionText}>{t('advisorPanel.myProfile')}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.quickActionBtn}
-                  onPress={() => Alert.alert('📋', t('advisorPanel.reportsComingSoon'))
-                }
+                  onPress={() => navigation.navigate('MyTickets', { user, token })}
                 >
-                  <Ionicons name="document-text-outline" size={24} color={ORANGE} />
-                  <Text style={styles.quickActionText}>{t('advisorPanel.reports')}</Text>
+                  <Ionicons name="ticket-outline" size={24} color={ORANGE} />
+                  <Text style={styles.quickActionText}>Tickets</Text>
                 </TouchableOpacity>
               </View>
             </View>
