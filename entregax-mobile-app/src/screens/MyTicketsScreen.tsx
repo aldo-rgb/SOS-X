@@ -337,7 +337,7 @@ export default function MyTicketsScreen({ navigation, route }: any) {
 
             {/* Reply box — only if not resolved */}
             {selectedTicket?.status !== 'resolved' && (
-              <View style={styles.replyBox}>
+              <View style={[styles.replyBox, { paddingBottom: insets.bottom + 10 }]}>
                 <TextInput
                   style={styles.replyInput}
                   placeholder="Escribe un mensaje..."
