@@ -752,7 +752,7 @@ export const getAdminTickets = async (req: Request, res: Response): Promise<any>
 
     const query = `
       SELECT t.*,
-             u.full_name, u.email, u.phone, u.box_id as client_box_id,
+             u.full_name, u.email, u.phone, u.box_id as client_box_id, u.role as creator_role,
              d.name as department_name, d.color as department_color, d.icon as department_icon,
              ag.full_name as assigned_agent_name,
              (SELECT COUNT(*) FROM ticket_messages WHERE ticket_id = t.id) as message_count,
