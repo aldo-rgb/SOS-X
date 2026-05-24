@@ -499,6 +499,21 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       [currentTicketId]
     );
 
+    // Si estaba resuelto y el usuario escribe → reabrirlo automáticamente
+    if (ticketCheck.rows[0].status === 'resolved') {
+      await pool.query(
+        "UPDATE support_tickets SET status = 'escalated_human', updated_at = NOW() WHERE id = $1",
+        [currentTicketId]
+      );
+      console.log(`🔄 Ticket ${ticketCheck.rows[0].ticket_folio} reabierto por mensaje del usuario`);
+      return res.json({
+        status: 'reopened',
+        ticketId: currentTicketId,
+        ticketFolio: ticketCheck.rows[0].ticket_folio,
+        message: 'Tu ticket fue reabierto. Un agente te atenderá pronto.'
+      });
+    }
+
     // Si ya está asignado a humano, no interviene la IA
     if (ticketCheck.rows[0].status === 'escalated_human') {
       await pool.query(
