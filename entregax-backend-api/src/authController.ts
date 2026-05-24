@@ -1051,17 +1051,24 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             `
         );
 
-        // Totales históricos por tipo de servicio
+        // Totales históricos: base del sistema anterior + conteo actual del sistema nuevo
+        const BASE_USA          = 28901;
+        const BASE_TDI          = 65591;
+        const BASE_DHL          = 31100;
+        const BASE_TDI_EXPRESS  = 1661;
+        const BASE_MARITIMO     = 1736;
+        const BASE_CONTENEDORES = 226;
+
         const totalesResult = await pool.query(`
             SELECT
-              (SELECT COUNT(*)::int FROM packages
+              (${BASE_USA}          + (SELECT COUNT(*)::int FROM packages
                WHERE service_type = 'POBOX_USA'
-                  OR (service_type IS NULL AND tracking_internal LIKE 'US-%')) as usa,
-              (SELECT COUNT(*)::int FROM china_receipts) as tdi,
-              (SELECT COUNT(*)::int FROM packages WHERE service_type = 'AA_DHL') as dhl,
-              (SELECT COUNT(*)::int FROM packages WHERE air_source = 'tdi_express' AND is_master = true) as tdi_express,
-              (SELECT COUNT(*)::int FROM maritime_shipments) as maritimo,
-              (SELECT COUNT(*)::int FROM containers) as contenedores
+                  OR (service_type IS NULL AND tracking_internal LIKE 'US-%'))) as usa,
+              (${BASE_TDI}          + (SELECT COUNT(*)::int FROM china_receipts)) as tdi,
+              (${BASE_DHL}          + (SELECT COUNT(*)::int FROM packages WHERE service_type = 'AA_DHL')) as dhl,
+              (${BASE_TDI_EXPRESS}  + (SELECT COUNT(*)::int FROM packages WHERE air_source = 'tdi_express' AND is_master = true)) as tdi_express,
+              (${BASE_MARITIMO}     + (SELECT COUNT(*)::int FROM maritime_shipments)) as maritimo,
+              (${BASE_CONTENEDORES} + (SELECT COUNT(*)::int FROM containers)) as contenedores
         `);
         const tot = totalesResult.rows[0] || {};
 
