@@ -9,7 +9,7 @@ import { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { pool } from './db';
-import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
+import { uploadToS3, isS3Configured, getSignedUrlForKey, extractKeyFromUrl } from './s3Service';
 import { getEditableLegalDoc, ADVISOR_FALLBACK } from './hrController';
 
 // ---- Constantes legales MX ----
@@ -327,6 +327,27 @@ export const getEmployeeFullProfile = async (req: Request, res: Response): Promi
         return d;
       })
     );
+
+    // Sign raw S3 URL fields stored directly on the users row (bucket is private)
+    if (s3On) {
+      const USER_URL_FIELDS = [
+        'contract_pdf_url', 'ine_front_url', 'ine_back_url', 'rfc_url',
+        'curp_url', 'comprobante_domicilio_url', 'selfie_url', 'signature_url',
+        'driver_license_front_url', 'driver_license_back_url', 'privacy_signature_url',
+      ];
+      for (const field of USER_URL_FIELDS) {
+        if (user[field]) {
+          const key = extractKeyFromUrl(user[field]);
+          if (key) {
+            try {
+              user[field] = await getSignedUrlForKey(key, 3600);
+            } catch (err) {
+              console.error('[hr] signed url failed for user field', field, err);
+            }
+          }
+        }
+      }
+    }
 
     const payrollQ = await pool.query(
       `SELECT * FROM employee_payroll_info WHERE user_id = $1`, [userId]
