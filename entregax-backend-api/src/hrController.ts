@@ -529,7 +529,10 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
           ELSE NULL 
         END AS profile_photo_url,
         u.privacy_accepted_at,
-        CASE WHEN u.privacy_signature_url IS NOT NULL THEN TRUE ELSE FALSE END AS has_privacy_signature
+        CASE WHEN u.privacy_signature_url IS NOT NULL THEN TRUE ELSE FALSE END AS has_privacy_signature,
+        CASE WHEN u.ine_front_url IS NOT NULL AND u.ine_front_url <> '' THEN TRUE ELSE FALSE END AS has_ine_front_url,
+        CASE WHEN u.ine_back_url IS NOT NULL AND u.ine_back_url <> '' THEN TRUE ELSE FALSE END AS has_ine_back_url,
+        CASE WHEN u.contract_pdf_url IS NOT NULL AND u.contract_pdf_url <> '' THEN TRUE ELSE FALSE END AS has_contract_url
       FROM users u
       WHERE u.role IN ('warehouse_ops', 'counter_staff', 'repartidor', 'customer_service', 'soporte_tecnico', 'branch_manager', 'monitoreo', 'accountant', 'contador', 'operaciones', 'director', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor')
         ${showInactive ? '' : 'AND COALESCE(u.is_active, TRUE) = TRUE AND COALESCE(u.is_blocked, FALSE) = FALSE'}
@@ -614,9 +617,9 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
         // ASESORES: reglas más cortas (sin IMSS, sin contacto emergencia)
         if (!isFilled(e.phone)) missing.push('Teléfono');
         if (!isFilled(e.full_name)) missing.push('Nombre completo');
-        if (!docs.has('ine_front')) missing.push('INE Anverso');
-        if (!docs.has('ine_back')) missing.push('INE Reverso');
-        if (!docs.has('contract')) {
+        if (!docs.has('ine_front') && !e.has_ine_front_url) missing.push('INE Anverso');
+        if (!docs.has('ine_back') && !e.has_ine_back_url) missing.push('INE Reverso');
+        if (!docs.has('contract') && !e.has_contract_url) {
           // Si firmó privacy notice, el contrato se puede auto-generar
           missing.push(e.has_privacy_signature
             ? 'Contrato firmado (generar PDF)'
@@ -646,9 +649,9 @@ export const getEmployeesWithAttendance = async (req: Request, res: Response): P
       if (!isFilled(e.emergency_contact)) missing.push('Contacto de emergencia');
 
       // Documentos siempre obligatorios
-      if (!docs.has('ine_front')) missing.push('INE Anverso');
-      if (!docs.has('ine_back')) missing.push('INE Reverso');
-      if (!docs.has('contract')) missing.push('Contrato laboral');
+      if (!docs.has('ine_front') && !e.has_ine_front_url) missing.push('INE Anverso');
+      if (!docs.has('ine_back') && !e.has_ine_back_url) missing.push('INE Reverso');
+      if (!docs.has('contract') && !e.has_contract_url) missing.push('Contrato laboral');
       if (!docs.has('comprobante_domicilio')) missing.push('Comprobante de domicilio');
 
       // Si está dado de alta en IMSS: NSS + Aviso de alta
