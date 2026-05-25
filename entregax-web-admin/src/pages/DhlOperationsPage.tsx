@@ -60,9 +60,14 @@ import {
   ManageAccounts as ManageAccountsIcon,
   Edit as EditIcon,
   Delete as DeleteIcon,
+  QrCode2 as _QrCode2Icon,
+  Print as PrintIcon,
+  AutoAwesome as AutoAwesomeIcon,
 } from '@mui/icons-material';
 import DhlReceptionWizard from './DhlReceptionWizard';
 import axios from 'axios';
+import QRCode from 'react-qr-code';
+import JsBarcode from 'jsbarcode';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -147,8 +152,6 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
   const [pinMgmtDialog, setPinMgmtDialog] = useState(false);
   const [supervisorList, setSupervisorList] = useState<{ id: number; full_name: string; email: string; role: string; supervisor_pin: string | null }[]>([]);
   const [loadingSupervisors, setLoadingSupervisors] = useState(false);
-  const [editingPinUserId, setEditingPinUserId] = useState<number | null>(null);
-  const [editingPinValue, setEditingPinValue] = useState('');
   const [savingPin, setSavingPin] = useState(false);
   const [pinMgmtError, setPinMgmtError] = useState('');
   const [pinMgmtSuccess, setPinMgmtSuccess] = useState('');
@@ -287,35 +290,144 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
     setPinMgmtDialog(true);
     setPinMgmtError('');
     setPinMgmtSuccess('');
-    setEditingPinUserId(null);
-    setEditingPinValue('');
     loadSupervisors();
   };
 
-  const handleSavePin = async (userId: number) => {
-    if (!editingPinValue || editingPinValue.length < 4) {
-      setPinMgmtError('El PIN debe tener al menos 4 dígitos');
-      return;
-    }
+  // Genera un codigo aleatorio largo (cifrado) en backend y lo guarda
+  const handleGenerateQrCode = async (userId: number) => {
+    const sup = supervisorList.find(s => s.id === userId);
+    const msg = sup?.supervisor_pin
+      ? 'Se RESTAURARA el codigo de este supervisor. El codigo actual dejara de funcionar y se imprimira una nueva etiqueta. Continuar?'
+      : 'Se generara un nuevo codigo QR cifrado para este supervisor y se imprimira la etiqueta. Continuar?';
+    if (!window.confirm(msg)) return;
     setSavingPin(true);
     setPinMgmtError('');
     setPinMgmtSuccess('');
     try {
       const token = localStorage.getItem('token');
-      await axios.put(`${API_URL}/api/warehouse/admin-set-supervisor-pin`, {
-        target_user_id: userId,
-        new_pin: editingPinValue,
-      }, { headers: { Authorization: `Bearer ${token}` } });
-      setPinMgmtSuccess('PIN actualizado correctamente');
-      setEditingPinUserId(null);
-      setEditingPinValue('');
-      loadSupervisors();
+      const res = await axios.post(`${API_URL}/api/warehouse/admin-generate-supervisor-pin`,
+        { target_user_id: userId },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setPinMgmtSuccess('Codigo QR generado. Ya puedes imprimir la etiqueta.');
+      await loadSupervisors();
+      // Imprimir automaticamente con los datos retornados
+      const sup = supervisorList.find(s => s.id === userId);
+      printSupervisorLabel({
+        full_name: res.data?.user?.full_name || sup?.full_name || '',
+        email: res.data?.user?.email || sup?.email || '',
+        code: res.data?.supervisor_pin,
+      });
     } catch (err: any) {
-      setPinMgmtError(err?.response?.data?.error || 'Error al guardar PIN');
+      setPinMgmtError(err?.response?.data?.error || 'Error al generar codigo');
     } finally {
       setSavingPin(false);
     }
   };
+
+  // Imprime etiqueta 4" x 2" (101.6 x 50.8 mm) con QR + Code128 + nombre del supervisor
+  const printSupervisorLabel = (sup: { full_name: string; email: string; code: string }) => {
+    if (!sup.code) {
+      setPinMgmtError('Este supervisor no tiene codigo asignado. Genera uno primero.');
+      return;
+    }
+    // 1) Generar SVG del codigo de barras con JsBarcode
+    let barcodeSvg = '';
+    try {
+      const tmpSvg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      JsBarcode(tmpSvg, sup.code, {
+        format: 'CODE128',
+        displayValue: false,
+        margin: 0,
+        height: 60,
+        width: 1.4,
+      });
+      barcodeSvg = new XMLSerializer().serializeToString(tmpSvg);
+    } catch (err) {
+      console.error('Error generando barcode:', err);
+      setPinMgmtError('Error al generar codigo de barras');
+      return;
+    }
+
+    // 2) Generar SVG del QR usando un nodo offscreen con react-qr-code
+    //    Como react-qr-code requiere ReactDOM render, lo hacemos via QR estatico usando data URL.
+    //    Alternativa: usar la libreria 'qrcode' o construir el QR con un canvas/svg helper.
+    //    Aqui usamos un truco: renderizamos react-qr-code en un contenedor temporal y serializamos.
+    const qrContainer = document.createElement('div');
+    qrContainer.style.position = 'fixed';
+    qrContainer.style.left = '-9999px';
+    document.body.appendChild(qrContainer);
+
+    // Usar createRoot dinamicamente
+    import('react-dom/client').then(({ createRoot }) => {
+      const root = createRoot(qrContainer);
+      root.render(
+        <QRCode value={sup.code} size={256} level="M" />
+      );
+      // esperar un tick para que renderice
+      setTimeout(() => {
+        const qrSvgEl = qrContainer.querySelector('svg');
+        const qrSvg = qrSvgEl ? new XMLSerializer().serializeToString(qrSvgEl) : '';
+        root.unmount();
+        qrContainer.remove();
+
+        // 3) Abrir ventana de impresion
+        const win = window.open('', '_blank', 'width=420,height=240');
+        if (!win) {
+          setPinMgmtError('No se pudo abrir la ventana de impresion (popup bloqueado)');
+          return;
+        }
+        // Etiqueta 4" x 2" (101.6mm x 50.8mm)
+        win.document.write(`<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>PIN Supervisor - ${sup.full_name}</title>
+<style>
+  @page { size: 101.6mm 50.8mm; margin: 0; }
+  html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .label { width: 101.6mm; height: 50.8mm; box-sizing: border-box; padding: 3mm 4mm; display: flex; gap: 3mm; align-items: center; }
+  .qr { width: 38mm; height: 38mm; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .qr svg { width: 100%; height: 100%; }
+  .right { flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
+  .title { font-size: 9pt; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 1mm; color: #D40511; }
+  .name { font-size: 11pt; font-weight: bold; line-height: 1.1; margin-bottom: 1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .email { font-size: 7pt; color: #555; margin-bottom: 1.5mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .barcode { width: 100%; height: 11mm; }
+  .barcode svg { width: 100%; height: 100%; }
+  .code { font-family: 'Courier New', monospace; font-size: 6pt; text-align: center; margin-top: 0.5mm; letter-spacing: 0.3px; word-break: break-all; }
+</style>
+</head>
+<body>
+  <div class="label">
+    <div class="qr">${qrSvg}</div>
+    <div class="right">
+      <div class="title">PIN SUPERVISOR</div>
+      <div class="name">${escapeHtml(sup.full_name)}</div>
+      <div class="email">${escapeHtml(sup.email)}</div>
+      <div class="barcode">${barcodeSvg}</div>
+      <div class="code">${escapeHtml(sup.code)}</div>
+    </div>
+  </div>
+  <script>
+    window.onload = function() { setTimeout(function(){ window.print(); }, 200); };
+  </script>
+</body>
+</html>`);
+        win.document.close();
+      }, 50);
+    }).catch((e) => {
+      console.error(e);
+      qrContainer.remove();
+      setPinMgmtError('Error renderizando QR');
+    });
+  };
+
+  // Util para evitar XSS al inyectar texto en el HTML de impresion
+  const escapeHtml = (s: string) => String(s || '').replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  } as Record<string, string>)[c] as string);
+
 
   // ===== HANDLERS =====
   // Nota: handleReceivePackage fue reemplazado por DhlReceptionWizard
@@ -783,8 +895,7 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
                   <TableCell><strong>Nombre</strong></TableCell>
                   <TableCell><strong>Rol</strong></TableCell>
                   <TableCell><strong>PIN actual</strong></TableCell>
-                  <TableCell><strong>Nuevo PIN</strong></TableCell>
-                  <TableCell />
+                  <TableCell align="right"><strong>Acciones</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -802,37 +913,32 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
                         {sup.supervisor_pin ? '••••' : <em style={{ color: '#999' }}>Sin PIN</em>}
                       </Typography>
                     </TableCell>
-                    <TableCell>
-                      {editingPinUserId === sup.id ? (
-                        <TextField
-                          size="small"
-                          value={editingPinValue}
-                          onChange={(e) => setEditingPinValue(e.target.value.replace(/\D/g, ''))}
-                          onKeyDown={(e) => e.key === 'Enter' && handleSavePin(sup.id)}
-                          placeholder="Nuevo PIN"
-                          inputProps={{ maxLength: 8, style: { fontFamily: 'monospace' } }}
-                          sx={{ width: 120 }}
-                          autoFocus
-                        />
-                      ) : (
+                    <TableCell align="right">
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'flex-end' }}>
                         <Button
                           size="small"
-                          startIcon={<EditIcon />}
-                          onClick={() => { setEditingPinUserId(sup.id); setEditingPinValue(''); setPinMgmtError(''); setPinMgmtSuccess(''); }}
+                          variant="outlined"
+                          color="primary"
+                          startIcon={<AutoAwesomeIcon />}
+                          disabled={savingPin}
+                          onClick={() => handleGenerateQrCode(sup.id)}
                         >
-                          Cambiar
+                          {sup.supervisor_pin ? 'Restaurar' : 'Generar'}
                         </Button>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      {editingPinUserId === sup.id && (
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <Button size="small" variant="contained" color="success" disabled={savingPin} onClick={() => handleSavePin(sup.id)}>
-                            {savingPin ? <CircularProgress size={14} /> : 'Guardar'}
-                          </Button>
-                          <Button size="small" onClick={() => setEditingPinUserId(null)}>✕</Button>
-                        </Box>
-                      )}
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          startIcon={<PrintIcon />}
+                          disabled={!sup.supervisor_pin || savingPin}
+                          onClick={() => printSupervisorLabel({
+                            full_name: sup.full_name,
+                            email: sup.email,
+                            code: sup.supervisor_pin || '',
+                          })}
+                        >
+                          Imprimir
+                        </Button>
+                      </Box>
                     </TableCell>
                   </TableRow>
                 ))}

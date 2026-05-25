@@ -1835,6 +1835,8 @@ export const adminSetSupervisorPin = async (req: AuthRequest, res: Response): Pr
             res.status(400).json({ error: 'Se requiere target_user_id y un PIN de al menos 4 dígitos' });
             return;
         }
+        // Auto-migracion: ampliar columna para soportar codigos largos (QR)
+        await pool.query(`ALTER TABLE users ALTER COLUMN supervisor_pin TYPE VARCHAR(128)`).catch(() => { /* no-op si ya es 128 */ });
         // Verificar que no esté duplicado
         const dup = await pool.query(
             'SELECT id FROM users WHERE supervisor_pin = $1 AND id != $2',
@@ -1849,6 +1851,99 @@ export const adminSetSupervisorPin = async (req: AuthRequest, res: Response): Pr
     } catch (error) {
         console.error('Error asignando PIN:', error);
         res.status(500).json({ error: 'Error al asignar PIN' });
+    }
+};
+
+// POST /api/warehouse/admin-generate-supervisor-pin - Admin genera codigo aleatorio largo (para QR)
+export const adminGenerateSupervisorPin = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const requesterId = req.user?.userId;
+        const roleResult = await pool.query('SELECT role FROM users WHERE id = $1', [requesterId]);
+        const role = roleResult.rows[0]?.role;
+        if (!['super_admin', 'admin'].includes(role)) {
+            res.status(403).json({ error: 'Sin permisos' });
+            return;
+        }
+        const { target_user_id } = req.body;
+        if (!target_user_id) {
+            res.status(400).json({ error: 'Se requiere target_user_id' });
+            return;
+        }
+        // Auto-migracion: ampliar columna para soportar codigos largos
+        await pool.query(`ALTER TABLE users ALTER COLUMN supervisor_pin TYPE VARCHAR(128)`).catch(() => { /* no-op si ya es 128 */ });
+
+        const crypto = await import('crypto');
+        // Genera un codigo de 32 caracteres alfanumericos en mayusculas
+        // (formato amigable para barcode CODE128 y QR), con prefijo SPV-
+        const generate = () => {
+            const buf = crypto.randomBytes(64);
+            const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin caracteres confusos (0/O/1/I)
+            let s = '';
+            for (let i = 0; i < 28; i++) s += alphabet[buf[i]! % alphabet.length];
+            return `SPV-${s.slice(0, 8)}-${s.slice(8, 16)}-${s.slice(16, 24)}`;
+        };
+
+        // Reintentar hasta 5 veces si hay colision
+        let newCode = '';
+        for (let i = 0; i < 5; i++) {
+            const candidate = generate();
+            const dup = await pool.query(
+                'SELECT id FROM users WHERE supervisor_pin = $1 AND id != $2',
+                [candidate, target_user_id]
+            );
+            if (dup.rows.length === 0) { newCode = candidate; break; }
+        }
+        if (!newCode) {
+            res.status(500).json({ error: 'No se pudo generar codigo unico' });
+            return;
+        }
+
+        const updated = await pool.query(
+            'UPDATE users SET supervisor_pin = $1 WHERE id = $2 RETURNING id, full_name, email, supervisor_pin',
+            [newCode, target_user_id]
+        );
+        if (updated.rows.length === 0) {
+            res.status(404).json({ error: 'Usuario no encontrado' });
+            return;
+        }
+        res.json({ success: true, supervisor_pin: newCode, user: updated.rows[0] });
+    } catch (error) {
+        console.error('Error generando PIN:', error);
+        res.status(500).json({ error: 'Error al generar PIN' });
+    }
+};
+
+// GET /api/warehouse/my-supervisor-pin - Usuario autenticado consulta su propio codigo (para mostrar QR)
+export const getMySupervisorPin = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const userId = req.user?.userId;
+        if (!userId) {
+            res.status(401).json({ error: 'No autenticado' });
+            return;
+        }
+        const result = await pool.query(
+            `SELECT id, full_name, email, role, supervisor_pin
+             FROM users
+             WHERE id = $1
+               AND role IN ('super_admin','admin','director','gerente_sucursal','branch_manager')`,
+            [userId]
+        );
+        if (result.rows.length === 0) {
+            res.status(403).json({ error: 'No tienes permisos para PIN de supervisor' });
+            return;
+        }
+        const u = result.rows[0];
+        res.json({
+            id: u.id,
+            full_name: u.full_name,
+            email: u.email,
+            role: u.role,
+            supervisor_pin: u.supervisor_pin || null,
+            has_supervisor_pin: !!u.supervisor_pin,
+        });
+    } catch (error) {
+        console.error('Error obteniendo PIN propio:', error);
+        res.status(500).json({ error: 'Error al obtener PIN' });
     }
 };
 

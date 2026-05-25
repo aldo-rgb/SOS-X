@@ -25,6 +25,7 @@ import {
 } from 'react-native-paper';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
+import QRCode from 'react-native-qrcode-svg';
 import { API_URL } from '../services/api';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import { useTranslation } from 'react-i18next';
@@ -37,7 +38,7 @@ const SUPERVISOR_ROLES = ['super_admin', 'admin', 'director', 'gerente_sucursal'
 
 type RootStackParamList = {
   Home: { user: any; token: string };
-  MyProfile: { user: any; token: string };
+  MyProfile: { user: any; token: string; openQr?: boolean };
   Verification: { user: any; token: string };
   EmployeeOnboarding: { user: any; token: string };
   DeleteAccount: { user: any; token: string };
@@ -90,13 +91,12 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     (initialUser as any).phoneVerified === true || (initialUser as any).phone_verified === true
   );
 
-  // Estados para PIN de supervisor
+  // Estados para PIN de supervisor (solo lectura, codigo asignado por admin)
   const [showPinModal, setShowPinModal] = useState(false);
-  const [currentPin, setCurrentPin] = useState('');
-  const [newPin, setNewPin] = useState('');
-  const [confirmPin, setConfirmPin] = useState('');
-  const [savingPin, setSavingPin] = useState(false);
   const [hasSupervisorPin, setHasSupervisorPin] = useState(user.has_supervisor_pin || false);
+  // QR del PIN (codigo cifrado largo asignado por admin)
+  const [supervisorPinCode, setSupervisorPinCode] = useState<string | null>(null);
+  const [loadingPinCode, setLoadingPinCode] = useState(false);
 
   // 🧾 Estados para datos fiscales
   const [showFiscalModal, setShowFiscalModal] = useState(false);
@@ -191,6 +191,14 @@ export default function MyProfileScreen({ navigation, route }: Props) {
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.phone_verified != null) setIsPhoneVerified(data.phone_verified === true); })
       .catch(() => {});
+  }, []);
+
+  // Auto-abrir QR de supervisor si se navega con openQr=true
+  useEffect(() => {
+    if ((route.params as any)?.openQr && canHaveSupervisorPin) {
+      openSupervisorQr();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const fetchGexAutoConfig = async () => {
@@ -557,53 +565,25 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     }
   };
 
-  // Cambiar PIN de supervisor
-  const handleChangeSupervisorPin = async () => {
-    if (!newPin || newPin.length < 4) {
-      Alert.alert('Error', 'El PIN debe tener al menos 4 dígitos');
-      return;
-    }
-
-    if (newPin !== confirmPin) {
-      Alert.alert('Error', 'Los PINs no coinciden');
-      return;
-    }
-
-    if (hasSupervisorPin && !currentPin) {
-      Alert.alert('Error', 'Ingresa tu PIN actual');
-      return;
-    }
-
-    setSavingPin(true);
+  // Abrir QR del PIN de supervisor (lo asigna el administrador, solo lectura)
+  const openSupervisorQr = async () => {
+    setShowPinModal(true);
+    setLoadingPinCode(true);
     try {
-      const response = await fetch(`${API_URL}/api/warehouse/update-supervisor-pin`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          current_pin: currentPin || null,
-          new_pin: newPin,
-        }),
+      const response = await fetch(`${API_URL}/api/warehouse/my-supervisor-pin`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-
       const data = await response.json();
-
       if (response.ok) {
-        Alert.alert('✅ Éxito', 'PIN de supervisor actualizado correctamente');
-        setShowPinModal(false);
-        setCurrentPin('');
-        setNewPin('');
-        setConfirmPin('');
-        setHasSupervisorPin(true);
+        setSupervisorPinCode(data.supervisor_pin || null);
+        setHasSupervisorPin(!!data.supervisor_pin);
       } else {
-        Alert.alert('Error', data.error || 'No se pudo actualizar el PIN');
+        setSupervisorPinCode(null);
       }
     } catch (error) {
-      Alert.alert('Error', 'Error de conexión');
+      setSupervisorPinCode(null);
     } finally {
-      setSavingPin(false);
+      setLoadingPinCode(false);
     }
   };
 
@@ -1076,20 +1056,15 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 <Divider style={styles.divider} />
                 <TouchableOpacity
                   style={styles.menuItem}
-                  onPress={() => {
-                    setCurrentPin('');
-                    setNewPin('');
-                    setConfirmPin('');
-                    setShowPinModal(true);
-                  }}
+                  onPress={openSupervisorQr}
                 >
-                  <Ionicons name="keypad-outline" size={24} color={ORANGE} />
+                  <Ionicons name="qr-code-outline" size={24} color={ORANGE} />
                   <View style={styles.menuItemContent}>
                     <Text style={styles.menuItemTitle}>🔐 PIN de Supervisor</Text>
                     <Text style={styles.menuItemSubtitle}>
-                      {hasSupervisorPin 
-                        ? 'Cambiar tu PIN de autorización' 
-                        : 'Configurar PIN para autorizar operaciones'}
+                      {hasSupervisorPin
+                        ? 'Ver mi código QR de autorización'
+                        : 'Solicita a tu administrador que te genere uno'}
                     </Text>
                   </View>
                   <Ionicons name="chevron-forward" size={20} color="#999" />
@@ -1242,7 +1217,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 <View style={styles.menuItem}>
                   <Ionicons name="home-outline" size={22} color="#555" />
                   <View style={styles.menuItemContent}>
-                    <Text style={styles.menuItemTitle}>PO Box / Suite</Text>
+                    <Text style={styles.menuItemTitle}>eeePO Box / Suite</Text>
                   </View>
                   <Switch
                     value={notifPrefs.pobox}
@@ -1617,58 +1592,40 @@ export default function MyProfileScreen({ navigation, route }: Props) {
 
             <View style={styles.modalForm}>
               <Text style={styles.helperText}>
-                Este PIN te permite autorizar operaciones especiales como recepción de guías DHL. Cada autorización queda registrada con tu nombre.
+                Muestra este código QR al lector del CEDIS para autorizar operaciones especiales (recepción de guías DHL, etc.). Cada uso queda registrado con tu nombre.
               </Text>
 
-              {hasSupervisorPin && (
+              {loadingPinCode ? (
+                <View style={{ alignItems: 'center', padding: 24 }}>
+                  <ActivityIndicator color={ORANGE} />
+                </View>
+              ) : supervisorPinCode ? (
                 <>
-                  <Text style={styles.inputLabel}>PIN Actual</Text>
-                  <TextInput
-                    style={styles.inputFull}
-                    placeholder="Tu PIN actual"
-                    value={currentPin}
-                    onChangeText={setCurrentPin}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    secureTextEntry
-                  />
+                  <View style={{ alignItems: 'center', padding: 16, backgroundColor: '#fff', borderRadius: 12, marginVertical: 12 }}>
+                    <QRCode value={supervisorPinCode} size={240} />
+                  </View>
+                  <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', fontSize: 12, textAlign: 'center', color: '#444', marginTop: 4 }}>
+                    {supervisorPinCode}
+                  </Text>
+                  <Text style={{ fontSize: 11, color: '#888', textAlign: 'center', marginTop: 6 }}>
+                    No compartas este código. Si lo pierdes, solicita uno nuevo a tu administrador.
+                  </Text>
                 </>
+              ) : (
+                <View style={{ alignItems: 'center', padding: 24 }}>
+                  <Ionicons name="alert-circle-outline" size={48} color="#999" />
+                  <Text style={{ textAlign: 'center', color: '#666', marginTop: 12, fontSize: 14 }}>
+                    Aún no tienes un código de supervisor asignado.{'\n'}
+                    Solicita a tu administrador que te lo genere.
+                  </Text>
+                </View>
               )}
 
-              <Text style={styles.inputLabel}>Nuevo PIN (mínimo 4 dígitos)</Text>
-              <TextInput
-                style={styles.inputFull}
-                placeholder="Ej: 1234"
-                value={newPin}
-                onChangeText={setNewPin}
-                keyboardType="number-pad"
-                maxLength={6}
-                secureTextEntry
-              />
-
-              <Text style={styles.inputLabel}>Confirmar Nuevo PIN</Text>
-              <TextInput
-                style={styles.inputFull}
-                placeholder="Repite el nuevo PIN"
-                value={confirmPin}
-                onChangeText={setConfirmPin}
-                keyboardType="number-pad"
-                maxLength={6}
-                secureTextEntry
-              />
-
               <TouchableOpacity
-                style={[styles.saveButton, savingPin && styles.saveButtonDisabled, { backgroundColor: ORANGE }]}
-                onPress={handleChangeSupervisorPin}
-                disabled={savingPin}
+                style={[styles.saveButton, { backgroundColor: ORANGE, marginTop: 16 }]}
+                onPress={() => setShowPinModal(false)}
               >
-                {savingPin ? (
-                  <ActivityIndicator color="white" />
-                ) : (
-                  <Text style={styles.saveButtonText}>
-                    {hasSupervisorPin ? 'Cambiar PIN' : 'Crear PIN'}
-                  </Text>
-                )}
+                <Text style={styles.saveButtonText}>Cerrar</Text>
               </TouchableOpacity>
             </View>
           </View>

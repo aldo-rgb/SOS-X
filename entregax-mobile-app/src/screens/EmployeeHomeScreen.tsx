@@ -1297,10 +1297,10 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={styles.quickActionBtn}
-                  onPress={() => navigation.navigate('MyProfile', { user, token })}
+                  onPress={() => navigation.navigate('MyProfile', { user, token, openQr: true } as any)}
                 >
-                  <Ionicons name="person-outline" size={24} color={ORANGE} />
-                  <Text style={styles.quickActionText}>{t('advisorPanel.myProfile')}</Text>
+                  <Ionicons name="qr-code-outline" size={24} color={ORANGE} />
+                  <Text style={styles.quickActionText}>Mi QR</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.quickActionBtn}

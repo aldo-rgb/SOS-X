@@ -122,6 +122,18 @@
       "googleAndroidClientId": "195261632917-ou8b8i8ojui8d2rojdd2ammf3v1p68um.apps.googleusercontent.com",
       "googleWebClientId": "195261632917-6423vo6huqh0p5dd6itj5igs53sdqlfi.apps.googleusercontent.com"
     },
+    "updates": {
+      "enabled": true,
+      "url": "https://u.expo.dev/b6043c48-2360-4a21-afa7-3ea091d6c74c",
+      "fallbackToCacheTimeout": 0,
+      "checkAutomatically": "ON_LOAD",
+      "requestHeaders": {
+        "expo-channel-name": "production"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "owner": "aldozaia"
   }
 }
