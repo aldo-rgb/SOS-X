@@ -4,30 +4,27 @@
 // Wizard réplica del de "Recibir Paquetería en Serie" de PO Box:
 // formulario persistente + cantidad + copiar anterior + lista con eliminar.
 // ============================================
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  Box, Paper, Typography, Button, IconButton, Stack, Chip,
+  Box, Paper, Typography, Button, IconButton, Stack, Chip, Divider,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   TextField, MenuItem, Dialog, DialogTitle, DialogContent, DialogActions,
   Stepper, Step, StepLabel, CircularProgress, Alert, Grid, Card, CardContent,
-  List, ListItem, ListItemText, ListItemIcon, LinearProgress,
+  List, ListItem, ListItemText, ListItemIcon,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
   Flight as FlightIcon,
   Refresh as RefreshIcon,
   AddBox as AddBoxIcon,
+  Add as AddIcon,
   Inventory2 as InventoryIcon,
   CheckCircle as CheckIcon,
   Delete as DeleteIcon,
+  ContentCopy as CopyIcon,
   Print as PrintIcon,
   Edit as EditIcon,
-  QrCodeScanner as QrCodeScannerIcon,
-  Scale as ScaleIcon,
-  Straighten as StraightenIcon,
-  ArrowForward as ArrowForwardIcon,
-  KeyboardReturn as KeyboardReturnIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -106,11 +103,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [box, setBox] = useState({ ...emptyBox });
   const [quantity, setQuantity] = useState('1');
   const [busy, setBusy] = useState(false);
-  // Scanner sub-step: 0=Guía larga, 1=Guía corta, 2=Peso y medidas
-  const [scanStage, setScanStage] = useState<0 | 1 | 2>(0);
-  const guideLargeRef = useRef<HTMLInputElement>(null);
-  const guideShortRef = useRef<HTMLInputElement>(null);
-  const gwRef = useRef<HTMLInputElement>(null);
   // Editar número de cliente de un envío
   const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string }>(
     { open: false, id: null, value: '', productType: '' }
@@ -138,14 +130,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   }, [search, statusFilter]);
 
   useEffect(() => { loadAll(); }, [loadAll]);
-
-  // Auto-focus del input activo según el sub-paso del escáner
-  useEffect(() => {
-    if (!wizardOpen || step !== 1) return;
-    const refs = [guideLargeRef, guideShortRef, gwRef];
-    const t = setTimeout(() => refs[scanStage]?.current?.focus(), 80);
-    return () => clearTimeout(t);
-  }, [scanStage, step, wizardOpen, captured.length]);
 
   // Fecha y hora en horario de China (Guangzhou / Asia/Shanghai)
   const fmtChina = (s: string | null) => {
@@ -176,7 +160,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     setCaptured([]);
     setBox({ ...emptyBox });
     setQuantity('1');
-    setScanStage(0);
     setSnack(null);
     setWizardOpen(true);
   };
@@ -203,7 +186,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       setTotalBoxes(r.data.totalBoxes);
       setBox({ ...emptyBox, clientNumber: clientBoxId.trim() });
       setCaptured([]);
-      setScanStage(0);
       setStep(1);
     } catch (e: any) {
       setSnack({ sev: 'error', msg: e?.response?.data?.error || 'Error' });
@@ -248,7 +230,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       // Conservar cliente para la siguiente caja; limpiar guías y medidas
       setBox({ ...emptyBox, clientNumber: box.clientNumber });
       setQuantity('1');
-      setScanStage(0);
       setSnack(null);
     } catch (e: any) {
       setSnack({ sev: 'error', msg: e?.response?.data?.error || 'Error' });
@@ -268,6 +249,19 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const copyPrevious = () => {
+    const last = captured[captured.length - 1];
+    if (!last) return;
+    setBox((p) => ({
+      ...p,
+      grossWeight: last.weight != null ? String(last.weight) : '',
+      chargeableWeight: last.air_chargeable_weight != null ? String(last.air_chargeable_weight) : '',
+      length: last.pkg_length != null ? String(last.pkg_length) : '',
+      width: last.pkg_width != null ? String(last.pkg_width) : '',
+      height: last.pkg_height != null ? String(last.pkg_height) : '',
+    }));
   };
 
   const finishWizard = () => {
@@ -391,6 +385,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
 
   const STATUSES = ['received_china', 'in_transit', 'received_mty', 'dispatched_national', 'delivered'];
   const remaining = Math.max(0, totalBoxes - captured.length);
+  const qtyNum = Math.max(1, parseInt(quantity, 10) || 1);
 
   return (
     <Box sx={{ p: 3, maxWidth: 1300, mx: 'auto' }}>
@@ -521,256 +516,134 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
             </Stack>
           )}
 
-          {/* Paso 2 — Escáner: guía larga → guía corta → peso/medidas */}
-          {step === 1 && (() => {
-            const currentBoxNumber = captured.length + 1;
-            const progressPct = totalBoxes > 0 ? Math.min(100, (captured.length / totalBoxes) * 100) : 0;
-            const stageTitles = ['Escanear guía larga', 'Escanear guía corta', 'Peso y medidas'];
-            const stageIcons = [
-              <QrCodeScannerIcon key="0" sx={{ fontSize: 28 }} />,
-              <QrCodeScannerIcon key="1" sx={{ fontSize: 28 }} />,
-              <ScaleIcon key="2" sx={{ fontSize: 28 }} />,
-            ];
-            const canSaveBox =
-              box.originGuide.trim() !== '' &&
-              box.originGuide2.trim() !== '' &&
-              !!box.grossWeight && Number(box.grossWeight) > 0;
+          {/* Paso 2 — formulario persistente + lista de cajas */}
+          {step === 1 && (
+            <Stack spacing={2}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <InventoryIcon sx={{ color: ORANGE }} /> {t('tdiExpress.wizard.step2')}
+                </Typography>
+                <Chip size="small" color={captured.length >= totalBoxes ? 'success' : 'warning'}
+                  label={`${captured.length} / ${totalBoxes}`} />
+              </Box>
 
-            return (
-              <Stack spacing={2.5}>
-                {/* Encabezado con progreso global */}
-                <Card elevation={0} sx={{ p: 2, borderRadius: 3, border: '1px solid #E5E7EB', background: `linear-gradient(135deg, ${BLACK} 0%, #2A2A2A 100%)`, color: '#FFF' }}>
-                  <Stack direction="row" alignItems="center" spacing={2}>
-                    <Box sx={{ width: 56, height: 56, borderRadius: '50%', bgcolor: ORANGE, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: 22 }}>
-                      {currentBoxNumber > totalBoxes ? <CheckIcon /> : currentBoxNumber}
-                    </Box>
-                    <Box sx={{ flex: 1 }}>
-                      <Typography variant="overline" sx={{ color: '#BDBDBD', letterSpacing: 1.2 }}>
-                        Cliente {clientBoxId || '—'}
-                      </Typography>
-                      <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.1 }}>
-                        Caja {Math.min(currentBoxNumber, totalBoxes)} de {totalBoxes}
-                      </Typography>
-                      <LinearProgress
-                        variant="determinate"
-                        value={progressPct}
-                        sx={{
-                          mt: 1, height: 8, borderRadius: 99, bgcolor: 'rgba(255,255,255,0.15)',
-                          '& .MuiLinearProgress-bar': { bgcolor: ORANGE, borderRadius: 99 },
-                        }}
-                      />
-                    </Box>
-                    <Stack alignItems="flex-end" spacing={0.3}>
-                      <Chip size="small" label={`${captured.length} / ${totalBoxes}`}
-                        sx={{ bgcolor: '#FFFFFF', color: BLACK, fontWeight: 800 }} />
-                      <Typography variant="caption" sx={{ color: '#BDBDBD' }}>
-                        {remaining > 0 ? `Faltan ${remaining}` : 'Completo'}
-                      </Typography>
-                    </Stack>
-                  </Stack>
-                </Card>
+              {/* Formulario de caja */}
+              <Card elevation={0} sx={{ p: 2.5, borderRadius: 3, border: `2px dashed ${ORANGE}`, background: 'linear-gradient(180deg, #FFF8F5 0%, #FFFFFF 100%)' }}>
+                {/* Sección 1: GUÍAS Y CLIENTE */}
+                <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700 }}>1 · {t('tdiExpress.wizard.section1')}</Typography>
+                <Grid container spacing={1.5} sx={{ mt: 0.2, mb: 1 }}>
+                  <Grid size={{ xs: 12, sm: 5 }}>
+                    <TextField
+                      label="Guía larga (principal)"
+                      value={box.originGuide}
+                      onChange={(e) => setBox({ ...box, originGuide: e.target.value.toUpperCase() })}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget.closest('form,div')?.querySelector('[data-field="originGuide2"]') as HTMLInputElement | null)?.focus(); }}
+                      fullWidth size="small"
+                      placeholder="2LMX64000..."
+                      slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField
+                      label="Guía corta (secundaria)"
+                      value={box.originGuide2}
+                      onChange={(e) => setBox({ ...box, originGuide2: e.target.value.toUpperCase() })}
+                      inputProps={{ 'data-field': 'originGuide2' }}
+                      fullWidth size="small"
+                      placeholder="9650623485"
+                      slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 3 }}>
+                    <TextField label={t('tdiExpress.wizard.clientNumber')} value={box.clientNumber}
+                      onChange={(e) => setBox({ ...box, clientNumber: e.target.value.toUpperCase() })} fullWidth size="small" />
+                  </Grid>
+                </Grid>
 
-                {/* Sub-stepper (escáner) */}
-                <Stepper activeStep={scanStage} alternativeLabel sx={{
-                  '& .MuiStepIcon-root.Mui-active': { color: ORANGE },
-                  '& .MuiStepIcon-root.Mui-completed': { color: '#2E7D32' },
-                }}>
-                  <Step><StepLabel>Guía larga</StepLabel></Step>
-                  <Step><StepLabel>Guía corta</StepLabel></Step>
-                  <Step><StepLabel>Peso y medidas</StepLabel></Step>
-                </Stepper>
+                {/* Sección 2: PESO Y MEDIDAS + botones */}
+                <Divider sx={{ my: 1.5 }} />
+                <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700 }}>2 · {t('tdiExpress.wizard.section2')}</Typography>
+                <Grid container spacing={1.5} sx={{ mt: 0.2, mb: 1 }}>
+                  <Grid size={{ xs: 6, sm: 2.4 }}>
+                    <TextField label={t('tdiExpress.wizard.grossWeight')} type="number" value={box.grossWeight}
+                      onChange={(e) => setBox({ ...box, grossWeight: e.target.value })} fullWidth size="small" required />
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 2.4 }}>
+                    <TextField label={t('tdiExpress.wizard.chargeableWeight')} type="number" value={box.chargeableWeight}
+                      onChange={(e) => setBox({ ...box, chargeableWeight: e.target.value })} fullWidth size="small" />
+                  </Grid>
+                  <Grid size={{ xs: 4, sm: 2.4 }}>
+                    <TextField label={t('tdiExpress.wizard.length')} type="number" value={box.length}
+                      onChange={(e) => setBox({ ...box, length: e.target.value })} fullWidth size="small" />
+                  </Grid>
+                  <Grid size={{ xs: 4, sm: 2.4 }}>
+                    <TextField label={t('tdiExpress.wizard.width')} type="number" value={box.width}
+                      onChange={(e) => setBox({ ...box, width: e.target.value })} fullWidth size="small" />
+                  </Grid>
+                  <Grid size={{ xs: 4, sm: 2.4 }}>
+                    <TextField label={t('tdiExpress.wizard.height')} type="number" value={box.height}
+                      onChange={(e) => setBox({ ...box, height: e.target.value })} fullWidth size="small" />
+                  </Grid>
+                </Grid>
 
-                {captured.length >= totalBoxes ? (
-                  <Alert severity="success" icon={<CheckIcon />} sx={{ borderRadius: 2 }}>
-                    Todas las cajas fueron capturadas. Pulsa <b>Finalizar</b> para continuar.
-                  </Alert>
-                ) : (
-                  <Card elevation={0} sx={{ p: 3, borderRadius: 3, border: `2px dashed ${ORANGE}`, background: 'linear-gradient(180deg, #FFF8F5 0%, #FFFFFF 100%)' }}>
-                    <Stack direction="row" alignItems="center" spacing={1.5} sx={{ mb: 2 }}>
-                      <Box sx={{
-                        width: 44, height: 44, borderRadius: '50%', bgcolor: ORANGE, color: '#FFF',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        {stageIcons[scanStage]}
-                      </Box>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="overline" sx={{ color: '#6B7280', fontWeight: 700 }}>
-                          Paso {scanStage + 1} de 3
-                        </Typography>
-                        <Typography variant="h6" sx={{ fontWeight: 800, color: BLACK, lineHeight: 1.1 }}>
-                          {stageTitles[scanStage]}
-                        </Typography>
-                      </Box>
-                    </Stack>
+                {/* Botones */}
+                <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+                  <Grid size={{ xs: 5, sm: 2 }}>
+                    <TextField label={t('tdiExpress.wizard.quantity')} type="number" value={quantity}
+                      onChange={(e) => setQuantity(e.target.value)} fullWidth size="small"
+                      slotProps={{ htmlInput: { min: 1, max: 99 } }} />
+                  </Grid>
+                  <Grid size={{ xs: 7, sm: 6 }}>
+                    <Button fullWidth variant="contained" startIcon={<AddIcon />} onClick={addBoxes} disabled={busy}
+                      sx={{ height: 40, bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' }, fontWeight: 700 }}>
+                      {busy ? <CircularProgress size={20} />
+                        : qtyNum > 1 ? t('tdiExpress.wizard.addBoxes', { n: qtyNum }) : t('tdiExpress.wizard.addBox')}
+                    </Button>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <Button fullWidth variant="outlined" startIcon={<CopyIcon />} onClick={copyPrevious}
+                      disabled={captured.length === 0}
+                      sx={{ height: 40, borderColor: '#9C27B0', color: '#9C27B0' }}>
+                      {t('tdiExpress.wizard.copyPrevious')}
+                    </Button>
+                  </Grid>
+                </Grid>
+              </Card>
 
-                    {/* Sub-paso 0: Guía larga */}
-                    {scanStage === 0 && (
-                      <TextField
-                        inputRef={guideLargeRef}
-                        autoFocus fullWidth
-                        label="Guía larga (principal)"
-                        placeholder="Escanea o escribe: 2LMX64000..."
-                        value={box.originGuide}
-                        onChange={(e) => setBox({ ...box, originGuide: e.target.value.toUpperCase() })}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && box.originGuide.trim()) {
-                            e.preventDefault();
-                            setScanStage(1);
-                          }
-                        }}
-                        slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 22, fontWeight: 700, py: 1 } } }}
-                      />
-                    )}
-
-                    {/* Sub-paso 1: Guía corta */}
-                    {scanStage === 1 && (
-                      <Stack spacing={1.5}>
-                        <Chip
-                          icon={<CheckIcon />} label={`Guía larga: ${box.originGuide || '—'}`}
-                          sx={{ alignSelf: 'flex-start', bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontFamily: 'monospace' }}
+              {/* Lista de cajas agregadas */}
+              {captured.length > 0 ? (
+                <Paper variant="outlined" sx={{ p: 1.5 }}>
+                  <Typography variant="subtitle2" gutterBottom>
+                    📦 {t('tdiExpress.wizard.boxesAdded')} ({captured.length})
+                  </Typography>
+                  <List dense>
+                    {captured.map((b, idx) => (
+                      <ListItem key={b.id} sx={{ bgcolor: idx % 2 === 0 ? 'grey.50' : 'white', borderRadius: 1 }}
+                        secondaryAction={
+                          <IconButton edge="end" color="error" onClick={() => deleteBox(b.id)} disabled={busy}>
+                            <DeleteIcon />
+                          </IconButton>
+                        }>
+                        <ListItemIcon sx={{ minWidth: 36 }}>
+                          <Chip label={b.box_number} size="small" sx={{ bgcolor: ORANGE, color: '#FFF' }} />
+                        </ListItemIcon>
+                        <ListItemText
+                          primary={`${b.tracking_internal} · ${Number(b.weight || 0)} kg`}
+                          secondary={[
+                            b.tracking_provider ? `${t('tdiExpress.wizard.originGuide')}: ${b.tracking_provider}` : null,
+                            b.air_tariff_type ? t(`tdiExpress.productTypes.${TARIFF_TO_PRODUCT[b.air_tariff_type] || 'generico'}`) : null,
+                            (b.pkg_length && b.pkg_width && b.pkg_height) ? `${b.pkg_length}×${b.pkg_width}×${b.pkg_height} cm` : null,
+                          ].filter(Boolean).join(' · ')}
                         />
-                        <TextField
-                          inputRef={guideShortRef}
-                          autoFocus fullWidth
-                          label="Guía corta (secundaria)"
-                          placeholder="Escanea o escribe: 9650623485"
-                          value={box.originGuide2}
-                          onChange={(e) => setBox({ ...box, originGuide2: e.target.value.toUpperCase() })}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && box.originGuide2.trim()) {
-                              e.preventDefault();
-                              setScanStage(2);
-                            }
-                          }}
-                          slotProps={{ input: { sx: { fontFamily: 'monospace', fontSize: 22, fontWeight: 700, py: 1 } } }}
-                        />
-                      </Stack>
-                    )}
-
-                    {/* Sub-paso 2: Peso y medidas */}
-                    {scanStage === 2 && (
-                      <Stack spacing={1.5}>
-                        <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-                          <Chip icon={<CheckIcon />} label={`Larga: ${box.originGuide}`} size="small"
-                            sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontFamily: 'monospace' }} />
-                          <Chip icon={<CheckIcon />} label={`Corta: ${box.originGuide2}`} size="small"
-                            sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontFamily: 'monospace' }} />
-                        </Stack>
-                        <Grid container spacing={1.5}>
-                          <Grid size={{ xs: 6, sm: 4 }}>
-                            <TextField
-                              inputRef={gwRef}
-                              autoFocus fullWidth required
-                              label={t('tdiExpress.wizard.grossWeight')} type="number"
-                              value={box.grossWeight}
-                              onChange={(e) => setBox({ ...box, grossWeight: e.target.value })}
-                              slotProps={{ input: { sx: { fontSize: 18, fontWeight: 700 } } }}
-                            />
-                          </Grid>
-                          <Grid size={{ xs: 6, sm: 4 }}>
-                            <TextField fullWidth label={t('tdiExpress.wizard.chargeableWeight')} type="number"
-                              value={box.chargeableWeight}
-                              onChange={(e) => setBox({ ...box, chargeableWeight: e.target.value })} />
-                          </Grid>
-                          <Grid size={{ xs: 4, sm: 4 }}>
-                            <TextField fullWidth label={t('tdiExpress.wizard.length')} type="number"
-                              value={box.length} onChange={(e) => setBox({ ...box, length: e.target.value })}
-                              slotProps={{ input: { startAdornment: <StraightenIcon fontSize="small" sx={{ mr: 0.5, color: '#9CA3AF' }} /> } }} />
-                          </Grid>
-                          <Grid size={{ xs: 4, sm: 4 }}>
-                            <TextField fullWidth label={t('tdiExpress.wizard.width')} type="number"
-                              value={box.width} onChange={(e) => setBox({ ...box, width: e.target.value })} />
-                          </Grid>
-                          <Grid size={{ xs: 4, sm: 4 }}>
-                            <TextField fullWidth label={t('tdiExpress.wizard.height')} type="number"
-                              value={box.height} onChange={(e) => setBox({ ...box, height: e.target.value })}
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter' && canSaveBox && !busy) {
-                                  e.preventDefault();
-                                  addBoxes();
-                                }
-                              }} />
-                          </Grid>
-                        </Grid>
-                      </Stack>
-                    )}
-
-                    {/* Controles del sub-paso */}
-                    <Stack direction="row" spacing={1.5} sx={{ mt: 2.5 }}>
-                      <Button
-                        variant="text" color="inherit"
-                        disabled={scanStage === 0 || busy}
-                        onClick={() => setScanStage((s) => (s > 0 ? ((s - 1) as 0 | 1 | 2) : s))}
-                        sx={{ color: '#6B7280' }}
-                      >
-                        Atrás
-                      </Button>
-                      <Box sx={{ flex: 1 }} />
-                      {scanStage < 2 && (
-                        <Button
-                          variant="contained" endIcon={<ArrowForwardIcon />}
-                          disabled={
-                            (scanStage === 0 && !box.originGuide.trim()) ||
-                            (scanStage === 1 && !box.originGuide2.trim())
-                          }
-                          onClick={() => setScanStage((s) => ((s + 1) as 0 | 1 | 2))}
-                          sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' }, fontWeight: 700, px: 3 }}
-                        >
-                          Continuar
-                        </Button>
-                      )}
-                      {scanStage === 2 && (
-                        <Button
-                          variant="contained" startIcon={busy ? <CircularProgress size={18} sx={{ color: '#FFF' }} /> : <CheckIcon />}
-                          disabled={!canSaveBox || busy}
-                          onClick={addBoxes}
-                          sx={{ bgcolor: '#2E7D32', '&:hover': { bgcolor: '#256528' }, fontWeight: 800, px: 3 }}
-                        >
-                          Guardar caja {currentBoxNumber}
-                        </Button>
-                      )}
-                    </Stack>
-
-                    <Typography variant="caption" sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1.5, color: '#9CA3AF' }}>
-                      <KeyboardReturnIcon sx={{ fontSize: 14 }} />
-                      Pulsa Enter para avanzar tras escanear / capturar.
-                    </Typography>
-                  </Card>
-                )}
-
-                {/* Lista de cajas ya capturadas */}
-                {captured.length > 0 && (
-                  <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
-                    <Typography variant="subtitle2" gutterBottom sx={{ fontWeight: 700 }}>
-                      📦 {t('tdiExpress.wizard.boxesAdded')} ({captured.length})
-                    </Typography>
-                    <List dense>
-                      {captured.map((b, idx) => (
-                        <ListItem key={b.id} sx={{ bgcolor: idx % 2 === 0 ? 'grey.50' : 'white', borderRadius: 1 }}
-                          secondaryAction={
-                            <IconButton edge="end" color="error" onClick={() => deleteBox(b.id)} disabled={busy}>
-                              <DeleteIcon />
-                            </IconButton>
-                          }>
-                          <ListItemIcon sx={{ minWidth: 36 }}>
-                            <Chip label={b.box_number} size="small" sx={{ bgcolor: ORANGE, color: '#FFF', fontWeight: 700 }} />
-                          </ListItemIcon>
-                          <ListItemText
-                            primary={`${b.tracking_internal} · ${Number(b.weight || 0)} kg`}
-                            secondary={[
-                              b.tracking_provider ? `${t('tdiExpress.wizard.originGuide')}: ${b.tracking_provider}` : null,
-                              b.air_tariff_type ? t(`tdiExpress.productTypes.${TARIFF_TO_PRODUCT[b.air_tariff_type] || 'generico'}`) : null,
-                              (b.pkg_length && b.pkg_width && b.pkg_height) ? `${b.pkg_length}×${b.pkg_width}×${b.pkg_height} cm` : null,
-                            ].filter(Boolean).join(' · ')}
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                  </Paper>
-                )}
-              </Stack>
-            );
-          })()}
+                      </ListItem>
+                    ))}
+                  </List>
+                </Paper>
+              ) : (
+                <Alert severity="info">{t('tdiExpress.wizard.noBoxes')}</Alert>
+              )}
+            </Stack>
+          )}
 
           {/* Paso 3 — completado */}
           {step === 2 && (
