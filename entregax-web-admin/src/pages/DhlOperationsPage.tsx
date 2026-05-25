@@ -313,28 +313,7 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
     setQuoteDialog(true);
   };
 
-  const handleGenerateQuote = async () => {
-    if (!selectedShipment) return;
-    try {
-      const token = localStorage.getItem('token');
-      const response = await axios.post(
-        `${API_URL}/api/admin/dhl/shipments/${selectedShipment.id}/quote`,
-        {},
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setQuoteResult(response.data);
-      setSnackbar({ open: true, message: 'Cotización generada', severity: 'success' });
-      fetchShipments();
-      fetchStats();
-    } catch (err) {
-      const error = err as { response?: { data?: { error?: string } } };
-      setSnackbar({ 
-        open: true, 
-        message: error.response?.data?.error || 'Error al generar cotización', 
-        severity: 'error' 
-      });
-    }
-  };
+  // Cotización manual deshabilitada en la UI (botón removido).
 
   const handleOpenDispatch = (shipment: DhlShipment) => {
     setSelectedShipment(shipment);
@@ -574,19 +553,29 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
                 getFilteredShipments().map((shipment) => (
                   <TableRow key={shipment.id} hover>
                     <TableCell>
-                      <Typography fontWeight="bold" sx={{ fontFamily: 'monospace' }}>
-                        {shipment.inbound_tracking}
-                      </Typography>
-                      {shipment.secondary_tracking && (
-                        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#888' }} display="block">
-                          Hija: {shipment.secondary_tracking}
-                        </Typography>
-                      )}
-                      {shipment.outbound_tracking && (
-                        <Typography variant="caption" color="text.secondary" display="block">
-                          → {shipment.outbound_tracking}
-                        </Typography>
-                      )}
+                      {(() => {
+                        const is2LMX = /^[A-Z0-9]{3,}\+\d+$/i.test(shipment.inbound_tracking || '');
+                        const main = is2LMX ? (shipment.secondary_tracking || shipment.inbound_tracking) : shipment.inbound_tracking;
+                        const sub = is2LMX ? shipment.inbound_tracking : shipment.secondary_tracking;
+                        const subLabel = is2LMX ? 'Ref:' : 'Hija:';
+                        return (
+                          <>
+                            <Typography fontWeight="bold" sx={{ fontFamily: 'monospace' }}>
+                              {main}
+                            </Typography>
+                            {sub && (
+                              <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#888' }} display="block">
+                                {subLabel} {sub}
+                              </Typography>
+                            )}
+                            {shipment.outbound_tracking && (
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                → {shipment.outbound_tracking}
+                              </Typography>
+                            )}
+                          </>
+                        );
+                      })()}
                     </TableCell>
                     <TableCell>
                       <Typography fontWeight="medium">{shipment.client_name}</Typography>
@@ -835,17 +824,9 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
               </Alert>
 
               {!quoteResult && (
-                <Box sx={{ textAlign: 'center', py: 3 }}>
-                  <Button
-                    variant="contained"
-                    size="large"
-                    startIcon={<MoneyIcon />}
-                    onClick={handleGenerateQuote}
-                    sx={{ bgcolor: '#ff9800', '&:hover': { bgcolor: '#f57c00' } }}
-                  >
-                    Calcular Cotización
-                  </Button>
-                </Box>
+                <Alert severity="warning" sx={{ mt: 2 }}>
+                  Esta gu\u00eda a\u00fan no tiene cotizaci\u00f3n calculada.
+                </Alert>
               )}
 
               {quoteResult && (
