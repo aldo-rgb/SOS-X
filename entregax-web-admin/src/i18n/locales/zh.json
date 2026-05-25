@@ -1805,7 +1805,18 @@
       "section1": "单号与客户",
       "section2": "重量与尺寸",
       "section3": "类型与数量",
-      "missingBoxes": "还需录入 {{n}} 箱"
+      "missingBoxes": "还需录入 {{n}} 箱",
+      "longGuide": "长单号（主单号）",
+      "shortGuide": "短单号（辅单号）",
+      "step2Hint": "本步只需录入重量和尺寸。单号在下一步分配。",
+      "assignGuidesTitle": "按箱分配单号",
+      "assignGuidesHint": "为每一箱录入长单号和短单号。为选填项，可以留空，以后再补充。",
+      "savingGuides": "正在保存单号...",
+      "guidesSaved": "单号已保存",
+      "continue": "继续",
+      "back": "返回",
+      "box": "箱",
+      "tracking": "内部单号"
     },
     "productTypes": {
       "logo": "带标 (Logo)",

@@ -2156,7 +2156,18 @@
       "section1": "Guía y cliente",
       "section2": "Peso y medidas",
       "section3": "Tipo y cantidad",
-      "missingBoxes": "Faltan {{n}} caja(s) por capturar"
+      "missingBoxes": "Faltan {{n}} caja(s) por capturar",
+      "longGuide": "Guía larga (principal)",
+      "shortGuide": "Guía corta (secundaria)",
+      "step2Hint": "Solo captura peso y medidas. Las guías se asignan en el siguiente paso.",
+      "assignGuidesTitle": "Asignar guías por caja",
+      "assignGuidesHint": "Captura la guía larga y corta de cada caja. Son opcionales y puedes guardarlas vacías y agregarlas después.",
+      "savingGuides": "Guardando guías...",
+      "guidesSaved": "Guías guardadas",
+      "continue": "Continuar",
+      "back": "Atrás",
+      "box": "Caja",
+      "tracking": "Guía interna"
     },
     "productTypes": {
       "logo": "Logo",

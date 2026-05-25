@@ -1943,7 +1943,18 @@
       "section1": "Guide & client",
       "section2": "Weight & measures",
       "section3": "Type & quantity",
-      "missingBoxes": "{{n}} box(es) still to capture"
+      "missingBoxes": "{{n}} box(es) still to capture",
+      "longGuide": "Long guide (main)",
+      "shortGuide": "Short guide (secondary)",
+      "step2Hint": "Only capture weight and measures here. Guides are assigned in the next step.",
+      "assignGuidesTitle": "Assign guides per box",
+      "assignGuidesHint": "Enter the long and short guide for each box. They are optional — you can leave them empty and add them later.",
+      "savingGuides": "Saving guides...",
+      "guidesSaved": "Guides saved",
+      "continue": "Continue",
+      "back": "Back",
+      "box": "Box",
+      "tracking": "Internal tracking"
     },
     "productTypes": {
       "logo": "Logo",

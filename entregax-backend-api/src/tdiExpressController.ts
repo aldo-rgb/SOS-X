@@ -635,3 +635,61 @@ export const removeTdiBox = async (req: Request, res: Response): Promise<any> =>
     client.release();
   }
 };
+
+// =====================================================================
+// RECEPCIÓN EN SERIE — actualizar guías / cliente de una caja hija
+// PATCH /api/tdi-express/serial/:masterId/child/:childId
+// Body: { originGuide?, originGuide2?, boxId? }
+//   - originGuide  → packages.tracking_provider (guía larga principal)
+//   - originGuide2 → packages.notes (guía corta secundaria, se almacena
+//     en notes para evitar añadir columna nueva — convención ya usada
+//     en `addSerialBox` cuando llega como `comments`).
+//   - boxId        → packages.box_id (número de cliente)
+// =====================================================================
+export const updateTdiBox = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const masterId = Number(req.params.masterId);
+    const childId = Number(req.params.childId);
+    if (!Number.isFinite(masterId) || !Number.isFinite(childId)) {
+      return res.status(400).json({ error: 'IDs inválidos' });
+    }
+    const { originGuide, originGuide2, boxId } = req.body || {};
+
+    // Construir SET dinámico solo con campos provistos (undefined = no tocar)
+    const sets: string[] = [];
+    const values: any[] = [];
+    let i = 1;
+    if (originGuide !== undefined) {
+      sets.push(`tracking_provider = $${i++}`);
+      values.push(originGuide === null || originGuide === '' ? null : String(originGuide).trim().toUpperCase());
+    }
+    if (originGuide2 !== undefined) {
+      sets.push(`notes = $${i++}`);
+      values.push(originGuide2 === null || originGuide2 === '' ? null : String(originGuide2).trim().toUpperCase());
+    }
+    if (boxId !== undefined) {
+      sets.push(`box_id = $${i++}`);
+      values.push(boxId === null || boxId === '' ? null : String(boxId).trim().toUpperCase());
+    }
+    if (sets.length === 0) {
+      return res.status(400).json({ error: 'Sin campos a actualizar' });
+    }
+    sets.push(`updated_at = NOW()`);
+    values.push(childId, masterId);
+
+    const upd = await client.query(
+      `UPDATE packages SET ${sets.join(', ')}
+       WHERE id = $${i++} AND master_id = $${i}
+       RETURNING id, tracking_internal, tracking_provider, notes, box_id`,
+      values
+    );
+    if (!upd.rows[0]) return res.status(404).json({ error: 'Caja no encontrada' });
+    return res.json({ success: true, box: upd.rows[0] });
+  } catch (err: any) {
+    console.error('updateTdiBox error', err);
+    return res.status(500).json({ error: 'Error al actualizar caja', details: err.message });
+  } finally {
+    client.release();
+  }
+};
