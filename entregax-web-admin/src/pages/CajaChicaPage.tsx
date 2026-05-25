@@ -501,9 +501,10 @@ const CajaChicaPage: React.FC = () => {
           reasonNoCount = 'Aún no llega a MTY';
         }
 
-        // Reporte INCLUYE todas las guías (A PAGAR, YA PAGADA, EN TRÁNSITO,
-        // FALTANTE, PERDIDA). Solo las A PAGAR suman al total — el resto
-        // aparece con su motivo en la columna "Motivo".
+        // Reporte INCLUYE solo guías que llegaron a MTY (A PAGAR + YA PAGADA).
+        // Se EXCLUYEN EN TRÁNSITO, FALTANTE y PERDIDA porque aún no llegan
+        // (o no llegaron) a MTY y no aplican al pago.
+        if (statusLabel === 'EN TRÁNSITO' || statusLabel === 'FALTANTE' || statusLabel === 'PERDIDA') return;
 
         rows.push({
           consolidacion_id: c.id,
