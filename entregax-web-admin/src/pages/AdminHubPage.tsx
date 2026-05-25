@@ -72,6 +72,7 @@ import LastMilePage from './LastMilePage';
 import PaqueteExpressPage from './PaqueteExpressPage';
 import DhlRatesPage from './DhlRatesPage';
 import DhlCostingPage from './DhlCostingPage';
+import DhlImportTaxPage from './DhlImportTaxPage';
 import POBoxRatesPage from './POBoxRatesPage';
 import POBoxCostingPage from './POBoxCostingPage';
 import ExchangeRateConfigPage from './ExchangeRateConfigPage';
@@ -201,6 +202,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     mx_cedis: [
         { key: 'costing', status: 'active' },
         { key: 'dhl_rates', status: 'active' },
+        { key: 'dhl_import_tax', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
         { key: 'carrier_options', status: 'active' },
@@ -1008,6 +1010,29 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         />
                     </Box>
                     <DhlCostingPage />
+                </Box>
+            );
+        }
+
+        // Panel de Impuestos DHL (dhl_import_tax) - solo mx_cedis
+        if (selectedModule === 'dhl_import_tax' && selectedService === 'mx_cedis') {
+            return (
+                <Box>
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <DhlImportTaxPage />
                 </Box>
             );
         }

@@ -683,6 +683,17 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                   </View>
                 )}
 
+                {/* Cargo de impuestos DHL */}
+                {isDHL && Number((currentPkg as any)?.import_tax_mxn || 0) > 0 && (
+                  <>
+                    <Divider style={styles.divider} />
+                    <View style={styles.costRow}>
+                      <Text style={styles.costLabel}>🧾 Cargo de impuestos DHL:</Text>
+                      <Text style={styles.costValue}>${Number((currentPkg as any).import_tax_mxn).toFixed(2)} MXN</Text>
+                    </View>
+                  </>
+                )}
+
                 {shippingCost > 0 && (
                   <View style={styles.costRow}>
                     <Text style={styles.costLabel}>🚚 Envío nacional ({assignedCarrier || 'Paquetería asignada'})</Text>

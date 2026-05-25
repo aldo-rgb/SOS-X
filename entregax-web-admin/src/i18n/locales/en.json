@@ -732,6 +732,7 @@
       "last_mile": "Skydropx",
       "paquete_express": "Paquete Express API",
       "dhl_rates": "DHL Rates",
+      "dhl_import_tax": "DHL Import Tax",
       "dhl_operations": "DHL Operations",
       "anticipos": "Advance Control",
       "transporte_control": "Transport Control",

@@ -1026,7 +1026,9 @@ import {
   getDhlPaymentBatches,
   getDhlProfitability,
   deleteDhlShipment,
-  updateDhlShipmentProductType
+  updateDhlShipmentProductType,
+  getDhlImportTaxSetting,
+  updateDhlImportTaxSetting
 } from './dhlController';
 import {
   getPrivacyNotice,
@@ -4724,6 +4726,8 @@ app.get('/api/admin/dhl/stats', authenticateToken, requireMinLevel(ROLES.WAREHOU
 app.patch('/api/admin/dhl/shipments/:id/product-type', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateDhlShipmentProductType);
 // Eliminacion de guia (solo Super Admin)
 app.delete('/api/admin/dhl/shipments/:id', authenticateToken, requireRole('super_admin'), deleteDhlShipment);
+app.get('/api/admin/dhl/settings/import-tax', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlImportTaxSetting);
+app.put('/api/admin/dhl/settings/import-tax', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateDhlImportTaxSetting);
 // IA: Medición de cajas con visión por computadora
 app.post('/api/admin/dhl/measure-box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), measureBoxFromImage);
 // Endpoints para cliente (App)

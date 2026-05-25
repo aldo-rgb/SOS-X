@@ -699,10 +699,9 @@ export const getDhlShipments = async (req: Request, res: Response) => {
 // POST /api/admin/dhl/receive - Recibir y auditar paquete
 export const receiveDhlPackage = async (req: Request, res: Response) => {
   try {
-    // Auto-migrate: asegurar columna secondary_tracking en producción
-    await pool.query(`
-      ALTER TABLE dhl_shipments ADD COLUMN IF NOT EXISTS secondary_tracking VARCHAR(100)
-    `).catch(() => {/* no-op */});
+    // Auto-migrate: asegurar columnas
+    await pool.query(`ALTER TABLE dhl_shipments ADD COLUMN IF NOT EXISTS secondary_tracking VARCHAR(100)`).catch(() => {});
+    await pool.query(`ALTER TABLE dhl_shipments ADD COLUMN IF NOT EXISTS import_tax_mxn NUMERIC(10,2) DEFAULT 0`).catch(() => {});
 
     // Limpiar caracteres erróneos (¿ y ?) de guías existentes (scanner en teclado español)
     await pool.query(`
@@ -787,25 +786,30 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
     );
     const internalCost = costRateResult.rows.length > 0 ? parseFloat(costRateResult.rows[0].cost_usd) : null;
 
+    // Obtener impuesto DHL configurado
+    const importTaxMxn = await getDhlImportTaxMxn();
+    const totalWithTax = importCostMxn !== null ? importCostMxn + importTaxMxn : importTaxMxn;
+
     // Insertar registro con costo interno auto-asignado
     const result = await pool.query(`
       INSERT INTO dhl_shipments (
         inbound_tracking, secondary_tracking, user_id, box_id, product_type, description,
         weight_kg, length_cm, width_cm, height_cm, volumetric_weight,
         photos, inspected_by, inspected_at,
-        exchange_rate, import_cost_usd, import_cost_mxn,
+        exchange_rate, import_cost_usd, import_cost_mxn, import_tax_mxn,
         assigned_cost_usd, cost_rate_type, cost_assigned_at, cost_assigned_by,
         cost_payment_status,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $17, $18, NOW(), $19, 'pending', 'received_mty')
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $20, $17, $18, NOW(), $19, 'pending', 'received_mty')
       RETURNING *
     `, [
       inbound_tracking, secondary_tracking || null,
       userId, box_id, priceType, description,
       weight_kg, length_cm, width_cm, height_cm, volWeight,
       JSON.stringify(photos || []), inspectorId,
-      exchangeRate, importCostUsd, importCostMxn,
-      internalCost, internalCost ? priceType : null, internalCost ? inspectorId : null
+      exchangeRate, importCostUsd, totalWithTax,
+      internalCost, internalCost ? priceType : null, internalCost ? inspectorId : null,
+      importTaxMxn
     ]);
 
     // TODO: Enviar notificación push al cliente
@@ -1542,6 +1546,57 @@ export const updateDhlShipmentProductType = async (req: Request, res: Response) 
   } catch (error: any) {
     console.error('Error actualizando product_type DHL:', error);
     return res.status(500).json({ error: 'Error al actualizar tipo de producto', details: error?.message });
+  }
+};
+
+// ─── DHL Import Tax Setting ───────────────────────────────────────────────────
+
+const DHL_TAX_KEY = 'dhl_import_tax_mxn';
+const DHL_TAX_DEFAULT = 390;
+
+const ensureSettingsTable = async () => {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS system_settings (
+      key   VARCHAR(100) PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+};
+
+export const getDhlImportTaxSetting = async (_req: Request, res: Response): Promise<void> => {
+  try {
+    await ensureSettingsTable();
+    const row = await pool.query('SELECT value FROM system_settings WHERE key = $1', [DHL_TAX_KEY]);
+    const value = row.rows.length > 0 ? parseFloat(row.rows[0].value) : DHL_TAX_DEFAULT;
+    res.json({ key: DHL_TAX_KEY, value });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const updateDhlImportTaxSetting = async (req: Request, res: Response): Promise<void> => {
+  try {
+    await ensureSettingsTable();
+    const value = parseFloat(req.body?.value);
+    if (isNaN(value) || value < 0) { res.status(400).json({ error: 'Valor inválido' }); return; }
+    await pool.query(`
+      INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2, NOW())
+      ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()
+    `, [DHL_TAX_KEY, String(value)]);
+    res.json({ key: DHL_TAX_KEY, value });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};
+
+export const getDhlImportTaxMxn = async (): Promise<number> => {
+  try {
+    await ensureSettingsTable();
+    const row = await pool.query('SELECT value FROM system_settings WHERE key = $1', [DHL_TAX_KEY]);
+    return row.rows.length > 0 ? parseFloat(row.rows[0].value) : DHL_TAX_DEFAULT;
+  } catch {
+    return DHL_TAX_DEFAULT;
   }
 };
 
