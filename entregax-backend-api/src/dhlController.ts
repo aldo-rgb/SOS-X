@@ -680,7 +680,7 @@ export const getDhlShipments = async (req: Request, res: Response) => {
     }
 
     if (search) {
-      query += ` AND (ds.inbound_tracking ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex} OR u.box_id ILIKE $${paramIndex})`;
+      query += ` AND (ds.inbound_tracking ILIKE $${paramIndex} OR ds.secondary_tracking ILIKE $${paramIndex} OR u.full_name ILIKE $${paramIndex} OR u.box_id ILIKE $${paramIndex})`;
       params.push(`%${search}%`);
       paramIndex++;
     }

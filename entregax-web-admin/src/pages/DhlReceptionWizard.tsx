@@ -44,14 +44,101 @@ import {
   Search as SearchIcon,
   Lock as LockIcon,
   Warning as WarningIcon,
+  Print as PrintIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
+import JsBarcode from 'jsbarcode';
+import jsPDF from 'jspdf';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 // DHL Colors
 const DHL_RED = '#D40511';
 const DHL_YELLOW = '#FFCC00';
+
+// Códigos QR/barcode para etiquetas de clasificación (escaneables con pistola)
+const SCAN_CODE_STANDARD = 'DHL-GENERAL';
+const SCAN_CODE_HIGH_VALUE = 'DHL-ESPECIFICA';
+
+// Genera PDF 4×6 con dos etiquetas de clasificación (una por hoja)
+function printClassifyLabels() {
+  const doc = new jsPDF({ unit: 'in', format: [4, 6], orientation: 'portrait' });
+
+  const labels: { code: string; title: string; subtitle: string; color: string }[] = [
+    { code: SCAN_CODE_STANDARD,   title: 'General',   subtitle: 'Carga General',   color: '#D40511' },
+    { code: SCAN_CODE_HIGH_VALUE, title: 'Específica', subtitle: 'Carga Específica', color: '#ff9800' },
+  ];
+
+  labels.forEach((lbl, idx) => {
+    if (idx > 0) doc.addPage([4, 6]);
+
+    // Borde superior de color
+    doc.setFillColor(lbl.color);
+    doc.rect(0, 0, 4, 0.35, 'F');
+
+    // Título
+    doc.setTextColor(lbl.color);
+    doc.setFontSize(28);
+    doc.setFont('helvetica', 'bold');
+    doc.text(lbl.title, 2, 1.1, { align: 'center' });
+
+    // Subtítulo
+    doc.setTextColor(80, 80, 80);
+    doc.setFontSize(13);
+    doc.setFont('helvetica', 'normal');
+    doc.text(lbl.subtitle, 2, 1.5, { align: 'center' });
+
+    // Código de texto (referencia visual)
+    doc.setTextColor(120, 120, 120);
+    doc.setFontSize(9);
+    doc.text(lbl.code, 2, 1.8, { align: 'center' });
+
+    // QR Code via canvas
+    try {
+      const qrCanvas = document.createElement('canvas');
+      qrCanvas.width = 200;
+      qrCanvas.height = 200;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const QRCodeLib = (window as any).QRCode;
+      if (QRCodeLib) {
+        new QRCodeLib(qrCanvas, { text: lbl.code, width: 200, height: 200, correctLevel: QRCodeLib.CorrectLevel.M });
+      }
+      const qrDataUrl = qrCanvas.toDataURL('image/png');
+      if (qrDataUrl.length > 100) {
+        doc.addImage(qrDataUrl, 'PNG', 1.2, 2.0, 1.6, 1.6);
+      }
+    } catch { /* skip QR if library unavailable */ }
+
+    // Código de barras via JsBarcode + canvas
+    try {
+      const barcodeCanvas = document.createElement('canvas');
+      JsBarcode(barcodeCanvas, lbl.code, {
+        format: 'CODE128',
+        width: 2.5,
+        height: 60,
+        displayValue: false,
+        margin: 0,
+      });
+      const barDataUrl = barcodeCanvas.toDataURL('image/png');
+      doc.addImage(barDataUrl, 'PNG', 0.3, 3.85, 3.4, 0.7);
+    } catch { /* skip barcode if error */ }
+
+    // Texto del código de barras
+    doc.setTextColor(40, 40, 40);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.text(lbl.code, 2, 4.75, { align: 'center' });
+
+    // Footer
+    doc.setTextColor(160, 160, 160);
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.text('EntregaX · DHL Reception', 2, 5.75, { align: 'center' });
+  });
+
+  doc.autoPrint();
+  window.open(doc.output('bloburl'), '_blank');
+}
 
 interface DhlReceptionWizardProps {
   open: boolean;
@@ -109,6 +196,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const clientInputRef = useRef<HTMLInputElement>(null);
   const trackingInputRef = useRef<HTMLInputElement>(null);
   const tracking2InputRef = useRef<HTMLInputElement>(null);
+  const classifyScanRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -250,6 +338,13 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
       );
       if (dup) {
         setTrackingWarning(`⚠️ Esta guía JJD ya fue recibida en el sistema.`);
+        playErrorBeep();
+        setTimeout(() => {
+          setTracking('');
+          setTrackingWarning(null);
+          lastEvalTrackingRef.current = '';
+          trackingInputRef.current?.focus();
+        }, 1400);
       }
     } catch { /* ignorar */ } finally {
       setCheckingDuplicate(false);
@@ -354,9 +449,22 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   // ===== STEP 2: CLASSIFICATION =====
   const handleSelectProductType = (type: 'standard' | 'high_value') => {
     setProductType(type);
+    playSuccessBeep();
     setTimeout(() => {
-      setActiveStep(3); // Ahora paso 3 es peso — NO auto-conectar báscula
+      setActiveStep(3);
     }, 300);
+  };
+
+  const handleClassifyScan = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value.trim().toUpperCase();
+    if (raw === SCAN_CODE_STANDARD) {
+      e.target.value = '';
+      handleSelectProductType('standard');
+    } else if (raw === SCAN_CODE_HIGH_VALUE) {
+      e.target.value = '';
+      handleSelectProductType('high_value');
+    }
+    // any other scan: ignore and keep waiting
   };
 
   // ===== STEP 3: SCALE (IoT) =====
@@ -559,6 +667,11 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
     setClientInfo(null);
     setTracking('');
     setTracking2('');
+    setTrackingWarning(null);
+    setTracking2Warning(null);
+    setCheckingDuplicate(false);
+    lastEvalTrackingRef.current = '';
+    lastEvalTracking2Ref.current = '';
     setProductType(null);
     setWeight(0);
     setDimensions({ length: 0, width: 0, height: 0 });
@@ -862,13 +975,33 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
         return (
           <Fade in={activeStep === 2}>
             <Box sx={{ textAlign: 'center', py: 4 }}>
+              {/* Input oculto que captura el scan de la pistola */}
+              <input
+                ref={classifyScanRef}
+                autoFocus
+                onChange={handleClassifyScan}
+                style={{ position: 'absolute', opacity: 0, width: 1, height: 1, pointerEvents: 'none' }}
+                tabIndex={-1}
+              />
+
               <Typography variant="h4" fontWeight="bold" gutterBottom>
                 Tipo de Producto
               </Typography>
-              <Typography color="text.secondary" sx={{ mb: 4 }}>
-                Selecciona la categoría del contenido
+              <Typography color="text.secondary" sx={{ mb: 1 }}>
+                Selecciona la categoría del contenido o escanea la etiqueta
               </Typography>
-              
+
+              {/* Botón imprimir etiquetas */}
+              <Button
+                startIcon={<PrintIcon />}
+                size="small"
+                variant="outlined"
+                onClick={printClassifyLabels}
+                sx={{ mb: 3, borderColor: DHL_RED, color: DHL_RED, '&:hover': { borderColor: '#a00410', bgcolor: '#fff5f5' } }}
+              >
+                Imprimir etiquetas de clasificación
+              </Button>
+
               <Box sx={{ display: 'flex', gap: 3, justifyContent: 'center', flexWrap: 'wrap' }}>
                 {/* STANDARD */}
                 <Paper
@@ -882,19 +1015,12 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     transition: 'all 0.3s',
                     border: productType === 'standard' ? `4px solid ${DHL_RED}` : '4px solid transparent',
                     bgcolor: productType === 'standard' ? '#fff5f5' : '#f5f5f5',
-                    '&:hover': {
-                      transform: 'scale(1.05)',
-                      boxShadow: 6
-                    }
+                    '&:hover': { transform: 'scale(1.05)', boxShadow: 6 }
                   }}
                 >
                   <ClothingIcon sx={{ fontSize: 80, color: DHL_RED, mb: 2 }} />
-                  <Typography variant="h5" fontWeight="bold">
-                    General
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Carga General
-                  </Typography>
+                  <Typography variant="h5" fontWeight="bold">General</Typography>
+                  <Typography variant="body2" color="text.secondary">Carga General</Typography>
                 </Paper>
 
                 {/* HIGH VALUE */}
@@ -909,19 +1035,12 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     transition: 'all 0.3s',
                     border: productType === 'high_value' ? `4px solid ${DHL_YELLOW}` : '4px solid transparent',
                     bgcolor: productType === 'high_value' ? '#fffef5' : '#f5f5f5',
-                    '&:hover': {
-                      transform: 'scale(1.05)',
-                      boxShadow: 6
-                    }
+                    '&:hover': { transform: 'scale(1.05)', boxShadow: 6 }
                   }}
                 >
                   <PartsIcon sx={{ fontSize: 80, color: '#ff9800', mb: 2 }} />
-                  <Typography variant="h5" fontWeight="bold">
-                    Específica
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Carga Específica
-                  </Typography>
+                  <Typography variant="h5" fontWeight="bold">Específica</Typography>
+                  <Typography variant="body2" color="text.secondary">Carga Específica</Typography>
                 </Paper>
               </Box>
             </Box>
