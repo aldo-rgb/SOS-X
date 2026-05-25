@@ -611,6 +611,13 @@ function App() {
       return Object.keys(userPanelPermissions).some(key => key.startsWith('accounting_'));
     }
 
+    // Submenus de Caja (cajaChica, pettyCash, cobranza): admin/director/finanzas tienen acceso completo
+    if (['cajaChica', 'pettyCash', 'cobranza'].includes(category)) {
+      const role = currentUser?.role || '';
+      if (['super_admin', 'admin', 'director', 'finanzas'].includes(role)) return true;
+      return Object.keys(userPanelPermissions).some(key => key.startsWith('caja_') || key.startsWith('cobranza_'));
+    }
+
     const categoryPrefixes: Record<string, string[]> = {
       'panelsAdmin': ['admin_'],
       'panelsOperations': ['ops_'],
@@ -635,9 +642,9 @@ function App() {
         return true;
       }
       
-      // admin: Dashboard, Reportes Ventas, Herramientas (incluye Contabilidad/Tesorería), Caja CC
+      // admin: Dashboard, Reportes Ventas, Usuarios, Herramientas (incluye Contabilidad/Tesoreria), Caja, Comisiones, Permisos
       if (role === 'admin') {
-        return ['dashboard', 'salesReport', 'panels', 'cajaChicaGroup'].includes(item.key);
+        return ['dashboard', 'salesReport', 'clients', 'panels', 'cajaChicaGroup', 'commissions', 'permissions'].includes(item.key);
       }
       
       // director: Dashboard, Herramientas (incluye Contabilidad/Tesorería), Caja CC
