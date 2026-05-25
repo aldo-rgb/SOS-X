@@ -824,6 +824,43 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       '/dhl-dashboard'
     );
 
+    // ===== Notificación Push + WhatsApp según preferencias del cliente =====
+    try {
+      const prefRow = await pool.query(
+        `SELECT notif_push, notif_whatsapp, notif_dhl, phone, phone_verified, whatsapp_verified, full_name
+         FROM users WHERE id = $1`,
+        [userId]
+      );
+      const prefs = prefRow.rows[0] || {};
+      const wantPush = prefs.notif_push !== false;
+      const wantService = prefs.notif_dhl !== false;
+      const wantWhatsapp = prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true);
+
+      const notifTitle = `📦 Paquete recibido · DHL`;
+      const notifBody = `Tu paquete DHL ${inbound_tracking} llegó a nuestro CEDIS en Monterrey.`;
+      const notifData = { screen: 'Home', tracking: inbound_tracking, service: 'DHL' };
+
+      if (wantPush && wantService) {
+        const { sendPushToUsers } = await import('./pushService').catch(() => ({ sendPushToUsers: undefined })) as any;
+        if (typeof sendPushToUsers === 'function') {
+          await sendPushToUsers([userId], { title: notifTitle, body: notifBody, data: notifData }).catch((e: any) => console.warn('[DHL/push] failed:', e?.message));
+        }
+      }
+
+      if (wantWhatsapp && wantService && prefs.phone) {
+        const { sendPackageArrival } = await import('./whatsappService').catch(() => ({ sendPackageArrival: undefined })) as any;
+        if (typeof sendPackageArrival === 'function') {
+          await sendPackageArrival(prefs.phone, prefs.full_name || 'Cliente', inbound_tracking, 'DHL').catch((e: any) => console.warn('[DHL/whatsapp] failed:', e?.message));
+        } else {
+          console.warn('[DHL/whatsapp] sendPackageArrival no disponible');
+        }
+      } else {
+        console.log('[DHL/whatsapp] skip — wantWhatsapp:', wantWhatsapp, 'wantService:', wantService, 'phone:', !!prefs.phone);
+      }
+    } catch (notifErr: any) {
+      console.warn('[DHL] Error enviando notificaciones push/whatsapp:', notifErr?.message);
+    }
+
     res.json({
       success: true,
       message: 'Paquete recibido y auditado',
