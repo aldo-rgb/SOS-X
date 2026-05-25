@@ -1833,6 +1833,22 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         });
       }
       
+      // VALIDACIÓN: Verificar que el BL no exista previamente en otro contenedor
+      if (finalData.blNumber) {
+        const existingBl = await pool.query(
+          'SELECT id, container_number, bl_number FROM containers WHERE bl_number = $1',
+          [finalData.blNumber]
+        );
+        if (existingBl.rows.length > 0) {
+          const existing = existingBl.rows[0];
+          return res.status(400).json({
+            error: `El BL ${finalData.blNumber} ya existe en el sistema`,
+            details: `Contenedor ID: ${existing.id}, Container: ${existing.container_number || 'N/A'}`,
+            duplicateBl: true
+          });
+        }
+      }
+      
       // Obtener tipo de cambio del servicio MARÍTIMO (con sobreprecio incluido)
       // Obtener TC del servicio marítimo desde exchange_rate_config
       const fxResult = await pool.query(`
@@ -2215,7 +2231,23 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         });
       }
       
-      // Extraer week y reference de los datos extraídos del borrador
+      // VALIDACIÓN: Verificar que el BL no exista previamente en otro contenedor
+      if (finalData.blNumber) {
+        const existingBl = await pool.query(
+          'SELECT id, container_number, bl_number FROM containers WHERE bl_number = $1',
+          [finalData.blNumber]
+        );
+        if (existingBl.rows.length > 0) {
+          const existing = existingBl.rows[0];
+          return res.status(400).json({
+            error: `El BL ${finalData.blNumber} ya existe en el sistema`,
+            details: `Contenedor ID: ${existing.id}, Container: ${existing.container_number || 'N/A'}`,
+            duplicateBl: true
+          });
+        }
+      }
+      
+      // Extraer week y reference de los datos extraidos del borrador
       const weekNumber = finalData.week_number || null;
       const referenceCode = finalData.reference_code || null;
       const routeId = finalData.route_id || editedData?.bl?.routeId || draft.route_id || null;
@@ -2581,6 +2613,45 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
       console.error('❌ ============ ERROR EXTRACCIÓN BL ============');
       console.error('❌ Mensaje:', e.message);
       console.error('❌ Stack:', e.stack);
+    }
+
+    // ====== VALIDACION TEMPRANA: BL / CONTAINER DUPLICADO ======
+    // Si la IA extrajo bl_number o container_number, verificar que no existan
+    // en containers. Si ya existen, abortamos el upload (no creamos draft) y
+    // devolvemos un 409 claro para que el admin sepa de inmediato.
+    if (shipmentType === 'FCL' || shipmentType === 'BL') {
+      const dupChecks: Array<{ col: string; value: string; label: string }> = [];
+      if (extractedData.containerNumber) {
+        dupChecks.push({ col: 'container_number', value: extractedData.containerNumber, label: 'Contenedor' });
+      }
+      if (extractedData.blNumber) {
+        dupChecks.push({ col: 'bl_number', value: extractedData.blNumber, label: 'BL' });
+      }
+      for (const chk of dupChecks) {
+        const dupRes = await pool.query(
+          `SELECT id, container_number, bl_number FROM containers WHERE ${chk.col} = $1 LIMIT 1`,
+          [chk.value]
+        );
+        if (dupRes.rows.length > 0) {
+          const row = dupRes.rows[0];
+          // Marcar el log de email como duplicado para auditoria
+          await pool.query(
+            `UPDATE email_inbound_logs SET status = 'duplicate', processed_at = NOW() WHERE id = $1`,
+            [emailLogId]
+          );
+          return res.status(409).json({
+            error: `Ya existe un contenedor con este ${chk.label}: ${chk.value}`,
+            details: `Contenedor ID ${row.id} (container=${row.container_number || 'N/A'}, bl=${row.bl_number || 'N/A'})`,
+            duplicateField: chk.col,
+            duplicateValue: chk.value,
+            existingContainerId: row.id,
+            extractedData: {
+              blNumber: extractedData.blNumber,
+              containerNumber: extractedData.containerNumber,
+            }
+          });
+        }
+      }
     }
 
     // Usar routeId del request si viene, sino extraer del subject

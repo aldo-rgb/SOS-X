@@ -2079,7 +2079,10 @@ export default function InboundEmailsPage() {
                                         status: 'error',
                                         message: '❌ Error al subir'
                                     });
-                                    setSnackbar({ open: true, message: data.error || 'Error al subir', severity: 'error' });
+                                    const dupMsg = data.duplicateField
+                                        ? `Duplicado: ${data.error}${data.details ? ` — ${data.details}` : ''}`
+                                        : (data.error || 'Error al subir');
+                                    setSnackbar({ open: true, message: dupMsg, severity: 'error' });
                                 }
                             } catch (e: any) {
                                 setUploadProgress({
