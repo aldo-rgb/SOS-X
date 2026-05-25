@@ -340,7 +340,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
       }
       if (value.length >= 6) {
         playSuccessBeep();
-        setTimeout(() => setActiveStep(2), 350);
+        // No auto-advance — user must click Continuar after reviewing both fields
       }
     }, 220);
   };
@@ -987,10 +987,14 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                 </Typography>
                 <TextField
                   type="number"
+                  autoFocus
                   value={weight || ''}
                   onChange={(e) => {
                     const v = parseFloat(e.target.value);
                     setWeight(isNaN(v) || v < 0 ? 0 : v);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && weight > 0) handleManualWeight();
                   }}
                   slotProps={{
                     input: { endAdornment: <InputAdornment position="end">kg</InputAdornment> },

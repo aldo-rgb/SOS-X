@@ -1820,32 +1820,46 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       // VALIDACIÓN: Verificar que el contenedor no exista previamente
       const containerNumber = finalData.containerNumber || `LCL-${Date.now()}`;
       const existingContainer = await pool.query(
-        'SELECT id, container_number, bl_number FROM containers WHERE container_number = $1',
+        'SELECT id, container_number, bl_number, reference_code FROM containers WHERE container_number = $1',
         [containerNumber]
       );
       
       if (existingContainer.rows.length > 0) {
         const existing = existingContainer.rows[0];
-        return res.status(400).json({ 
-          error: `El contenedor ${containerNumber} ya existe en el sistema`,
-          details: `Contenedor ID: ${existing.id}, BL: ${existing.bl_number || 'N/A'}`,
-          duplicateContainer: true
-        });
+        const hasRef = existing.reference_code && String(existing.reference_code).trim() !== '';
+        if (hasRef) {
+          return res.status(400).json({ 
+            error: `El contenedor ${containerNumber} ya existe con referencia asignada (${existing.reference_code})`,
+            details: `Contenedor ID: ${existing.id}, BL: ${existing.bl_number || 'N/A'}`,
+            duplicateContainer: true,
+            existingReference: existing.reference_code
+          });
+        }
+        // Existe pero sin referencia -> permitimos continuar; el codigo abajo
+        // crea un nuevo registro LCL. Para evitar choque del UNIQUE de
+        // container_number, marcamos el nuevo con sufijo de timestamp si no
+        // hubo containerNumber explicito.
+        console.log(`⚠️ Contenedor LCL existente sin referencia (id=${existing.id}). Se permite registrar nueva recepcion.`);
       }
       
-      // VALIDACIÓN: Verificar que el BL no exista previamente en otro contenedor
+      // VALIDACIÓN: Verificar que el BL no exista previamente en otro contenedor (con referencia)
       if (finalData.blNumber) {
         const existingBl = await pool.query(
-          'SELECT id, container_number, bl_number FROM containers WHERE bl_number = $1',
+          'SELECT id, container_number, bl_number, reference_code FROM containers WHERE bl_number = $1',
           [finalData.blNumber]
         );
         if (existingBl.rows.length > 0) {
           const existing = existingBl.rows[0];
-          return res.status(400).json({
-            error: `El BL ${finalData.blNumber} ya existe en el sistema`,
-            details: `Contenedor ID: ${existing.id}, Container: ${existing.container_number || 'N/A'}`,
-            duplicateBl: true
-          });
+          const hasRef = existing.reference_code && String(existing.reference_code).trim() !== '';
+          if (hasRef) {
+            return res.status(400).json({
+              error: `El BL ${finalData.blNumber} ya existe con referencia asignada (${existing.reference_code})`,
+              details: `Contenedor ID: ${existing.id}, Container: ${existing.container_number || 'N/A'}`,
+              duplicateBl: true,
+              existingReference: existing.reference_code
+            });
+          }
+          console.log(`⚠️ BL LCL existente sin referencia (id=${existing.id}). Se permite registrar.`);
         }
       }
       
@@ -2217,33 +2231,41 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
         });
       }
       
-      const existingContainer = await pool.query(
-        'SELECT id, container_number, bl_number FROM containers WHERE container_number = $1',
+      // Regla: solo bloqueamos si ya existe un contenedor (por container_number
+      // o bl_number) que YA TIENE reference_code asignado. Si existe pero sin
+      // referencia, hacemos UPDATE para enriquecer los datos respetando el
+      // status actual (no lo degradamos a 'in_transit').
+      const existingByContainer = await pool.query(
+        'SELECT id, container_number, bl_number, reference_code, status FROM containers WHERE container_number = $1',
         [containerNumber]
       );
-      
-      if (existingContainer.rows.length > 0) {
-        const existing = existingContainer.rows[0];
+      let existingContainerRow: any = existingByContainer.rows[0] || null;
+      if (existingContainerRow && existingContainerRow.reference_code && String(existingContainerRow.reference_code).trim() !== '') {
         return res.status(400).json({ 
-          error: `El contenedor ${containerNumber} ya existe en el sistema`,
-          details: `Contenedor ID: ${existing.id}, BL: ${existing.bl_number || 'N/A'}`,
-          duplicateContainer: true
+          error: `El contenedor ${containerNumber} ya existe con referencia asignada (${existingContainerRow.reference_code})`,
+          details: `Contenedor ID: ${existingContainerRow.id}, BL: ${existingContainerRow.bl_number || 'N/A'}`,
+          duplicateContainer: true,
+          existingReference: existingContainerRow.reference_code
         });
       }
-      
-      // VALIDACIÓN: Verificar que el BL no exista previamente en otro contenedor
+
       if (finalData.blNumber) {
         const existingBl = await pool.query(
-          'SELECT id, container_number, bl_number FROM containers WHERE bl_number = $1',
+          'SELECT id, container_number, bl_number, reference_code, status FROM containers WHERE bl_number = $1',
           [finalData.blNumber]
         );
-        if (existingBl.rows.length > 0) {
-          const existing = existingBl.rows[0];
+        const blRow = existingBl.rows[0];
+        if (blRow && blRow.reference_code && String(blRow.reference_code).trim() !== '') {
           return res.status(400).json({
-            error: `El BL ${finalData.blNumber} ya existe en el sistema`,
-            details: `Contenedor ID: ${existing.id}, Container: ${existing.container_number || 'N/A'}`,
-            duplicateBl: true
+            error: `El BL ${finalData.blNumber} ya existe con referencia asignada (${blRow.reference_code})`,
+            details: `Contenedor ID: ${blRow.id}, Container: ${blRow.container_number || 'N/A'}`,
+            duplicateBl: true,
+            existingReference: blRow.reference_code
           });
+        }
+        // Si hay match por BL y aun no teniamos por container_number, usar ese
+        if (!existingContainerRow && blRow) {
+          existingContainerRow = blRow;
         }
       }
       
@@ -2261,42 +2283,107 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
       const exchangeRate = parseFloat(fxResult.rows[0]?.final_rate) || 20.50;
       console.log(`💱 TC Congelado para FCL: $${exchangeRate} (servicio maritimo)`);
       
-      const containerRes = await pool.query(`
-        INSERT INTO containers 
-        (container_number, bl_number, eta, status, notes, consignee, shipper, vessel, pol, pod,
-         week_number, reference_code, route_id, exchange_rate_usd_mxn,
-         vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
-         total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, client_user_id, legacy_client_id)
-        VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
-        RETURNING id
-      `, [
-        finalData.containerNumber,
-        finalData.blNumber,
-        finalData.eta,
-        `POL: ${finalData.portOfLoading || 'N/A'}, POD: ${finalData.portOfDischarge || 'N/A'}`,
-        finalData.consignee,
-        finalData.shipper,
-        finalData.vesselName,
-        finalData.portOfLoading,
-        finalData.portOfDischarge,
-        weekNumber,
-        referenceCode,
-        routeId,
-        exchangeRate,
-        // Campos adicionales para el frontend
-        finalData.vesselName,
-        finalData.voyageNumber,
-        finalData.portOfLoading,
-        finalData.portOfDischarge,
-        finalData.soNumber,
-        finalData.weightKg ? parseFloat(finalData.weightKg) : null,
-        finalData.volumeCbm ? parseFloat(finalData.volumeCbm) : null,
-        finalData.packages ? parseInt(finalData.packages) : null,
-        finalData.carrier || null,
-        finalData.ladenOnBoard || null,
-        containerClientUserId,  // user_id del cliente (si tiene cuenta)
-        containerLegacyClientId  // legacy_client_id directo para tarifas FCL
-      ]);
+      let containerRes;
+      if (existingContainerRow) {
+        // UPDATE: existe sin referencia. Enriquecemos campos faltantes con
+        // COALESCE para no pisar lo que ya estaba lleno, y NO tocamos status
+        // (respetamos el "mas actualizado" que ya tenga el contenedor).
+        console.log(`♻️ Actualizando contenedor existente sin referencia: id=${existingContainerRow.id}, status actual=${existingContainerRow.status}`);
+        containerRes = await pool.query(`
+          UPDATE containers SET
+            container_number = COALESCE(container_number, $1),
+            bl_number = COALESCE(bl_number, $2),
+            eta = COALESCE(eta, $3),
+            notes = COALESCE(notes, $4),
+            consignee = COALESCE(consignee, $5),
+            shipper = COALESCE(shipper, $6),
+            vessel = COALESCE(vessel, $7),
+            pol = COALESCE(pol, $8),
+            pod = COALESCE(pod, $9),
+            week_number = COALESCE(week_number, $10),
+            reference_code = COALESCE(reference_code, $11),
+            route_id = COALESCE(route_id, $12),
+            exchange_rate_usd_mxn = COALESCE(exchange_rate_usd_mxn, $13),
+            vessel_name = COALESCE(vessel_name, $14),
+            voyage_number = COALESCE(voyage_number, $15),
+            port_of_loading = COALESCE(port_of_loading, $16),
+            port_of_discharge = COALESCE(port_of_discharge, $17),
+            so_number = COALESCE(so_number, $18),
+            total_weight_kg = COALESCE(total_weight_kg, $19),
+            total_cbm = COALESCE(total_cbm, $20),
+            total_packages = COALESCE(total_packages, $21),
+            carrier = COALESCE(carrier, $22),
+            laden_on_board = COALESCE(laden_on_board, $23),
+            client_user_id = COALESCE(client_user_id, $24),
+            legacy_client_id = COALESCE(legacy_client_id, $25),
+            updated_at = NOW()
+          WHERE id = $26
+          RETURNING id
+        `, [
+          finalData.containerNumber,
+          finalData.blNumber,
+          finalData.eta,
+          `POL: ${finalData.portOfLoading || 'N/A'}, POD: ${finalData.portOfDischarge || 'N/A'}`,
+          finalData.consignee,
+          finalData.shipper,
+          finalData.vesselName,
+          finalData.portOfLoading,
+          finalData.portOfDischarge,
+          weekNumber,
+          referenceCode,
+          routeId,
+          exchangeRate,
+          finalData.vesselName,
+          finalData.voyageNumber,
+          finalData.portOfLoading,
+          finalData.portOfDischarge,
+          finalData.soNumber,
+          finalData.weightKg ? parseFloat(finalData.weightKg) : null,
+          finalData.volumeCbm ? parseFloat(finalData.volumeCbm) : null,
+          finalData.packages ? parseInt(finalData.packages) : null,
+          finalData.carrier || null,
+          finalData.ladenOnBoard || null,
+          containerClientUserId,
+          containerLegacyClientId,
+          existingContainerRow.id,
+        ]);
+      } else {
+        containerRes = await pool.query(`
+          INSERT INTO containers 
+          (container_number, bl_number, eta, status, notes, consignee, shipper, vessel, pol, pod,
+           week_number, reference_code, route_id, exchange_rate_usd_mxn,
+           vessel_name, voyage_number, port_of_loading, port_of_discharge, so_number,
+           total_weight_kg, total_cbm, total_packages, carrier, laden_on_board, client_user_id, legacy_client_id)
+          VALUES ($1, $2, $3, 'in_transit', $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25)
+          RETURNING id
+        `, [
+          finalData.containerNumber,
+          finalData.blNumber,
+          finalData.eta,
+          `POL: ${finalData.portOfLoading || 'N/A'}, POD: ${finalData.portOfDischarge || 'N/A'}`,
+          finalData.consignee,
+          finalData.shipper,
+          finalData.vesselName,
+          finalData.portOfLoading,
+          finalData.portOfDischarge,
+          weekNumber,
+          referenceCode,
+          routeId,
+          exchangeRate,
+          finalData.vesselName,
+          finalData.voyageNumber,
+          finalData.portOfLoading,
+          finalData.portOfDischarge,
+          finalData.soNumber,
+          finalData.weightKg ? parseFloat(finalData.weightKg) : null,
+          finalData.volumeCbm ? parseFloat(finalData.volumeCbm) : null,
+          finalData.packages ? parseInt(finalData.packages) : null,
+          finalData.carrier || null,
+          finalData.ladenOnBoard || null,
+          containerClientUserId,
+          containerLegacyClientId
+        ]);
+      }
 
       // *** Congelar sale_price para FCL si hay tarifa configurada ***
       if (containerRes.rows.length > 0 && containerLegacyClientId && routeId) {
@@ -2616,9 +2703,10 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
     }
 
     // ====== VALIDACION TEMPRANA: BL / CONTAINER DUPLICADO ======
-    // Si la IA extrajo bl_number o container_number, verificar que no existan
-    // en containers. Si ya existen, abortamos el upload (no creamos draft) y
-    // devolvemos un 409 claro para que el admin sepa de inmediato.
+    // Regla: solo bloqueamos si el contenedor existente YA TIENE reference_code
+    // asignado (es decir, ya esta "cerrado" administrativamente). Si existe pero
+    // todavia no tiene referencia, permitimos re-procesar para completar/actualizar
+    // todos los datos (el approve hara UPDATE en vez de INSERT).
     if (shipmentType === 'FCL' || shipmentType === 'BL') {
       const dupChecks: Array<{ col: string; value: string; label: string }> = [];
       if (extractedData.containerNumber) {
@@ -2629,27 +2717,28 @@ export const uploadManualShipment = async (req: Request, res: Response): Promise
       }
       for (const chk of dupChecks) {
         const dupRes = await pool.query(
-          `SELECT id, container_number, bl_number FROM containers WHERE ${chk.col} = $1 LIMIT 1`,
+          `SELECT id, container_number, bl_number, reference_code FROM containers WHERE ${chk.col} = $1 LIMIT 1`,
           [chk.value]
         );
         if (dupRes.rows.length > 0) {
           const row = dupRes.rows[0];
-          // Marcar el log de email como duplicado para auditoria
-          await pool.query(
-            `UPDATE email_inbound_logs SET status = 'duplicate', processed_at = NOW() WHERE id = $1`,
-            [emailLogId]
-          );
-          return res.status(409).json({
-            error: `Ya existe un contenedor con este ${chk.label}: ${chk.value}`,
-            details: `Contenedor ID ${row.id} (container=${row.container_number || 'N/A'}, bl=${row.bl_number || 'N/A'})`,
-            duplicateField: chk.col,
-            duplicateValue: chk.value,
-            existingContainerId: row.id,
-            extractedData: {
-              blNumber: extractedData.blNumber,
-              containerNumber: extractedData.containerNumber,
-            }
-          });
+          const hasReference = row.reference_code && String(row.reference_code).trim() !== '';
+          if (hasReference) {
+            // Marcar el log de email como duplicado para auditoria
+            await pool.query(
+              `UPDATE email_inbound_logs SET status = 'duplicate', processed_at = NOW() WHERE id = $1`,
+              [emailLogId]
+            );
+            return res.status(409).json({
+              error: `Ya existe un contenedor con este ${chk.label} y referencia asignada: ${chk.value}`,
+              details: `Contenedor ID ${row.id} (container=${row.container_number || 'N/A'}, bl=${row.bl_number || 'N/A'}, ref=${row.reference_code})`,
+              duplicateField: chk.col,
+              duplicateValue: chk.value,
+              existingContainerId: row.id,
+              existingReference: row.reference_code,
+            });
+          }
+          console.log(`⚠️ Duplicado permitido (sin referencia): ${chk.col}=${chk.value} -> container_id=${row.id}. Se actualizara al aprobar.`);
         }
       }
     }
