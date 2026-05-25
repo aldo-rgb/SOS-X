@@ -197,6 +197,9 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const trackingInputRef = useRef<HTMLInputElement>(null);
   const tracking2InputRef = useRef<HTMLInputElement>(null);
   const classifyScanRef = useRef<HTMLInputElement>(null);
+  const lengthInputRef = useRef<HTMLInputElement>(null);
+  const widthInputRef = useRef<HTMLInputElement>(null);
+  const heightInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -308,6 +311,12 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
     }
     if (open && activeStep === 2) {
       setTimeout(() => { classifyScanRef.current?.focus(); }, 200);
+    }
+    if (open && activeStep === 4) {
+      setTimeout(() => {
+        lengthInputRef.current?.focus();
+        lengthInputRef.current?.select();
+      }, 200);
     }
   }, [open, activeStep]);
 
@@ -1319,20 +1328,41 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
 
               {/* Campos manuales de medidas */}
               <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap', mb: 2 }}>
-                {(['length', 'width', 'height'] as const).map((field, i) => (
-                  <TextField
-                    key={field}
-                    label={['Largo', 'Ancho', 'Alto'][i]}
-                    type="number"
-                    value={dimensions[field] || ''}
-                    onChange={(e) => handleManualDimensions(field, parseFloat(e.target.value) || 0)}
-                    slotProps={{
-                      input: { endAdornment: <InputAdornment position="end">cm</InputAdornment> },
-                      htmlInput: { min: 0, step: 1 },
-                    }}
-                    sx={{ width: 115 }}
-                  />
-                ))}
+                {(['length', 'width', 'height'] as const).map((field, i) => {
+                  const refs = [lengthInputRef, widthInputRef, heightInputRef];
+                  const labels = ['Largo', 'Ancho', 'Alto'];
+                  return (
+                    <TextField
+                      key={field}
+                      label={labels[i]}
+                      type="number"
+                      value={dimensions[field] || ''}
+                      onChange={(e) => handleManualDimensions(field, parseFloat(e.target.value) || 0)}
+                      onFocus={(e) => e.target.select()}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (i < 2) {
+                            refs[i + 1].current?.focus();
+                            refs[i + 1].current?.select();
+                          } else {
+                            // En Alto -> intentar guardar si hay datos validos
+                            if (!loading && dimensions.length > 0 && dimensions.width > 0 && dimensions.height > 0) {
+                              handleSubmit();
+                            }
+                          }
+                        }
+                      }}
+                      inputRef={refs[i]}
+                      autoFocus={i === 0}
+                      slotProps={{
+                        input: { endAdornment: <InputAdornment position="end">cm</InputAdornment> },
+                        htmlInput: { min: 0, step: 1 },
+                      }}
+                      sx={{ width: 115 }}
+                    />
+                  );
+                })}
               </Box>
 
               {/* Botón opcional: cámara + IA */}
