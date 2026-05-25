@@ -2042,14 +2042,27 @@ app.post('/api/migrate/mjcustomer-fcl-revert', async (req: Request, res: Respons
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      // Limpiar tablas dependientes (best-effort por savepoint)
-      const cleanup = [
-        `DELETE FROM container_costs WHERE container_id = ANY($1::int[])`,
-        `DELETE FROM container_extras WHERE container_id = ANY($1::int[])`,
-        `DELETE FROM container_payments WHERE container_id = ANY($1::int[])`,
-        `DELETE FROM container_files WHERE container_id = ANY($1::int[])`,
-        `DELETE FROM mjcustomer_sync_conflicts WHERE existing_container_id = ANY($1::int[])`,
-      ];
+      // Limpiar TODAS las tablas que tengan FK hacia containers(id).
+      // Enumeramos las FKs dinamicamente para no perder ninguna tabla.
+      const fkRes = await client.query(`
+        SELECT
+          tc.table_name AS referencing_table,
+          kcu.column_name AS referencing_column
+        FROM information_schema.table_constraints tc
+        JOIN information_schema.key_column_usage kcu
+          ON tc.constraint_name = kcu.constraint_name
+         AND tc.table_schema = kcu.table_schema
+        JOIN information_schema.constraint_column_usage ccu
+          ON ccu.constraint_name = tc.constraint_name
+         AND ccu.table_schema = tc.table_schema
+        WHERE tc.constraint_type = 'FOREIGN KEY'
+          AND ccu.table_name = 'containers'
+          AND ccu.column_name = 'id'
+          AND tc.table_name <> 'containers'
+      `);
+      const cleanup = fkRes.rows.map((r: any) =>
+        `DELETE FROM "${r.referencing_table}" WHERE "${r.referencing_column}" = ANY($1::int[])`
+      );
       for (let i = 0; i < cleanup.length; i++) {
         const sp = `sp_revert_${i}`;
         await client.query(`SAVEPOINT ${sp}`);
@@ -2057,6 +2070,8 @@ app.post('/api/migrate/mjcustomer-fcl-revert', async (req: Request, res: Respons
           await client.query(cleanup[i]!, [ids]);
           await client.query(`RELEASE SAVEPOINT ${sp}`);
         } catch (_e) {
+          // Si la tabla tiene FKs propias que bloquean (ej: anticipo_referencias
+          // -> anticipos), el savepoint rollback evita perder la tx principal.
           await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
         }
       }
