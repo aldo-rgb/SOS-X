@@ -1990,7 +1990,7 @@ app.get('/api/migrate/mjcustomer-fcl-revert-preview', async (_req: Request, res:
     const safe = await pool.query(`
       SELECT c.id, c.container_number, c.bl_number, c.mj_container_id,
              c.created_at, c.status, c.eta,
-             (SELECT COUNT(*)::int FROM packages p WHERE p.container_id = c.id) AS packages_count,
+             (SELECT COUNT(*)::int FROM maritime_shipments p WHERE p.container_id = c.id) AS packages_count,
              (SELECT COUNT(*)::int FROM container_costs cc WHERE cc.container_id = c.id) AS costs_count
         FROM containers c
        WHERE c.mj_container_id IS NOT NULL
@@ -2033,7 +2033,7 @@ app.post('/api/migrate/mjcustomer-fcl-revert', async (req: Request, res: Respons
         FROM containers c
        WHERE c.mj_container_id IS NOT NULL
          AND (c.eta IS NULL OR c.eta < CURRENT_DATE)
-         AND NOT EXISTS (SELECT 1 FROM packages p WHERE p.container_id = c.id)
+         AND NOT EXISTS (SELECT 1 FROM maritime_shipments p WHERE p.container_id = c.id)
     `);
     const ids = candidates.rows.map((r: any) => r.id);
     if (ids.length === 0) {
