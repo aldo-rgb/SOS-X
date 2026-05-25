@@ -14,7 +14,7 @@ import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
 // Helper: si la URL apunta a S3 (bucket privado), generar URL firmada
 // ============================================
 const SIGNED_URL_TTL = 60 * 60 * 6; // 6 horas
-const resolveAssetUrl = async (row: { url?: string | null; storage_key?: string | null }) => {
+export const resolveAssetUrl = async (row: { url?: string | null; storage_key?: string | null }) => {
   const url = row?.url || '';
   // Solo firmamos si tenemos storage_key (key dentro del bucket) y la URL apunta a S3
   if (row?.storage_key && /amazonaws\.com/.test(url)) {

@@ -3266,6 +3266,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 service_type: 'AA_DHL',
                 shipment_type: 'dhl',
                 // Info específica DHL
+                import_cost_usd: pkg.import_cost_usd ? parseFloat(pkg.import_cost_usd) : null,
                 import_cost_mxn: pkg.import_cost_mxn ? parseFloat(pkg.import_cost_mxn) : null,
                 national_cost_mxn: pkg.national_cost_mxn ? parseFloat(pkg.national_cost_mxn) : null,
                 total_cost_mxn: pkg.total_cost_mxn ? parseFloat(pkg.total_cost_mxn) : null,

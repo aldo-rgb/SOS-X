@@ -550,7 +550,8 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             {(() => {
               const pendingClassification = !!(currentPkg as any)?.pending_classification;
               const isDHL = (currentPkg as any)?.shipment_type === 'dhl';
-              const hasAnyCost = assignedCost > 0 || estimatedCost > 0 || shippingCost > 0 || paidAmount > 0 || pendingAmount > 0;
+              const importCostMxn = Number((currentPkg as any)?.import_cost_mxn || 0);
+              const hasAnyCost = assignedCost > 0 || estimatedCost > 0 || shippingCost > 0 || paidAmount > 0 || pendingAmount > 0 || importCostMxn > 0;
 
               // DHL: la clasificación no aplica — si no hay costo aún, mostrar mensaje genérico
               if (isDHL && !hasAnyCost) {
@@ -583,16 +584,18 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               }
 
               return (() => {
-              // El costo del servicio marítimo es:
-              //   - Si ya hay cost asignado: assignedCost - shippingCost
-              //   - Si solo hay estimado:    estimatedCost
-              const maritimeBase = assignedCost > 0
-                ? Math.max(0, assignedCost - shippingCost)
-                : estimatedCost;
-              const isEstimated = assignedCost <= 0 && estimatedCost > 0;
-              const grandTotal = maritimeBase + shippingCost;
               const isChinaAir = (currentPkg as any).shipment_type === 'china_air';
               const isDHL = (currentPkg as any).shipment_type === 'dhl';
+              // El costo del servicio marítimo/DHL:
+              //   - Si ya hay costo asignado (total_cost_mxn): assignedCost - shippingCost
+              //   - DHL: si solo hay import_cost_mxn, usar ese como base
+              //   - Si solo hay estimado: estimatedCost
+              const dhlImport = Number((currentPkg as any)?.import_cost_mxn || 0);
+              const maritimeBase = assignedCost > 0
+                ? Math.max(0, assignedCost - shippingCost)
+                : (isDHL && dhlImport > 0 ? dhlImport : estimatedCost);
+              const isEstimated = assignedCost <= 0 && estimatedCost > 0;
+              const grandTotal = maritimeBase + shippingCost;
               const serviceLabel = isChinaAir
                 ? '✈️ Servicio Aéreo China'
                 : isDHL
@@ -604,8 +607,15 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               const estimatedUsd = Number((currentPkg as any)?.estimated_cost_usd || 0);
               const fxFromAssigned = Number((currentPkg as any)?.registered_exchange_rate || 0);
               const fxFromEstimated = Number((currentPkg as any)?.estimated_fx_rate || 0);
-              const costoUSD = assignedUsd > 0 ? assignedUsd : estimatedUsd;
-              const tcToShow = fxFromAssigned > 0 ? fxFromAssigned : (fxFromEstimated > 0 ? fxFromEstimated : 0);
+              // DHL: usar import_cost_usd como costo USD; derivar TC de import_cost_mxn / import_cost_usd
+              const dhlImportUsd = isDHL ? Number((currentPkg as any)?.import_cost_usd || 0) : 0;
+              const costoUSD = isDHL
+                ? dhlImportUsd
+                : (assignedUsd > 0 ? assignedUsd : estimatedUsd);
+              const dhlTc = isDHL && dhlImportUsd > 0 && dhlImport > 0
+                ? dhlImport / dhlImportUsd
+                : 0;
+              const tcToShow = dhlTc > 0 ? dhlTc : (fxFromAssigned > 0 ? fxFromAssigned : (fxFromEstimated > 0 ? fxFromEstimated : 0));
 
               // Si ya hay costo asignado, preferir applied_*; si no, usar estimated_*
               const cbm = assignedUsd > 0

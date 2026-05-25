@@ -85,6 +85,8 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   // Form data
   const [tracking, setTracking] = useState('');
   const [tracking2, setTracking2] = useState('');
+  const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
+  const [tracking2Warning, setTracking2Warning] = useState<string | null>(null);
   const [productType, setProductType] = useState<'standard' | 'high_value' | null>(null);
   const [weight, setWeight] = useState<number>(0);
   const [dimensions, setDimensions] = useState({ length: 0, width: 0, height: 0 });
@@ -177,11 +179,18 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const normalizeTracking = (raw: string) =>
     raw.toUpperCase().replace(/¿/g, '+').replace(/\?/g, '+');
 
+  const is2LMXCode = (value: string) => /^2[A-Z0-9]{3,}\+\d+$/i.test(value.trim());
+
   const handleTrackingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = normalizeTracking(e.target.value);
     setTracking(value);
+    if (is2LMXCode(value)) {
+      setTrackingWarning('Este código es una referencia interna DHL. Debes escanear el código de barras largo del paquete (Ej: JJD014600012610001490).');
+    } else {
+      setTrackingWarning(null);
+    }
     // Cuando el scanner termina (longitud suficiente), mover foco a segunda guía
-    if (value.length >= 10 && /\S{10,}/.test(value)) {
+    if (value.length >= 10 && /\S{10,}/.test(value) && !is2LMXCode(value)) {
       setTimeout(() => tracking2InputRef.current?.focus(), 200);
     }
   };
@@ -195,7 +204,12 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const handleTracking2Change = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = normalizeTracking(e.target.value);
     setTracking2(value);
-    if (value.length >= 8 && /\S{8,}/.test(value)) {
+    if (is2LMXCode(value)) {
+      setTracking2Warning('Este código es una referencia interna DHL. Escanea el código JJD del paquete (Ej: JJD014600012610001490).');
+    } else {
+      setTracking2Warning(null);
+    }
+    if (value.length >= 8 && /\S{8,}/.test(value) && !is2LMXCode(value)) {
       setTimeout(() => setActiveStep(2), 300);
     }
   };
@@ -616,7 +630,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
               {/* Guía madre (corta) */}
               <Box sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, textAlign: 'left', maxWidth: 420, mx: 'auto' }}>
-                  Guía madre DHL <strong>(corta)</strong> — identificador principal del paquete
+                  Guía master DHL <strong>(corta)</strong> — número corto del envío (Ej: 9650623485)
                 </Typography>
                 <TextField
                   inputRef={trackingInputRef}
@@ -626,11 +640,12 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                   placeholder="Ej: 9650623485"
                   variant="outlined"
                   autoFocus
+                  error={!!trackingWarning}
                   slotProps={{
                     input: {
                       startAdornment: (
                         <InputAdornment position="start">
-                          <ScanIcon color={tracking ? 'success' : 'action'} />
+                          <ScanIcon color={trackingWarning ? 'error' : tracking ? 'success' : 'action'} />
                         </InputAdornment>
                       ),
                       sx: { fontSize: '1.2rem', fontFamily: 'monospace', '& input': { textAlign: 'center' } }
@@ -641,30 +656,35 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     maxWidth: 420,
                     '& .MuiOutlinedInput-root': {
                       borderRadius: 3,
-                      bgcolor: tracking ? '#f0fdf4' : '#f5f5f5',
-                      borderColor: tracking ? '#4caf50' : undefined,
+                      bgcolor: trackingWarning ? '#fff5f5' : tracking ? '#f0fdf4' : '#f5f5f5',
                     }
                   }}
                 />
+                {trackingWarning && (
+                  <Alert severity="error" sx={{ mt: 1, maxWidth: 420, mx: 'auto', textAlign: 'left' }}>
+                    <strong>⚠️ Código incorrecto.</strong> {trackingWarning}
+                  </Alert>
+                )}
               </Box>
 
-              {/* Guía hija (larga, opcional) */}
+              {/* Guía hija (JJD, larga, opcional) */}
               <Box sx={{ mb: 3 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, textAlign: 'left', maxWidth: 420, mx: 'auto' }}>
-                  Guía hija <strong>(larga, opcional)</strong> — solo si el embarque trae múltiples piezas
+                  Guía pieza <strong>(JJD, opcional)</strong> — código de barras largo de cada pieza física
                 </Typography>
                 <TextField
                   inputRef={tracking2InputRef}
                   value={tracking2}
                   onChange={handleTracking2Change}
                   onKeyDown={handleTracking2KeyDown}
-                  placeholder="Ej: 2LMX64000+48000001"
+                  placeholder="Ej: JJD014600012610001490"
                   variant="outlined"
+                  error={!!tracking2Warning}
                   slotProps={{
                     input: {
                       startAdornment: (
                         <InputAdornment position="start">
-                          <ScanIcon color={tracking2 ? 'success' : 'action'} />
+                          <ScanIcon color={tracking2Warning ? 'error' : tracking2 ? 'success' : 'action'} />
                         </InputAdornment>
                       ),
                       sx: { fontSize: '1.2rem', fontFamily: 'monospace', '& input': { textAlign: 'center' } }
@@ -675,13 +695,18 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     maxWidth: 420,
                     '& .MuiOutlinedInput-root': {
                       borderRadius: 3,
-                      bgcolor: tracking2 ? '#f0fdf4' : '#f5f5f5',
+                      bgcolor: tracking2Warning ? '#fff5f5' : tracking2 ? '#f0fdf4' : '#f5f5f5',
                     }
                   }}
                 />
+                {tracking2Warning && (
+                  <Alert severity="error" sx={{ mt: 1, maxWidth: 420, mx: 'auto', textAlign: 'left' }}>
+                    <strong>⚠️ Código incorrecto.</strong> {tracking2Warning}
+                  </Alert>
+                )}
               </Box>
 
-              {tracking.length >= 5 && (
+              {tracking.length >= 5 && !trackingWarning && !tracking2Warning && (
                 <Button
                   variant="contained"
                   size="large"

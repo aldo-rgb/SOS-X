@@ -8953,6 +8953,7 @@ import {
   uploadBrandAsset,
   activateBrandAsset,
   deleteBrandAsset,
+  resolveAssetUrl,
 } from './brandAssetsController';
 
 const brandAssetUpload = multer({
@@ -9719,10 +9720,12 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     let cajitoAvatarUrl: string | null = null;
     try {
       const av = await pool.query(
-        `SELECT url FROM brand_assets WHERE slot = 'cajito_avatar' AND is_active = TRUE
+        `SELECT url, storage_key FROM brand_assets WHERE slot = 'cajito_avatar' AND is_active = TRUE
          ORDER BY created_at DESC LIMIT 1`
       );
-      cajitoAvatarUrl = av.rows[0]?.url || null;
+      if (av.rows[0]) {
+        cajitoAvatarUrl = await resolveAssetUrl(av.rows[0]);
+      }
     } catch { /* tabla aún no creada */ }
 
     res.json({
