@@ -307,9 +307,37 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
       setTimeout(() => { trackingInputRef.current?.focus(); }, 300);
     }
     if (open && activeStep === 2) {
-      // Focus the hidden scan input so the scanner gun writes here, not on any button
       setTimeout(() => { classifyScanRef.current?.focus(); }, 200);
     }
+  }, [open, activeStep]);
+
+  // Listener de teclado a nivel documento para el paso Clasificar.
+  // Más confiable que autoFocus en input invisible en todos los browsers.
+  const classifyBufferRef = useRef('');
+  const classifyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!open || activeStep !== 2) return;
+    const onKey = (e: KeyboardEvent) => {
+      // Ignore when a real input/button has focus (e.g. print button via Tab)
+      const tag = (e.target as HTMLElement).tagName;
+      if (tag === 'INPUT' && (e.target as HTMLInputElement) !== classifyScanRef.current) return;
+      if (classifyTimerRef.current) clearTimeout(classifyTimerRef.current);
+      if (e.key === 'Enter') {
+        const code = classifyBufferRef.current.trim().toUpperCase();
+        classifyBufferRef.current = '';
+        if (code === SCAN_CODE_STANDARD) handleSelectProductType('standard');
+        else if (code === SCAN_CODE_HIGH_VALUE) handleSelectProductType('high_value');
+        return;
+      }
+      if (e.key.length === 1) {
+        classifyBufferRef.current += e.key;
+        // Clear buffer after 600ms of no input (guards against stray keystrokes)
+        classifyTimerRef.current = setTimeout(() => { classifyBufferRef.current = ''; }, 600);
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); classifyBufferRef.current = ''; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, activeStep]);
 
   const normalizeTracking = (raw: string) =>
@@ -993,14 +1021,35 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
         return (
           <Fade in={activeStep === 2}>
             <Box sx={{ textAlign: 'center', py: 4 }}>
-              {/* Input oculto que captura el scan de la pistola */}
-              <input
-                ref={classifyScanRef}
+              {/* Input visible para captura del escáner — da retroalimentación al operador */}
+              <TextField
+                inputRef={classifyScanRef}
                 autoFocus
                 onChange={handleClassifyScan}
                 onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
-                style={{ position: 'absolute', opacity: 0, width: 1, height: 1, pointerEvents: 'none' }}
-                tabIndex={-1}
+                placeholder="Escanea la etiqueta de clasificación…"
+                size="small"
+                fullWidth
+                sx={{
+                  mb: 3,
+                  '& .MuiOutlinedInput-root': {
+                    borderRadius: 3,
+                    bgcolor: '#fffdf0',
+                    '& fieldset': { borderColor: DHL_YELLOW, borderWidth: 2 },
+                    '&:hover fieldset': { borderColor: DHL_RED },
+                    '&.Mui-focused fieldset': { borderColor: DHL_RED, borderWidth: 2 },
+                  },
+                  '& input': { textAlign: 'center', fontFamily: 'monospace', fontSize: 15, letterSpacing: 1 },
+                }}
+                slotProps={{
+                  input: {
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <ScanIcon sx={{ color: DHL_RED }} />
+                      </InputAdornment>
+                    ),
+                  },
+                }}
               />
 
               <Typography variant="h4" fontWeight="bold" gutterBottom>
