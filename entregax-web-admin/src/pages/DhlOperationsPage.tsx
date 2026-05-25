@@ -807,6 +807,7 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
           fetchShipments();
           setSnackbar({ open: true, message: 'Paquete registrado correctamente', severity: 'success' });
         }}
+        supervisorName={supervisorName || undefined}
       />
 
       {/* Dialog: Cotizar */}

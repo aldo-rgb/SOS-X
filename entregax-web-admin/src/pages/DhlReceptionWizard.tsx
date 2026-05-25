@@ -57,6 +57,7 @@ interface DhlReceptionWizardProps {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  supervisorName?: string;
 }
 
 interface ClientInfo {
@@ -69,7 +70,7 @@ interface ClientInfo {
 // Wizard Steps - Ahora con Cliente primero
 const STEPS = ['Cliente', 'Escanear', 'Clasificar', 'Peso', 'Medidas'];
 
-export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlReceptionWizardProps) {
+export default function DhlReceptionWizard({ open, onClose, onSuccess, supervisorName }: DhlReceptionWizardProps) {
   // Wizard state
   const [activeStep, setActiveStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -206,9 +207,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
   const handleSelectProductType = (type: 'standard' | 'high_value') => {
     setProductType(type);
     setTimeout(() => {
-      setActiveStep(3); // Ahora paso 3 es peso
-      // Iniciar conexión con báscula
-      connectScale();
+      setActiveStep(3); // Ahora paso 3 es peso — NO auto-conectar báscula
     }, 300);
   };
 
@@ -270,8 +269,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
           // Si el peso es estable (> 0.1 kg), auto-avanzar
           if (weightValue > 0.1) {
             setTimeout(() => {
-              setActiveStep(4); // Ahora paso 4 es medidas
-              initCamera();
+              setActiveStep(4); // Ahora paso 4 es medidas — NO iniciar cámara
             }, 1500);
           }
           
@@ -285,8 +283,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
 
   const handleManualWeight = () => {
     if (weight > 0) {
-      setActiveStep(4); // Ahora paso 4 es medidas
-      initCamera();
+      setActiveStep(4); // Ahora paso 4 es medidas — NO iniciar cámara automáticamente
     }
   };
 
@@ -826,9 +823,13 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
                 <TextField
                   type="number"
                   value={weight || ''}
-                  onChange={(e) => setWeight(parseFloat(e.target.value) || 0)}
-                  InputProps={{
-                    endAdornment: <InputAdornment position="end">kg</InputAdornment>,
+                  onChange={(e) => {
+                    const v = parseFloat(e.target.value);
+                    setWeight(isNaN(v) || v < 0 ? 0 : v);
+                  }}
+                  slotProps={{
+                    input: { endAdornment: <InputAdornment position="end">kg</InputAdornment> },
+                    htmlInput: { min: 0, step: 0.01 },
                   }}
                   sx={{ width: 150 }}
                 />
@@ -854,173 +855,126 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
                 Medidas del Paquete
               </Typography>
               <Typography color="text.secondary" sx={{ mb: 3 }}>
-                {!photoTaken 
-                  ? 'Coloca la caja sobre el área verde y toma la foto'
-                  : 'Verifica o ajusta las medidas'
-                }
+                {cameraActive
+                  ? photoTaken ? 'Verifica o ajusta las medidas detectadas' : 'Centra la caja y toma la foto'
+                  : 'Ingresa las medidas manualmente'}
               </Typography>
 
-              {/* Área de cámara */}
-              <Box
-                sx={{
-                  position: 'relative',
-                  width: '100%',
-                  maxWidth: 600,
-                  mx: 'auto',
-                  aspectRatio: '16/9',
-                  bgcolor: '#000',
-                  borderRadius: 3,
-                  overflow: 'hidden',
-                  mb: 3
-                }}
-              >
-                {/* Video de cámara */}
-                <video
-                  ref={videoRef}
-                  style={{
+              {/* Área de cámara — solo visible si el usuario la activó */}
+              {cameraActive && (
+                <Box
+                  sx={{
+                    position: 'relative',
                     width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                    display: photoTaken ? 'none' : 'block'
+                    maxWidth: 500,
+                    mx: 'auto',
+                    aspectRatio: '4/3',
+                    bgcolor: '#000',
+                    borderRadius: 3,
+                    overflow: 'hidden',
+                    mb: 2,
                   }}
-                  playsInline
-                  muted
-                />
-                
-                {/* Canvas para captura */}
-                <canvas
-                  ref={canvasRef}
-                  style={{
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                    display: photoTaken ? 'block' : 'none'
-                  }}
-                />
-
-                {/* Overlay con guía verde */}
-                {!photoTaken && cameraActive && (
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
-                      width: '60%',
-                      height: '60%',
-                      border: '4px dashed #4caf50',
-                      borderRadius: 2,
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
-                    <Typography 
-                      sx={{ 
-                        color: '#4caf50', 
-                        bgcolor: 'rgba(0,0,0,0.5)', 
-                        px: 2, 
-                        py: 1, 
-                        borderRadius: 2 
-                      }}
-                    >
-                      📦 Centra la caja aquí
-                    </Typography>
-                  </Box>
-                )}
-
-                {/* Loading IA */}
-                {processingAI && (
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      bgcolor: 'rgba(0,0,0,0.7)',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center'
-                    }}
-                  >
-                    <CircularProgress size={60} sx={{ color: '#4caf50', mb: 2 }} />
-                    <Typography color="white">
-                      Calculando medidas con IA...
-                    </Typography>
-                  </Box>
-                )}
-              </Box>
+                >
+                  <video
+                    ref={videoRef}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: photoTaken ? 'none' : 'block' }}
+                    playsInline
+                    muted
+                  />
+                  <canvas
+                    ref={canvasRef}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover', display: photoTaken ? 'block' : 'none' }}
+                  />
+                  {!photoTaken && (
+                    <Box sx={{
+                      position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)',
+                      width: '65%', height: '65%', border: '3px dashed #4caf50', borderRadius: 2,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <Typography sx={{ color: '#4caf50', bgcolor: 'rgba(0,0,0,0.55)', px: 1.5, py: 0.5, borderRadius: 2, fontSize: '0.85rem' }}>
+                        📦 Centra la caja aquí
+                      </Typography>
+                    </Box>
+                  )}
+                  {processingAI && (
+                    <Box sx={{
+                      position: 'absolute', inset: 0, bgcolor: 'rgba(0,0,0,0.7)',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <CircularProgress size={50} sx={{ color: '#4caf50', mb: 1.5 }} />
+                      <Typography color="white" variant="body2">Calculando medidas con IA...</Typography>
+                    </Box>
+                  )}
+                </Box>
+              )}
 
               {/* Botones de cámara */}
-              {!photoTaken ? (
-                <Button
-                  variant="contained"
-                  size="large"
-                  startIcon={<CameraIcon />}
-                  onClick={capturePhoto}
-                  disabled={!cameraActive || processingAI}
-                  sx={{ bgcolor: DHL_RED, '&:hover': { bgcolor: '#a00410' } }}
-                >
-                  Tomar Foto
-                </Button>
-              ) : (
+              {cameraActive && (
+                <Box sx={{ mb: 2, display: 'flex', gap: 1.5, justifyContent: 'center' }}>
+                  {!photoTaken ? (
+                    <Button variant="contained" startIcon={<CameraIcon />} onClick={capturePhoto}
+                      disabled={processingAI}
+                      sx={{ bgcolor: DHL_RED, '&:hover': { bgcolor: '#a00410' } }}>
+                      Tomar Foto
+                    </Button>
+                  ) : (
+                    <Button variant="outlined" startIcon={<RefreshIcon />} onClick={() => setPhotoTaken(false)}>
+                      Volver a Tomar
+                    </Button>
+                  )}
+                  <Button variant="text" size="small" onClick={() => {
+                    setCameraActive(false);
+                    setPhotoTaken(false);
+                    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+                  }} sx={{ color: 'text.secondary' }}>
+                    Cancelar cámara
+                  </Button>
+                </Box>
+              )}
+
+              {/* Campos manuales de medidas */}
+              <Box sx={{ display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap', mb: 2 }}>
+                {(['length', 'width', 'height'] as const).map((field, i) => (
+                  <TextField
+                    key={field}
+                    label={['Largo', 'Ancho', 'Alto'][i]}
+                    type="number"
+                    value={dimensions[field] || ''}
+                    onChange={(e) => handleManualDimensions(field, parseFloat(e.target.value) || 0)}
+                    slotProps={{
+                      input: { endAdornment: <InputAdornment position="end">cm</InputAdornment> },
+                      htmlInput: { min: 0, step: 1 },
+                    }}
+                    sx={{ width: 115 }}
+                  />
+                ))}
+              </Box>
+
+              {/* Botón opcional: cámara + IA */}
+              {!cameraActive && (
                 <Button
                   variant="outlined"
-                  startIcon={<RefreshIcon />}
-                  onClick={() => setPhotoTaken(false)}
-                  sx={{ mr: 2 }}
+                  startIcon={<CameraIcon />}
+                  onClick={initCamera}
+                  sx={{ mb: 2, borderColor: DHL_RED, color: DHL_RED, '&:hover': { bgcolor: '#fff5f5', borderColor: '#a00410' } }}
                 >
-                  Volver a Tomar
+                  Tomar medidas con fotografía
                 </Button>
               )}
 
-              {/* Campos de medidas */}
-              <Box sx={{ mt: 4, display: 'flex', gap: 2, justifyContent: 'center', flexWrap: 'wrap' }}>
-                <TextField
-                  label="Largo"
-                  type="number"
-                  value={dimensions.length || ''}
-                  onChange={(e) => handleManualDimensions('length', parseFloat(e.target.value) || 0)}
-                  InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
-                  sx={{ width: 120 }}
-                />
-                <TextField
-                  label="Ancho"
-                  type="number"
-                  value={dimensions.width || ''}
-                  onChange={(e) => handleManualDimensions('width', parseFloat(e.target.value) || 0)}
-                  InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
-                  sx={{ width: 120 }}
-                />
-                <TextField
-                  label="Alto"
-                  type="number"
-                  value={dimensions.height || ''}
-                  onChange={(e) => handleManualDimensions('height', parseFloat(e.target.value) || 0)}
-                  InputProps={{ endAdornment: <InputAdornment position="end">cm</InputAdornment> }}
-                  sx={{ width: 120 }}
-                />
-              </Box>
-
               {/* Botón de guardar */}
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CheckIcon />}
-                onClick={handleSubmit}
-                disabled={loading}
-                sx={{ 
-                  mt: 4, 
-                  bgcolor: '#4caf50', 
-                  '&:hover': { bgcolor: '#388e3c' },
-                  px: 6,
-                  py: 1.5
-                }}
-              >
-                {loading ? 'Guardando...' : 'Guardar Paquete'}
-              </Button>
+              <Box sx={{ mt: 1 }}>
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CheckIcon />}
+                  onClick={handleSubmit}
+                  disabled={loading}
+                  sx={{ bgcolor: '#4caf50', '&:hover': { bgcolor: '#388e3c' }, px: 6, py: 1.5 }}
+                >
+                  {loading ? 'Guardando...' : 'Guardar Paquete'}
+                </Button>
+              </Box>
             </Box>
           </Fade>
         );
@@ -1041,30 +995,38 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
           return;
         }
       }}
-      maxWidth="md"
+      maxWidth="sm"
       fullWidth
       PaperProps={{
         sx: { borderRadius: 4, overflow: 'hidden' }
       }}
     >
-      {/* Header */}
-      <Box 
-        sx={{ 
-          bgcolor: DHL_RED, 
-          color: 'white', 
-          p: 2, 
-          display: 'flex', 
+      {/* Header — DHL brand: fondo amarillo, detalles en rojo */}
+      <Box
+        sx={{
+          bgcolor: DHL_YELLOW,
+          color: DHL_RED,
+          p: 2,
+          display: 'flex',
           alignItems: 'center',
-          justifyContent: 'space-between'
+          justifyContent: 'space-between',
+          borderBottom: `3px solid ${DHL_RED}`,
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <ScanIcon sx={{ fontSize: 32 }} />
-          <Typography variant="h5" fontWeight="bold">
-            Recepción Rápida DHL
-          </Typography>
+          <ScanIcon sx={{ fontSize: 32, color: DHL_RED }} />
+          <Box>
+            <Typography variant="h5" fontWeight="bold" sx={{ color: DHL_RED, lineHeight: 1.1 }}>
+              Recepción Rápida DHL
+            </Typography>
+            {supervisorName && (
+              <Typography variant="caption" sx={{ color: DHL_RED, opacity: 0.75 }}>
+                Supervisado por: <strong>{supervisorName}</strong>
+              </Typography>
+            )}
+          </Box>
         </Box>
-        <IconButton onClick={handleCloseAttempt} sx={{ color: 'white' }}>
+        <IconButton onClick={handleCloseAttempt} sx={{ color: DHL_RED }}>
           <CloseIcon />
         </IconButton>
       </Box>
@@ -1088,7 +1050,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
         </Stepper>
       </Box>
 
-      <DialogContent sx={{ minHeight: 400 }}>
+      <DialogContent sx={{ minHeight: 360, pb: 1 }}>
         {/* Success Message */}
         {success && (
           <Slide direction="up" in={success}>
@@ -1121,59 +1083,54 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
 
         {/* Step Content */}
         {!success && renderStep()}
-
-        {/* Resumen flotante */}
-        {activeStep > 0 && !success && (
-          <Paper
-            sx={{
-              position: 'fixed',
-              bottom: 20,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              p: 2,
-              bgcolor: '#111',
-              color: 'white',
-              borderRadius: 3,
-              display: 'flex',
-              gap: 3,
-              alignItems: 'center',
-              zIndex: 1000
-            }}
-          >
-            {clientInfo && (
-              <Box>
-                <Typography variant="caption" color="grey.500">Cliente</Typography>
-                <Typography fontWeight="bold">
-                  📦 {clientInfo.box_id}
-                </Typography>
-              </Box>
-            )}
-            {tracking && (
-              <Box>
-                <Typography variant="caption" color="grey.500">Guía 1</Typography>
-                <Typography fontFamily="monospace" fontWeight="bold" sx={{ fontSize: '0.75rem' }}>{tracking}</Typography>
-                {tracking2 && (
-                  <Typography fontFamily="monospace" sx={{ fontSize: '0.7rem', color: 'grey.400' }}>{tracking2}</Typography>
-                )}
-              </Box>
-            )}
-            {productType && (
-              <Box>
-                <Typography variant="caption" color="grey.500">Tipo</Typography>
-                <Typography fontWeight="bold">
-                  {productType === 'standard' ? '👕 Standard' : '⚙️ High Value'}
-                </Typography>
-              </Box>
-            )}
-            {weight > 0 && (
-              <Box>
-                <Typography variant="caption" color="grey.500">Peso</Typography>
-                <Typography fontWeight="bold">{weight} kg</Typography>
-              </Box>
-            )}
-          </Paper>
-        )}
       </DialogContent>
+
+      {/* Resumen de progreso — barra fija al fondo del dialog (no fixed/viewport) */}
+      {activeStep > 0 && !success && (
+        <Box
+          sx={{
+            bgcolor: '#111',
+            color: 'white',
+            px: 2,
+            py: 1.5,
+            display: 'flex',
+            gap: 2.5,
+            alignItems: 'center',
+            flexWrap: 'wrap',
+            borderTop: `2px solid ${DHL_YELLOW}`,
+          }}
+        >
+          {clientInfo && (
+            <Box>
+              <Typography variant="caption" sx={{ color: 'grey.500', display: 'block', lineHeight: 1 }}>Cliente</Typography>
+              <Typography fontWeight="bold" sx={{ fontSize: '0.85rem' }}>📦 {clientInfo.box_id}</Typography>
+            </Box>
+          )}
+          {tracking && (
+            <Box>
+              <Typography variant="caption" sx={{ color: 'grey.500', display: 'block', lineHeight: 1 }}>Guía 1</Typography>
+              <Typography fontFamily="monospace" fontWeight="bold" sx={{ fontSize: '0.72rem' }}>{tracking}</Typography>
+              {tracking2 && (
+                <Typography fontFamily="monospace" sx={{ fontSize: '0.68rem', color: 'grey.400' }}>{tracking2}</Typography>
+              )}
+            </Box>
+          )}
+          {productType && (
+            <Box>
+              <Typography variant="caption" sx={{ color: 'grey.500', display: 'block', lineHeight: 1 }}>Tipo</Typography>
+              <Typography fontWeight="bold" sx={{ fontSize: '0.85rem' }}>
+                {productType === 'standard' ? '👕 Standard' : '⚙️ Específica'}
+              </Typography>
+            </Box>
+          )}
+          {weight > 0 && (
+            <Box>
+              <Typography variant="caption" sx={{ color: 'grey.500', display: 'block', lineHeight: 1 }}>Peso</Typography>
+              <Typography fontWeight="bold" sx={{ fontSize: '0.85rem' }}>{weight} kg</Typography>
+            </Box>
+          )}
+        </Box>
+      )}
     </Dialog>
 
     {/* 🔐 MODAL DE CONFIRMACIÓN DE CIERRE CON PIN */}
