@@ -115,6 +115,52 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const serialPortRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
 
+  // Audio feedback (beeps generados con Web Audio API, sin assets)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const audioCtxRef = useRef<any>(null);
+  const getAudioCtx = () => {
+    if (!audioCtxRef.current) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const Ctx = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (Ctx) audioCtxRef.current = new Ctx();
+    }
+    return audioCtxRef.current;
+  };
+  const playTone = (freq: number, durationMs: number, type: OscillatorType = 'sine', gain = 0.15) => {
+    try {
+      const ctx = getAudioCtx();
+      if (!ctx) return;
+      const osc = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      gainNode.gain.value = gain;
+      osc.connect(gainNode).connect(ctx.destination);
+      const now = ctx.currentTime;
+      osc.start(now);
+      // Fade out para evitar click
+      gainNode.gain.setValueAtTime(gain, now);
+      gainNode.gain.exponentialRampToValueAtTime(0.0001, now + durationMs / 1000);
+      osc.stop(now + durationMs / 1000);
+    } catch { /* sin audio */ }
+  };
+  const playSuccessBeep = () => {
+    playTone(880, 90, 'sine', 0.18);
+    setTimeout(() => playTone(1320, 120, 'sine', 0.18), 90);
+  };
+  const playErrorBeep = () => {
+    playTone(220, 180, 'square', 0.2);
+    setTimeout(() => playTone(180, 220, 'square', 0.2), 180);
+  };
+
+  // Debounce + dedupe de validacion del scanner
+  const lastEvalTrackingRef = useRef<string>('');
+  const lastEvalTracking2Ref = useRef<string>('');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const trackingEvalTimerRef = useRef<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const tracking2EvalTimerRef = useRef<any>(null);
+
   // ===== STEP 0: BUSCAR CLIENTE =====
   useEffect(() => {
     if (open && activeStep === 0) {
@@ -215,19 +261,42 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
     const value = normalizeTracking(e.target.value);
     setTracking(value);
     setTrackingWarning(null);
-    if (is2LMXCode(value)) {
-      setTrackingWarning('Código de referencia interna DHL. Debes escanear el código JJD largo del paquete (Ej: JJD014600012610001490).');
-      return;
-    }
-    if (value.length >= 5 && isShortCode(value)) {
-      setTrackingWarning('Esta parece ser la guía CORTA (master). Escanea primero la guía LARGA (JJD) del paquete físico.');
-      return;
-    }
-    // Auto-focus a corta cuando la larga esté completa y sin errores
-    if (isJJDCode(value) && value.length >= 14) {
-      checkDuplicateLarga(value);
-      setTimeout(() => tracking2InputRef.current?.focus(), 200);
-    }
+
+    // Debounce: evaluar 220ms despues del ultimo cambio (scanner inyecta chars muy rapido)
+    if (trackingEvalTimerRef.current) clearTimeout(trackingEvalTimerRef.current);
+    trackingEvalTimerRef.current = setTimeout(() => {
+      if (!value || value === lastEvalTrackingRef.current) return;
+      lastEvalTrackingRef.current = value;
+
+      if (is2LMXCode(value)) {
+        setTrackingWarning('Código de referencia interna DHL. Escanea el código JJD largo del paquete (Ej: JJD014600012610001490).');
+        playErrorBeep();
+        // Limpiar para esperar la guia correcta
+        setTimeout(() => {
+          setTracking('');
+          setTrackingWarning(null);
+          lastEvalTrackingRef.current = '';
+          trackingInputRef.current?.focus();
+        }, 1100);
+        return;
+      }
+      if (value.length >= 5 && isShortCode(value)) {
+        setTrackingWarning('Esta parece la guía CORTA (master). Escanea primero la guía LARGA (JJD) del paquete físico.');
+        playErrorBeep();
+        setTimeout(() => {
+          setTracking('');
+          setTrackingWarning(null);
+          lastEvalTrackingRef.current = '';
+          trackingInputRef.current?.focus();
+        }, 1100);
+        return;
+      }
+      if (isJJDCode(value) && value.length >= 14) {
+        playSuccessBeep();
+        checkDuplicateLarga(value);
+        setTimeout(() => tracking2InputRef.current?.focus(), 200);
+      }
+    }, 220);
   };
 
   const handleTrackingKeyDown = (e: React.KeyboardEvent) => {
@@ -240,17 +309,40 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const handleTracking2Change = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = normalizeTracking(e.target.value);
     setTracking2(value);
-    if (is2LMXCode(value)) {
-      setTracking2Warning('Código de referencia interna. Ingresa el número corto master (Ej: 9650623485).');
-    } else if (value.length > 15 && isJJDCode(value)) {
-      setTracking2Warning('Parece una guía JJD larga. La guía corta es el número master (Ej: 9650623485). ¿La escaneaste en el campo correcto?');
-    } else {
-      setTracking2Warning(null);
-    }
-    // Auto-avanzar cuando esté completa y sin errores
-    if (value.length >= 6 && !is2LMXCode(value) && !(value.length > 15 && isJJDCode(value))) {
-      setTimeout(() => setActiveStep(2), 300);
-    }
+    setTracking2Warning(null);
+
+    if (tracking2EvalTimerRef.current) clearTimeout(tracking2EvalTimerRef.current);
+    tracking2EvalTimerRef.current = setTimeout(() => {
+      if (!value || value === lastEvalTracking2Ref.current) return;
+      lastEvalTracking2Ref.current = value;
+
+      if (is2LMXCode(value)) {
+        setTracking2Warning('Código de referencia interna. Ingresa el número corto master (Ej: 9650623485).');
+        playErrorBeep();
+        setTimeout(() => {
+          setTracking2('');
+          setTracking2Warning(null);
+          lastEvalTracking2Ref.current = '';
+          tracking2InputRef.current?.focus();
+        }, 1100);
+        return;
+      }
+      if (value.length > 15 && isJJDCode(value)) {
+        setTracking2Warning('Parece una guía JJD larga. La guía corta es el número master (Ej: 9650623485).');
+        playErrorBeep();
+        setTimeout(() => {
+          setTracking2('');
+          setTracking2Warning(null);
+          lastEvalTracking2Ref.current = '';
+          tracking2InputRef.current?.focus();
+        }, 1100);
+        return;
+      }
+      if (value.length >= 6) {
+        playSuccessBeep();
+        setTimeout(() => setActiveStep(2), 350);
+      }
+    }, 220);
   };
 
   const handleTracking2KeyDown = (e: React.KeyboardEvent) => {
