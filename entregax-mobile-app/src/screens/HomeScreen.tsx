@@ -1023,6 +1023,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         </LinearGradient>
                       )}
                     </View>
+                    {(item as any).dhl_child_tracking ? (
+                      <View style={styles.trackingRow}>
+                        <Text style={styles.trackingChild}>JJD: {(item as any).dhl_child_tracking}</Text>
+                        <TouchableOpacity onPress={() => Clipboard.setString(String((item as any).dhl_child_tracking))} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                          <Ionicons name="copy-outline" size={11} color="#aaa" />
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
                   </View>
                   
                   {/* 🔲 Checkbox para paquetes seleccionables (esquina superior derecha) */}
@@ -3319,6 +3327,10 @@ const styles = StyleSheet.create({
   trackingNumber: {
     fontSize: 12,
     color: '#666',
+  },
+  trackingChild: {
+    fontSize: 10,
+    color: '#aaa',
   },
   trackingRow: {
     flexDirection: 'row',

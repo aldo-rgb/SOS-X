@@ -3238,7 +3238,8 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
 
             return {
                 id: pkg.id + 300000, // Offset para evitar colisión de IDs
-                tracking_internal: pkg.inbound_tracking,
+                tracking_internal: pkg.secondary_tracking || pkg.inbound_tracking,
+                dhl_child_tracking: pkg.secondary_tracking ? pkg.inbound_tracking : null,
                 tracking_provider: pkg.national_tracking || null,
                 description: pkg.description || 'Paquete DHL',
                 weight: pkg.weight_kg ? parseFloat(pkg.weight_kg) : null,
