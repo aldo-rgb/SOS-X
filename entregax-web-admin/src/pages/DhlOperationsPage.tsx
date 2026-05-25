@@ -395,7 +395,6 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
   .email { font-size: 7pt; color: #555; margin-bottom: 1.5mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .barcode { width: 100%; height: 11mm; }
   .barcode svg { width: 100%; height: 100%; }
-  .code { font-family: 'Courier New', monospace; font-size: 6pt; text-align: center; margin-top: 0.5mm; letter-spacing: 0.3px; word-break: break-all; }
 </style>
 </head>
 <body>
@@ -406,7 +405,6 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
       <div class="name">${escapeHtml(sup.full_name)}</div>
       <div class="email">${escapeHtml(sup.email)}</div>
       <div class="barcode">${barcodeSvg}</div>
-      <div class="code">${escapeHtml(sup.code)}</div>
     </div>
   </div>
   <script>

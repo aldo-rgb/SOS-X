@@ -1873,14 +1873,28 @@ export const adminGenerateSupervisorPin = async (req: AuthRequest, res: Response
         await pool.query(`ALTER TABLE users ALTER COLUMN supervisor_pin TYPE VARCHAR(128)`).catch(() => { /* no-op si ya es 128 */ });
 
         const crypto = await import('crypto');
-        // Genera un codigo de 32 caracteres alfanumericos en mayusculas
-        // (formato amigable para barcode CODE128 y QR), con prefijo SPV-
+        // Genera un codigo de 20 caracteres: letras mayusculas, minusculas, numeros y simbolos
         const generate = () => {
-            const buf = crypto.randomBytes(64);
-            const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // sin caracteres confusos (0/O/1/I)
+            const buf = crypto.randomBytes(128);
+            const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+            const lower = 'abcdefghjkmnpqrstuvwxyz';
+            const digits = '23456789';
+            const symbols = '@#$%&*!?+=';
+            const full = upper + lower + digits + symbols;
+            // Garantizar al menos 1 de cada grupo
             let s = '';
-            for (let i = 0; i < 28; i++) s += alphabet[buf[i]! % alphabet.length];
-            return `SPV-${s.slice(0, 8)}-${s.slice(8, 16)}-${s.slice(16, 24)}`;
+            s += upper[buf[0]! % upper.length];
+            s += lower[buf[1]! % lower.length];
+            s += digits[buf[2]! % digits.length];
+            s += symbols[buf[3]! % symbols.length];
+            for (let i = 4; i < 20; i++) s += full[buf[i]! % full.length];
+            // Mezclar posiciones con Fisher-Yates usando bytes restantes
+            const arr = s.split('');
+            for (let i = arr.length - 1; i > 0; i--) {
+                const j = buf[20 + i]! % (i + 1);
+                [arr[i], arr[j]] = [arr[j]!, arr[i]!];
+            }
+            return arr.join('');
         };
 
         // Reintentar hasta 5 veces si hay colision
