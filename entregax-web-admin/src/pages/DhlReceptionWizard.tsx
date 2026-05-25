@@ -496,9 +496,10 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const handleSelectProductType = (type: 'standard' | 'high_value') => {
     setProductType(type);
     playSuccessBeep();
+    // Damos tiempo a que el operador vea la card marcada antes de avanzar
     setTimeout(() => {
       setActiveStep(3);
-    }, 300);
+    }, 900);
   };
 
   const handleClassifyScan = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1084,12 +1085,24 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     borderRadius: 4,
                     width: 220,
                     textAlign: 'center',
-                    transition: 'all 0.3s',
+                    position: 'relative',
+                    transition: 'all 0.25s ease',
                     border: productType === 'standard' ? `4px solid ${DHL_RED}` : '4px solid transparent',
                     bgcolor: productType === 'standard' ? '#fff5f5' : '#f5f5f5',
+                    transform: productType === 'standard' ? 'scale(1.06)' : 'scale(1)',
+                    boxShadow: productType === 'standard' ? `0 8px 24px rgba(212,5,17,0.35)` : 1,
                     '&:hover': { transform: 'scale(1.05)', boxShadow: 6 }
                   }}
                 >
+                  {productType === 'standard' && (
+                    <Box sx={{
+                      position: 'absolute', top: 8, right: 8,
+                      width: 32, height: 32, borderRadius: '50%',
+                      bgcolor: DHL_RED, color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 'bold', fontSize: 20, boxShadow: 2,
+                    }}>✓</Box>
+                  )}
                   <ClothingIcon sx={{ fontSize: 80, color: DHL_RED, mb: 2 }} />
                   <Typography variant="h5" fontWeight="bold">General</Typography>
                   <Typography variant="body2" color="text.secondary">Carga General</Typography>
@@ -1104,12 +1117,24 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     borderRadius: 4,
                     width: 220,
                     textAlign: 'center',
-                    transition: 'all 0.3s',
+                    position: 'relative',
+                    transition: 'all 0.25s ease',
                     border: productType === 'high_value' ? `4px solid ${DHL_YELLOW}` : '4px solid transparent',
                     bgcolor: productType === 'high_value' ? '#fffef5' : '#f5f5f5',
+                    transform: productType === 'high_value' ? 'scale(1.06)' : 'scale(1)',
+                    boxShadow: productType === 'high_value' ? `0 8px 24px rgba(255,152,0,0.45)` : 1,
                     '&:hover': { transform: 'scale(1.05)', boxShadow: 6 }
                   }}
                 >
+                  {productType === 'high_value' && (
+                    <Box sx={{
+                      position: 'absolute', top: 8, right: 8,
+                      width: 32, height: 32, borderRadius: '50%',
+                      bgcolor: '#ff9800', color: '#fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontWeight: 'bold', fontSize: 20, boxShadow: 2,
+                    }}>✓</Box>
+                  )}
                   <PartsIcon sx={{ fontSize: 80, color: '#ff9800', mb: 2 }} />
                   <Typography variant="h5" fontWeight="bold">Específica</Typography>
                   <Typography variant="body2" color="text.secondary">Carga Específica</Typography>
