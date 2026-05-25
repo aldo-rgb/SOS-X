@@ -40,6 +40,7 @@ export const BRAND_SLOTS = [
   'xpay_full_white',      // X-Pay completo en blanco
   'xpay_full_black',      // X-Pay completo en negro
   'xpay_only',            // Solo el icono X-Pay
+  'cajito_avatar',        // Avatar/identidad visual del asistente IA Cajito
 ] as const;
 
 export type BrandSlot = (typeof BRAND_SLOTS)[number];
@@ -51,6 +52,7 @@ const SLOT_LABELS: Record<BrandSlot, string> = {
   xpay_full_white:     'X-Pay · Logo completo (Blanco)',
   xpay_full_black:     'X-Pay · Logo completo (Negro)',
   xpay_only:           'X-Pay · Solo icono',
+  cajito_avatar:       'Cajito · Avatar del asistente IA',
 };
 
 // ============================================

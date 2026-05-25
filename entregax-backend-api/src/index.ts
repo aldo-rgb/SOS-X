@@ -9713,6 +9713,16 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['cajito_enabled']?.enabled === true
       : false;
 
+    // cajito_avatar_url: imagen activa del avatar de Cajito (slot brand_assets)
+    let cajitoAvatarUrl: string | null = null;
+    try {
+      const av = await pool.query(
+        `SELECT url FROM brand_assets WHERE slot = 'cajito_avatar' AND is_active = TRUE
+         ORDER BY created_at DESC LIMIT 1`
+      );
+      cajitoAvatarUrl = av.rows[0]?.url || null;
+    } catch { /* tabla aún no creada */ }
+
     res.json({
       payments_enabled: paymentsEnabled,
       xpay_enabled: xpayEnabled,
@@ -9723,9 +9733,10 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       require_label_to_load: requireLabelToLoad,
       external_sync_enabled: externalSyncEnabled,
       cajito_enabled: cajitoEnabled,
+      cajito_avatar_url: cajitoAvatarUrl,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true, cajito_enabled: false });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null });
   }
 });
 

@@ -19,6 +19,7 @@ interface PaymentStatusCache {
   require_label_to_load: boolean;
   external_sync_enabled: boolean;
   cajito_enabled: boolean;
+  cajito_avatar_url: string | null;
 }
 
 let cached: PaymentStatusCache | null = null;
@@ -35,6 +36,7 @@ const FALLBACK: PaymentStatusCache = {
   require_label_to_load: true,
   external_sync_enabled: true,
   cajito_enabled: false,
+  cajito_avatar_url: null,
 };
 
 export function usePaymentStatus() {
@@ -65,6 +67,7 @@ export function usePaymentStatus() {
             require_label_to_load: data.require_label_to_load !== false,
             external_sync_enabled: data.external_sync_enabled !== false,
             cajito_enabled: data.cajito_enabled === true,
+            cajito_avatar_url: typeof data.cajito_avatar_url === 'string' ? data.cajito_avatar_url : null,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -88,6 +91,7 @@ export function usePaymentStatus() {
     requireLabelToLoad: status.require_label_to_load,
     externalSyncEnabled: status.external_sync_enabled,
     cajitoEnabled: status.cajito_enabled,
+    cajitoAvatarUrl: status.cajito_avatar_url,
     loading,
   };
 }

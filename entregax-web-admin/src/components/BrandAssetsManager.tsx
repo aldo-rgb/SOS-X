@@ -50,13 +50,14 @@ interface SlotGroup {
     history: BrandAsset[];
 }
 
-const SLOT_META: Record<string, { previewBg: string; group: 'entregax' | 'xpay' }> = {
+const SLOT_META: Record<string, { previewBg: string; group: 'entregax' | 'xpay' | 'cajito' }> = {
     entregax_full_white: { previewBg: '#0a0a0c', group: 'entregax' },
     entregax_full_black: { previewBg: '#ffffff', group: 'entregax' },
     entregax_x_only:     { previewBg: '#0a0a0c', group: 'entregax' },
     xpay_full_white:     { previewBg: '#0a0a0c', group: 'xpay' },
     xpay_full_black:     { previewBg: '#ffffff', group: 'xpay' },
     xpay_only:           { previewBg: '#0a0a0c', group: 'xpay' },
+    cajito_avatar:       { previewBg: '#faf5ff', group: 'cajito' },
 };
 
 // Convierte una URL relativa (/uploads/...) a absoluta apuntando al backend
@@ -354,6 +355,7 @@ export default function BrandAssetsManager() {
 
     const entregaxSlots = slots.filter(s => SLOT_META[s.slot]?.group === 'entregax');
     const xpaySlots = slots.filter(s => SLOT_META[s.slot]?.group === 'xpay');
+    const cajitoSlots = slots.filter(s => SLOT_META[s.slot]?.group === 'cajito');
 
     return (
         <>
@@ -367,7 +369,7 @@ export default function BrandAssetsManager() {
                         <Chip label="Super Admin" size="small" color="warning" sx={{ ml: 1 }} />
                     </Box>
                     <Alert severity="info" sx={{ mb: 3 }}>
-                        Sube y administra los logos oficiales de <strong>EntregaX</strong> y <strong>X-Pay</strong>.
+                        Sube y administra los logos oficiales de <strong>EntregaX</strong>, <strong>X-Pay</strong> y el avatar del asistente <strong>Cajito</strong>.
                         El logo marcado como <strong>ACTIVO</strong> en cada slot es el que se utilizará en la web y la app.
                         Cada subida queda guardada en un historial reutilizable con su propio <strong>ID</strong>.
                     </Alert>
@@ -408,6 +410,25 @@ export default function BrandAssetsManager() {
                             >
                                 {xpaySlots.map(renderSlotCard)}
                             </Box>
+
+                            {/* Cajito (IA) */}
+                            {cajitoSlots.length > 0 && (
+                                <>
+                                    <Typography variant="overline" sx={{ color: '#7B1FA2', fontWeight: 800, letterSpacing: 1.5, mt: 4, display: 'block' }}>
+                                        🤖 Cajito (Asistente IA)
+                                    </Typography>
+                                    <Box
+                                        sx={{
+                                            display: 'grid',
+                                            gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', lg: '1fr 1fr 1fr' },
+                                            gap: 2,
+                                            mt: 1,
+                                        }}
+                                    >
+                                        {cajitoSlots.map(renderSlotCard)}
+                                    </Box>
+                                </>
+                            )}
                         </>
                     )}
                 </CardContent>

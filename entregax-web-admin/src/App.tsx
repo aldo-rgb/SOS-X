@@ -54,6 +54,7 @@ import LoginPage from './pages/LoginPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import AssetDetailPage from './pages/AssetDetailPage';
 import ClientsPage from './pages/ClientsPage';
+import CajitoFab from './components/CajitoFab';
 // QuotesPage removido - ahora se accede desde PanelsHubPage > Nacional México
 // ConsolidationsPage removido - ahora se accede desde PanelsHubPage > PO Box USA > Salida
 import CommissionsPage from './pages/CommissionsPage';
@@ -1841,6 +1842,9 @@ function App() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Cajito · FAB flotante (solo si cajito_enabled === true) */}
+      <CajitoFab />
     </ThemeProvider>
   );
 }
