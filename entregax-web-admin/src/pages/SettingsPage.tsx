@@ -38,7 +38,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleExternalSync, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleExternalSync, toggleCajito, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 
@@ -83,7 +83,7 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, cajitoEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [togglingGex, setTogglingGex] = useState(false);
@@ -99,6 +99,8 @@ export default function SettingsPage() {
     const [localReqLabel, setLocalReqLabel] = useState<boolean | null>(null);
     const [togglingExternalSync, setTogglingExternalSync] = useState(false);
     const [localExternalSync, setLocalExternalSync] = useState<boolean | null>(null);
+    const [togglingCajito, setTogglingCajito] = useState(false);
+    const [localCajito, setLocalCajito] = useState<boolean | null>(null);
     const [externalSyncKey, setExternalSyncKey] = useState<string | null>(null);
     const [externalSyncKeyVisible, setExternalSyncKeyVisible] = useState(false);
     const [loadingKey, setLoadingKey] = useState(false);
@@ -113,8 +115,9 @@ export default function SettingsPage() {
             setLocalReqPayment(requirePaymentToLoad);
             setLocalReqLabel(requireLabelToLoad);
             setLocalExternalSync(externalSyncEnabled);
+            setLocalCajito(cajitoEnabled);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, cajitoEnabled]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -220,6 +223,22 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar el estado de sincronización', severity: 'error' });
         } finally {
             setTogglingExternalSync(false);
+        }
+    };
+
+    const handleToggleCajito = async (checked: boolean) => {
+        setTogglingCajito(true);
+        const prev = localCajito;
+        setLocalCajito(checked);
+        try {
+            await toggleCajito(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Cajito (IA) ${checked ? 'activado' : 'desactivado'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalCajito(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar el estado de Cajito', severity: 'error' });
+        } finally {
+            setTogglingCajito(false);
         }
     };
 
@@ -728,6 +747,54 @@ export default function SettingsPage() {
                                 )}
                             </Paper>
                         </Stack>
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Cajito — Asistente IA (solo super_admin) */}
+            {isSuperAdmin && (
+                <Card elevation={0} sx={{ border: 1, borderColor: 'divider', borderRadius: 3, mb: 3, background: 'linear-gradient(135deg, #faf5ff 0%, #ffffff 60%)' }}>
+                    <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                            <Box sx={{ fontSize: '1.6rem', lineHeight: 1 }}>🤖</Box>
+                            <Typography variant="h6" fontWeight={600}>Cajito — Asistente IA</Typography>
+                            <Chip label="Claude 3.5 Sonnet" size="small" color="secondary" sx={{ ml: 1 }} />
+                            <Chip label="Super Admin" size="small" color="warning" />
+                        </Box>
+                        <Alert severity="warning" sx={{ mb: 3 }}>
+                            <strong>Riesgo elevado.</strong> Cajito puede leer información del sistema y, según los permisos
+                            por usuario, ejecutar acciones (notificar clientes, modificar paquetes, aprobar pagos…).
+                            Al desactivar el interruptor general, ningún usuario podrá invocar a Cajito aunque tenga
+                            capacidades concedidas. Recomendado iniciar en modo <em>solo lectura</em>.
+                        </Alert>
+                        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="subtitle1" fontWeight={600}>
+                                    🤖 Habilitar Cajito (interruptor general)
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Controla globalmente si el asistente IA está disponible. Los permisos finos por
+                                    usuario se configuran en <strong>Permisos &gt; Cajito</strong>.
+                                </Typography>
+                            </Box>
+                            {paymentsStatusLoading || localCajito === null ? (
+                                <CircularProgress size={20} />
+                            ) : (
+                                <FormControlLabel
+                                    control={
+                                        <Switch
+                                            checked={!!localCajito}
+                                            onChange={(e) => handleToggleCajito(e.target.checked)}
+                                            disabled={togglingCajito}
+                                            color="secondary"
+                                        />
+                                    }
+                                    label={togglingCajito ? '...' : (localCajito ? 'Activado' : 'Desactivado')}
+                                    labelPlacement="start"
+                                    sx={{ m: 0 }}
+                                />
+                            )}
+                        </Paper>
                     </CardContent>
                 </Card>
             )}

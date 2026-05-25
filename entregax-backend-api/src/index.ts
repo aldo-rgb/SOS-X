@@ -9663,7 +9663,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load', 'external_sync_enabled')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load', 'external_sync_enabled', 'cajito_enabled')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -9708,6 +9708,11 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['external_sync_enabled']?.enabled !== false
       : true; // fallback activo si nunca se ha configurado
 
+    // cajito_enabled: habilita el asistente de IA "Cajito" (Claude). OFF por defecto.
+    const cajitoEnabled = byKey['cajito_enabled'] !== undefined
+      ? byKey['cajito_enabled']?.enabled === true
+      : false;
+
     res.json({
       payments_enabled: paymentsEnabled,
       xpay_enabled: xpayEnabled,
@@ -9717,9 +9722,10 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       require_payment_to_load: requirePaymentToLoad,
       require_label_to_load: requireLabelToLoad,
       external_sync_enabled: externalSyncEnabled,
+      cajito_enabled: cajitoEnabled,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true, cajito_enabled: false });
   }
 });
 
@@ -9917,6 +9923,161 @@ app.post('/api/admin/system/external-sync-key/regenerate', authenticateToken, re
   } catch (err: any) {
     console.error('[EXTERNAL-SYNC-KEY-REGEN]', err.message);
     res.status(500).json({ error: 'Error al regenerar API key' });
+  }
+});
+
+// ============================================================
+// CAJITO — Asistente IA (Claude 3.5 Sonnet) — Toggle global y capacidades
+// ============================================================
+
+// Catálogo central de capacidades de Cajito (single source of truth)
+// Cada capability declara: riesgo, categoría y descripción legible.
+// El frontend usa este endpoint para pintar la pestaña de permisos.
+const CAJITO_CAPABILITIES: {
+  key: string;
+  label: string;
+  description: string;
+  category: 'access' | 'read' | 'write' | 'sensitive' | 'bulk';
+  risk: 'low' | 'medium' | 'high' | 'critical';
+}[] = [
+  // Acceso base
+  { key: 'cajito.access',               label: 'Acceder al chat de Cajito',          description: 'Permite abrir el chat con Cajito. Sin esta capacidad el usuario no ve el botón.', category: 'access',    risk: 'low' },
+  // Lectura (bajo riesgo)
+  { key: 'cajito.read.packages',        label: 'Consultar paquetes / guías',         description: 'Buscar paquetes por tracking, ver estado actual y ruta.', category: 'read',      risk: 'low' },
+  { key: 'cajito.read.tracking',        label: 'Ver estatus de rastreo en vivo',      description: 'Consultar posición GPS y eventos de seguimiento.', category: 'read',      risk: 'low' },
+  { key: 'cajito.read.clients',         label: 'Buscar información de clientes',     description: 'Consultar datos de contacto, dirección y saldo del cliente.', category: 'read',      risk: 'medium' },
+  { key: 'cajito.read.drivers',         label: 'Ver información de choferes',        description: 'Asignaciones del día, vehículo y ruta del chofer.', category: 'read',      risk: 'low' },
+  { key: 'cajito.read.routes',          label: 'Ver rutas y entregas del día',       description: 'Listado y avance de rutas activas.', category: 'read',      risk: 'low' },
+  { key: 'cajito.read.warehouses',      label: 'Ver inventarios y almacenes',        description: 'Conteos y ubicaciones en CEDIS / PO Box.', category: 'read',      risk: 'low' },
+  { key: 'cajito.read.support_tickets', label: 'Ver tickets de soporte',             description: 'Consultar el historial de tickets de servicio a cliente.', category: 'read',      risk: 'medium' },
+  // Financiero (medio/alto)
+  { key: 'cajito.read.invoices',        label: 'Consultar facturas',                 description: 'Ver folios, montos y emisores. Datos fiscales sensibles.', category: 'read',      risk: 'high' },
+  { key: 'cajito.read.payments',        label: 'Ver historial de pagos',             description: 'Consultar pagos recibidos y métodos.', category: 'read',      risk: 'medium' },
+  { key: 'cajito.read.financial_kpis',  label: 'Ver KPIs financieros',               description: 'Ingresos, márgenes, ranking de clientes. Información estratégica.', category: 'read',      risk: 'high' },
+  { key: 'cajito.read.suppliers',       label: 'Ver proveedores y costos',           description: 'Costos de transportistas y proveedores.', category: 'read',      risk: 'high' },
+  { key: 'cajito.read.employee_kpis',   label: 'Ver KPIs de empleados',              description: 'Productividad y métricas individuales. Datos de RRHH.', category: 'read',      risk: 'high' },
+  { key: 'cajito.read.audit_logs',      label: 'Ver logs de auditoría',              description: 'Historial de acciones de usuarios. Solo para investigación.', category: 'read',      risk: 'high' },
+  // Datos sensibles (PII / banca)
+  { key: 'cajito.sensitive.pii',        label: 'Acceder a PII completo (CURP/RFC/INE)', description: 'Permite que Cajito muestre identificaciones oficiales completas.', category: 'sensitive', risk: 'critical' },
+  { key: 'cajito.sensitive.bank',       label: 'Ver cuentas bancarias',              description: 'Datos de cuentas para depósitos / transferencias.', category: 'sensitive', risk: 'critical' },
+  { key: 'cajito.sensitive.password_reset', label: 'Iniciar reset de contraseña',    description: 'Disparar el flujo de reset de contraseña para un usuario.', category: 'sensitive', risk: 'critical' },
+  { key: 'cajito.sensitive.export',     label: 'Exportar datos / reportes masivos',  description: 'Generar CSV / Excel con datos del sistema.', category: 'sensitive', risk: 'critical' },
+  // Escritura (peligrosa)
+  { key: 'cajito.write.assign_advisor', label: 'Asignar asesor a cliente',           description: 'Cambiar el asesor responsable de un cliente.', category: 'write',     risk: 'medium' },
+  { key: 'cajito.write.update_package', label: 'Modificar estatus de paquete',        description: 'Cambiar manualmente el estado de un envío.', category: 'write',     risk: 'high' },
+  { key: 'cajito.write.update_address', label: 'Editar direcciones de cliente',      description: 'Actualizar dirección de entrega del cliente.', category: 'write',     risk: 'medium' },
+  { key: 'cajito.write.create_ticket',  label: 'Crear tickets de soporte',           description: 'Abrir un ticket de servicio a cliente en nombre del usuario.', category: 'write',     risk: 'low' },
+  { key: 'cajito.write.respond_ticket', label: 'Responder tickets',                  description: 'Publicar respuestas en tickets de soporte.', category: 'write',     risk: 'medium' },
+  { key: 'cajito.write.notify_user',    label: 'Enviar notificación push individual',description: 'Push a un solo cliente o usuario.', category: 'write',     risk: 'medium' },
+  { key: 'cajito.write.notify_mass',    label: 'Enviar notificaciones masivas',      description: 'Push o WhatsApp a múltiples clientes. Alto impacto reputacional.', category: 'write',     risk: 'critical' },
+  { key: 'cajito.write.send_email',     label: 'Enviar correo desde cuenta corporativa', description: 'Mandar emails firmados por la empresa.', category: 'write',     risk: 'high' },
+  { key: 'cajito.write.discount',       label: 'Aplicar descuentos en facturas',     description: 'Modificar precios o aplicar descuentos comerciales.', category: 'write',     risk: 'critical' },
+  { key: 'cajito.write.approve_advance',label: 'Aprobar anticipos / viáticos',       description: 'Autorizar salidas de dinero por anticipos.', category: 'write',     risk: 'critical' },
+  { key: 'cajito.write.approve_petty',  label: 'Aprobar gastos de caja chica',       description: 'Autorizar reembolsos de caja chica.', category: 'write',     risk: 'high' },
+  { key: 'cajito.write.toggle_flags',   label: 'Activar/desactivar feature flags',   description: 'Tocar los toggles del Sistema de Pagos / módulos. SOLO super admin.', category: 'write',     risk: 'critical' },
+  // Operaciones bulk
+  { key: 'cajito.bulk.update_packages', label: 'Actualizar paquetes en lote',        description: 'Modificar múltiples envíos en una sola operación.', category: 'bulk',      risk: 'critical' },
+  { key: 'cajito.bulk.price_changes',   label: 'Cambios masivos de tarifas',         description: 'Aplicar nuevos precios/comisiones a varios servicios.', category: 'bulk',      risk: 'critical' },
+  { key: 'cajito.bulk.delete',          label: 'Operaciones de borrado',             description: 'Cualquier eliminación de registros (paquetes, clientes, tickets).', category: 'bulk',      risk: 'critical' },
+];
+
+// POST /api/admin/system/cajito-toggle — habilita/deshabilita el asistente Cajito (Super Admin)
+app.post('/api/admin/system/cajito-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('cajito_enabled', $1::jsonb, 'Habilita el asistente IA Cajito (Claude 3.5 Sonnet)', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled }), userId]
+    );
+    console.log(`🤖 [CAJITO] ${enabled ? '✅ Habilitado' : '🔴 Deshabilitado'} por user #${userId}`);
+    res.json({ success: true, cajito_enabled: enabled });
+  } catch (err: any) {
+    console.error('[CAJITO-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar estado de Cajito' });
+  }
+});
+
+// GET /api/admin/cajito/capabilities — catálogo completo de capacidades (solo super_admin/admin)
+app.get('/api/admin/cajito/capabilities', authenticateToken, requireRole('super_admin', 'admin'), async (_req: AuthRequest, res: Response) => {
+  res.json({ capabilities: CAJITO_CAPABILITIES });
+});
+
+// Asegura que exista la tabla de capacidades por usuario. Se ejecuta perezosamente.
+let _cajitoTableReady = false;
+async function ensureCajitoTable() {
+  if (_cajitoTableReady) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS cajito_user_capabilities (
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      capability   TEXT    NOT NULL,
+      granted      BOOLEAN NOT NULL DEFAULT FALSE,
+      granted_by   INTEGER REFERENCES users(id),
+      updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (user_id, capability)
+    );
+    CREATE INDEX IF NOT EXISTS idx_cajito_user_caps_user ON cajito_user_capabilities(user_id);
+  `);
+  _cajitoTableReady = true;
+}
+
+// GET /api/admin/cajito/user/:userId — capacidades efectivas de un usuario
+app.get('/api/admin/cajito/user/:userId', authenticateToken, requireRole('super_admin', 'admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    await ensureCajitoTable();
+    const userId = parseInt(req.params.userId as string, 10);
+    if (!Number.isFinite(userId)) return res.status(400).json({ error: 'userId inválido' });
+    const r = await pool.query(
+      `SELECT capability, granted FROM cajito_user_capabilities WHERE user_id = $1`,
+      [userId]
+    );
+    const granted: Record<string, boolean> = {};
+    r.rows.forEach((row: any) => { granted[row.capability] = !!row.granted; });
+    res.json({ userId, granted, capabilities: CAJITO_CAPABILITIES });
+  } catch (err: any) {
+    console.error('[CAJITO-GET-USER]', err.message);
+    res.status(500).json({ error: 'Error al obtener capacidades de Cajito' });
+  }
+});
+
+// PUT /api/admin/cajito/user/:userId — guarda las capacidades concedidas a un usuario
+app.put('/api/admin/cajito/user/:userId', authenticateToken, requireRole('super_admin', 'admin'), async (req: AuthRequest, res: Response) => {
+  const client = await pool.connect();
+  try {
+    await ensureCajitoTable();
+    const userId = parseInt(req.params.userId as string, 10);
+    if (!Number.isFinite(userId)) return res.status(400).json({ error: 'userId inválido' });
+    const grantedBy = req.user?.userId || null;
+    const input: Record<string, boolean> = req.body?.granted || {};
+
+    // Validar contra el catálogo (descartar claves desconocidas para evitar inyecciones)
+    const validKeys = new Set(CAJITO_CAPABILITIES.map((c) => c.key));
+    const rows = Object.entries(input)
+      .filter(([k]) => validKeys.has(k))
+      .map(([k, v]) => [k, !!v] as [string, boolean]);
+
+    await client.query('BEGIN');
+    await client.query('DELETE FROM cajito_user_capabilities WHERE user_id = $1', [userId]);
+    for (const [capability, granted] of rows) {
+      if (!granted) continue; // solo persistimos las concedidas
+      await client.query(
+        `INSERT INTO cajito_user_capabilities (user_id, capability, granted, granted_by)
+         VALUES ($1, $2, TRUE, $3)`,
+        [userId, capability, grantedBy]
+      );
+    }
+    await client.query('COMMIT');
+    console.log(`🤖 [CAJITO-CAPS] user #${userId} → ${rows.filter(([, v]) => v).length} capacidades por user #${grantedBy}`);
+    res.json({ success: true, userId, count: rows.filter(([, v]) => v).length });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    console.error('[CAJITO-PUT-USER]', err.message);
+    res.status(500).json({ error: 'Error al guardar capacidades de Cajito' });
+  } finally {
+    client.release();
   }
 });
 

@@ -60,6 +60,11 @@ import {
   ReceiptLong as ReceiptLongIcon,
   AccountBalanceWallet as CarteraIcon,
   AssignmentInd as AssignmentIndIcon,
+  SmartToy as SmartToyIcon,
+  Visibility as VisibilityIcon,
+  EditNote as CajitoWriteIcon,
+  Warning as WarningIcon,
+  ReportProblem as ReportProblemIcon,
 } from '@mui/icons-material';
 import ModulePermissionsDialog from './ModulePermissionsDialog';
 
@@ -97,6 +102,36 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string; icon: Reac
   Contabilidad: { label: 'Contabilidad', color: '#E87722', icon: <ReceiptLongIcon /> },
 };
 
+// ====== Cajito (IA) ======
+interface CajitoCapability {
+  key: string;
+  label: string;
+  description: string;
+  category: 'access' | 'read' | 'write' | 'sensitive' | 'bulk';
+  risk: 'low' | 'medium' | 'high' | 'critical';
+}
+
+const CAJITO_GROUPS: { key: CajitoCapability['category']; label: string; description: string; color: string; icon: React.ReactNode }[] = [
+  { key: 'access',    label: 'Acceso base',           description: 'Sin esto el usuario ni siquiera ve a Cajito.', color: '#7B1FA2', icon: <SmartToyIcon /> },
+  { key: 'read',      label: 'Lectura',                description: 'Consultas seguras. Cajito puede leer datos pero no modificarlos.', color: '#2E7D32', icon: <VisibilityIcon /> },
+  { key: 'write',     label: 'Escritura',              description: 'Acciones que MODIFICAN datos o envían comunicaciones.', color: '#ED6C02', icon: <CajitoWriteIcon /> },
+  { key: 'sensitive', label: 'Datos sensibles (PII / banca)', description: 'Cuidado: exposición de información personal / financiera.', color: '#C62828', icon: <WarningIcon /> },
+  { key: 'bulk',      label: 'Operaciones masivas',    description: 'Cambios en lote: alto impacto si algo sale mal.', color: '#B71C1C', icon: <ReportProblemIcon /> },
+];
+
+const RISK_COLORS: Record<CajitoCapability['risk'], string> = {
+  low: '#2E7D32',
+  medium: '#F9A825',
+  high: '#ED6C02',
+  critical: '#C62828',
+};
+const RISK_LABELS: Record<CajitoCapability['risk'], string> = {
+  low: 'Bajo',
+  medium: 'Medio',
+  high: 'Alto',
+  critical: 'Crítico',
+};
+
 const PANEL_ICONS: Record<string, React.ReactNode> = {
   admin_china_air: <FlightIcon />,
   admin_china_sea: <BoatIcon />,
@@ -130,6 +165,10 @@ export default function UserPanelPermissionsPage() {
   const [userPermissions, setUserPermissions] = useState<Record<string, { can_view: boolean; can_edit: boolean }>>({});
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
+
+  // Cajito (IA) — capacidades por usuario
+  const [cajitoCatalog, setCajitoCatalog] = useState<CajitoCapability[]>([]);
+  const [cajitoGranted, setCajitoGranted] = useState<Record<string, boolean>>({});
 
   // Dialog para permisos de módulos
   const [moduleDialog, setModuleDialog] = useState(false);
@@ -219,6 +258,25 @@ export default function UserPanelPermissionsPage() {
         });
 
         setUserPermissions(permsMap);
+
+        // Cargar capacidades de Cajito en paralelo (silencioso si no está disponible)
+        try {
+          const cajitoRes = await fetch(`${API_URL}/api/admin/cajito/user/${user.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          if (cajitoRes.ok) {
+            const cdata = await cajitoRes.json();
+            setCajitoCatalog(cdata.capabilities || []);
+            setCajitoGranted(cdata.granted || {});
+          } else {
+            setCajitoCatalog([]);
+            setCajitoGranted({});
+          }
+        } catch {
+          setCajitoCatalog([]);
+          setCajitoGranted({});
+        }
+
         setEditDialog(true);
       }
     } catch (error) {
@@ -272,6 +330,20 @@ export default function UserPanelPermissionsPage() {
         },
         body: JSON.stringify({ permissions }),
       });
+
+      // Guardar capacidades de Cajito en paralelo (no bloqueante si falla)
+      try {
+        await fetch(`${API_URL}/api/admin/cajito/user/${selectedUser.id}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ granted: cajitoGranted }),
+        });
+      } catch (e) {
+        console.warn('[Cajito] No se pudieron guardar las capacidades', e);
+      }
 
       if (res.ok) {
         setSnackbar({ open: true, message: 'Permisos actualizados correctamente', severity: 'success' });
@@ -498,6 +570,21 @@ export default function UserPanelPermissionsPage() {
                 }
               />
             ))}
+            <Tab
+              key="__cajito__"
+              icon={<SmartToyIcon />}
+              iconPosition="start"
+              label={
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  Cajito (IA)
+                  <Chip
+                    label={Object.values(cajitoGranted).filter(Boolean).length}
+                    size="small"
+                    color={Object.values(cajitoGranted).filter(Boolean).length > 0 ? 'secondary' : 'default'}
+                  />
+                </Box>
+              }
+            />
           </Tabs>
 
           {Object.keys(CATEGORY_LABELS).map((category, index) => (
@@ -609,6 +696,151 @@ export default function UserPanelPermissionsPage() {
               )}
             </Box>
           ))}
+
+          {/* === Pestaña Cajito (IA) === */}
+          {(() => {
+            const cajitoIndex = Object.keys(CATEGORY_LABELS).length;
+            if (activeTab !== cajitoIndex) return null;
+            const grantedCount = Object.values(cajitoGranted).filter(Boolean).length;
+            const accessGranted = !!cajitoGranted['cajito.access'];
+            return (
+              <Box sx={{ p: 2 }}>
+                <Alert severity={accessGranted ? 'warning' : 'info'} sx={{ mb: 2 }}>
+                  <Typography variant="body2" fontWeight={600} gutterBottom>
+                    🤖 Permisos de Cajito (asistente IA, Claude 3.5 Sonnet)
+                  </Typography>
+                  <Typography variant="caption" component="div">
+                    Cada capacidad otorgada le permite a Cajito ejecutar herramientas en nombre del usuario.
+                    Marca <strong>solo lo estrictamente necesario</strong>. Sin "Acceder al chat de Cajito" el usuario
+                    no podrá invocarlo aunque tenga otras capacidades.
+                  </Typography>
+                  <Typography variant="caption" sx={{ mt: 1, display: 'block', opacity: 0.8 }}>
+                    Capacidades concedidas: <strong>{grantedCount}</strong> / {cajitoCatalog.length}
+                  </Typography>
+                </Alert>
+
+                {cajitoCatalog.length === 0 ? (
+                  <Alert severity="warning">
+                    No se pudo cargar el catálogo de capacidades. Verifica que el backend tenga el endpoint
+                    <code> /api/admin/cajito/user/:id</code> habilitado.
+                  </Alert>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {CAJITO_GROUPS.map((group) => {
+                      const caps = cajitoCatalog.filter((c) => c.category === group.key);
+                      if (caps.length === 0) return null;
+                      const groupGranted = caps.filter((c) => cajitoGranted[c.key]).length;
+                      return (
+                        <Paper
+                          key={group.key}
+                          variant="outlined"
+                          sx={{
+                            p: 2,
+                            borderRadius: 2,
+                            borderLeft: `4px solid ${group.color}`,
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                            <Box sx={{ color: group.color, display: 'flex' }}>{group.icon}</Box>
+                            <Typography variant="subtitle1" fontWeight={700} sx={{ color: group.color }}>
+                              {group.label}
+                            </Typography>
+                            <Chip
+                              label={`${groupGranted} / ${caps.length}`}
+                              size="small"
+                              sx={{ bgcolor: groupGranted > 0 ? group.color : undefined, color: groupGranted > 0 ? 'white' : undefined }}
+                            />
+                            <Box sx={{ flex: 1 }} />
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                setCajitoGranted((prev) => {
+                                  const next = { ...prev };
+                                  caps.forEach((c) => { next[c.key] = true; });
+                                  return next;
+                                })
+                              }
+                              startIcon={<CheckCircleIcon />}
+                              sx={{ textTransform: 'none' }}
+                            >
+                              Todos
+                            </Button>
+                            <Button
+                              size="small"
+                              onClick={() =>
+                                setCajitoGranted((prev) => {
+                                  const next = { ...prev };
+                                  caps.forEach((c) => { next[c.key] = false; });
+                                  return next;
+                                })
+                              }
+                              startIcon={<CancelIcon />}
+                              sx={{ textTransform: 'none' }}
+                            >
+                              Ninguno
+                            </Button>
+                          </Box>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                            {group.description}
+                          </Typography>
+                          <Box sx={{ display: 'flex', flexDirection: 'column' }}>
+                            {caps.map((cap) => {
+                              const checked = !!cajitoGranted[cap.key];
+                              return (
+                                <Box
+                                  key={cap.key}
+                                  sx={{
+                                    display: 'flex',
+                                    alignItems: 'flex-start',
+                                    gap: 1,
+                                    py: 0.5,
+                                    borderTop: '1px solid',
+                                    borderColor: 'divider',
+                                  }}
+                                >
+                                  <Checkbox
+                                    checked={checked}
+                                    onChange={(e) =>
+                                      setCajitoGranted((prev) => ({ ...prev, [cap.key]: e.target.checked }))
+                                    }
+                                    sx={{ '&.Mui-checked': { color: group.color }, mt: 0.5 }}
+                                  />
+                                  <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                      <Typography variant="body2" fontWeight={600}>
+                                        {cap.label}
+                                      </Typography>
+                                      <Chip
+                                        label={RISK_LABELS[cap.risk]}
+                                        size="small"
+                                        sx={{
+                                          bgcolor: RISK_COLORS[cap.risk],
+                                          color: 'white',
+                                          height: 18,
+                                          fontSize: '0.65rem',
+                                          fontWeight: 700,
+                                        }}
+                                      />
+                                      <Typography variant="caption" sx={{ color: 'text.disabled', fontFamily: 'monospace' }}>
+                                        {cap.key}
+                                      </Typography>
+                                    </Box>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {cap.description}
+                                    </Typography>
+                                  </Box>
+                                </Box>
+                              );
+                            })}
+                          </Box>
+                        </Paper>
+                      );
+                    })}
+                  </Box>
+                )}
+              </Box>
+            );
+          })()}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
           <Button onClick={() => setEditDialog(false)}>

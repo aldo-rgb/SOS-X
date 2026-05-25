@@ -119,6 +119,20 @@ interface PackageMovement {
 // 💰 Tarifas PO Box por nivel (USD)
 const TARIFAS_POBOX_USD: Record<number, number> = { 1: 39, 2: 79, 3: 750 };
 
+// 🚚 Nombres legibles de paqueterías
+const CARRIER_DISPLAY_NAMES: Record<string, string> = {
+  paquete_express: 'Paquete Express',
+  paquete_express_pc: 'Paquete Express (Por Cobrar)',
+  entregax_local: 'EntregaX Local',
+  entregax_local_mty: 'EntregaX Local MTY',
+  entregax_local_cdmx: 'EntregaX Local CDMX',
+  fedex: 'FedEx',
+  estafeta: 'Estafeta',
+  dhl: 'DHL',
+  ups: 'UPS',
+  pickup_hidalgo: 'Recoger en Sucursal',
+};
+
 export default function PackageDetailScreen({ navigation, route }: Props) {
   const { package: pkg, user, token } = route.params;
   const { gexEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
@@ -180,12 +194,15 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
     const tc = Number(details.registered_exchange_rate) || 18.09;
     const nivel = details.pobox_tarifa_nivel || 1;
 
-    // ✅ Costo PO Box en MXN: usar pobox_service_cost del backend (MXN canónico)
+    // ✅ Costo PO Box: si tenemos pobox_venta_usd (USD canónico), derivar MXN de ahí.
+    // pobox_service_cost puede estar desactualizado (calculado con otro TC o sin reempaque).
     const serviceCostBackend = Number((details as any).pobox_service_cost) || 0;
     const ventaUsdBackend = Number((details as any).pobox_venta_usd) || 0;
 
-    let costoPoboxMxn = serviceCostBackend;
     let costoPoboxUsd = ventaUsdBackend * totalBoxes;
+    // Si tenemos USD del backend, el MXN se deriva de él (fuente de verdad = USD + TC actual).
+    // Si solo viene MXN del backend, usarlo como fallback.
+    let costoPoboxMxn = costoPoboxUsd > 0 ? costoPoboxUsd * tc : serviceCostBackend;
 
     // Si el master no trae costo pero sí hay hijas con costo, sumar hijas.
     const childrenCostMxn = childPackages.reduce(
@@ -399,7 +416,8 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
   // Calcular peso total (master + hijas)
   const getTotalWeight = () => {
     if (childPackages.length > 0) {
-      return childPackages.reduce((sum, child) => sum + (child.weight || 0), 0);
+      const childSum = childPackages.reduce((sum, child) => sum + (child.weight || 0), 0);
+      if (childSum > 0) return childSum;
     }
     return details?.weight || 0;
   };
@@ -551,7 +569,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             )}
 
             {/* Peso */}
-            {details.weight && (
+            {(details.weight ?? 0) > 0 && (
               <View style={styles.infoRow}>
                 <MaterialCommunityIcons name="scale" size={20} color="#666" />
                 <Text style={styles.infoLabel}>Peso:</Text>
@@ -588,7 +606,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             )}
 
             {/* Valor declarado */}
-            {details.declared_value && (
+            {(details.declared_value ?? 0) > 0 && (
               <View style={styles.infoRow}>
                 <MaterialCommunityIcons name="currency-usd" size={20} color="#666" />
                 <Text style={styles.infoLabel}>Valor Declarado:</Text>
@@ -598,14 +616,15 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
 
             {/* Carrier - mostrar paquetería nacional asignada si existe, o la de origen si no */}
             {(() => {
-              const effectiveCarrier = details.national_carrier || details.carrier || (isTdiExpress() ? 'TDI Express' : null);
-              if (!effectiveCarrier) return null;
-              if (['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(effectiveCarrier.toUpperCase())) return null;
+              const raw = details.national_carrier || details.carrier || (isTdiExpress() ? 'TDI Express' : null);
+              if (!raw) return null;
+              if (['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(raw.toUpperCase())) return null;
+              const displayName = CARRIER_DISPLAY_NAMES[raw.toLowerCase()] || raw;
               return (
                 <View style={styles.infoRow}>
                   <MaterialCommunityIcons name="truck" size={20} color="#666" />
                   <Text style={styles.infoLabel}>Paquetería:</Text>
-                  <Text style={styles.infoValue}>{effectiveCarrier}</Text>
+                  <Text style={styles.infoValue}>{displayName}</Text>
                 </View>
               );
             })()}
@@ -648,7 +667,9 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
               <View style={styles.childrenSummary}>
                 <View style={styles.summaryItem}>
                   <Text style={styles.summaryLabel}>Peso Total</Text>
-                  <Text style={styles.summaryValue}>{getTotalWeight().toFixed(1)} kg</Text>
+                  <Text style={styles.summaryValue}>
+                    {getTotalWeight() > 0 ? `${getTotalWeight().toFixed(1)} kg` : '--'}
+                  </Text>
                 </View>
                 <View style={styles.summaryItem}>
                   <Text style={styles.summaryLabel}>Cajas</Text>
@@ -858,13 +879,31 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                         {`$${costSummary.costoMxn.toFixed(2)} MXN`}
                       </Text>
                     </View>
-                    <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
-                      <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
-                        {costSummary.totalBoxes > 1
-                          ? `💵 ${costSummary.totalBoxes} cajas × $${costSummary.precioUnitarioUsd.toFixed(2)} USD × TC $${costSummary.tc.toFixed(2)} (Nivel ${costSummary.nivel})`
-                          : `💵 $${costSummary.precioUnitarioUsd.toFixed(2)} USD × TC $${costSummary.tc.toFixed(2)} (Nivel ${costSummary.nivel})`}
-                      </Text>
-                    </View>
+                    {(() => {
+                      const baseUsd = TARIFAS_POBOX_USD[costSummary.nivel] || 39;
+                      const repackFee = isRepackPackage()
+                        ? Math.max(0, costSummary.precioUnitarioUsd - baseUsd)
+                        : 0;
+                      const boxesLabel = costSummary.totalBoxes > 1
+                        ? `${costSummary.totalBoxes} cajas × `
+                        : '';
+                      return (
+                        <>
+                          <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
+                            <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
+                              {`💵 ${boxesLabel}$${baseUsd.toFixed(2)} USD × TC $${costSummary.tc.toFixed(2)} (Nivel ${costSummary.nivel})`}
+                            </Text>
+                          </View>
+                          {repackFee > 0 && (
+                            <View style={[styles.costRow, { paddingLeft: 16 }]}>
+                              <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
+                                {`📦 Reempaque: +$${repackFee.toFixed(2)} USD × TC $${costSummary.tc.toFixed(2)}`}
+                              </Text>
+                            </View>
+                          )}
+                        </>
+                      );
+                    })()}
                   </>
                 )}
 

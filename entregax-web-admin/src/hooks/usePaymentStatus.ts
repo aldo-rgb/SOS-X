@@ -18,6 +18,7 @@ interface PaymentStatusCache {
   require_payment_to_load: boolean;
   require_label_to_load: boolean;
   external_sync_enabled: boolean;
+  cajito_enabled: boolean;
 }
 
 let cached: PaymentStatusCache | null = null;
@@ -33,6 +34,7 @@ const FALLBACK: PaymentStatusCache = {
   require_payment_to_load: true,
   require_label_to_load: true,
   external_sync_enabled: true,
+  cajito_enabled: false,
 };
 
 export function usePaymentStatus() {
@@ -62,6 +64,7 @@ export function usePaymentStatus() {
             require_payment_to_load: data.require_payment_to_load !== false,
             require_label_to_load: data.require_label_to_load !== false,
             external_sync_enabled: data.external_sync_enabled !== false,
+            cajito_enabled: data.cajito_enabled === true,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -84,6 +87,7 @@ export function usePaymentStatus() {
     requirePaymentToLoad: status.require_payment_to_load,
     requireLabelToLoad: status.require_label_to_load,
     externalSyncEnabled: status.external_sync_enabled,
+    cajitoEnabled: status.cajito_enabled,
     loading,
   };
 }
@@ -133,5 +137,11 @@ export async function toggleRequireLabelToLoad(enabled: boolean): Promise<void> 
 /** Habilita o deshabilita el acceso al endpoint de sincronización de clientes con Sistema EX (solo Super Admin) */
 export async function toggleExternalSync(enabled: boolean): Promise<void> {
   await api.post('/admin/system/external-sync-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Habilita o deshabilita el asistente IA Cajito (solo Super Admin) */
+export async function toggleCajito(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/cajito-toggle', { enabled });
   invalidatePaymentStatusCache();
 }
