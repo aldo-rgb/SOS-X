@@ -63,6 +63,7 @@ interface Client {
   created_at: string;
   is_verified: boolean;
   referred_by_id: number | null;
+  advisor_id: number | null;
   first_transaction_date: string | null;
   last_transaction_date: string | null;
   last_transaction_ref: string | null;
@@ -656,7 +657,7 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
                           <Tooltip title="Cambiar Asesor">
                             <IconButton size="small" color="primary" onClick={() => {
                               setSelectedClient(client);
-                              setNewAdvisorId(client.referred_by_id ? String(client.referred_by_id) : '');
+                              setNewAdvisorId(client.advisor_id ? String(client.advisor_id) : (client.referred_by_id ? String(client.referred_by_id) : ''));
                               setChangeAdvisorOpen(true);
                             }}>
                               <EditIcon fontSize="small" />

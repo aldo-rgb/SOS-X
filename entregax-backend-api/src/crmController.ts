@@ -338,9 +338,9 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
       whereConditions.push(`u.last_transaction_date >= NOW() - INTERVAL '90 days'`);
     }
 
-    // Filtro por asesor
+    // Filtro por asesor (acepta cualquiera de los dos campos historicos)
     if (advisorId) {
-      whereConditions.push(`u.referred_by_id = $${paramIndex}`);
+      whereConditions.push(`(u.advisor_id = $${paramIndex} OR u.referred_by_id = $${paramIndex})`);
       params.push(advisorId);
       paramIndex++;
     }
@@ -365,6 +365,7 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
         u.created_at,
         u.is_verified,
         u.referred_by_id,
+        COALESCE(u.advisor_id, u.referred_by_id) as advisor_id,
         u.first_transaction_date,
         COALESCE(u.last_transaction_date, (SELECT MAX(p.created_at) FROM packages p WHERE p.user_id = u.id)) as last_transaction_date,
         u.last_transaction_ref,
@@ -384,7 +385,7 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
         END as row_color,
         EXTRACT(DAY FROM NOW() - COALESCE(u.last_transaction_date, (SELECT MAX(p.created_at) FROM packages p WHERE p.user_id = u.id))) as days_inactive
       FROM users u
-      LEFT JOIN users advisor ON u.referred_by_id = advisor.id
+      LEFT JOIN users advisor ON COALESCE(u.advisor_id, u.referred_by_id) = advisor.id
       LEFT JOIN users leader ON advisor.team_leader_id = leader.id
       ${whereClause}
       ORDER BY 
@@ -453,7 +454,7 @@ export const exportCRMClients = async (req: Request, res: Response): Promise<any
     }
 
     if (advisorId) {
-      whereConditions.push(`u.referred_by_id = $${paramIndex}`);
+      whereConditions.push(`(u.advisor_id = $${paramIndex} OR u.referred_by_id = $${paramIndex})`);
       params.push(advisorId);
       paramIndex++;
     }
@@ -477,7 +478,7 @@ export const exportCRMClients = async (req: Request, res: Response): Promise<any
         u.recovery_status as "Estado Recuperación",
         EXTRACT(DAY FROM NOW() - u.last_transaction_date)::INTEGER as "Días Inactivo"
       FROM users u
-      LEFT JOIN users advisor ON u.referred_by_id = advisor.id
+      LEFT JOIN users advisor ON COALESCE(u.advisor_id, u.referred_by_id) = advisor.id
       ${whereClause}
       ORDER BY u.last_transaction_date DESC NULLS LAST
     `;
@@ -1179,8 +1180,10 @@ export const changeClientAdvisor = async (req: Request, res: Response): Promise<
     const { id } = req.params;
     const { advisorId } = req.body;
     if (!id) return res.status(400).json({ error: 'ID de cliente requerido' });
+    // Mantener ambas columnas sincronizadas (advisor_id es la canonica en el panel
+    // de gestion de usuarios; referred_by_id es la usada por el CRM historico).
     await pool.query(
-      `UPDATE users SET referred_by_id = $1 WHERE id = $2 AND role = 'client'`,
+      `UPDATE users SET advisor_id = $1, referred_by_id = $1 WHERE id = $2 AND role = 'client'`,
       [advisorId || null, id]
     );
     res.json({ success: true });
