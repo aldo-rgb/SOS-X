@@ -29,16 +29,19 @@ const resolveUrl = (url: string | null | undefined): string | null => {
   if (!url) return null;
   if (url.startsWith('http://') || url.startsWith('https://')) return url;
   if (url.startsWith('/uploads/')) return `${API_BASE}${url}`;
-  return url;
+  if (url.startsWith('uploads/')) return `${API_BASE}/${url}`;
+  if (url.startsWith('/')) return `${API_BASE}${url}`;
+  return `${API_BASE}/${url}`;
 };
 
 export default function CajitoFab() {
   const { cajitoEnabled, cajitoAvatarUrl, loading } = usePaymentStatus();
   const [open, setOpen] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   if (loading || !cajitoEnabled) return null;
 
-  const avatar = resolveUrl(cajitoAvatarUrl);
+  const avatar = imgError ? null : resolveUrl(cajitoAvatarUrl);
 
   return (
     <>
@@ -50,8 +53,8 @@ export default function CajitoFab() {
             bottom: 24,
             right: 24,
             zIndex: 1300,
-            width: 64,
-            height: 64,
+            width: 90,
+            height: 90,
             background: avatar
               ? 'transparent'
               : 'linear-gradient(135deg, #7B1FA2 0%, #C2185B 100%)',
@@ -72,10 +75,11 @@ export default function CajitoFab() {
               component="img"
               src={avatar}
               alt="Cajito"
+              onError={() => setImgError(true)}
               sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
             />
           ) : (
-            <SmartToyIcon sx={{ fontSize: 30 }} />
+            <SmartToyIcon sx={{ fontSize: 42 }} />
           )}
         </Fab>
       </Tooltip>
