@@ -304,10 +304,11 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   // ===== STEP 1: SCANNER =====
   useEffect(() => {
     if (open && activeStep === 1) {
-      // Auto-focus en el campo de tracking
-      setTimeout(() => {
-        trackingInputRef.current?.focus();
-      }, 300);
+      setTimeout(() => { trackingInputRef.current?.focus(); }, 300);
+    }
+    if (open && activeStep === 2) {
+      // Focus the hidden scan input so the scanner gun writes here, not on any button
+      setTimeout(() => { classifyScanRef.current?.focus(); }, 200);
     }
   }, [open, activeStep]);
 
@@ -441,7 +442,24 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   };
 
   const handleTracking2KeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && tracking.trim().length >= 5 && tracking2.trim().length >= 4 && !trackingWarning && !tracking2Warning) {
+    if (e.key !== 'Enter') return;
+    // Cancel pending debounce and evaluate synchronously — scanner sends Enter
+    // immediately after the last char so the 220ms debounce hasn't fired yet.
+    if (tracking2EvalTimerRef.current) clearTimeout(tracking2EvalTimerRef.current);
+    const value = tracking2.trim();
+    if (is2LMXCode(value)) {
+      setTracking2Warning('Código de referencia interna. Ingresa el número corto master (Ej: 9650623485).');
+      playErrorBeep();
+      setTimeout(() => { setTracking2(''); setTracking2Warning(null); lastEvalTracking2Ref.current = ''; tracking2InputRef.current?.focus(); }, 1100);
+      return;
+    }
+    if (value.length > 15 && isJJDCode(value)) {
+      setTracking2Warning('Parece una guía JJD larga. La guía corta es el número master (Ej: 9650623485).');
+      playErrorBeep();
+      setTimeout(() => { setTracking2(''); setTracking2Warning(null); lastEvalTracking2Ref.current = ''; tracking2InputRef.current?.focus(); }, 1100);
+      return;
+    }
+    if (tracking.trim().length >= 5 && value.length >= 4 && !trackingWarning) {
       setActiveStep(2);
     }
   };
@@ -980,6 +998,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                 ref={classifyScanRef}
                 autoFocus
                 onChange={handleClassifyScan}
+                onKeyDown={(e) => e.key === 'Enter' && e.preventDefault()}
                 style={{ position: 'absolute', opacity: 0, width: 1, height: 1, pointerEvents: 'none' }}
                 tabIndex={-1}
               />
@@ -996,7 +1015,11 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                 startIcon={<PrintIcon />}
                 size="small"
                 variant="outlined"
-                onClick={printClassifyLabels}
+                onClick={() => {
+                  printClassifyLabels();
+                  // Return focus to the hidden scan input after print dialog
+                  setTimeout(() => { classifyScanRef.current?.focus(); }, 500);
+                }}
                 sx={{ mb: 3, borderColor: DHL_RED, color: DHL_RED, '&:hover': { borderColor: '#a00410', bgcolor: '#fff5f5' } }}
               >
                 Imprimir etiquetas de clasificación
