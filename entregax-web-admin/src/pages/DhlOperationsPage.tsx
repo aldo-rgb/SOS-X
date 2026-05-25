@@ -339,8 +339,8 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
         format: 'CODE128',
         displayValue: false,
         margin: 0,
-        height: 60,
-        width: 1.4,
+        height: 100,
+        width: 2,
       });
       barcodeSvg = new XMLSerializer().serializeToString(tmpSvg);
     } catch (err) {
@@ -393,7 +393,7 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
   .title { font-size: 9pt; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 1mm; color: #D40511; }
   .name { font-size: 11pt; font-weight: bold; line-height: 1.1; margin-bottom: 1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .email { font-size: 7pt; color: #555; margin-bottom: 1.5mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .barcode { width: 100%; height: 11mm; }
+  .barcode { width: 100%; height: 18mm; }
   .barcode svg { width: 100%; height: 100%; }
 </style>
 </head>
