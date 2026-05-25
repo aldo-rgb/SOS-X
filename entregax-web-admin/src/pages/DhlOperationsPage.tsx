@@ -152,8 +152,9 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
   const [pinMgmtError, setPinMgmtError] = useState('');
   const [pinMgmtSuccess, setPinMgmtSuccess] = useState('');
 
-  const isAdminUser = (() => {
-    try { const r = JSON.parse(localStorage.getItem('user') || '{}').role || ''; return r === 'super_admin' || r === 'admin'; } catch { return false; }
+  // Gestión de PINs de supervisores: solo super_admin
+  const isSuperAdmin = (() => {
+    try { return (JSON.parse(localStorage.getItem('user') || '{}').role || '') === 'super_admin'; } catch { return false; }
   })();
   
   const [selectedShipment, setSelectedShipment] = useState<DhlShipment | null>(null);
@@ -426,7 +427,7 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
           </Box>
         </Box>
         <Box sx={{ display: 'flex', gap: 1 }}>
-          {isAdminUser && (
+          {isSuperAdmin && (
             <Button
               variant="outlined"
               startIcon={<ManageAccountsIcon />}
