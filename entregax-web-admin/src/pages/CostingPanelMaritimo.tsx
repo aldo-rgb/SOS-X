@@ -216,6 +216,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; labelEn: str
     'arrived_port': { label: 'Arribo a Puerto', labelEn: 'Arrived at Port', labelZh: '已到港', color: '#673AB7' },
     'customs_mx': { label: 'En Aduana México', labelEn: 'At Customs MX', labelZh: '墨西哥海关', color: '#FF5722' },
     'customs_cleared': { label: 'Liberado', labelEn: 'Customs Cleared', labelZh: '已清关', color: '#4CAF50' },
+    'in_transit_clientfinal': { label: 'En Ruta a CEDIS', labelEn: 'In Transit to CEDIS', labelZh: '运往仓库中', color: '#03A9F4' },
     'in_transit_mx': { label: 'En Ruta a CEDIS', labelEn: 'In Transit to CEDIS', labelZh: '运往仓库中', color: '#03A9F4' },
     'received_cedis': { label: 'En CEDIS', labelEn: 'At CEDIS', labelZh: '已到仓库', color: '#00BCD4' },
     'received_cdmx': { label: 'Recibido en CDMX', labelEn: 'Received in CDMX', labelZh: '已到墨西哥城', color: '#00ACC1' },
@@ -225,6 +226,18 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; labelEn: str
     'cancelled': { label: 'Cancelado', labelEn: 'Cancelled', labelZh: '已取消', color: '#F44336' },
     'returned': { label: 'Devuelto', labelEn: 'Returned', labelZh: '已退回', color: '#795548' },
 };
+
+// Estados que el backend acepta en PUT /api/maritime/containers/:id/status.
+// Mantener sincronizado con `validStatuses` en maritimeController.updateContainerStatus.
+const CONTAINER_VALID_STATUSES: string[] = [
+    'received_origin',
+    'consolidated',
+    'in_transit',
+    'arrived_port',
+    'customs_cleared',
+    'in_transit_clientfinal',
+    'delivered',
+];
 
 const emptyCosts: ContainerCosts = {
     container_id: 0,
@@ -1167,8 +1180,16 @@ export default function CostingPanelMaritimo() {
             );
             setSnackbar({ open: true, message: t('maritime.statusUpdated'), severity: 'success' });
             fetchContainers();
-        } catch {
-            setSnackbar({ open: true, message: t('maritime.errorUpdatingStatus'), severity: 'error' });
+        } catch (error: unknown) {
+            const axiosError = error as { response?: { status?: number; data?: { error?: string; details?: string } }; message?: string };
+            const backendMsg = axiosError.response?.data?.error || axiosError.response?.data?.details;
+            const status = axiosError.response?.status;
+            const fallback = axiosError.message || t('maritime.errorUpdatingStatus');
+            const msg = backendMsg
+                ? `${backendMsg}${status ? ` (HTTP ${status})` : ''}`
+                : `${fallback}${status ? ` (HTTP ${status})` : ''}`;
+            console.error('[updateContainerStatus]', { status, data: axiosError.response?.data, error });
+            setSnackbar({ open: true, message: msg, severity: 'error' });
         }
     };
 
@@ -1541,14 +1562,16 @@ export default function CostingPanelMaritimo() {
                                 <TableCell>
                                     <FormControl size="small" sx={{ minWidth: 130 }}>
                                         <Select
-                                            value={container.status}
+                                            value={CONTAINER_VALID_STATUSES.includes(container.status) ? container.status : ''}
+                                            displayEmpty
                                             onChange={(e) => updateContainerStatus(container.id, e.target.value)}
                                             sx={{ 
                                                 bgcolor: STATUS_CONFIG[container.status]?.color + '20',
                                                 '& .MuiSelect-select': { py: 0.5 }
                                             }}
                                         >
-                                            {Object.entries(STATUS_CONFIG).map(([key]) => (
+                                            {/* Solo estados que el backend acepta para contenedores marítimos */}
+                                            {CONTAINER_VALID_STATUSES.map((key) => (
                                                 <MenuItem key={key} value={key}>
                                                     {getStatusLabel(key)}
                                                 </MenuItem>
