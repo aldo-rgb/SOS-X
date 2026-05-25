@@ -9985,8 +9985,7 @@ const CAJITO_CAPABILITIES: {
   { key: 'cajito.write.notify_mass',    label: 'Enviar notificaciones masivas',      description: 'Push o WhatsApp a múltiples clientes. Alto impacto reputacional.', category: 'write',     risk: 'critical' },
   { key: 'cajito.write.send_email',     label: 'Enviar correo desde cuenta corporativa', description: 'Mandar emails firmados por la empresa.', category: 'write',     risk: 'high' },
   { key: 'cajito.write.discount',       label: 'Aplicar descuentos en facturas',     description: 'Modificar precios o aplicar descuentos comerciales.', category: 'write',     risk: 'critical' },
-  { key: 'cajito.write.approve_advance',label: 'Aprobar anticipos / viáticos',       description: 'Autorizar salidas de dinero por anticipos.', category: 'write',     risk: 'critical' },
-  { key: 'cajito.write.approve_petty',  label: 'Aprobar gastos de caja chica',       description: 'Autorizar reembolsos de caja chica.', category: 'write',     risk: 'high' },
+  // NOTA: Cajito NO puede aprobar pagos (anticipos, viáticos ni caja chica). Cualquier autorización de salida de dinero queda fuera del alcance del asistente.
   { key: 'cajito.write.toggle_flags',   label: 'Activar/desactivar feature flags',   description: 'Tocar los toggles del Sistema de Pagos / módulos. SOLO super admin.', category: 'write',     risk: 'critical' },
   // Operaciones bulk
   { key: 'cajito.bulk.update_packages', label: 'Actualizar paquetes en lote',        description: 'Modificar múltiples envíos en una sola operación.', category: 'bulk',      risk: 'critical' },
@@ -10034,6 +10033,10 @@ async function ensureCajitoTable() {
     );
     CREATE INDEX IF NOT EXISTS idx_cajito_user_caps_user ON cajito_user_capabilities(user_id);
   `);
+  // Limpieza: Cajito ya no puede aprobar pagos. Revocar cualquier grant histórico.
+  await pool.query(
+    `DELETE FROM cajito_user_capabilities WHERE capability IN ('cajito.write.approve_advance', 'cajito.write.approve_petty')`
+  );
   _cajitoTableReady = true;
 }
 
