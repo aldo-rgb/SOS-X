@@ -124,7 +124,19 @@ const InnerButtons: React.FC<Props> = ({ onSuccess, onError, onNotRegistered, di
         });
         return;
       }
-      onError(data?.error || 'No se pudo iniciar sesión con Google');
+      // Log de diagnostico completo en consola para depurar mismatch de client_id, etc.
+      console.error('[SOCIAL AUTH] Google login fallo:', data || err);
+      let msg = data?.error || 'No se pudo iniciar sesión con Google';
+      if (data?.errorCode === 'GOOGLE_TOKEN_INVALID') {
+        const recv = Array.isArray(data?.receivedAud) ? data.receivedAud.join(',') : data?.receivedAud;
+        const exp = Array.isArray(data?.expectedAudiences) ? data.expectedAudiences.join(',') : data?.expectedAudiences;
+        const parts: string[] = [];
+        if (recv) parts.push(`aud recibido: ${recv}`);
+        if (exp) parts.push(`esperado: ${exp}`);
+        if (data?.details) parts.push(String(data.details));
+        if (parts.length > 0) msg = `${msg} (${parts.join(' | ')})`;
+      }
+      onError(msg);
     }
   };
 
