@@ -488,9 +488,9 @@ const CajaChicaPage: React.FC = () => {
           reasonNoCount = 'Aún no llega a MTY';
         }
 
-        // Reporte solo muestra guías 'A PAGAR' — se ocultan FALTANTE,
-        // EN TRÁNSITO, PERDIDA y YA PAGADA porque no aplican al pago actual.
-        if (statusLabel !== 'A PAGAR') return;
+        // Reporte INCLUYE todas las guías (A PAGAR, YA PAGADA, EN TRÁNSITO,
+        // FALTANTE, PERDIDA). Solo las A PAGAR suman al total — el resto
+        // aparece con su motivo en la columna "Motivo".
 
         rows.push({
           consolidacion_id: c.id,
@@ -533,6 +533,26 @@ const CajaChicaPage: React.FC = () => {
       return;
     }
     const fecha = new Date().toLocaleString('es-MX');
+    // Desglose por estado: cuántas A PAGAR / YA PAGADA / EN TRÁNSITO / FALTANTE / PERDIDA
+    const counts = rows.reduce((acc, r) => {
+      acc[r.statusLabel] = (acc[r.statusLabel] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    const aPagar = counts['A PAGAR'] || 0;
+    const yaPagada = counts['YA PAGADA'] || 0;
+    const enTransito = counts['EN TRÁNSITO'] || 0;
+    const faltante = counts['FALTANTE'] || 0;
+    const perdida = counts['PERDIDA'] || 0;
+    // Colores y estilo por estado (fila completa)
+    const rowStyleByStatus = (label: string): string => {
+      switch (label) {
+        case 'YA PAGADA':   return 'background:#eef5ff;color:#1565c0;';
+        case 'EN TRÁNSITO': return 'background:#fff8e1;color:#a06000;';
+        case 'FALTANTE':    return 'background:#fdecea;color:#b71c1c;';
+        case 'PERDIDA':     return 'background:#f3e5f5;color:#6a1b9a;';
+        default:            return '';
+      }
+    };
     const html = `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><title>Reporte Pagos Proveedor</title>
 <style>
@@ -540,19 +560,38 @@ const CajaChicaPage: React.FC = () => {
   * { box-sizing: border-box; }
   body { font-family: Arial, sans-serif; font-size: 10px; color: #222; margin: 0; }
   h1 { font-size: 16px; margin: 0 0 4px 0; color: #C1272D; }
-  .sub { color: #666; font-size: 10px; margin-bottom: 10px; }
+  .sub { color: #666; font-size: 10px; margin-bottom: 6px; }
+  .breakdown { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; font-size: 10px; }
+  .chip { padding: 3px 8px; border-radius: 10px; font-weight: 600; border: 1px solid #ddd; }
+  .chip.pay  { background:#e8f5e9; color:#1b5e20; border-color:#a5d6a7; }
+  .chip.paid { background:#eef5ff; color:#1565c0; border-color:#90caf9; }
+  .chip.tr   { background:#fff8e1; color:#a06000; border-color:#ffe082; }
+  .chip.miss { background:#fdecea; color:#b71c1c; border-color:#f5c2bd; }
+  .chip.lost { background:#f3e5f5; color:#6a1b9a; border-color:#ce93d8; }
   table { width: 100%; border-collapse: collapse; margin-top: 8px; }
   th { background: #1a1a1a; color: #fff; padding: 6px 4px; text-align: left; font-size: 9px; }
   td { padding: 5px 4px; border-bottom: 1px solid #ddd; font-size: 9px; }
   td.num { text-align: right; font-variant-numeric: tabular-nums; }
   th.center, td.center { text-align: center; }
-  tr.group { background: #fff3ea; font-weight: 700; }
+  .badge { display:inline-block; padding:2px 6px; border-radius:8px; font-weight:700; font-size:8px; }
+  .b-pay  { background:#1b5e20; color:#fff; }
+  .b-paid { background:#1565c0; color:#fff; }
+  .b-tr   { background:#a06000; color:#fff; }
+  .b-miss { background:#b71c1c; color:#fff; }
+  .b-lost { background:#6a1b9a; color:#fff; }
   .totals { margin-top: 12px; border: 2px solid #C1272D; padding: 8px 12px; display: flex; justify-content: space-between; }
   .totals .big { font-size: 14px; font-weight: 900; color: #C1272D; }
   .footer { margin-top: 12px; font-size: 9px; color: #999; text-align: center; }
 </style></head><body>
 <h1>🚚 EntregaX · Reporte de Pagos a Proveedores</h1>
-<div class="sub">Generado: ${fecha} · ${selectedCount} consolidación(es) · ${rows.length} guía(s) a pagar</div>
+<div class="sub">Generado: ${fecha} · ${selectedCount} consolidación(es) · ${rows.length} guía(s) total</div>
+<div class="breakdown">
+  <span class="chip pay">A PAGAR: <strong>${aPagar}</strong></span>
+  ${yaPagada   ? `<span class="chip paid">YA PAGADA: <strong>${yaPagada}</strong></span>` : ''}
+  ${enTransito ? `<span class="chip tr">EN TRÁNSITO: <strong>${enTransito}</strong></span>` : ''}
+  ${faltante   ? `<span class="chip miss">FALTANTE: <strong>${faltante}</strong></span>` : ''}
+  ${perdida    ? `<span class="chip lost">PERDIDA: <strong>${perdida}</strong></span>` : ''}
+</div>
 <table>
   <thead>
     <tr>
@@ -568,7 +607,8 @@ const CajaChicaPage: React.FC = () => {
       <th class="num">USD</th>
       <th class="num">TC</th>
       <th class="num">MXN</th>
-      <th>Último Status</th>
+      <th class="center">Estado</th>
+      <th>Motivo / Último Status</th>
     </tr>
   </thead>
   <tbody>
@@ -585,6 +625,13 @@ const CajaChicaPage: React.FC = () => {
         'returned_to_warehouse': 'Regresó a bodega',
       };
       const lastStatus = statusMap[r.status] || r.status || '—';
+      const motivo = r.reasonNoCount || lastStatus;
+      const badgeClass = r.statusLabel === 'A PAGAR' ? 'b-pay'
+                       : r.statusLabel === 'YA PAGADA' ? 'b-paid'
+                       : r.statusLabel === 'EN TRÁNSITO' ? 'b-tr'
+                       : r.statusLabel === 'FALTANTE' ? 'b-miss'
+                       : r.statusLabel === 'PERDIDA' ? 'b-lost' : 'b-pay';
+      const rowStyle = rowStyleByStatus(r.statusLabel);
       const fmtDate = (d?: string | null) => {
         if (!d) return '—';
         try {
@@ -592,8 +639,8 @@ const CajaChicaPage: React.FC = () => {
         } catch { return '—'; }
       };
       return `
-      <tr>
-        <td class="num center" style="font-weight:600;color:#666">${idx + 1}</td>
+      <tr style="${rowStyle}">
+        <td class="num center" style="font-weight:600">${idx + 1}</td>
         <td>#${r.consolidacion_id}</td>
         <td style="font-family:monospace;font-weight:600">${r.client_box_id || '—'}</td>
         <td style="font-family:monospace">${r.tracking_provider || '—'}</td>
@@ -605,17 +652,18 @@ const CajaChicaPage: React.FC = () => {
         <td class="num">$${r.usd.toFixed(2)}</td>
         <td class="num">${r.tc.toFixed(2)}</td>
         <td class="num">$${r.mxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</td>
-        <td style="color:#2e7d32;font-weight:600">${lastStatus}</td>
+        <td class="center"><span class="badge ${badgeClass}">${r.statusLabel}</span></td>
+        <td>${motivo}</td>
       </tr>`;
     }).join('')}
   </tbody>
 </table>
 <div class="totals">
-  <div>Guías a pagar: <strong>${rows.length}</strong></div>
+  <div>Guías a pagar: <strong>${aPagar}</strong> / ${rows.length} totales</div>
   <div>Total USD: <span class="big">$${totalUsd.toFixed(2)}</span></div>
   <div>Total MXN: <span class="big">$${totalMxn.toLocaleString('es-MX', {minimumFractionDigits:2, maximumFractionDigits:2})}</span></div>
 </div>
-<div class="footer">Reporte muestra únicamente guías con estado A PAGAR. Las FALTANTE, EN TRÁNSITO, PERDIDA y YA PAGADA quedan fuera de este reporte.</div>
+<div class="footer">Los totales suman únicamente guías A PAGAR. Las YA PAGADA, EN TRÁNSITO, FALTANTE y PERDIDA aparecen para trazabilidad pero NO suman al pago actual.</div>
 <script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 300); });</script>
 </body></html>`;
     const w = window.open('', '_blank', 'width=1200,height=800');

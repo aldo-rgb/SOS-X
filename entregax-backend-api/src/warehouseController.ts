@@ -1873,28 +1873,13 @@ export const adminGenerateSupervisorPin = async (req: AuthRequest, res: Response
         await pool.query(`ALTER TABLE users ALTER COLUMN supervisor_pin TYPE VARCHAR(128)`).catch(() => { /* no-op si ya es 128 */ });
 
         const crypto = await import('crypto');
-        // Genera un codigo de 20 caracteres: letras mayusculas, minusculas, numeros y simbolos
+        // 18 chars mayusculas + digitos — CODE128 los codifica denso y el scanner los lee bien
         const generate = () => {
-            const buf = crypto.randomBytes(128);
-            const upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-            const lower = 'abcdefghjkmnpqrstuvwxyz';
-            const digits = '23456789';
-            const symbols = '@#$%&*!?+=';
-            const full = upper + lower + digits + symbols;
-            // Garantizar al menos 1 de cada grupo
+            const buf = crypto.randomBytes(64);
+            const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
             let s = '';
-            s += upper[buf[0]! % upper.length];
-            s += lower[buf[1]! % lower.length];
-            s += digits[buf[2]! % digits.length];
-            s += symbols[buf[3]! % symbols.length];
-            for (let i = 4; i < 20; i++) s += full[buf[i]! % full.length];
-            // Mezclar posiciones con Fisher-Yates usando bytes restantes
-            const arr = s.split('');
-            for (let i = arr.length - 1; i > 0; i--) {
-                const j = buf[20 + i]! % (i + 1);
-                [arr[i], arr[j]] = [arr[j]!, arr[i]!];
-            }
-            return arr.join('');
+            for (let i = 0; i < 18; i++) s += alphabet[buf[i]! % alphabet.length];
+            return s;
         };
 
         // Reintentar hasta 5 veces si hay colision
