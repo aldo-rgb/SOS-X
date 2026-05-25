@@ -1337,15 +1337,24 @@ export const deleteDhlShipment = async (req: Request, res: Response) => {
     }
     const ship = found.rows[0];
 
-    // Limpieza de dependencias conocidas (best-effort por tabla)
+    // Limpieza de dependencias conocidas (best-effort por tabla).
+    // SAVEPOINT is required: a failed query aborts the entire PG transaction,
+    // so swallowing the JS error is not enough — we must also rollback to the savepoint.
     const cleanup = [
       `DELETE FROM dhl_shipment_payments WHERE shipment_id = $1`,
       `DELETE FROM dhl_shipment_audit_log WHERE shipment_id = $1`,
       `UPDATE caja_chica_movements SET dhl_shipment_id = NULL WHERE dhl_shipment_id = $1`,
       `UPDATE commissions SET reference_id = NULL WHERE reference_type = 'dhl_shipment' AND reference_id = $1`,
     ];
-    for (const q of cleanup) {
-      try { await client.query(q, [id]); } catch (_) { /* tabla/columna puede no existir */ }
+    for (let i = 0; i < cleanup.length; i++) {
+      const sp = `sp_dhl_cleanup_${i}`;
+      await client.query(`SAVEPOINT ${sp}`);
+      try {
+        await client.query(cleanup[i]!, [id]);
+        await client.query(`RELEASE SAVEPOINT ${sp}`);
+      } catch (_) {
+        await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+      }
     }
 
     await client.query('DELETE FROM dhl_shipments WHERE id = $1', [id]);

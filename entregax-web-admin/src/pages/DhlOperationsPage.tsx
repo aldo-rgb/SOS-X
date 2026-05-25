@@ -562,10 +562,35 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
                   <TableRow key={shipment.id} hover>
                     <TableCell>
                       {(() => {
-                        const is2LMX = /^[A-Z0-9]{3,}\+\d+$/i.test(shipment.inbound_tracking || '');
-                        const main = is2LMX ? (shipment.secondary_tracking || shipment.inbound_tracking) : shipment.inbound_tracking;
-                        const sub = is2LMX ? shipment.inbound_tracking : shipment.secondary_tracking;
-                        const subLabel = is2LMX ? 'Ref:' : 'Hija:';
+                        const inb = shipment.inbound_tracking || '';
+                        const sec = shipment.secondary_tracking || '';
+                        // Datos legacy: inbound puede ser 2LMX (ref interna) → mostrar secondary como principal
+                        const is2LMX = /^[A-Z0-9]{3,}\+\d+$/i.test(inb);
+                        // Datos nuevos: inbound = JJD larga, secondary = corta master
+                        // Datos legacy correctos: inbound = corta, secondary = JJD larga
+                        const isInbJJD = /^JJD/i.test(inb) || inb.length >= 18;
+                        const isSecJJD = /^JJD/i.test(sec) || sec.length >= 18;
+                        // Elegir qué mostrar como principal
+                        let main: string, sub: string, subLabel: string;
+                        if (is2LMX) {
+                          main = sec || inb;
+                          sub = inb;
+                          subLabel = 'Ref:';
+                        } else if (isInbJJD) {
+                          // Nuevo formato: inbound=JJD larga, secondary=corta
+                          main = inb;
+                          sub = sec;
+                          subLabel = 'Master:';
+                        } else if (isSecJJD) {
+                          // Legacy: inbound=corta, secondary=JJD larga
+                          main = inb;
+                          sub = sec;
+                          subLabel = 'JJD:';
+                        } else {
+                          main = inb;
+                          sub = sec;
+                          subLabel = 'Master:';
+                        }
                         return (
                           <>
                             <Typography fontWeight="bold" sx={{ fontFamily: 'monospace' }}>

@@ -82,11 +82,12 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const [clientInfo, setClientInfo] = useState<ClientInfo | null>(null);
   const [searchingClient, setSearchingClient] = useState(false);
 
-  // Form data
+  // Form data — tracking = LARGA/JJD (única, requerida), tracking2 = CORTA/master (puede repetir, requerida)
   const [tracking, setTracking] = useState('');
   const [tracking2, setTracking2] = useState('');
   const [trackingWarning, setTrackingWarning] = useState<string | null>(null);
   const [tracking2Warning, setTracking2Warning] = useState<string | null>(null);
+  const [checkingDuplicate, setCheckingDuplicate] = useState(false);
   const [productType, setProductType] = useState<'standard' | 'high_value' | null>(null);
   const [weight, setWeight] = useState<number>(0);
   const [dimensions, setDimensions] = useState({ length: 0, width: 0, height: 0 });
@@ -179,43 +180,81 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   const normalizeTracking = (raw: string) =>
     raw.toUpperCase().replace(/¿/g, '+').replace(/\?/g, '+');
 
-  const is2LMXCode = (value: string) => /^2[A-Z0-9]{3,}\+\d+$/i.test(value.trim());
+  // Detecta código de referencia interna DHL (2LMX64000+48000001)
+  const is2LMXCode = (value: string) => /^[A-Z0-9]{3,}\+\d+$/i.test(value.trim());
+  // Detecta guía corta/master: numérica o < 15 caracteres (no es JJD larga)
+  const isShortCode = (value: string) => value.trim().length > 0 && (value.trim().length < 14 || /^\d+$/.test(value.trim()));
+  // Detecta guía JJD larga
+  const isJJDCode = (value: string) => /^JJD\d{15,}/i.test(value.trim()) || value.trim().length >= 18;
 
+  // Verificar duplicado de guía larga contra la API
+  const checkDuplicateLarga = async (value: string) => {
+    if (value.length < 10) return;
+    setCheckingDuplicate(true);
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/api/admin/dhl/shipments`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: { search: value, limit: 5 },
+      });
+      const rows: { inbound_tracking: string; secondary_tracking?: string }[] = res.data || [];
+      const dup = rows.find(
+        (r) => r.inbound_tracking?.toUpperCase() === value.toUpperCase()
+          || r.secondary_tracking?.toUpperCase() === value.toUpperCase()
+      );
+      if (dup) {
+        setTrackingWarning(`⚠️ Esta guía JJD ya fue recibida en el sistema.`);
+      }
+    } catch { /* ignorar */ } finally {
+      setCheckingDuplicate(false);
+    }
+  };
+
+  // Campo 1: LARGA (JJD) — debe ser larga, única, no 2LMX, no corta
   const handleTrackingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = normalizeTracking(e.target.value);
     setTracking(value);
+    setTrackingWarning(null);
     if (is2LMXCode(value)) {
-      setTrackingWarning('Este código es una referencia interna DHL. Debes escanear el código de barras largo del paquete (Ej: JJD014600012610001490).');
-    } else {
-      setTrackingWarning(null);
+      setTrackingWarning('Código de referencia interna DHL. Debes escanear el código JJD largo del paquete (Ej: JJD014600012610001490).');
+      return;
     }
-    // Cuando el scanner termina (longitud suficiente), mover foco a segunda guía
-    if (value.length >= 10 && /\S{10,}/.test(value) && !is2LMXCode(value)) {
+    if (value.length >= 5 && isShortCode(value)) {
+      setTrackingWarning('Esta parece ser la guía CORTA (master). Escanea primero la guía LARGA (JJD) del paquete físico.');
+      return;
+    }
+    // Auto-focus a corta cuando la larga esté completa y sin errores
+    if (isJJDCode(value) && value.length >= 14) {
+      checkDuplicateLarga(value);
       setTimeout(() => tracking2InputRef.current?.focus(), 200);
     }
   };
 
   const handleTrackingKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && tracking.trim().length >= 5) {
+    if (e.key === 'Enter' && tracking.trim().length >= 5 && !trackingWarning) {
       tracking2InputRef.current?.focus();
     }
   };
 
+  // Campo 2: CORTA (master) — puede repetir, no debe ser JJD larga
   const handleTracking2Change = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = normalizeTracking(e.target.value);
     setTracking2(value);
     if (is2LMXCode(value)) {
-      setTracking2Warning('Este código es una referencia interna DHL. Escanea el código JJD del paquete (Ej: JJD014600012610001490).');
+      setTracking2Warning('Código de referencia interna. Ingresa el número corto master (Ej: 9650623485).');
+    } else if (value.length > 15 && isJJDCode(value)) {
+      setTracking2Warning('Parece una guía JJD larga. La guía corta es el número master (Ej: 9650623485). ¿La escaneaste en el campo correcto?');
     } else {
       setTracking2Warning(null);
     }
-    if (value.length >= 8 && /\S{8,}/.test(value) && !is2LMXCode(value)) {
+    // Auto-avanzar cuando esté completa y sin errores
+    if (value.length >= 6 && !is2LMXCode(value) && !(value.length > 15 && isJJDCode(value))) {
       setTimeout(() => setActiveStep(2), 300);
     }
   };
 
   const handleTracking2KeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && tracking.trim().length >= 5) {
+    if (e.key === 'Enter' && tracking.trim().length >= 5 && tracking2.trim().length >= 4 && !trackingWarning && !tracking2Warning) {
       setActiveStep(2);
     }
   };
@@ -378,8 +417,8 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
 
   // ===== SUBMIT =====
   const handleSubmit = async () => {
-    if (!clientInfo || !tracking || !productType || weight <= 0) {
-      setError('Faltan datos requeridos');
+    if (!clientInfo || !tracking || !tracking2 || !productType || weight <= 0) {
+      setError('Faltan datos requeridos (guía larga, guía corta, tipo de producto y peso)');
       return;
     }
 
@@ -627,17 +666,17 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                 Escanea ambas etiquetas del paquete con la pistola escáner
               </Typography>
 
-              {/* Guía madre (corta) */}
+              {/* Campo 1: Guía LARGA (JJD) — requerida, única */}
               <Box sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, textAlign: 'left', maxWidth: 420, mx: 'auto' }}>
-                  Guía master DHL <strong>(corta)</strong> — número corto del envío (Ej: 9650623485)
+                  1️⃣ Guía <strong>larga (JJD)</strong> — código de barras del paquete físico <span style={{ color: 'red' }}>*</span>
                 </Typography>
                 <TextField
                   inputRef={trackingInputRef}
                   value={tracking}
                   onChange={handleTrackingChange}
                   onKeyDown={handleTrackingKeyDown}
-                  placeholder="Ej: 9650623485"
+                  placeholder="Ej: JJD014600012610001490"
                   variant="outlined"
                   autoFocus
                   error={!!trackingWarning}
@@ -645,9 +684,14 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     input: {
                       startAdornment: (
                         <InputAdornment position="start">
-                          <ScanIcon color={trackingWarning ? 'error' : tracking ? 'success' : 'action'} />
+                          <ScanIcon color={trackingWarning ? 'error' : tracking && !trackingWarning ? 'success' : 'action'} />
                         </InputAdornment>
                       ),
+                      endAdornment: checkingDuplicate ? (
+                        <InputAdornment position="end">
+                          <CircularProgress size={18} />
+                        </InputAdornment>
+                      ) : undefined,
                       sx: { fontSize: '1.2rem', fontFamily: 'monospace', '& input': { textAlign: 'center' } }
                     }
                   }}
@@ -656,35 +700,35 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     maxWidth: 420,
                     '& .MuiOutlinedInput-root': {
                       borderRadius: 3,
-                      bgcolor: trackingWarning ? '#fff5f5' : tracking ? '#f0fdf4' : '#f5f5f5',
+                      bgcolor: trackingWarning ? '#fff5f5' : tracking && !trackingWarning ? '#f0fdf4' : '#f5f5f5',
                     }
                   }}
                 />
                 {trackingWarning && (
                   <Alert severity="error" sx={{ mt: 1, maxWidth: 420, mx: 'auto', textAlign: 'left' }}>
-                    <strong>⚠️ Código incorrecto.</strong> {trackingWarning}
+                    {trackingWarning}
                   </Alert>
                 )}
               </Box>
 
-              {/* Guía hija (JJD, larga, opcional) */}
+              {/* Campo 2: Guía CORTA (master) — requerida, puede repetir */}
               <Box sx={{ mb: 3 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, textAlign: 'left', maxWidth: 420, mx: 'auto' }}>
-                  Guía pieza <strong>(JJD, opcional)</strong> — código de barras largo de cada pieza física
+                  2️⃣ Guía <strong>corta (master)</strong> — número corto del envío (Ej: 9650623485) <span style={{ color: 'red' }}>*</span>
                 </Typography>
                 <TextField
                   inputRef={tracking2InputRef}
                   value={tracking2}
                   onChange={handleTracking2Change}
                   onKeyDown={handleTracking2KeyDown}
-                  placeholder="Ej: JJD014600012610001490"
+                  placeholder="Ej: 9650623485"
                   variant="outlined"
                   error={!!tracking2Warning}
                   slotProps={{
                     input: {
                       startAdornment: (
                         <InputAdornment position="start">
-                          <ScanIcon color={tracking2Warning ? 'error' : tracking2 ? 'success' : 'action'} />
+                          <ScanIcon color={tracking2Warning ? 'error' : tracking2 && !tracking2Warning ? 'success' : 'action'} />
                         </InputAdornment>
                       ),
                       sx: { fontSize: '1.2rem', fontFamily: 'monospace', '& input': { textAlign: 'center' } }
@@ -695,25 +739,26 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                     maxWidth: 420,
                     '& .MuiOutlinedInput-root': {
                       borderRadius: 3,
-                      bgcolor: tracking2Warning ? '#fff5f5' : tracking2 ? '#f0fdf4' : '#f5f5f5',
+                      bgcolor: tracking2Warning ? '#fff5f5' : tracking2 && !tracking2Warning ? '#f0fdf4' : '#f5f5f5',
                     }
                   }}
                 />
                 {tracking2Warning && (
-                  <Alert severity="error" sx={{ mt: 1, maxWidth: 420, mx: 'auto', textAlign: 'left' }}>
-                    <strong>⚠️ Código incorrecto.</strong> {tracking2Warning}
+                  <Alert severity="warning" sx={{ mt: 1, maxWidth: 420, mx: 'auto', textAlign: 'left' }}>
+                    {tracking2Warning}
                   </Alert>
                 )}
               </Box>
 
-              {tracking.length >= 5 && !trackingWarning && !tracking2Warning && (
+              {/* Botón — ambas guías requeridas */}
+              {tracking.length >= 5 && tracking2.length >= 4 && !trackingWarning && !tracking2Warning && !checkingDuplicate && (
                 <Button
                   variant="contained"
                   size="large"
                   onClick={() => setActiveStep(2)}
                   sx={{ bgcolor: DHL_RED, '&:hover': { bgcolor: '#a00410' } }}
                 >
-                  Continuar {tracking2 ? '(2 guías)' : '(1 guía)'}
+                  Continuar (2 guías)
                 </Button>
               )}
             </Box>
