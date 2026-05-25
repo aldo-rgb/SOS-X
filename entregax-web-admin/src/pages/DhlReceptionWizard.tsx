@@ -174,8 +174,11 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
     }
   }, [open, activeStep]);
 
+  const normalizeTracking = (raw: string) =>
+    raw.toUpperCase().replace(/¿/g, '+').replace(/\?/g, '+');
+
   const handleTrackingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.toUpperCase();
+    const value = normalizeTracking(e.target.value);
     setTracking(value);
     // Cuando el scanner termina (longitud suficiente), mover foco a segunda guía
     if (value.length >= 10 && /\S{10,}/.test(value)) {
@@ -190,7 +193,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   };
 
   const handleTracking2Change = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.toUpperCase();
+    const value = normalizeTracking(e.target.value);
     setTracking2(value);
     if (value.length >= 8 && /\S{8,}/.test(value)) {
       setTimeout(() => setActiveStep(2), 300);
@@ -962,19 +965,8 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                 </Button>
               )}
 
-              {/* Botón de guardar */}
-              <Box sx={{ mt: 1 }}>
-                <Button
-                  variant="contained"
-                  size="large"
-                  startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CheckIcon />}
-                  onClick={handleSubmit}
-                  disabled={loading}
-                  sx={{ bgcolor: '#4caf50', '&:hover': { bgcolor: '#388e3c' }, px: 6, py: 1.5 }}
-                >
-                  {loading ? 'Guardando...' : 'Guardar Paquete'}
-                </Button>
-              </Box>
+              {/* Espaciado para que el botón de guardar no quede tapado */}
+              <Box sx={{ height: 16 }} />
             </Box>
           </Fade>
         );
@@ -1084,6 +1076,22 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
         {/* Step Content */}
         {!success && renderStep()}
       </DialogContent>
+
+      {/* Botón Guardar — fuera de DialogContent para que no se tape con la barra */}
+      {activeStep === 4 && !success && (
+        <Box sx={{ px: 3, py: 1.5, borderTop: '1px solid #e0e0e0', display: 'flex', justifyContent: 'center' }}>
+          <Button
+            variant="contained"
+            size="large"
+            startIcon={loading ? <CircularProgress size={20} color="inherit" /> : <CheckIcon />}
+            onClick={handleSubmit}
+            disabled={loading}
+            sx={{ bgcolor: '#4caf50', '&:hover': { bgcolor: '#388e3c' }, px: 6, py: 1.2 }}
+          >
+            {loading ? 'Guardando...' : 'Guardar Paquete'}
+          </Button>
+        </Box>
+      )}
 
       {/* Resumen de progreso — barra fija al fondo del dialog (no fixed/viewport) */}
       {activeStep > 0 && !success && (

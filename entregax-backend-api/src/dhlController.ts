@@ -699,6 +699,11 @@ export const getDhlShipments = async (req: Request, res: Response) => {
 // POST /api/admin/dhl/receive - Recibir y auditar paquete
 export const receiveDhlPackage = async (req: Request, res: Response) => {
   try {
+    // Auto-migrate: asegurar columna secondary_tracking en producción
+    await pool.query(`
+      ALTER TABLE dhl_shipments ADD COLUMN IF NOT EXISTS secondary_tracking VARCHAR(100)
+    `).catch(() => {/* no-op si ya existe o no hay permisos de DDL */});
+
     const {
       inbound_tracking,
       secondary_tracking,
