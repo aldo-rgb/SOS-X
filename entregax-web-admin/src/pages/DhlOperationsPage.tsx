@@ -339,8 +339,8 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
         format: 'CODE128',
         displayValue: false,
         margin: 0,
-        height: 100,
-        width: 2,
+        height: 120,
+        width: 2.5,
       });
       barcodeSvg = new XMLSerializer().serializeToString(tmpSvg);
     } catch (err) {
@@ -386,14 +386,14 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
 <style>
   @page { size: 101.6mm 50.8mm; margin: 0; }
   html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .label { width: 101.6mm; height: 50.8mm; box-sizing: border-box; padding: 3mm 4mm; display: flex; gap: 3mm; align-items: center; }
-  .qr { width: 38mm; height: 38mm; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+  .label { width: 101.6mm; height: 50.8mm; box-sizing: border-box; padding: 2mm 3mm; display: flex; gap: 2mm; align-items: center; }
+  .qr { width: 24mm; height: 24mm; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
   .qr svg { width: 100%; height: 100%; }
   .right { flex: 1; display: flex; flex-direction: column; justify-content: center; min-width: 0; }
-  .title { font-size: 9pt; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 1mm; color: #D40511; }
-  .name { font-size: 11pt; font-weight: bold; line-height: 1.1; margin-bottom: 1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .email { font-size: 7pt; color: #555; margin-bottom: 1.5mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .barcode { width: 100%; height: 18mm; }
+  .title { font-size: 8pt; font-weight: bold; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 1mm; color: #D40511; }
+  .name { font-size: 10pt; font-weight: bold; line-height: 1.1; margin-bottom: 0.5mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .email { font-size: 6.5pt; color: #555; margin-bottom: 1mm; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .barcode { width: 100%; height: 22mm; }
   .barcode svg { width: 100%; height: 100%; }
 </style>
 </head>
