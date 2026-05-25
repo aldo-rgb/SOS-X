@@ -83,6 +83,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
 
   // Form data
   const [tracking, setTracking] = useState('');
+  const [tracking2, setTracking2] = useState('');
   const [productType, setProductType] = useState<'standard' | 'high_value' | null>(null);
   const [weight, setWeight] = useState<number>(0);
   const [dimensions, setDimensions] = useState({ length: 0, width: 0, height: 0 });
@@ -103,6 +104,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
   // Refs
   const clientInputRef = useRef<HTMLInputElement>(null);
   const trackingInputRef = useRef<HTMLInputElement>(null);
+  const tracking2InputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -174,18 +176,29 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
   const handleTrackingChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value.toUpperCase();
     setTracking(value);
-    
-    // Auto-avance cuando el tracking tiene formato válido (ej: 10 dígitos)
-    if (value.length >= 10 && /^[A-Z0-9]+$/.test(value)) {
-      setTimeout(() => {
-        setActiveStep(2); // Ahora paso 2 es clasificar
-      }, 500);
+    // Cuando el scanner termina (longitud suficiente), mover foco a segunda guía
+    if (value.length >= 10 && /\S{10,}/.test(value)) {
+      setTimeout(() => tracking2InputRef.current?.focus(), 200);
     }
   };
 
-  const handleTrackingKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && tracking.length >= 5) {
-      setActiveStep(2); // Ahora paso 2 es clasificar
+  const handleTrackingKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && tracking.trim().length >= 5) {
+      tracking2InputRef.current?.focus();
+    }
+  };
+
+  const handleTracking2Change = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value.toUpperCase();
+    setTracking2(value);
+    if (value.length >= 8 && /\S{8,}/.test(value)) {
+      setTimeout(() => setActiveStep(2), 300);
+    }
+  };
+
+  const handleTracking2KeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && tracking.trim().length >= 5) {
+      setActiveStep(2);
     }
   };
 
@@ -367,6 +380,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
           user_id: clientInfo.id,
           box_id: clientInfo.box_id,
           inbound_tracking: tracking,
+          secondary_tracking: tracking2.trim() || undefined,
           product_type: productType,
           weight_kg: weight,
           length_cm: dimensions.length || 30,
@@ -399,6 +413,7 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
     setClientSearch('');
     setClientInfo(null);
     setTracking('');
+    setTracking2('');
     setProductType(null);
     setWeight(0);
     setDimensions({ length: 0, width: 0, height: 0 });
@@ -590,52 +605,90 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
         return (
           <Fade in={activeStep === 1}>
             <Box sx={{ textAlign: 'center', py: 4 }}>
-              <ScanIcon sx={{ fontSize: 100, color: DHL_RED, mb: 3 }} />
+              <ScanIcon sx={{ fontSize: 80, color: DHL_RED, mb: 2 }} />
               <Typography variant="h4" fontWeight="bold" gutterBottom>
-                Escanea el Tracking DHL
+                Escanea las Guías DHL
               </Typography>
               <Typography color="text.secondary" sx={{ mb: 4 }}>
-                Usa la pistola escáner o escribe el número manualmente
+                Escanea ambas etiquetas del paquete con la pistola escáner
               </Typography>
-              
-              <TextField
-                inputRef={trackingInputRef}
-                value={tracking}
-                onChange={handleTrackingChange}
-                onKeyPress={handleTrackingKeyPress}
-                placeholder="Ej: 1234567890"
-                variant="outlined"
-                autoFocus
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <ScanIcon color="action" />
-                    </InputAdornment>
-                  ),
-                  sx: { 
-                    fontSize: '1.5rem', 
-                    fontFamily: 'monospace',
-                    '& input': { textAlign: 'center' }
-                  }
-                }}
-                sx={{ 
-                  width: '100%', 
-                  maxWidth: 400,
-                  '& .MuiOutlinedInput-root': {
-                    borderRadius: 3,
-                    bgcolor: '#f5f5f5'
-                  }
-                }}
-              />
-              
+
+              {/* Guía 1 */}
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, textAlign: 'left', maxWidth: 420, mx: 'auto' }}>
+                  Guía DHL principal
+                </Typography>
+                <TextField
+                  inputRef={trackingInputRef}
+                  value={tracking}
+                  onChange={handleTrackingChange}
+                  onKeyDown={handleTrackingKeyDown}
+                  placeholder="Ej: 2LMX6400048000001"
+                  variant="outlined"
+                  autoFocus
+                  slotProps={{
+                    input: {
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <ScanIcon color={tracking ? 'success' : 'action'} />
+                        </InputAdornment>
+                      ),
+                      sx: { fontSize: '1.2rem', fontFamily: 'monospace', '& input': { textAlign: 'center' } }
+                    }
+                  }}
+                  sx={{
+                    width: '100%',
+                    maxWidth: 420,
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 3,
+                      bgcolor: tracking ? '#f0fdf4' : '#f5f5f5',
+                      borderColor: tracking ? '#4caf50' : undefined,
+                    }
+                  }}
+                />
+              </Box>
+
+              {/* Guía 2 */}
+              <Box sx={{ mb: 3 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, textAlign: 'left', maxWidth: 420, mx: 'auto' }}>
+                  Guía secundaria
+                </Typography>
+                <TextField
+                  inputRef={tracking2InputRef}
+                  value={tracking2}
+                  onChange={handleTracking2Change}
+                  onKeyDown={handleTracking2KeyDown}
+                  placeholder="Ej: 9650623485"
+                  variant="outlined"
+                  slotProps={{
+                    input: {
+                      startAdornment: (
+                        <InputAdornment position="start">
+                          <ScanIcon color={tracking2 ? 'success' : 'action'} />
+                        </InputAdornment>
+                      ),
+                      sx: { fontSize: '1.2rem', fontFamily: 'monospace', '& input': { textAlign: 'center' } }
+                    }
+                  }}
+                  sx={{
+                    width: '100%',
+                    maxWidth: 420,
+                    '& .MuiOutlinedInput-root': {
+                      borderRadius: 3,
+                      bgcolor: tracking2 ? '#f0fdf4' : '#f5f5f5',
+                    }
+                  }}
+                />
+              </Box>
+
               {tracking.length >= 5 && (
                 <Button
                   variant="contained"
                   size="large"
                   onClick={() => setActiveStep(2)}
-                  sx={{ mt: 3, bgcolor: DHL_RED, '&:hover': { bgcolor: '#a00410' } }}
+                  sx={{ bgcolor: DHL_RED, '&:hover': { bgcolor: '#a00410' } }}
                 >
-                  Continuar
+                  Continuar {tracking2 ? '(2 guías)' : '(1 guía)'}
                 </Button>
               )}
             </Box>
@@ -1044,9 +1097,14 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
               <Typography variant="h4" fontWeight="bold" color="#4caf50">
                 ¡Paquete Guardado!
               </Typography>
-              <Typography color="text.secondary" sx={{ mt: 1 }}>
-                Tracking: {tracking}
+              <Typography color="text.secondary" fontFamily="monospace" sx={{ mt: 1 }}>
+                {tracking}
               </Typography>
+              {tracking2 && (
+                <Typography color="text.secondary" fontFamily="monospace" variant="body2">
+                  {tracking2}
+                </Typography>
+              )}
               <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
                 Preparando siguiente paquete...
               </Typography>
@@ -1092,8 +1150,11 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess }: DhlRece
             )}
             {tracking && (
               <Box>
-                <Typography variant="caption" color="grey.500">Tracking</Typography>
-                <Typography fontFamily="monospace" fontWeight="bold">{tracking}</Typography>
+                <Typography variant="caption" color="grey.500">Guía 1</Typography>
+                <Typography fontFamily="monospace" fontWeight="bold" sx={{ fontSize: '0.75rem' }}>{tracking}</Typography>
+                {tracking2 && (
+                  <Typography fontFamily="monospace" sx={{ fontSize: '0.7rem', color: 'grey.400' }}>{tracking2}</Typography>
+                )}
               </Box>
             )}
             {productType && (

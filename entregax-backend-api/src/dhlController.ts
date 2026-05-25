@@ -701,6 +701,7 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
   try {
     const {
       inbound_tracking,
+      secondary_tracking,
       client_id,
       box_id,
       product_type,
@@ -775,17 +776,18 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
     // Insertar registro con costo interno auto-asignado
     const result = await pool.query(`
       INSERT INTO dhl_shipments (
-        inbound_tracking, user_id, box_id, product_type, description,
+        inbound_tracking, secondary_tracking, user_id, box_id, product_type, description,
         weight_kg, length_cm, width_cm, height_cm, volumetric_weight,
         photos, inspected_by, inspected_at,
         exchange_rate, import_cost_usd, import_cost_mxn,
         assigned_cost_usd, cost_rate_type, cost_assigned_at, cost_assigned_by,
         cost_payment_status,
         status
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), $13, $14, $15, $16, $17, NOW(), $18, 'pending', 'received_mty')
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, NOW(), $14, $15, $16, $17, $18, NOW(), $19, 'pending', 'received_mty')
       RETURNING *
     `, [
-      inbound_tracking, userId, box_id, priceType, description,
+      inbound_tracking, secondary_tracking || null,
+      userId, box_id, priceType, description,
       weight_kg, length_cm, width_cm, height_cm, volWeight,
       JSON.stringify(photos || []), inspectorId,
       exchangeRate, importCostUsd, importCostMxn,

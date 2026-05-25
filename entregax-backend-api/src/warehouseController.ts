@@ -1797,6 +1797,61 @@ export const getSupervisorAuthorizations = async (req: AuthRequest, res: Respons
     }
 };
 
+// GET /api/warehouse/supervisors - Listar usuarios con rol de supervisor (admin only)
+export const listSupervisors = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const requesterId = req.user?.userId;
+        const roleResult = await pool.query('SELECT role FROM users WHERE id = $1', [requesterId]);
+        const role = roleResult.rows[0]?.role;
+        if (!['super_admin', 'admin'].includes(role)) {
+            res.status(403).json({ error: 'Sin permisos' });
+            return;
+        }
+        const result = await pool.query(`
+            SELECT id, full_name, email, role, supervisor_pin, branch_id
+            FROM users
+            WHERE role IN ('super_admin', 'admin', 'director', 'gerente_sucursal', 'branch_manager')
+            ORDER BY role, full_name
+        `);
+        res.json(result.rows);
+    } catch (error) {
+        console.error('Error listando supervisores:', error);
+        res.status(500).json({ error: 'Error al obtener supervisores' });
+    }
+};
+
+// PUT /api/warehouse/admin-set-supervisor-pin - Admin asigna PIN a cualquier supervisor
+export const adminSetSupervisorPin = async (req: AuthRequest, res: Response): Promise<void> => {
+    try {
+        const requesterId = req.user?.userId;
+        const roleResult = await pool.query('SELECT role FROM users WHERE id = $1', [requesterId]);
+        const role = roleResult.rows[0]?.role;
+        if (!['super_admin', 'admin'].includes(role)) {
+            res.status(403).json({ error: 'Sin permisos' });
+            return;
+        }
+        const { target_user_id, new_pin } = req.body;
+        if (!target_user_id || !new_pin || String(new_pin).length < 4) {
+            res.status(400).json({ error: 'Se requiere target_user_id y un PIN de al menos 4 dígitos' });
+            return;
+        }
+        // Verificar que no esté duplicado
+        const dup = await pool.query(
+            'SELECT id FROM users WHERE supervisor_pin = $1 AND id != $2',
+            [String(new_pin), target_user_id]
+        );
+        if (dup.rows.length > 0) {
+            res.status(400).json({ error: 'Este PIN ya está en uso por otro supervisor' });
+            return;
+        }
+        await pool.query('UPDATE users SET supervisor_pin = $1 WHERE id = $2', [String(new_pin), target_user_id]);
+        res.json({ success: true, message: 'PIN actualizado' });
+    } catch (error) {
+        console.error('Error asignando PIN:', error);
+        res.status(500).json({ error: 'Error al asignar PIN' });
+    }
+};
+
 // POST /api/warehouse/dhl-reception - Recepción rápida de paquete DHL
 export const processDhlReception = async (req: AuthRequest, res: Response): Promise<void> => {
     try {

@@ -73,8 +73,8 @@ interface BoxRow {
 }
 
 const emptyBox = {
-  originGuide: '', clientNumber: '', grossWeight: '', chargeableWeight: '',
-  length: '', width: '', height: '', productType: '', description: '', comments: '',
+  originGuide: '', originGuide2: '', clientNumber: '', grossWeight: '', chargeableWeight: '',
+  length: '', width: '', height: '',
 };
 
 interface Props { onBack: () => void; }
@@ -196,7 +196,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
 
   const addBoxes = async () => {
     if (!masterId) return;
-    if (!box.grossWeight || Number(box.grossWeight) <= 0 || !box.productType) {
+    if (!box.grossWeight || Number(box.grossWeight) <= 0) {
       setSnack({ sev: 'error', msg: t('tdiExpress.wizard.required') });
       return;
     }
@@ -212,27 +212,23 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
           length: Number(box.length) || undefined,
           width: Number(box.width) || undefined,
           height: Number(box.height) || undefined,
-          productType: box.productType,
-          description: box.description.trim() || undefined,
-          comments: box.comments.trim() || undefined,
+          // guía secundaria guardada en notes
+          comments: box.originGuide2.trim() || undefined,
           quantity: Math.max(1, parseInt(quantity, 10) || 1),
         },
         { headers: authHeaders }
       );
       await reloadBoxes(masterId);
-      // Imprime las etiquetas del bloque recién agregado.
-      {
-        const dims0 = (box.length && box.width && box.height)
-          ? `${box.length}×${box.width}×${box.height} cm` : '—';
-        const ptName0 = box.productType ? t(`tdiExpress.productTypes.${box.productType}`) : '';
-        printLabels((r.data?.created || []).map((b: any) => ({
-          tracking: b.tracking, boxNumber: b.boxNumber, total: totalBoxes,
-          clientNumber: box.clientNumber, originGuide: box.originGuide,
-          gw: box.grossWeight, cw: box.chargeableWeight, dims: dims0, productType: ptName0,
-        })));
-      }
-      // Conservar cliente y tipo para la siguiente caja; limpiar el resto
-      setBox({ ...emptyBox, clientNumber: box.clientNumber, productType: box.productType });
+      const dims0 = (box.length && box.width && box.height)
+        ? `${box.length}×${box.width}×${box.height} cm` : '—';
+      printLabels((r.data?.created || []).map((b: any) => ({
+        tracking: b.tracking, boxNumber: b.boxNumber, total: totalBoxes,
+        clientNumber: box.clientNumber, originGuide: box.originGuide,
+        originGuide2: box.originGuide2,
+        gw: box.grossWeight, cw: box.chargeableWeight, dims: dims0,
+      })));
+      // Conservar cliente para la siguiente caja; limpiar guías y medidas
+      setBox({ ...emptyBox, clientNumber: box.clientNumber });
       setQuantity('1');
       setSnack(null);
     } catch (e: any) {
@@ -265,7 +261,6 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       length: last.pkg_length != null ? String(last.pkg_length) : '',
       width: last.pkg_width != null ? String(last.pkg_width) : '',
       height: last.pkg_height != null ? String(last.pkg_height) : '',
-      productType: last.air_tariff_type ? (TARIFF_TO_PRODUCT[last.air_tariff_type] || p.productType) : p.productType,
     }));
   };
 
@@ -279,9 +274,9 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const printLabels = (
     items: {
       tracking: string; boxNumber: number; total: number;
-      clientNumber: string; originGuide: string;
+      clientNumber: string; originGuide: string; originGuide2?: string;
       gw: string | number | null; cw: string | number | null;
-      dims: string; productType: string;
+      dims: string;
     }[]
   ) => {
     if (!items.length) return;
@@ -295,10 +290,10 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
         <svg class="bc" id="bc${i}"></svg>
         <div class="qr" id="qr${i}"></div>
         <div class="row"><b>${esc(t('tdiExpress.wizard.clientNumber'))}:</b> ${esc(it.clientNumber) || '—'}</div>
-        <div class="row"><b>${esc(t('tdiExpress.wizard.originGuide'))}:</b> ${esc(it.originGuide) || '—'}</div>
+        <div class="row"><b>Guía 1:</b> ${esc(it.originGuide) || '—'}</div>
+        <div class="row"><b>Guía 2:</b> ${esc(it.originGuide2) || '—'}</div>
         <div class="row"><b>GW:</b> ${esc(it.gw) || '—'} kg &nbsp; <b>CW:</b> ${esc(it.cw) || '—'} kg</div>
         <div class="row"><b>${esc(t('tdiExpress.wizard.length'))}:</b> ${esc(it.dims)}</div>
-        <div class="row"><b>${esc(t('tdiExpress.wizard.productType'))}:</b> ${esc(it.productType)}</div>
       </div>`).join('');
     w.document.write(`<!DOCTYPE html><html><head><title>Etiquetas TDI Express</title>
       <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"><\/script>
@@ -518,18 +513,38 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
 
               {/* Formulario de caja */}
               <Card elevation={0} sx={{ p: 2.5, borderRadius: 3, border: `2px dashed ${ORANGE}`, background: 'linear-gradient(180deg, #FFF8F5 0%, #FFFFFF 100%)' }}>
+                {/* Sección 1: GUÍAS Y CLIENTE */}
                 <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700 }}>1 · {t('tdiExpress.wizard.section1')}</Typography>
                 <Grid container spacing={1.5} sx={{ mt: 0.2, mb: 1 }}>
-                  <Grid size={{ xs: 12, sm: 7 }}>
-                    <TextField label={t('tdiExpress.wizard.originGuide')} value={box.originGuide}
-                      onChange={(e) => setBox({ ...box, originGuide: e.target.value })} fullWidth size="small" />
-                  </Grid>
                   <Grid size={{ xs: 12, sm: 5 }}>
+                    <TextField
+                      label="Guía larga (principal)"
+                      value={box.originGuide}
+                      onChange={(e) => setBox({ ...box, originGuide: e.target.value.toUpperCase() })}
+                      onKeyDown={(e) => { if (e.key === 'Enter') (e.currentTarget.closest('form,div')?.querySelector('[data-field="originGuide2"]') as HTMLInputElement | null)?.focus(); }}
+                      fullWidth size="small"
+                      placeholder="2LMX64000..."
+                      slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <TextField
+                      label="Guía corta (secundaria)"
+                      value={box.originGuide2}
+                      onChange={(e) => setBox({ ...box, originGuide2: e.target.value.toUpperCase() })}
+                      inputProps={{ 'data-field': 'originGuide2' }}
+                      fullWidth size="small"
+                      placeholder="9650623485"
+                      slotProps={{ input: { sx: { fontFamily: 'monospace' } } }}
+                    />
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 3 }}>
                     <TextField label={t('tdiExpress.wizard.clientNumber')} value={box.clientNumber}
                       onChange={(e) => setBox({ ...box, clientNumber: e.target.value.toUpperCase() })} fullWidth size="small" />
                   </Grid>
                 </Grid>
 
+                {/* Sección 2: PESO Y MEDIDAS + botones */}
                 <Divider sx={{ my: 1.5 }} />
                 <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700 }}>2 · {t('tdiExpress.wizard.section2')}</Typography>
                 <Grid container spacing={1.5} sx={{ mt: 0.2, mb: 1 }}>
@@ -555,30 +570,14 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                   </Grid>
                 </Grid>
 
-                <Divider sx={{ my: 1.5 }} />
-                <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700 }}>3 · {t('tdiExpress.wizard.section3')}</Typography>
-                <Grid container spacing={1.5} sx={{ mt: 0.2 }}>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField select label={t('tdiExpress.wizard.productType')} value={box.productType}
-                      onChange={(e) => setBox({ ...box, productType: e.target.value })} fullWidth size="small" required>
-                      {productTypes.map((p) => (
-                        <MenuItem key={p.key} value={p.key}>{t(`tdiExpress.productTypes.${p.key}`)}</MenuItem>
-                      ))}
-                    </TextField>
-                  </Grid>
-                  <Grid size={{ xs: 12, sm: 6 }}>
-                    <TextField label={t('tdiExpress.wizard.description')} value={box.description}
-                      onChange={(e) => setBox({ ...box, description: e.target.value })} fullWidth size="small" />
-                  </Grid>
-                  <Grid size={{ xs: 12 }}>
-                    <TextField label={t('tdiExpress.wizard.comments')} value={box.comments}
-                      onChange={(e) => setBox({ ...box, comments: e.target.value })} fullWidth size="small" multiline rows={2} />
-                  </Grid>
-                  <Grid size={{ xs: 6, sm: 2 }}>
+                {/* Botones */}
+                <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+                  <Grid size={{ xs: 5, sm: 2 }}>
                     <TextField label={t('tdiExpress.wizard.quantity')} type="number" value={quantity}
-                      onChange={(e) => setQuantity(e.target.value)} fullWidth size="small" inputProps={{ min: 1, max: 99 }} />
+                      onChange={(e) => setQuantity(e.target.value)} fullWidth size="small"
+                      slotProps={{ htmlInput: { min: 1, max: 99 } }} />
                   </Grid>
-                  <Grid size={{ xs: 6, sm: 6 }}>
+                  <Grid size={{ xs: 7, sm: 6 }}>
                     <Button fullWidth variant="contained" startIcon={<AddIcon />} onClick={addBoxes} disabled={busy}
                       sx={{ height: 40, bgcolor: ORANGE, '&:hover': { bgcolor: '#E55A28' }, fontWeight: 700 }}>
                       {busy ? <CircularProgress size={20} />

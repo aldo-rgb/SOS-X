@@ -57,6 +57,8 @@ import {
   AccessTime as TimeIcon,
   Lock as LockIcon,
   ArrowBack as ArrowBackIcon,
+  ManageAccounts as ManageAccountsIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import DhlReceptionWizard from './DhlReceptionWizard';
 import axios from 'axios';
@@ -137,6 +139,21 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
   const [supervisorPin, setSupervisorPin] = useState('');
   const [supervisorError, setSupervisorError] = useState('');
   const [validatingSupervisor, setValidatingSupervisor] = useState(false);
+  const [supervisorName, setSupervisorName] = useState('');
+
+  // Modal gestión de PINs
+  const [pinMgmtDialog, setPinMgmtDialog] = useState(false);
+  const [supervisorList, setSupervisorList] = useState<{ id: number; full_name: string; email: string; role: string; supervisor_pin: string | null }[]>([]);
+  const [loadingSupervisors, setLoadingSupervisors] = useState(false);
+  const [editingPinUserId, setEditingPinUserId] = useState<number | null>(null);
+  const [editingPinValue, setEditingPinValue] = useState('');
+  const [savingPin, setSavingPin] = useState(false);
+  const [pinMgmtError, setPinMgmtError] = useState('');
+  const [pinMgmtSuccess, setPinMgmtSuccess] = useState('');
+
+  const isAdminUser = (() => {
+    try { const r = JSON.parse(localStorage.getItem('user') || '{}').role || ''; return r === 'super_admin' || r === 'admin'; } catch { return false; }
+  })();
   
   const [selectedShipment, setSelectedShipment] = useState<DhlShipment | null>(null);
   
@@ -220,7 +237,7 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
       );
       
       if (res.data.valid) {
-        // Cerrar modal de supervisor y abrir wizard
+        setSupervisorName(res.data.supervisor?.name || '');
         setSupervisorDialog(false);
         setReceiveDialog(true);
       } else {
@@ -231,6 +248,57 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
       setSupervisorError('Clave de supervisor incorrecta');
     } finally {
       setValidatingSupervisor(false);
+    }
+  };
+
+  // ===== GESTIÓN DE PINs =====
+  const loadSupervisors = async () => {
+    setLoadingSupervisors(true);
+    setPinMgmtError('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await axios.get(`${API_URL}/api/warehouse/supervisors`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSupervisorList(res.data);
+    } catch {
+      setPinMgmtError('Error al cargar supervisores');
+    } finally {
+      setLoadingSupervisors(false);
+    }
+  };
+
+  const handleOpenPinMgmt = () => {
+    setPinMgmtDialog(true);
+    setPinMgmtError('');
+    setPinMgmtSuccess('');
+    setEditingPinUserId(null);
+    setEditingPinValue('');
+    loadSupervisors();
+  };
+
+  const handleSavePin = async (userId: number) => {
+    if (!editingPinValue || editingPinValue.length < 4) {
+      setPinMgmtError('El PIN debe tener al menos 4 dígitos');
+      return;
+    }
+    setSavingPin(true);
+    setPinMgmtError('');
+    setPinMgmtSuccess('');
+    try {
+      const token = localStorage.getItem('token');
+      await axios.put(`${API_URL}/api/warehouse/admin-set-supervisor-pin`, {
+        target_user_id: userId,
+        new_pin: editingPinValue,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setPinMgmtSuccess('PIN actualizado correctamente');
+      setEditingPinUserId(null);
+      setEditingPinValue('');
+      loadSupervisors();
+    } catch (err: any) {
+      setPinMgmtError(err?.response?.data?.error || 'Error al guardar PIN');
+    } finally {
+      setSavingPin(false);
     }
   };
 
@@ -356,16 +424,28 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
             </Typography>
           </Box>
         </Box>
-        {canEdit('reception') && (
-        <Button
-          variant="contained"
-          startIcon={<ScanIcon />}
-          onClick={handleOpenReception}
-          sx={{ bgcolor: DHL_COLOR, '&:hover': { bgcolor: '#a00410' } }}
-        >
-          Recibir Paquete
-        </Button>
-        )}
+        <Box sx={{ display: 'flex', gap: 1 }}>
+          {isAdminUser && (
+            <Button
+              variant="outlined"
+              startIcon={<ManageAccountsIcon />}
+              onClick={handleOpenPinMgmt}
+              sx={{ borderColor: DHL_COLOR, color: DHL_COLOR }}
+            >
+              PINs Supervisores
+            </Button>
+          )}
+          {canEdit('reception') && (
+            <Button
+              variant="contained"
+              startIcon={<ScanIcon />}
+              onClick={handleOpenReception}
+              sx={{ bgcolor: DHL_COLOR, '&:hover': { bgcolor: '#a00410' } }}
+            >
+              Recibir Paquete
+            </Button>
+          )}
+        </Box>
       </Box>
 
       {/* Stats Cards */}
@@ -576,8 +656,8 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
       {/* ===== DIALOGS ===== */}
 
       {/* 🔐 Modal: Clave de Gerente/Supervisor */}
-      <Dialog 
-        open={supervisorDialog} 
+      <Dialog
+        open={supervisorDialog}
         onClose={() => setSupervisorDialog(false)}
         maxWidth="xs"
         fullWidth
@@ -601,35 +681,120 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
             autoComplete="off"
             value={supervisorPin}
             onChange={(e) => setSupervisorPin(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && validateSupervisor()}
+            onKeyDown={(e) => e.key === 'Enter' && validateSupervisor()}
             error={!!supervisorError}
             helperText={supervisorError || 'Configura tu PIN en la app móvil > Mi Perfil'}
             autoFocus
-            InputProps={{
-              startAdornment: (
-                <InputAdornment position="start">
-                  <LockIcon color="action" />
-                </InputAdornment>
-              ),
-              sx: {
-                '-webkit-text-security': 'disc',
-                'input': { '-webkit-text-security': 'disc' }
+            slotProps={{
+              input: {
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <LockIcon color="action" />
+                  </InputAdornment>
+                ),
+                sx: { input: { '-webkit-text-security': 'disc' } }
               }
             }}
           />
+
+          {supervisorName && (
+            <Alert severity="success" sx={{ mt: 2 }}>
+              ✓ Autorizado por: <strong>{supervisorName}</strong>
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setSupervisorDialog(false)}>
-            Cancelar
-          </Button>
-          <Button 
-            variant="contained" 
+          <Button onClick={() => setSupervisorDialog(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
             onClick={validateSupervisor}
             disabled={validatingSupervisor || !supervisorPin.trim()}
             sx={{ bgcolor: DHL_COLOR, '&:hover': { bgcolor: '#a00410' } }}
           >
             {validatingSupervisor ? <CircularProgress size={20} /> : 'Autorizar'}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 🔑 Modal: Gestión de PINs de Supervisores */}
+      <Dialog open={pinMgmtDialog} onClose={() => setPinMgmtDialog(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <ManageAccountsIcon sx={{ color: DHL_COLOR }} />
+          PINs de Supervisores
+        </DialogTitle>
+        <DialogContent>
+          {pinMgmtError && <Alert severity="error" sx={{ mb: 2 }}>{pinMgmtError}</Alert>}
+          {pinMgmtSuccess && <Alert severity="success" sx={{ mb: 2 }}>{pinMgmtSuccess}</Alert>}
+          {loadingSupervisors ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell><strong>Nombre</strong></TableCell>
+                  <TableCell><strong>Rol</strong></TableCell>
+                  <TableCell><strong>PIN actual</strong></TableCell>
+                  <TableCell><strong>Nuevo PIN</strong></TableCell>
+                  <TableCell />
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {supervisorList.map((sup) => (
+                  <TableRow key={sup.id}>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="bold">{sup.full_name}</Typography>
+                      <Typography variant="caption" color="text.secondary">{sup.email}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={sup.role} size="small" />
+                    </TableCell>
+                    <TableCell>
+                      <Typography fontFamily="monospace">
+                        {sup.supervisor_pin ? '••••' : <em style={{ color: '#999' }}>Sin PIN</em>}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      {editingPinUserId === sup.id ? (
+                        <TextField
+                          size="small"
+                          value={editingPinValue}
+                          onChange={(e) => setEditingPinValue(e.target.value.replace(/\D/g, ''))}
+                          onKeyDown={(e) => e.key === 'Enter' && handleSavePin(sup.id)}
+                          placeholder="Nuevo PIN"
+                          inputProps={{ maxLength: 8, style: { fontFamily: 'monospace' } }}
+                          sx={{ width: 120 }}
+                          autoFocus
+                        />
+                      ) : (
+                        <Button
+                          size="small"
+                          startIcon={<EditIcon />}
+                          onClick={() => { setEditingPinUserId(sup.id); setEditingPinValue(''); setPinMgmtError(''); setPinMgmtSuccess(''); }}
+                        >
+                          Cambiar
+                        </Button>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {editingPinUserId === sup.id && (
+                        <Box sx={{ display: 'flex', gap: 0.5 }}>
+                          <Button size="small" variant="contained" color="success" disabled={savingPin} onClick={() => handleSavePin(sup.id)}>
+                            {savingPin ? <CircularProgress size={14} /> : 'Guardar'}
+                          </Button>
+                          <Button size="small" onClick={() => setEditingPinUserId(null)}>✕</Button>
+                        </Box>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPinMgmtDialog(false)}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 

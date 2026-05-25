@@ -416,7 +416,9 @@ import {
   processDhlReception,
   getBranchInventory,
   updateSupervisorPin,
-  getSupervisorAuthorizations
+  getSupervisorAuthorizations,
+  listSupervisors,
+  adminSetSupervisorPin
 } from './warehouseController';
 import {
   listAssets,
@@ -4413,6 +4415,10 @@ app.post('/api/warehouse/validate-supervisor', authenticateToken, requireMinLeve
 app.post('/api/warehouse/update-supervisor-pin', authenticateToken, updateSupervisorPin);
 // Historial de autorizaciones
 app.get('/api/warehouse/supervisor-authorizations', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getSupervisorAuthorizations);
+// Listar supervisores con PIN (admin)
+app.get('/api/warehouse/supervisors', authenticateToken, listSupervisors);
+// Admin asigna PIN a cualquier supervisor
+app.put('/api/warehouse/admin-set-supervisor-pin', authenticateToken, adminSetSupervisorPin);
 // Recepción rápida DHL
 app.post('/api/warehouse/dhl-reception', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), processDhlReception);
 // Inventario de sucursal
