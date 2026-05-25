@@ -502,6 +502,145 @@ export const deleteEmployeeDocument = async (req: Request, res: Response): Promi
 };
 
 // ============================================
+// PUT /api/admin/hr/employees/:id/license
+// Admin actualiza la licencia de conducir de un empleado
+// ============================================
+export const updateAdminDriverLicense = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = parseInt(String(req.params.id || ''), 10);
+    if (!userId) { res.status(400).json({ success: false, error: 'ID inválido' }); return; }
+
+    const expiryDate = req.body?.expiry_date || null;
+    const files = (req as any).files as Record<string, Express.Multer.File[]> | undefined;
+    const frontFile = files?.front_photo?.[0];
+    const backFile = files?.back_photo?.[0];
+
+    if (!frontFile && !backFile && !expiryDate) {
+      res.status(400).json({ success: false, error: 'Debe proporcionar al menos una foto o fecha de vencimiento' });
+      return;
+    }
+
+    const uploadFile = async (file: Express.Multer.File, suffix: string): Promise<string> => {
+      const ext = path.extname(file.originalname || '') || '.jpg';
+      const safeName = `license-${suffix}-${Date.now()}${ext}`;
+      const storageKey = `hr/employees/${userId}/${safeName}`;
+      if (isS3Configured()) {
+        return uploadToS3(file.buffer, storageKey, file.mimetype || 'image/jpeg');
+      }
+      const localDir = path.join(process.cwd(), 'uploads', 'hr', 'employees', String(userId));
+      if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+      fs.writeFileSync(path.join(localDir, safeName), file.buffer);
+      return `/uploads/hr/employees/${userId}/${safeName}`;
+    };
+
+    const frontUrl = frontFile ? await uploadFile(frontFile, 'front') : null;
+    const backUrl  = backFile  ? await uploadFile(backFile,  'back')  : null;
+
+    await pool.query(
+      `UPDATE users SET
+         driver_license_front_url = COALESCE($1, driver_license_front_url),
+         driver_license_back_url  = COALESCE($2, driver_license_back_url),
+         driver_license_expiry    = COALESCE($3::date, driver_license_expiry)
+       WHERE id = $4`,
+      [frontUrl, backUrl, expiryDate || null, userId]
+    );
+
+    if (expiryDate && new Date(expiryDate) > new Date()) {
+      await pool.query(
+        `UPDATE users SET is_blocked = FALSE, block_reason = NULL, blocked_at = NULL
+         WHERE id = $1 AND block_reason = 'Licencia de conducir vencida'`,
+        [userId]
+      );
+    }
+
+    res.json({ success: true, message: 'Licencia de conducir actualizada correctamente' });
+  } catch (e: any) {
+    console.error('updateAdminDriverLicense error:', e);
+    res.status(500).json({ success: false, error: e?.message || 'Error interno' });
+  }
+};
+
+// ============================================
+// PUT /api/hr/my-license
+// Repartidor actualiza su propia licencia de conducir desde la app
+// ============================================
+export const updateMyLicense = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req as any).user?.userId;
+    if (!userId) { res.status(401).json({ success: false, error: 'No autorizado' }); return; }
+
+    const expiryDate = req.body?.expiry_date || null;
+    const files = (req as any).files as Record<string, Express.Multer.File[]> | undefined;
+    const frontFile = files?.front_photo?.[0];
+    const backFile = files?.back_photo?.[0];
+
+    if (!frontFile || !backFile || !expiryDate) {
+      res.status(400).json({ success: false, error: 'Debe proporcionar foto frente, reverso y fecha de vencimiento' });
+      return;
+    }
+
+    const uploadFile = async (file: Express.Multer.File, suffix: string): Promise<string> => {
+      const ext = path.extname(file.originalname || '') || '.jpg';
+      const safeName = `license-${suffix}-${Date.now()}${ext}`;
+      const storageKey = `hr/employees/${userId}/${safeName}`;
+      if (isS3Configured()) {
+        return uploadToS3(file.buffer, storageKey, file.mimetype || 'image/jpeg');
+      }
+      const localDir = path.join(process.cwd(), 'uploads', 'hr', 'employees', String(userId));
+      if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+      fs.writeFileSync(path.join(localDir, safeName), file.buffer);
+      return `/uploads/hr/employees/${userId}/${safeName}`;
+    };
+
+    const frontUrl = await uploadFile(frontFile, 'front');
+    const backUrl  = await uploadFile(backFile,  'back');
+
+    await pool.query(
+      `UPDATE users SET
+         driver_license_front_url = $1,
+         driver_license_back_url  = $2,
+         driver_license_expiry    = $3::date
+       WHERE id = $4`,
+      [frontUrl, backUrl, expiryDate, userId]
+    );
+
+    if (new Date(expiryDate) > new Date()) {
+      await pool.query(
+        `UPDATE users SET is_blocked = FALSE, block_reason = NULL, blocked_at = NULL
+         WHERE id = $1 AND block_reason = 'Licencia de conducir vencida'`,
+        [userId]
+      );
+    }
+
+    // Notificar a admins que el repartidor actualizó su licencia
+    try {
+      const driverQ = await pool.query('SELECT full_name FROM users WHERE id = $1', [userId]);
+      const driverName = driverQ.rows[0]?.full_name || 'Repartidor';
+      const admins = await pool.query(`SELECT id FROM users WHERE role IN ('super_admin', 'admin', 'director')`);
+      for (const admin of admins.rows) {
+        await pool.query(
+          `INSERT INTO notifications (user_id, title, message, type, icon, data)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [
+            admin.id,
+            '🪪 Licencia actualizada',
+            `${driverName} actualizó su licencia de conducir. Vence: ${new Date(expiryDate).toLocaleDateString('es-MX')}.`,
+            'success',
+            'id-card',
+            JSON.stringify({ driverId: userId, driverName }),
+          ]
+        );
+      }
+    } catch { /* non-critical */ }
+
+    res.json({ success: true, message: 'Licencia de conducir actualizada. Un administrador la revisará.' });
+  } catch (e: any) {
+    console.error('updateMyLicense error:', e);
+    res.status(500).json({ success: false, error: e?.message || 'Error interno' });
+  }
+};
+
+// ============================================
 // PUT /api/admin/hr/employees/:id/payroll
 // ============================================
 export const upsertPayroll = async (req: Request, res: Response): Promise<void> => {

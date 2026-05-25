@@ -290,6 +290,12 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
       return;
     }
 
+    // Licencia de conducir por vencer o vencida → abrir wizard de renovación
+    if (item.data?.action === 'license_renewal' || item.type === 'license_expiring') {
+      (navigation as any).navigate('LicenseRenewal', { user, token });
+      return;
+    }
+
     // Guías sin identificar → va directo al filtro del asesor
     if (item.data?.screen === 'AdvisorPackages' && item.data?.filter) {
       (navigation as any).navigate('AdvisorPackages', { user, token, filter: item.data.filter });

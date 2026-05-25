@@ -94,6 +94,7 @@ import ChatListScreen from './src/screens/ChatListScreen';
 import ChatRoomScreen from './src/screens/ChatRoomScreen';
 import NewChatScreen from './src/screens/NewChatScreen';
 import ChatGroupInfoScreen from './src/screens/ChatGroupInfoScreen';
+import LicenseRenewalScreen from './src/screens/LicenseRenewalScreen';
 
 import { Package } from './src/services/api';
 import { EMPLOYEE_ROLES } from './src/constants/roles';
@@ -206,6 +207,7 @@ export type RootStackParamList = {
     title?: string;
     type?: 'direct' | 'group';
   };
+  LicenseRenewal: { user: any; token: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -485,6 +487,8 @@ function App() {
           <Stack.Screen name="ChatRoom" component={ChatRoomScreen} />
           <Stack.Screen name="NewChat" component={NewChatScreen} />
           <Stack.Screen name="ChatGroupInfo" component={ChatGroupInfoScreen} />
+          {/* Renovación de licencia de conducir */}
+          <Stack.Screen name="LicenseRenewal" component={LicenseRenewalScreen} options={{ headerShown: false }} />
         </Stack.Navigator>
       </NavigationContainer>
     </PaperProvider>

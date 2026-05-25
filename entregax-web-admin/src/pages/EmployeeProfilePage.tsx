@@ -5,12 +5,13 @@
 // Línea corporativa EntregaX (light enterprise)
 // ============================================
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import {
   Box, Paper, Typography, Tabs, Tab, Button, IconButton, Avatar, Chip, Stack,
   Grid, TextField, MenuItem, Divider, Alert, CircularProgress, Tooltip,
   Dialog, DialogTitle, DialogContent, DialogActions, Snackbar,
   Card, CardContent, LinearProgress, Table, TableBody, TableCell, TableHead, TableRow,
+  Stepper, Step, StepLabel,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
@@ -24,6 +25,10 @@ import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
 import FolderSharedIcon from '@mui/icons-material/FolderShared';
+import BadgeIcon from '@mui/icons-material/Badge';
+import PhotoCameraIcon from '@mui/icons-material/PhotoCamera';
+import CalendarMonthIcon from '@mui/icons-material/CalendarMonth';
+import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import api from '../services/api';
 
 // Corporate light palette (consistente con BranchManagementPage)
@@ -123,6 +128,44 @@ export default function EmployeeProfilePage({ employeeId, onBack }: EmployeeProf
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<any>(null);
   const [snack, setSnack] = useState<{ open: boolean; msg: string; sev: 'success'|'error'|'warning'|'info' }>({ open: false, msg: '', sev: 'success' });
+
+  // License renewal wizard state
+  const [licenseWizard, setLicenseWizard] = useState(false);
+  const [licenseStep, setLicenseStep] = useState(0);
+  const [licenseFront, setLicenseFront] = useState<File | null>(null);
+  const [licenseBack, setLicenseBack] = useState<File | null>(null);
+  const [licenseExpiry, setLicenseExpiry] = useState('');
+  const [licenseSubmitting, setLicenseSubmitting] = useState(false);
+  const frontInputRef = useRef<HTMLInputElement>(null);
+  const backInputRef = useRef<HTMLInputElement>(null);
+
+  const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role || ''; } catch { return ''; } })();
+  const canRenewLicense = ['super_admin', 'admin', 'director', 'accountant'].includes(currentRole);
+
+  const handleLicenseSubmit = async () => {
+    if (!licenseExpiry) { showMsg('Ingresa la fecha de vencimiento', 'warning'); return; }
+    setLicenseSubmitting(true);
+    try {
+      const fd = new FormData();
+      if (licenseFront) fd.append('front_photo', licenseFront);
+      if (licenseBack)  fd.append('back_photo', licenseBack);
+      fd.append('expiry_date', licenseExpiry);
+      await api.put(`/admin/hr/employees/${employeeId}/license`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      showMsg('Licencia de conducir actualizada correctamente', 'success');
+      setLicenseWizard(false);
+      setLicenseStep(0);
+      setLicenseFront(null);
+      setLicenseBack(null);
+      setLicenseExpiry('');
+      load();
+    } catch (e: any) {
+      showMsg(e?.response?.data?.error || 'Error al actualizar la licencia', 'error');
+    } finally {
+      setLicenseSubmitting(false);
+    }
+  };
 
   const showMsg = (msg: string, sev: 'success'|'error'|'warning'|'info' = 'success') =>
     setSnack({ open: true, msg, sev });
@@ -274,12 +317,44 @@ export default function EmployeeProfilePage({ employeeId, onBack }: EmployeeProf
         {alerts && alerts.length > 0 && (
           <Box sx={{ mt: 2 }}>
             {alerts.map((a: any, idx: number) => (
-              <Alert key={idx} severity={a.severity} icon={<WarningAmberIcon />} sx={{ mb: 1 }}>
+              <Alert
+                key={idx}
+                severity={a.severity}
+                icon={<WarningAmberIcon />}
+                sx={{ mb: 1 }}
+                action={
+                  a.type === 'license_expiring' && canRenewLicense && user?.role === 'repartidor' ? (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<BadgeIcon />}
+                      onClick={() => { setLicenseWizard(true); setLicenseStep(0); }}
+                      sx={{ bgcolor: C.orange, '&:hover': { bgcolor: C.orangeDark }, whiteSpace: 'nowrap' }}
+                    >
+                      Renovar Licencia
+                    </Button>
+                  ) : undefined
+                }
+              >
                 <strong>{a.label}</strong> {a.days_remaining < 0
                   ? `venció hace ${Math.abs(a.days_remaining)} días`
                   : `vence en ${a.days_remaining} días`} ({fmtDate(a.expires_at)})
               </Alert>
             ))}
+          </Box>
+        )}
+
+        {/* Botón Renovar Licencia para repartidores (visible para admins aunque no haya alerta activa) */}
+        {canRenewLicense && user?.role === 'repartidor' && (
+          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'flex-end' }}>
+            <Button
+              variant="outlined"
+              startIcon={<BadgeIcon />}
+              onClick={() => { setLicenseWizard(true); setLicenseStep(0); }}
+              sx={{ borderColor: C.orange, color: C.orange, '&:hover': { bgcolor: '#fff7ed', borderColor: C.orangeDark } }}
+            >
+              Actualizar Licencia de Conducir
+            </Button>
           </Box>
         )}
       </Paper>
@@ -310,6 +385,180 @@ export default function EmployeeProfilePage({ employeeId, onBack }: EmployeeProf
           {tab === 3 && <AsistenciasTab user={user} />}
         </Box>
       </Paper>
+
+      {/* License Renewal Wizard */}
+      <Dialog open={licenseWizard} onClose={() => !licenseSubmitting && setLicenseWizard(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 700, color: C.text }}>
+          <Stack direction="row" alignItems="center" spacing={1}>
+            <BadgeIcon sx={{ color: C.orange }} />
+            <span>Renovar Licencia de Conducir</span>
+          </Stack>
+        </DialogTitle>
+        <DialogContent>
+          <Stepper activeStep={licenseStep} sx={{ mb: 3, mt: 1 }}>
+            <Step><StepLabel>Foto Frente</StepLabel></Step>
+            <Step><StepLabel>Foto Reverso</StepLabel></Step>
+            <Step><StepLabel>Vencimiento</StepLabel></Step>
+          </Stepper>
+
+          {licenseStep === 0 && (
+            <Box>
+              <Typography variant="body2" sx={{ mb: 2, color: C.textMuted }}>
+                Sube una foto del <strong>frente</strong> de la nueva licencia de conducir.
+              </Typography>
+              {licenseFront ? (
+                <Box sx={{ textAlign: 'center', mb: 2 }}>
+                  <Box
+                    component="img"
+                    src={URL.createObjectURL(licenseFront)}
+                    alt="Frente licencia"
+                    sx={{ width: '100%', maxHeight: 220, objectFit: 'contain', borderRadius: 1, border: `2px solid ${C.orange}` }}
+                  />
+                  <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mt: 0.5 }}>
+                    {licenseFront.name}
+                  </Typography>
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    height: 160, border: `2px dashed ${C.border}`, borderRadius: 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexDirection: 'column', bgcolor: C.surfaceAlt, cursor: 'pointer',
+                    '&:hover': { borderColor: C.orange, bgcolor: '#fff7ed' },
+                  }}
+                  onClick={() => frontInputRef.current?.click()}
+                >
+                  <PhotoCameraIcon sx={{ fontSize: 40, color: C.textMuted }} />
+                  <Typography variant="caption" sx={{ color: C.textMuted, mt: 1 }}>
+                    Haz clic para seleccionar foto
+                  </Typography>
+                </Box>
+              )}
+              <input
+                ref={frontInputRef}
+                type="file"
+                hidden
+                accept="image/*"
+                onChange={e => { const f = e.target.files?.[0]; if (f) setLicenseFront(f); e.target.value = ''; }}
+              />
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<PhotoCameraIcon />}
+                onClick={() => frontInputRef.current?.click()}
+                sx={{ mt: 1, borderColor: C.border, color: C.text }}
+              >
+                {licenseFront ? 'Cambiar foto frente' : 'Seleccionar foto frente'}
+              </Button>
+            </Box>
+          )}
+
+          {licenseStep === 1 && (
+            <Box>
+              <Typography variant="body2" sx={{ mb: 2, color: C.textMuted }}>
+                Sube una foto del <strong>reverso</strong> de la nueva licencia de conducir.
+              </Typography>
+              {licenseBack ? (
+                <Box sx={{ textAlign: 'center', mb: 2 }}>
+                  <Box
+                    component="img"
+                    src={URL.createObjectURL(licenseBack)}
+                    alt="Reverso licencia"
+                    sx={{ width: '100%', maxHeight: 220, objectFit: 'contain', borderRadius: 1, border: `2px solid ${C.orange}` }}
+                  />
+                  <Typography variant="caption" sx={{ color: C.textMuted, display: 'block', mt: 0.5 }}>
+                    {licenseBack.name}
+                  </Typography>
+                </Box>
+              ) : (
+                <Box
+                  sx={{
+                    height: 160, border: `2px dashed ${C.border}`, borderRadius: 1,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    flexDirection: 'column', bgcolor: C.surfaceAlt, cursor: 'pointer',
+                    '&:hover': { borderColor: C.orange, bgcolor: '#fff7ed' },
+                  }}
+                  onClick={() => backInputRef.current?.click()}
+                >
+                  <PhotoCameraIcon sx={{ fontSize: 40, color: C.textMuted }} />
+                  <Typography variant="caption" sx={{ color: C.textMuted, mt: 1 }}>
+                    Haz clic para seleccionar foto
+                  </Typography>
+                </Box>
+              )}
+              <input
+                ref={backInputRef}
+                type="file"
+                hidden
+                accept="image/*"
+                onChange={e => { const f = e.target.files?.[0]; if (f) setLicenseBack(f); e.target.value = ''; }}
+              />
+              <Button
+                fullWidth
+                variant="outlined"
+                startIcon={<PhotoCameraIcon />}
+                onClick={() => backInputRef.current?.click()}
+                sx={{ mt: 1, borderColor: C.border, color: C.text }}
+              >
+                {licenseBack ? 'Cambiar foto reverso' : 'Seleccionar foto reverso'}
+              </Button>
+            </Box>
+          )}
+
+          {licenseStep === 2 && (
+            <Box>
+              <Typography variant="body2" sx={{ mb: 3, color: C.textMuted }}>
+                Ingresa la <strong>fecha de vencimiento</strong> de la nueva licencia de conducir.
+              </Typography>
+              <TextField
+                fullWidth
+                label="Fecha de vencimiento"
+                type="date"
+                value={licenseExpiry}
+                onChange={e => setLicenseExpiry(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                inputProps={{ min: new Date().toISOString().split('T')[0] }}
+                InputProps={{ startAdornment: <CalendarMonthIcon sx={{ mr: 1, color: C.textMuted }} /> }}
+              />
+              {licenseFront && licenseBack && licenseExpiry && (
+                <Alert severity="success" icon={<CheckCircleOutlineIcon />} sx={{ mt: 2 }}>
+                  Listo para guardar: fotos frente y reverso + vencimiento {new Date(licenseExpiry + 'T12:00:00').toLocaleDateString('es-MX', { dateStyle: 'long' })}.
+                </Alert>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+          <Button onClick={() => setLicenseWizard(false)} disabled={licenseSubmitting}>
+            Cancelar
+          </Button>
+          {licenseStep > 0 && (
+            <Button onClick={() => setLicenseStep(s => s - 1)} disabled={licenseSubmitting}>
+              Atrás
+            </Button>
+          )}
+          {licenseStep < 2 ? (
+            <Button
+              variant="contained"
+              onClick={() => setLicenseStep(s => s + 1)}
+              disabled={(licenseStep === 0 && !licenseFront) || (licenseStep === 1 && !licenseBack)}
+              sx={{ bgcolor: C.orange, '&:hover': { bgcolor: C.orangeDark } }}
+            >
+              Siguiente
+            </Button>
+          ) : (
+            <Button
+              variant="contained"
+              onClick={handleLicenseSubmit}
+              disabled={!licenseExpiry || licenseSubmitting}
+              startIcon={licenseSubmitting ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : <CheckCircleOutlineIcon />}
+              sx={{ bgcolor: C.orange, '&:hover': { bgcolor: C.orangeDark } }}
+            >
+              {licenseSubmitting ? 'Guardando...' : 'Guardar Licencia'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
 
       <Snackbar
         open={snack.open}

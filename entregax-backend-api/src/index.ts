@@ -7990,6 +7990,8 @@ import {
   updateQuintaPayment,
   getQuintaCalendar,
   generateAdvisorContract,
+  updateAdminDriverLicense,
+  updateMyLicense,
 } from './hrExpansionController';
 
 const hrDocUpload = multer({
@@ -8021,6 +8023,11 @@ app.delete('/api/admin/hr/quinta/:bookingId', authenticateToken, requireRole(ROL
 
 // Generar contrato firmado para asesores (usa firma digital del aviso de privacidad)
 app.post('/api/admin/hr/employees/:id/generate-advisor-contract', authenticateToken, requireMinLevel(ROLES.ADMIN), generateAdvisorContract);
+
+// Licencia de conducir — actualización por admin y por el propio repartidor
+const hrLicenseUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+app.put('/api/admin/hr/employees/:id/license', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.ACCOUNTANT), hrLicenseUpload.fields([{ name: 'front_photo', maxCount: 1 }, { name: 'back_photo', maxCount: 1 }]), updateAdminDriverLicense);
+app.put('/api/hr/my-license', authenticateToken, hrLicenseUpload.fields([{ name: 'front_photo', maxCount: 1 }, { name: 'back_photo', maxCount: 1 }]), updateMyLicense);
 
 // ========== MÓDULO DE GESTIÓN DE FLOTILLA ==========
 // Vehículos - Admin

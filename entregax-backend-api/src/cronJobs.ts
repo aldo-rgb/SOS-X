@@ -348,14 +348,15 @@ export const startDriverLicenseCheckCron = () => {
           
           // Notificar al repartidor
           await pool.query(`
-            INSERT INTO notifications (user_id, title, message, type, icon)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO notifications (user_id, title, message, type, icon, data)
+            VALUES ($1, $2, $3, $4, $5, $6)
           `, [
             driver.id,
             '⚠️ Cuenta Bloqueada - Licencia Vencida',
-            'Tu cuenta ha sido bloqueada porque tu licencia de conducir está vencida. Por favor, renuévala y contacta a RH para actualizar tu expediente.',
+            'Tu cuenta ha sido bloqueada porque tu licencia de conducir está vencida. Actualiza tu licencia para reactivar tu cuenta.',
             'error',
-            'id-card'
+            'id-card',
+            JSON.stringify({ action: 'license_renewal', type: 'license_expired' }),
           ]);
           
           // Notificar solo a admins de la misma sucursal del repartidor (+ super_admin global)
@@ -385,32 +386,32 @@ export const startDriverLicenseCheckCron = () => {
         }
       }
 
-      // Alertar repartidores cuya licencia vencerá en 30 días
+      // Alertar repartidores cuya licencia vencerá en 90 días (notificación semanal)
       const warningResult = await pool.query(`
         SELECT id, full_name, driver_license_expiry
         FROM users
         WHERE role = 'repartidor'
           AND driver_license_expiry IS NOT NULL
-          AND driver_license_expiry BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '30 days'
+          AND driver_license_expiry BETWEEN CURRENT_DATE AND CURRENT_DATE + INTERVAL '90 days'
           AND (is_blocked = FALSE OR is_blocked IS NULL)
       `);
 
       if (warningResult.rows.length > 0) {
-        console.log(`⚠️ [CRON] ${warningResult.rows.length} repartidores con licencia por vencer en 30 días`);
-        
+        console.log(`⚠️ [CRON] ${warningResult.rows.length} repartidores con licencia por vencer en 90 días`);
+
         for (const driver of warningResult.rows) {
           const daysLeft = Math.ceil((new Date(driver.driver_license_expiry).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
-          
+
           await pool.query(`
-            INSERT INTO notifications (user_id, title, message, type, icon)
-            VALUES ($1, $2, $3, $4, $5)
-            ON CONFLICT DO NOTHING
+            INSERT INTO notifications (user_id, title, message, type, icon, data)
+            VALUES ($1, $2, $3, $4, $5, $6)
           `, [
             driver.id,
             '⚠️ Licencia por Vencer',
-            `Tu licencia de conducir vencerá en ${daysLeft} días. Por favor, renuévala para evitar que tu cuenta sea bloqueada.`,
+            `Tu licencia de conducir vencerá en ${daysLeft} días. Actualízala ahora para evitar que tu cuenta sea bloqueada.`,
             'warning',
-            'id-card'
+            'id-card',
+            JSON.stringify({ action: 'license_renewal', type: 'license_expiring', daysLeft }),
           ]);
         }
       }
