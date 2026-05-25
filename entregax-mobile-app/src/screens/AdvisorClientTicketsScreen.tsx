@@ -9,6 +9,8 @@ import {
   RefreshControl,
   Modal,
   ScrollView,
+  TextInput,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -102,6 +104,8 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
   const [ticketMessages, setTicketMessages] = useState<TicketMessage[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
 
   const loadTickets = useCallback(async () => {
     try {
@@ -160,6 +164,30 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
       console.error('Error cargando detalle:', error);
     } finally {
       setDetailLoading(false);
+    }
+  };
+
+  const sendAdvisorReply = async () => {
+    if (!replyText.trim() || !selectedTicket) return;
+    setReplySending(true);
+    try {
+      const endpoint = viewMode === 'mine'
+        ? `/api/support/ticket/${selectedTicket.id}/message`
+        : `/api/admin/support/ticket/${selectedTicket.id}/reply`;
+      await api.post(endpoint, { message: replyText.trim() }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setReplyText('');
+      // Reload messages
+      const res = viewMode === 'mine'
+        ? await api.get(`/api/support/ticket/${selectedTicket.id}/messages`, { headers: { Authorization: `Bearer ${token}` } })
+        : await api.get(`/api/advisor/client-tickets/${selectedTicket.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const msgs = viewMode === 'mine' ? (Array.isArray(res.data) ? res.data : []) : (res.data.success ? res.data.messages : []);
+      setTicketMessages(msgs);
+    } catch {
+      Alert.alert('Error', 'No se pudo enviar el mensaje. Intenta de nuevo.');
+    } finally {
+      setReplySending(false);
     }
   };
 
@@ -561,8 +589,32 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
                 ticketMessages.map(msg => renderMessageBubble(msg))
               )}
 
-              <View style={{ height: 40 }} />
+              <View style={{ height: 80 }} />
             </ScrollView>
+          )}
+
+          {/* Reply bar */}
+          {selectedTicket && (
+            <View style={[styles.replyBar, { paddingBottom: insets.bottom + 8 }]}>
+              <TextInput
+                style={styles.replyInput}
+                placeholder="Escribe una respuesta..."
+                placeholderTextColor="#aaa"
+                value={replyText}
+                onChangeText={setReplyText}
+                multiline
+                maxLength={1000}
+              />
+              <TouchableOpacity
+                style={[styles.replySendBtn, (!replyText.trim() || replySending) && { opacity: 0.4 }]}
+                onPress={sendAdvisorReply}
+                disabled={!replyText.trim() || replySending}
+              >
+                {replySending
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Ionicons name="send" size={18} color="#fff" />}
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </Modal>
@@ -983,5 +1035,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#333',
     lineHeight: 20,
+  },
+  replyBar: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#eee',
+    backgroundColor: '#fff',
+    gap: 8,
+  },
+  replyInput: {
+    flex: 1,
+    backgroundColor: '#F5F5F5',
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: '#111',
+    maxHeight: 100,
+  },
+  replySendBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F05A28',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
