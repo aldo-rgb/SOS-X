@@ -472,6 +472,19 @@ const CajaChicaPage: React.FC = () => {
         let statusLabel = 'A PAGAR';
         let countsToTotal = true;
         let reasonNoCount: string | undefined;
+        // Un paquete se considera "llegó a MTY" si:
+        // - tiene received_mty_at registrado (verdad histórica), o
+        // - su status actual es uno posterior a received_mty
+        //   (out_for_delivery / delivered / received_cdmx / returned_to_warehouse)
+        const receivedMtyAt = (p as any).received_mty_at;
+        const arrivedStatuses = new Set([
+          'received_mty',
+          'received_cdmx',
+          'out_for_delivery',
+          'delivered',
+          'returned_to_warehouse',
+        ]);
+        const arrivedAtMty = Boolean(receivedMtyAt) || arrivedStatuses.has(String(p.status || ''));
         if (p.is_lost) {
           statusLabel = 'PERDIDA';
           countsToTotal = false;
@@ -482,7 +495,7 @@ const CajaChicaPage: React.FC = () => {
           reasonNoCount = 'No llegó a MTY';
         } else if (p.costing_paid) {
           statusLabel = 'YA PAGADA';
-        } else if (p.status && p.status !== 'received_mty') {
+        } else if (!arrivedAtMty) {
           statusLabel = 'EN TRÁNSITO';
           countsToTotal = false;
           reasonNoCount = 'Aún no llega a MTY';
