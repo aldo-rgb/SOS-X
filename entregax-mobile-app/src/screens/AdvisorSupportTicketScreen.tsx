@@ -297,7 +297,7 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
 
         <View style={{ height: 40 }} />
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 

@@ -59,6 +59,11 @@ const DHL_YELLOW = '#FFCC00';
 // Códigos QR/barcode para etiquetas de clasificación (escaneables con pistola)
 const SCAN_CODE_STANDARD = 'DHL-GENERAL';
 const SCAN_CODE_HIGH_VALUE = 'DHL-ESPECIFICA';
+// Normaliza el codigo escaneado quitando cualquier caracter no alfanumerico
+// (algunos scanners con layout en espanol mandan ' o ¿ en lugar de -, o agregan espacios).
+const normalizeScanCode = (raw: string) => (raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const SCAN_CODE_STANDARD_N = normalizeScanCode(SCAN_CODE_STANDARD);
+const SCAN_CODE_HIGH_VALUE_N = normalizeScanCode(SCAN_CODE_HIGH_VALUE);
 
 // Genera PDF 4×6 con dos etiquetas de clasificación (una por hoja)
 function printClassifyLabels() {
@@ -332,10 +337,10 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
       if (tag === 'INPUT' && (e.target as HTMLInputElement) !== classifyScanRef.current) return;
       if (classifyTimerRef.current) clearTimeout(classifyTimerRef.current);
       if (e.key === 'Enter') {
-        const code = classifyBufferRef.current.trim().toUpperCase();
+        const code = normalizeScanCode(classifyBufferRef.current);
         classifyBufferRef.current = '';
-        if (code === SCAN_CODE_STANDARD) handleSelectProductType('standard');
-        else if (code === SCAN_CODE_HIGH_VALUE) handleSelectProductType('high_value');
+        if (code === SCAN_CODE_STANDARD_N) handleSelectProductType('standard');
+        else if (code === SCAN_CODE_HIGH_VALUE_N) handleSelectProductType('high_value');
         return;
       }
       if (e.key.length === 1) {
@@ -512,11 +517,11 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
   };
 
   const handleClassifyScan = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value.trim().toUpperCase();
-    if (raw === SCAN_CODE_STANDARD) {
+    const raw = normalizeScanCode(e.target.value);
+    if (raw === SCAN_CODE_STANDARD_N) {
       e.target.value = '';
       handleSelectProductType('standard');
-    } else if (raw === SCAN_CODE_HIGH_VALUE) {
+    } else if (raw === SCAN_CODE_HIGH_VALUE_N) {
       e.target.value = '';
       handleSelectProductType('high_value');
     }
