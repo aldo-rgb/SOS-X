@@ -4,15 +4,18 @@
 // la tabla `containers`. Todos los contenedores que vienen por
 // este endpoint pertenecen al cliente S87 (configurable via env).
 //
-// Reglas de match (anti-duplicados):
+// MODO UPDATE-ONLY (regla solicitada 2026-05):
+//   El sync solo ACTUALIZA contenedores que ya existen en nuestro
+//   sistema. Si MJCustomer devuelve un contenedor que nosotros no
+//   tenemos registrado, se ignora y se anota como conflicto
+//   'not_found' (para revision manual, sin insertar). Esto evita
+//   inflar la tabla con contenedores que no pertenecen a nuestra
+//   operacion.
+//
+// Reglas de match:
 //   1. Buscar por container_number (cabinetNo)
 //   2. Si no encontro: buscar por bl_number (billNo)
-//   3. Si no encontro: INSERT nuevo
-//   4. Si UNIQUE constraint falla: registrar en mjcustomer_sync_conflicts
-//
-// Forward-compatible: si el API agrega campos de consignee
-// (consigneeName, consigneeAddress, consigneePhone, etc.)
-// se utilizan automaticamente sin tocar codigo.
+//   3. Si no encontro: registrar 'not_found' y NO insertar.
 // ============================================================
 
 import { Request, Response } from 'express';
@@ -92,6 +95,7 @@ interface SyncSummary {
     itemsFetched: number;
     itemsCreated: number;
     itemsUpdated: number;
+    itemsSkipped: number;
     itemsConflict: number;
     error?: string;
     durationMs: number;
@@ -374,7 +378,7 @@ async function fetchClearancePage(token: string, page: number): Promise<MJCleara
 // =============== UPSERT DE UN ITEM ===============
 
 interface UpsertResult {
-    action: 'created' | 'updated' | 'conflict';
+    action: 'created' | 'updated' | 'skipped' | 'conflict';
     containerId?: number;
 }
 
@@ -498,86 +502,12 @@ async function upsertContainerFromItem(item: MJCabinetItem): Promise<UpsertResul
             return { action: 'updated', containerId: existingId };
         }
 
-        // INSERT nuevo: asignar S87 + delivery address default
-        const deliveryAddressId = await resolveDeliveryAddress(item);
-
-        // Tipo de cambio congelado
-        const fxRes = await pool.query(
-            `SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1`
-        );
-        const exchangeRate = fxRes.rows[0]?.rate || 20.5;
-
-        // Ruta default segun destPort
-        let routeId: number | null = null;
-        if (item.destPort) {
-            const routeCode = inferRouteFromDestPort(item.destPort);
-            if (routeCode) {
-                const r = await pool.query(
-                    `SELECT id FROM maritime_routes WHERE code = $1 AND is_active = TRUE LIMIT 1`,
-                    [routeCode]
-                );
-                if (r.rows.length > 0) routeId = r.rows[0].id;
-            }
-        }
-
-        const ins = await pool.query(
-            `INSERT INTO containers (
-                container_number, bl_number, vessel, pol, pod, eta,
-                mj_container_id, mj_last_sync, cn_status_en, cn_status_ch,
-                service_type, planned_departure, actual_departure, actual_arrival,
-                unloaded_at, delivery_pdf_url, port_name, ship_carrier_code,
-                total_packages, total_weight_kg, total_cbm,
-                status, exchange_rate_usd_mxn, route_id,
-                legacy_client_id, delivery_address_id
-             ) VALUES (
-                $1, $2, $3, $4, $5, $6::timestamp,
-                $7, $8::timestamp, $9, $10,
-                $11, $12::timestamp, $13::timestamp, $14::timestamp,
-                $15::timestamp, $16, $17, $18,
-                $19, $20, $21,
-                $22, $23, $24,
-                $25, $26
-             ) RETURNING id`,
-            [
-                fields.container_number,
-                fields.bl_number,
-                fields.vessel,
-                fields.pol,
-                fields.pod,
-                fields.eta,
-                fields.mj_container_id,
-                fields.mj_last_sync,
-                fields.cn_status_en,
-                fields.cn_status_ch,
-                fields.service_type,
-                fields.planned_departure,
-                fields.actual_departure,
-                fields.actual_arrival,
-                fields.unloaded_at,
-                fields.delivery_pdf_url,
-                fields.port_name,
-                fields.ship_carrier_code,
-                fields.total_packages,
-                fields.total_weight_kg,
-                fields.total_cbm,
-                mappedStatus || 'consolidated',
-                exchangeRate,
-                routeId,
-                MJC_S87_CLIENT_ID,
-                deliveryAddressId,
-            ]
-        );
-
-        const newId = ins.rows[0].id;
-
-        // Crear registro vacio de costos si no existe
-        await pool.query(
-            `INSERT INTO container_costs (container_id)
-             VALUES ($1) ON CONFLICT DO NOTHING`,
-            [newId]
-        );
-
-        return { action: 'created', containerId: newId };
+        // ===== UPDATE-ONLY MODE =====
+        // No insertamos contenedores nuevos: solo enriquecemos los que ya existen
+        // en nuestro sistema. Registramos el item como 'not_found' para que el
+        // operador pueda revisarlo en el panel de conflictos.
+        await recordConflict('not_found', item, null);
+        return { action: 'skipped' };
     } catch (err: any) {
         // Violacion de UNIQUE constraint -> conflicto
         if (err?.code === '23505') {
@@ -641,6 +571,7 @@ export async function runMJCustomerFclSync(triggeredBy: string): Promise<SyncSum
     let itemsFetched = 0;
     let itemsCreated = 0;
     let itemsUpdated = 0;
+    let itemsSkipped = 0;
     let itemsConflict = 0;
     let success = false;
     let errorMessage: string | undefined;
@@ -679,6 +610,7 @@ export async function runMJCustomerFclSync(triggeredBy: string): Promise<SyncSum
                     const r = await upsertContainerFromItem(item);
                     if (r.action === 'created') itemsCreated++;
                     else if (r.action === 'updated') itemsUpdated++;
+                    else if (r.action === 'skipped') itemsSkipped++;
                     else if (r.action === 'conflict') itemsConflict++;
                 } catch (itemErr: any) {
                     console.error(
@@ -729,6 +661,7 @@ export async function runMJCustomerFclSync(triggeredBy: string): Promise<SyncSum
         itemsFetched,
         itemsCreated,
         itemsUpdated,
+        itemsSkipped,
         itemsConflict,
         error: errorMessage,
         durationMs: Date.now() - t0,

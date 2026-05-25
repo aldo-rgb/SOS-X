@@ -1983,6 +1983,96 @@ app.get('/api/migrate/mjcustomer-fcl', async (_req: Request, res: Response) => {
   }
 });
 
+// Preview de revert: lista los contenedores creados por el sync MJCustomer
+// que son candidatos a borrar (sin actividad operativa propia en nuestro sistema).
+app.get('/api/migrate/mjcustomer-fcl-revert-preview', async (_req: Request, res: Response) => {
+  try {
+    const safe = await pool.query(`
+      SELECT c.id, c.container_number, c.bl_number, c.mj_container_id,
+             c.created_at, c.status,
+             (SELECT COUNT(*)::int FROM packages p WHERE p.container_id = c.id) AS packages_count,
+             (SELECT COUNT(*)::int FROM container_costs cc WHERE cc.container_id = c.id) AS costs_count
+        FROM containers c
+       WHERE c.mj_container_id IS NOT NULL
+       ORDER BY c.created_at DESC
+    `);
+    const rows = safe.rows;
+    const deletable = rows.filter((r: any) => (r.packages_count || 0) === 0);
+    const blocked = rows.filter((r: any) => (r.packages_count || 0) > 0);
+    res.json({
+      success: true,
+      total_synced: rows.length,
+      deletable_count: deletable.length,
+      blocked_count: blocked.length,
+      deletable_sample: deletable.slice(0, 10),
+      blocked_sample: blocked.slice(0, 10),
+      hint: 'POST /api/migrate/mjcustomer-fcl-revert?confirm=YES_DELETE para borrar los deletable',
+    });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Revert real: borra los contenedores creados por el sync MJCustomer que no
+// tienen paquetes asociados (operacion no iniciada en nuestro sistema).
+// Requiere ?confirm=YES_DELETE en la URL para evitar borrados accidentales.
+app.post('/api/migrate/mjcustomer-fcl-revert', async (req: Request, res: Response) => {
+  try {
+    if (req.query.confirm !== 'YES_DELETE') {
+      return res.status(400).json({
+        success: false,
+        error: 'Falta confirm=YES_DELETE en la URL para autorizar el borrado.',
+      });
+    }
+    // Identificar candidatos
+    const candidates = await pool.query(`
+      SELECT c.id
+        FROM containers c
+       WHERE c.mj_container_id IS NOT NULL
+         AND NOT EXISTS (SELECT 1 FROM packages p WHERE p.container_id = c.id)
+    `);
+    const ids = candidates.rows.map((r: any) => r.id);
+    if (ids.length === 0) {
+      return res.json({ success: true, deleted: 0, message: 'No hay contenedores que revertir.' });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // Limpiar tablas dependientes (best-effort por savepoint)
+      const cleanup = [
+        `DELETE FROM container_costs WHERE container_id = ANY($1::int[])`,
+        `DELETE FROM container_extras WHERE container_id = ANY($1::int[])`,
+        `DELETE FROM container_payments WHERE container_id = ANY($1::int[])`,
+        `DELETE FROM container_files WHERE container_id = ANY($1::int[])`,
+        `DELETE FROM mjcustomer_sync_conflicts WHERE existing_container_id = ANY($1::int[])`,
+      ];
+      for (let i = 0; i < cleanup.length; i++) {
+        const sp = `sp_revert_${i}`;
+        await client.query(`SAVEPOINT ${sp}`);
+        try {
+          await client.query(cleanup[i]!, [ids]);
+          await client.query(`RELEASE SAVEPOINT ${sp}`);
+        } catch (_e) {
+          await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
+        }
+      }
+      const del = await client.query(
+        `DELETE FROM containers WHERE id = ANY($1::int[]) RETURNING id`,
+        [ids]
+      );
+      await client.query('COMMIT');
+      return res.json({ success: true, deleted: del.rowCount, deleted_ids: del.rows.map((r: any) => r.id) });
+    } catch (err: any) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Migración: agregar campo route_id a containers
 app.get('/api/migrate/container-route', async (_req: Request, res: Response) => {
   try {
