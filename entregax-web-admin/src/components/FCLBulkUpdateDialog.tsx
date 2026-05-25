@@ -48,7 +48,7 @@ export interface BulkContainerLike {
 
 const FCL_STATUSES: { value: string; label: string; icon: string }[] = [
     { value: 'received_origin', label: 'Recibido en origen (China)', icon: '📦' },
-    { value: 'consolidated', label: 'Consolidado', icon: '🧱' },
+    { value: 'consolidated', label: 'Contenedor cerrado', icon: '🧱' },
     { value: 'in_transit', label: 'En tránsito (zarpado)', icon: '🚢' },
     { value: 'arrived_port', label: 'Llegó al puerto destino', icon: '⚓' },
     { value: 'customs_cleared', label: 'Liberado de aduana', icon: '🛃' },

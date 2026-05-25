@@ -211,7 +211,7 @@ interface MaritimeStats {
 const STATUS_CONFIG: Record<string, { label: string; color: string; labelEn: string; labelZh: string }> = {
     'received_origin': { label: 'Recibido en China', labelEn: 'Received in China', labelZh: '中国已收', color: '#9E9E9E' },
     'received_partial': { label: 'Recibido Parcial', labelEn: 'Partially Received', labelZh: '部分收货', color: '#BDBDBD' },
-    'consolidated': { label: 'Consolidado', labelEn: 'Consolidated', labelZh: '已合并', color: '#FF9800' },
+    'consolidated': { label: 'Contenedor cerrado', labelEn: 'Container closed', labelZh: '柜已关闭', color: '#FF9800' },
     'in_transit': { label: 'Ya Zarpó', labelEn: 'Departed', labelZh: '已出发', color: '#2196F3' },
     'arrived_port': { label: 'Arribo a Puerto', labelEn: 'Arrived at Port', labelZh: '已到港', color: '#673AB7' },
     'customs_mx': { label: 'En Aduana México', labelEn: 'At Customs MX', labelZh: '墨西哥海关', color: '#FF5722' },

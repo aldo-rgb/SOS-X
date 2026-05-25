@@ -333,7 +333,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
     // Catálogo de status válidos para contenedores FCL (debe coincidir con maritimeController.updateContainerStatus)
     const FCL_STATUSES: { value: string; label: string; description: string; icon: string }[] = [
         { value: 'received_origin', label: 'Recibido en origen (China)', description: 'La mercancía fue recibida en bodega de China', icon: '📦' },
-        { value: 'consolidated', label: 'Consolidado', description: 'Carga consolidada en el contenedor, lista para embarque', icon: '🧱' },
+        { value: 'consolidated', label: 'Contenedor cerrado', description: 'Carga consolidada en el contenedor, lista para embarque', icon: '🧱' },
         { value: 'in_transit', label: 'En tránsito (zarpado)', description: 'El buque ya zarpó hacia México', icon: '🚢' },
         { value: 'arrived_port', label: 'Llegó al puerto destino', description: 'El contenedor ya arribó al puerto en México', icon: '⚓' },
         { value: 'customs_cleared', label: 'Liberado de aduana', description: 'Despacho aduanal completado, listo para movilizar', icon: '🛃' },
@@ -1163,7 +1163,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 // Etiqueta y color basados en el status real del contenedor
                                 const statusBadgeMap: Record<string, { label: string; bg: string }> = {
                                     received_origin: { label: 'EN ORIGEN', bg: '#546E7A' },
-                                    consolidated: { label: 'CONSOLIDADO', bg: '#37474F' },
+                                    consolidated: { label: 'CONTENEDOR CERRADO', bg: '#37474F' },
                                     in_transit: { label: 'EN TRÁNSITO', bg: BLACK },
                                     arrived_port: { label: 'YA EN PUERTO', bg: '#2E7D32' },
                                     customs_cleared: { label: 'LIBERADO ADUANA', bg: '#1565C0' },

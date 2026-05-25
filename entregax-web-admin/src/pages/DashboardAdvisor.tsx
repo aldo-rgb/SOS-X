@@ -962,7 +962,7 @@ export default function DashboardAdvisor() {
       'received_mty': { label: 'Recibido MTY', color: 'primary' },
       'inspected': { label: 'Inspeccionado', color: 'info' },
       'dispatched': { label: 'Despachado', color: 'warning' },
-      'consolidated': { label: 'Consolidado', color: 'info' },
+      'consolidated': { label: 'Contenedor cerrado', color: 'info' },
       'at_port': { label: 'En Puerto', color: 'warning' },
       'at_cedis': { label: 'En CEDIS', color: 'primary' },
       'out_for_delivery': { label: 'En ruta de entrega', color: 'warning' },

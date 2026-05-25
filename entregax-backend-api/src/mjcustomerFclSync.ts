@@ -2,20 +2,21 @@
 // MJCustomer FCL Sync (pageByClearance)
 // Sincroniza contenedores maritimos desde MJCustomer hacia
 // la tabla `containers`. Todos los contenedores que vienen por
-// este endpoint pertenecen al cliente S87 (configurable via env).
+// este endpoint pertenecen al cliente S87 (resuelto en runtime).
 //
-// MODO UPDATE-ONLY (regla solicitada 2026-05):
-//   El sync solo ACTUALIZA contenedores que ya existen en nuestro
-//   sistema. Si MJCustomer devuelve un contenedor que nosotros no
-//   tenemos registrado, se ignora y se anota como conflicto
-//   'not_found' (para revision manual, sin insertar). Esto evita
-//   inflar la tabla con contenedores que no pertenecen a nuestra
-//   operacion.
+// REGLAS (2026-05):
+//   - Solo INSERTAMOS contenedores con ETA >= hoy (en transito o futuro).
+//     Los historicos / entregados / sin ETA se ignoran y se anotan en
+//     mjcustomer_sync_conflicts como 'skipped_old'.
+//   - Para los que ya existen en nuestro sistema (match por
+//     container_number o bl_number), siempre se actualizan campos
+//     informativos sin importar la ETA.
 //
-// Reglas de match:
+// Reglas de match (anti-duplicados):
 //   1. Buscar por container_number (cabinetNo)
 //   2. Si no encontro: buscar por bl_number (billNo)
-//   3. Si no encontro: registrar 'not_found' y NO insertar.
+//   3. Si no encontro y la ETA es futura: INSERT nuevo
+//   4. Si UNIQUE constraint falla: registrar en mjcustomer_sync_conflicts
 // ============================================================
 
 import { Request, Response } from 'express';
@@ -24,10 +25,39 @@ import { AuthRequest } from './authController';
 import { sm2 } from 'sm-crypto';
 
 const MJC_BASE_URL = process.env.MJCUSTOMER_API_URL || 'http://api.mjcustomer.com';
-const MJC_S87_CLIENT_ID = parseInt(process.env.MJCUSTOMER_FCL_CLIENT_ID || '75', 10);
+const MJC_S87_BOX_ID = process.env.MJCUSTOMER_FCL_BOX_ID || 'S87';
+const MJC_S87_CLIENT_ID_FALLBACK = process.env.MJCUSTOMER_FCL_CLIENT_ID
+    ? parseInt(process.env.MJCUSTOMER_FCL_CLIENT_ID, 10)
+    : null;
 const MJC_PAGE_SIZE = 30;
 const MJC_MAX_PAGES = 100; // hard cap defensivo (3,000 contenedores)
 const MJC_FETCH_TIMEOUT_MS = 20000;
+
+// Resuelve dinamicamente el legacy_client_id de S87 buscando por box_id.
+// Cache simple: la respuesta se memoriza por proceso.
+let cachedS87ClientId: number | null = null;
+async function resolveS87ClientId(): Promise<number | null> {
+    if (cachedS87ClientId) return cachedS87ClientId;
+    try {
+        const r = await pool.query(
+            `SELECT id FROM legacy_clients WHERE UPPER(box_id) = UPPER($1) LIMIT 1`,
+            [MJC_S87_BOX_ID]
+        );
+        if (r.rows.length > 0) {
+            cachedS87ClientId = r.rows[0].id;
+            return cachedS87ClientId;
+        }
+    } catch (err) {
+        console.warn('[MJC FCL] error resolviendo S87 por box_id:', err);
+    }
+    // Fallback al env (legacy) si esta configurado
+    if (MJC_S87_CLIENT_ID_FALLBACK) {
+        cachedS87ClientId = MJC_S87_CLIENT_ID_FALLBACK;
+        return cachedS87ClientId;
+    }
+    console.error(`[MJC FCL] no se pudo resolver legacy_client con box_id='${MJC_S87_BOX_ID}'`);
+    return null;
+}
 
 // =============== TIPOS ===============
 
@@ -275,13 +305,16 @@ const MANUAL_TERMINAL_STATUSES = new Set([
 // =============== DELIVERY ADDRESS RESOLVER ===============
 
 async function resolveDeliveryAddress(item: MJCabinetItem): Promise<number | null> {
+    const s87LegacyId = await resolveS87ClientId();
+    if (!s87LegacyId) return null;
+
     // 1. Si el payload trae direccion explicita (futuro), upsert y devolver id
     if (item.consigneeAddress && item.consigneeAddress.trim() && item.consigneeName) {
         try {
             // Resolver user_id vinculado al cliente legacy S87
             const userRes = await pool.query(
                 'SELECT claimed_by_user_id FROM legacy_clients WHERE id = $1',
-                [MJC_S87_CLIENT_ID]
+                [s87LegacyId]
             );
             const userId = userRes.rows[0]?.claimed_by_user_id;
             if (!userId) return null;
@@ -336,7 +369,7 @@ async function resolveDeliveryAddress(item: MJCabinetItem): Promise<number | nul
     try {
         const userRes = await pool.query(
             'SELECT claimed_by_user_id FROM legacy_clients WHERE id = $1',
-            [MJC_S87_CLIENT_ID]
+            [s87LegacyId]
         );
         const userId = userRes.rows[0]?.claimed_by_user_id;
         if (!userId) return null;
@@ -502,12 +535,108 @@ async function upsertContainerFromItem(item: MJCabinetItem): Promise<UpsertResul
             return { action: 'updated', containerId: existingId };
         }
 
-        // ===== UPDATE-ONLY MODE =====
-        // No insertamos contenedores nuevos: solo enriquecemos los que ya existen
-        // en nuestro sistema. Registramos el item como 'not_found' para que el
-        // operador pueda revisarlo en el panel de conflictos.
-        await recordConflict('not_found', item, null);
-        return { action: 'skipped' };
+        // ===== INSERT SOLO SI ES "NUEVO" =====
+        // Regla: solo insertamos contenedores con ETA >= hoy (en transito o futuro).
+        // Los historicos/entregados (ETA pasada o nula) se ignoran como 'skipped_old'
+        // para no inflar la tabla con cargas que no son de nuestra operacion activa.
+        const etaRaw = item.estimate || item.planGetTime || null;
+        const etaDate = etaRaw ? new Date(etaRaw) : null;
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        if (!etaDate || isNaN(etaDate.getTime()) || etaDate < todayStart) {
+            await recordConflict('skipped_old', item, null);
+            return { action: 'skipped' };
+        }
+
+        // Resolver el legacy_client_id correcto buscando al usuario S87 en runtime.
+        // (El env MJCUSTOMER_FCL_CLIENT_ID podia apuntar a otro usuario por mal
+        // valor; preferimos siempre el match por box_id.)
+        const clientId = await resolveS87ClientId();
+        if (!clientId) {
+            await recordConflict('s87_not_found', item, null);
+            return { action: 'skipped' };
+        }
+
+        // INSERT nuevo: asignar S87 + delivery address default
+        const deliveryAddressId = await resolveDeliveryAddress(item);
+
+        // Tipo de cambio congelado
+        const fxRes = await pool.query(
+            `SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1`
+        );
+        const exchangeRate = fxRes.rows[0]?.rate || 20.5;
+
+        // Ruta default segun destPort
+        let routeId: number | null = null;
+        if (item.destPort) {
+            const routeCode = inferRouteFromDestPort(item.destPort);
+            if (routeCode) {
+                const r = await pool.query(
+                    `SELECT id FROM maritime_routes WHERE code = $1 AND is_active = TRUE LIMIT 1`,
+                    [routeCode]
+                );
+                if (r.rows.length > 0) routeId = r.rows[0].id;
+            }
+        }
+
+        const ins = await pool.query(
+            `INSERT INTO containers (
+                container_number, bl_number, vessel, pol, pod, eta,
+                mj_container_id, mj_last_sync, cn_status_en, cn_status_ch,
+                service_type, planned_departure, actual_departure, actual_arrival,
+                unloaded_at, delivery_pdf_url, port_name, ship_carrier_code,
+                total_packages, total_weight_kg, total_cbm,
+                status, exchange_rate_usd_mxn, route_id,
+                legacy_client_id, delivery_address_id
+             ) VALUES (
+                $1, $2, $3, $4, $5, $6::timestamp,
+                $7, $8::timestamp, $9, $10,
+                $11, $12::timestamp, $13::timestamp, $14::timestamp,
+                $15::timestamp, $16, $17, $18,
+                $19, $20, $21,
+                $22, $23, $24,
+                $25, $26
+             ) RETURNING id`,
+            [
+                fields.container_number,
+                fields.bl_number,
+                fields.vessel,
+                fields.pol,
+                fields.pod,
+                fields.eta,
+                fields.mj_container_id,
+                fields.mj_last_sync,
+                fields.cn_status_en,
+                fields.cn_status_ch,
+                fields.service_type,
+                fields.planned_departure,
+                fields.actual_departure,
+                fields.actual_arrival,
+                fields.unloaded_at,
+                fields.delivery_pdf_url,
+                fields.port_name,
+                fields.ship_carrier_code,
+                fields.total_packages,
+                fields.total_weight_kg,
+                fields.total_cbm,
+                mappedStatus || 'consolidated',
+                exchangeRate,
+                routeId,
+                clientId,
+                deliveryAddressId,
+            ]
+        );
+
+        const newId = ins.rows[0].id;
+
+        // Crear registro vacio de costos si no existe
+        await pool.query(
+            `INSERT INTO container_costs (container_id)
+             VALUES ($1) ON CONFLICT DO NOTHING`,
+            [newId]
+        );
+
+        return { action: 'created', containerId: newId };
     } catch (err: any) {
         // Violacion de UNIQUE constraint -> conflicto
         if (err?.code === '23505') {

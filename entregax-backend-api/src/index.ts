@@ -1989,11 +1989,12 @@ app.get('/api/migrate/mjcustomer-fcl-revert-preview', async (_req: Request, res:
   try {
     const safe = await pool.query(`
       SELECT c.id, c.container_number, c.bl_number, c.mj_container_id,
-             c.created_at, c.status,
+             c.created_at, c.status, c.eta,
              (SELECT COUNT(*)::int FROM packages p WHERE p.container_id = c.id) AS packages_count,
              (SELECT COUNT(*)::int FROM container_costs cc WHERE cc.container_id = c.id) AS costs_count
         FROM containers c
        WHERE c.mj_container_id IS NOT NULL
+         AND (c.eta IS NULL OR c.eta < CURRENT_DATE)
        ORDER BY c.created_at DESC
     `);
     const rows = safe.rows;
@@ -2024,11 +2025,14 @@ app.post('/api/migrate/mjcustomer-fcl-revert', async (req: Request, res: Respons
         error: 'Falta confirm=YES_DELETE en la URL para autorizar el borrado.',
       });
     }
-    // Identificar candidatos
+    // Identificar candidatos: contenedores creados por el sync MJCustomer,
+    // sin paquetes y con ETA pasada/nula (carga historica/entregada que no
+    // pertenece a nuestra operacion activa).
     const candidates = await pool.query(`
       SELECT c.id
         FROM containers c
        WHERE c.mj_container_id IS NOT NULL
+         AND (c.eta IS NULL OR c.eta < CURRENT_DATE)
          AND NOT EXISTS (SELECT 1 FROM packages p WHERE p.container_id = c.id)
     `);
     const ids = candidates.rows.map((r: any) => r.id);

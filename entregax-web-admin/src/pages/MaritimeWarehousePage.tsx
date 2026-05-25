@@ -138,7 +138,7 @@ interface ExtractedBlData {
 
 const STATUS_CONFIG: Record<string, { label: string; color: 'default' | 'warning' | 'info' | 'success' | 'error' | 'primary' }> = {
   received_origin: { label: '📦 Recibido en China', color: 'warning' },
-  consolidated: { label: '📋 Consolidado', color: 'info' },
+  consolidated: { label: '� Contenedor cerrado', color: 'info' },
   in_transit: { label: '🚢 Ya Zarpó', color: 'primary' },
   arrived_port: { label: '⚓ Arribo a Puerto', color: 'info' },
   customs_cleared: { label: '✅ Liberado', color: 'success' },
