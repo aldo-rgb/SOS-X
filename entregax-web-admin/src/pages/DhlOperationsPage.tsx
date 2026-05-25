@@ -59,6 +59,7 @@ import {
   ArrowBack as ArrowBackIcon,
   ManageAccounts as ManageAccountsIcon,
   Edit as EditIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import DhlReceptionWizard from './DhlReceptionWizard';
 import axios from 'axios';
@@ -158,11 +159,23 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
   })();
   
   const [selectedShipment, setSelectedShipment] = useState<DhlShipment | null>(null);
+
+  // Editar tipo de producto (con PIN de supervisor)
+  const [editTypeDialog, setEditTypeDialog] = useState<{ open: boolean; shipment: DhlShipment | null }>({ open: false, shipment: null });
+  const [editTypeValue, setEditTypeValue] = useState<'standard' | 'high_value'>('standard');
+  const [editTypePin, setEditTypePin] = useState('');
+  const [editTypeError, setEditTypeError] = useState('');
+  const [savingType, setSavingType] = useState(false);
+  const [typeUpdatedDialog, setTypeUpdatedDialog] = useState<{ open: boolean; supervisorName: string; shipment: DhlShipment | null; oldType: string; newType: string }>({ open: false, supervisorName: '', shipment: null, oldType: '', newType: '' });
+
+  // Eliminar guía (super_admin)
+  const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; shipment: DhlShipment | null }>({ open: false, shipment: null });
+  const [deleting, setDeleting] = useState(false);
   
   // Form: Recibir paquete - Ahora usa DhlReceptionWizard
 
   // Quote result
-  const [quoteResult, setQuoteResult] = useState<{
+  const [quoteResult, _setQuoteResult] = useState<{
     import_cost_usd: number;
     import_cost_mxn: number;
     national_cost_mxn: number;
@@ -306,12 +319,7 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
 
   // ===== HANDLERS =====
   // Nota: handleReceivePackage fue reemplazado por DhlReceptionWizard
-
-  const handleOpenQuote = (shipment: DhlShipment) => {
-    setSelectedShipment(shipment);
-    setQuoteResult(null);
-    setQuoteDialog(true);
-  };
+  // Nota: handleOpenQuote eliminado - cotización manual deshabilitada en la UI.
 
   // Cotización manual deshabilitada en la UI (botón removido).
 
@@ -625,17 +633,35 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
                             <InfoIcon />
                           </IconButton>
                         </Tooltip>
-                        {shipment.status === 'received_mty' && (
-                          <Tooltip title="Generar cotización">
-                            <IconButton size="small" color="warning" onClick={() => handleOpenQuote(shipment)}>
-                              <QuoteIcon />
-                            </IconButton>
-                          </Tooltip>
-                        )}
+                        <Tooltip title="Cambiar tipo de producto">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => {
+                              setEditTypeValue((shipment.product_type as any) || 'standard');
+                              setEditTypePin('');
+                              setEditTypeError('');
+                              setEditTypeDialog({ open: true, shipment });
+                            }}
+                          >
+                            <EditIcon />
+                          </IconButton>
+                        </Tooltip>
                         {shipment.status === 'paid' && (
                           <Tooltip title="Despachar">
                             <IconButton size="small" color="success" onClick={() => handleOpenDispatch(shipment)}>
                               <SendIcon />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {isSuperAdmin && (
+                          <Tooltip title="Eliminar guía">
+                            <IconButton
+                              size="small"
+                              color="error"
+                              onClick={() => setDeleteDialog({ open: true, shipment })}
+                            >
+                              <DeleteIcon />
                             </IconButton>
                           </Tooltip>
                         )}
@@ -1043,6 +1069,190 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setDetailDialog(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ✏️ Dialog: Cambiar tipo de producto (requiere PIN supervisor) */}
+      <Dialog
+        open={editTypeDialog.open}
+        onClose={() => !savingType && setEditTypeDialog({ open: false, shipment: null })}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: DHL_YELLOW, color: DHL_COLOR }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <EditIcon />
+            Cambiar tipo de producto
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Guía <strong>{editTypeDialog.shipment?.inbound_tracking}</strong> · {editTypeDialog.shipment?.client_name} ({editTypeDialog.shipment?.client_box_id})
+          </Alert>
+          <FormControl fullWidth sx={{ mb: 2 }}>
+            <InputLabel>Tipo de producto</InputLabel>
+            <Select
+              value={editTypeValue}
+              label="Tipo de producto"
+              onChange={(e) => setEditTypeValue(e.target.value as 'standard' | 'high_value')}
+            >
+              <MenuItem value="standard">General</MenuItem>
+              <MenuItem value="high_value">Específica</MenuItem>
+            </Select>
+          </FormControl>
+          <TextField
+            fullWidth
+            label="PIN de Supervisor"
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            value={editTypePin}
+            onChange={(e) => setEditTypePin(e.target.value)}
+            error={!!editTypeError}
+            helperText={editTypeError || 'Requiere PIN de supervisor/admin/director'}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setEditTypeDialog({ open: false, shipment: null })}
+            disabled={savingType}
+          >
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            disabled={savingType || !editTypePin || !editTypeDialog.shipment}
+            onClick={async () => {
+              if (!editTypeDialog.shipment) return;
+              setSavingType(true);
+              setEditTypeError('');
+              try {
+                const token = localStorage.getItem('token');
+                const res = await axios.patch(
+                  `${API_URL}/api/admin/dhl/shipments/${editTypeDialog.shipment.id}/product-type`,
+                  { product_type: editTypeValue, supervisor_pin: editTypePin },
+                  { headers: { Authorization: `Bearer ${token}` } }
+                );
+                const oldType = res.data?.old_product_type || editTypeDialog.shipment.product_type || 'standard';
+                const newType = res.data?.new_product_type || editTypeValue;
+                const supervisorName = res.data?.supervisor_name || 'Supervisor';
+                const shp = editTypeDialog.shipment;
+                setEditTypeDialog({ open: false, shipment: null });
+                setEditTypePin('');
+                setTypeUpdatedDialog({ open: true, supervisorName, shipment: shp, oldType, newType });
+                fetchShipments();
+                fetchStats();
+              } catch (err: any) {
+                setEditTypeError(err?.response?.data?.error || 'No se pudo actualizar');
+              } finally {
+                setSavingType(false);
+              }
+            }}
+          >
+            {savingType ? 'Guardando…' : 'Actualizar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ✅ Confirmación de actualización */}
+      <Dialog
+        open={typeUpdatedDialog.open}
+        onClose={() => setTypeUpdatedDialog({ open: false, supervisorName: '', shipment: null, oldType: '', newType: '' })}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#4caf50', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <CheckIcon />
+            Tipo actualizado
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="success" sx={{ mb: 2 }}>
+            La guía <strong>{typeUpdatedDialog.shipment?.inbound_tracking}</strong> fue actualizada correctamente.
+          </Alert>
+          <Typography variant="body2" sx={{ mb: 1 }}>
+            <strong>Cambio:</strong>{' '}
+            {typeUpdatedDialog.oldType === 'high_value' ? 'Específica' : 'General'}
+            {' → '}
+            <span style={{ color: DHL_COLOR, fontWeight: 'bold' }}>
+              {typeUpdatedDialog.newType === 'high_value' ? 'Específica' : 'General'}
+            </span>
+          </Typography>
+          <Typography variant="body2">
+            <strong>Actualizado por:</strong> {typeUpdatedDialog.supervisorName}
+          </Typography>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
+            Se notificó a Director, Admin y Super Admin.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            variant="contained"
+            onClick={() => setTypeUpdatedDialog({ open: false, supervisorName: '', shipment: null, oldType: '', newType: '' })}
+          >
+            Aceptar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 🗑️ Dialog: Eliminar guía (super_admin) */}
+      <Dialog
+        open={deleteDialog.open}
+        onClose={() => !deleting && setDeleteDialog({ open: false, shipment: null })}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#d32f2f', color: 'white' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <DeleteIcon />
+            Eliminar guía DHL
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Esta acción es <strong>irreversible</strong>. Solo Super Admin puede eliminar guías.
+          </Alert>
+          <Typography variant="body2">
+            Guía: <strong>{deleteDialog.shipment?.inbound_tracking}</strong>
+          </Typography>
+          <Typography variant="body2">
+            Cliente: {deleteDialog.shipment?.client_name} ({deleteDialog.shipment?.client_box_id})
+          </Typography>
+          <Typography variant="body2">
+            Estado: {STATUS_CONFIG[deleteDialog.shipment?.status || '']?.label || deleteDialog.shipment?.status}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteDialog({ open: false, shipment: null })} disabled={deleting}>
+            Cancelar
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            disabled={deleting || !deleteDialog.shipment}
+            onClick={async () => {
+              if (!deleteDialog.shipment) return;
+              setDeleting(true);
+              try {
+                const token = localStorage.getItem('token');
+                await axios.delete(
+                  `${API_URL}/api/admin/dhl/shipments/${deleteDialog.shipment.id}`,
+                  { headers: { Authorization: `Bearer ${token}` } }
+                );
+                setSnackbar({ open: true, message: `Guía ${deleteDialog.shipment.inbound_tracking} eliminada`, severity: 'success' });
+                setDeleteDialog({ open: false, shipment: null });
+                fetchShipments();
+                fetchStats();
+              } catch (err: any) {
+                setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo eliminar', severity: 'error' });
+              } finally {
+                setDeleting(false);
+              }
+            }}
+          >
+            {deleting ? 'Eliminando…' : 'Eliminar'}
+          </Button>
         </DialogActions>
       </Dialog>
 

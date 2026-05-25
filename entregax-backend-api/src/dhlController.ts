@@ -1314,3 +1314,188 @@ function estimateBoxDimensions(imageBase64: string): { length_cm: number; width_
   };
 }
 
+// =========================================
+// ELIMINAR GUIA DHL (solo Super Admin)
+// =========================================
+// DELETE /api/admin/dhl/shipments/:id
+export const deleteDhlShipment = async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const userId = (req as any).user?.userId;
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: 'ID invalido' });
+  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const found = await client.query(
+      'SELECT id, inbound_tracking FROM dhl_shipments WHERE id = $1 FOR UPDATE',
+      [id]
+    );
+    if (found.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Guia no encontrada' });
+    }
+    const ship = found.rows[0];
+
+    // Limpieza de dependencias conocidas (best-effort por tabla)
+    const cleanup = [
+      `DELETE FROM dhl_shipment_payments WHERE shipment_id = $1`,
+      `DELETE FROM dhl_shipment_audit_log WHERE shipment_id = $1`,
+      `UPDATE caja_chica_movements SET dhl_shipment_id = NULL WHERE dhl_shipment_id = $1`,
+      `UPDATE commissions SET reference_id = NULL WHERE reference_type = 'dhl_shipment' AND reference_id = $1`,
+    ];
+    for (const q of cleanup) {
+      try { await client.query(q, [id]); } catch (_) { /* tabla/columna puede no existir */ }
+    }
+
+    await client.query('DELETE FROM dhl_shipments WHERE id = $1', [id]);
+    await client.query('COMMIT');
+
+    console.log(`[DHL] Guia #${id} (${ship.inbound_tracking}) eliminada por usuario #${userId}`);
+    return res.json({
+      success: true,
+      message: `Guia ${ship.inbound_tracking} eliminada`,
+      shipment_id: id,
+    });
+  } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('Error eliminando guia DHL:', error);
+    return res.status(500).json({ error: 'Error al eliminar guia', details: error?.message });
+  } finally {
+    client.release();
+  }
+};
+
+// =========================================
+// CAMBIAR TIPO DE PRODUCTO (requiere PIN de supervisor)
+// =========================================
+// PATCH /api/admin/dhl/shipments/:id/product-type
+// body: { product_type: 'standard' | 'high_value', supervisor_pin: string }
+export const updateDhlShipmentProductType = async (req: Request, res: Response) => {
+  const id = Number(req.params.id);
+  const { product_type, supervisor_pin } = req.body || {};
+  const requesterId = (req as any).user?.userId;
+
+  if (!Number.isFinite(id) || id <= 0) {
+    return res.status(400).json({ error: 'ID invalido' });
+  }
+  if (!['standard', 'high_value'].includes(product_type)) {
+    return res.status(400).json({ error: 'product_type debe ser standard o high_value' });
+  }
+  if (!supervisor_pin || String(supervisor_pin).trim().length < 4) {
+    return res.status(400).json({ error: 'PIN de supervisor requerido' });
+  }
+
+  try {
+    // 1) Validar PIN de supervisor (mismos roles que validateSupervisor)
+    const sup = await pool.query(
+      `SELECT id, full_name, email, role
+       FROM users
+       WHERE supervisor_pin = $1
+         AND role IN ('super_admin','admin','director','gerente_sucursal','branch_manager')
+       LIMIT 1`,
+      [String(supervisor_pin).trim()]
+    );
+    if (sup.rows.length === 0) {
+      try {
+        await pool.query(
+          `INSERT INTO supervisor_authorizations (requester_id, action_type, success, ip_address, created_at)
+           VALUES ($1, $2, FALSE, $3, NOW())`,
+          [requesterId || null, 'dhl_product_type_change', (req as any).ip]
+        );
+      } catch (_) { /* tabla puede no existir */ }
+      return res.status(403).json({ error: 'PIN de supervisor incorrecto' });
+    }
+    const supervisor = sup.rows[0];
+
+    // 2) Obtener guia y tipo anterior
+    const cur = await pool.query(
+      `SELECT ds.id, ds.inbound_tracking, ds.product_type, ds.user_id,
+              u.full_name AS client_name, u.box_id AS client_box_id
+       FROM dhl_shipments ds
+       LEFT JOIN users u ON u.id = ds.user_id
+       WHERE ds.id = $1`,
+      [id]
+    );
+    if (cur.rows.length === 0) {
+      return res.status(404).json({ error: 'Guia no encontrada' });
+    }
+    const before = cur.rows[0];
+    const oldType: string = before.product_type || 'standard';
+    if (oldType === product_type) {
+      return res.json({
+        success: true,
+        message: 'El tipo ya esta asignado, sin cambios',
+        shipment_id: id,
+        product_type,
+        supervisor_name: supervisor.full_name,
+      });
+    }
+
+    // 3) Actualizar product_type
+    await pool.query(
+      `UPDATE dhl_shipments SET product_type = $1, updated_at = NOW() WHERE id = $2`,
+      [product_type, id]
+    );
+
+    // 4) Log de autorizacion
+    try {
+      await pool.query(
+        `INSERT INTO supervisor_authorizations
+           (supervisor_id, supervisor_name, requester_id, action_type, success, ip_address, created_at)
+         VALUES ($1, $2, $3, $4, TRUE, $5, NOW())`,
+        [supervisor.id, supervisor.full_name, requesterId || null, 'dhl_product_type_change', (req as any).ip]
+      );
+    } catch (_) { /* tabla puede no existir */ }
+
+    // 5) Notificar a director / admin / super_admin
+    const labelOf = (t: string) => (t === 'high_value' ? 'Especifica' : 'General');
+    const title = 'Tipo de producto DHL actualizado';
+    const message =
+      `Guia ${before.inbound_tracking} (${before.client_name || 'sin cliente'} - ${before.client_box_id || '-'}) ` +
+      `cambio de "${labelOf(oldType)}" a "${labelOf(product_type)}". ` +
+      `Autorizado por ${supervisor.full_name} (${supervisor.role}).`;
+
+    try {
+      const recipients = await pool.query(
+        `SELECT id FROM users WHERE role IN ('super_admin','admin','director') AND is_active IS DISTINCT FROM FALSE`
+      );
+      const dataPayload = JSON.stringify({
+        shipment_id: id,
+        inbound_tracking: before.inbound_tracking,
+        old_product_type: oldType,
+        new_product_type: product_type,
+        supervisor_id: supervisor.id,
+        supervisor_name: supervisor.full_name,
+      });
+      for (const row of recipients.rows) {
+        try {
+          await pool.query(
+            `INSERT INTO notifications (user_id, title, message, type, icon, data)
+             VALUES ($1, $2, $3, 'system', 'edit', $4)`,
+            [row.id, title, message, dataPayload]
+          );
+        } catch (_) { /* swallow individual errors */ }
+      }
+    } catch (e) {
+      console.warn('No se pudieron enviar notificaciones de cambio de product_type:', (e as any)?.message);
+    }
+
+    console.log(
+      `[DHL] Guia #${id} (${before.inbound_tracking}) product_type ${oldType} -> ${product_type} por ${supervisor.full_name}`
+    );
+
+    return res.json({
+      success: true,
+      message: 'Tipo de producto actualizado',
+      shipment_id: id,
+      old_product_type: oldType,
+      new_product_type: product_type,
+      supervisor_name: supervisor.full_name,
+    });
+  } catch (error: any) {
+    console.error('Error actualizando product_type DHL:', error);
+    return res.status(500).json({ error: 'Error al actualizar tipo de producto', details: error?.message });
+  }
+};
+

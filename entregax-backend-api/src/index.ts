@@ -1022,7 +1022,9 @@ import {
   autoAssignDhlCosts,
   markDhlCostPaid,
   getDhlPaymentBatches,
-  getDhlProfitability
+  getDhlProfitability,
+  deleteDhlShipment,
+  updateDhlShipmentProductType
 } from './dhlController';
 import {
   getPrivacyNotice,
@@ -4537,6 +4539,10 @@ app.post('/api/admin/dhl/receive', authenticateToken, requireMinLevel(ROLES.WARE
 app.post('/api/admin/dhl/quote', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), quoteDhlShipment);
 app.post('/api/admin/dhl/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchDhlShipment);
 app.get('/api/admin/dhl/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDhlStats);
+// Cambio de tipo de producto (requiere PIN de supervisor dentro del handler)
+app.patch('/api/admin/dhl/shipments/:id/product-type', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateDhlShipmentProductType);
+// Eliminacion de guia (solo Super Admin)
+app.delete('/api/admin/dhl/shipments/:id', authenticateToken, requireRole('super_admin'), deleteDhlShipment);
 // IA: Medición de cajas con visión por computadora
 app.post('/api/admin/dhl/measure-box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), measureBoxFromImage);
 // Endpoints para cliente (App)

@@ -643,7 +643,18 @@ export default function PettyCashHubPage() {
                     </Box>
                   </Box>
                   <Divider sx={{ my: 1 }} />
-                  <Typography variant="caption" color="text.secondary">Saldo disponible</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
+                    <Typography variant="caption" color="text.secondary">Saldo disponible</Typography>
+                    <Chip
+                      label={(w.currency || 'MXN').toUpperCase()}
+                      size="small"
+                      sx={{
+                        fontSize: 10, fontWeight: 700, height: 18,
+                        bgcolor: (w.currency || 'MXN').toUpperCase() === 'USD' ? '#1976D2' : '#2E7D32',
+                        color: '#fff',
+                      }}
+                    />
+                  </Box>
                   <Typography variant="h4" fontWeight="bold" color={Number(w.balance_mxn) > 0 ? 'success.main' : 'text.disabled'}>
                     {fmtMoney(w.balance_mxn, w.currency)}
                   </Typography>
