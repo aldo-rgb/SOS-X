@@ -523,15 +523,31 @@ function App() {
 
   const handleNotificationClick = (notif: any) => {
     if (notif.id > 0 && !notif.is_read) markNotificationAsRead(notif.id);
+    setNotifAnchorEl(null);
+    setNotifModalOpen(false);
+
+    // Client verification pending (existing behavior)
     if (notif.type === 'VERIFICATION_PENDING') {
-      setNotifAnchorEl(null);
-      setNotifModalOpen(false);
       setShowClientProfile(true);
       return;
     }
+
+    const titleLower = (notif.title || '').toLowerCase();
+
+    // Employee/client verification pending → navigate to verifications
+    if (notif.action_url === '/admin/verifications' || titleLower.includes('pendiente de verifi')) {
+      window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'verifications' } }));
+      return;
+    }
+
+    // Repartidor bloqueado → navigate to HR section with driver detail
+    if (titleLower.includes('repartidor bloqueado') || titleLower.includes('bloqueado')) {
+      const driverId = notif.data?.driverId;
+      window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action: 'open_hr', employeeId: driverId } }));
+      return;
+    }
+
     if (notif.action_url) {
-      setNotifAnchorEl(null);
-      setNotifModalOpen(false);
       handleNotificationNavigate(notif.action_url);
     }
   };
@@ -686,7 +702,7 @@ function App() {
   // Navegación rápida desde DashboardBranchManager
   useEffect(() => {
     const quickNavHandler = (rawEvent: Event) => {
-      const event = rawEvent as CustomEvent<{ action?: string }>;
+      const event = rawEvent as CustomEvent<{ action?: string; employeeId?: number }>;
       const action = event.detail?.action;
       if (!action) return;
 
@@ -730,6 +746,9 @@ function App() {
         setPanelsExpanded(true);
         setSelectedIndex(panelsIndex);
         setSelectedSubIndex(serviceSubIndex >= 0 ? serviceSubIndex : null);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('cs-hub-navigate', { detail: { view: 'support' } }));
+        }, 100);
       }
 
       if (action === 'verifications') {
@@ -739,6 +758,17 @@ function App() {
         setSelectedSubIndex(adminSubIndex >= 0 ? adminSubIndex : null);
         setTimeout(() => {
           window.dispatchEvent(new Event('open-admin-verifications'));
+        }, 120);
+      }
+
+      if (action === 'open_hr') {
+        const employeeId = event.detail?.employeeId;
+        const adminSubIndex = subItems.findIndex((s) => s.key === 'panelsAdmin');
+        setPanelsExpanded(true);
+        setSelectedIndex(panelsIndex);
+        setSelectedSubIndex(adminSubIndex >= 0 ? adminSubIndex : null);
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent('open-admin-hr', { detail: { employeeId } }));
         }, 120);
       }
     };

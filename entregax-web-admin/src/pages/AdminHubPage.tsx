@@ -272,6 +272,23 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
         window.addEventListener('open-admin-verifications', handler);
         return () => window.removeEventListener('open-admin-verifications', handler);
     }, []);
+
+    // Escuchar evento global para abrir HR con un empleado específico
+    useEffect(() => {
+        const handler = (e: Event) => {
+            const employeeId = (e as CustomEvent).detail?.employeeId;
+            setShowHR(true);
+            setSelectedService(null);
+            setSelectedModule(null);
+            if (employeeId) {
+                setTimeout(() => {
+                    window.dispatchEvent(new CustomEvent('open-hr-employee', { detail: { employeeId } }));
+                }, 100);
+            }
+        };
+        window.addEventListener('open-admin-hr', handler);
+        return () => window.removeEventListener('open-admin-hr', handler);
+    }, []);
     
     // Estado para permisos de módulos del servicio seleccionado
     const [modulePermissions, setModulePermissions] = useState<Record<string, boolean>>({});

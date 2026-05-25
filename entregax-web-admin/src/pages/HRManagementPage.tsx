@@ -213,6 +213,9 @@ export default function HRManagementPage() {
   const isSuperAdmin = (() => {
     try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; }
   })();
+  const canShowInactive = (() => {
+    try { const r = JSON.parse(localStorage.getItem('user') || '{}').role || ''; return r === 'super_admin' || r === 'admin'; } catch { return false; }
+  })();
   const [tab, setTab] = useState(0);
   const [viewProfileId, setViewProfileId] = useState<number | null>(null);
   const [vacQuintaEmp, setVacQuintaEmp] = useState<Employee | null>(null);
@@ -241,6 +244,8 @@ export default function HRManagementPage() {
   const [tempPasswordInfo, setTempPasswordInfo] = useState<{ name: string; password: string } | null>(null);
   const [searchEmployee, setSearchEmployee] = useState('');
   const [showInactive, setShowInactive] = useState(false);
+  const [filterIncompleto, setFilterIncompleto] = useState(false);
+  const [filterRole, setFilterRole] = useState('');
   
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
@@ -311,6 +316,19 @@ export default function HRManagementPage() {
       setLoadingDetail(false);
     }
   };
+
+  // Abrir detalle de empleado desde evento externo (ej. notificación "Repartidor Bloqueado")
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const employeeId = (e as CustomEvent).detail?.employeeId;
+      if (!employeeId) return;
+      setDetailOpen(true);
+      loadEmployeeDetail(employeeId);
+    };
+    window.addEventListener('open-hr-employee', handler);
+    return () => window.removeEventListener('open-hr-employee', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Abrir diálogo para crear nuevo empleado
   const handleOpenCreateDialog = () => {
@@ -619,28 +637,56 @@ export default function HRManagementPage() {
             placeholder="Buscar por nombre, email, teléfono, rol o # empleado..."
             value={searchEmployee}
             onChange={(e) => setSearchEmployee(e.target.value)}
-            sx={{ maxWidth: 480 }}
+            sx={{ maxWidth: 400 }}
           />
+          {/* Filtro por rol */}
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel>Filtrar por rol</InputLabel>
+            <Select
+              value={filterRole}
+              label="Filtrar por rol"
+              onChange={(e) => setFilterRole(e.target.value)}
+            >
+              <MenuItem value="">Todos los roles</MenuItem>
+              {EMPLOYEE_ROLES.filter(r => !r.superAdminOnly || isSuperAdmin).map(r => (
+                <MenuItem key={r.value} value={r.value}>{r.label}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {/* Filtro incompletos */}
           <Button
             size="small"
-            variant={showInactive ? 'contained' : 'outlined'}
-            color={showInactive ? 'warning' : 'inherit'}
-            onClick={() => setShowInactive(v => !v)}
+            variant={filterIncompleto ? 'contained' : 'outlined'}
+            color={filterIncompleto ? 'warning' : 'inherit'}
+            onClick={() => setFilterIncompleto(v => !v)}
             sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+            startIcon={<WarningIcon sx={{ fontSize: 16 }} />}
           >
-            {showInactive ? '✓ Mostrando inactivos' : 'Mostrar inactivos'}
+            {filterIncompleto ? '✓ Solo incompletos' : 'Solo incompletos'}
           </Button>
+          {canShowInactive && (
+            <Button
+              size="small"
+              variant={showInactive ? 'contained' : 'outlined'}
+              color={showInactive ? 'warning' : 'inherit'}
+              onClick={() => setShowInactive(v => !v)}
+              sx={{ textTransform: 'none', whiteSpace: 'nowrap' }}
+            >
+              {showInactive ? '✓ Mostrando inactivos' : 'Mostrar inactivos'}
+            </Button>
+          )}
           <Typography variant="body2" color="text.secondary">
             {(() => {
               const q = searchEmployee.trim().toLowerCase();
-              const total = employees.length;
-              const filtered = q
+              let list = q
                 ? employees.filter(e =>
                     [e.full_name, e.email, e.phone, e.role, e.employee_number, translateRole(e.role)]
                       .filter(Boolean).some(v => String(v).toLowerCase().includes(q))
-                  ).length
-                : total;
-              return q ? `${filtered} de ${total}` : `${total} empleados`;
+                  )
+                : [...employees];
+              if (filterRole) list = list.filter(e => e.role === filterRole);
+              if (filterIncompleto) list = list.filter(e => !e.expediente_completo);
+              return `${list.length}${list.length !== employees.length ? ` de ${employees.length}` : ''} empleados`;
             })()}
           </Typography>
         </Box>
@@ -680,12 +726,14 @@ export default function HRManagementPage() {
                 ))
               ) : (() => {
                 const q = searchEmployee.trim().toLowerCase();
-                const filteredEmployees = q
+                let filteredEmployees = q
                   ? employees.filter(e =>
                       [e.full_name, e.email, e.phone, e.role, e.employee_number, translateRole(e.role)]
                         .filter(Boolean).some(v => String(v).toLowerCase().includes(q))
                     )
-                  : employees;
+                  : [...employees];
+                if (filterRole) filteredEmployees = filteredEmployees.filter(e => e.role === filterRole);
+                if (filterIncompleto) filteredEmployees = filteredEmployees.filter(e => !e.expediente_completo);
                 if (filteredEmployees.length === 0) {
                   return (
                     <TableRow>
@@ -779,11 +827,13 @@ export default function HRManagementPage() {
                           <EditIcon />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Vacaciones y Quinta">
-                        <IconButton size="small" sx={{ color: '#0ea5e9' }} onClick={() => setVacQuintaEmp(emp)}>
-                          <BeachAccessIcon />
-                        </IconButton>
-                      </Tooltip>
+                      {!['advisor', 'asesor', 'asesor_lider', 'sub_advisor', 'sub_asesor'].includes(emp.role) && (
+                        <Tooltip title="Vacaciones y Quinta">
+                          <IconButton size="small" sx={{ color: '#0ea5e9' }} onClick={() => setVacQuintaEmp(emp)}>
+                            <BeachAccessIcon />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       {(emp.is_active === false || emp.is_blocked) ? (
                         <Tooltip title="Reactivar empleado">
                           <IconButton size="small" sx={{ color: '#16a34a' }} onClick={() => handleReactivateEmployee(emp)}>

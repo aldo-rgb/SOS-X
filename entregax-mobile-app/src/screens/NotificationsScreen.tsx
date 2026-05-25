@@ -267,6 +267,19 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
       return;
     }
 
+    // Empleado/cliente pendiente de verificación → abrir SupportTickets (panel de admin)
+    const titleLower = (item.title || '').toLowerCase();
+    if (item.action_url === '/admin/verifications' || titleLower.includes('pendiente de verifi')) {
+      (navigation as any).navigate('SupportTickets', { user, token });
+      return;
+    }
+
+    // Repartidor bloqueado → abrir SupportTickets (panel de gestión de admin)
+    if (titleLower.includes('repartidor bloqueado') || titleLower.includes('bloqueado')) {
+      (navigation as any).navigate('SupportTickets', { user, token });
+      return;
+    }
+
     // Ticket de soporte: creado o respuesta → abrir SupportChat con el ticketId
     if ((item.type === 'ticket_created' || item.type === 'support_reply') && item.data?.ticket_id) {
       (navigation as any).navigate('SupportChat', {

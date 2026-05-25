@@ -75,6 +75,16 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
   const currentUser = savedUser ? JSON.parse(savedUser) : null;
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
+  // Navegar directamente a una vista desde eventos externos (ej. dashboard)
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const view = (e as CustomEvent).detail?.view as ActiveView | undefined;
+      if (view) setActiveView(view);
+    };
+    window.addEventListener('cs-hub-navigate', handler);
+    return () => window.removeEventListener('cs-hub-navigate', handler);
+  }, []);
+
   // Cargar permisos del usuario
   useEffect(() => {
     const loadPermissions = async () => {
