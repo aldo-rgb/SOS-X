@@ -613,17 +613,17 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                 Escanea ambas etiquetas del paquete con la pistola escáner
               </Typography>
 
-              {/* Guía 1 */}
+              {/* Guía madre (corta) */}
               <Box sx={{ mb: 2 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, textAlign: 'left', maxWidth: 420, mx: 'auto' }}>
-                  Guía DHL principal
+                  Guía madre DHL <strong>(corta)</strong> — identificador principal del paquete
                 </Typography>
                 <TextField
                   inputRef={trackingInputRef}
                   value={tracking}
                   onChange={handleTrackingChange}
                   onKeyDown={handleTrackingKeyDown}
-                  placeholder="Ej: 2LMX6400048000001"
+                  placeholder="Ej: 9650623485"
                   variant="outlined"
                   autoFocus
                   slotProps={{
@@ -648,17 +648,17 @@ export default function DhlReceptionWizard({ open, onClose, onSuccess, superviso
                 />
               </Box>
 
-              {/* Guía 2 */}
+              {/* Guía hija (larga, opcional) */}
               <Box sx={{ mb: 3 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, textAlign: 'left', maxWidth: 420, mx: 'auto' }}>
-                  Guía secundaria
+                  Guía hija <strong>(larga, opcional)</strong> — solo si el embarque trae múltiples piezas
                 </Typography>
                 <TextField
                   inputRef={tracking2InputRef}
                   value={tracking2}
                   onChange={handleTracking2Change}
                   onKeyDown={handleTracking2KeyDown}
-                  placeholder="Ej: 9650623485"
+                  placeholder="Ej: 2LMX64000+48000001"
                   variant="outlined"
                   slotProps={{
                     input: {

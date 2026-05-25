@@ -3277,7 +3277,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
                 // GEX
                 has_gex: pkg.has_gex || false,
-                gex_folio: pkg.gex_folio || null
+                gex_folio: pkg.gex_folio || null,
+                // Instrucciones de entrega
+                delivery_address_id: pkg.delivery_address_id || null,
+                has_delivery_instructions: !!pkg.delivery_address_id,
             };
         });
 
@@ -3915,18 +3918,20 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 }
                 break;
             }
-            case 'dhl':
-                // Paquetes DHL vienen de packages
+            case 'dhl': {
+                // DHL packages viven en dhl_shipments con offset +300000 en el ID
+                const realDhlId = Number(packageId) >= 300000 ? Number(packageId) - 300000 : Number(packageId);
+                const dhlShipCost = parseFloat(carrierCost) || 0;
                 result = await pool.query(`
-                    UPDATE packages
-                    SET assigned_address_id = $1,
-                        notes = COALESCE($2, notes),
-                        needs_instructions = false,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = $3${ownerCondition}
-                    RETURNING id, tracking_internal
-                `, [deliveryAddressId, deliveryInstructions, packageId]);
+                    UPDATE dhl_shipments
+                    SET delivery_address_id = $1,
+                        national_carrier = $3,
+                        national_cost_mxn = COALESCE(NULLIF($4::numeric, 0), national_cost_mxn)
+                    WHERE id = $2${ownerCondition.replace(`user_id = ${userId}`, `user_id = ${userId}`)}
+                    RETURNING id, inbound_tracking as tracking_internal
+                `, [deliveryAddressId, realDhlId, carrierName || carrier || null, dhlShipCost]);
                 break;
+            }
 
             case 'tdi_express': {
                 // 🛫 TDI Express: el id recibido es el master. Asignar dirección al
@@ -3977,11 +3982,15 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                 existsQuery = await pool.query('SELECT id, user_id FROM packages WHERE id = $1', [packageId]);
             }
             
-            if (existsQuery.rows.length === 0) {
+            if (!existsQuery && packageType === 'dhl') {
+                const realDhlCheck = Number(packageId) >= 300000 ? Number(packageId) - 300000 : Number(packageId);
+                existsQuery = await pool.query('SELECT id FROM dhl_shipments WHERE id = $1', [realDhlCheck]);
+            }
+            if (!existsQuery || existsQuery.rows.length === 0) {
                 console.log(`❌ Paquete ${packageId} no existe en la base de datos`);
-                return res.status(404).json({ 
-                    success: false, 
-                    error: `Paquete #${packageId} no encontrado` 
+                return res.status(404).json({
+                    success: false,
+                    error: `Paquete #${packageId} no encontrado`
                 });
             } else {
                 console.log(`❌ Usuario ${userId} no tiene permiso para paquete ${packageId} (dueño: ${existsQuery.rows[0].user_id})`);
@@ -4111,6 +4120,11 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
                 p.pobox_venta_usd,
                 p.pobox_service_cost,
                 p.national_shipping_cost,
+                p.national_carrier,
+                p.national_tracking,
+                p.air_source,
+                p.notes,
+                p.assigned_address_id,
                 p.is_master,
                 p.total_boxes,
                 p.origin_carrier,
@@ -4253,6 +4267,11 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
             pobox_venta_usd: pkg.pobox_venta_usd ? parseFloat(pkg.pobox_venta_usd) : null,
             pobox_service_cost: pkg.pobox_service_cost ? parseFloat(pkg.pobox_service_cost) : null,
             national_shipping_cost: pkg.national_shipping_cost ? parseFloat(pkg.national_shipping_cost) : null,
+            national_carrier: pkg.national_carrier || null,
+            national_tracking: pkg.national_tracking || null,
+            air_source: pkg.air_source || null,
+            delivery_instructions: pkg.notes || null,
+            assigned_address_id: pkg.assigned_address_id || null,
             client: {
                 id: pkg.user_id,
                 box_id: pkg.box_id,

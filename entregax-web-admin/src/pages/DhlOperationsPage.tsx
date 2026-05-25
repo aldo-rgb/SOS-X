@@ -91,6 +91,7 @@ interface DhlShipment {
   delivery_city: string;
   delivery_state: string;
   delivery_zip: string;
+  secondary_tracking?: string;
   skydropx_label_id: string;
   outbound_tracking: string;
   received_at: string;
@@ -575,6 +576,11 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
                       <Typography fontWeight="bold" sx={{ fontFamily: 'monospace' }}>
                         {shipment.inbound_tracking}
                       </Typography>
+                      {shipment.secondary_tracking && (
+                        <Typography variant="caption" sx={{ fontFamily: 'monospace', color: '#888' }} display="block">
+                          Hija: {shipment.secondary_tracking}
+                        </Typography>
+                      )}
                       {shipment.outbound_tracking && (
                         <Typography variant="caption" color="text.secondary" display="block">
                           → {shipment.outbound_tracking}

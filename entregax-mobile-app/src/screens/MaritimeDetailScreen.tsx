@@ -183,9 +183,23 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const getStatusInfo = (status: string) => {
     switch (status) {
       case 'received_china':
-        return { label: 'Recibido CEDIS GZ CHINA', color: '#FF9800', icon: 'package-variant' };
+      case 'received_china_air':
+        return { label: 'Recibido en China', color: '#FF9800', icon: 'package-variant' };
       case 'received_origin':
         return { label: 'Recibido en Origen', color: '#FF9800', icon: 'package-variant' };
+      case 'pending_inspection':
+        return { label: 'Pendiente Inspección', color: '#FF9800', icon: 'magnify' };
+      case 'received_mty':
+      case 'received_cedis':
+        return { label: 'Recibido MTY', color: '#6B7280', icon: 'package-variant' };
+      case 'inspected':
+        return { label: 'Inspeccionado', color: '#6B7280', icon: 'check' };
+      case 'pending_payment':
+        return { label: 'Pendiente de Pago', color: '#F59E0B', icon: 'credit-card-outline' };
+      case 'paid':
+        return { label: 'Pagado', color: '#10B981', icon: 'check-circle' };
+      case 'dispatched':
+        return { label: 'Enviado', color: '#3B82F6', icon: 'truck-fast' };
       case 'in_transit':
         return { label: 'Ya Zarpó', color: '#E53935', icon: 'ferry' };
       case 'in_transit_transfer':
@@ -200,7 +214,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
       case 'delivered':
         return { label: 'Entregado', color: '#4CAF50', icon: 'check-circle' };
       default:
-        return { label: status, color: '#999999', icon: 'package' };
+        return { label: status.replace(/_/g, ' '), color: '#999999', icon: 'package' };
     }
   };
 
@@ -532,21 +546,37 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             </View>
             <Divider style={styles.divider} />
 
-            {/* Costo del servicio marítimo */}
+            {/* Costo del servicio */}
             {(() => {
               const pendingClassification = !!(currentPkg as any)?.pending_classification;
+              const isDHL = (currentPkg as any)?.shipment_type === 'dhl';
               const hasAnyCost = assignedCost > 0 || estimatedCost > 0 || shippingCost > 0 || paidAmount > 0 || pendingAmount > 0;
 
-              // 🕐 Pendiente de clasificación: mostrar mensaje, NO costo provisional
-              if (pendingClassification || !hasAnyCost) {
+              // DHL: la clasificación no aplica — si no hay costo aún, mostrar mensaje genérico
+              if (isDHL && !hasAnyCost) {
                 return (
                   <View style={{ alignItems: 'center', paddingVertical: 16, paddingHorizontal: 8 }}>
                     <MaterialCommunityIcons name="clock-outline" size={36} color={ORANGE} />
                     <Text style={{ fontSize: 14, fontWeight: '600', color: BLACK, marginTop: 8, textAlign: 'center' }}>
-                      Pendiente de recibir clasificación
+                      {'Costo pendiente de asignación'}
                     </Text>
                     <Text style={{ fontSize: 12, color: '#666', marginTop: 4, textAlign: 'center', lineHeight: 18 }}>
-                      El costo se asignará una vez que la mercancía sea recibida y clasificada en bodega China.
+                      {'El asesor asignará el costo una vez que el embarque sea procesado.'}
+                    </Text>
+                  </View>
+                );
+              }
+
+              // 🕐 Pendiente de clasificación: solo para marítimo/aéreo China
+              if (!isDHL && (pendingClassification || !hasAnyCost)) {
+                return (
+                  <View style={{ alignItems: 'center', paddingVertical: 16, paddingHorizontal: 8 }}>
+                    <MaterialCommunityIcons name="clock-outline" size={36} color={ORANGE} />
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: BLACK, marginTop: 8, textAlign: 'center' }}>
+                      {'Pendiente de recibir clasificación'}
+                    </Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 4, textAlign: 'center', lineHeight: 18 }}>
+                      {'El costo se asignará una vez que la mercancía sea recibida y clasificada en bodega China.'}
                     </Text>
                   </View>
                 );

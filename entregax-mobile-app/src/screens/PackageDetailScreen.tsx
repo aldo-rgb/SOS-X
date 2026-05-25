@@ -96,6 +96,12 @@ interface PackageDetails {
   pobox_tarifa_nivel?: number;
   registered_exchange_rate?: number;
   national_shipping_cost?: number;
+  // Servicio / ruta
+  service_type?: string;
+  air_source?: string;
+  // Instrucciones de entrega
+  delivery_instructions?: string;
+  assigned_address_id?: number;
   // Fechas
   created_at?: string;
   updated_at?: string;
@@ -136,6 +142,14 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
   const isPickUpService = (): boolean => {
     const carrier = details?.carrier || (pkg as any).carrier || '';
     return carrier.toLowerCase().includes('pick up') || carrier.toLowerCase().includes('pickup');
+  };
+
+  // ✈️ Detectar si es TDI Express (ruta de envío China → México vía TDI)
+  const isTdiExpress = (): boolean => {
+    const st = details?.service_type || (pkg as any).service_type || '';
+    const airSrc = details?.air_source || (pkg as any).air_source || '';
+    const tracking = details?.tracking_internal || pkg.tracking_internal || '';
+    return st === 'tdi_express' || airSrc === 'tdi_express' || tracking.startsWith('TDX-');
   };
 
   // ✅ Detectar si ya está pagado
@@ -303,9 +317,15 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
         return { label: 'En Bodega', color: NEUTRAL_GRAY, icon: 'package-variant' };
       case 'processing':
         return { label: 'Procesando', color: NEUTRAL_GRAY, icon: 'cog' };
+      case 'received_china':
+      case 'received_china_air':
+        return { label: 'Recibido en China', color: NEUTRAL_GRAY, icon: 'package-variant' };
       case 'in_transit':
       case 'in_transit_mty':
         return { label: 'En Tránsito a MTY', color: NEUTRAL_GRAY, icon: 'truck-delivery' };
+      case 'in_transit_china':
+      case 'in_flight':
+        return { label: 'En Vuelo', color: NEUTRAL_GRAY, icon: 'airplane' };
       case 'shipped':
         return { label: 'Enviado', color: NEUTRAL_GRAY, icon: 'airplane' };
       case 'received_mty':
@@ -325,9 +345,6 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
       case 'returned_to_warehouse':
         return { label: 'Devuelto a Bodega', color: '#EF4444', icon: 'undo' };
       default:
-        // Fallback: convertir snake_case a Title Case en lugar de mostrar
-        // el código raw (ej. "received_mty" → "Received Mty"). Para
-        // estados conocidos siempre vamos a tener un case arriba.
         return {
           label: status.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
           color: NEUTRAL_GRAY,
@@ -579,12 +596,26 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
               </View>
             )}
 
-            {/* Carrier - solo mostrar si es una paquetería real (no ubicación de bodega) */}
-            {details.carrier && !['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(details.carrier?.toUpperCase?.()) && (
+            {/* Carrier - mostrar paquetería nacional asignada si existe, o la de origen si no */}
+            {(() => {
+              const effectiveCarrier = details.national_carrier || details.carrier || (isTdiExpress() ? 'TDI Express' : null);
+              if (!effectiveCarrier) return null;
+              if (['BODEGA', 'RACK', 'PISO', 'TARIMA'].includes(effectiveCarrier.toUpperCase())) return null;
+              return (
+                <View style={styles.infoRow}>
+                  <MaterialCommunityIcons name="truck" size={20} color="#666" />
+                  <Text style={styles.infoLabel}>Paquetería:</Text>
+                  <Text style={styles.infoValue}>{effectiveCarrier}</Text>
+                </View>
+              );
+            })()}
+
+            {/* Tracking nacional — solo si fue asignado por el asesor */}
+            {!!details.national_tracking && (
               <View style={styles.infoRow}>
-                <MaterialCommunityIcons name="truck" size={20} color="#666" />
-                <Text style={styles.infoLabel}>Paquetería:</Text>
-                <Text style={styles.infoValue}>{details.national_carrier || details.carrier}</Text>
+                <MaterialCommunityIcons name="barcode-scan" size={20} color="#666" />
+                <Text style={styles.infoLabel}>Guía Nacional:</Text>
+                <Text style={styles.infoValue}>{details.national_tracking}</Text>
               </View>
             )}
           </Card.Content>
@@ -601,15 +632,15 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                 onPress={() => setShowChildren(!showChildren)}
               >
                 <View style={styles.childrenTitleRow}>
-                  <Ionicons name="layers" size={22} color={PURPLE} />
+                  <Ionicons name="layers" size={22} color={ORANGE} />
                   <Text style={styles.childrenTitle}>
                     📦 Guías Incluidas ({(pkg as any).total_boxes || childPackages.length})
                   </Text>
                 </View>
-                <Ionicons 
-                  name={showChildren ? "chevron-up" : "chevron-down"} 
-                  size={24} 
-                  color={PURPLE} 
+                <Ionicons
+                  name={showChildren ? "chevron-up" : "chevron-down"}
+                  size={24}
+                  color={ORANGE}
                 />
               </TouchableOpacity>
               
@@ -731,7 +762,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
                   )}
                 </View>
               </View>
-              {!details.has_gex && gexEnabled && ['received', 'processing'].includes(details.status) && (
+              {!details.has_gex && gexEnabled && !isTdiExpress() && ['received', 'processing'].includes(details.status) && (
                 <Button
                   mode="contained"
                   onPress={handleContractGEX}
@@ -753,119 +784,161 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
             <Text style={styles.sectionTitle}>💰 Desglose de Costos</Text>
             <Divider style={styles.divider} />
 
-            {/* 🚚 Si es Pick Up - mostrar solo el costo de Pick Up, NO servicio PO Box */}
-            {isPickUpService() ? (
+            {/* ✈️ TDI Express — costo por kg, no por caja PO Box */}
+            {isTdiExpress() ? (
+              <>
+                {(details.assigned_cost_mxn ?? 0) > 0 ? (
+                  <>
+                    <View style={styles.costRow}>
+                      <Text style={styles.costLabel}>{'✈️ Servicio TDI Express'}</Text>
+                      <Text style={styles.costValue}>{`$${(details.assigned_cost_mxn ?? 0).toFixed(2)} MXN`}</Text>
+                    </View>
+                    {(details.weight ?? 0) > 0 && (
+                      <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
+                        <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
+                          {`⚖️ ${(details.weight ?? 0).toFixed(1)} kg`}
+                          {((pkg as any).total_boxes ?? 1) > 1
+                            ? ` · ${(pkg as any).total_boxes} cajas`
+                            : ''}
+                        </Text>
+                      </View>
+                    )}
+                  </>
+                ) : (
+                  <View style={styles.noCostsContainer}>
+                    <MaterialCommunityIcons name="information-outline" size={24} color="#666" />
+                    <Text style={styles.noCostsText}>
+                      {'El costo se asignará cuando el paquete sea procesado'}
+                    </Text>
+                  </View>
+                )}
+                {(details.national_shipping_cost ?? 0) > 0 && (
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>
+                      {`🚚 Envío Nacional (${details.national_carrier ?? 'Paquetería'})`}
+                    </Text>
+                    <Text style={styles.costValue}>{`$${(details.national_shipping_cost ?? 0).toFixed(2)} MXN`}</Text>
+                  </View>
+                )}
+                {(details.monto_pagado ?? 0) > 0 && (
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>{'Monto Pagado'}</Text>
+                    <Text style={[styles.costValue, { color: ORANGE }]}>{`-$${(details.monto_pagado ?? 0).toFixed(2)} MXN`}</Text>
+                  </View>
+                )}
+              </>
+
+            ) : isPickUpService() ? (
               <>
                 {/* Para Pick Up: mostrar costo de envío nacional o el monto pagado */}
                 <View style={styles.costRow}>
-                  <Text style={styles.costLabel}>🚚 Pick Up ({details.carrier})</Text>
+                  <Text style={styles.costLabel}>{`🚚 Pick Up (${details.carrier ?? ''})`}</Text>
                   <Text style={styles.costValue}>
-                    ${(details.national_shipping_cost || details.monto_pagado || 0).toFixed(2)} MXN
+                    {`$${(details.national_shipping_cost ?? details.monto_pagado ?? 0).toFixed(2)} MXN`}
                   </Text>
                 </View>
-                {/* Si ya está pagado, mostrar confirmación */}
                 {isPaid() && (
                   <View style={styles.costRow}>
-                    <Text style={[styles.costLabel, { color: '#4CAF50', fontWeight: '600' }]}>✅ Pagado</Text>
+                    <Text style={[styles.costLabel, { color: '#4CAF50', fontWeight: '600' }]}>{'✅ Pagado'}</Text>
                     <Text style={[styles.costValue, { color: '#4CAF50' }]}>
-                      ${(details.monto_pagado || 0).toFixed(2)} MXN
+                      {`$${(details.monto_pagado ?? 0).toFixed(2)} MXN`}
                     </Text>
                   </View>
                 )}
               </>
+
             ) : (
               <>
-                {/* Precio de Venta del servicio PO Box con desglose USD y TC (solo si NO es Pick Up) */}
+                {/* Precio de Venta del servicio PO Box con desglose USD y TC */}
                 {costSummary.costoMxn > 0 && (
                   <>
                     <View style={styles.costRow}>
-                      <Text style={styles.costLabel}>📦 Servicio PO Box</Text>
+                      <Text style={styles.costLabel}>{'📦 Servicio PO Box'}</Text>
                       <Text style={styles.costValue}>
-                        ${costSummary.costoMxn.toFixed(2)} MXN
+                        {`$${costSummary.costoMxn.toFixed(2)} MXN`}
                       </Text>
                     </View>
-                    {/* 🎯 DESGLOSE POR CAJA para multi-guía */}
                     <View style={[styles.costRow, { paddingLeft: 16, marginTop: -4 }]}>
                       <Text style={[styles.costLabel, { fontSize: 12, color: '#666' }]}>
-                        {(() => {
-                          const { totalBoxes, precioUnitarioUsd, tc, nivel } = costSummary;
-                          if (totalBoxes > 1) {
-                            return `💵 ${totalBoxes} cajas × $${precioUnitarioUsd.toFixed(2)} USD × TC $${tc.toFixed(2)} (Nivel ${nivel})`;
-                          }
-                          return `💵 $${precioUnitarioUsd.toFixed(2)} USD × TC $${tc.toFixed(2)} (Nivel ${nivel})`;
-                        })()}
+                        {costSummary.totalBoxes > 1
+                          ? `💵 ${costSummary.totalBoxes} cajas × $${costSummary.precioUnitarioUsd.toFixed(2)} USD × TC $${costSummary.tc.toFixed(2)} (Nivel ${costSummary.nivel})`
+                          : `💵 $${costSummary.precioUnitarioUsd.toFixed(2)} USD × TC $${costSummary.tc.toFixed(2)} (Nivel ${costSummary.nivel})`}
                       </Text>
                     </View>
                   </>
                 )}
 
-                {/* Costo GEX si está contratado.
-                    Mostramos UNA sola línea "Valor Asegurado" con el total real
-                    almacenado en DB (gex_total_cost). */}
-                {details.has_gex && (costSummary.gexTotal > 0 || details.declared_value) && (
-                  <>
-                    {(() => {
-                      const totalFromDb = Number((details as any).gex_total_cost) || 0;
-                      const totalShown = totalFromDb > 0 ? totalFromDb : costSummary.gexTotal;
-                      return (
-                        <View style={styles.costRow}>
-                          <Text style={[styles.costLabel, { paddingLeft: 8 }]}>• Valor Asegurado (${(details.declared_value || 0).toFixed(2)} USD)</Text>
-                          <Text style={styles.costValue}>${totalShown.toFixed(2)} MXN</Text>
-                        </View>
-                      );
-                    })()}
-                  </>
-                )}
-
-                {/* Costo de envío nacional (Estafeta, FedEx, etc.) - solo si NO es Pick Up */}
-                {(details.national_shipping_cost ?? 0) > 0 && (
+                {/* GEX si está contratado */}
+                {details.has_gex && (costSummary.gexTotal > 0 || (details.declared_value ?? 0) > 0) && (
                   <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>🚚 Envío Nacional ({details.national_carrier || 'Paquetería'})</Text>
-                    <Text style={styles.costValue}>${(details.national_shipping_cost || 0).toFixed(2)} MXN</Text>
+                    <Text style={[styles.costLabel, { paddingLeft: 8 }]}>
+                      {`• Valor Asegurado ($${(details.declared_value ?? 0).toFixed(2)} USD)`}
+                    </Text>
+                    <Text style={styles.costValue}>
+                      {`$${(Number((details as any).gex_total_cost) > 0 ? Number((details as any).gex_total_cost) : costSummary.gexTotal).toFixed(2)} MXN`}
+                    </Text>
                   </View>
                 )}
 
-                {/* Monto ya pagado — cliente pidió no usar verde en esta sección,
-                    todo en naranja corporativo o negro. */}
+                {/* Envío nacional */}
+                {(details.national_shipping_cost ?? 0) > 0 && (
+                  <View style={styles.costRow}>
+                    <Text style={styles.costLabel}>
+                      {`🚚 Envío Nacional (${details.national_carrier ?? 'Paquetería'})`}
+                    </Text>
+                    <Text style={styles.costValue}>{`$${(details.national_shipping_cost ?? 0).toFixed(2)} MXN`}</Text>
+                  </View>
+                )}
+
                 {(details.monto_pagado ?? 0) > 0 && (
                   <View style={styles.costRow}>
-                    <Text style={styles.costLabel}>Monto Pagado</Text>
-                    <Text style={[styles.costValue, { color: ORANGE }]}>-${(details.monto_pagado || 0).toFixed(2)} MXN</Text>
+                    <Text style={styles.costLabel}>{'Monto Pagado'}</Text>
+                    <Text style={[styles.costValue, { color: ORANGE }]}>{`-$${(details.monto_pagado ?? 0).toFixed(2)} MXN`}</Text>
+                  </View>
+                )}
+
+                {/* Sin costos aún */}
+                {costSummary.costoTotal <= 0 && !isPaid() && (
+                  <View style={styles.noCostsContainer}>
+                    <MaterialCommunityIcons name="information-outline" size={24} color="#666" />
+                    <Text style={styles.noCostsText}>
+                      {'Los costos se calcularán cuando el paquete sea procesado'}
+                    </Text>
                   </View>
                 )}
               </>
-            )}
-
-            {/* Si no hay costos aún (y no es Pick Up pagado) */}
-            {costSummary.costoTotal <= 0 && !isPaid() && (
-              <View style={styles.noCostsContainer}>
-                <MaterialCommunityIcons name="information-outline" size={24} color="#666" />
-                <Text style={styles.noCostsText}>
-                  Los costos se calcularán cuando el paquete sea procesado
-                </Text>
-              </View>
             )}
 
             {/* Saldo Pendiente / Total a Pagar */}
-            {(costSummary.costoTotal > 0 || isPaid()) && (
-              <>
-                <Divider style={styles.divider} />
-                <View style={styles.totalRow}>
-                  <Text style={styles.totalLabel}>
-                    {isPaid() ? 'PAGADO' : 'SALDO PENDIENTE'}
-                  </Text>
-                  {isPaid() ? (
-                    <Text style={[styles.totalValue, { color: ORANGE }]}>
-                      Completado
+            {(() => {
+              const tdi = isTdiExpress();
+              const totalCost = tdi
+                ? (details.assigned_cost_mxn ?? 0) + (details.national_shipping_cost ?? 0)
+                : costSummary.costoTotal;
+              const saldo = tdi
+                ? (details.saldo_pendiente ?? totalCost - (details.monto_pagado ?? 0))
+                : (costSummary.saldo > 0 ? costSummary.saldo : (details.saldo_pendiente ?? costSummary.costoTotal));
+              if (totalCost <= 0 && !isPaid()) return null;
+              return (
+                <>
+                  <Divider style={styles.divider} />
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>
+                      {isPaid() ? 'PAGADO' : 'SALDO PENDIENTE'}
                     </Text>
-                  ) : (
-                    <Text style={[styles.totalValue, { color: ORANGE }]}>
-                      ${(costSummary.saldo > 0 ? costSummary.saldo : (details.saldo_pendiente ?? costSummary.costoTotal)).toFixed(2)} MXN
-                    </Text>
-                  )}
-                </View>
-              </>
-            )}
+                    {isPaid() ? (
+                      <Text style={[styles.totalValue, { color: ORANGE }]}>
+                        {'Completado'}
+                      </Text>
+                    ) : (
+                      <Text style={[styles.totalValue, { color: ORANGE }]}>
+                        {`$${saldo.toFixed(2)} MXN`}
+                      </Text>
+                    )}
+                  </View>
+                </>
+              );
+            })()}
           </Card.Content>
         </Card>
         )}
@@ -1271,7 +1344,7 @@ const styles = StyleSheet.create({
   multiPackageBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: PURPLE,
+    backgroundColor: ORANGE,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 10,
@@ -1288,7 +1361,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 12,
     elevation: 2,
-    backgroundColor: '#F3E5F5',
+    backgroundColor: '#FFF3E0',
   },
   childrenHeader: {
     flexDirection: 'row',
@@ -1304,7 +1377,7 @@ const styles = StyleSheet.create({
   childrenTitle: {
     fontSize: 16,
     fontWeight: 'bold',
-    color: PURPLE,
+    color: ORANGE,
   },
   childrenSummary: {
     flexDirection: 'row',
@@ -1336,13 +1409,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 12,
     borderLeftWidth: 3,
-    borderLeftColor: PURPLE,
+    borderLeftColor: ORANGE,
   },
   childNumber: {
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: PURPLE + '20',
+    backgroundColor: ORANGE + '30',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 10,
@@ -1350,7 +1423,7 @@ const styles = StyleSheet.create({
   childNumberText: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: PURPLE,
+    color: ORANGE,
   },
   childInfo: {
     flex: 1,
@@ -1405,11 +1478,11 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: PURPLE + '15',
+    backgroundColor: ORANGE + '15',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: PURPLE + '30',
+    borderColor: ORANGE + '30',
   },
   childPhotoThumbnail: {
     width: 44,
@@ -1417,7 +1490,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     overflow: 'hidden',
     borderWidth: 2,
-    borderColor: PURPLE,
+    borderColor: ORANGE,
     position: 'relative',
   },
   childThumbnailImage: {

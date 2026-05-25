@@ -702,7 +702,16 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
     // Auto-migrate: asegurar columna secondary_tracking en producción
     await pool.query(`
       ALTER TABLE dhl_shipments ADD COLUMN IF NOT EXISTS secondary_tracking VARCHAR(100)
-    `).catch(() => {/* no-op si ya existe o no hay permisos de DDL */});
+    `).catch(() => {/* no-op */});
+
+    // Limpiar caracteres erróneos (¿ y ?) de guías existentes (scanner en teclado español)
+    await pool.query(`
+      UPDATE dhl_shipments
+      SET inbound_tracking   = REPLACE(REPLACE(inbound_tracking, '¿', '+'), '?', '+'),
+          secondary_tracking = REPLACE(REPLACE(secondary_tracking, '¿', '+'), '?', '+')
+      WHERE inbound_tracking   LIKE '%¿%' OR inbound_tracking   LIKE '%?%'
+         OR secondary_tracking LIKE '%¿%' OR secondary_tracking LIKE '%?%'
+    `).catch(() => {/* no-op */});
 
     const {
       inbound_tracking,

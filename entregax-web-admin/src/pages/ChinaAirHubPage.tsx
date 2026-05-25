@@ -54,17 +54,17 @@ const OPTIONS = [
     },
     {
         key: 'tdi_express' as const,
-        title: 'Recibir TDI Express',
+        title: 'Recibir TDI DHL Express',
         description: 'Captura en serie de envíos de la ruta TDI Express China → Monterrey',
-        icon: <ShippingIcon sx={{ fontSize: 56, color: '#FFF' }} />,
-        bgGradient: 'linear-gradient(135deg, #1A1A1A 0%, #424242 100%)',
+        icon: <ShippingIcon sx={{ fontSize: 56, color: '#111' }} />,
+        bgGradient: 'linear-gradient(135deg, #FFCC00 0%, #FFD740 100%)',
     },
     {
         key: 'tdi_outbound' as const,
-        title: 'Enviar TDI Express',
+        title: 'Enviar TDI DHL Express',
         description: 'Da salida a las cajas TDI Express listas para salir de China',
         icon: <FlightTakeoffIcon sx={{ fontSize: 56, color: '#FFF' }} />,
-        bgGradient: 'linear-gradient(135deg, #2E7D32 0%, #66BB6A 100%)',
+        bgGradient: 'linear-gradient(135deg, #D40511 0%, #FF1744 100%)',
     },
 ];
 

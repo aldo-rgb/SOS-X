@@ -270,6 +270,22 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
     setSnack({ sev: 'success', msg: t('tdiExpress.wizard.done') });
   };
 
+  // Cancelar el wizard. Si ya se creó un master vacío (sin cajas), lo elimina silenciosamente.
+  // Si ya hay cajas capturadas, solo cierra (el embarque parcial queda en la lista).
+  const cancelWizard = async () => {
+    if (masterId !== null && captured.length === 0) {
+      try {
+        await axios.delete(`${API_URL}/api/tdi-express/shipments/${masterId}`, { headers: authHeaders });
+        loadAll();
+      } catch {
+        // si falla el borrado, el usuario puede eliminarlo manualmente desde la tabla
+      }
+    } else if (masterId !== null && captured.length > 0) {
+      loadAll(); // refrescar para mostrar el embarque parcial en la lista
+    }
+    setWizardOpen(false);
+  };
+
   // Imprime etiquetas TDI Express (4x6"), una por caja.
   const printLabels = (
     items: {
@@ -481,7 +497,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       </TableContainer>
 
       {/* ===== WIZARD ===== */}
-      <Dialog open={wizardOpen} onClose={() => !busy && setWizardOpen(false)} maxWidth="md" fullWidth>
+      <Dialog open={wizardOpen} onClose={() => !busy && cancelWizard()} maxWidth="md" fullWidth>
         <DialogTitle sx={{ bgcolor: BLACK, color: '#FFF' }}>{t('tdiExpress.wizard.title')}</DialogTitle>
         <DialogContent sx={{ pt: 3 }}>
           <Stepper activeStep={step} sx={{ mb: 3, mt: 1 }}>
@@ -643,7 +659,7 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
           {snack && <Alert severity={snack.sev} sx={{ mt: 2 }} onClose={() => setSnack(null)}>{snack.msg}</Alert>}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => setWizardOpen(false)} disabled={busy}>{t('tdiExpress.wizard.cancel')}</Button>
+          <Button onClick={() => cancelWizard()} disabled={busy}>{t('tdiExpress.wizard.cancel')}</Button>
           <Box sx={{ flex: 1 }} />
           {step === 0 && (
             <Button variant="contained" onClick={startSerial} disabled={busy}
