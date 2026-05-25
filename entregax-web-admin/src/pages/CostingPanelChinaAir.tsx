@@ -43,6 +43,7 @@ import {
     OpenInNew as OpenCostIcon,
 } from '@mui/icons-material';
 import AwbCostingDialog from './AwbCostingDialog';
+import useModulePermissions from '../hooks/useModulePermissions';
 
 interface MasterAwbData {
     id?: number;
@@ -123,6 +124,11 @@ interface AwbCostListItem {
 export default function CostingPanelChinaAir() {
     const { t } = useTranslation();
     const [tabValue, setTabValue] = useState(0);
+
+    // Permisos de módulo: si el usuario solo tiene can_view sobre 'costing',
+    // ocultamos todas las acciones editables (abrir modal de costeo, ver detalles, etc).
+    const { canEdit: moduleCanEdit } = useModulePermissions('admin_china_air', ['costing']);
+    const canEditCosting = moduleCanEdit('costing');
     const [, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
     // Datos de la guía actual
@@ -523,7 +529,9 @@ export default function CostingPanelChinaAir() {
                                     <TableCell align="right">{t('costing.boxes')}</TableCell>
                                     <TableCell align="right">{t('costing.weight')} (kg)</TableCell>
                                     <TableCell align="right">{t('costing.grandTotal')} (USD)</TableCell>
-                                    <TableCell align="center">{t('costing.actions')}</TableCell>
+                                    {canEditCosting && (
+                                        <TableCell align="center">{t('costing.actions')}</TableCell>
+                                    )}
                                 </TableRow>
                             </TableHead>
                             <TableBody>
@@ -555,21 +563,23 @@ export default function CostingPanelChinaAir() {
                                                 ? <Typography fontWeight="bold" variant="body2">${Number(item.calc_grand_total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
                                                 : <Chip size="small" label="Sin costear" color="default" variant="outlined" />}
                                         </TableCell>
-                                        <TableCell align="center">
-                                            <Tooltip title="Ver Detalles">
-                                                <IconButton
-                                                    size="small"
-                                                    onClick={() => loadGuideDetails(item)}
-                                                >
-                                                    <SearchIcon fontSize="small" />
-                                                </IconButton>
-                                            </Tooltip>
-                                        </TableCell>
+                                        {canEditCosting && (
+                                            <TableCell align="center">
+                                                <Tooltip title="Ver Detalles">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => loadGuideDetails(item)}
+                                                    >
+                                                        <SearchIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            </TableCell>
+                                        )}
                                     </TableRow>
                                 ))}
                                 {masterList.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                                        <TableCell colSpan={canEditCosting ? 8 : 7} align="center" sx={{ py: 4 }}>
                                             <Typography color="text.secondary">{t('costing.noGuides')}</Typography>
                                         </TableCell>
                                     </TableRow>
@@ -916,7 +926,9 @@ export default function CostingPanelChinaAir() {
                                     <TableCell align="right">Costo Total</TableCell>
                                     <TableCell align="right">$/kg</TableCell>
                                     <TableCell align="center">Estado</TableCell>
-                                    <TableCell align="center">Acciones</TableCell>
+                                    {canEditCosting && (
+                                        <TableCell align="center">Acciones</TableCell>
+                                    )}
                                 </TableRow>
                             </TableHead>
                             <TableBody>
@@ -924,8 +936,12 @@ export default function CostingPanelChinaAir() {
                                     <TableRow
                                         key={item.id}
                                         hover
-                                        sx={{ cursor: 'pointer', '&:hover': { bgcolor: '#f0f7ff' } }}
-                                        onClick={() => setAwbCostDialog({ open: true, id: item.id })}
+                                        sx={canEditCosting
+                                            ? { cursor: 'pointer', '&:hover': { bgcolor: '#f0f7ff' } }
+                                            : undefined}
+                                        onClick={canEditCosting
+                                            ? () => setAwbCostDialog({ open: true, id: item.id })
+                                            : undefined}
                                     >
                                         <TableCell>
                                             {item.reference
@@ -974,25 +990,27 @@ export default function CostingPanelChinaAir() {
                                                 variant="outlined"
                                             />
                                         </TableCell>
-                                        <TableCell align="center">
-                                            <Tooltip title="Abrir modal de costeo">
-                                                <IconButton
-                                                    size="small"
-                                                    color="primary"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setAwbCostDialog({ open: true, id: item.id });
-                                                    }}
-                                                >
-                                                    <OpenCostIcon fontSize="small" />
-                                                </IconButton>
-                                            </Tooltip>
-                                        </TableCell>
+                                        {canEditCosting && (
+                                            <TableCell align="center">
+                                                <Tooltip title="Abrir modal de costeo">
+                                                    <IconButton
+                                                        size="small"
+                                                        color="primary"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setAwbCostDialog({ open: true, id: item.id });
+                                                        }}
+                                                    >
+                                                        <OpenCostIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            </TableCell>
+                                        )}
                                     </TableRow>
                                 ))}
                                 {awbCostList.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={13} align="center" sx={{ py: 6 }}>
+                                        <TableCell colSpan={canEditCosting ? 14 : 13} align="center" sx={{ py: 6 }}>
                                             <FlightIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
                                             <Typography color="text.secondary">
                                                 No hay líneas de costeo AWB registradas.
