@@ -1917,6 +1917,72 @@ app.get('/api/migrate/routes-email', async (_req: Request, res: Response) => {
   }
 });
 
+// Migración: MJCustomer FCL sync (pageByClearance)
+app.get('/api/migrate/mjcustomer-fcl', async (_req: Request, res: Response) => {
+  try {
+    await pool.query(`
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS mj_container_id BIGINT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS mj_last_sync TIMESTAMP;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS cn_status_en TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS cn_status_ch TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS service_type TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS planned_departure TIMESTAMP;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS actual_departure TIMESTAMP;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS actual_arrival TIMESTAMP;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS unloaded_at TIMESTAMP;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS delivery_pdf_url TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS port_name TEXT;
+      ALTER TABLE containers ADD COLUMN IF NOT EXISTS ship_carrier_code TEXT;
+    `);
+    await pool.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_containers_container_number
+          ON containers (container_number) WHERE container_number IS NOT NULL;
+      CREATE UNIQUE INDEX IF NOT EXISTS uniq_containers_bl_number
+          ON containers (bl_number) WHERE bl_number IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS idx_containers_mj_container_id
+          ON containers (mj_container_id) WHERE mj_container_id IS NOT NULL;
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS mjcustomer_sync_log (
+        id SERIAL PRIMARY KEY,
+        started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        finished_at TIMESTAMP,
+        triggered_by TEXT NOT NULL,
+        items_fetched INTEGER NOT NULL DEFAULT 0,
+        items_created INTEGER NOT NULL DEFAULT 0,
+        items_updated INTEGER NOT NULL DEFAULT 0,
+        items_conflict INTEGER NOT NULL DEFAULT 0,
+        pages_fetched INTEGER NOT NULL DEFAULT 0,
+        success BOOLEAN NOT NULL DEFAULT FALSE,
+        error_message TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_mj_sync_log_started_at
+          ON mjcustomer_sync_log (started_at DESC);
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS mjcustomer_sync_conflicts (
+        id SERIAL PRIMARY KEY,
+        detected_at TIMESTAMP NOT NULL DEFAULT NOW(),
+        conflict_type TEXT NOT NULL,
+        mj_container_id BIGINT,
+        cabinet_no TEXT,
+        bill_no TEXT,
+        existing_container_id INTEGER REFERENCES containers(id) ON DELETE SET NULL,
+        payload JSONB,
+        resolved BOOLEAN NOT NULL DEFAULT FALSE,
+        resolved_at TIMESTAMP,
+        resolved_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        notes TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_mj_sync_conflicts_unresolved
+          ON mjcustomer_sync_conflicts (resolved, detected_at DESC);
+    `);
+    res.json({ success: true, message: 'Migración MJCustomer FCL aplicada: columnas + indices + tablas log/conflicts' });
+  } catch (error: any) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // Migración: agregar campo route_id a containers
 app.get('/api/migrate/container-route', async (_req: Request, res: Response) => {
   try {
@@ -5278,14 +5344,23 @@ import {
   reExtractDraftData
 } from './emailInboundController';
 
-// Vizion API Controller (Tracking satelital de contenedores)
+// Vizion API Controller (Tracking satelital de contenedores) - DEPRECATED
+// Se reemplaza por sync con MJCustomer (pageByClearance). Se deja import
+// comentado por si se requiere rollback temporal.
+// import {
+//     subscribeContainer as subscribeToVizion,
+//     handleVizionWebhook,
+//     getContainerTracking as getContainerTrackingHistory,
+//     addManualTrackingEvent,
+//     syncCarrierTracking
+// } from './vizionController';
+
+// MJCustomer FCL Sync (sustituye a Vizion)
 import {
-    subscribeContainer as subscribeToVizion,
-    handleVizionWebhook,
-    getContainerTracking as getContainerTrackingHistory,
-    addManualTrackingEvent,
-    syncCarrierTracking
-} from './vizionController';
+    triggerMJCustomerFclSync,
+    getMJCustomerFclSyncStatus,
+    listMJCustomerFclConflicts,
+} from './mjcustomerFclSync';
 
 // ========== WEBHOOKS PÚBLICOS (SIN AUTENTICACIÓN) ==========
 // Mailgun envía correos aquí automáticamente
@@ -5294,8 +5369,8 @@ app.post('/api/webhooks/email/inbound', handleInboundEmail);
 // Mailgun correos aéreos
 app.post('/api/webhooks/email/air-inbound', handleInboundAirEmail);
 
-// Vizion envía updates de tracking aquí
-app.post('/api/webhooks/vizion', handleVizionWebhook);
+// Vizion webhook - DEPRECATED (se cancela API Vizion)
+// app.post('/api/webhooks/vizion', handleVizionWebhook);
 
 // Openpay/STP envía notificaciones de depósitos SPEI
 app.post('/api/webhooks/openpay', handleOpenpayWebhook);
@@ -7812,15 +7887,21 @@ app.get('/api/admin/email/draft/:id/excel', authenticateToken, requireMinLevel(R
 // Re-extraer datos de un draft usando IA
 app.post('/api/admin/email/draft/:id/reextract', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reExtractDraftData);
 
-// ========== VIZION TRACKING (Rastreo satelital de contenedores) ==========
-// Suscribir contenedor a tracking de Vizion
-app.post('/api/admin/vizion/subscribe', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), subscribeToVizion);
-// Historial de tracking de un contenedor
-app.get('/api/admin/containers/:id/tracking', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getContainerTrackingHistory);
-// Agregar evento manual de tracking (para cuando no hay API)
-app.post('/api/admin/containers/:id/tracking/manual', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addManualTrackingEvent);
-// Sincronizar tracking desde la naviera (Wan Hai, etc.)
-app.post('/api/admin/containers/:id/tracking/sync-carrier', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), syncCarrierTracking);
+// ========== VIZION TRACKING - DEPRECATED ==========
+// Se cancela el API de Vizion. MJCustomer (pageByClearance) lo reemplaza.
+// Las rutas se mantienen comentadas para rollback rapido si se requiere.
+// app.post('/api/admin/vizion/subscribe', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), subscribeToVizion);
+// app.get('/api/admin/containers/:id/tracking', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getContainerTrackingHistory);
+// app.post('/api/admin/containers/:id/tracking/manual', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addManualTrackingEvent);
+// app.post('/api/admin/containers/:id/tracking/sync-carrier', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), syncCarrierTracking);
+
+// ========== MJCUSTOMER FCL SYNC ==========
+// Sincronizacion manual on-demand (super_admin)
+app.post('/api/admin/fcl/sync-mjcustomer', authenticateToken, requireRole('super_admin'), triggerMJCustomerFclSync);
+// Estado de ultima sincronizacion + numero de conflictos sin resolver
+app.get('/api/admin/fcl/sync-mjcustomer/status', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getMJCustomerFclSyncStatus);
+// Lista de conflictos pendientes de resolucion
+app.get('/api/admin/fcl/sync-mjcustomer/conflicts', authenticateToken, requireRole('super_admin'), listMJCustomerFclConflicts);
 
 // Upload manual de documentos marítimos (FCL/LCL) - Archivos van a S3, límite 100MB
 const maritimeUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 100 * 1024 * 1024 } });

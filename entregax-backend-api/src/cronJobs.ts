@@ -6,6 +6,7 @@ import { checkExpiringDocuments, checkUpcomingMaintenance } from './fleetControl
 import { actualizarCarteraVencida, sincronizarCartera } from './customerServiceController';
 import { syncActiveMJCustomerOrders } from './chinaController';
 import { runFacturapiSyncAll } from './facturapiController';
+import { runMJCustomerFclSync } from './mjcustomerFclSync';
 
 /**
  * CRON JOB: Detección automática de clientes en riesgo
@@ -577,6 +578,31 @@ export const startMJCustomerSyncCron = () => {
 };
 
 /**
+ * CRON JOB: Sincronización FCL con MJCustomer (pageByClearance)
+ * Se ejecuta una vez al día a las 06:00 hora MX.
+ * Reemplaza al tracking de Vizion (cancelado).
+ */
+export const startMJCustomerFclSyncCron = () => {
+  // 06:00 todos los días (zona horaria de Ciudad de México)
+  cron.schedule('0 6 * * *', async () => {
+    console.log('🚢 [CRON] Sincronización FCL MJCustomer iniciando...');
+    try {
+      const summary = await runMJCustomerFclSync('cron');
+      if (summary.success) {
+        console.log(
+          `✅ [CRON] MJCustomer FCL: ${summary.itemsCreated} nuevos, ${summary.itemsUpdated} actualizados, ${summary.itemsConflict} conflictos (${summary.pagesFetched} páginas, ${summary.durationMs}ms)`
+        );
+      } else {
+        console.error('❌ [CRON] MJCustomer FCL falló:', summary.error);
+      }
+    } catch (err) {
+      console.error('❌ [CRON] Error inesperado en sync MJCustomer FCL:', err);
+    }
+  }, { timezone: 'America/Mexico_City' });
+  console.log('📅 [CRON] Job MJCustomer FCL (clearance) programado diario 06:00');
+};
+
+/**
  * CRON JOB: Sincronización con Facturapi (Cuentas por Pagar / CFDIs recibidos)
  * Se ejecuta cada 6 horas. Para cada emisor con Facturapi habilitado, baja
  * las facturas recibidas de los últimos 30 días y las inserta si son nuevas.
@@ -648,6 +674,7 @@ export const initCronJobs = () => {
   startExchangeRateCheckCron();
   startCarteraVencidaCron();
   startMJCustomerSyncCron();
+  startMJCustomerFclSyncCron();
   startFacturapiSyncCron();
   startAutoCheckoutCron();
 };

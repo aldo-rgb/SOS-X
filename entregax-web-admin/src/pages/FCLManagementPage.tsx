@@ -48,6 +48,7 @@ import {
     LocalShipping as ShippingIcon,
     AttachMoney as MoneyIcon,
     Inventory as InventoryIcon,
+    CloudSync as CloudSyncIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -141,6 +142,69 @@ export default function FCLManagementPage() {
         currency: 'MXN',
         notes: ''
     });
+
+    // === MJCustomer sync ===
+    const [mjSyncing, setMjSyncing] = useState(false);
+    const [mjLastRun, setMjLastRun] = useState<{
+        started_at?: string;
+        finished_at?: string;
+        items_created?: number;
+        items_updated?: number;
+        items_conflict?: number;
+        success?: boolean;
+    } | null>(null);
+    const [mjUnresolvedConflicts, setMjUnresolvedConflicts] = useState<number>(0);
+
+    const fetchMjStatus = useCallback(async () => {
+        try {
+            const res = await axios.get(`${API_URL}/api/admin/fcl/sync-mjcustomer/status`, {
+                headers: { Authorization: `Bearer ${getToken()}` },
+            });
+            setMjLastRun(res.data?.lastRun || null);
+            setMjUnresolvedConflicts(res.data?.unresolvedConflicts || 0);
+        } catch {
+            // silencioso
+        }
+    }, []);
+
+    useEffect(() => { fetchMjStatus(); }, [fetchMjStatus]);
+
+    const handleMjSync = async () => {
+        if (mjSyncing) return;
+        setMjSyncing(true);
+        setSnackbar({ open: true, message: 'Sincronizando con MJCustomer...', severity: 'info' });
+        try {
+            const res = await axios.post(
+                `${API_URL}/api/admin/fcl/sync-mjcustomer`,
+                {},
+                { headers: { Authorization: `Bearer ${getToken()}` } }
+            );
+            const s = res.data?.summary;
+            if (res.data?.success) {
+                setSnackbar({
+                    open: true,
+                    message: `MJCustomer: ${s?.itemsCreated || 0} nuevos, ${s?.itemsUpdated || 0} actualizados, ${s?.itemsConflict || 0} conflictos`,
+                    severity: 'success',
+                });
+            } else {
+                setSnackbar({
+                    open: true,
+                    message: `Sync con errores: ${s?.error || 'desconocido'}`,
+                    severity: 'error',
+                });
+            }
+            await fetchMjStatus();
+            await fetchContainers();
+        } catch (err: any) {
+            setSnackbar({
+                open: true,
+                message: `Error: ${err?.response?.data?.error || err?.message || 'fallo'}`,
+                severity: 'error',
+            });
+        } finally {
+            setMjSyncing(false);
+        }
+    };
 
     // Cargar contenedores FCL
     const fetchContainers = useCallback(async () => {
@@ -282,14 +346,32 @@ export default function FCLManagementPage() {
                         </Typography>
                     </Box>
                 </Box>
-                <Button
-                    variant="outlined"
-                    startIcon={<RefreshIcon />}
-                    onClick={fetchContainers}
-                    sx={{ borderColor: FCL_COLOR, color: FCL_COLOR }}
-                >
-                    Actualizar
-                </Button>
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                    <Tooltip title={mjLastRun?.started_at
+                        ? `Última sync: ${new Date(mjLastRun.started_at).toLocaleString('es-MX')} - ${mjLastRun.success ? 'OK' : 'ERROR'}${mjUnresolvedConflicts > 0 ? ` • ${mjUnresolvedConflicts} conflictos` : ''}`
+                        : 'Sincronizar contenedores desde MJCustomer'
+                    }>
+                        <span>
+                            <Button
+                                variant="contained"
+                                startIcon={mjSyncing ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <CloudSyncIcon />}
+                                onClick={handleMjSync}
+                                disabled={mjSyncing}
+                                sx={{ bgcolor: FCL_DARK, '&:hover': { bgcolor: '#BF360C' } }}
+                            >
+                                {mjSyncing ? 'Sincronizando...' : 'Sync MJCustomer'}
+                            </Button>
+                        </span>
+                    </Tooltip>
+                    <Button
+                        variant="outlined"
+                        startIcon={<RefreshIcon />}
+                        onClick={fetchContainers}
+                        sx={{ borderColor: FCL_COLOR, color: FCL_COLOR }}
+                    >
+                        Actualizar
+                    </Button>
+                </Box>
             </Box>
 
             {/* Stats Cards */}
