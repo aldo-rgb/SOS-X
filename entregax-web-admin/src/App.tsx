@@ -272,6 +272,7 @@ function App() {
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [selectedSubIndex, setSelectedSubIndex] = useState<number | null>(null); // Para submenús
   const [panelsExpanded, setPanelsExpanded] = useState(false); // Estado del submenú expandido
+  const [csHubPendingView, setCsHubPendingView] = useState<'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | null>(null);
   const [cajaChicaExpanded, setCajaChicaExpanded] = useState(false); // Estado del submenú Caja Chica
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
@@ -743,12 +744,10 @@ function App() {
       }
 
       if (action === 'service_tickets') {
+        setCsHubPendingView('support');
         setPanelsExpanded(true);
         setSelectedIndex(panelsIndex);
         setSelectedSubIndex(serviceSubIndex >= 0 ? serviceSubIndex : null);
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('cs-hub-navigate', { detail: { view: 'support' } }));
-        }, 100);
       }
 
       if (action === 'verifications') {
@@ -1545,7 +1544,7 @@ function App() {
         case 'panelsAdmin': return <AdminHubPage users={users} loading={loading} onRefresh={fetchUsers} panelPermissions={userPanelPermissions} permissionsReady={permissionsLoaded} />; // Administración
         case 'accounting': return <AccountingHubPage />; // Contabilidad
         case 'panelsOperations': return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
-        case 'panelsService': return <CustomerServiceHubPage users={users} loading={loading} onRefresh={fetchUsers} />; // Servicio a Cliente
+        case 'panelsService': return <CustomerServiceHubPage users={users} loading={loading} onRefresh={fetchUsers} pendingView={csHubPendingView} onViewApplied={() => setCsHubPendingView(null)} />; // Servicio a Cliente
         case 'tesoreriaSucursal': return <TesoreriaSucursalPage />; // Tesorería Sucursal
         default: return null;
       }

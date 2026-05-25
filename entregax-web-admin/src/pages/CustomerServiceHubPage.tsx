@@ -51,13 +51,15 @@ interface CustomerServiceHubPageProps {
   users: User[];
   loading: boolean;
   onRefresh: () => void;
+  pendingView?: ActiveView | null;
+  onViewApplied?: () => void;
 }
 
 type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client';
 
-export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh }: CustomerServiceHubPageProps) {
+export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh, pendingView, onViewApplied }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
-  const [activeView, setActiveView] = useState<ActiveView>('hub');
+  const [activeView, setActiveView] = useState<ActiveView>(pendingView || 'hub');
   const [delayedTab, setDelayedTab] = useState<'pobox' | 'air' | 'sea'>('pobox');
   const [userPermissions, setUserPermissions] = useState<Record<string, { can_view: boolean; can_edit: boolean }>>({});
   const [hubStats, setHubStats] = useState<{
@@ -75,7 +77,16 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
   const currentUser = savedUser ? JSON.parse(savedUser) : null;
   const isSuperAdmin = currentUser?.role === 'super_admin';
 
-  // Navegar directamente a una vista desde eventos externos (ej. dashboard)
+  // Navegar directamente a una vista cuando el prop pendingView cambia (sin depender de timing)
+  useEffect(() => {
+    if (pendingView) {
+      setActiveView(pendingView);
+      onViewApplied?.();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingView]);
+
+  // Fallback: también escucha el evento para navegación desde otros contextos
   useEffect(() => {
     const handler = (e: Event) => {
       const view = (e as CustomEvent).detail?.view as ActiveView | undefined;
