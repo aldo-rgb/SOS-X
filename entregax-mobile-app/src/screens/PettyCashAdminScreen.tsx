@@ -45,6 +45,7 @@ type Wallet = {
   pending_to_verify_mxn: string | number;
   pending_expenses_count: string | number;
   status: string;
+  currency?: string;
 };
 
 type Movement = {
@@ -707,7 +708,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               ))
             )}
 
-            <Text style={styles.label}>Monto (MXN)</Text>
+            <Text style={styles.label}>Monto ({branchWallet?.currency || 'MXN'})</Text>
             <TextInput
               style={styles.input}
               keyboardType="decimal-pad"
@@ -779,7 +780,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               ))}
             </View>
 
-            <Text style={styles.label}>Monto (MXN)</Text>
+            <Text style={styles.label}>Monto ({branchWallet?.currency || 'MXN'})</Text>
             <TextInput
               style={styles.input}
               keyboardType="decimal-pad"
