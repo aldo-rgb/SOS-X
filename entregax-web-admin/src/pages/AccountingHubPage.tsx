@@ -832,8 +832,14 @@ function formatInvoiceError(raw?: string | null): { headline: string; issues: { 
   return { headline, issues };
 }
 
-function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
+function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
   open: boolean; emitter: Emitter; onClose: () => void; onCreated: () => void;
+  prefill?: {
+    payment_id?: number;
+    reference?: string;
+    amount?: number;
+    receptor?: { rfc?: string; razon_social?: string; regimen_fiscal?: string; cp?: string; uso_cfdi?: string; email?: string; user_id?: number | null };
+  };
 }) {
   const [step, setStep] = useState(0);
 
@@ -864,8 +870,35 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
     if (!open) return;
     setStep(0);
     setClientQuery(''); setClientOptions([]); setSelectedClient(null);
-    setReceptor({ rfc: '', razon_social: '', regimen_fiscal: '616', cp: '', uso_cfdi: 'G03', email: '', user_id: null });
-    setItems([newEmptyItem()]);
+    // Receptor: usar prefill si viene de Pendientes por Timbrar
+    const pr = prefill?.receptor;
+    if (pr) {
+      const inferredUso = (pr.rfc || '').toUpperCase() === 'XAXX010101000' ? 'S01' : (pr.uso_cfdi || 'G03');
+      setReceptor({
+        rfc: pr.rfc || '',
+        razon_social: pr.razon_social || '',
+        regimen_fiscal: pr.regimen_fiscal || '616',
+        cp: pr.cp || '',
+        uso_cfdi: inferredUso,
+        email: pr.email || '',
+        user_id: pr.user_id ?? null,
+      });
+    } else {
+      setReceptor({ rfc: '', razon_social: '', regimen_fiscal: '616', cp: '', uso_cfdi: 'G03', email: '', user_id: null });
+    }
+    // Items: si hay prefill con monto, crear un concepto inicial con la referencia y el monto.
+    if (prefill?.amount && prefill.amount > 0) {
+      const it = newEmptyItem();
+      it.description = `Servicio de logística PO Box${prefill.reference ? ` - Ref: ${prefill.reference}` : ''}`;
+      it.quantity = 1;
+      it.unit_price = Number(prefill.amount);
+      it.sat_clave_prod_serv = '78101803';
+      it.sat_clave_unidad = 'E48';
+      it.iva_rate = 0.16;
+      setItems([it]);
+    } else {
+      setItems([newEmptyItem()]);
+    }
     setPaymentForm('03'); setPaymentMethod('PUE'); setCurrency('MXN');
     setSerie(''); setFolio(''); setErr(null);
     // Cargar catálogo de productos
@@ -875,7 +908,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
         setProducts(r.data.products || []);
       } catch { setProducts([]); }
     })();
-  }, [open, emitter.id]);
+  }, [open, emitter.id, prefill]);
 
   // Búsqueda de clientes (debounced)
   useEffect(() => {
@@ -979,6 +1012,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
         currency,
         serie: serie.trim() || undefined,
         folio: folio.trim() ? Number(folio) : undefined,
+        link_pobox_payment_id: prefill?.payment_id || undefined,
       };
       const r = await api.post(`/accounting/${emitter.id}/invoices/manual`, payload);
       if (r.data?.success) {
@@ -2037,8 +2071,7 @@ function ReceivedInvoiceDetailDialog({ invoice, onClose }: any) {
 function PendingStampTab({ emitter }: { emitter: Emitter }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [errorDialog, setErrorDialog] = useState<{ open: boolean; raw: string; ref?: string }>({ open: false, raw: '' });
-  const [emittingId, setEmittingId] = useState<number | null>(null);
+  const [prefill, setPrefill] = useState<any | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -2101,22 +2134,25 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
                   <Button
                     size="small"
                     variant="contained"
-                    disabled={!emitter.perms.can_emit_invoice || emittingId === r.id}
-                    onClick={async () => {
-                      setEmittingId(r.id);
-                      try {
-                        await api.post(`/fiscal/invoice/manual`, { payment_id: r.id, fiscal_emitter_id: emitter.id });
-                        load();
-                      } catch (e: any) {
-                        const raw = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Error al emitir';
-                        setErrorDialog({ open: true, raw, ref: r.payment_reference });
-                      } finally {
-                        setEmittingId(null);
-                      }
+                    disabled={!emitter.perms.can_emit_invoice}
+                    onClick={() => {
+                      setPrefill({
+                        payment_id: r.id,
+                        reference: r.payment_reference,
+                        amount: parseFloat(r.amount),
+                        receptor: {
+                          rfc: r.rfc || '',
+                          razon_social: r.razon_social || r.full_name || '',
+                          regimen_fiscal: undefined,
+                          cp: undefined,
+                          email: r.email || '',
+                          user_id: r.user_id || null,
+                        },
+                      });
                     }}
                     sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK }, textTransform: 'none' }}
                   >
-                    {emittingId === r.id ? 'Emitiendo…' : 'Emitir CFDI'}
+                    Emitir CFDI
                   </Button>
                 </TableCell>
               </TableRow>
@@ -2125,83 +2161,14 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
         </Table>
       )}
 
-      {/* Diálogo de error formateado al timbrar pago pendiente */}
-      <Dialog
-        open={errorDialog.open}
-        onClose={() => setErrorDialog({ open: false, raw: '' })}
-        PaperProps={{ sx: { borderRadius: 3, overflow: 'hidden', minWidth: 460, boxShadow: '0 24px 60px rgba(0,0,0,0.25)' } }}
-      >
-        <Box sx={{
-          bgcolor: BLACK, color: 'white', px: 3, py: 2.25,
-          display: 'flex', alignItems: 'center', gap: 1.5,
-          borderBottom: `4px solid ${RED}`,
-        }}>
-          <Box sx={{
-            width: 42, height: 42, borderRadius: '50%',
-            bgcolor: `${RED}22`, color: RED,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            border: `2px solid ${RED}`,
-          }}>
-            <WarningAmberIcon />
-          </Box>
-          <Box>
-            <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', lineHeight: 1.2 }}>
-              No se pudo emitir el CFDI
-            </Typography>
-            <Typography sx={{ fontSize: '0.75rem', opacity: 0.75 }}>
-              {errorDialog.ref ? `Referencia ${errorDialog.ref}` : 'Pago pendiente por timbrar'}
-            </Typography>
-          </Box>
-        </Box>
-        <DialogContent sx={{ px: 3, pt: 2.5, pb: 1.5 }}>
-          {(() => {
-            const { headline, issues } = formatInvoiceError(errorDialog.raw);
-            return (
-              <>
-                <Typography sx={{ fontSize: '0.92rem', color: '#444', mb: 1.5 }}>
-                  {headline}
-                </Typography>
-                {issues.length > 0 ? (
-                  <Box sx={{
-                    bgcolor: `${RED}0A`,
-                    border: `1px solid ${RED}33`,
-                    borderRadius: 2,
-                    p: 1.5,
-                  }}>
-                    <Typography sx={{ fontSize: '0.78rem', color: '#555', fontWeight: 600, mb: 0.75 }}>
-                      Revisa los siguientes campos:
-                    </Typography>
-                    <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-                      {issues.map((it, i) => (
-                        <Box component="li" key={i} sx={{ fontSize: '0.85rem', color: '#333', mb: 0.5 }}>
-                          <strong style={{ color: BLACK }}>{it.field}:</strong> {it.message}
-                        </Box>
-                      ))}
-                    </Box>
-                  </Box>
-                ) : (
-                  <Box sx={{
-                    bgcolor: '#FAFAFA', border: '1px solid #EEE',
-                    borderRadius: 2, p: 1.5, fontSize: '0.82rem', color: '#555',
-                    whiteSpace: 'pre-wrap',
-                  }}>
-                    {errorDialog.raw}
-                  </Box>
-                )}
-              </>
-            );
-          })()}
-        </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2.5, pt: 0.5 }}>
-          <Button
-            onClick={() => setErrorDialog({ open: false, raw: '' })}
-            variant="contained"
-            sx={{ textTransform: 'none', fontWeight: 700, bgcolor: ORANGE, '&:hover': { bgcolor: BLACK }, px: 3 }}
-          >
-            Entendido
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {/* Diálogo de configuración de factura desde un pago pendiente */}
+      <NewInvoiceDialog
+        open={!!prefill}
+        emitter={emitter}
+        onClose={() => setPrefill(null)}
+        onCreated={() => { setPrefill(null); load(); }}
+        prefill={prefill || undefined}
+      />
     </Box>
   );
 }

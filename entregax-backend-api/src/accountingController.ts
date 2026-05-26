@@ -270,9 +270,24 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
         const access = await checkEmitterAccess(userId!, role, emitterId);
         if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
 
+        // Sólo mostrar pagos de PO Box si esta empresa emisora tiene asignado el
+        // servicio POBOX_USA en service_fiscal_config. Evita que cualquier
+        // empresa facture pagos cobrados por otro servicio/empresa.
+        const ownsService = await pool.query(
+            `SELECT 1 FROM service_fiscal_config
+              WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1
+              LIMIT 1`,
+            [emitterId]
+        ).catch(() => ({ rows: [] as any[] }));
+
+        if (ownsService.rows.length === 0) {
+            return res.json({ success: true, pending: [] });
+        }
+
         const r = await pool.query(`
             SELECT pp.id, pp.payment_reference, pp.amount, pp.currency, pp.payment_method,
                    pp.paid_at, pp.created_at, pp.facturada, pp.factura_error,
+                   'POBOX_USA'::text AS service_type,
                    u.id AS user_id, u.full_name, u.email, u.rfc, u.razon_social
             FROM pobox_payments pp
             LEFT JOIN users u ON u.id = pp.user_id
@@ -286,6 +301,7 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
             return pool.query(`
                 SELECT pp.id, pp.payment_reference, pp.amount, pp.currency, pp.payment_method,
                        pp.paid_at, pp.created_at, pp.facturada, pp.factura_error,
+                       'POBOX_USA'::text AS service_type,
                        u.id AS user_id, u.full_name, u.email
                 FROM pobox_payments pp
                 LEFT JOIN users u ON u.id = pp.user_id
@@ -331,6 +347,25 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
     const access = await checkEmitterAccess(userId!, role, Number(fiscal_emitter_id));
     if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
 
+    // Validar que esta empresa emisora sea la asignada al servicio POBOX_USA.
+    // Evita que se facture desde otra empresa un pago que pertenece a otro servicio.
+    try {
+        const owns = await pool.query(
+            `SELECT 1 FROM service_fiscal_config
+              WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1
+              LIMIT 1`,
+            [Number(fiscal_emitter_id)]
+        );
+        if (owns.rows.length === 0) {
+            return res.status(403).json({
+                error: 'Empresa no autorizada para este servicio',
+                message: 'Esta empresa emisora no tiene asignado el servicio PO Box. Cambia a la empresa asignada para emitir este CFDI.',
+            });
+        }
+    } catch (e: any) {
+        console.warn('[emitManualCFDI] no se pudo validar service_fiscal_config:', e?.message);
+    }
+
     try {
         // 1. Obtener datos del pago y del usuario
         const payRes = await pool.query(`
@@ -365,8 +400,25 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
         // 3. Crear cliente Facturama con credenciales del emisor
         const client = await FacturamaClient.fromEmitterId(fiscal_emitter_id);
 
+        // 3.1 Folio auto-incremental por emisor (serie NULL).
+        let autoFolio = 1;
+        try {
+            const maxRes = await pool.query(
+                `SELECT COALESCE(MAX(folio::int), 0) AS max_folio
+                   FROM facturas_emitidas
+                  WHERE fiscal_emitter_id = $1
+                    AND serie IS NULL
+                    AND folio ~ '^[0-9]+$'`,
+                [fiscal_emitter_id]
+            );
+            autoFolio = Number(maxRes.rows[0]?.max_folio || 0) + 1;
+        } catch (e) {
+            console.warn('[emitManualCFDI] no se pudo calcular folio automático, usando 1:', e);
+        }
+
         // 4. Emitir CFDI
         const invoice = await client.invoices.create({
+            folio_number: autoFolio,
             customer: {
                 legal_name: receptorNombre,
                 tax_id: receptorRfc,
@@ -569,6 +621,36 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
     const currency = String(body.currency || 'MXN').toUpperCase();
     const serie = body.serie ? String(body.serie) : undefined;
     let folio: number | undefined = body.folio ? Number(body.folio) : undefined;
+    const linkPoboxPaymentId = body.link_pobox_payment_id ? Number(body.link_pobox_payment_id) : null;
+
+    // Si vamos a vincular a un pago PO Box, validar que esta empresa sea la
+    // asignada al servicio POBOX_USA y que el pago no esté facturado.
+    if (linkPoboxPaymentId) {
+        try {
+            const owns = await pool.query(
+                `SELECT 1 FROM service_fiscal_config
+                  WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1
+                  LIMIT 1`,
+                [emitterId]
+            );
+            if (owns.rows.length === 0) {
+                return res.status(403).json({
+                    error: 'Empresa no autorizada para este servicio',
+                    message: 'Esta empresa emisora no tiene asignado el servicio PO Box.',
+                });
+            }
+        } catch {}
+        const payChk = await pool.query(
+            `SELECT id, facturada FROM pobox_payments WHERE id = $1`,
+            [linkPoboxPaymentId]
+        );
+        if (payChk.rows.length === 0) {
+            return res.status(404).json({ error: 'El pago vinculado no existe' });
+        }
+        if (payChk.rows[0].facturada) {
+            return res.status(409).json({ error: 'El pago vinculado ya fue facturado' });
+        }
+    }
 
     // Auto-asignar folio si no se especificó: siguiente consecutivo por (emisor, serie).
     // Arranca en 1 para empresas que aún no han emitido nada.
@@ -732,6 +814,21 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
             throw txErr;
         } finally {
             dbClient.release();
+        }
+
+        // Si la factura fue creada desde "Pendientes por Timbrar", marcar el
+        // pago PO Box como facturado para que desaparezca de la lista.
+        if (linkPoboxPaymentId) {
+            try {
+                await pool.query(
+                    `UPDATE pobox_payments
+                        SET facturada = TRUE, factura_error = NULL
+                      WHERE id = $1`,
+                    [linkPoboxPaymentId]
+                );
+            } catch (e: any) {
+                console.warn('[createManualInvoice] no se pudo marcar pobox_payment como facturada:', e?.message);
+            }
         }
 
         return res.json({
