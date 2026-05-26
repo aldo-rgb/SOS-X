@@ -271,16 +271,30 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
         if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
 
         // Sólo mostrar pagos de PO Box si esta empresa emisora tiene asignado el
-        // servicio POBOX_USA en service_fiscal_config. Evita que cualquier
-        // empresa facture pagos cobrados por otro servicio/empresa.
+        // servicio POBOX_USA. Aceptamos cualquiera de las dos tablas de mapeo
+        // (service_company_config -- legacy/multi-cuenta -- o service_fiscal_config).
         const ownsService = await pool.query(
-            `SELECT 1 FROM service_fiscal_config
-              WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1
+            `SELECT 1
+               FROM service_company_config
+              WHERE service_type = 'POBOX_USA'
+                AND emitter_id = $1
+                AND COALESCE(is_active, TRUE) = TRUE
               LIMIT 1`,
             [emitterId]
         ).catch(() => ({ rows: [] as any[] }));
 
-        if (ownsService.rows.length === 0) {
+        let owns = ownsService.rows.length > 0;
+        if (!owns) {
+            const alt = await pool.query(
+                `SELECT 1 FROM service_fiscal_config
+                  WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1
+                  LIMIT 1`,
+                [emitterId]
+            ).catch(() => ({ rows: [] as any[] }));
+            owns = alt.rows.length > 0;
+        }
+
+        if (!owns) {
             return res.json({ success: true, pending: [] });
         }
 
@@ -350,20 +364,32 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
     // Validar que esta empresa emisora sea la asignada al servicio POBOX_USA.
     // Evita que se facture desde otra empresa un pago que pertenece a otro servicio.
     try {
-        const owns = await pool.query(
-            `SELECT 1 FROM service_fiscal_config
-              WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1
+        const owns1 = await pool.query(
+            `SELECT 1 FROM service_company_config
+              WHERE service_type = 'POBOX_USA'
+                AND emitter_id = $1
+                AND COALESCE(is_active, TRUE) = TRUE
               LIMIT 1`,
             [Number(fiscal_emitter_id)]
-        );
-        if (owns.rows.length === 0) {
+        ).catch(() => ({ rows: [] as any[] }));
+        let ok = owns1.rows.length > 0;
+        if (!ok) {
+            const owns2 = await pool.query(
+                `SELECT 1 FROM service_fiscal_config
+                  WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1
+                  LIMIT 1`,
+                [Number(fiscal_emitter_id)]
+            ).catch(() => ({ rows: [] as any[] }));
+            ok = owns2.rows.length > 0;
+        }
+        if (!ok) {
             return res.status(403).json({
                 error: 'Empresa no autorizada para este servicio',
                 message: 'Esta empresa emisora no tiene asignado el servicio PO Box. Cambia a la empresa asignada para emitir este CFDI.',
             });
         }
     } catch (e: any) {
-        console.warn('[emitManualCFDI] no se pudo validar service_fiscal_config:', e?.message);
+        console.warn('[emitManualCFDI] no se pudo validar mapeo empresa-servicio:', e?.message);
     }
 
     try {
@@ -627,13 +653,25 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
     // asignada al servicio POBOX_USA y que el pago no esté facturado.
     if (linkPoboxPaymentId) {
         try {
-            const owns = await pool.query(
-                `SELECT 1 FROM service_fiscal_config
-                  WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1
+            const owns1 = await pool.query(
+                `SELECT 1 FROM service_company_config
+                  WHERE service_type = 'POBOX_USA'
+                    AND emitter_id = $1
+                    AND COALESCE(is_active, TRUE) = TRUE
                   LIMIT 1`,
                 [emitterId]
-            );
-            if (owns.rows.length === 0) {
+            ).catch(() => ({ rows: [] as any[] }));
+            let ok = owns1.rows.length > 0;
+            if (!ok) {
+                const owns2 = await pool.query(
+                    `SELECT 1 FROM service_fiscal_config
+                      WHERE service_type = 'POBOX_USA' AND fiscal_emitter_id = $1
+                      LIMIT 1`,
+                    [emitterId]
+                ).catch(() => ({ rows: [] as any[] }));
+                ok = owns2.rows.length > 0;
+            }
+            if (!ok) {
                 return res.status(403).json({
                     error: 'Empresa no autorizada para este servicio',
                     message: 'Esta empresa emisora no tiene asignado el servicio PO Box.',
