@@ -1636,15 +1636,18 @@ export const getPoboxPaymentHistory = async (req: AuthRequest, res: Response): P
         const payments = [];
         for (const row of result.rows) {
             let packages: any[] = [];
-            if (Array.isArray(row.package_ids) && row.package_ids.length > 0) {
+            const pkgIds = typeof row.package_ids === 'string'
+                ? JSON.parse(row.package_ids)
+                : row.package_ids;
+            if (Array.isArray(pkgIds) && pkgIds.length > 0) {
                 try {
                     const pkgResult = await pool.query(`
-                        SELECT id, tracking_internal, international_tracking, weight, 
+                        SELECT id, tracking_internal, international_tracking, weight,
                                assigned_cost_mxn, saldo_pendiente, national_shipping_cost,
                                national_carrier, status
                         FROM packages
                         WHERE id = ANY($1)
-                    `, [row.package_ids]);
+                    `, [pkgIds]);
                     packages = pkgResult.rows;
                 } catch (e) {
                     // ignore
