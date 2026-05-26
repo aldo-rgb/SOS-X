@@ -59,6 +59,7 @@ type Wallet = {
   balance_mxn: string | number;
   pending_to_verify_mxn: string | number;
   branch_name?: string | null;
+  currency?: string;
 };
 
 type ContainerInfo = {
@@ -94,6 +95,7 @@ const CATEGORIES: { key: string; label: string; icon: string }[] = [
   { key: 'refacciones', label: 'Refacciones', icon: '🔩' },
   { key: 'hidratacion', label: 'Hielo/Agua', icon: '💧' },
   { key: 'peaje_internacional', label: 'Peaje internacional', icon: '🛂' },
+  { key: 'propina', label: 'Propina', icon: '💵' },
   { key: 'otros', label: 'Otros', icon: '📝' },
 ];
 
@@ -760,7 +762,7 @@ export default function PettyCashScreen({ navigation, route }: any) {
               ))}
             </View>
 
-            <Text style={styles.label}>Monto (MXN)</Text>
+            <Text style={styles.label}>Monto ({wallet?.currency || 'MXN'})</Text>
             <TextInput
               style={styles.input}
               keyboardType="decimal-pad"

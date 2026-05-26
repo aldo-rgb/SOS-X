@@ -95,6 +95,7 @@ const CATEGORIES: Record<string, { label: string; icon: string }> = {
   refacciones: { label: 'Refacciones', icon: '🔩' },
   hidratacion: { label: 'Hielo/Agua', icon: '💧' },
   peaje_internacional: { label: 'Peaje internacional', icon: '🛂' },
+  propina: { label: 'Propina', icon: '💵' },
   otros: { label: 'Otros', icon: '📝' },
 };
 

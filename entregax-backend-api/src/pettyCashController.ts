@@ -123,6 +123,7 @@ export const EXPENSE_CATEGORIES = [
   { key: 'refacciones',       label: 'Refacciones',          icon: '🔩' },
   { key: 'hidratacion',       label: 'Hielo / Agua',         icon: '💧' },
   { key: 'peaje_internacional', label: 'Peaje internacional', icon: '🛂' },
+  { key: 'propina',           label: 'Propina',              icon: '💵' },
   { key: 'otros',             label: 'Otros',                icon: '📝' }
 ];
 
