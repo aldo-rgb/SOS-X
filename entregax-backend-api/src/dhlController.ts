@@ -770,15 +770,18 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       ? parseFloat(pricing.dhl_high_value_price)
       : parseFloat(pricing.dhl_standard_price);
 
-    // Obtener tipo de cambio desde exchange_rate_config (mismo origen que el dashboard web)
+    // Obtener tipo de cambio live desde exchange_rate_config, mismo origen que el dashboard web:
+    // 1) tipo_cambio_final de dhl_monterrey (tarifa específica DHL configurada)
+    // 2) si no existe ese servicio, usar ultimo_tc_api de cualquier fila activa (TC Banxico)
+    // 3) fallback al env var / 18.50
     let exchangeRate = parseFloat(process.env.DHL_EXCHANGE_RATE || '18.50');
     try {
       const fxRes = await pool.query(
-        `SELECT COALESCE(tipo_cambio_final, ultimo_tc_api)::numeric as tc
-         FROM exchange_rate_config
-         WHERE estado = true
-         ORDER BY tipo_cambio_final DESC NULLS LAST
-         LIMIT 1`
+        `SELECT
+           COALESCE(
+             (SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'dhl_monterrey' AND estado = true LIMIT 1),
+             (SELECT ultimo_tc_api      FROM exchange_rate_config WHERE estado = true AND ultimo_tc_api IS NOT NULL LIMIT 1)
+           )::numeric as tc`
       );
       if (fxRes.rows.length > 0 && fxRes.rows[0].tc) {
         exchangeRate = parseFloat(fxRes.rows[0].tc) || exchangeRate;
