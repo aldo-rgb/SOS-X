@@ -2965,6 +2965,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           ds.national_tracking,
           ds.import_cost_usd as declared_value,
           COALESCE(ds.import_tax_mxn, 0) as import_tax_mxn,
+          ds.exchange_rate,
           (SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1) as gex_total_cost
         FROM dhl_shipments ds
         WHERE (ds.user_id = $1 OR ds.box_id = $2)

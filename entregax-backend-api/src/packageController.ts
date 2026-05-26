@@ -3302,6 +3302,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 import_cost_usd: pkg.import_cost_usd ? parseFloat(pkg.import_cost_usd) : null,
                 import_cost_mxn: pkg.import_cost_mxn ? parseFloat(pkg.import_cost_mxn) : null,
                 import_tax_mxn: pkg.import_tax_mxn ? parseFloat(pkg.import_tax_mxn) : null,
+                exchange_rate: pkg.exchange_rate ? parseFloat(pkg.exchange_rate) : null,
                 national_cost_mxn: pkg.national_cost_mxn ? parseFloat(pkg.national_cost_mxn) : null,
                 total_cost_mxn: pkg.total_cost_mxn ? parseFloat(pkg.total_cost_mxn) : null,
                 paid_at: pkg.paid_at,

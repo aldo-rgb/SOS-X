@@ -10541,9 +10541,11 @@ export default function DashboardClient() {
                       }
                     } else if (isDhl && selectedPackage.monto_currency === 'USD' && displayMonto > 0) {
                       // AA DHL: monto = import_cost_usd (es USD)
+                      // Usar el TC guardado al momento de recibir; si no existe, caer en tcConfig.
+                      const dhlStoredTc = Number((selectedPackage as any).exchange_rate || 0);
                       costoUSD = displayMonto;
-                      montoMXN = costoUSD * tcConfig;
-                      tcToShow = tcConfig;
+                      tcToShow = dhlStoredTc > 0 ? dhlStoredTc : tcConfig;
+                      montoMXN = costoUSD * tcToShow;
                       if (selectedPackage.product_type) detailLine = dhlTypeLabel;
                     } else if (hasAirFrozenPrice) {
                       // AÉREO CHINA: air_sale_price es USD

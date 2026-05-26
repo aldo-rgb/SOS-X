@@ -607,14 +607,19 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               const estimatedUsd = Number((currentPkg as any)?.estimated_cost_usd || 0);
               const fxFromAssigned = Number((currentPkg as any)?.registered_exchange_rate || 0);
               const fxFromEstimated = Number((currentPkg as any)?.estimated_fx_rate || 0);
-              // DHL: usar import_cost_usd como costo USD; derivar TC de import_cost_mxn / import_cost_usd
+              // DHL: usar import_cost_usd como costo USD; TC preferido: campo exchange_rate guardado en DB.
+              // Fallback: derivar de (import_cost_mxn - import_tax_mxn) / import_cost_usd para corregir
+              // que import_cost_mxn incluye el impuesto, lo cual inflaría el TC derivado.
               const dhlImportUsd = isDHL ? Number((currentPkg as any)?.import_cost_usd || 0) : 0;
               const costoUSD = isDHL
                 ? dhlImportUsd
                 : (assignedUsd > 0 ? assignedUsd : estimatedUsd);
-              const dhlTc = isDHL && dhlImportUsd > 0 && dhlImport > 0
-                ? dhlImport / dhlImportUsd
+              const dhlStoredTc = isDHL ? Number((currentPkg as any)?.exchange_rate || 0) : 0;
+              const dhlTaxMxn = isDHL ? Number((currentPkg as any)?.import_tax_mxn || 0) : 0;
+              const dhlDerivedTc = isDHL && dhlImportUsd > 0 && dhlImport > 0
+                ? (dhlImport - dhlTaxMxn) / dhlImportUsd
                 : 0;
+              const dhlTc = dhlStoredTc > 0 ? dhlStoredTc : dhlDerivedTc;
               const tcToShow = dhlTc > 0 ? dhlTc : (fxFromAssigned > 0 ? fxFromAssigned : (fxFromEstimated > 0 ? fxFromEstimated : 0));
 
               // Si ya hay costo asignado, preferir applied_*; si no, usar estimated_*

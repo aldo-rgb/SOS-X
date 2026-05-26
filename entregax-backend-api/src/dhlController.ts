@@ -770,8 +770,20 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       ? parseFloat(pricing.dhl_high_value_price)
       : parseFloat(pricing.dhl_standard_price);
 
-    // Obtener tipo de cambio (por ahora fijo, después de API Banxico)
-    const exchangeRate = parseFloat(process.env.DHL_EXCHANGE_RATE || '18.50');
+    // Obtener tipo de cambio desde exchange_rate_config (mismo origen que el dashboard web)
+    let exchangeRate = parseFloat(process.env.DHL_EXCHANGE_RATE || '18.50');
+    try {
+      const fxRes = await pool.query(
+        `SELECT COALESCE(tipo_cambio_final, ultimo_tc_api)::numeric as tc
+         FROM exchange_rate_config
+         WHERE estado = true
+         ORDER BY tipo_cambio_final DESC NULLS LAST
+         LIMIT 1`
+      );
+      if (fxRes.rows.length > 0 && fxRes.rows[0].tc) {
+        exchangeRate = parseFloat(fxRes.rows[0].tc) || exchangeRate;
+      }
+    } catch (_) { /* fallback al env var */ }
     const importCostMxn = importCostUsd * exchangeRate;
 
     // Calcular peso volumétrico
