@@ -778,6 +778,60 @@ function newEmptyItem(): ManualItem {
   };
 }
 
+// Convierte un error crudo de Facturama / backend en un objeto presentable.
+function formatInvoiceError(raw?: string | null): { headline: string; issues: { field: string; message: string }[] } {
+  if (!raw) return { headline: 'Ocurrió un error al timbrar la factura.', issues: [] };
+  const text = String(raw).trim();
+
+  // Diccionario campo -> etiqueta amigable en español.
+  const FIELD_LABELS: Record<string, string> = {
+    'cfdiToCreate.Folio': 'Folio',
+    'cfdiToCreate.Serie': 'Serie',
+    'cfdiToCreate.PaymentForm': 'Forma de pago',
+    'cfdiToCreate.PaymentMethod': 'Método de pago',
+    'cfdiToCreate.Currency': 'Moneda',
+    'cfdiToCreate.Date': 'Fecha',
+    'cfdiToCreate.Receiver': 'Receptor',
+    'cfdiToCreate.Receiver.Rfc': 'RFC del receptor',
+    'cfdiToCreate.Receiver.Name': 'Razón social del receptor',
+    'cfdiToCreate.Receiver.FiscalRegime': 'Régimen fiscal del receptor',
+    'cfdiToCreate.Receiver.TaxZipCode': 'Código postal fiscal del receptor',
+    'cfdiToCreate.Receiver.CfdiUse': 'Uso de CFDI',
+    'cfdiToCreate.Items': 'Conceptos',
+    'cfdiToCreate.Items.Quantity': 'Cantidad del concepto',
+    'cfdiToCreate.Items.UnitPrice': 'Precio unitario',
+    'cfdiToCreate.Items.ProductCode': 'Clave SAT del producto',
+    'cfdiToCreate.Items.UnitCode': 'Clave SAT de unidad',
+    'cfdiToCreate.Items.Description': 'Descripción del concepto',
+  };
+
+  // Separar headline del listado por el primer guion largo "—".
+  let headline = 'No se pudo emitir la factura.';
+  let rest = text;
+  const dashIdx = text.indexOf('—');
+  if (dashIdx > -1) {
+    headline = text.slice(0, dashIdx).trim().replace(/\.$/, '') + '.';
+    rest = text.slice(dashIdx + 1).trim();
+  }
+
+  // Cada validación viene separada por " | ".
+  const chunks = rest.split('|').map(s => s.trim()).filter(Boolean);
+  const issues = chunks.map(c => {
+    const m = c.match(/^([\w.]+)\s*:\s*(.+)$/);
+    if (m) {
+      const rawField = m[1];
+      const label = FIELD_LABELS[rawField] || rawField.split('.').pop() || rawField;
+      let msg = m[2].trim();
+      // Traducir frase común de Facturama.
+      msg = msg.replace(/The (\w+) field is required\.?/i, 'Este campo es obligatorio.');
+      return { field: label, message: msg };
+    }
+    return { field: 'Error', message: c };
+  });
+
+  return { headline, issues };
+}
+
 function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
   open: boolean; emitter: Emitter; onClose: () => void; onCreated: () => void;
 }) {
@@ -1163,7 +1217,54 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
           </Stack>
         )}
 
-        {err && <Alert severity="error" sx={{ mt: 2 }}>{err}</Alert>}
+        {err && (() => {
+          const { headline, issues } = formatInvoiceError(err);
+          return (
+            <Box
+              sx={{
+                mt: 2,
+                borderRadius: 2,
+                border: `1px solid ${RED}33`,
+                bgcolor: `${RED}0A`,
+                overflow: 'hidden',
+              }}
+            >
+              <Box sx={{
+                display: 'flex', alignItems: 'center', gap: 1.25,
+                px: 2, py: 1.25,
+                borderLeft: `4px solid ${RED}`,
+                bgcolor: `${RED}15`,
+              }}>
+                <WarningAmberIcon sx={{ color: RED }} />
+                <Box sx={{ flex: 1 }}>
+                  <Typography sx={{ fontWeight: 700, color: RED, fontSize: '0.95rem' }}>
+                    No se pudo emitir la factura
+                  </Typography>
+                  <Typography sx={{ fontSize: '0.8rem', color: '#666' }}>
+                    {headline}
+                  </Typography>
+                </Box>
+                <IconButton size="small" onClick={() => setErr(null)} aria-label="cerrar">
+                  <CancelIcon fontSize="small" sx={{ color: '#999' }} />
+                </IconButton>
+              </Box>
+              {issues.length > 0 && (
+                <Box sx={{ px: 2.5, py: 1.5 }}>
+                  <Typography sx={{ fontSize: '0.78rem', color: '#555', fontWeight: 600, mb: 0.75 }}>
+                    Revisa los siguientes campos:
+                  </Typography>
+                  <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                    {issues.map((it, i) => (
+                      <Box component="li" key={i} sx={{ fontSize: '0.85rem', color: '#333', mb: 0.5 }}>
+                        <strong style={{ color: BLACK }}>{it.field}:</strong> {it.message}
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          );
+        })()}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Cancelar</Button>
