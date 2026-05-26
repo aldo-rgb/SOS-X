@@ -333,7 +333,24 @@ export const createInvoice = async (
         facturama_environment: emitter.facturama_environment
       });
 
+      // Folio auto-incremental por emisor (sin serie). Arranca en 1.
+      let autoFolio = 1;
+      try {
+        const maxRes = await pool.query(
+          `SELECT COALESCE(MAX(folio::int), 0) AS max_folio
+             FROM facturas_emitidas
+            WHERE fiscal_emitter_id = $1
+              AND serie IS NULL
+              AND folio ~ '^[0-9]+$'`,
+          [emitter.id]
+        );
+        autoFolio = Number(maxRes.rows[0]?.max_folio || 0) + 1;
+      } catch (e) {
+        console.warn('[fiscalController] no se pudo calcular folio automático, usando 1:', e);
+      }
+
       factura = await facturama.invoices.create({
+        folio_number: autoFolio,
         customer: {
           legal_name: fiscalData.fiscal_razon_social,
           tax_id: fiscalData.fiscal_rfc,
