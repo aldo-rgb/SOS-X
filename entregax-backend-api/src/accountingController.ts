@@ -873,6 +873,11 @@ export const deleteEmittedInvoice = async (req: AuthRequest, res: Response): Pro
     const invoiceId = parseInt(String(req.params.invoiceId), 10);
     if (!emitterId || !invoiceId) return res.status(400).json({ error: 'Parámetros inválidos' });
 
+    // Borrado físico restringido a super_admin (acción irreversible).
+    if (role !== 'super_admin') {
+        return res.status(403).json({ error: 'Sólo super_admin puede eliminar facturas fantasma' });
+    }
+
     const access = await checkEmitterAccess(userId!, role, emitterId);
     if (!access.ok || !access.perms?.can_cancel_invoice) {
         return res.status(403).json({ error: 'Sin permiso' });

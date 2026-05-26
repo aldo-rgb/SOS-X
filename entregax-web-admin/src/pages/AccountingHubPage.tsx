@@ -347,6 +347,10 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
   const [search, setSearch] = useState('');
   const [newOpen, setNewOpen] = useState(false);
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' | 'warning' }>({ open: false, message: '', severity: 'info' });
+  const currentRole = (() => {
+    try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; }
+  })();
+  const isSuperAdmin = currentRole === 'super_admin';
 
   const satStatusLabel = (s?: string) => {
     switch ((s || '').toLowerCase()) {
@@ -530,8 +534,8 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                       </IconButton>
                     </Tooltip>
                   )}
-                  {!r.facturama_id && !r.uuid_sat && (
-                    <Tooltip title="Eliminar fila fantasma (CFDI no timbrado)">
+                  {isSuperAdmin && !r.facturama_id && !r.uuid_sat && (
+                    <Tooltip title="Eliminar fila fantasma (CFDI no timbrado) — sólo super admin">
                       <IconButton size="small" onClick={async () => {
                         if (!window.confirm('Esta factura no quedó timbrada en el SAT. ¿Eliminarla del registro?')) return;
                         try {
