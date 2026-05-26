@@ -2920,13 +2920,14 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       const dhlShipQuery = await pool.query(`
         SELECT 
           ds.id,
-          ds.inbound_tracking as tracking,
+          COALESCE(ds.secondary_tracking, ds.inbound_tracking) as tracking,
+          CASE WHEN ds.secondary_tracking IS NOT NULL THEN ds.inbound_tracking ELSE NULL END as dhl_child_tracking,
           COALESCE(ds.national_tracking, 'DHL') as tracking_provider,
           COALESCE(ds.description, 'Paquete DHL') as descripcion,
           'AA_DHL' as servicio,
           'dhl' as shipment_type,
           ds.status,
-          CASE ds.status 
+          CASE ds.status
             WHEN 'pending_inspection' THEN '🔍 Pendiente Inspección'
             WHEN 'received_mty' THEN '📦 Recibido MTY'
             WHEN 'inspected' THEN '✅ Inspeccionado'
@@ -2947,8 +2948,8 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           ds.has_gex,
           ds.gex_folio,
           ds.weight_kg as weight,
-          CASE 
-            WHEN ds.length_cm IS NOT NULL AND ds.width_cm IS NOT NULL AND ds.height_cm IS NOT NULL 
+          CASE
+            WHEN ds.length_cm IS NOT NULL AND ds.width_cm IS NOT NULL AND ds.height_cm IS NOT NULL
               THEN CONCAT(ds.length_cm, ' × ', ds.width_cm, ' × ', ds.height_cm, ' cm')
             ELSE NULL
           END as dimensions,
@@ -2963,6 +2964,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           ds.national_cost_mxn as national_shipping_cost,
           ds.national_tracking,
           ds.import_cost_usd as declared_value,
+          COALESCE(ds.import_tax_mxn, 0) as import_tax_mxn,
           (SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1) as gex_total_cost
         FROM dhl_shipments ds
         WHERE (ds.user_id = $1 OR ds.box_id = $2)

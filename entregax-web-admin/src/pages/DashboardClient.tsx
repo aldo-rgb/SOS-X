@@ -201,6 +201,8 @@ interface PackageTracking {
   product_type?: string;
   monto_currency?: string;
   dhl_sale_price_usd?: number;
+  dhl_child_tracking?: string;
+  import_tax_mxn?: number;
   // Campos marítimo
   maritime_sale_price_usd?: number;
   merchandise_type?: string;
@@ -5973,6 +5975,12 @@ export default function DashboardClient() {
                             )}
                             {isPaid && pkg.status !== 'delivered' && <Chip label="✓" size="small" color="success" sx={{ height: 16, fontSize: '0.55rem', minWidth: 'auto' }} />}
                           </Box>
+                          {/* Guía JJD (hijo) para paquetes DHL con master tracking */}
+                          {pkg.dhl_child_tracking && (
+                            <Typography variant="caption" sx={{ display: 'block', color: '#999', fontFamily: 'monospace', fontSize: isMobile ? '0.6rem' : '0.68rem' }} noWrap>
+                              📦 {pkg.dhl_child_tracking}
+                            </Typography>
+                          )}
                           {/* Guía del proveedor (origen) */}
                           {(pkg.tracking_provider ||
                             (pkg.is_master && pkg.included_guides && pkg.included_guides.some(g => g.tracking_provider))) && (
@@ -10681,9 +10689,10 @@ export default function DashboardClient() {
                           const paqMXN = (Number(selectedPackage.national_shipping_cost) || 0) > 0
                             ? (Number(selectedPackage.national_shipping_cost) || 0)
                             : paqFromChildren;
-                          const hasDesglose = gexMXN > 0 || paqMXN > 0;
+                          const importTaxMXN = isDhl ? (Number(selectedPackage.import_tax_mxn) || 0) : 0;
+                          const hasDesglose = gexMXN > 0 || paqMXN > 0 || importTaxMXN > 0;
                           const envioMXN = montoMXN;
-                          const totalMXN = hasDesglose ? envioMXN + gexMXN + paqMXN : montoMXN;
+                          const totalMXN = hasDesglose ? envioMXN + gexMXN + paqMXN + importTaxMXN : montoMXN;
                           return (
                             <>
                               {hasDesglose && (
@@ -10716,6 +10725,26 @@ export default function DashboardClient() {
                                       </Typography>
                                     </Box>
                                   )}
+                                  {importTaxMXN > 0 && (
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                      <Typography variant="caption" color="text.secondary">🧾 Cargo de impuestos DHL:</Typography>
+                                      <Typography variant="caption" fontWeight="bold">
+                                        ${importTaxMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                      </Typography>
+                                    </Box>
+                                  )}
+                                </>
+                              )}
+                              {/* Import tax DHL fuera del desglose (cuando no hay otros conceptos) */}
+                              {!hasDesglose && importTaxMXN > 0 && (
+                                <>
+                                  <Divider sx={{ my: 1 }} />
+                                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <Typography variant="caption" color="text.secondary">🧾 Cargo de impuestos DHL:</Typography>
+                                    <Typography variant="caption" fontWeight="bold">
+                                      ${importTaxMXN.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                                    </Typography>
+                                  </Box>
                                 </>
                               )}
 

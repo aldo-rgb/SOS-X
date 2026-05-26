@@ -153,6 +153,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     last_mile: <LocalShippingIcon />,
     paquete_express: <ApiIcon />,
     dhl_rates: <SellIcon />,
+    dhl_import_tax: <LocalAtmIcon />,
     anticipos: <WalletIcon />,
     transporte_control: <TruckIcon />,
     demora_control: <AccessTimeIcon />,

@@ -819,9 +819,9 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
     await createNotification(
       userId,
       'PACKAGE_RECEIVED',
-      `📦 Tu paquete DHL con guía ${inbound_tracking} ha llegado a nuestro CEDIS en Monterrey y ha sido auditado correctamente.`,
-      { 
-        tracking: inbound_tracking, 
+      `📦 Tu paquete DHL con guía ${secondary_tracking || inbound_tracking} ha llegado a nuestro CEDIS en Monterrey y ha sido auditado correctamente.`,
+      {
+        tracking: secondary_tracking || inbound_tracking,
         shipmentId: result.rows[0].id,
         service: 'DHL'
       },
@@ -841,8 +841,9 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       const wantWhatsapp = prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true);
 
       const notifTitle = `📦 Paquete recibido · DHL`;
-      const notifBody = `Tu paquete DHL ${inbound_tracking} llegó a nuestro CEDIS en Monterrey.`;
-      const notifData = { screen: 'Home', tracking: inbound_tracking, service: 'DHL' };
+      const masterTracking = secondary_tracking || inbound_tracking;
+      const notifBody = `Tu paquete DHL ${masterTracking} llegó a nuestro CEDIS en Monterrey.`;
+      const notifData = { screen: 'Home', tracking: masterTracking, service: 'DHL' };
 
       if (wantPush && wantService) {
         const { sendPushToUsers } = await import('./pushService').catch(() => ({ sendPushToUsers: undefined })) as any;
@@ -854,7 +855,7 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       if (wantWhatsapp && wantService && prefs.phone) {
         const { sendPackageArrival } = await import('./whatsappService').catch(() => ({ sendPackageArrival: undefined })) as any;
         if (typeof sendPackageArrival === 'function') {
-          await sendPackageArrival(prefs.phone, prefs.full_name || 'Cliente', inbound_tracking, 'DHL').catch((e: any) => console.warn('[DHL/whatsapp] failed:', e?.message));
+          await sendPackageArrival(prefs.phone, prefs.full_name || 'Cliente', masterTracking, 'DHL').catch((e: any) => console.warn('[DHL/whatsapp] failed:', e?.message));
         } else {
           console.warn('[DHL/whatsapp] sendPackageArrival no disponible');
         }
