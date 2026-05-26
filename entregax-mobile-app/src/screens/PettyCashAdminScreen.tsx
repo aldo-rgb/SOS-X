@@ -611,35 +611,29 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                   ? (cat?.label || m.category || 'Gasto')
                   : (MOVEMENT_LABELS[m.movement_type] || m.movement_type);
                 const subtitle = isExpense ? (m.driver_name || m.concept) : m.concept;
+                const confirmDelete = () => {
+                  Alert.alert(
+                    'Eliminar movimiento',
+                    `¿Eliminar "${title}" por ${fmtMoney(m.amount_mxn)}?${m.status === 'approved' ? '\nEl saldo del wallet se revertirá.' : ''}`,
+                    [
+                      { text: 'Cancelar', style: 'cancel' },
+                      {
+                        text: 'Eliminar',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            await api.delete(`/api/admin/petty-cash/movements/${m.id}`, { headers: authHeaders });
+                            loadData();
+                          } catch (err: any) {
+                            Alert.alert('Error', err?.response?.data?.error || 'No se pudo eliminar');
+                          }
+                        },
+                      },
+                    ]
+                  );
+                };
                 return (
-                  <TouchableOpacity
-                    key={m.id}
-                    style={styles.card}
-                    onLongPress={() => {
-                      Alert.alert(
-                        'Eliminar movimiento',
-                        `¿Eliminar "${title}" por ${fmtMoney(m.amount_mxn)}?${m.status === 'approved' ? ' El saldo del wallet se revertirá.' : ''}`,
-                        [
-                          { text: 'Cancelar', style: 'cancel' },
-                          {
-                            text: 'Eliminar',
-                            style: 'destructive',
-                            onPress: async () => {
-                              try {
-                                await api.delete(`/api/admin/petty-cash/movements/${m.id}`, { headers: authHeaders });
-                                Alert.alert('✅ Eliminado', 'Movimiento eliminado correctamente.');
-                                loadData();
-                              } catch (err: any) {
-                                Alert.alert('Error', err?.response?.data?.error || 'No se pudo eliminar');
-                              }
-                            },
-                          },
-                        ]
-                      );
-                    }}
-                    activeOpacity={0.85}
-                    delayLongPress={500}
-                  >
+                  <View key={m.id} style={styles.card}>
                     <View style={styles.movIcon}>
                       <Text style={{ fontSize: 22 }}>
                         {isExpense ? (cat?.icon || '🧾') : isInflow ? '💵' : '📤'}
@@ -652,15 +646,18 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                       ) : null}
                       <Text style={styles.cardSub}>{fmtDate(m.created_at)}</Text>
                     </View>
-                    <View style={{ alignItems: 'flex-end' }}>
+                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
                       <Text style={[styles.cardAmount, { color: isInflow ? GREEN : '#E53935' }]}>
                         {isInflow ? '+' : '-'}{fmtMoney(m.amount_mxn)}
                       </Text>
                       <View style={[styles.chip, { backgroundColor: st.bg }]}>
                         <Text style={[styles.chipText, { color: st.color }]}>{st.label}</Text>
                       </View>
+                      <TouchableOpacity onPress={confirmDelete} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <MaterialIcons name="delete-outline" size={20} color="#B0BEC5" />
+                      </TouchableOpacity>
                     </View>
-                  </TouchableOpacity>
+                  </View>
                 );
               })
             )}

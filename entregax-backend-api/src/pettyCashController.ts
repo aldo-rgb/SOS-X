@@ -1005,7 +1005,7 @@ export const listPendingExpenses = async (req: Request, res: Response): Promise<
       LEFT JOIN users u ON u.id = m.created_by
       LEFT JOIN branches b ON b.id = m.branch_id
       WHERE ${where.join(' AND ')}
-      ORDER BY m.created_at ASC
+      ORDER BY m.created_at DESC
     `, params);
     const movements = await Promise.all(r.rows.map(signMovementUrls));
     return res.json({ movements });
