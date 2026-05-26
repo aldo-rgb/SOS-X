@@ -1050,7 +1050,8 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
   };
 
   return (
-    <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="lg" fullWidth>
+    <>
+      <Dialog open={open} onClose={submitting ? undefined : onClose} maxWidth="lg" fullWidth>
       <DialogTitle sx={{ bgcolor: BLACK, color: 'white' }}>
         Nueva Factura — {emitter.alias || emitter.business_name}
         <Typography variant="caption" sx={{ display: 'block', opacity: 0.8 }}>{emitter.rfc}</Typography>
@@ -1382,6 +1383,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
         </Button>
       </DialogActions>
     </Dialog>
+    </>
   );
 }
 
