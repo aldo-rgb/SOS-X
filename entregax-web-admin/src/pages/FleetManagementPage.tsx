@@ -324,7 +324,7 @@ export default function FleetManagementPage() {
     || currentUserRole === 'counter_staff'
     || currentUserRole === 'customer_service';
   // Puede gestionar documentos (pólizas, etc.) pero no editar el vehículo
-  const canManageDocs = canEditVehicle || currentUserRole === 'customer_service';
+  const canManageDocs = canEditVehicle || ['customer_service', 'branch_manager'].includes(currentUserRole);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
   const getToken = () => localStorage.getItem('token') || '';
@@ -1345,7 +1345,7 @@ export default function FleetManagementPage() {
                   Agregar Documento
                 </Button>
                 )}
-                {canEditVehicle && (
+                {canManageDocs && (
                 <Button
                   variant="outlined"
                   startIcon={<BuildIcon />}

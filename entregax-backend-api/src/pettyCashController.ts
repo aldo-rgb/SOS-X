@@ -1215,7 +1215,8 @@ export const listAssignableDrivers = async (req: Request, res: Response): Promis
     const where: string[] = [
       // Solo choferes y monitoristas. counter_staff y warehouse_ops NO reciben anticipos.
       `LOWER(role) IN ('repartidor','monitoreo','operaciones')`,
-      `(is_blocked IS NULL OR is_blocked = FALSE)`
+      `(is_blocked IS NULL OR is_blocked = FALSE)`,
+      `deleted_at IS NULL`
     ];
     const params: any[] = [];
     if (!scope.allBranches) {
@@ -1271,6 +1272,7 @@ export const listBranchesWithBalance = async (req: Request, res: Response): Prom
 export const getPettyCashStats = async (req: Request, res: Response): Promise<any> => {
   try {
     const scope = await resolveBranchScope(req);
+    const userRole = getUserRole(req);
     const filt = scope.allBranches ? '' : `AND w.branch_id = ${scope.branchId || 0}`;
     const totalBranches = await pool.query(`
       SELECT COALESCE(SUM(balance_mxn), 0) AS total
@@ -1294,7 +1296,8 @@ export const getPettyCashStats = async (req: Request, res: Response): Promise<an
       drivers_balance: Number(totalDrivers.rows[0].total),
       drivers_pending_to_verify: Number(totalDrivers.rows[0].pending),
       pending_approvals_count: Number(pendApr.rows[0].c),
-      pending_approvals_total: Number(pendApr.rows[0].total)
+      pending_approvals_total: Number(pendApr.rows[0].total),
+      user_role: userRole
     });
   } catch (err: any) {
     return res.status(500).json({ error: 'Error', details: err.message });

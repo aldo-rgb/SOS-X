@@ -79,6 +79,7 @@ type Stats = {
   drivers_pending_to_verify: number;
   pending_approvals_count: number;
   pending_approvals_total: number;
+  user_role?: string;
 };
 
 const CATEGORIES: Record<string, { label: string; icon: string }> = {
@@ -401,20 +402,22 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ORANGE]} />}
       >
-        {/* Saldo de la sucursal */}
-        <View style={styles.balanceCard}>
-          <View style={styles.balanceRow}>
-            <MaterialIcons name="account-balance" size={20} color="rgba(255,255,255,0.9)" />
-            <Text style={styles.balanceBranch}>{branchWallet?.owner_name || 'Sin sucursal asignada'}</Text>
+        {/* Saldo de la sucursal - Solo visible para director, admin, super_admin */}
+        {stats?.user_role && ['director', 'admin', 'super_admin'].includes(stats.user_role) && (
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceRow}>
+              <MaterialIcons name="account-balance" size={20} color="rgba(255,255,255,0.9)" />
+              <Text style={styles.balanceBranch}>{branchWallet?.owner_name || 'Sin sucursal asignada'}</Text>
+            </View>
+            <Text style={styles.balanceLabel}>Saldo disponible</Text>
+            <Text style={styles.balanceAmount}>{fmtMoney(branchWallet?.balance_mxn)}</Text>
+            {branchWallet ? (
+              <Text style={styles.balanceStatus}>
+                {branchWallet.status === 'active' ? '🟢 Sucursal activa' : `⚠️ ${branchWallet.status}`}
+              </Text>
+            ) : null}
           </View>
-          <Text style={styles.balanceLabel}>Saldo disponible</Text>
-          <Text style={styles.balanceAmount}>{fmtMoney(branchWallet?.balance_mxn)}</Text>
-          {branchWallet ? (
-            <Text style={styles.balanceStatus}>
-              {branchWallet.status === 'active' ? '🟢 Sucursal activa' : `⚠️ ${branchWallet.status}`}
-            </Text>
-          ) : null}
-        </View>
+        )}
 
         {/* Mini-stats */}
         {stats && (

@@ -65,6 +65,7 @@ import {
   WhatsApp as WhatsAppIcon,
   ArrowBack as ArrowBackIcon,
   DeleteForever as DeleteForeverIcon,
+  Edit as EditIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -1061,7 +1062,7 @@ const CajaChicaPage: React.FC = () => {
                 <TableCell>Guías</TableCell>
                 <TableCell align="right">Monto</TableCell>
                 <TableCell>Registrado por</TableCell>
-                {isSuperAdmin && <TableCell align="center" width={48} />}
+                {isSuperAdmin && <TableCell align="center" width={96}>Acciones</TableCell>}
               </TableRow>
             </TableHead>
             <TableBody>
@@ -1145,6 +1146,19 @@ const CajaChicaPage: React.FC = () => {
                   <TableCell>{tx.admin_name}</TableCell>
                   {isSuperAdmin && (
                     <TableCell align="center" onClick={e => e.stopPropagation()}>
+                      <Tooltip title="Editar transacción (solo super admin)">
+                        <span>
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={() => {
+                              alert('Editar transacción: ' + tx.id);
+                            }}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </span>
+                      </Tooltip>
                       <Tooltip title="Eliminar transacción (solo super admin)">
                         <span>
                           <IconButton
@@ -1822,32 +1836,42 @@ const CajaChicaPage: React.FC = () => {
               {/* Resumen total */}
               <Paper sx={{ p: 2, mb: 3, bgcolor: 'warning.light' }}>
                 <Typography variant="subtitle1" fontWeight="bold" gutterBottom>
-                  Resumen Total
+                  {selectedConsolidaciones.size > 0 ? 'Resumen Seleccionadas' : 'Resumen Total'}
                 </Typography>
-                <Grid container spacing={2}>
-                  <Grid size={{ xs: 3 }}>
-                    <Typography variant="body2" color="text.secondary">Consolidaciones</Typography>
-                    <Typography variant="h5" fontWeight="bold">{consolidacionesPendientes.length}</Typography>
-                  </Grid>
-                  <Grid size={{ xs: 3 }}>
-                    <Typography variant="body2" color="text.secondary">Valor total (USD)</Typography>
-                    <Typography variant="h6" fontWeight="bold" color="success.dark">
-                      ${consolidacionesPendientes.reduce((sum, c) => sum + Number(c.all_cost_usd || c.total_cost_usd || 0), 0).toFixed(2)}
-                    </Typography>
-                  </Grid>
-                  <Grid size={{ xs: 3 }}>
-                    <Typography variant="body2" color="text.secondary">Valor total (MXN)</Typography>
-                    <Typography variant="h6" fontWeight="bold" color="primary.dark">
-                      {formatCurrency(consolidacionesPendientes.reduce((sum, c) => sum + Number(c.all_cost_mxn || c.total_cost_mxn || 0), 0))}
-                    </Typography>
-                  </Grid>
-                  <Grid size={{ xs: 3 }}>
-                    <Typography variant="body2" color="text.secondary">Pendiente de pago (MXN)</Typography>
-                    <Typography variant="h6" fontWeight="bold" color="warning.dark">
-                      {formatCurrency(consolidacionesPendientes.reduce((sum, c) => sum + Number(c.total_cost_mxn || 0), 0))}
-                    </Typography>
-                  </Grid>
-                </Grid>
+                {(() => {
+                  const consolidacionesMostrar = selectedConsolidaciones.size > 0
+                    ? consolidacionesPendientes.filter(c => selectedConsolidaciones.has(c.id))
+                    : consolidacionesPendientes;
+                  const totalUsd = consolidacionesMostrar.reduce((sum, c) => sum + Number(c.all_cost_usd || c.total_cost_usd || 0), 0);
+                  const totalMxn = consolidacionesMostrar.reduce((sum, c) => sum + Number(c.all_cost_mxn || c.total_cost_mxn || 0), 0);
+                  const pendienteMxn = consolidacionesMostrar.reduce((sum, c) => sum + Number(c.total_cost_mxn || 0), 0);
+                  return (
+                    <Grid container spacing={2}>
+                      <Grid size={{ xs: 3 }}>
+                        <Typography variant="body2" color="text.secondary">Consolidaciones</Typography>
+                        <Typography variant="h5" fontWeight="bold">{consolidacionesMostrar.length}</Typography>
+                      </Grid>
+                      <Grid size={{ xs: 3 }}>
+                        <Typography variant="body2" color="text.secondary">Valor total (USD)</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="success.dark">
+                          ${totalUsd.toFixed(2)}
+                        </Typography>
+                      </Grid>
+                      <Grid size={{ xs: 3 }}>
+                        <Typography variant="body2" color="text.secondary">Valor total (MXN)</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="primary.dark">
+                          {formatCurrency(totalMxn)}
+                        </Typography>
+                      </Grid>
+                      <Grid size={{ xs: 3 }}>
+                        <Typography variant="body2" color="text.secondary">Pendiente de pago (MXN)</Typography>
+                        <Typography variant="h6" fontWeight="bold" color="warning.dark">
+                          {formatCurrency(pendienteMxn)}
+                        </Typography>
+                      </Grid>
+                    </Grid>
+                  );
+                })()}
               </Paper>
 
               {/* Lista de consolidaciones */}
