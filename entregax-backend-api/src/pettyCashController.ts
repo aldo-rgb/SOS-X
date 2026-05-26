@@ -1608,7 +1608,7 @@ export const updateMovement = async (req: Request, res: Response): Promise<any> 
     // Actualizar el movimiento
     await client.query(
       `UPDATE petty_cash_movements
-       SET amount_mxn = $1, concept = $2, category = $3, updated_at = NOW()
+       SET amount_mxn = $1, concept = $2, category = $3
        WHERE id = $4`,
       [newAmount, concept || null, category || null, movId]
     );
