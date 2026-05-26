@@ -24,7 +24,7 @@ import {
   Image,
   Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets, initialWindowMetrics } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -124,9 +124,10 @@ const statusLabel: Record<string, string> = {
 export default function PettyCashScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const insets = useSafeAreaInsets();
-  // initialWindowMetrics siempre devuelve los insets reales del dispositivo,
-  // sin importar si el componente está dentro de un SafeAreaView que los consume.
-  const modalTopInset = initialWindowMetrics?.insets?.top ?? insets.top;
+  // En iOS 26 con Dynamic Island, SafeAreaView padre puede consumir los insets
+  // haciendo que insets.top sea 0 dentro del modal. Usamos el valor real
+  // o un mínimo de 50px en iOS para garantizar que el header quede visible.
+  const modalTopInset = Platform.OS === 'ios' ? Math.max(insets.top, 50) : insets.top;
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : undefined;
 
   // Main data
