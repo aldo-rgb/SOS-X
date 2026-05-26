@@ -1138,6 +1138,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const result = await pool.query(`
             SELECT p.*, u.full_name, u.email, u.box_id as user_box_id,
                    lc.full_name as legacy_name, lc.box_id as legacy_box_id,
+                   adv.id as advisor_id, adv.full_name as advisor_name,
                    a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
                    a.exterior_number as addr_ext, a.interior_number as addr_int,
                    a.neighborhood as addr_neighborhood, a.city as addr_city,
@@ -1155,8 +1156,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         WHERE mp.id = p.master_id
                           AND COALESCE(mp.is_lost, FALSE) = TRUE
                    )) AS is_lost_eff
-            FROM packages p 
+            FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
+            LEFT JOIN users adv ON u.referred_by_id = adv.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             LEFT JOIN addresses a ON p.assigned_address_id = a.id
             LEFT JOIN branches br ON p.current_branch_id = br.id
@@ -1661,6 +1663,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         // Sumamos para mostrar el total del envío.
         if (pkg.is_master && children.length > 0) {
             const sum = (key: string) => children.reduce((acc, c) => acc + (parseFloat(c[key]) || 0), 0);
+            // Peso total = suma de hijos (el master puede tener solo el peso de 1 caja como placeholder)
+            const childWeightSum = sum('weight');
+            if (childWeightSum > (parseFloat(pkg.weight) || 0)) pkg.weight = childWeightSum;
             const masterServ = parseFloat(pkg.pobox_service_cost) || 0;
             const masterCostUsd = parseFloat(pkg.pobox_cost_usd) || 0;
             const masterVenta = parseFloat(pkg.pobox_venta_usd) || 0;
@@ -1926,9 +1931,18 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     poboxVentaUsd: c.pobox_venta_usd != null ? parseFloat(c.pobox_venta_usd) : null,
                     poboxServiceCost: c.pobox_service_cost != null ? parseFloat(c.pobox_service_cost) : null })),
                 labels,
-                client: pkg.user_id 
-                    ? { id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '', boxId: pkg.user_box_id || 'N/A' } 
-                    : { id: 0, name: resolvedName, email: '', boxId: resolvedBoxId }
+                client: pkg.user_id
+                    ? {
+                        id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '',
+                        boxId: pkg.user_box_id || 'N/A',
+                        shippingMark: pkg.box_id || null,
+                        advisor: pkg.advisor_name ? { id: pkg.advisor_id, name: pkg.advisor_name } : null,
+                      }
+                    : {
+                        id: 0, name: resolvedName, email: '', boxId: resolvedBoxId,
+                        shippingMark: pkg.box_id || null,
+                        advisor: null,
+                      }
             }
         });
     } catch (error) {

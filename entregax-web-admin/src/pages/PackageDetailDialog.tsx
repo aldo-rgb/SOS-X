@@ -151,8 +151,21 @@ export default function PackageDetailDialog({ tracking, onClose }: PackageDetail
                       </Typography>
                       <Typography variant="body1" fontWeight={700}>{client.name}</Typography>
                       <Typography variant="caption" color="text.secondary">
-                        BOX: {client.boxId} · {client.email}
+                        BOX: {(client.boxId && client.boxId !== 'N/A' && client.boxId !== 'PENDIENTE')
+                          ? client.boxId
+                          : (client.shippingMark || client.boxId)}
+                        {client.email ? ` · ${client.email}` : ''}
                       </Typography>
+                      {client.shippingMark && client.shippingMark !== client.boxId && (
+                        <Typography variant="caption" color="text.secondary" display="block">
+                          Casillero: <strong>{client.shippingMark}</strong>
+                        </Typography>
+                      )}
+                      {client.advisor && (
+                        <Typography variant="caption" color="primary" display="block" sx={{ mt: 0.3 }}>
+                          Asesor: <strong>{client.advisor.name}</strong>
+                        </Typography>
+                      )}
                     </Box>
                   </Box>
                 </Grid>
