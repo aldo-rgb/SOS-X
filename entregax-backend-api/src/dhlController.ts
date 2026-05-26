@@ -770,23 +770,28 @@ export const receiveDhlPackage = async (req: Request, res: Response) => {
       ? parseFloat(pricing.dhl_high_value_price)
       : parseFloat(pricing.dhl_standard_price);
 
-    // Obtener tipo de cambio live desde exchange_rate_config, mismo origen que el dashboard web:
-    // 1) tipo_cambio_final de dhl_monterrey (tarifa específica DHL configurada)
-    // 2) si no existe ese servicio, usar ultimo_tc_api de cualquier fila activa (TC Banxico)
-    // 3) fallback al env var / 18.50
-    let exchangeRate = parseFloat(process.env.DHL_EXCHANGE_RATE || '18.50');
+    // Obtener tipo de cambio live, mismo orden que el dashboard web:
+    // 1) tipo_cambio_final de exchange_rate_config para dhl_monterrey
+    // 2) ultimo_tc_api de cualquier fila activa en exchange_rate_config
+    // 3) último rate registrado en la tabla exchange_rates (histórico API)
+    let exchangeRate = 0;
     try {
       const fxRes = await pool.query(
         `SELECT
            COALESCE(
              (SELECT tipo_cambio_final FROM exchange_rate_config WHERE servicio = 'dhl_monterrey' AND estado = true LIMIT 1),
-             (SELECT ultimo_tc_api      FROM exchange_rate_config WHERE estado = true AND ultimo_tc_api IS NOT NULL LIMIT 1)
+             (SELECT ultimo_tc_api      FROM exchange_rate_config WHERE estado = true AND ultimo_tc_api IS NOT NULL ORDER BY id DESC LIMIT 1),
+             (SELECT rate               FROM exchange_rates ORDER BY created_at DESC LIMIT 1)
            )::numeric as tc`
       );
       if (fxRes.rows.length > 0 && fxRes.rows[0].tc) {
-        exchangeRate = parseFloat(fxRes.rows[0].tc) || exchangeRate;
+        exchangeRate = parseFloat(fxRes.rows[0].tc) || 0;
       }
-    } catch (_) { /* fallback al env var */ }
+    } catch (_) { /* DB no disponible */ }
+    if (!exchangeRate || exchangeRate <= 0) {
+      console.warn('[DHL] No se pudo obtener TC desde DB, usando último conocido o 18.50');
+      exchangeRate = 18.50;
+    }
     const importCostMxn = importCostUsd * exchangeRate;
 
     // Calcular peso volumétrico
