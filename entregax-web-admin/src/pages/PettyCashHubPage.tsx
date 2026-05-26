@@ -22,6 +22,7 @@ import {
   Speed as OdometerIcon,
   ReceiptLong as MovementsIcon,
   DeleteForever as DeleteIcon,
+  Edit as EditIcon,
   LocalAtm as CajaCCIcon
 } from '@mui/icons-material';
 
@@ -1293,6 +1294,20 @@ export default function PettyCashHubPage() {
                           </TableCell>
                           {isSuperAdmin && (
                             <TableCell align="center">
+                              <Tooltip title="Editar movimiento (solo super admin)">
+                                <span>
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => {
+                                      // TODO: Implementar edición de movimiento
+                                      alert(`Editar movimiento ID: ${m.id}\nFecha: ${m.created_at}\nMonto: ${m.amount_mxn}\nConcepto: ${m.concept || m.reason}`);
+                                    }}
+                                  >
+                                    <EditIcon fontSize="small" />
+                                  </IconButton>
+                                </span>
+                              </Tooltip>
                               <Tooltip title="Eliminar movimiento (solo super admin)">
                                 <span>
                                   <IconButton
