@@ -334,8 +334,11 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
         const payRes = await pool.query(`
             SELECT pp.id, pp.payment_reference, pp.amount, pp.currency, pp.payment_method,
                    pp.paid_at, pp.facturada, pp.user_id,
-                   u.full_name, u.email, u.rfc, u.razon_social,
-                   u.regimen_fiscal, u.cfdi_zip, u.zip_code
+                   u.full_name, u.email,
+                   u.fiscal_rfc AS rfc,
+                   u.fiscal_razon_social AS razon_social,
+                   u.fiscal_regimen_fiscal AS regimen_fiscal,
+                   u.fiscal_codigo_postal AS cfdi_zip
             FROM pobox_payments pp
             LEFT JOIN users u ON u.id = pp.user_id
             WHERE pp.id = $1 AND pp.status = 'completed'
@@ -354,7 +357,7 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
         const receptorRfc = pay.rfc?.toUpperCase()?.trim() || 'XAXX010101000';
         const receptorNombre = pay.razon_social?.trim() || pay.full_name?.trim() || 'Público en General';
         const regimenFiscal = pay.regimen_fiscal?.trim() || '616'; // 616 = Sin obligaciones fiscales (PF)
-        const cpReceptor = pay.cfdi_zip?.trim() || pay.zip_code?.trim() || '06600';
+        const cpReceptor = pay.cfdi_zip?.trim() || '06600';
         const formaPago = FORMA_PAGO_MAP[pay.payment_method] || '99'; // 99 = Por definir
 
         // 3. Crear cliente Facturama con credenciales del emisor
@@ -458,7 +461,7 @@ export const searchFiscalClients = async (req: AuthRequest, res: Response): Prom
                    UPPER(TRIM(u.fiscal_rfc)) AS rfc,
                    COALESCE(u.fiscal_razon_social, u.full_name) AS razon_social,
                    u.fiscal_regimen_fiscal AS regimen_fiscal,
-                   COALESCE(u.fiscal_codigo_postal, u.zip_code) AS cp
+                   u.fiscal_codigo_postal AS cp
               FROM users u
              ${where}
              ORDER BY u.fiscal_razon_social ASC NULLS LAST, u.full_name ASC
