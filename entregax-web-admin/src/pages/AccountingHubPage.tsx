@@ -351,6 +351,21 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
     try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; }
   })();
   const isSuperAdmin = currentRole === 'super_admin';
+  const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; row: any | null; loading: boolean }>({ open: false, row: null, loading: false });
+
+  const doDelete = async () => {
+    if (!confirmDelete.row) return;
+    setConfirmDelete(s => ({ ...s, loading: true }));
+    try {
+      await api.delete(`/accounting/${emitter.id}/invoices/${confirmDelete.row.id}`);
+      setSnackbar({ open: true, message: 'Registro eliminado', severity: 'success' });
+      setConfirmDelete({ open: false, row: null, loading: false });
+      load();
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al eliminar', severity: 'error' });
+      setConfirmDelete(s => ({ ...s, loading: false }));
+    }
+  };
 
   const satStatusLabel = (s?: string) => {
     switch ((s || '').toLowerCase()) {
@@ -536,16 +551,7 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                   )}
                   {isSuperAdmin && !r.facturama_id && !r.uuid_sat && (
                     <Tooltip title="Eliminar fila fantasma (CFDI no timbrado) — sólo super admin">
-                      <IconButton size="small" onClick={async () => {
-                        if (!window.confirm('Esta factura no quedó timbrada en el SAT. ¿Eliminarla del registro?')) return;
-                        try {
-                          await api.delete(`/accounting/${emitter.id}/invoices/${r.id}`);
-                          setSnackbar({ open: true, message: 'Registro eliminado', severity: 'success' });
-                          load();
-                        } catch (e: any) {
-                          setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al eliminar', severity: 'error' });
-                        }
-                      }}>
+                      <IconButton size="small" onClick={() => setConfirmDelete({ open: true, row: r, loading: false })}>
                         <DeleteIcon fontSize="small" sx={{ color: RED }} />
                       </IconButton>
                     </Tooltip>
@@ -557,6 +563,99 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
         </Table>
       )}
       <NewInvoiceDialog open={newOpen} emitter={emitter} onClose={() => setNewOpen(false)} onCreated={load} />
+
+      {/* Confirmación bonita para eliminar factura fantasma */}
+      <Dialog
+        open={confirmDelete.open}
+        onClose={() => !confirmDelete.loading && setConfirmDelete({ open: false, row: null, loading: false })}
+        PaperProps={{
+          sx: {
+            borderRadius: 3,
+            overflow: 'hidden',
+            minWidth: 420,
+            boxShadow: '0 24px 60px rgba(0,0,0,0.25)',
+          },
+        }}
+      >
+        <Box sx={{
+          bgcolor: BLACK,
+          color: 'white',
+          px: 3, py: 2.5,
+          display: 'flex', alignItems: 'center', gap: 1.5,
+          borderBottom: `4px solid ${ORANGE}`,
+        }}>
+          <Box sx={{
+            width: 44, height: 44, borderRadius: '50%',
+            bgcolor: `${ORANGE}22`, color: ORANGE,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            border: `2px solid ${ORANGE}`,
+          }}>
+            <WarningAmberIcon />
+          </Box>
+          <Box>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', lineHeight: 1.2 }}>
+              Eliminar registro
+            </Typography>
+            <Typography sx={{ fontSize: '0.75rem', opacity: 0.7 }}>
+              Acción restringida a super admin
+            </Typography>
+          </Box>
+        </Box>
+        <DialogContent sx={{ px: 3, pt: 3, pb: 1 }}>
+          <Typography sx={{ fontSize: '0.95rem', color: '#333', mb: 1.5 }}>
+            Esta factura <strong>no quedó timbrada</strong> en el SAT (sin UUID ni ID de Facturama).
+            Se eliminará del registro contable y se revertirá el stock asociado.
+          </Typography>
+          {confirmDelete.row && (
+            <Box sx={{
+              bgcolor: '#FAFAFA',
+              border: '1px solid #EEE',
+              borderRadius: 2,
+              p: 1.5,
+              fontSize: '0.8rem',
+              display: 'grid', gridTemplateColumns: 'auto 1fr', columnGap: 1.5, rowGap: 0.5,
+            }}>
+              <Box sx={{ color: '#888' }}>Folio</Box>
+              <Box sx={{ fontFamily: 'monospace', fontWeight: 700 }}>
+                {confirmDelete.row.serie || ''}{confirmDelete.row.folio || '—'}
+              </Box>
+              <Box sx={{ color: '#888' }}>Cliente</Box>
+              <Box>{confirmDelete.row.receptor_razon_social || confirmDelete.row.cliente_nombre || '—'}</Box>
+              <Box sx={{ color: '#888' }}>Total</Box>
+              <Box sx={{ fontWeight: 700, color: BLACK }}>{fmt(parseFloat(confirmDelete.row.total))}</Box>
+            </Box>
+          )}
+          <Typography sx={{ fontSize: '0.78rem', color: RED, mt: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <WarningAmberIcon sx={{ fontSize: 16 }} /> Esta acción es irreversible.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, pt: 1 }}>
+          <Button
+            onClick={() => setConfirmDelete({ open: false, row: null, loading: false })}
+            disabled={confirmDelete.loading}
+            sx={{ textTransform: 'none', color: '#555', fontWeight: 600 }}
+          >
+            Cancelar
+          </Button>
+          <Button
+            onClick={doDelete}
+            disabled={confirmDelete.loading}
+            variant="contained"
+            startIcon={confirmDelete.loading ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <DeleteIcon />}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 700,
+              bgcolor: RED,
+              boxShadow: 'none',
+              '&:hover': { bgcolor: BLACK },
+              px: 2.5,
+            }}
+          >
+            {confirmDelete.loading ? 'Eliminando…' : 'Sí, eliminar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Snackbar
         open={snackbar.open}
         autoHideDuration={5000}
