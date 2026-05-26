@@ -162,6 +162,9 @@ function buildFacturamaCfdiPayload(emitter: FacturamaEmitter, p: FacturapiLikePa
             IsRetention: !!t.withholding
         }));
         const taxTotal = taxes.filter(t => !t.IsRetention).reduce((s, t) => s + t.Total, 0);
+        // CFDI 4.0: TaxObject es obligatorio (c_ObjetoImp)
+        // 01 = No objeto de impuesto, 02 = Sí objeto de impuesto, 03 = No obligado al desglose, 04 = No causa impuesto
+        const taxObject = taxes.length > 0 ? '02' : '01';
         return {
             ProductCode: it.product.product_key,
             UnitCode: it.product.unit_key || 'E48',     // E48 = Unidad de servicio
@@ -172,6 +175,7 @@ function buildFacturamaCfdiPayload(emitter: FacturamaEmitter, p: FacturapiLikePa
             Discount: 0,
             UnitPrice: it.product.price,
             Subtotal: subtotal,
+            TaxObject: taxObject,
             Taxes: taxes,
             Total: +(subtotal + taxTotal).toFixed(2)
         };

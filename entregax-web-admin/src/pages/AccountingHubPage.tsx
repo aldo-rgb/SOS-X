@@ -864,6 +864,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
 
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [showUsoWarning, setShowUsoWarning] = useState(false);
 
   // Reset al abrir
   useEffect(() => {
@@ -873,18 +874,30 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
     // Receptor: usar prefill si viene de Pendientes por Timbrar
     const pr = prefill?.receptor;
     if (pr) {
-      const inferredUso = (pr.rfc || '').toUpperCase() === 'XAXX010101000' ? 'S01' : (pr.uso_cfdi || 'G03');
+      const rfcUpper = (pr.rfc || '').toUpperCase();
+      const regimen = pr.regimen_fiscal || '616';
+      // RFC público general → S01
+      let inferredUso = rfcUpper === 'XAXX010101000' ? 'S01' : (pr.uso_cfdi || 'G03');
+      let hasIncompatibility = false;
+      // Regímenes de personas físicas con restricciones: usar S01 si el uso guardado es G03
+      const regimenesRestringidos = ['605', '606', '607', '608', '612', '615', '621', '625'];
+      if (regimenesRestringidos.includes(regimen) && inferredUso === 'G03') {
+        inferredUso = 'S01'; // Sin efectos fiscales (más seguro)
+        hasIncompatibility = true;
+      }
       setReceptor({
         rfc: pr.rfc || '',
         razon_social: pr.razon_social || '',
-        regimen_fiscal: pr.regimen_fiscal || '616',
+        regimen_fiscal: regimen,
         cp: pr.cp || '',
         uso_cfdi: inferredUso,
         email: pr.email || '',
         user_id: pr.user_id ?? null,
       });
+      setShowUsoWarning(hasIncompatibility);
     } else {
       setReceptor({ rfc: '', razon_social: '', regimen_fiscal: '616', cp: '', uso_cfdi: 'G03', email: '', user_id: null });
+      setShowUsoWarning(false);
     }
     // Items: si hay prefill con monto, crear un concepto inicial con la referencia y el monto.
     if (prefill?.amount && prefill.amount > 0) {
@@ -925,16 +938,26 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
   const applyClient = (c: any | null) => {
     setSelectedClient(c);
     if (c) {
-      const inferredUso = (c.rfc || '').toUpperCase() === 'XAXX010101000' ? 'S01' : 'G03';
+      const rfcUpper = (c.rfc || '').toUpperCase();
+      const regimen = c.regimen_fiscal || '616';
+      let inferredUso = rfcUpper === 'XAXX010101000' ? 'S01' : 'G03';
+      let hasIncompatibility = false;
+      // Regímenes de personas físicas: usar S01 en lugar de G03
+      const regimenesRestringidos = ['605', '606', '607', '608', '612', '615', '621', '625'];
+      if (regimenesRestringidos.includes(regimen) && inferredUso === 'G03') {
+        inferredUso = 'S01';
+        hasIncompatibility = true;
+      }
       setReceptor({
         rfc: c.rfc || '',
         razon_social: c.razon_social || c.full_name || '',
-        regimen_fiscal: c.regimen_fiscal || '616',
+        regimen_fiscal: regimen,
         cp: c.cp || '',
         uso_cfdi: inferredUso,
         email: c.email || '',
         user_id: c.id || null,
       });
+      setShowUsoWarning(hasIncompatibility);
     }
   };
 
@@ -1323,6 +1346,40 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
             {submitting ? 'Timbrando…' : `Emitir CFDI · ${fmt(total)}`}
           </Button>
         )}
+      </DialogActions>
+    </Dialog>
+
+    {/* Modal de advertencia: Incompatibilidad uso CFDI / régimen fiscal */}
+    <Dialog open={showUsoWarning} onClose={() => setShowUsoWarning(false)} maxWidth="sm" fullWidth>
+      <DialogTitle sx={{ bgcolor: '#f59e0b', color: 'white', display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Box component="span" sx={{ fontSize: '1.5rem' }}>⚠️</Box>
+        Advertencia: Incompatibilidad detectada
+      </DialogTitle>
+      <DialogContent sx={{ pt: 3 }}>
+        <Typography variant="body1" sx={{ mb: 2 }}>
+          <strong>La clave G03 (Gastos en general)</strong> no es compatible con el <strong>régimen {receptor.regimen_fiscal}</strong> según el catálogo del SAT.
+        </Typography>
+        <Typography variant="body2" sx={{ mb: 2, color: 'text.secondary' }}>
+          Se ha cambiado automáticamente a <strong>S01 (Sin efectos fiscales)</strong> para evitar errores de validación.
+        </Typography>
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+          Por favor notifica a servicio al cliente para que actualice los datos fiscales del receptor.
+        </Typography>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={() => setShowUsoWarning(false)} sx={{ color: 'text.secondary' }}>
+          Entendido
+        </Button>
+        <Button
+          variant="contained"
+          onClick={() => {
+            setShowUsoWarning(false);
+            // Aquí puedes agregar lógica para notificar automáticamente si lo deseas
+          }}
+          sx={{ bgcolor: '#f59e0b', '&:hover': { bgcolor: '#d97706' } }}
+        >
+          Notificar a servicio al cliente
+        </Button>
       </DialogActions>
     </Dialog>
   );
