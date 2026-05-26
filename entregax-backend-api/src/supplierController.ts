@@ -223,18 +223,18 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
                 COUNT(p.id) as package_count,
                 COUNT(p.id) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE AND COALESCE(p.is_lost, FALSE) = FALSE) AS missing_count,
                 COUNT(p.id) FILTER (WHERE COALESCE(p.is_lost, FALSE) = TRUE) AS lost_count,
-                -- Total PENDIENTE de pago AHORA (unpaid + no missing + no lost + received_mty)
-                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND p.status IN ('received_mty', 'received_partial')), 0) as total_cost_mxn,
-                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND p.status IN ('received_mty', 'received_partial')), 0) as total_cost_usd,
-                -- Total YA PAGADO (no missing + no lost + paid + received_mty)
-                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND p.status IN ('received_mty', 'received_partial')), 0) as paid_cost_mxn,
-                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND p.status IN ('received_mty', 'received_partial')), 0) as paid_cost_usd,
+                -- Total PENDIENTE de pago AHORA (unpaid + no missing + no lost + received)
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND p.status::text LIKE 'received%'), 0) as total_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND p.status::text LIKE 'received%'), 0) as total_cost_usd,
+                -- Total YA PAGADO (no missing + no lost + paid + received)
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND p.status::text LIKE 'received%'), 0) as paid_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND p.status::text LIKE 'received%'), 0) as paid_cost_usd,
                 -- Total FALTANTE/PERDIDO (no suma al pago)
                 COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_mxn,
                 COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_usd,
                 -- Total COMPLETO de la consolidación (todo recibido excepto perdidas/faltantes)
-                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND p.status IN ('received_mty', 'received_partial')), 0) as all_cost_mxn,
-                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND p.status IN ('received_mty', 'received_partial')), 0) as all_cost_usd
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND p.status::text LIKE 'received%'), 0) as all_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND p.status::text LIKE 'received%'), 0) as all_cost_usd
             FROM consolidations c
             JOIN packages p ON p.consolidation_id = c.id
             LEFT JOIN suppliers s ON p.supplier_id = s.id
