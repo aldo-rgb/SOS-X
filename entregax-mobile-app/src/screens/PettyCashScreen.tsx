@@ -561,8 +561,8 @@ export default function PettyCashScreen({ navigation, route }: any) {
           MODAL: HUB DE BLOQUES
           ═══════════════════════════════════════════════════════════════════════ */}
       <Modal visible={hubOpen} animationType="slide" onRequestClose={() => setHubOpen(false)}>
-        <View style={[styles.container, { paddingTop: modalTopInset }]}>
-          <View style={styles.header}>
+        <View style={styles.container}>
+          <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
             <TouchableOpacity onPress={() => setHubOpen(false)}>
               <MaterialIcons name="close" size={28} color="#333" />
             </TouchableOpacity>
@@ -660,8 +660,8 @@ export default function PettyCashScreen({ navigation, route }: any) {
           MODAL: WIZARD — SELECCIONAR CONTENEDORES
           ═══════════════════════════════════════════════════════════════════════ */}
       <Modal visible={wizardOpen} animationType="slide" onRequestClose={() => setWizardOpen(false)}>
-        <View style={[styles.container, { paddingTop: modalTopInset }]}>
-          <View style={styles.header}>
+        <View style={styles.container}>
+          <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
             <TouchableOpacity onPress={() => setWizardOpen(false)} disabled={wizardSaving}>
               <MaterialIcons name="arrow-back" size={28} color="#333" />
             </TouchableOpacity>
@@ -736,8 +736,8 @@ export default function PettyCashScreen({ navigation, route }: any) {
           MODAL: REGISTRAR GASTO
           ═══════════════════════════════════════════════════════════════════════ */}
       <Modal visible={expenseOpen} animationType="slide" onRequestClose={() => setExpenseOpen(false)}>
-        <View style={[styles.container, { paddingTop: modalTopInset }]}>
-          <View style={styles.header}>
+        <View style={styles.container}>
+          <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
             <TouchableOpacity onPress={() => setExpenseOpen(false)} disabled={expSaving}>
               <MaterialIcons name="close" size={28} color="#333" />
             </TouchableOpacity>
