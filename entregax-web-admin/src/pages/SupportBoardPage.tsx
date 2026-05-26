@@ -235,6 +235,99 @@ function ProtectedImage({ s3Url, alt, sx }: { s3Url: string; alt: string; sx: ob
   );
 }
 
+function ClientDetailDialog({ boxId, onClose }: { boxId: string | null; onClose: () => void }) {
+  const [client, setClient] = useState<any | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!boxId) { setClient(null); return; }
+    setLoading(true);
+    setClient(null);
+    const token = localStorage.getItem('token');
+    fetch(`${API_URL}/admin/users/search?q=${encodeURIComponent(boxId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then(r => r.json())
+      .then(rows => { if (Array.isArray(rows) && rows.length > 0) setClient(rows[0]); })
+      .finally(() => setLoading(false));
+  }, [boxId]);
+
+  return (
+    <Dialog open={!!boxId} onClose={onClose} maxWidth="sm" fullWidth>
+      <DialogTitle>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <PersonIcon color="primary" />
+          <Typography variant="h6" fontWeight={700}>Perfil del Cliente</Typography>
+          {boxId && (
+            <Typography variant="body1" fontFamily="monospace" fontWeight={700} color="primary" sx={{ ml: 1 }}>
+              {boxId}
+            </Typography>
+          )}
+        </Box>
+      </DialogTitle>
+      <DialogContent dividers sx={{ minHeight: 180 }}>
+        {loading && (
+          <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+            <CircularProgress />
+          </Box>
+        )}
+        {!loading && !client && boxId && (
+          <Alert severity="warning">No se encontró cliente con casillero {boxId}</Alert>
+        )}
+        {client && (
+          <Box>
+            <Typography variant="h6" fontWeight={700}>{client.full_name}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{client.email}</Typography>
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+              <Box>
+                <Typography variant="overline" color="text.secondary" display="block" lineHeight={1.2}>
+                  Casillero
+                </Typography>
+                <Typography fontWeight={700}>{client.box_id}</Typography>
+              </Box>
+              {client.phone && (
+                <Box>
+                  <Typography variant="overline" color="text.secondary" display="block" lineHeight={1.2}>
+                    Teléfono
+                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography fontWeight={700}>{client.phone}</Typography>
+                    <Tooltip title="Llamar">
+                      <IconButton
+                        size="small"
+                        component="a"
+                        href={`tel:${client.phone.replace(/\D/g, '')}`}
+                        sx={{ color: '#4CAF50', p: 0.3 }}
+                      >
+                        <PhoneIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="WhatsApp">
+                      <IconButton
+                        size="small"
+                        component="a"
+                        href={`https://wa.me/52${client.phone.replace(/\D/g, '')}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        sx={{ color: '#25D366', p: 0.3 }}
+                      >
+                        <WhatsAppIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        )}
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>Cerrar</Button>
+      </DialogActions>
+    </Dialog>
+  );
+}
+
 export default function SupportBoardPage() {
   useTranslation();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
@@ -255,6 +348,7 @@ export default function SupportBoardPage() {
   const [deptFilter, setDeptFilter] = useState<number | 'all'>('all');
   const [creatorFilter, setCreatorFilter] = useState<'all' | 'client' | 'employee'>('all');
   const [packageDetailTracking, setPackageDetailTracking] = useState<string | null>(null);
+  const [selectedClientBoxId, setSelectedClientBoxId] = useState<string | null>(null);
 
   // Archivados
   const [archivedTickets, setArchivedTickets] = useState<SupportTicket[]>([]);
@@ -620,6 +714,62 @@ export default function SupportBoardPage() {
     return `hace ${Math.floor(h / 24)}d`;
   };
 
+  // Detecta guías (LOG...) y casilleros (S####) en el texto y los convierte en chips clicables
+  // Grupo 1 = tracking de guía, Grupo 2 = casillero de cliente
+  const MSG_ITEM_RE = /\b(LOG[A-Z0-9]{5,}|[A-Z]{2,4}\d{4,}[A-Z0-9]*)|(S\d{1,4})\b/g;
+  const renderMessageText = (text: string): React.ReactNode => {
+    const parts: React.ReactNode[] = [];
+    let lastIndex = 0;
+    let match: RegExpExecArray | null;
+    MSG_ITEM_RE.lastIndex = 0;
+    while ((match = MSG_ITEM_RE.exec(text)) !== null) {
+      if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+      const isTracking = !!match[1];
+      const value = match[0];
+      if (isTracking) {
+        parts.push(
+          <Box
+            key={`trk-${match.index}`}
+            component="span"
+            onClick={() => setPackageDetailTracking(value)}
+            sx={{
+              display: 'inline-flex', alignItems: 'center',
+              bgcolor: '#E3F2FD', color: '#1565C0', borderRadius: 1,
+              px: 0.8, py: 0.1, fontFamily: 'monospace', fontWeight: 700,
+              fontSize: 'inherit', cursor: 'pointer', border: '1px solid #90CAF9',
+              verticalAlign: 'middle', '&:hover': { bgcolor: '#BBDEFB' },
+            }}
+          >
+            <TrackingIcon sx={{ fontSize: 12, mr: 0.3 }} />
+            {value}
+          </Box>
+        );
+      } else {
+        // casillero cliente
+        parts.push(
+          <Box
+            key={`cli-${match.index}`}
+            component="span"
+            onClick={() => setSelectedClientBoxId(value)}
+            sx={{
+              display: 'inline-flex', alignItems: 'center',
+              bgcolor: '#F3E5F5', color: '#6A1B9A', borderRadius: 1,
+              px: 0.8, py: 0.1, fontFamily: 'monospace', fontWeight: 700,
+              fontSize: 'inherit', cursor: 'pointer', border: '1px solid #CE93D8',
+              verticalAlign: 'middle', '&:hover': { bgcolor: '#E1BEE7' },
+            }}
+          >
+            <PersonIcon sx={{ fontSize: 12, mr: 0.3 }} />
+            {value}
+          </Box>
+        );
+      }
+      lastIndex = match.index + match[0].length;
+    }
+    if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+    return parts.length > 0 ? <>{parts}</> : text;
+  };
+
   if (loading) {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -980,10 +1130,10 @@ export default function SupportBoardPage() {
                       </Box>
                       {/* Texto: limpiar markdown viejo de imágenes y mostrar original o traducción */}
                       <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                        {(showTranslated[msg.id] && translations[msg.id]
+                        {renderMessageText((showTranslated[msg.id] && translations[msg.id]
                           ? translations[msg.id]
                           : msg.message
-                        ).replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim()}
+                        ).replace(/\n*📷 Imágenes adjuntas:[\s\S]*$/, '').trim())}
                       </Typography>
                       {showTranslated[msg.id] && translations[msg.id] && (
                         <Typography variant="caption" sx={{ color: '#9C27B0', fontStyle: 'italic', display: 'block', mt: 0.3 }}>
@@ -1257,6 +1407,12 @@ export default function SupportBoardPage() {
       <PackageDetailDialog
         tracking={packageDetailTracking}
         onClose={() => setPackageDetailTracking(null)}
+      />
+
+      {/* Perfil de Cliente */}
+      <ClientDetailDialog
+        boxId={selectedClientBoxId}
+        onClose={() => setSelectedClientBoxId(null)}
       />
     </Box>
   );
