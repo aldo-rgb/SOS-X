@@ -154,6 +154,35 @@ export default function AttendanceCheckerScreen({ route }: any) {
     }
   };
 
+  // Reabrir jornada (anular check-out por error)
+  const handleReopenCheckout = async () => {
+    Alert.alert(
+      'Reabrir Jornada',
+      '¿Registraste tu salida por error? Esto anulará la salida y podrás seguir trabajando.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Sí, reabrir',
+          onPress: async () => {
+            setChecking(true);
+            try {
+              const response = await api.post('/api/hr/reopen-checkout', {}, { headers: authHeaders });
+              Alert.alert('✅ Jornada reabierta', response.data?.message || 'Ya puedes continuar trabajando.', [
+                { text: 'OK', onPress: () => navigation.goBack() },
+              ]);
+              loadAttendanceStatus();
+            } catch (error: any) {
+              const message = error.response?.data?.error || 'Error al reabrir jornada';
+              Alert.alert('Error', message);
+            } finally {
+              setChecking(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   // Registrar salida
   const handleCheckOut = async () => {
     Alert.alert(
@@ -292,7 +321,7 @@ export default function AttendanceCheckerScreen({ route }: any) {
         </View>
 
         {/* Botones de Check In / Check Out */}
-        {!isCheckedOut && (
+        {!isCheckedOut ? (
           <View style={styles.buttonContainer}>
             {!isCheckedIn ? (
               <TouchableOpacity
@@ -327,6 +356,24 @@ export default function AttendanceCheckerScreen({ route }: any) {
                 )}
               </TouchableOpacity>
             )}
+          </View>
+        ) : (
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity
+              style={[styles.reopenButton, checking && styles.buttonDisabled]}
+              onPress={handleReopenCheckout}
+              disabled={checking}
+            >
+              {checking ? (
+                <ActivityIndicator color="#fff" size="large" />
+              ) : (
+                <>
+                  <Ionicons name="refresh-circle" size={48} color="#fff" />
+                  <Text style={styles.buttonText}>REABRIR JORNADA</Text>
+                  <Text style={styles.buttonSubtext}>Registré mi salida por error</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
         )}
 
@@ -500,6 +547,17 @@ const styles = StyleSheet.create({
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  reopenButton: {
+    backgroundColor: '#FF9800',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    shadowColor: '#FF9800',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   buttonText: {
     fontSize: 20,

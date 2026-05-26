@@ -1045,6 +1045,7 @@ import {
   saveEmployeeOnboarding,
   checkIn,
   checkOut,
+  reopenCheckout,
   getMyAttendanceToday,
   trackGPSLocation,
   getEmployeesWithAttendance,
@@ -8171,6 +8172,7 @@ app.get('/api/hr/onboarding-status', authenticateToken, checkOnboardingStatus);
 // Checador GPS
 app.post('/api/hr/check-in', authenticateToken, checkIn);
 app.post('/api/hr/check-out', authenticateToken, checkOut);
+app.post('/api/hr/reopen-checkout', authenticateToken, reopenCheckout);
 app.get('/api/hr/my-attendance', authenticateToken, getMyAttendanceToday);
 app.post('/api/hr/track-gps', authenticateToken, trackGPSLocation);
 

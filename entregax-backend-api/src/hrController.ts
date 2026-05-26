@@ -456,6 +456,35 @@ export const checkOut = async (req: Request, res: Response): Promise<void> => {
 };
 
 // ============================================
+// REABRIR JORNADA (anular check-out por error)
+// ============================================
+export const reopenCheckout = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+
+    const existing = await pool.query(
+      'SELECT id, check_in_time, check_out_time FROM attendance_logs WHERE user_id = $1 AND date = CURRENT_DATE',
+      [user.userId]
+    );
+
+    if (existing.rows.length === 0 || !existing.rows[0].check_out_time) {
+      res.status(400).json({ error: 'No hay salida registrada hoy para reabrir.' });
+      return;
+    }
+
+    await pool.query(
+      `UPDATE attendance_logs SET check_out_time = NULL, check_out_lat = NULL, check_out_lng = NULL, check_out_address = NULL WHERE id = $1`,
+      [existing.rows[0].id]
+    );
+
+    res.json({ success: true, message: '✅ Jornada reabierta. Ya puedes continuar trabajando.' });
+  } catch (error) {
+    console.error('Error en reopen-checkout:', error);
+    res.status(500).json({ error: 'Error al reabrir jornada' });
+  }
+};
+
+// ============================================
 // OBTENER MI ASISTENCIA DE HOY
 // ============================================
 export const getMyAttendanceToday = async (req: Request, res: Response): Promise<void> => {
