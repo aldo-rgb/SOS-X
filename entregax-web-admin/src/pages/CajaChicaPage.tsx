@@ -1962,16 +1962,11 @@ const CajaChicaPage: React.FC = () => {
                           </TableCell>
                           <TableCell align="right">
                             <Typography fontWeight="bold" color="success.main">
-                              ${Number(consolidacion.all_cost_usd || consolidacion.total_cost_usd || 0).toFixed(2)}
+                              ${Number(consolidacion.total_cost_usd || 0).toFixed(2)}
                             </Typography>
                             {Number(consolidacion.paid_cost_usd || 0) > 0 && (
                               <Typography variant="caption" color="success.dark" sx={{ display: 'block' }}>
                                 ✓ ${Number(consolidacion.paid_cost_usd).toFixed(2)} pagado
-                              </Typography>
-                            )}
-                            {Number(consolidacion.total_cost_usd || 0) > 0 && (
-                              <Typography variant="caption" color="warning.dark" sx={{ display: 'block' }}>
-                                ○ ${Number(consolidacion.total_cost_usd).toFixed(2)} pdte
                               </Typography>
                             )}
                             {consolidacion.has_missing && Number(consolidacion.pending_cost_usd || 0) > 0 && (
@@ -1982,16 +1977,11 @@ const CajaChicaPage: React.FC = () => {
                           </TableCell>
                           <TableCell align="right">
                             <Typography fontWeight="bold" color="primary.main">
-                              {formatCurrency(Number(consolidacion.all_cost_mxn || consolidacion.total_cost_mxn || 0))}
+                              {formatCurrency(Number(consolidacion.total_cost_mxn || 0))}
                             </Typography>
                             {Number(consolidacion.paid_cost_mxn || 0) > 0 && (
                               <Typography variant="caption" color="success.dark" sx={{ display: 'block' }}>
                                 ✓ {formatCurrency(Number(consolidacion.paid_cost_mxn))} pagado
-                              </Typography>
-                            )}
-                            {Number(consolidacion.total_cost_mxn || 0) > 0 && (
-                              <Typography variant="caption" color="warning.dark" sx={{ display: 'block' }}>
-                                ○ {formatCurrency(Number(consolidacion.total_cost_mxn))} pdte
                               </Typography>
                             )}
                             {consolidacion.has_missing && Number(consolidacion.pending_cost_mxn || 0) > 0 && (
