@@ -94,12 +94,15 @@ const ensureDriverWallet = async (
     [driverUserId]
   );
   if (existing.rows[0]?.id) {
-    // Mantener branch_id actualizado si cambió la sucursal del chofer
+    // Mantener branch_id y currency actualizados si cambió la sucursal del chofer
     if (branchId !== null) {
+      const branchCur = await client.query(`SELECT currency FROM branches WHERE id=$1`, [branchId]);
+      const branchCurrency = branchCur.rows[0]?.currency || 'MXN';
       await client.query(
-        `UPDATE petty_cash_wallets SET branch_id=$2, updated_at=CURRENT_TIMESTAMP
-         WHERE id=$1 AND (branch_id IS DISTINCT FROM $2)`,
-        [existing.rows[0].id, branchId]
+        `UPDATE petty_cash_wallets
+            SET branch_id=$2, currency=$3, updated_at=CURRENT_TIMESTAMP
+          WHERE id=$1 AND (branch_id IS DISTINCT FROM $2 OR currency IS DISTINCT FROM $3)`,
+        [existing.rows[0].id, branchId, branchCurrency]
       );
     }
     return existing.rows[0].id as number;

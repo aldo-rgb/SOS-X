@@ -24,7 +24,7 @@ import {
   Image,
   Platform,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets, initialWindowMetrics } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -124,6 +124,9 @@ const statusLabel: Record<string, string> = {
 export default function PettyCashScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const insets = useSafeAreaInsets();
+  // initialWindowMetrics siempre devuelve los insets reales del dispositivo,
+  // sin importar si el componente está dentro de un SafeAreaView que los consume.
+  const modalTopInset = initialWindowMetrics?.insets?.top ?? insets.top;
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : undefined;
 
   // Main data
@@ -557,7 +560,7 @@ export default function PettyCashScreen({ navigation, route }: any) {
           MODAL: HUB DE BLOQUES
           ═══════════════════════════════════════════════════════════════════════ */}
       <Modal visible={hubOpen} animationType="slide" onRequestClose={() => setHubOpen(false)}>
-        <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={[styles.container, { paddingTop: modalTopInset }]}>
           <View style={styles.header}>
             <TouchableOpacity onPress={() => setHubOpen(false)}>
               <MaterialIcons name="close" size={28} color="#333" />
@@ -656,7 +659,7 @@ export default function PettyCashScreen({ navigation, route }: any) {
           MODAL: WIZARD — SELECCIONAR CONTENEDORES
           ═══════════════════════════════════════════════════════════════════════ */}
       <Modal visible={wizardOpen} animationType="slide" onRequestClose={() => setWizardOpen(false)}>
-        <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={[styles.container, { paddingTop: modalTopInset }]}>
           <View style={styles.header}>
             <TouchableOpacity onPress={() => setWizardOpen(false)} disabled={wizardSaving}>
               <MaterialIcons name="arrow-back" size={28} color="#333" />
@@ -732,7 +735,7 @@ export default function PettyCashScreen({ navigation, route }: any) {
           MODAL: REGISTRAR GASTO
           ═══════════════════════════════════════════════════════════════════════ */}
       <Modal visible={expenseOpen} animationType="slide" onRequestClose={() => setExpenseOpen(false)}>
-        <View style={[styles.container, { paddingTop: insets.top }]}>
+        <View style={[styles.container, { paddingTop: modalTopInset }]}>
           <View style={styles.header}>
             <TouchableOpacity onPress={() => setExpenseOpen(false)} disabled={expSaving}>
               <MaterialIcons name="close" size={28} color="#333" />
