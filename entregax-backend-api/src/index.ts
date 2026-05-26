@@ -9394,8 +9394,11 @@ async function ensureRequiredColumns() {
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS pqtx_shipment_id INTEGER;
       CREATE INDEX IF NOT EXISTS idx_packages_pqtx_shipment_id ON packages(pqtx_shipment_id);
       -- 🚛 Vehículo y chofer que cargaron el paquete (registrado al escanear en LoadingVan)
-      ALTER TABLE packages ADD COLUMN IF NOT EXISTS loaded_vehicle_id INTEGER REFERENCES vehicles(id);
+      -- Sin FK REFERENCES para evitar error si vehicles no tiene unique constraint en prod
+      ALTER TABLE packages ADD COLUMN IF NOT EXISTS loaded_vehicle_id INTEGER;
       CREATE INDEX IF NOT EXISTS idx_packages_loaded_vehicle_id ON packages(loaded_vehicle_id);
+      -- 🚛 Chofer asignado al paquete para entrega a domicilio
+      ALTER TABLE packages ADD COLUMN IF NOT EXISTS assigned_driver_id INTEGER;
 
       -- 🚛 Info de la ruta hacia destino (operador, placas, teléfono, empresa) para contenedores FCL
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_name TEXT;
