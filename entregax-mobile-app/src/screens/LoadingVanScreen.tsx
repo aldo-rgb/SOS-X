@@ -244,6 +244,9 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const [errorDetail, setErrorDetail] = useState<FeedbackMessage | null>(null);
   const [isScanning, setIsScanning] = useState(false);
   const [scannerActive, setScannerActive] = useState(true);
+  // Disparo manual: el usuario presiona ESCANEAR para armar la cámara por 5 s
+  const [triggerArmed, setTriggerArmed] = useState(false);
+  const triggerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [lastScannedCode, setLastScannedCode] = useState<string>('');
   const [showPackageList, setShowPackageList] = useState(false);
   // Masters (AIR/LOG) que el chofer expandió para ver sus 62/40 hijas.
@@ -582,6 +585,12 @@ export default function LoadingVanScreen({ navigation, route }: any) {
         setIsScanning(false);
         if (source === 'camera') {
           setScannerActive(true);
+          // Volver a modo pausa: el usuario deberá presionar ESCANEAR de nuevo
+          setTriggerArmed(false);
+          if (triggerTimeoutRef.current) {
+            clearTimeout(triggerTimeoutRef.current);
+            triggerTimeoutRef.current = null;
+          }
         } else if (scanMode === 'scanner') {
           Keyboard.dismiss();
           manualInputRef.current?.focus();
@@ -595,6 +604,17 @@ export default function LoadingVanScreen({ navigation, route }: any) {
     const { data } = result;
     await processScanCode(data, 'camera');
   }, [processScanCode]);
+
+  const armTrigger = useCallback(() => {
+    if (isScanning) return;
+    setTriggerArmed(true);
+    // Auto-desarmar si en 5 s no se detectó ningún código
+    if (triggerTimeoutRef.current) clearTimeout(triggerTimeoutRef.current);
+    triggerTimeoutRef.current = setTimeout(() => {
+      setTriggerArmed(false);
+      triggerTimeoutRef.current = null;
+    }, 5000);
+  }, [isScanning]);
 
   const handleManualSubmit = async () => {
     if (autoSubmitTimer.current) {
@@ -882,7 +902,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                   barcodeScannerSettings={{
                     barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8', 'upc_a'],
                   }}
-                  onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
+                  onBarcodeScanned={(scannerActive && triggerArmed) ? handleBarCodeScanned : undefined}
                 />
                 
                 {/* Scanner Overlay */}
@@ -902,8 +922,40 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                     <Text style={styles.scanningText}>Verificando...</Text>
                   </View>
                 )}
+
+                {/* Overlay cuando no está armado */}
+                {!triggerArmed && !isScanning && (
+                  <View style={styles.cameraIdleOverlay}>
+                    <MaterialIcons name="touch-app" size={28} color="rgba(255,255,255,0.7)" />
+                    <Text style={styles.cameraIdleText}>Presiona ESCANEAR</Text>
+                  </View>
+                )}
+
+                {/* Indicador de armado */}
+                {triggerArmed && !isScanning && (
+                  <View style={styles.cameraArmedBadge}>
+                    <Text style={styles.cameraArmedText}>🔴 Buscando código...</Text>
+                  </View>
+                )}
               </View>
-              
+
+              {/* Botón de disparo manual */}
+              <TouchableOpacity
+                style={[styles.scanTriggerBtn, triggerArmed && styles.scanTriggerBtnArmed, isScanning && { opacity: 0.5 }]}
+                onPress={armTrigger}
+                disabled={isScanning}
+                activeOpacity={0.75}
+              >
+                <MaterialIcons
+                  name={triggerArmed ? 'radio-button-on' : 'camera'}
+                  size={28}
+                  color="#fff"
+                />
+                <Text style={styles.scanTriggerText}>
+                  {triggerArmed ? 'Buscando...' : 'ESCANEAR'}
+                </Text>
+              </TouchableOpacity>
+
               <Text style={styles.helperText}>
                 📷 Apunta al código de barras de la caja
               </Text>
@@ -1548,9 +1600,54 @@ const styles = StyleSheet.create({
   },
   helperText: {
     textAlign: 'center',
-    marginTop: 15,
-    fontSize: 14,
-    color: '#666',
+    marginTop: 8,
+    fontSize: 13,
+    color: '#999',
+  },
+  cameraIdleOverlay: {
+    position: 'absolute',
+    bottom: 12,
+    alignSelf: 'center',
+    alignItems: 'center',
+  },
+  cameraIdleText: {
+    color: 'rgba(255,255,255,0.6)',
+    fontSize: 13,
+    marginTop: 4,
+  },
+  cameraArmedBadge: {
+    position: 'absolute',
+    bottom: 12,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  cameraArmedText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  scanTriggerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F05A28',
+    marginHorizontal: 20,
+    marginTop: 14,
+    paddingVertical: 16,
+    borderRadius: 16,
+    gap: 10,
+  },
+  scanTriggerBtnArmed: {
+    backgroundColor: '#2E7D32',
+  },
+  scanTriggerText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   scannerInputCard: {
     backgroundColor: '#fff',
