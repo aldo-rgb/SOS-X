@@ -346,6 +346,18 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
   const [statusFilter, setStatusFilter] = useState<'all' | 'valid' | 'canceled'>('all');
   const [search, setSearch] = useState('');
   const [newOpen, setNewOpen] = useState(false);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' | 'warning' }>({ open: false, message: '', severity: 'info' });
+
+  const satStatusLabel = (s?: string) => {
+    switch ((s || '').toLowerCase()) {
+      case 'active': case 'valid': case 'vigente': return { txt: 'Vigente', sev: 'success' as const };
+      case 'cancelled': case 'canceled': case 'cancelado': return { txt: 'Cancelada', sev: 'error' as const };
+      case 'pending_cancellation': return { txt: 'Pendiente de cancelación', sev: 'warning' as const };
+      case 'rejected_cancellation': return { txt: 'Cancelación rechazada', sev: 'warning' as const };
+      case 'unknown': return { txt: 'No disponible (plan Facturama no permite consulta SAT)', sev: 'info' as const };
+      default: return { txt: s || 'Desconocido', sev: 'info' as const };
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -474,10 +486,11 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                     <IconButton size="small" onClick={async () => {
                       try {
                         const res = await api.get(`/admin/invoices/${r.id}/cancellation-status`, { params: { source: 'emitidas' } });
-                        alert(`Estatus SAT: ${res.data.sat_status}\nDB: ${res.data.db_status}`);
+                        const info = satStatusLabel(res.data.sat_status);
+                        setSnackbar({ open: true, message: `Estatus SAT: ${info.txt} · BD: ${res.data.db_status || '—'}`, severity: info.sev });
                         load();
                       } catch (e: any) {
-                        alert(e?.response?.data?.error || 'Error consultando SAT');
+                        setSnackbar({ open: true, message: e?.response?.data?.error || 'Error consultando SAT', severity: 'error' });
                       }
                     }}>
                       <RefreshIcon fontSize="small" sx={{ color: ORANGE }} />
@@ -490,6 +503,21 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
         </Table>
       )}
       <NewInvoiceDialog open={newOpen} emitter={emitter} onClose={() => setNewOpen(false)} onCreated={load} />
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={5000}
+        onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          onClose={() => setSnackbar(s => ({ ...s, open: false }))}
+          severity={snackbar.severity}
+          variant="filled"
+          sx={{ width: '100%' }}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
