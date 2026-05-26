@@ -1242,7 +1242,7 @@ export const transferTicket = async (req: Request, res: Response): Promise<any> 
     // Mensaje visible al cliente informando la transferencia
     await pool.query(
       `INSERT INTO ticket_messages (ticket_id, sender_type, message, is_internal) VALUES ($1, 'agent', $2, FALSE)`,
-      [id, `🔄 Tu ticket ha sido transferido al departamento de ${deptName}. Un agente especializado te atenderá a la brevedad.`]
+      [id, `🔄 Transferido a ${deptName}`]
     );
 
     // Nota interna adicional si se proporcionó

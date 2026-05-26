@@ -1102,7 +1102,30 @@ export default function SupportBoardPage() {
             </DialogTitle>
             <DialogContent sx={{ p: 0 }}>
               <Box sx={{ p: 2, maxHeight: 380, overflow: 'auto', bgcolor: '#f9f9f9' }}>
-                {messages.map((msg) => (
+                {messages.map((msg) => {
+                  // Notificación de transferencia / sistema: render compacto de 1 sola línea.
+                  const rawText = (msg.message || '').trim();
+                  const isTransferNotice = msg.sender_type === 'agent' && !msg.is_internal &&
+                    (rawText.startsWith('🔄') || /^✅ Resuelto/.test(rawText));
+                  if (isTransferNotice) {
+                    return (
+                      <Box key={msg.id} sx={{ display: 'flex', justifyContent: 'center', my: 0.75 }}>
+                        <Box sx={{
+                          display: 'inline-flex', alignItems: 'center', gap: 0.75,
+                          px: 1.25, py: 0.25, borderRadius: 999,
+                          bgcolor: '#EEE', color: '#555',
+                          fontSize: 11, lineHeight: 1.4,
+                          maxWidth: '90%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          <span style={{ opacity: 0.85 }}>{rawText}</span>
+                          <span style={{ opacity: 0.5, fontSize: 10 }}>
+                            · {new Date(msg.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        </Box>
+                      </Box>
+                    );
+                  }
+                  return (
                   <Box
                     key={msg.id}
                     sx={{ display: 'flex', justifyContent: msg.sender_type === 'client' ? 'flex-start' : 'flex-end', mb: 2 }}
@@ -1189,7 +1212,8 @@ export default function SupportBoardPage() {
                       )}
                     </Box>
                   </Box>
-                ))}
+                  );
+                })}
                 <div ref={messagesEndRef} />
               </Box>
 
