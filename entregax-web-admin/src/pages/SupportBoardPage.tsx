@@ -714,15 +714,14 @@ export default function SupportBoardPage() {
     return `hace ${Math.floor(h / 24)}d`;
   };
 
-  // Detecta guías (LOG...) y casilleros (S####) en el texto y los convierte en chips clicables
+  // Detecta guías (LOG...) y casilleros (S#### o ETX-####) en el texto y los convierte en chips clicables
   // Grupo 1 = tracking de guía, Grupo 2 = casillero de cliente
-  const MSG_ITEM_RE = /\b(LOG[A-Z0-9]{5,}|[A-Z]{2,4}\d{4,}[A-Z0-9]*)|(S\d{1,4})\b/g;
   const renderMessageText = (text: string): React.ReactNode => {
+    const re = /\b(LOG[A-Z0-9]{5,}|[A-Z]{2,4}\d{4,}[A-Z0-9]*)|\b(ETX-\d{1,6}|S\d{1,4})\b/g;
     const parts: React.ReactNode[] = [];
     let lastIndex = 0;
     let match: RegExpExecArray | null;
-    MSG_ITEM_RE.lastIndex = 0;
-    while ((match = MSG_ITEM_RE.exec(text)) !== null) {
+    while ((match = re.exec(text)) !== null) {
       if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
       const isTracking = !!match[1];
       const value = match[0];
