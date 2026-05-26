@@ -456,14 +456,34 @@ export const checkOut = async (req: Request, res: Response): Promise<void> => {
 };
 
 // ============================================
-// REABRIR JORNADA (anular check-out por error)
+// REABRIR JORNADA — guarda historial de salidas/regresos
 // ============================================
+async function ensureAttendanceBreaksTable(): Promise<void> {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS attendance_breaks (
+      id              SERIAL PRIMARY KEY,
+      attendance_log_id INTEGER NOT NULL,
+      user_id         INTEGER NOT NULL,
+      out_time        TIMESTAMPTZ NOT NULL,
+      out_lat         DOUBLE PRECISION,
+      out_lng         DOUBLE PRECISION,
+      out_address     TEXT,
+      return_time     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      created_at      TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS idx_att_breaks_log ON attendance_breaks(attendance_log_id);
+  `);
+}
+
 export const reopenCheckout = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = (req as any).user;
 
+    await ensureAttendanceBreaksTable();
+
     const existing = await pool.query(
-      'SELECT id, check_in_time, check_out_time FROM attendance_logs WHERE user_id = $1 AND date = CURRENT_DATE',
+      `SELECT id, check_in_time, check_out_time, check_out_lat, check_out_lng, check_out_address
+         FROM attendance_logs WHERE user_id = $1 AND date = CURRENT_DATE`,
       [user.userId]
     );
 
@@ -472,12 +492,22 @@ export const reopenCheckout = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    const log = existing.rows[0];
+
+    // Guardar la salida como una pausa (con hora de regreso = ahora)
     await pool.query(
-      `UPDATE attendance_logs SET check_out_time = NULL, check_out_lat = NULL, check_out_lng = NULL, check_out_address = NULL WHERE id = $1`,
-      [existing.rows[0].id]
+      `INSERT INTO attendance_breaks (attendance_log_id, user_id, out_time, out_lat, out_lng, out_address, return_time)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [log.id, user.userId, log.check_out_time, log.check_out_lat, log.check_out_lng, log.check_out_address]
     );
 
-    res.json({ success: true, message: '✅ Jornada reabierta. Ya puedes continuar trabajando.' });
+    // Reactivar la jornada limpiando el check_out del registro principal
+    await pool.query(
+      `UPDATE attendance_logs SET check_out_time = NULL, check_out_lat = NULL, check_out_lng = NULL, check_out_address = NULL WHERE id = $1`,
+      [log.id]
+    );
+
+    res.json({ success: true, message: '✅ Jornada reabierta. Tu salida quedó registrada en el historial.' });
   } catch (error) {
     console.error('Error en reopen-checkout:', error);
     res.status(500).json({ error: 'Error al reabrir jornada' });
@@ -492,15 +522,27 @@ export const getMyAttendanceToday = async (req: Request, res: Response): Promise
     const user = (req as any).user;
 
     const result = await pool.query(`
-      SELECT * FROM attendance_logs 
+      SELECT * FROM attendance_logs
       WHERE user_id = $1 AND date = CURRENT_DATE
     `, [user.userId]);
 
-    res.json(result.rows[0] || { 
-      checkedIn: false, 
-      checkedOut: false,
-      message: 'Aún no has registrado asistencia hoy'
-    });
+    if (!result.rows[0]) {
+      res.json({ checkedIn: false, checkedOut: false, message: 'Aún no has registrado asistencia hoy' });
+      return;
+    }
+
+    // Incluir pausas del día (salidas intermedias con su regreso)
+    let breaks: any[] = [];
+    try {
+      await ensureAttendanceBreaksTable();
+      const breaksRes = await pool.query(
+        `SELECT out_time, out_address, return_time FROM attendance_breaks WHERE attendance_log_id = $1 ORDER BY out_time ASC`,
+        [result.rows[0].id]
+      );
+      breaks = breaksRes.rows;
+    } catch { /* tabla aún no existe — ignorar */ }
+
+    res.json({ ...result.rows[0], breaks });
   } catch (error) {
     console.error('Error obteniendo asistencia:', error);
     res.status(500).json({ error: 'Error al obtener asistencia' });

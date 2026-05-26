@@ -17,12 +17,19 @@ import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import api from '../services/api';
 
+interface AttendanceBreak {
+  out_time: string;
+  out_address: string | null;
+  return_time: string;
+}
+
 interface AttendanceRecord {
   check_in_time: string | null;
   check_out_time: string | null;
   check_in_address: string | null;
   check_out_address: string | null;
   status: string | null;
+  breaks?: AttendanceBreak[];
 }
 
 export default function AttendanceCheckerScreen({ route }: any) {
@@ -420,6 +427,31 @@ export default function AttendanceCheckerScreen({ route }: any) {
                 {todayAttendance.check_in_address || todayAttendance.check_out_address || 'Fuera de oficina'}
               </Text>
             </View>
+          </View>
+        )}
+
+        {/* Historial de pausas del día */}
+        {todayAttendance?.breaks && todayAttendance.breaks.length > 0 && (
+          <View style={styles.recordCard}>
+            <Text style={styles.recordTitle}>Salidas intermedias de hoy</Text>
+            {todayAttendance.breaks.map((b, i) => {
+              const fmtT = (iso: string) => new Date(iso).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+              const durMin = Math.round((new Date(b.return_time).getTime() - new Date(b.out_time).getTime()) / 60000);
+              return (
+                <View key={i} style={[styles.recordRow, { alignItems: 'flex-start' }]}>
+                  <Ionicons name="cafe-outline" size={20} color="#FF9800" style={{ marginTop: 2 }} />
+                  <View style={{ flex: 1, marginLeft: 8 }}>
+                    <Text style={{ fontSize: 14, color: '#333', fontWeight: '600' }}>
+                      Salida {fmtT(b.out_time)} → Regreso {fmtT(b.return_time)}
+                      <Text style={{ fontWeight: '400', color: '#888' }}> ({durMin} min)</Text>
+                    </Text>
+                    {!!b.out_address && (
+                      <Text style={{ fontSize: 12, color: '#888', marginTop: 2 }}>{b.out_address}</Text>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
           </View>
         )}
 
