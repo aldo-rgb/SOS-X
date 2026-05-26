@@ -41,6 +41,8 @@ import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material
 import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleExternalSync, toggleCajito, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
+import CajitoAuditDialog from '../components/CajitoAuditDialog';
+import HistoryIcon from '@mui/icons-material/History';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
@@ -100,6 +102,7 @@ export default function SettingsPage() {
     const [togglingExternalSync, setTogglingExternalSync] = useState(false);
     const [localExternalSync, setLocalExternalSync] = useState<boolean | null>(null);
     const [togglingCajito, setTogglingCajito] = useState(false);
+    const [cajitoAuditOpen, setCajitoAuditOpen] = useState(false);
     const [localCajito, setLocalCajito] = useState<boolean | null>(null);
     const [externalSyncKey, setExternalSyncKey] = useState<string | null>(null);
     const [externalSyncKeyVisible, setExternalSyncKeyVisible] = useState(false);
@@ -795,9 +798,34 @@ export default function SettingsPage() {
                                 />
                             )}
                         </Paper>
+                        <Paper variant="outlined" sx={{ p: 2, mt: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="subtitle1" fontWeight={600}>
+                                    📜 Historial y auditoría de Cajito
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Consulta tus propias conversaciones o, como super admin, revisa la auditoría completa
+                                    de todas las interacciones (mensajes, herramientas invocadas y tokens consumidos).
+                                </Typography>
+                            </Box>
+                            <Button
+                                variant="outlined"
+                                color="secondary"
+                                startIcon={<HistoryIcon />}
+                                onClick={() => setCajitoAuditOpen(true)}
+                                sx={{ borderRadius: 2, whiteSpace: 'nowrap' }}
+                            >
+                                Ver historial
+                            </Button>
+                        </Paper>
                     </CardContent>
                 </Card>
             )}
+            <CajitoAuditDialog
+                open={cajitoAuditOpen}
+                onClose={() => setCajitoAuditOpen(false)}
+                isSuperAdmin={!!isSuperAdmin}
+            />
 
             {/* Tarifas de Comisión por Servicio (incluye GEX con comisión fija) */}
             <Box sx={{ mb: 3, display: 'flex', justifyContent: 'flex-end' }}>
