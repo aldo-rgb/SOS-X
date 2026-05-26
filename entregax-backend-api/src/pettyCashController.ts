@@ -1551,3 +1551,78 @@ export const deleteMovement = async (req: Request, res: Response): Promise<any> 
     client.release();
   }
 };
+
+// ============================================================
+// PUT /api/admin/petty-cash/movements/:id — solo super_admin
+// Actualiza monto, concepto y categoría de un movimiento.
+// Si el monto cambia y el movimiento ya afectó el saldo (aprobado/liquidado),
+// ajusta el balance del wallet por la diferencia.
+// ============================================================
+export const updateMovement = async (req: Request, res: Response): Promise<any> => {
+  const id = req.params['id'] as string;
+  const movId = parseInt(id, 10);
+  if (!movId) return res.status(400).json({ error: 'ID inválido' });
+
+  const { amount_mxn, concept, category } = req.body;
+  const newAmount = parseFloat(amount_mxn);
+  if (isNaN(newAmount) || newAmount <= 0) {
+    return res.status(400).json({ error: 'Monto inválido' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // Obtener el movimiento actual
+    const movRes = await client.query(
+      `SELECT * FROM petty_cash_movements WHERE id = $1 LIMIT 1`,
+      [movId]
+    );
+    if (movRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Movimiento no encontrado' });
+    }
+    const mov = movRes.rows[0];
+    const oldAmount = Number(mov.amount_mxn) || 0;
+    const walletId = mov.wallet_id;
+    const amountDiff = newAmount - oldAmount;
+
+    // Si el monto cambió y el movimiento ya afectó el saldo (approved/settled),
+    // ajustar el balance del wallet por la diferencia.
+    if (amountDiff !== 0 && ['approved', 'settled'].includes(mov.status)) {
+      const signMap: Record<string, number> = {
+        fund: 1,       // fondeo suma al saldo
+        return: 1,     // devolución suma al saldo
+        advance: -1,   // anticipo resta del saldo
+        adjustment: 1  // ajuste suma al saldo
+      };
+      const sign = signMap[mov.movement_type] ?? 0;
+      if (sign !== 0) {
+        await client.query(
+          `UPDATE petty_cash_wallets SET balance_mxn = balance_mxn + $1 WHERE id = $2`,
+          [sign * amountDiff, walletId]
+        );
+      }
+    }
+
+    // Actualizar el movimiento
+    await client.query(
+      `UPDATE petty_cash_movements
+       SET amount_mxn = $1, concept = $2, category = $3, updated_at = NOW()
+       WHERE id = $4`,
+      [newAmount, concept || null, category || null, movId]
+    );
+
+    await client.query('COMMIT');
+    return res.json({
+      success: true,
+      message: 'Movimiento actualizado',
+      balance_adjusted: amountDiff !== 0 && ['approved', 'settled'].includes(mov.status)
+    });
+  } catch (err: any) {
+    await client.query('ROLLBACK');
+    return res.status(500).json({ error: 'Error al actualizar movimiento', details: err.message });
+  } finally {
+    client.release();
+  }
+};

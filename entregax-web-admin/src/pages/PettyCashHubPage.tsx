@@ -228,6 +228,14 @@ export default function PettyCashHubPage() {
   // Visor de foto de evidencia
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
 
+  // Edición de movimiento
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingMovement, setEditingMovement] = useState<Movement | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editConcept, setEditConcept] = useState('');
+  const [editCategory, setEditCategory] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
   // Toasts
   const [snack, setSnack] = useState<{ severity: 'success' | 'error'; msg: string } | null>(null);
 
@@ -474,6 +482,57 @@ export default function PettyCashHubPage() {
       setSnack({ severity: 'error', msg: 'Error de red' });
     } finally {
       setDeletingMovId(null);
+    }
+  };
+
+  const handleOpenEditMovement = (mov: Movement) => {
+    setEditingMovement(mov);
+    setEditAmount(String(mov.amount_mxn));
+    setEditConcept(mov.concept || '');
+    setEditCategory(mov.category || '');
+    setEditDialogOpen(true);
+  };
+
+  const handleSaveEditMovement = async () => {
+    if (!editingMovement) return;
+    const amount = parseFloat(editAmount);
+    if (isNaN(amount) || amount <= 0) {
+      setSnack({ severity: 'error', msg: 'Monto inválido' });
+      return;
+    }
+    setSavingEdit(true);
+    try {
+      const r = await fetch(`${API_URL}/api/admin/petty-cash/movements/${editingMovement.id}`, {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount_mxn: amount,
+          concept: editConcept.trim() || null,
+          category: editCategory.trim() || null,
+        }),
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setDetailMovs(prev => prev.map(m => m.id === editingMovement.id
+          ? { ...m, amount_mxn: amount, concept: editConcept.trim() || null, category: editCategory.trim() || null }
+          : m
+        ));
+        setSnack({ severity: 'success', msg: 'Movimiento actualizado' });
+        setEditDialogOpen(false);
+        // Recargar wallet para actualizar saldo
+        if (detailWallet) {
+          const wr = await fetch(`${API_URL}/api/admin/petty-cash/wallets/${detailWallet.id}`, { headers });
+          const wd = await wr.json();
+          if (wr.ok && wd.wallet) setDetailWallet(prev => ({ ...(prev as Wallet), ...wd.wallet }));
+        }
+        loadAll();
+      } else {
+        setSnack({ severity: 'error', msg: d.error || 'Error al actualizar' });
+      }
+    } catch {
+      setSnack({ severity: 'error', msg: 'Error de red' });
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -1302,10 +1361,7 @@ export default function PettyCashHubPage() {
                                   <IconButton
                                     size="small"
                                     color="primary"
-                                    onClick={() => {
-                                      // TODO: Implementar edición de movimiento
-                                      alert(`Editar movimiento ID: ${m.id}\nFecha: ${m.created_at}\nMonto: ${m.amount_mxn}\nConcepto: ${m.concept || '—'}`);
-                                    }}
+                                    onClick={() => handleOpenEditMovement(m)}
                                   >
                                     <EditIcon fontSize="small" />
                                   </IconButton>
@@ -1358,6 +1414,53 @@ export default function PettyCashHubPage() {
         <DialogActions>
           <Button onClick={() => photoUrl && window.open(photoUrl, '_blank')}>Abrir en pestaña</Button>
           <Button variant="contained" onClick={() => setPhotoUrl(null)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo de edición de movimiento */}
+      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>✏️ Editar movimiento</DialogTitle>
+        <DialogContent>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 1 }}>
+            <TextField
+              label="Monto"
+              type="number"
+              value={editAmount}
+              onChange={(e) => setEditAmount(e.target.value)}
+              fullWidth
+              required
+              inputProps={{ step: '0.01', min: '0' }}
+              helperText="Ingresa el monto correcto"
+            />
+            <TextField
+              label="Concepto"
+              value={editConcept}
+              onChange={(e) => setEditConcept(e.target.value)}
+              fullWidth
+              multiline
+              rows={2}
+              helperText="Describe el motivo del gasto"
+            />
+            <TextField
+              label="Categoría"
+              value={editCategory}
+              onChange={(e) => setEditCategory(e.target.value)}
+              fullWidth
+              helperText="Ej: gasolina, mensajería, propina, etc."
+            />
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditDialogOpen(false)} disabled={savingEdit}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveEditMovement}
+            disabled={savingEdit}
+          >
+            {savingEdit ? 'Guardando...' : 'Guardar cambios'}
+          </Button>
         </DialogActions>
       </Dialog>
 
