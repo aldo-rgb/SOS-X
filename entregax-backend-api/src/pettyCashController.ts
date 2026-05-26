@@ -838,7 +838,14 @@ export const registerExpense = async (req: Request, res: Response): Promise<any>
  * Mismo formato multipart que /expenses (chofer), pero el gasto se imputa a la
  * wallet de SUCURSAL del usuario autenticado (branch_manager, operaciones, etc.).
  * Reusa el mismo middleware `pcExpenseUpload` + `handlePettyCashExpenseUpload`.
+ * Los roles que gestionan la caja (PCASH_ADMIN_ROLES) se auto-aprueban.
  */
+
+// Roles que gestionan la caja — sus gastos de sucursal se auto-aprueban
+const BRANCH_EXPENSE_AUTO_APPROVE_ROLES = new Set([
+  'super_admin', 'admin', 'director', 'branch_manager', 'accountant', 'operaciones'
+]);
+
 export const registerBranchExpense = async (req: Request, res: Response): Promise<any> => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
@@ -872,13 +879,16 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
     return res.status(400).json({ error: 'Foto del ticket requerida' });
   }
 
-  // Resolver la sucursal del usuario
-  const ur = await pool.query('SELECT branch_id FROM users WHERE id = $1', [userId]);
+  // Resolver la sucursal del usuario y su rol
+  const ur = await pool.query('SELECT branch_id, role FROM users WHERE id = $1', [userId]);
   const branchId = ur.rows[0]?.branch_id || null;
   if (!branchId) {
     return res.status(400).json({ error: 'El usuario no tiene una sucursal asignada' });
   }
   const walletId = await ensureBranchWallet(branchId);
+
+  const userRole = String(ur.rows[0]?.role || '').toLowerCase();
+  const autoApprove = BRANCH_EXPENSE_AUTO_APPROVE_ROLES.has(userRole);
 
   const client = await pool.connect();
   try {
@@ -888,20 +898,37 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
         wallet_id, movement_type, category, amount_mxn, status, concept,
         evidence_url, xml_url,
         gps_lat, gps_lng, gps_accuracy_m, vehicle_id,
-        branch_id, created_by
-      ) VALUES ($1, 'expense', $2, $3, 'pending', $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        branch_id, created_by,
+        reviewed_by, reviewed_at
+      ) VALUES ($1, 'expense', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
       RETURNING id, created_at
     `, [
-      walletId, category, amount, concept || null,
+      walletId, category, amount, autoApprove ? 'approved' : 'pending', concept || null,
       evidenceUrl, xmlUrl,
       gps_lat ? Number(gps_lat) : null,
       gps_lng ? Number(gps_lng) : null,
       gps_accuracy_m ? Number(gps_accuracy_m) : null,
       vehicle_id ? Number(vehicle_id) : null,
-      branchId, userId
+      branchId, userId,
+      autoApprove ? userId : null,
+      autoApprove ? new Date() : null
     ]);
+
+    if (autoApprove) {
+      await client.query(`
+        UPDATE petty_cash_wallets
+        SET balance_mxn = balance_mxn - $2, updated_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+      `, [walletId, amount]);
+    }
+
     await client.query('COMMIT');
-    return res.json({ success: true, movement_id: m.rows[0].id, created_at: m.rows[0].created_at });
+    return res.json({
+      success: true,
+      movement_id: m.rows[0].id,
+      created_at: m.rows[0].created_at,
+      auto_approved: autoApprove
+    });
   } catch (err: any) {
     await client.query('ROLLBACK');
     console.error('registerBranchExpense error', err);
@@ -1472,7 +1499,7 @@ export const finalizeRouteBlock = async (req: Request, res: Response): Promise<a
 };
 
 // ============================================================
-// DELETE /api/admin/petty-cash/movements/:id  — solo super_admin
+// DELETE /api/admin/petty-cash/movements/:id  — PCASH_ADMIN_ROLES
 // Elimina un movimiento, revierte el saldo del wallet y, si es un
 // fondeo (type=fund), también elimina el egreso vinculado en
 // caja_chica_transacciones (columna caja_chica_transaccion_id).
@@ -1501,9 +1528,9 @@ export const deleteMovement = async (req: Request, res: Response): Promise<any> 
     // 1. Revertir saldo del wallet si fue aprobado/liquidado.
     //    fund/return → sumaron saldo → revertir restando.
     //    advance → restó saldo → revertir sumando.
-    //    expense → no afecta wallet de sucursal.
+    //    expense aprobado → restó saldo → revertir sumando.
     if (['approved', 'settled'].includes(mov.status)) {
-      const signMap: Record<string, number> = { fund: -1, return: -1, advance: 1, adjustment: -1 };
+      const signMap: Record<string, number> = { fund: -1, return: -1, advance: 1, adjustment: -1, expense: 1 };
       const sign = signMap[mov.movement_type] ?? 0;
       if (sign !== 0) {
         await client.query(

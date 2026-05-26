@@ -24,7 +24,7 @@ import {
   Image,
   Platform,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -138,6 +138,9 @@ const statusMeta = (status: string) => {
 export default function PettyCashAdminScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const authHeaders = token ? { Authorization: `Bearer ${token}` } : undefined;
+
+  const insets = useSafeAreaInsets();
+  const modalTopInset = Platform.OS === 'ios' ? Math.max(insets.top, 50) : insets.top;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -323,7 +326,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
       if (!res.ok) {
         throw new Error(data?.error || 'No se pudo registrar el gasto');
       }
-      Alert.alert('✅ Gasto registrado', 'Quedó pendiente de aprobación.');
+      Alert.alert('✅ Gasto registrado', 'El gasto fue registrado y aprobado.');
       setGastoOpen(false);
       loadData();
     } catch (err: any) {
@@ -371,6 +374,34 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
     } finally {
       setReviewBusy(false);
     }
+  };
+
+  const handleDeleteMovement = () => {
+    if (!reviewMov) return;
+    Alert.alert(
+      'Eliminar movimiento',
+      `¿Seguro que deseas eliminar este gasto de $${Number(reviewMov.amount_mxn).toFixed(2)}? El saldo del wallet se revertirá si ya estaba aprobado.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Eliminar',
+          style: 'destructive',
+          onPress: async () => {
+            setReviewBusy(true);
+            try {
+              await api.delete(`/api/admin/petty-cash/movements/${reviewMov.id}`, { headers: authHeaders });
+              Alert.alert('✅ Eliminado', 'El movimiento fue eliminado y el saldo revertido.');
+              setReviewMov(null);
+              loadData();
+            } catch (err: any) {
+              Alert.alert('Error', err?.response?.data?.error || 'No se pudo eliminar');
+            } finally {
+              setReviewBusy(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   if (loading) {
@@ -581,7 +612,34 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                   : (MOVEMENT_LABELS[m.movement_type] || m.movement_type);
                 const subtitle = isExpense ? (m.driver_name || m.concept) : m.concept;
                 return (
-                  <View key={m.id} style={styles.card}>
+                  <TouchableOpacity
+                    key={m.id}
+                    style={styles.card}
+                    onLongPress={() => {
+                      Alert.alert(
+                        'Eliminar movimiento',
+                        `¿Eliminar "${title}" por ${fmtMoney(m.amount_mxn)}?${m.status === 'approved' ? ' El saldo del wallet se revertirá.' : ''}`,
+                        [
+                          { text: 'Cancelar', style: 'cancel' },
+                          {
+                            text: 'Eliminar',
+                            style: 'destructive',
+                            onPress: async () => {
+                              try {
+                                await api.delete(`/api/admin/petty-cash/movements/${m.id}`, { headers: authHeaders });
+                                Alert.alert('✅ Eliminado', 'Movimiento eliminado correctamente.');
+                                loadData();
+                              } catch (err: any) {
+                                Alert.alert('Error', err?.response?.data?.error || 'No se pudo eliminar');
+                              }
+                            },
+                          },
+                        ]
+                      );
+                    }}
+                    activeOpacity={0.85}
+                    delayLongPress={500}
+                  >
                     <View style={styles.movIcon}>
                       <Text style={{ fontSize: 22 }}>
                         {isExpense ? (cat?.icon || '🧾') : isInflow ? '💵' : '📤'}
@@ -602,7 +660,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                         <Text style={[styles.chipText, { color: st.color }]}>{st.label}</Text>
                       </View>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 );
               })
             )}
@@ -612,8 +670,8 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
 
       {/* Modal: Anticipo */}
       <Modal visible={advOpen} animationType="slide" onRequestClose={() => !advBusy && setAdvOpen(false)}>
-        <SafeAreaView style={styles.container}>
-          <View style={styles.header}>
+        <View style={styles.container}>
+          <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
             <TouchableOpacity onPress={() => setAdvOpen(false)} disabled={advBusy}>
               <MaterialIcons name="close" size={28} color="#333" />
             </TouchableOpacity>
@@ -684,13 +742,13 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               )}
             </TouchableOpacity>
           </ScrollView>
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* Modal: Registrar gasto de sucursal */}
       <Modal visible={gastoOpen} animationType="slide" onRequestClose={() => !gastoBusy && setGastoOpen(false)}>
-        <SafeAreaView style={styles.container}>
-          <View style={styles.header}>
+        <View style={styles.container}>
+          <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
             <TouchableOpacity onPress={() => setGastoOpen(false)} disabled={gastoBusy}>
               <MaterialIcons name="close" size={28} color="#333" />
             </TouchableOpacity>
@@ -699,7 +757,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
           <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
             <View style={styles.infoBox}>
               <Text style={styles.infoText}>
-                Este gasto se deduce de la wallet de <Text style={{ fontWeight: '700' }}>{branchWallet?.owner_name || 'la sucursal'}</Text> y queda pendiente de aprobación. Se requiere foto del ticket.
+                Este gasto se deduce de la wallet de <Text style={{ fontWeight: '700' }}>{branchWallet?.owner_name || 'la sucursal'}</Text> y se registra como aprobado automáticamente. Se requiere foto del ticket.
               </Text>
             </View>
 
@@ -789,7 +847,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               )}
             </TouchableOpacity>
           </ScrollView>
-        </SafeAreaView>
+        </View>
       </Modal>
 
       {/* Modal: Revisar gasto */}
@@ -798,8 +856,8 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
         animationType="slide"
         onRequestClose={() => !reviewBusy && setReviewMov(null)}
       >
-        <SafeAreaView style={styles.container}>
-          <View style={styles.header}>
+        <View style={styles.container}>
+          <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
             <TouchableOpacity onPress={() => setReviewMov(null)} disabled={reviewBusy}>
               <MaterialIcons name="close" size={28} color="#333" />
             </TouchableOpacity>
@@ -882,9 +940,17 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                   )}
                 </TouchableOpacity>
               </View>
+              <TouchableOpacity
+                style={[styles.actionBtn, { backgroundColor: '#B0BEC5', marginTop: 10 }, reviewBusy && { opacity: 0.6 }]}
+                onPress={handleDeleteMovement}
+                disabled={reviewBusy}
+              >
+                <MaterialIcons name="delete-outline" size={20} color="#fff" />
+                <Text style={styles.actionBtnText}>Eliminar movimiento</Text>
+              </TouchableOpacity>
             </ScrollView>
           )}
-        </SafeAreaView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
