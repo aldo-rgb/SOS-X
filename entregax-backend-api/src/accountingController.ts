@@ -302,12 +302,16 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
             SELECT pp.id, pp.payment_reference, pp.amount, pp.currency, pp.payment_method,
                    pp.paid_at, pp.created_at, pp.facturada, pp.factura_error,
                    'POBOX_USA'::text AS service_type,
-                   u.id AS user_id, u.full_name, u.email,
-                   COALESCE(u.fiscal_rfc, u.rfc)                         AS rfc,
-                   COALESCE(u.fiscal_razon_social, u.razon_social)       AS razon_social,
-                   u.fiscal_regimen_fiscal                               AS regimen_fiscal,
-                   u.fiscal_codigo_postal                                AS cp,
-                   u.fiscal_uso_cfdi                                     AS uso_cfdi
+                   u.id AS user_id,
+                   u.full_name,
+                   u.email,
+                   u.box_id,
+                   COALESCE(NULLIF(TRIM(u.fiscal_rfc), ''), '')           AS rfc,
+                   COALESCE(NULLIF(TRIM(u.fiscal_razon_social), ''),
+                            u.full_name, '')                              AS razon_social,
+                   COALESCE(NULLIF(TRIM(u.fiscal_regimen_fiscal), ''), '') AS regimen_fiscal,
+                   COALESCE(NULLIF(TRIM(u.fiscal_codigo_postal), ''), '') AS cp,
+                   COALESCE(NULLIF(TRIM(u.fiscal_uso_cfdi), ''), 'G03')   AS uso_cfdi
             FROM pobox_payments pp
             LEFT JOIN users u ON u.id = pp.user_id
             WHERE pp.requiere_factura = TRUE
@@ -321,7 +325,9 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
                 SELECT pp.id, pp.payment_reference, pp.amount, pp.currency, pp.payment_method,
                        pp.paid_at, pp.created_at, pp.facturada, pp.factura_error,
                        'POBOX_USA'::text AS service_type,
-                       u.id AS user_id, u.full_name, u.email
+                       u.id AS user_id, u.full_name, u.email, u.box_id,
+                       '' AS rfc, u.full_name AS razon_social,
+                       '' AS regimen_fiscal, '' AS cp, 'G03' AS uso_cfdi
                 FROM pobox_payments pp
                 LEFT JOIN users u ON u.id = pp.user_id
                 WHERE pp.requiere_factura = TRUE
