@@ -1700,8 +1700,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         }
 
         const labels = [];
+        // Si el master no tiene box_id, buscar en los hijos (caso consolidaciones multicliente)
+        const childBoxId = children.find((c: any) => c.box_id)?.box_id || null;
         const resolvedName = pkg.full_name || pkg.legacy_name || 'SIN CLIENTE';
-        const resolvedBoxId = pkg.user_box_id || pkg.legacy_box_id || pkg.box_id || 'PENDIENTE';
+        const resolvedBoxId = pkg.user_box_id || pkg.legacy_box_id || pkg.box_id || childBoxId || 'PENDIENTE';
 
         const destinationCode = cityCodeFor(pkg.addr_city, pkg.addr_state);
         const destCityFull = pkg.addr_city || pkg.destination_city || null;
@@ -1935,12 +1937,12 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     ? {
                         id: pkg.user_id, name: pkg.full_name || 'Sin nombre', email: pkg.email || '',
                         boxId: pkg.user_box_id || 'N/A',
-                        shippingMark: pkg.box_id || null,
+                        shippingMark: pkg.box_id || childBoxId || null,
                         advisor: pkg.advisor_name ? { id: pkg.advisor_id, name: pkg.advisor_name } : null,
                       }
                     : {
                         id: 0, name: resolvedName, email: '', boxId: resolvedBoxId,
-                        shippingMark: pkg.box_id || null,
+                        shippingMark: pkg.box_id || childBoxId || null,
                         advisor: null,
                       }
             }
