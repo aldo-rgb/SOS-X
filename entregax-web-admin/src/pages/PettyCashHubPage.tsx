@@ -628,19 +628,21 @@ export default function PettyCashHubPage() {
               </CardContent>
             </Card>
           </Grid>
-          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-            <Card sx={{ borderLeft: '4px solid #F05A28' }}>
-              <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <CajaCCIcon sx={{ fontSize: 36, color: '#F05A28' }} />
-                <Box>
-                  <Typography variant="caption" color="text.secondary">Saldo Caja CC</Typography>
-                  <Typography variant="h5" fontWeight="bold" color="#F05A28">
-                    {cajaMxnBalance !== null ? fmtMoney(cajaMxnBalance) : '—'}
-                  </Typography>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
+          {['super_admin', 'admin', 'director'].includes(currentUserRole) && (
+            <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+              <Card sx={{ borderLeft: '4px solid #F05A28' }}>
+                <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <CajaCCIcon sx={{ fontSize: 36, color: '#F05A28' }} />
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Saldo Caja CC</Typography>
+                    <Typography variant="h5" fontWeight="bold" color="#F05A28">
+                      {cajaMxnBalance !== null ? fmtMoney(cajaMxnBalance) : '—'}
+                    </Typography>
+                  </Box>
+                </CardContent>
+              </Card>
+            </Grid>
+          )}
           <Grid size={{ xs: 12, sm: 6, md: 6 }}>
             <Card>
               <CardContent sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
