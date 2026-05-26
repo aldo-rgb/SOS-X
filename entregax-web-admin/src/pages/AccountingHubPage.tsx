@@ -2143,8 +2143,9 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
                         receptor: {
                           rfc: r.rfc || '',
                           razon_social: r.razon_social || r.full_name || '',
-                          regimen_fiscal: undefined,
-                          cp: undefined,
+                          regimen_fiscal: r.regimen_fiscal || undefined,
+                          cp: r.cp || undefined,
+                          uso_cfdi: r.uso_cfdi || undefined,
                           email: r.email || '',
                           user_id: r.user_id || null,
                         },
