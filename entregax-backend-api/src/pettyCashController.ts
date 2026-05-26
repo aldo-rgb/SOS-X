@@ -68,10 +68,18 @@ const ensureBranchWallet = async (branchId: number, client = pool): Promise<numb
     [branchId]
   );
   if (existing.rows[0]?.id) return existing.rows[0].id as number;
-  const ins = await client.query(
-    `INSERT INTO petty_cash_wallets (owner_type, owner_id, branch_id, balance_mxn)
-     VALUES ('branch', $1, $1, 0) RETURNING id`,
+
+  // Obtener moneda de la sucursal (si está configurada en la tabla branches)
+  const branchInfo = await client.query(
+    `SELECT currency FROM branches WHERE id=$1`,
     [branchId]
+  );
+  const currency = branchInfo.rows[0]?.currency || 'MXN';
+
+  const ins = await client.query(
+    `INSERT INTO petty_cash_wallets (owner_type, owner_id, branch_id, balance_mxn, currency)
+     VALUES ('branch', $1, $1, 0, $2) RETURNING id`,
+    [branchId, currency]
   );
   return ins.rows[0].id as number;
 };
@@ -96,10 +104,21 @@ const ensureDriverWallet = async (
     }
     return existing.rows[0].id as number;
   }
+
+  // Obtener moneda de la sucursal para heredarla al chofer
+  let currency = 'MXN';
+  if (branchId !== null) {
+    const branchInfo = await client.query(
+      `SELECT currency FROM branches WHERE id=$1`,
+      [branchId]
+    );
+    currency = branchInfo.rows[0]?.currency || 'MXN';
+  }
+
   const ins = await client.query(
-    `INSERT INTO petty_cash_wallets (owner_type, owner_id, branch_id, balance_mxn)
-     VALUES ('driver', $1, $2, 0) RETURNING id`,
-    [driverUserId, branchId]
+    `INSERT INTO petty_cash_wallets (owner_type, owner_id, branch_id, balance_mxn, currency)
+     VALUES ('driver', $1, $2, 0, $3) RETURNING id`,
+    [driverUserId, branchId, currency]
   );
   return ins.rows[0].id as number;
 };
