@@ -1304,7 +1304,7 @@ export default function PettyCashHubPage() {
                                     color="primary"
                                     onClick={() => {
                                       // TODO: Implementar edición de movimiento
-                                      alert(`Editar movimiento ID: ${m.id}\nFecha: ${m.created_at}\nMonto: ${m.amount_mxn}\nConcepto: ${m.concept || m.reason}`);
+                                      alert(`Editar movimiento ID: ${m.id}\nFecha: ${m.created_at}\nMonto: ${m.amount_mxn}\nConcepto: ${m.concept || '—'}`);
                                     }}
                                   >
                                     <EditIcon fontSize="small" />
