@@ -194,6 +194,62 @@ const TOOLS: ToolDef[] = [
     }
   },
 
+  // -------------------- CONTENEDORES MARÍTIMOS --------------------
+  {
+    name: 'container_status_counts',
+    requiredCapability: 'cajito.read.warehouses',
+    description: 'Cuenta contenedores marítimos agrupados por estado. Los estados son: received_origin, consolidated, in_transit (en camino / zarpó), arrived_port (llegó al puerto), customs_cleared (aduana liberada), in_transit_clientfinal (en camino al cliente final), delivered. Úsalo cuando el usuario pregunte por contenedores en camino, en aduana, entregados, etc.',
+    parameters: {
+      type: 'object',
+      properties: {
+        status: { type: 'string', description: 'Filtrar por un estado específico (opcional). Ej: in_transit, arrived_port, customs_cleared' }
+      }
+    },
+    handler: async ({ status }) => {
+      if (status) {
+        const r = await pool.query(
+          `SELECT COUNT(*)::int AS total, status FROM containers WHERE status = $1 GROUP BY status`,
+          [status]
+        );
+        return { status, total: r.rows[0]?.total ?? 0 };
+      }
+      const r = await pool.query(
+        `SELECT COALESCE(status, 'unknown') AS status, COUNT(*)::int AS total
+           FROM containers
+          GROUP BY 1
+          ORDER BY 2 DESC`
+      );
+      return { groups: r.rows };
+    }
+  },
+
+  // -------------------- PAQUETES PENDIENTES (conteo rápido) --------------------
+  {
+    name: 'packages_pending_counts',
+    requiredCapability: 'cajito.read.packages',
+    description: 'Conteo rápido de paquetes por servicio y estado pendiente. Úsalo cuando el usuario pregunte cuántas cajas/paquetes están pendientes de recibir, en tránsito, en almacén, o por entregar. service_type: POBOX_USA (Po Box), AIR_CHN_MX (aéreo China), SEA_CHN_MX (marítimo China), AA_DHL (DHL).',
+    parameters: {
+      type: 'object',
+      properties: {
+        service_type: { type: 'string', description: 'POBOX_USA, AIR_CHN_MX, SEA_CHN_MX, AA_DHL (opcional)' }
+      }
+    },
+    handler: async ({ service_type }) => {
+      const wh: string[] = ['(p.is_master = true OR p.master_id IS NULL)', "p.status NOT IN ('delivered', 'cancelled')"];
+      const params: any[] = [];
+      if (service_type) { params.push(service_type); wh.push(`p.service_type = $${params.length}`); }
+      const r = await pool.query(
+        `SELECT COALESCE(p.status, 'unknown') AS status, p.service_type, COUNT(*)::int AS total
+           FROM packages p
+          WHERE ${wh.join(' AND ')}
+          GROUP BY 1, 2
+          ORDER BY 3 DESC`,
+        params
+      );
+      return { groups: r.rows };
+    }
+  },
+
   // -------------------- RUTAS --------------------
   {
     name: 'today_routes',
@@ -274,6 +330,15 @@ function buildSystemPrompt(user: { userId: number; role: string; full_name?: str
     'Cuando necesites datos del sistema, USA las herramientas disponibles. NO inventes trackings, montos ni nombres.',
     'Si una herramienta devuelve resultados, formatea la respuesta de forma corta y útil (lista breve o tabla en texto). Cita IDs/trackings textuales.',
     'Si el usuario te pregunta algo fuera de operaciones de paquetería, responde brevemente y vuelve al tema operativo.',
+    '',
+    '=== MODELO DE DATOS ===',
+    '"Paquetes" o "cajas": tabla packages. Servicios: POBOX_USA (Po Box USA), AIR_CHN_MX (aéreo China→México), SEA_CHN_MX (marítimo China→México), AA_DHL (DHL nacional).',
+    'Estados de paquetes: pending (pendiente), received (recibido en almacén origen), in_transit (en tránsito), in_cedis (en CEDIS/almacén local), out_for_delivery (en ruta de entrega), delivered (entregado), cancelled (cancelado).',
+    '"Contenedores": tabla containers, son los contenedores marítimos que agrupan envíos SEA_CHN_MX.',
+    'Estados de contenedores: received_origin (recibido en China), consolidated (consolidado), in_transit (zarpó, en camino), arrived_port (llegó al puerto MX), customs_cleared (aduana liberada), in_transit_clientfinal (en camino al cliente final), delivered (entregado).',
+    'Para preguntas sobre cajas/paquetes pendientes o en tránsito → usa packages_pending_counts o package_status_counts.',
+    'Para preguntas sobre contenedores marítimos → usa container_status_counts.',
+    '',
     `Usuario actual: id=${user.userId}, rol=${user.role}${user.full_name ? `, nombre=${user.full_name}` : ''}.`,
     `Capacidades concedidas: ${capList}.`
   ].join('\n');
