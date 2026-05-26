@@ -16,7 +16,7 @@ import * as path from 'path';
 // pdfjs-dist para extraer texto de PDFs (moderno, ya instalado)
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 // S3 para almacenamiento de archivos grandes
-import { uploadToS3, isS3Configured, getSignedUrlForKey } from './s3Service';
+import { uploadToS3, isS3Configured, getSignedUrlForKey, signS3UrlIfNeeded } from './s3Service';
 
 // Lazy initialization - only create OpenAI client when API key exists
 let openaiInstance: OpenAI | null = null;
@@ -927,6 +927,20 @@ const extractBlDataFromUrl = async (pdfUrl: string): Promise<any> => {
   if (!pdfUrl || (!isRemoteUrl && pdfUrl.length < 100)) {
     console.error('❌ URL de PDF inválida o muy corta');
     return {};
+  }
+
+  // 🔐 Si la URL apunta a nuestro bucket S3 (privado), re-firmarla antes de descargar.
+  // El bucket no es público, por lo que un GET directo regresa HTTP 403.
+  if (isRemoteUrl) {
+    try {
+      const signed = await signS3UrlIfNeeded(pdfUrl, 3600);
+      if (signed && signed !== pdfUrl) {
+        console.log('🔐 URL S3 re-firmada para descarga (1h)');
+        pdfUrl = signed;
+      }
+    } catch (signErr: any) {
+      console.warn('⚠️ No se pudo re-firmar URL S3, intentando descarga directa:', signErr?.message);
+    }
   }
   
   // Detectar si es un PDF

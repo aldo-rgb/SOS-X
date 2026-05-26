@@ -4,7 +4,7 @@
 // Wizard réplica del de "Recibir Paquetería en Serie" de PO Box:
 // formulario persistente + cantidad + copiar anterior + lista con eliminar.
 // ============================================
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Box, Paper, Typography, Button, IconButton, Stack, Chip,
@@ -110,6 +110,29 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
   const [editClient, setEditClient] = useState<{ open: boolean; id: number | null; value: string; productType: string }>(
     { open: false, id: null, value: '', productType: '' }
   );
+
+  // Refs para navegación con Enter en el wizard
+  const clientRef = useRef<HTMLInputElement>(null);
+  const expectedRef = useRef<HTMLInputElement>(null);
+  const gwRef = useRef<HTMLInputElement>(null);
+  const cwRef = useRef<HTMLInputElement>(null);
+  const lengthRef = useRef<HTMLInputElement>(null);
+  const widthRef = useRef<HTMLInputElement>(null);
+  const heightRef = useRef<HTMLInputElement>(null);
+  const qtyRef = useRef<HTMLInputElement>(null);
+  // Auto-focus al cambiar de paso o abrir wizard
+  useEffect(() => {
+    if (!wizardOpen) return;
+    const tm = setTimeout(() => {
+      if (step === 0) clientRef.current?.focus();
+      else if (step === 1) gwRef.current?.focus();
+    }, 80);
+    return () => clearTimeout(tm);
+  }, [wizardOpen, step]);
+  // Enter -> siguiente campo
+  const focusNext = (next: React.RefObject<HTMLInputElement | null>) => (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') { e.preventDefault(); next.current?.focus(); next.current?.select?.(); }
+  };
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -233,6 +256,8 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
       setBox({ ...emptyBox });
       setQuantity('1');
       setSnack(null);
+      // Listo para la siguiente captura: regresar foco al primer campo
+      setTimeout(() => gwRef.current?.focus(), 60);
     } catch (e: any) {
       setSnack({ sev: 'error', msg: e?.response?.data?.error || 'Error' });
     } finally {
@@ -548,9 +573,38 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
           {step === 0 && (
             <Stack spacing={2}>
               <TextField label={t('tdiExpress.wizard.clientBoxId')} value={clientBoxId}
-                onChange={(e) => setClientBoxId(e.target.value.toUpperCase())} fullWidth />
+                onChange={(e) => setClientBoxId(e.target.value.toUpperCase())} fullWidth
+                inputRef={clientRef}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (!clientBoxId.trim()) {
+                      setSnack({ sev: 'error', msg: t('tdiExpress.wizard.required') });
+                      return;
+                    }
+                    expectedRef.current?.focus();
+                    expectedRef.current?.select?.();
+                  }
+                }} />
               <TextField label={t('tdiExpress.wizard.expectedBoxes')} type="number" value={expectedBoxes}
-                onChange={(e) => setExpectedBoxes(e.target.value)} fullWidth inputProps={{ min: 1 }} />
+                onChange={(e) => setExpectedBoxes(e.target.value)} fullWidth inputProps={{ min: 1 }}
+                inputRef={expectedRef}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (!clientBoxId.trim()) {
+                      setSnack({ sev: 'error', msg: t('tdiExpress.wizard.required') });
+                      clientRef.current?.focus();
+                      return;
+                    }
+                    const tot = parseInt(expectedBoxes, 10);
+                    if (!tot || tot < 1) {
+                      setSnack({ sev: 'error', msg: t('tdiExpress.wizard.required') });
+                      return;
+                    }
+                    if (!busy) startSerial();
+                  }
+                }} />
             </Stack>
           )}
 
@@ -575,23 +629,28 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                 <Grid container spacing={1.5} sx={{ mt: 0.2, mb: 1 }}>
                   <Grid size={{ xs: 6, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.grossWeight')} type="number" value={box.grossWeight}
-                      onChange={(e) => setBox({ ...box, grossWeight: e.target.value })} fullWidth size="small" required />
+                      onChange={(e) => setBox({ ...box, grossWeight: e.target.value })} fullWidth size="small" required
+                      inputRef={gwRef} onKeyDown={focusNext(cwRef)} />
                   </Grid>
                   <Grid size={{ xs: 6, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.chargeableWeight')} type="number" value={box.chargeableWeight}
-                      onChange={(e) => setBox({ ...box, chargeableWeight: e.target.value })} fullWidth size="small" />
+                      onChange={(e) => setBox({ ...box, chargeableWeight: e.target.value })} fullWidth size="small"
+                      inputRef={cwRef} onKeyDown={focusNext(lengthRef)} />
                   </Grid>
                   <Grid size={{ xs: 4, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.length')} type="number" value={box.length}
-                      onChange={(e) => setBox({ ...box, length: e.target.value })} fullWidth size="small" />
+                      onChange={(e) => setBox({ ...box, length: e.target.value })} fullWidth size="small"
+                      inputRef={lengthRef} onKeyDown={focusNext(widthRef)} />
                   </Grid>
                   <Grid size={{ xs: 4, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.width')} type="number" value={box.width}
-                      onChange={(e) => setBox({ ...box, width: e.target.value })} fullWidth size="small" />
+                      onChange={(e) => setBox({ ...box, width: e.target.value })} fullWidth size="small"
+                      inputRef={widthRef} onKeyDown={focusNext(heightRef)} />
                   </Grid>
                   <Grid size={{ xs: 4, sm: 2.4 }}>
                     <TextField label={t('tdiExpress.wizard.height')} type="number" value={box.height}
-                      onChange={(e) => setBox({ ...box, height: e.target.value })} fullWidth size="small" />
+                      onChange={(e) => setBox({ ...box, height: e.target.value })} fullWidth size="small"
+                      inputRef={heightRef} onKeyDown={focusNext(qtyRef)} />
                   </Grid>
                 </Grid>
 
@@ -600,7 +659,14 @@ export default function TdiExpressShipmentsPage({ onBack }: Props) {
                   <Grid size={{ xs: 5, sm: 2 }}>
                     <TextField label={t('tdiExpress.wizard.quantity')} type="number" value={quantity}
                       onChange={(e) => setQuantity(e.target.value)} fullWidth size="small"
-                      slotProps={{ htmlInput: { min: 1, max: 99 } }} />
+                      slotProps={{ htmlInput: { min: 1, max: 99 } }}
+                      inputRef={qtyRef}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          if (!busy) addBoxes();
+                        }
+                      }} />
                   </Grid>
                   <Grid size={{ xs: 7, sm: 6 }}>
                     <Button fullWidth variant="contained" startIcon={<AddIcon />} onClick={addBoxes} disabled={busy}

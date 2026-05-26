@@ -1335,10 +1335,42 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         LIMIT 1
                     `,
                 },
+                {
+                    kind: 'dhl',
+                    sql: `
+                        SELECT ds.id,
+                               COALESCE(ds.secondary_tracking, ds.inbound_tracking) as tracking_number,
+                               ds.inbound_tracking as child_tracking,
+                               ds.secondary_tracking as master_tracking,
+                               ds.description,
+                               ds.weight_kg as weight,
+                               ds.status, ds.created_at,
+                               1 as total_boxes,
+                               ds.import_cost_mxn, ds.import_cost_usd, ds.import_tax_mxn,
+                               ds.national_carrier, ds.national_tracking, ds.national_label_url,
+                               ds.delivery_address_id,
+                               u.id as user_id, u.full_name, u.email, u.box_id as user_box_id,
+                               a.alias as addr_alias, a.recipient_name as addr_recipient,
+                               a.street as addr_street, a.exterior_number as addr_ext,
+                               a.interior_number as addr_int, a.neighborhood as addr_neighborhood,
+                               a.city as addr_city, a.state as addr_state,
+                               a.zip_code as addr_zip, a.phone as addr_phone,
+                               a.reference as addr_reference, a.carrier_config as addr_carrier_config
+                        FROM dhl_shipments ds
+                        LEFT JOIN users u ON ds.user_id = u.id
+                        LEFT JOIN addresses a ON ds.delivery_address_id = a.id
+                        WHERE UPPER(COALESCE(ds.inbound_tracking, '')) = $1
+                           OR UPPER(COALESCE(ds.secondary_tracking, '')) = $1
+                           OR UPPER(COALESCE(ds.national_tracking, '')) = $1
+                           OR REGEXP_REPLACE(UPPER(COALESCE(ds.inbound_tracking, '')), '[^A-Z0-9]', '', 'g') = $2
+                           OR REGEXP_REPLACE(UPPER(COALESCE(ds.secondary_tracking, '')), '[^A-Z0-9]', '', 'g') = $2
+                        LIMIT 1
+                    `,
+                },
             ] as const;
 
             let fallbackRow: any = null;
-            let fallbackKind: 'maritime_order' | 'maritime' | 'national' | null = null;
+            let fallbackKind: 'maritime_order' | 'maritime' | 'national' | 'dhl' | null = null;
             let logBoxSuffix: number | null = null;
 
             for (const q of fallbackQueries) {
@@ -1452,7 +1484,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                 destinationCity: destCityFull,
                 destinationCountry: destCountry,
                 destinationCode,
-                carrier: fallbackKind === 'national' ? 'Nacional' : fallbackKind === 'maritime' ? 'Marítimo China' : 'Marítimo China',
+                carrier: fallbackKind === 'national' ? 'Nacional' : fallbackKind === 'dhl' ? 'DHL Express' : 'Marítimo China',
                 receivedAt: fallbackRow.created_at,
             };
 
