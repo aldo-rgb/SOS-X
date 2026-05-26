@@ -223,18 +223,18 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
                 COUNT(p.id) as package_count,
                 COUNT(p.id) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE AND COALESCE(p.is_lost, FALSE) = FALSE) AS missing_count,
                 COUNT(p.id) FILTER (WHERE COALESCE(p.is_lost, FALSE) = TRUE) AS lost_count,
-                -- Total PENDIENTE de pago AHORA (unpaid + no missing + no lost + received or delivered)
-                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text = 'delivered')), 0) as total_cost_mxn,
-                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text = 'delivered')), 0) as total_cost_usd,
-                -- Total YA PAGADO (no missing + no lost + paid + received or delivered)
-                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND (p.status::text LIKE 'received%' OR p.status::text = 'delivered')), 0) as paid_cost_mxn,
-                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND (p.status::text LIKE 'received%' OR p.status::text = 'delivered')), 0) as paid_cost_usd,
+                -- Total PENDIENTE de pago AHORA (unpaid + no missing + no lost + received/delivered/out_for_delivery)
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as total_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as total_cost_usd,
+                -- Total YA PAGADO (no missing + no lost + paid + received/delivered/out_for_delivery)
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as paid_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as paid_cost_usd,
                 -- Total FALTANTE/PERDIDO (no suma al pago)
                 COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_mxn,
                 COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_usd,
-                -- Total COMPLETO de la consolidación (received or delivered, excepto perdidas/faltantes)
-                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text = 'delivered')), 0) as all_cost_mxn,
-                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text = 'delivered')), 0) as all_cost_usd
+                -- Total COMPLETO de la consolidación (received/delivered/out_for_delivery, excepto perdidas/faltantes)
+                COALESCE(SUM(p.pobox_service_cost) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as all_cost_mxn,
+                COALESCE(SUM(p.pobox_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as all_cost_usd
             FROM consolidations c
             JOIN packages p ON p.consolidation_id = c.id
             LEFT JOIN suppliers s ON p.supplier_id = s.id
