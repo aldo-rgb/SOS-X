@@ -451,10 +451,10 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
           <SearchIcon sx={{ fontSize: 44 }} />
           <Box flex={1}>
             <Typography variant="h5" fontWeight="bold">
-              Escáner Multi-Sucursal · Consulta
+              Consulta Multi-Sucursal
             </Typography>
             <Typography variant="body2" sx={{ opacity: 0.9 }}>
-              Escanea cualquier guía para ver toda su información. Este módulo es
+              Escanea o escribe cualquier guía para ver toda su información. Este módulo es
               <strong> solo de consulta</strong> — no genera entradas ni salidas.
             </Typography>
           </Box>

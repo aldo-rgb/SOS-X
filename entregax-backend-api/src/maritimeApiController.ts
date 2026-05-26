@@ -1279,21 +1279,41 @@ export const updateMarkClient = async (req: Request, res: Response): Promise<any
         const { ordersn } = req.params;
         const { shipping_mark, bl_client_code, bl_client_name } = req.body;
 
+        // Re-resolve user_id from the new shipping_mark so the assignment stays in sync
+        let resolvedUserId: number | null = null;
+        if (shipping_mark) {
+            const boxIdMatch = (shipping_mark as string).match(/S\d+/i);
+            const extractedBoxId = boxIdMatch ? boxIdMatch[0].toUpperCase() : null;
+            if (extractedBoxId) {
+                const userRes = await pool.query(
+                    `SELECT id FROM users WHERE UPPER(box_id) = $1 LIMIT 1`,
+                    [extractedBoxId]
+                );
+                if (userRes.rows.length > 0) {
+                    resolvedUserId = userRes.rows[0].id;
+                    console.log(`    → Re-asignando user_id=${resolvedUserId} (${extractedBoxId}) por cambio de MARK en ${ordersn}`);
+                } else {
+                    console.log(`    → No se encontró usuario para ${extractedBoxId}, dejando user_id=null en ${ordersn}`);
+                }
+            }
+        }
+
         const result = await pool.query(`
-            UPDATE maritime_orders 
+            UPDATE maritime_orders
             SET shipping_mark = COALESCE($1, shipping_mark),
                 bl_client_code = $2,
                 bl_client_name = $3,
+                user_id = CASE WHEN $1 IS NOT NULL THEN $5 ELSE user_id END,
                 updated_at = NOW()
             WHERE ordersn = $4
             RETURNING *
-        `, [shipping_mark, bl_client_code, bl_client_name, ordersn]);
+        `, [shipping_mark, bl_client_code, bl_client_name, ordersn, resolvedUserId]);
 
         if (result.rows.length === 0) {
             return res.status(404).json({ success: false, error: 'Orden no encontrada' });
         }
 
-        console.log(`✅ MARK/Cliente actualizado: ${ordersn} → MARK=${shipping_mark}, Cliente=${bl_client_name}(${bl_client_code})`);
+        console.log(`✅ MARK/Cliente actualizado: ${ordersn} → MARK=${shipping_mark}, Cliente=${bl_client_name}(${bl_client_code}), user_id=${resolvedUserId}`);
 
         res.json({
             success: true,
