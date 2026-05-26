@@ -630,7 +630,21 @@ export default function PettyCashHubPage() {
                     <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
                       <Avatar sx={{ bgcolor: 'primary.main' }}><BranchIcon /></Avatar>
                       <Box>
-                        <Typography fontWeight="bold">{w.owner_name}</Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography fontWeight="bold">{w.owner_name}</Typography>
+                          {w.owner_name === 'Centro CC' && (
+                            <Chip
+                              label="CAJA MARCEL"
+                              size="small"
+                              sx={{
+                                bgcolor: '#F05A28',
+                                color: 'white',
+                                fontWeight: 600,
+                                fontSize: 11
+                              }}
+                            />
+                          )}
+                        </Box>
                         <Typography variant="caption" color="text.secondary">
                           Sucursal · {w.status === 'active' ? '🟢 Activa' : `⚠️ ${w.status}`}
                         </Typography>
