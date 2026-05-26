@@ -2269,10 +2269,10 @@ const CajaChicaPage: React.FC = () => {
             return (
               <Box>
                 <Alert severity="info" sx={{ mb: 2 }}>
-                  Se procesará el pago de <strong>{pagables.length}</strong> consolidación(es).
-                  {sinMonto > 0 && <> {sinMonto} será(n) omitida(s) por no tener monto pagable.</>}
+                  Se procesará el pago de <strong>{pagables.length}</strong> consolidación(es) de las {selected.length} seleccionadas.
+                  {sinMonto > 0 && <> {sinMonto} será(n) omitida(s) por no tener guías recibidas para pagar (en tránsito o ya pagadas).</>}
                   <br />
-                  <strong>Las guías faltantes y perdidas no se suman ni se marcan como pagadas.</strong>
+                  <strong>Solo se pagan guías recibidas. Las guías en tránsito, faltantes y perdidas no se suman ni se marcan como pagadas.</strong>
                 </Alert>
                 <TableContainer component={Paper} variant="outlined" sx={{ mb: 2, maxHeight: 280 }}>
                   <Table size="small" stickyHeader>
