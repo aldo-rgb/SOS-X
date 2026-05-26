@@ -272,6 +272,16 @@ export class FacturamaClient {
             const d = r.data;
             const uuid = d.Complemento?.TaxStamp?.Uuid || d.Uuid || '';
             const id   = d.Id || uuid;
+            // Validación defensiva: Facturama puede contestar 200 con un cuerpo
+            // vacío o de stub cuando el timbre real falló del lado del PAC.
+            // Si no tenemos ni Id ni UUID consideramos la operación fallida y
+            // evitamos persistir una factura "fantasma" con totales en 0.
+            if (!id && !uuid) {
+                throw new FacturamaError('Facturama respondió OK pero sin Id ni UUID — el CFDI no fue timbrado.', {
+                    status: r.status,
+                    details: d,
+                });
+            }
             const env  = this.emitter.facturama_environment === 'production' ? 'api' : 'apisandbox';
             return {
                 id,

@@ -478,20 +478,20 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                 </TableCell>
                 <TableCell>{fmtDate(r.created_at)}</TableCell>
                 <TableCell align="center">
-                  {r.facturama_id && (
-                    <>
-                      <Tooltip title="Descargar PDF">
-                        <IconButton size="small" onClick={() => downloadInvoiceFile(r, 'pdf')}>
-                          <PictureAsPdfIcon fontSize="small" sx={{ color: RED }} />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Descargar XML">
-                        <IconButton size="small" onClick={() => downloadInvoiceFile(r, 'xml')}>
-                          <CodeIcon fontSize="small" sx={{ color: BLACK }} />
-                        </IconButton>
-                      </Tooltip>
-                    </>
-                  )}
+                  <Tooltip title={r.facturama_id ? 'Descargar PDF' : 'Sin archivo en Facturama (CFDI no timbrado)'}>
+                    <span>
+                      <IconButton size="small" disabled={!r.facturama_id} onClick={() => downloadInvoiceFile(r, 'pdf')}>
+                        <PictureAsPdfIcon fontSize="small" sx={{ color: r.facturama_id ? RED : '#bbb' }} />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
+                  <Tooltip title={r.facturama_id ? 'Descargar XML' : 'Sin archivo en Facturama (CFDI no timbrado)'}>
+                    <span>
+                      <IconButton size="small" disabled={!r.facturama_id} onClick={() => downloadInvoiceFile(r, 'xml')}>
+                        <CodeIcon fontSize="small" sx={{ color: r.facturama_id ? BLACK : '#bbb' }} />
+                      </IconButton>
+                    </span>
+                  </Tooltip>
                   <Tooltip title="Refrescar estatus SAT">
                     <IconButton size="small" onClick={async () => {
                       try {
