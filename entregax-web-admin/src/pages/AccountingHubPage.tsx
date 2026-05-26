@@ -1191,7 +1191,11 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
               </Grid>
               <Grid size={{ xs: 6, md: 2 }}>
                 <TextField fullWidth size="small" type="number" label="Folio" value={folio}
-                  onChange={(e) => setFolio(e.target.value)} />
+                  onChange={(e) => setFolio(e.target.value)}
+                  placeholder="Auto"
+                  helperText="Vacío = siguiente consecutivo"
+                  InputLabelProps={{ shrink: true }}
+                />
               </Grid>
             </Grid>
 

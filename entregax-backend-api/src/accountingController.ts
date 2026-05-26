@@ -568,7 +568,26 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
     const paymentMethod = (body.payment_method === 'PPD' ? 'PPD' : 'PUE') as 'PUE' | 'PPD';
     const currency = String(body.currency || 'MXN').toUpperCase();
     const serie = body.serie ? String(body.serie) : undefined;
-    const folio = body.folio ? Number(body.folio) : undefined;
+    let folio: number | undefined = body.folio ? Number(body.folio) : undefined;
+
+    // Auto-asignar folio si no se especificó: siguiente consecutivo por (emisor, serie).
+    // Arranca en 1 para empresas que aún no han emitido nada.
+    if (!folio || !Number.isFinite(folio) || folio <= 0) {
+        try {
+            const maxRes = await pool.query(
+                `SELECT COALESCE(MAX(folio::int), 0) AS max_folio
+                   FROM facturas_emitidas
+                  WHERE fiscal_emitter_id = $1
+                    AND (($2::text IS NULL AND serie IS NULL) OR serie = $2)
+                    AND folio ~ '^[0-9]+$'`,
+                [emitterId, serie ?? null]
+            );
+            folio = Number(maxRes.rows[0]?.max_folio || 0) + 1;
+        } catch (err) {
+            console.warn('[createManualInvoice] no se pudo calcular folio automático, usando 1:', err);
+            folio = 1;
+        }
+    }
 
     try {
         const client = await FacturamaClient.fromEmitterId(emitterId);
