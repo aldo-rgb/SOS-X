@@ -20,7 +20,9 @@ import {
 import SmartToyIcon from '@mui/icons-material/SmartToy';
 import CloseIcon from '@mui/icons-material/Close';
 import SendIcon from '@mui/icons-material/Send';
+import BuildIcon from '@mui/icons-material/Build';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
+import api from '../services/api';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -40,10 +42,13 @@ const resolveUrl = (url: string | null | undefined): string | null => {
 
 interface ChatMsg {
   id: number;
-  role: 'user' | 'cajito';
+  role: 'user' | 'cajito' | 'tool';
   text: string;
   ts: number;
+  toolName?: string;
 }
+
+const CONV_KEY = 'cajito.conversationId';
 
 const getCurrentUser = () => {
   try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
@@ -56,6 +61,12 @@ export default function CajitoFab() {
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [input, setInput] = useState('');
   const [thinking, setThinking] = useState(false);
+  const [thinkingLabel, setThinkingLabel] = useState('Cajito está pensando…');
+  const [conversationId, setConversationId] = useState<number | null>(() => {
+    const raw = localStorage.getItem(CONV_KEY);
+    const n = raw ? parseInt(raw, 10) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : null;
+  });
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const user = getCurrentUser();
@@ -69,8 +80,8 @@ export default function CajitoFab() {
           id: Date.now(),
           role: 'cajito',
           text: isSuperAdmin
-            ? `¡Hola ${userName}! Como Super Admin tienes acceso completo a Cajito. Puedes hablar conmigo sin restricciones. Pregúntame por paquetes, clientes, KPIs, comisiones, rutas… El motor de IA todavía no está conectado en esta versión; te confirmaré apenas esté disponible.`
-            : `¡Hola ${userName}! Soy Cajito. Tu administrador controla qué puedo hacer en tu nombre desde Permisos > Cajito (IA). El motor de IA aún no está conectado, pero puedes escribirme y te responderé cuando se habilite.`,
+            ? `¡Hola ${userName}! Soy Cajito. Tengo acceso de SOLO LECTURA al sistema: paquetes, clientes, rutas, choferes e inventarios. Pregúntame, por ejemplo: ¿dónde está el tracking TDX-...? o muestra los paquetes recibidos hoy.`
+            : `¡Hola ${userName}! Soy Cajito, asistente IA de solo lectura. Tu administrador decide qué puedo consultar desde Permisos > Cajito (IA). Pregúntame por un tracking o un cliente.`,
           ts: Date.now(),
         },
       ]);
@@ -87,28 +98,58 @@ export default function CajitoFab() {
 
   const avatar = imgError ? null : resolveUrl(cajitoAvatarUrl);
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const text = input.trim();
     if (!text || thinking) return;
     const userMsg: ChatMsg = { id: Date.now(), role: 'user', text, ts: Date.now() };
     setMessages((prev) => [...prev, userMsg]);
     setInput('');
     setThinking(true);
-    // 🚧 Placeholder mientras el backend de IA no esté conectado.
-    setTimeout(() => {
+    setThinkingLabel('Cajito está pensando…');
+    try {
+      const res = await api.post('/cajito/chat', {
+        message: text,
+        conversationId: conversationId || undefined,
+      });
+      const data = res.data || {};
+      const newConvId: number | null = data.conversationId || null;
+      if (newConvId && newConvId !== conversationId) {
+        setConversationId(newConvId);
+        localStorage.setItem(CONV_KEY, String(newConvId));
+      }
+      const calls: { name: string }[] = Array.isArray(data.toolCalls) ? data.toolCalls : [];
+      const extras: ChatMsg[] = calls.map((c, i) => ({
+        id: Date.now() + i + 1,
+        role: 'tool',
+        text: `Consultó: ${c.name}`,
+        toolName: c.name,
+        ts: Date.now(),
+      }));
       setMessages((prev) => [
         ...prev,
+        ...extras,
         {
-          id: Date.now() + 1,
+          id: Date.now() + 1000,
           role: 'cajito',
-          text: isSuperAdmin
-            ? 'Recibí tu mensaje. Aún no estoy conectado al modelo de IA, pero como Super Admin verás aquí mis respuestas en cuanto se habilite el módulo.'
-            : 'Recibí tu mensaje. Aún no estoy conectado al modelo de IA. Pronto podré responderte directamente desde este chat.',
+          text: data.reply || '(sin respuesta)',
           ts: Date.now(),
         },
       ]);
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Error al consultar a Cajito';
+      setMessages((prev) => [
+        ...prev,
+        { id: Date.now() + 1, role: 'cajito', text: `⚠️ ${msg}`, ts: Date.now() },
+      ]);
+    } finally {
       setThinking(false);
-    }, 700);
+    }
+  };
+
+  const startNewConversation = () => {
+    setConversationId(null);
+    localStorage.removeItem(CONV_KEY);
+    setMessages([]);
   };
 
   return (
@@ -193,9 +234,14 @@ export default function CajitoFab() {
                 Cajito
               </Typography>
               <Typography variant="caption" sx={{ opacity: 0.9 }}>
-                Asistente IA · Claude 3.5 Sonnet{isSuperAdmin ? ' · Super Admin' : ''}
+                Asistente IA · Solo lectura{isSuperAdmin ? ' · Super Admin' : ''}
               </Typography>
             </Box>
+            <Tooltip title="Nueva conversación">
+              <IconButton size="small" onClick={startNewConversation} sx={{ color: 'white', mr: 0.5 }}>
+                <SmartToyIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
             <IconButton size="small" onClick={() => setOpen(false)} sx={{ color: 'white' }}>
               <CloseIcon />
             </IconButton>
@@ -214,30 +260,40 @@ export default function CajitoFab() {
               gap: 1,
             }}
           >
-            {messages.map((m) => (
-              <Box
-                key={m.id}
-                sx={{
-                  alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
-                  maxWidth: '85%',
-                  bgcolor: m.role === 'user' ? CAJITO_RING : 'white',
-                  color: m.role === 'user' ? 'white' : 'text.primary',
-                  border: m.role === 'user' ? 'none' : '1px solid #FFE0B2',
-                  borderRadius: 2,
-                  px: 1.25,
-                  py: 0.75,
-                  boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
-                }}
-              >
-                <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                  {m.text}
-                </Typography>
-              </Box>
-            ))}
+            {messages.map((m) => {
+              if (m.role === 'tool') {
+                return (
+                  <Box key={m.id} sx={{ alignSelf: 'center', display: 'flex', alignItems: 'center', gap: 0.75, color: 'text.secondary', bgcolor: '#FFF3E0', border: '1px dashed #FFB74D', borderRadius: 2, px: 1, py: 0.25 }}>
+                    <BuildIcon sx={{ fontSize: 14, color: CAJITO_RING }} />
+                    <Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{m.text}</Typography>
+                  </Box>
+                );
+              }
+              return (
+                <Box
+                  key={m.id}
+                  sx={{
+                    alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start',
+                    maxWidth: '85%',
+                    bgcolor: m.role === 'user' ? CAJITO_RING : 'white',
+                    color: m.role === 'user' ? 'white' : 'text.primary',
+                    border: m.role === 'user' ? 'none' : '1px solid #FFE0B2',
+                    borderRadius: 2,
+                    px: 1.25,
+                    py: 0.75,
+                    boxShadow: '0 1px 2px rgba(0,0,0,0.06)',
+                  }}
+                >
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {m.text}
+                  </Typography>
+                </Box>
+              );
+            })}
             {thinking && (
               <Box sx={{ alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
                 <CircularProgress size={14} sx={{ color: CAJITO_RING }} />
-                <Typography variant="caption">Cajito está escribiendo…</Typography>
+                <Typography variant="caption">{thinkingLabel}</Typography>
               </Box>
             )}
           </Box>

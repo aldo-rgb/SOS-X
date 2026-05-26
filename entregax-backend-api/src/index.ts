@@ -802,6 +802,13 @@ import {
   saveCajoOverfee
 } from './cajoController';
 import {
+  chat as cajitoChat,
+  getMyConversations as cajitoGetMyConversations,
+  getConversation as cajitoGetConversation,
+  getAudit as cajitoGetAudit,
+  getHealth as cajitoGetHealth,
+} from './cajitoController';
+import {
   listAwbCosts,
   getAwbCostDetail,
   saveAwbCosts,
@@ -10311,6 +10318,15 @@ app.put('/api/admin/cajito/user/:userId', authenticateToken, requireRole('super_
     client.release();
   }
 });
+
+// ============================================================
+// CAJITO — Chat IA (OpenAI) · solo lectura + auditoría completa
+// ============================================================
+app.post('/api/cajito/chat', authenticateToken, cajitoChat);
+app.get('/api/cajito/conversations', authenticateToken, cajitoGetMyConversations);
+app.get('/api/cajito/conversations/:id', authenticateToken, cajitoGetConversation);
+app.get('/api/cajito/health', authenticateToken, cajitoGetHealth);
+app.get('/api/admin/cajito/audit', authenticateToken, requireRole('super_admin'), cajitoGetAudit);
 
 // ============================================================
 // MIDDLEWARES FINALES — deben ir DESPUÉS de TODAS las rutas
