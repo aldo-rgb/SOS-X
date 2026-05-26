@@ -168,6 +168,7 @@ export default function PettyCashHubPage() {
   })();
   const canFundBranch = ['super_admin', 'admin', 'director'].includes(currentUserRole);
   const isSuperAdmin = currentUserRole === 'super_admin';
+  const isDirector = currentUserRole === 'director';
 
   const [tab, setTab] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -678,9 +679,11 @@ export default function PettyCashHubPage() {
                       setAdvBranchId(w.branch_id || '');
                       openAdvanceDialog();
                     }}>Anticipo</Button>
-                    <Button size="small" variant="contained" color="warning" startIcon={<ReceiptIcon />} onClick={() => openGastoDialog(w)}>
-                      Registrar Gasto
-                    </Button>
+                    {!isDirector && (
+                      <Button size="small" variant="contained" color="warning" startIcon={<ReceiptIcon />} onClick={() => openGastoDialog(w)}>
+                        Registrar Gasto
+                      </Button>
+                    )}
                     <Button size="small" variant="outlined" color="info" startIcon={<MovementsIcon />} onClick={() => openWalletDetail(w)}>
                       Movimientos
                     </Button>
