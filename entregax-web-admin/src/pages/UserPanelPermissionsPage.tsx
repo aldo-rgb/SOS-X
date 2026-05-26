@@ -169,6 +169,7 @@ export default function UserPanelPermissionsPage() {
   // Cajito (IA) — capacidades por usuario
   const [cajitoCatalog, setCajitoCatalog] = useState<CajitoCapability[]>([]);
   const [cajitoGranted, setCajitoGranted] = useState<Record<string, boolean>>({});
+  const [cajitoIsSuperAdmin, setCajitoIsSuperAdmin] = useState(false);
 
   // Dialog para permisos de módulos
   const [moduleDialog, setModuleDialog] = useState(false);
@@ -268,13 +269,16 @@ export default function UserPanelPermissionsPage() {
             const cdata = await cajitoRes.json();
             setCajitoCatalog(cdata.capabilities || []);
             setCajitoGranted(cdata.granted || {});
+            setCajitoIsSuperAdmin(!!cdata.isSuperAdmin);
           } else {
             setCajitoCatalog([]);
             setCajitoGranted({});
+            setCajitoIsSuperAdmin(false);
           }
         } catch {
           setCajitoCatalog([]);
           setCajitoGranted({});
+          setCajitoIsSuperAdmin(false);
         }
 
         setEditDialog(true);
@@ -705,7 +709,18 @@ export default function UserPanelPermissionsPage() {
             const accessGranted = !!cajitoGranted['cajito.access'];
             return (
               <Box sx={{ p: 2 }}>
-                <Alert severity={accessGranted ? 'warning' : 'info'} sx={{ mb: 2 }}>
+                {cajitoIsSuperAdmin && (
+                  <Alert severity="success" sx={{ mb: 2 }}>
+                    <Typography variant="body2" fontWeight={600}>
+                      ✅ Super Admin — acceso total garantizado por rol
+                    </Typography>
+                    <Typography variant="caption" component="div">
+                      Los usuarios Super Admin tienen todas las capacidades de Cajito de forma automática.
+                      No es necesario configurarlas individualmente.
+                    </Typography>
+                  </Alert>
+                )}
+                <Alert severity={cajitoIsSuperAdmin ? 'success' : accessGranted ? 'warning' : 'info'} sx={{ mb: 2 }}>
                   <Typography variant="body2" fontWeight={600} gutterBottom>
                     🤖 Permisos de Cajito (asistente IA, Claude 3.5 Sonnet)
                   </Typography>
@@ -751,34 +766,38 @@ export default function UserPanelPermissionsPage() {
                               sx={{ bgcolor: groupGranted > 0 ? group.color : undefined, color: groupGranted > 0 ? 'white' : undefined }}
                             />
                             <Box sx={{ flex: 1 }} />
-                            <Button
-                              size="small"
-                              onClick={() =>
-                                setCajitoGranted((prev) => {
-                                  const next = { ...prev };
-                                  caps.forEach((c) => { next[c.key] = true; });
-                                  return next;
-                                })
-                              }
-                              startIcon={<CheckCircleIcon />}
-                              sx={{ textTransform: 'none' }}
-                            >
-                              Todos
-                            </Button>
-                            <Button
-                              size="small"
-                              onClick={() =>
-                                setCajitoGranted((prev) => {
-                                  const next = { ...prev };
-                                  caps.forEach((c) => { next[c.key] = false; });
-                                  return next;
-                                })
-                              }
-                              startIcon={<CancelIcon />}
-                              sx={{ textTransform: 'none' }}
-                            >
-                              Ninguno
-                            </Button>
+                            {!cajitoIsSuperAdmin && (
+                              <>
+                                <Button
+                                  size="small"
+                                  onClick={() =>
+                                    setCajitoGranted((prev) => {
+                                      const next = { ...prev };
+                                      caps.forEach((c) => { next[c.key] = true; });
+                                      return next;
+                                    })
+                                  }
+                                  startIcon={<CheckCircleIcon />}
+                                  sx={{ textTransform: 'none' }}
+                                >
+                                  Todos
+                                </Button>
+                                <Button
+                                  size="small"
+                                  onClick={() =>
+                                    setCajitoGranted((prev) => {
+                                      const next = { ...prev };
+                                      caps.forEach((c) => { next[c.key] = false; });
+                                      return next;
+                                    })
+                                  }
+                                  startIcon={<CancelIcon />}
+                                  sx={{ textTransform: 'none' }}
+                                >
+                                  Ninguno
+                                </Button>
+                              </>
+                            )}
                           </Box>
                           <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
                             {group.description}
@@ -800,6 +819,7 @@ export default function UserPanelPermissionsPage() {
                                 >
                                   <Checkbox
                                     checked={checked}
+                                    disabled={cajitoIsSuperAdmin}
                                     onChange={(e) =>
                                       setCajitoGranted((prev) => ({ ...prev, [cap.key]: e.target.checked }))
                                     }

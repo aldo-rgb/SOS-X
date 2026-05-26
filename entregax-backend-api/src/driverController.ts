@@ -1156,7 +1156,9 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
                     to_jsonb(m)->>'national_carrier',
                     to_jsonb(m)->>'carrier'
                 ) as national_carrier,
-                NULL::int as client_id
+                p.user_id,
+                p.tracking_internal,
+                p.service_type
             FROM packages p
             LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
             WHERE ${TRACKING_MATCH_SQL}
@@ -1300,8 +1302,45 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
             console.warn('No se pudo registrar package_history en confirmDelivery:', historyError);
         }
 
-        // TODO: Notificar al cliente
-        // await sendDeliveryConfirmationEmail(pkg.client_id, pkg.tracking_number);
+        // Notificar al cliente (fire-and-forget, no bloquea la respuesta)
+        if (finalStatus === 'delivered' && pkg.user_id) {
+            const svcLabels: Record<string, string> = { POBOX_USA: 'PO Box USA', AIR_CHN_MX: 'Aéreo China', SEA_CHN_MX: 'Marítimo China', AA_DHL: 'DHL' };
+            const svcLabel = svcLabels[pkg.service_type] || pkg.service_type || 'EntregaX';
+            const svcKey = pkg.service_type === 'POBOX_USA' ? 'notif_pobox'
+                : pkg.service_type === 'AIR_CHN_MX' ? 'notif_air'
+                : pkg.service_type === 'SEA_CHN_MX' ? 'notif_maritime'
+                : pkg.service_type === 'AA_DHL' ? 'notif_dhl'
+                : 'notif_push';
+            pool.query(
+                `SELECT u.notif_push, u.notif_whatsapp, u.${svcKey} AS notif_service,
+                        u.phone, u.phone_verified, u.whatsapp_verified, u.full_name
+                 FROM users u WHERE u.id = $1`,
+                [pkg.user_id]
+            ).then(async (prefRow: any) => {
+                const prefs = prefRow.rows[0] || {};
+                const notifTitle = `🎉 ¡Paquete entregado! · ${svcLabel}`;
+                const notifBody = `Tu paquete ${pkg.tracking_internal} ha sido entregado exitosamente.`;
+                const notifData = { screen: 'Home', tracking: pkg.tracking_internal };
+                const { createCustomNotification } = await import('./notificationController');
+                await createCustomNotification(pkg.user_id, notifTitle, notifBody, 'success', 'package', notifData);
+                if (prefs.notif_push !== false && prefs.notif_service !== false) {
+                    const { sendPushToUsers } = await import('./pushService');
+                    await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData });
+                }
+                if (prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true) && prefs.notif_service !== false && prefs.phone) {
+                    const { sendTemplate } = await import('./whatsappService').catch(() => ({ sendTemplate: undefined })) as any;
+                    if (typeof sendTemplate === 'function') {
+                        const firstName = (prefs.full_name || '').split(' ')[0] || 'Cliente';
+                        await sendTemplate({
+                            to: prefs.phone,
+                            template: process.env.WHATSAPP_PACKAGE_DELIVERED_TEMPLATE || 'paquete_entregado',
+                            languageCode: 'es_MX',
+                            parameters: [firstName, pkg.tracking_internal, svcLabel],
+                        }).catch(() => {});
+                    }
+                }
+            }).catch((e: any) => console.warn('[notif] delivered notify failed:', e?.message));
+        }
 
         return res.json({ 
             success: true, 
@@ -1365,6 +1404,9 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                     SELECT
                         p.id,
                         p.${statusColumn} as status,
+                        p.user_id,
+                        p.tracking_internal,
+                        p.service_type,
                         COALESCE(
                             to_jsonb(p)->>'national_carrier',
                             to_jsonb(p)->>'carrier',
@@ -1493,6 +1535,46 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                 }
 
                 confirmed.push(internalGuide);
+
+                // Notificar al cliente (fire-and-forget)
+                if (finalStatus === 'delivered' && row.user_id) {
+                    const svcLabels: Record<string, string> = { POBOX_USA: 'PO Box USA', AIR_CHN_MX: 'Aéreo China', SEA_CHN_MX: 'Marítimo China', AA_DHL: 'DHL' };
+                    const svcLabel = svcLabels[row.service_type] || row.service_type || 'EntregaX';
+                    const svcKey = row.service_type === 'POBOX_USA' ? 'notif_pobox'
+                        : row.service_type === 'AIR_CHN_MX' ? 'notif_air'
+                        : row.service_type === 'SEA_CHN_MX' ? 'notif_maritime'
+                        : row.service_type === 'AA_DHL' ? 'notif_dhl'
+                        : 'notif_push';
+                    pool.query(
+                        `SELECT u.notif_push, u.notif_whatsapp, u.${svcKey} AS notif_service,
+                                u.phone, u.phone_verified, u.whatsapp_verified, u.full_name
+                         FROM users u WHERE u.id = $1`,
+                        [row.user_id]
+                    ).then(async (prefRow: any) => {
+                        const prefs = prefRow.rows[0] || {};
+                        const notifTitle = `🎉 ¡Paquete entregado! · ${svcLabel}`;
+                        const notifBody = `Tu paquete ${row.tracking_internal} ha sido entregado exitosamente.`;
+                        const notifData = { screen: 'Home', tracking: row.tracking_internal };
+                        const { createCustomNotification } = await import('./notificationController');
+                        await createCustomNotification(row.user_id, notifTitle, notifBody, 'success', 'package', notifData);
+                        if (prefs.notif_push !== false && prefs.notif_service !== false) {
+                            const { sendPushToUsers } = await import('./pushService');
+                            await sendPushToUsers([row.user_id], { title: notifTitle, body: notifBody, data: notifData });
+                        }
+                        if (prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true) && prefs.notif_service !== false && prefs.phone) {
+                            const { sendTemplate } = await import('./whatsappService').catch(() => ({ sendTemplate: undefined })) as any;
+                            if (typeof sendTemplate === 'function') {
+                                const firstName = (prefs.full_name || '').split(' ')[0] || 'Cliente';
+                                await sendTemplate({
+                                    to: prefs.phone,
+                                    template: process.env.WHATSAPP_PACKAGE_DELIVERED_TEMPLATE || 'paquete_entregado',
+                                    languageCode: 'es_MX',
+                                    parameters: [firstName, row.tracking_internal, svcLabel],
+                                }).catch(() => {});
+                            }
+                        }
+                    }).catch((e: any) => console.warn('[notif] bulk delivered notify failed:', e?.message));
+                }
             } catch (pkgError) {
                 console.error(`Error procesando ${internalGuide}:`, pkgError);
                 errors.push(`Error en ${internalGuide}: ${(pkgError as Error).message}`);

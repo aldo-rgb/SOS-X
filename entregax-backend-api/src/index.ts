@@ -10272,6 +10272,17 @@ app.get('/api/admin/cajito/user/:userId', authenticateToken, requireRole('super_
     await ensureCajitoTable();
     const userId = parseInt(req.params.userId as string, 10);
     if (!Number.isFinite(userId)) return res.status(400).json({ error: 'userId inválido' });
+
+    const userRow = await pool.query(`SELECT role FROM users WHERE id = $1`, [userId]);
+    const targetRole: string = userRow.rows[0]?.role || '';
+
+    // super_admin tiene todas las capacidades en runtime; reflejar eso en la UI
+    if (targetRole === 'super_admin') {
+      const granted: Record<string, boolean> = {};
+      CAJITO_CAPABILITIES.forEach((c) => { granted[c.key] = true; });
+      return res.json({ userId, granted, capabilities: CAJITO_CAPABILITIES, isSuperAdmin: true });
+    }
+
     const r = await pool.query(
       `SELECT capability, granted FROM cajito_user_capabilities WHERE user_id = $1`,
       [userId]
