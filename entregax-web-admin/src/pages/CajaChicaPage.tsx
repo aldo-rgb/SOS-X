@@ -1842,8 +1842,8 @@ const CajaChicaPage: React.FC = () => {
                   const consolidacionesMostrar = selectedConsolidaciones.size > 0
                     ? consolidacionesPendientes.filter(c => selectedConsolidaciones.has(c.id))
                     : consolidacionesPendientes;
-                  const totalUsd = consolidacionesMostrar.reduce((sum, c) => sum + Number(c.all_cost_usd || c.total_cost_usd || 0), 0);
-                  const totalMxn = consolidacionesMostrar.reduce((sum, c) => sum + Number(c.all_cost_mxn || c.total_cost_mxn || 0), 0);
+                  const totalUsd = consolidacionesMostrar.reduce((sum, c) => sum + Number(c.total_cost_usd || 0), 0);
+                  const totalMxn = consolidacionesMostrar.reduce((sum, c) => sum + Number(c.total_cost_mxn || 0), 0);
                   const pendienteMxn = consolidacionesMostrar.reduce((sum, c) => sum + Number(c.total_cost_mxn || 0), 0);
                   return (
                     <Grid container spacing={2}>
