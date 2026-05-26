@@ -440,7 +440,9 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
           <TableHead>
             <TableRow>
               <TableCell>Folio</TableCell>
+              <TableCell>N° Cliente</TableCell>
               <TableCell>Cliente</TableCell>
+              <TableCell>Correo</TableCell>
               <TableCell>RFC</TableCell>
               <TableCell>UUID</TableCell>
               <TableCell align="right">Total</TableCell>
@@ -453,7 +455,15 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
             {rows.map(r => (
               <TableRow key={r.id} hover>
                 <TableCell sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{r.serie || ''}{r.folio || '—'}</TableCell>
+                <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
+                  {r.cliente_id ? `#${r.cliente_id}` : <span style={{ color: '#999' }}>—</span>}
+                </TableCell>
                 <TableCell>{r.receptor_razon_social || r.cliente_nombre || '—'}</TableCell>
+                <TableCell sx={{ fontSize: '0.8rem', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {r.cliente_email
+                    ? <Tooltip title={r.cliente_email}><span>{r.cliente_email}</span></Tooltip>
+                    : <span style={{ color: '#999' }}>—</span>}
+                </TableCell>
                 <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{r.receptor_rfc}</TableCell>
                 <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.7rem', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   <Tooltip title={r.uuid_sat || ''}><span>{r.uuid_sat?.slice(0, 8) || '—'}…</span></Tooltip>
