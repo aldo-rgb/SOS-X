@@ -1179,6 +1179,8 @@ import {
   updateProduct,
   deleteProduct,
   adjustProductStock,
+  cancelEmittedInvoice,
+  deleteEmittedInvoice,
   listReceivedInvoices,
   getReceivedInvoiceDetail,
   uploadReceivedInvoice,
@@ -3895,6 +3897,8 @@ app.get('/api/accounting/:emitterId/pending-stamp', authenticateToken, listPendi
 app.post('/api/fiscal/invoice/manual', authenticateToken, emitManualCFDI);
 app.get('/api/accounting/:emitterId/fiscal-clients', authenticateToken, searchFiscalClients);
 app.post('/api/accounting/:emitterId/invoices/manual', authenticateToken, createManualInvoice);
+app.post('/api/accounting/:emitterId/invoices/:invoiceId/cancel', authenticateToken, cancelEmittedInvoice);
+app.delete('/api/accounting/:emitterId/invoices/:invoiceId', authenticateToken, deleteEmittedInvoice);
 app.get('/api/accounting/accountants', authenticateToken, listAccountants);
 app.post('/api/accounting/accountants/:userId/permissions', authenticateToken, grantAccountantPermission);
 app.delete('/api/accounting/accountants/:userId/permissions/:emitterId', authenticateToken, revokeAccountantPermission);

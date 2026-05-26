@@ -506,6 +506,46 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                       <RefreshIcon fontSize="small" sx={{ color: ORANGE }} />
                     </IconButton>
                   </Tooltip>
+                  {(r.status !== 'canceled' && !r.canceled_at) && (r.facturama_id || r.uuid_sat) && (
+                    <Tooltip title="Cancelar CFDI ante el SAT">
+                      <IconButton size="small" onClick={async () => {
+                        const motive = window.prompt('Motivo SAT de cancelación:\n01 = Emitido con errores con relación\n02 = Emitido con errores sin relación (default)\n03 = No se llevó a cabo la operación\n04 = Operación nominativa relacionada en factura global', '02');
+                        if (!motive) return;
+                        if (!['01','02','03','04'].includes(motive)) { setSnackbar({ open: true, message: 'Motivo inválido (usa 01-04)', severity: 'warning' }); return; }
+                        let folioSust: string | undefined;
+                        if (motive === '01') {
+                          folioSust = window.prompt('UUID de la factura que la sustituye (requerido para motivo 01):') || undefined;
+                          if (!folioSust) { setSnackbar({ open: true, message: 'El motivo 01 requiere UUID sustituto', severity: 'warning' }); return; }
+                        }
+                        if (!window.confirm(`¿Cancelar la factura ${r.serie || ''}${r.folio || r.uuid_sat?.slice(0,8)} con motivo ${motive}? Esta acción es irreversible.`)) return;
+                        try {
+                          await api.post(`/accounting/${emitter.id}/invoices/${r.id}/cancel`, { motive, folio_sustitucion: folioSust });
+                          setSnackbar({ open: true, message: 'Factura cancelada correctamente', severity: 'success' });
+                          load();
+                        } catch (e: any) {
+                          setSnackbar({ open: true, message: e?.response?.data?.details?.Message || e?.response?.data?.error || 'Error al cancelar', severity: 'error' });
+                        }
+                      }}>
+                        <CancelIcon fontSize="small" sx={{ color: RED }} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                  {!r.facturama_id && !r.uuid_sat && (
+                    <Tooltip title="Eliminar fila fantasma (CFDI no timbrado)">
+                      <IconButton size="small" onClick={async () => {
+                        if (!window.confirm('Esta factura no quedó timbrada en el SAT. ¿Eliminarla del registro?')) return;
+                        try {
+                          await api.delete(`/accounting/${emitter.id}/invoices/${r.id}`);
+                          setSnackbar({ open: true, message: 'Registro eliminado', severity: 'success' });
+                          load();
+                        } catch (e: any) {
+                          setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al eliminar', severity: 'error' });
+                        }
+                      }}>
+                        <DeleteIcon fontSize="small" sx={{ color: RED }} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                 </TableCell>
               </TableRow>
             ))}
@@ -765,6 +805,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated }: {
           user_id: receptor.user_id,
         },
         items: items.map((it) => ({
+          product_id: it.product_id || undefined,
           description: it.description.trim(),
           quantity: Number(it.quantity),
           unit_price: Number(it.unit_price),

@@ -619,49 +619,100 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
         const facturamaId = invoice.id ? String(invoice.id) : null;
         const uuidSat = invoice.uuid && String(invoice.uuid).trim() ? String(invoice.uuid).trim() : null;
 
-        // Persistir en facturas_emitidas (idempotente: si ya existe por facturama_id o uuid_sat, lo devolvemos)
+        // Persistir en facturas_emitidas (idempotente) + descuento de stock
+        // en una sola transacción.
         const linkedUserId = receptor.user_id ? Number(receptor.user_id) : null;
+        const dbClient = await pool.connect();
+        let insertedInvoiceId: number | null = null;
         try {
-            await pool.query(`
-                INSERT INTO facturas_emitidas
-                    (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
-                     receptor_rfc, receptor_razon_social, subtotal, total, currency,
-                     payment_form, status, pdf_url, xml_url, created_at)
-                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
-            `, [
-                linkedUserId, emitterId,
-                facturamaId, uuidSat, invoice.folio_number, invoice.series || null,
-                receptorRfc, receptorNombre,
-                invoice.subtotal, invoice.total, invoice.currency,
-                paymentForm, invoice.pdf_url, invoice.xml_url,
-            ]);
-        } catch (dbErr: any) {
-            // 23505 = unique_violation. La factura ya fue persistida antes (retry/duplicado).
-            if (dbErr?.code === '23505') {
-                console.warn('[createManualInvoice] CFDI ya estaba en BD (idempotencia):', uuidSat || facturamaId);
-                const existing = await pool.query(
-                    `SELECT id, facturama_id, uuid_sat, folio, total, pdf_url, xml_url
-                       FROM facturas_emitidas
-                      WHERE (facturama_id IS NOT NULL AND facturama_id = $1)
-                         OR (uuid_sat IS NOT NULL AND uuid_sat = $2)
-                      LIMIT 1`,
-                    [facturamaId, uuidSat]
-                );
-                const row = existing.rows[0];
-                if (row) {
-                    return res.json({
-                        success: true,
-                        already_exists: true,
-                        invoice_id: row.facturama_id,
-                        uuid: row.uuid_sat,
-                        folio: row.folio,
-                        total: row.total,
-                        pdf_url: row.pdf_url,
-                        xml_url: row.xml_url,
-                    });
+            await dbClient.query('BEGIN');
+            try {
+                const ins = await dbClient.query(`
+                    INSERT INTO facturas_emitidas
+                        (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
+                         receptor_rfc, receptor_razon_social, subtotal, total, currency,
+                         payment_form, status, pdf_url, xml_url, created_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
+                    RETURNING id
+                `, [
+                    linkedUserId, emitterId,
+                    facturamaId, uuidSat, invoice.folio_number, invoice.series || null,
+                    receptorRfc, receptorNombre,
+                    invoice.subtotal, invoice.total, invoice.currency,
+                    paymentForm, invoice.pdf_url, invoice.xml_url,
+                ]);
+                insertedInvoiceId = ins.rows[0].id;
+            } catch (dbErr: any) {
+                // 23505 = unique_violation: ya estaba en BD (retry / idempotencia).
+                if (dbErr?.code === '23505') {
+                    await dbClient.query('ROLLBACK');
+                    console.warn('[createManualInvoice] CFDI ya estaba en BD (idempotencia):', uuidSat || facturamaId);
+                    const existing = await pool.query(
+                        `SELECT id, facturama_id, uuid_sat, folio, total, pdf_url, xml_url
+                           FROM facturas_emitidas
+                          WHERE (facturama_id IS NOT NULL AND facturama_id = $1)
+                             OR (uuid_sat IS NOT NULL AND uuid_sat = $2)
+                          LIMIT 1`,
+                        [facturamaId, uuidSat]
+                    );
+                    const row = existing.rows[0];
+                    if (row) {
+                        return res.json({
+                            success: true,
+                            already_exists: true,
+                            invoice_id: row.facturama_id,
+                            uuid: row.uuid_sat,
+                            folio: row.folio,
+                            total: row.total,
+                            pdf_url: row.pdf_url,
+                            xml_url: row.xml_url,
+                        });
+                    }
                 }
+                throw dbErr;
             }
-            throw dbErr;
+
+            // Descuento de stock para conceptos vinculados a accounting_products
+            // (sólo para productos NO servicio). Si un producto se queda en
+            // negativo dejamos pasar — la responsabilidad de control duro la
+            // tendrá un futuro modo "strict stock".
+            for (const it of items) {
+                const productId = Number(it.product_id);
+                const qty = Number(it.quantity);
+                if (!productId || !(qty > 0)) continue;
+                const pr = await dbClient.query(
+                    `SELECT id, stock_qty, unit_price, is_service
+                       FROM accounting_products
+                      WHERE id=$1 AND fiscal_emitter_id=$2
+                      FOR UPDATE`,
+                    [productId, emitterId]
+                );
+                const prod = pr.rows[0];
+                if (!prod || prod.is_service) continue;
+                const cur = parseFloat(prod.stock_qty || 0);
+                const newQty = +(cur - qty).toFixed(3);
+                await dbClient.query(
+                    `UPDATE accounting_products
+                        SET stock_qty=$1, updated_at=CURRENT_TIMESTAMP
+                      WHERE id=$2`,
+                    [newQty, productId]
+                );
+                await dbClient.query(
+                    `INSERT INTO accounting_product_movements
+                        (product_id, movement_type, quantity, unit_cost, reason, reference_type, reference_id, created_by)
+                     VALUES ($1,'out',$2,$3,$4,'emitted_invoice',$5,$6)`,
+                    [productId, qty, Number(it.unit_price) || prod.unit_price || 0,
+                     `Salida por factura ${invoice.series || ''}${invoice.folio_number || insertedInvoiceId}`,
+                     insertedInvoiceId, userId]
+                );
+            }
+
+            await dbClient.query('COMMIT');
+        } catch (txErr) {
+            try { await dbClient.query('ROLLBACK'); } catch {}
+            throw txErr;
+        } finally {
+            dbClient.release();
         }
 
         return res.json({
@@ -672,6 +723,7 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
             total: invoice.total,
             pdf_url: invoice.pdf_url,
             xml_url: invoice.xml_url,
+            db_id: insertedInvoiceId,
         });
     } catch (e: any) {
         // Facturama suele devolver { Message, ModelState: { 'campo': ['detalle'] } }
@@ -694,6 +746,183 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
             details: process.env.NODE_ENV !== 'production' ? facturamaDetails : undefined,
         });
     }
+};
+
+/**
+ * POST /api/accounting/:emitterId/invoices/:invoiceId/cancel
+ * Cancela un CFDI emitido (facturas_emitidas):
+ *  - Si tiene facturama_id/uuid_sat → cancela ante el SAT vía Facturama.
+ *  - Marca la fila como canceled + canceled_at + cancellation_reason.
+ *  - Reversa stock de productos que se descontaron al emitir (movement reference_type='emitted_invoice').
+ * Body: { motive?: '01'|'02'|'03'|'04', folio_sustitucion? }
+ */
+export const cancelEmittedInvoice = async (req: AuthRequest, res: Response): Promise<any> => {
+    const userId = req.user?.userId || (req.user as any)?.id;
+    const role = req.user?.role;
+    const emitterId = parseInt(String(req.params.emitterId), 10);
+    const invoiceId = parseInt(String(req.params.invoiceId), 10);
+    if (!emitterId || !invoiceId) return res.status(400).json({ error: 'Parámetros inválidos' });
+
+    const access = await checkEmitterAccess(userId!, role, emitterId);
+    if (!access.ok || !access.perms?.can_cancel_invoice) {
+        return res.status(403).json({ error: 'Sin permiso para cancelar facturas en esta empresa' });
+    }
+
+    const motive = String(req.body?.motive || '02').trim();
+    const folioSustitucion = req.body?.folio_sustitucion ? String(req.body.folio_sustitucion) : undefined;
+
+    const inv = await pool.query(
+        `SELECT id, facturama_id, uuid_sat, status, canceled_at
+           FROM facturas_emitidas
+          WHERE id=$1 AND fiscal_emitter_id=$2`,
+        [invoiceId, emitterId]
+    );
+    if (inv.rows.length === 0) return res.status(404).json({ error: 'Factura no encontrada' });
+    const row = inv.rows[0];
+    if (row.status === 'canceled' || row.canceled_at) {
+        return res.status(400).json({ error: 'La factura ya está cancelada' });
+    }
+
+    // 1) Cancelar en SAT vía Facturama si tenemos timbre
+    if (row.facturama_id || row.uuid_sat) {
+        try {
+            const client = await FacturamaClient.fromEmitterId(emitterId);
+            await client.invoices.cancel(row.facturama_id || row.uuid_sat, {
+                motive,
+                folioSustitucion,
+            });
+        } catch (e: any) {
+            const details = e instanceof FacturamaError ? (e.details || e.message) : e.message;
+            console.error('[cancelEmittedInvoice] Facturama error:', details);
+            return res.status(502).json({ error: 'Facturama rechazó la cancelación', details });
+        }
+    }
+
+    // 2) Marcar como canceled + reversar stock en transacción
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+        await dbClient.query(
+            `UPDATE facturas_emitidas
+                SET status='canceled',
+                    canceled_at=COALESCE(canceled_at, NOW()),
+                    cancellation_reason=$1
+              WHERE id=$2`,
+            [motive, invoiceId]
+        );
+
+        // Reverso de stock: traer todos los movimientos 'out' de esta factura
+        // que aún no han sido reversados (evita doble reverso si se llama dos veces).
+        const moves = await dbClient.query(
+            `SELECT m.id, m.product_id, m.quantity
+               FROM accounting_product_movements m
+              WHERE m.reference_type='emitted_invoice'
+                AND m.reference_id=$1
+                AND m.movement_type='out'
+                AND NOT EXISTS (
+                    SELECT 1 FROM accounting_product_movements r
+                     WHERE r.reference_type='emitted_invoice_cancel'
+                       AND r.reference_id=$1
+                       AND r.product_id=m.product_id
+                       AND r.quantity=m.quantity
+                )`,
+            [invoiceId]
+        );
+        for (const mv of moves.rows) {
+            const pr = await dbClient.query(
+                `SELECT stock_qty, unit_price FROM accounting_products WHERE id=$1 FOR UPDATE`,
+                [mv.product_id]
+            );
+            if (pr.rows.length === 0) continue;
+            const cur = parseFloat(pr.rows[0].stock_qty || 0);
+            const qty = parseFloat(mv.quantity);
+            await dbClient.query(
+                `UPDATE accounting_products SET stock_qty=$1, updated_at=CURRENT_TIMESTAMP WHERE id=$2`,
+                [+(cur + qty).toFixed(3), mv.product_id]
+            );
+            await dbClient.query(
+                `INSERT INTO accounting_product_movements
+                    (product_id, movement_type, quantity, unit_cost, reason, reference_type, reference_id, created_by)
+                 VALUES ($1,'in',$2,$3,$4,'emitted_invoice_cancel',$5,$6)`,
+                [mv.product_id, qty, pr.rows[0].unit_price || 0,
+                 `Reverso por cancelación de factura #${invoiceId}`, invoiceId, userId]
+            );
+        }
+        await dbClient.query('COMMIT');
+    } catch (txErr: any) {
+        try { await dbClient.query('ROLLBACK'); } catch {}
+        console.error('[cancelEmittedInvoice] DB error:', txErr);
+        return res.status(500).json({ error: 'Error al actualizar BD tras cancelación', message: txErr.message });
+    } finally {
+        dbClient.release();
+    }
+
+    return res.json({ success: true, message: 'Factura cancelada' });
+};
+
+/**
+ * DELETE /api/accounting/:emitterId/invoices/:invoiceId
+ * Elimina una fila "fantasma" de facturas_emitidas (CFDI no timbrado:
+ * sin facturama_id ni uuid_sat). Bajo ninguna circunstancia borra una
+ * factura timbrada — para eso debe usarse el endpoint de cancelación.
+ */
+export const deleteEmittedInvoice = async (req: AuthRequest, res: Response): Promise<any> => {
+    const userId = req.user?.userId || (req.user as any)?.id;
+    const role = req.user?.role;
+    const emitterId = parseInt(String(req.params.emitterId), 10);
+    const invoiceId = parseInt(String(req.params.invoiceId), 10);
+    if (!emitterId || !invoiceId) return res.status(400).json({ error: 'Parámetros inválidos' });
+
+    const access = await checkEmitterAccess(userId!, role, emitterId);
+    if (!access.ok || !access.perms?.can_cancel_invoice) {
+        return res.status(403).json({ error: 'Sin permiso' });
+    }
+
+    const inv = await pool.query(
+        `SELECT id, facturama_id, uuid_sat
+           FROM facturas_emitidas
+          WHERE id=$1 AND fiscal_emitter_id=$2`,
+        [invoiceId, emitterId]
+    );
+    if (inv.rows.length === 0) return res.status(404).json({ error: 'Factura no encontrada' });
+    const row = inv.rows[0];
+    if (row.facturama_id || row.uuid_sat) {
+        return res.status(400).json({ error: 'No se puede eliminar una factura timbrada. Usa cancelación.' });
+    }
+
+    const dbClient = await pool.connect();
+    try {
+        await dbClient.query('BEGIN');
+        // Reverso de stock por si la fila fantasma alcanzó a generar movimientos
+        const moves = await dbClient.query(
+            `SELECT product_id, quantity FROM accounting_product_movements
+              WHERE reference_type='emitted_invoice' AND reference_id=$1 AND movement_type='out'`,
+            [invoiceId]
+        );
+        for (const mv of moves.rows) {
+            await dbClient.query(
+                `UPDATE accounting_products
+                    SET stock_qty = COALESCE(stock_qty,0) + $1, updated_at=CURRENT_TIMESTAMP
+                  WHERE id=$2`,
+                [parseFloat(mv.quantity), mv.product_id]
+            );
+        }
+        await dbClient.query(
+            `DELETE FROM accounting_product_movements
+              WHERE reference_type='emitted_invoice' AND reference_id=$1`,
+            [invoiceId]
+        );
+        await dbClient.query(`DELETE FROM facturas_emitidas WHERE id=$1`, [invoiceId]);
+        await dbClient.query('COMMIT');
+    } catch (txErr: any) {
+        try { await dbClient.query('ROLLBACK'); } catch {}
+        console.error('[deleteEmittedInvoice]', txErr);
+        return res.status(500).json({ error: 'Error al eliminar', message: txErr.message });
+    } finally {
+        dbClient.release();
+    }
+
+    return res.json({ success: true, message: 'Factura fantasma eliminada' });
 };
 
 /**
