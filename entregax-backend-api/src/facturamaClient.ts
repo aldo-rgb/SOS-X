@@ -360,8 +360,29 @@ export class FacturamaClient {
             cancellation_status?: string;
             raw: any;
         }> => {
-            const r = await this.http.get(`/cfdi/${idOrUuid}/status?type=issued`);
-            if (r.status < 200 || r.status >= 300) throwFromResponse('Facturama getStatus falló', r);
+            // Facturama tiene 3 caminos para consultar el estatus SAT. El plan
+            // (monoemisor vs multiemisor/Lite) habilita unos u otros, así que
+            // probamos del más nuevo al más viejo. Si todos rechazan con
+            // 401/403/404 (endpoint no autorizado por el plan), no rompemos la
+            // UI: devolvemos 'unknown' y registramos un warning.
+            const PATHS = [
+                `/api-lite/cfdis/status/${idOrUuid}?type=issued`,
+                `/api-lite/3/cfdis/${idOrUuid}/status?type=issued`,
+                `/cfdi/${idOrUuid}/status?type=issued`,
+            ];
+            let r: { status: number; data: any } = { status: 0, data: null };
+            for (const p of PATHS) {
+                r = await this.http.get(p);
+                if (r.status >= 200 && r.status < 300) break;
+                if (![401, 403, 404].includes(r.status)) break;
+            }
+            if (r.status < 200 || r.status >= 300) {
+                if ([401, 403, 404].includes(r.status)) {
+                    console.warn(`[FacturamaClient.getStatus] Endpoint no disponible (HTTP ${r.status}) para emisor ${this.emitter.rfc}; devolviendo 'unknown'.`);
+                    return { status: 'unknown', raw: { httpStatus: r.status, note: 'getStatus endpoint not authorized by Facturama plan' } };
+                }
+                throwFromResponse('Facturama getStatus falló', r);
+            }
             const d = r.data || {};
             const sat = String(d.Status || d.SatStatus || d.status || '').toLowerCase();
             const cancel = String(d.CancellationStatus || d.cancellation_status || '').toLowerCase();
