@@ -258,11 +258,16 @@ export class FacturamaClient {
         /** Crear y timbrar CFDI. Devuelve forma compatible con Facturapi. */
         create: async (payload: FacturapiLikePayload): Promise<FacturapiLikeInvoice> => {
             const body = buildFacturamaCfdiPayload(this.emitter, payload);
-            // Facturama tiene 3 versiones del API multiemisor (api-lite/3, /2, sin
-            // versión). Distintos planes habilitan distintas versiones; intentamos
-            // de la más nueva a la más vieja y nos quedamos con la primera que
-            // responda 2xx. 401/403/404 son señal típica de "tu plan no la incluye".
-            const VERSIONED_PATHS = ['/api-lite/3/cfdis', '/api-lite/2/cfdis', '/api-lite/cfdis'];
+            // Facturama tiene API Web (/3/cfdis) y API Multiemisor (/api-lite/X/cfdis).
+            // API Web es más simple y usa el CSD de la cuenta autenticada.
+            // API Multiemisor permite múltiples RFCs con CSDs diferentes.
+            // Intentamos API Web primero, luego caemos a Multiemisor.
+            const VERSIONED_PATHS = [
+                '/3/cfdis',              // API Web (más común)
+                '/api-lite/3/cfdis',     // API Multiemisor v3
+                '/api-lite/2/cfdis',     // API Multiemisor v2
+                '/api-lite/cfdis'        // API Multiemisor sin versión
+            ];
             let r: { status: number; data: any } = { status: 0, data: null };
             for (const path of VERSIONED_PATHS) {
                 r = await this.http.post(path, body);
