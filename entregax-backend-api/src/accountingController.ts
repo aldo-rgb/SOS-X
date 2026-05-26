@@ -388,20 +388,28 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
             currency: pay.currency || 'MXN',
         });
 
-        // 5. Guardar en facturas_emitidas
-        await pool.query(`
-            INSERT INTO facturas_emitidas
-                (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
-                 receptor_rfc, receptor_razon_social, subtotal, total, currency,
-                 payment_form, status, pdf_url, xml_url, created_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
-        `, [
-            pay.user_id, fiscal_emitter_id,
-            invoice.id, invoice.uuid, invoice.folio_number, invoice.series || null,
-            receptorRfc, receptorNombre,
-            invoice.subtotal, invoice.total, invoice.currency,
-            formaPago, invoice.pdf_url, invoice.xml_url,
-        ]);
+        // 5. Guardar en facturas_emitidas (normalizar UUID/ID vacíos a NULL para evitar
+        //    colisiones con UNIQUE; idempotente si ya existe el CFDI).
+        const facturamaId = invoice.id ? String(invoice.id) : null;
+        const uuidSat = invoice.uuid && String(invoice.uuid).trim() ? String(invoice.uuid).trim() : null;
+        try {
+            await pool.query(`
+                INSERT INTO facturas_emitidas
+                    (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
+                     receptor_rfc, receptor_razon_social, subtotal, total, currency,
+                     payment_form, status, pdf_url, xml_url, created_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
+            `, [
+                pay.user_id, fiscal_emitter_id,
+                facturamaId, uuidSat, invoice.folio_number, invoice.series || null,
+                receptorRfc, receptorNombre,
+                invoice.subtotal, invoice.total, invoice.currency,
+                formaPago, invoice.pdf_url, invoice.xml_url,
+            ]);
+        } catch (dbErr: any) {
+            if (dbErr?.code !== '23505') throw dbErr;
+            console.warn('[emitManualCFDI] CFDI ya estaba persistido (idempotencia):', uuidSat || facturamaId);
+        }
 
         // 6. Marcar el pago como facturado
         await pool.query(
@@ -409,7 +417,7 @@ export const emitManualCFDI = async (req: AuthRequest, res: Response): Promise<a
             [payment_id]
         );
 
-        return res.json({ success: true, invoice_id: invoice.id, uuid: invoice.uuid, pdf_url: invoice.pdf_url });
+        return res.json({ success: true, invoice_id: facturamaId, uuid: uuidSat, pdf_url: invoice.pdf_url });
 
     } catch (e: any) {
         const errMsg = e instanceof FacturamaError
@@ -604,26 +612,60 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
         if (serie) cfdiPayload.series = serie;
         const invoice = await client.invoices.create(cfdiPayload);
 
-        // Persistir en facturas_emitidas
+        // Normalizamos: si Facturama no nos devolvió uuid (timbre pendiente o test),
+        // pasamos NULL en lugar de "" para evitar colisión con UNIQUE en cadena vacía.
+        const facturamaId = invoice.id ? String(invoice.id) : null;
+        const uuidSat = invoice.uuid && String(invoice.uuid).trim() ? String(invoice.uuid).trim() : null;
+
+        // Persistir en facturas_emitidas (idempotente: si ya existe por facturama_id o uuid_sat, lo devolvemos)
         const linkedUserId = receptor.user_id ? Number(receptor.user_id) : null;
-        await pool.query(`
-            INSERT INTO facturas_emitidas
-                (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
-                 receptor_rfc, receptor_razon_social, subtotal, total, currency,
-                 payment_form, status, pdf_url, xml_url, created_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
-        `, [
-            linkedUserId, emitterId,
-            invoice.id, invoice.uuid, invoice.folio_number, invoice.series || null,
-            receptorRfc, receptorNombre,
-            invoice.subtotal, invoice.total, invoice.currency,
-            paymentForm, invoice.pdf_url, invoice.xml_url,
-        ]);
+        try {
+            await pool.query(`
+                INSERT INTO facturas_emitidas
+                    (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
+                     receptor_rfc, receptor_razon_social, subtotal, total, currency,
+                     payment_form, status, pdf_url, xml_url, created_at)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
+            `, [
+                linkedUserId, emitterId,
+                facturamaId, uuidSat, invoice.folio_number, invoice.series || null,
+                receptorRfc, receptorNombre,
+                invoice.subtotal, invoice.total, invoice.currency,
+                paymentForm, invoice.pdf_url, invoice.xml_url,
+            ]);
+        } catch (dbErr: any) {
+            // 23505 = unique_violation. La factura ya fue persistida antes (retry/duplicado).
+            if (dbErr?.code === '23505') {
+                console.warn('[createManualInvoice] CFDI ya estaba en BD (idempotencia):', uuidSat || facturamaId);
+                const existing = await pool.query(
+                    `SELECT id, facturama_id, uuid_sat, folio, total, pdf_url, xml_url
+                       FROM facturas_emitidas
+                      WHERE (facturama_id IS NOT NULL AND facturama_id = $1)
+                         OR (uuid_sat IS NOT NULL AND uuid_sat = $2)
+                      LIMIT 1`,
+                    [facturamaId, uuidSat]
+                );
+                const row = existing.rows[0];
+                if (row) {
+                    return res.json({
+                        success: true,
+                        already_exists: true,
+                        invoice_id: row.facturama_id,
+                        uuid: row.uuid_sat,
+                        folio: row.folio,
+                        total: row.total,
+                        pdf_url: row.pdf_url,
+                        xml_url: row.xml_url,
+                    });
+                }
+            }
+            throw dbErr;
+        }
 
         return res.json({
             success: true,
-            invoice_id: invoice.id,
-            uuid: invoice.uuid,
+            invoice_id: facturamaId,
+            uuid: uuidSat,
             folio: invoice.folio_number,
             total: invoice.total,
             pdf_url: invoice.pdf_url,
