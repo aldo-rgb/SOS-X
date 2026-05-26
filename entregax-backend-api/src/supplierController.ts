@@ -17,7 +17,7 @@ export const getSuppliers = async (_req: Request, res: Response): Promise<void> 
                     supplier_id,
                     COUNT(*) as total_packages,
                     COUNT(*) FILTER (WHERE costing_paid IS NULL OR costing_paid = FALSE) as pending_payment,
-                    COALESCE(SUM(pobox_provider_cost_mxn), 0) as total_cost
+                    COALESCE(SUM(COALESCE(pobox_provider_cost_mxn, pobox_provider_cost_usd * registered_exchange_rate, 0)), 0) as total_cost
                 FROM packages
                 WHERE supplier_id IS NOT NULL
                 GROUP BY supplier_id
@@ -224,16 +224,17 @@ export const getConsolidacionesPendientes = async (req: Request, res: Response):
                 COUNT(p.id) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE AND COALESCE(p.is_lost, FALSE) = FALSE) AS missing_count,
                 COUNT(p.id) FILTER (WHERE COALESCE(p.is_lost, FALSE) = TRUE) AS lost_count,
                 -- Total PENDIENTE de pago AHORA (unpaid + no missing + no lost + received/delivered/out_for_delivery)
-                COALESCE(SUM(p.pobox_provider_cost_mxn) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as total_cost_mxn,
+                -- Si pobox_provider_cost_mxn no existe, lo calculamos como pobox_provider_cost_usd * registered_exchange_rate
+                COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, p.pobox_provider_cost_usd * p.registered_exchange_rate, 0)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as total_cost_mxn,
                 COALESCE(SUM(p.pobox_provider_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as total_cost_usd,
                 -- Total YA PAGADO (no missing + no lost + paid + received/delivered/out_for_delivery)
-                COALESCE(SUM(p.pobox_provider_cost_mxn) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as paid_cost_mxn,
+                COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, p.pobox_provider_cost_usd * p.registered_exchange_rate, 0)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as paid_cost_mxn,
                 COALESCE(SUM(p.pobox_provider_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND COALESCE(p.costing_paid, FALSE) = TRUE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as paid_cost_usd,
                 -- Total FALTANTE/PERDIDO (no suma al pago)
-                COALESCE(SUM(p.pobox_provider_cost_mxn) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_mxn,
+                COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, p.pobox_provider_cost_usd * p.registered_exchange_rate, 0)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_mxn,
                 COALESCE(SUM(p.pobox_provider_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE OR COALESCE(p.is_lost, FALSE) = TRUE), 0) as pending_cost_usd,
                 -- Total COMPLETO de la consolidación (received/delivered/out_for_delivery, excepto perdidas/faltantes)
-                COALESCE(SUM(p.pobox_provider_cost_mxn) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as all_cost_mxn,
+                COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, p.pobox_provider_cost_usd * p.registered_exchange_rate, 0)) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as all_cost_mxn,
                 COALESCE(SUM(p.pobox_provider_cost_usd) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = FALSE AND COALESCE(p.is_lost, FALSE) = FALSE AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))), 0) as all_cost_usd
             FROM consolidations c
             JOIN packages p ON p.consolidation_id = c.id
@@ -338,7 +339,7 @@ export const getSupplierConsolidations = async (req: Request, res: Response): Pr
                 c.total_weight,
                 c.created_at,
                 COUNT(p.id) as package_count,
-                COALESCE(SUM(p.pobox_provider_cost_mxn), 0) as total_cost_mxn,
+                COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, p.pobox_provider_cost_usd * p.registered_exchange_rate, 0)), 0) as total_cost_mxn,
                 COALESCE(SUM(p.pobox_provider_cost_usd), 0) as total_cost_usd
             FROM consolidations c
             JOIN packages p ON p.consolidation_id = c.id
