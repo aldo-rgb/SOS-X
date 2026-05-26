@@ -188,6 +188,7 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
                    f.subtotal, f.total, f.currency, f.payment_form, f.status, f.canceled_at, f.cancellation_reason,
                    f.pdf_url, f.xml_url, f.created_at,
                    f.user_id AS cliente_id,
+                   u.box_id AS cliente_box_id,
                    u.full_name AS cliente_nombre, u.email AS cliente_email
             FROM facturas_emitidas f
             LEFT JOIN users u ON u.id = f.user_id

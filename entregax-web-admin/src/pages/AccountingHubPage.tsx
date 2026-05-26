@@ -456,7 +456,7 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
               <TableRow key={r.id} hover>
                 <TableCell sx={{ fontFamily: 'monospace', fontWeight: 'bold' }}>{r.serie || ''}{r.folio || '—'}</TableCell>
                 <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>
-                  {r.cliente_id ? `#${r.cliente_id}` : <span style={{ color: '#999' }}>—</span>}
+                  {r.cliente_box_id || (r.cliente_id ? `#${r.cliente_id}` : <span style={{ color: '#999' }}>—</span>)}
                 </TableCell>
                 <TableCell>{r.receptor_razon_social || r.cliente_nombre || '—'}</TableCell>
                 <TableCell sx={{ fontSize: '0.8rem', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
