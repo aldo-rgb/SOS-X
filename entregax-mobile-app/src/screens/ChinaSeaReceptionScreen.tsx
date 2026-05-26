@@ -90,7 +90,7 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
 
   const [containers, setContainers] = useState<Container[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('in_transit_clientfinal');
+  const [statusFilter, setStatusFilter] = useState<string>('customs_cleared');
   const [selected, setSelected] = useState<Container | null>(null);
 
   const [orders, setOrders] = useState<Order[]>([]);
@@ -851,9 +851,10 @@ export default function ChinaSeaReceptionScreen({ route, navigation }: any) {
             };
             const filterOptions: { value: string; label: string }[] = isFCL
               ? [
-                  { value: 'customs_cleared', label: 'Liberado aduana' },
-                  { value: 'in_transit_clientfinal', label: 'En ruta destino' },
-                  { value: 'delivered', label: 'Entregados' },
+                  { value: 'customs_cleared',         label: 'Liberado aduana' },
+                  { value: 'arrived_port',             label: 'Llegó a puerto' },
+                  { value: 'in_transit_clientfinal',  label: 'En ruta destino' },
+                  { value: 'delivered',               label: 'Entregados' },
                 ]
               : [];
 
