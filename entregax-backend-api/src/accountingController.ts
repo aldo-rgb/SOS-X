@@ -880,6 +880,25 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
             }
         }
 
+        // Guardar datos fiscales del receptor en users para pre-llenar futuros CFDI
+        if (linkedUserId && receptorRfc && receptorNombre) {
+            try {
+                await pool.query(
+                    `UPDATE users SET
+                        fiscal_rfc = $1,
+                        fiscal_razon_social = $2,
+                        fiscal_regimen_fiscal = $3,
+                        fiscal_codigo_postal = $4,
+                        fiscal_uso_cfdi = $5
+                     WHERE id = $6`,
+                    [receptorRfc, receptorNombre, regimenFiscal, cpReceptor, usoCfdi, linkedUserId]
+                );
+                console.log(`✅ Datos fiscales guardados para user_id=${linkedUserId} (${receptorRfc})`);
+            } catch (e: any) {
+                console.warn('[createManualInvoice] no se pudieron guardar datos fiscales del receptor:', e?.message);
+            }
+        }
+
         return res.json({
             success: true,
             invoice_id: facturamaId,
