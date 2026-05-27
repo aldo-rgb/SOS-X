@@ -182,10 +182,9 @@ export default function InboundEmailsAirPage() {
         }
         if (refSortOrder) {
             list = [...list].sort((a: any, b: any) => {
-                const av = (a.reference || '').toString().toLowerCase();
-                const bv = (b.reference || '').toString().toLowerCase();
-                if (av === bv) return 0;
-                const cmp = av < bv ? -1 : 1;
+                const av = (a.reference || '').toString();
+                const bv = (b.reference || '').toString();
+                const cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' });
                 return refSortOrder === 'asc' ? cmp : -cmp;
             });
         }
@@ -699,7 +698,7 @@ export default function InboundEmailsAirPage() {
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                                 Referencia
                                                 <Tooltip title={refSortOrder === 'asc' ? 'Ascendente (clic: descendente)' : refSortOrder === 'desc' ? 'Descendente (clic: quitar)' : 'Ordenar por referencia'}>
-                                                    <IconButton size="small" onClick={toggleRefSort}>
+                                                    <IconButton size="small" onClick={toggleRefSort} sx={{ color: 'common.white' }}>
                                                         {refSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : refSortOrder === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <SwapVertIcon fontSize="small" />}
                                                     </IconButton>
                                                 </Tooltip>

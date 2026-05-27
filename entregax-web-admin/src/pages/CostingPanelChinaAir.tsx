@@ -361,10 +361,9 @@ export default function CostingPanelChinaAir() {
         }
         if (awbSortOrder) {
             list = [...list].sort((a: any, b: any) => {
-                const av = (a.reference || '').toString().toLowerCase();
-                const bv = (b.reference || '').toString().toLowerCase();
-                if (av === bv) return 0;
-                const cmp = av < bv ? -1 : 1;
+                const av = (a.reference || '').toString();
+                const bv = (b.reference || '').toString();
+                const cmp = av.localeCompare(bv, undefined, { numeric: true, sensitivity: 'base' });
                 return awbSortOrder === 'asc' ? cmp : -cmp;
             });
         }
@@ -988,7 +987,7 @@ export default function CostingPanelChinaAir() {
                                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                                             Referencia
                                             <Tooltip title={awbSortOrder === 'asc' ? 'Orden ascendente (clic: descendente)' : awbSortOrder === 'desc' ? 'Orden descendente (clic: quitar)' : 'Ordenar por referencia'}>
-                                                <IconButton size="small" onClick={toggleAwbSort}>
+                                                <IconButton size="small" onClick={toggleAwbSort} sx={{ color: 'common.white' }}>
                                                     {awbSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : awbSortOrder === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <SwapVertIcon fontSize="small" />}
                                                 </IconButton>
                                             </Tooltip>
