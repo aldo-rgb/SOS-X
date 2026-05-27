@@ -775,9 +775,9 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
     }
 
     res.json({ success: true, message: reopened ? 'Ticket reabierto con nuevo mensaje' : 'Mensaje enviado', reopened });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error enviando mensaje de cliente:', error);
-    res.status(500).json({ error: 'Error enviando mensaje' });
+    res.status(500).json({ error: 'Error enviando mensaje', detail: error?.message || String(error) });
   }
 };
 
