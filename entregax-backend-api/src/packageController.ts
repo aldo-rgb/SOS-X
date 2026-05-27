@@ -6123,7 +6123,7 @@ export const notifyBulkMasterReception = async (req: Request, res: Response): Pr
     if (!Number.isFinite(masterId)) return res.status(400).json({ error: 'masterId inválido' });
 
     const m = await pool.query(
-      `SELECT p.id, p.tracking_internal, p.user_id, p.box_id,
+      `SELECT p.id, p.tracking_internal, p.tracking_provider, p.user_id, p.box_id,
               u.full_name, u.notif_push, u.notif_whatsapp, u.notif_pobox AS notif_service,
               u.phone, u.phone_verified, u.whatsapp_verified
        FROM packages p
@@ -6158,8 +6158,11 @@ export const notifyBulkMasterReception = async (req: Request, res: Response): Pr
              FROM packages WHERE master_id = $1`,
             [masterId]
           );
-          const totalCajas = parseInt(childRows.rows[0]?.total || '1', 10) || 1;
-          const guiaOrigen = totalCajas === 1 ? (childRows.rows[0]?.guia_origen || null) : null;
+          const totalCajas = parseInt(childRows.rows[0]?.total || '0', 10) || 1;
+          // Para 1 caja: usa guía de hijo si existe, si no la del propio paquete
+          const guiaOrigen = totalCajas === 1
+            ? (childRows.rows[0]?.guia_origen || pkg.tracking_provider || null)
+            : null;
           await sendPoboxReceptionNotification(pkg.phone, firstName, savedTracking, totalCajas, guiaOrigen).catch(() => {});
         }
       }
