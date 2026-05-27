@@ -78,7 +78,7 @@ export const listAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
     }
 
     // ── Query principal ──
-    let whereClause = 'WHERE 1=1';
+    let whereClause = `WHERE COALESCE(ac.status, '') != 'deleted'`;
     const params: (string | number)[] = [];
     let paramIdx = 1;
 
@@ -401,6 +401,7 @@ export const getAwbCostStats = async (_req: AuthRequest, res: Response): Promise
         COALESCE(SUM(total_packages_s), 0) as total_s_packages,
         COALESCE(SUM(total_packages_cajo), 0) as total_cajo_packages
       FROM air_waybill_costs
+      WHERE COALESCE(status, '') != 'deleted'
     `);
 
     res.json({ success: true, stats: result.rows[0] });
@@ -490,10 +491,14 @@ export const deleteAwbCost = async (req: AuthRequest, res: Response): Promise<vo
   try {
     const { id } = req.params;
 
-    // Desvincular paquetes
+    // Soft-delete: marcar status='deleted'. NO se borra la fila para evitar
+    // que el auto-creador (listAwbCosts) la regenere a partir de packages.
     await pool.query('UPDATE packages SET awb_cost_id = NULL WHERE awb_cost_id = $1', [id]);
 
-    const result = await pool.query('DELETE FROM air_waybill_costs WHERE id = $1 RETURNING id', [id]);
+    const result = await pool.query(
+      `UPDATE air_waybill_costs SET status = 'deleted', updated_at = NOW() WHERE id = $1 RETURNING id`,
+      [id]
+    );
     if (result.rows.length === 0) {
       res.status(404).json({ error: 'No encontrado' });
       return;

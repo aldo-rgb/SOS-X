@@ -380,28 +380,22 @@ export default function CostingPanelChinaAir() {
         if (!awbDeleteDialog.id) return;
         setAwbDeleting(true);
         setAwbDeleteError(null);
-        const url = `${API_URL}/api/awb-costs/${awbDeleteDialog.id}`;
         try {
-            const res = await fetch(url, {
+            const res = await fetch(`${API_URL}/api/awb-costs/${awbDeleteDialog.id}`, {
                 method: 'DELETE',
                 headers: { Authorization: `Bearer ${token}` },
             });
             const text = await res.text();
             let body: any = {};
             try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
-            console.log('[delete awb-cost]', { url, id: awbDeleteDialog.id, status: res.status, body });
             if (res.ok) {
-                setAwbDeleteError(`✓ Backend respondió ${res.status}: ${JSON.stringify(body)}. Refrescando lista...`);
+                setMessage({ type: 'success', text: 'Línea de costeo eliminada' });
+                setAwbDeleteDialog({ open: false, id: null });
                 await loadAwbCostList();
-                setTimeout(() => {
-                    setAwbDeleteDialog({ open: false, id: null });
-                    setAwbDeleteError(null);
-                }, 2000);
             } else {
-                setAwbDeleteError(`(${res.status}) ${body.error || body.message || body.raw || 'Error al eliminar'}`);
+                setAwbDeleteError(`(${res.status}) ${body.error || body.message || 'Error al eliminar'}`);
             }
         } catch (e: any) {
-            console.error('[delete awb-cost] network error', e);
             setAwbDeleteError(`Error de conexión: ${e?.message || 'desconocido'}`);
         } finally {
             setAwbDeleting(false);
