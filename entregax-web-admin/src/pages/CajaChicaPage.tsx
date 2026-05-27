@@ -496,6 +496,8 @@ const CajaChicaPage: React.FC = () => {
           reasonNoCount = 'No llegó a MTY';
         } else if (p.costing_paid) {
           statusLabel = 'YA PAGADA';
+          countsToTotal = false;
+          reasonNoCount = 'Ya pagada en pago anterior';
         } else if (!arrivedAtMty) {
           statusLabel = 'EN TRÁNSITO';
           countsToTotal = false;
