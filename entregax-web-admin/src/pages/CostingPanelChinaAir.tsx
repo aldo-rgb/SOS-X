@@ -3,7 +3,7 @@
 // Captura y cálculo de costos por guía master
 // ============================================
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
     Box,
@@ -41,6 +41,10 @@ import {
     Inventory as BoxIcon,
     Receipt as ReceiptIcon,
     OpenInNew as OpenCostIcon,
+    Delete as DeleteIcon,
+    ArrowUpward as ArrowUpwardIcon,
+    ArrowDownward as ArrowDownwardIcon,
+    SwapVert as SwapVertIcon,
 } from '@mui/icons-material';
 import AwbCostingDialog from './AwbCostingDialog';
 import useModulePermissions from '../hooks/useModulePermissions';
@@ -129,6 +133,14 @@ export default function CostingPanelChinaAir() {
     // ocultamos todas las acciones editables (abrir modal de costeo, ver detalles, etc).
     const { canEdit: moduleCanEdit } = useModulePermissions('admin_china_air', ['costing']);
     const canEditCosting = moduleCanEdit('costing');
+    const currentUserRole = ((): string => {
+        try { const raw = localStorage.getItem('user'); return raw ? (JSON.parse(raw)?.role || '') : ''; } catch { return ''; }
+    })();
+    const canDeleteAwb = ['super_admin', 'admin'].includes(currentUserRole);
+    const [awbSearchTerm, setAwbSearchTerm] = useState('');
+    const [awbSortOrder, setAwbSortOrder] = useState<'asc' | 'desc' | null>(null);
+    const [awbDeleteDialog, setAwbDeleteDialog] = useState<{ open: boolean; id: number | null; reference?: string }>({ open: false, id: null });
+    const [awbDeleting, setAwbDeleting] = useState(false);
     const [, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
     // Datos de la guía actual
@@ -336,6 +348,55 @@ export default function CostingPanelChinaAir() {
         loadProfitReport();
         loadAwbCostList();
     }, [loadStats, loadMasterList, loadProfitReport, loadAwbCostList]);
+
+    // Filtrado + ordenamiento de la lista de costeo AWB
+    const displayedAwbCostList = useMemo(() => {
+        const term = awbSearchTerm.trim().toLowerCase();
+        let list = awbCostList;
+        if (term) {
+            list = list.filter((it: any) => {
+                const fields = [it.reference, it.awb_number, it.carrier, it.flight_number, it.origin_airport, it.destination_airport, it.route_code];
+                return fields.some(v => v && String(v).toLowerCase().includes(term));
+            });
+        }
+        if (awbSortOrder) {
+            list = [...list].sort((a: any, b: any) => {
+                const av = (a.reference || '').toString().toLowerCase();
+                const bv = (b.reference || '').toString().toLowerCase();
+                if (av === bv) return 0;
+                const cmp = av < bv ? -1 : 1;
+                return awbSortOrder === 'asc' ? cmp : -cmp;
+            });
+        }
+        return list;
+    }, [awbCostList, awbSearchTerm, awbSortOrder]);
+
+    const toggleAwbSort = () => {
+        setAwbSortOrder(prev => prev === 'asc' ? 'desc' : prev === 'desc' ? null : 'asc');
+    };
+
+    const handleDeleteAwbCost = async () => {
+        if (!awbDeleteDialog.id) return;
+        setAwbDeleting(true);
+        try {
+            const res = await fetch(`${API_URL}/api/awb-costs/${awbDeleteDialog.id}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            if (res.ok) {
+                setMessage({ type: 'success', text: 'Línea de costeo eliminada' });
+                setAwbDeleteDialog({ open: false, id: null });
+                loadAwbCostList();
+            } else {
+                const j = await res.json().catch(() => ({}));
+                setMessage({ type: 'error', text: j.error || 'Error al eliminar' });
+            }
+        } catch {
+            setMessage({ type: 'error', text: 'Error de conexión' });
+        } finally {
+            setAwbDeleting(false);
+        }
+    };
 
     // ============================================
     // ELIMINAR GUÍA
@@ -901,11 +962,21 @@ export default function CostingPanelChinaAir() {
                     </Grid>
 
                     {/* Header */}
-                    <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
                         <Typography variant="h6">📋 Líneas de Costeo AWB</Typography>
-                        <Button startIcon={<RefreshIcon />} onClick={loadAwbCostList}>
-                            Actualizar
-                        </Button>
+                        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                            <TextField
+                                size="small"
+                                placeholder="Buscar referencia, AWB, carrier..."
+                                value={awbSearchTerm}
+                                onChange={(e) => setAwbSearchTerm(e.target.value)}
+                                InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} /> }}
+                                sx={{ minWidth: 280 }}
+                            />
+                            <Button startIcon={<RefreshIcon />} onClick={loadAwbCostList}>
+                                Actualizar
+                            </Button>
+                        </Box>
                     </Box>
 
                     {/* Table */}
@@ -913,7 +984,16 @@ export default function CostingPanelChinaAir() {
                         <Table>
                             <TableHead>
                                 <TableRow sx={{ bgcolor: 'grey.100' }}>
-                                    <TableCell>Referencia</TableCell>
+                                    <TableCell>
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            Referencia
+                                            <Tooltip title={awbSortOrder === 'asc' ? 'Orden ascendente (clic: descendente)' : awbSortOrder === 'desc' ? 'Orden descendente (clic: quitar)' : 'Ordenar por referencia'}>
+                                                <IconButton size="small" onClick={toggleAwbSort}>
+                                                    {awbSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : awbSortOrder === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <SwapVertIcon fontSize="small" />}
+                                                </IconButton>
+                                            </Tooltip>
+                                        </Box>
+                                    </TableCell>
                                     <TableCell>AWB Number</TableCell>
                                     <TableCell>Carrier</TableCell>
                                     <TableCell>Ruta</TableCell>
@@ -926,13 +1006,13 @@ export default function CostingPanelChinaAir() {
                                     <TableCell align="right">Costo Total</TableCell>
                                     <TableCell align="right">$/kg</TableCell>
                                     <TableCell align="center">Estado</TableCell>
-                                    {canEditCosting && (
+                                    {(canEditCosting || canDeleteAwb) && (
                                         <TableCell align="center">Acciones</TableCell>
                                     )}
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {awbCostList.map((item) => (
+                                {displayedAwbCostList.map((item) => (
                                     <TableRow
                                         key={item.id}
                                         hover
@@ -990,30 +1070,48 @@ export default function CostingPanelChinaAir() {
                                                 variant="outlined"
                                             />
                                         </TableCell>
-                                        {canEditCosting && (
+                                        {(canEditCosting || canDeleteAwb) && (
                                             <TableCell align="center">
-                                                <Tooltip title="Abrir modal de costeo">
-                                                    <IconButton
-                                                        size="small"
-                                                        color="primary"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            setAwbCostDialog({ open: true, id: item.id });
-                                                        }}
-                                                    >
-                                                        <OpenCostIcon fontSize="small" />
-                                                    </IconButton>
-                                                </Tooltip>
+                                                <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                                                    {canEditCosting && (
+                                                        <Tooltip title="Abrir modal de costeo">
+                                                            <IconButton
+                                                                size="small"
+                                                                color="primary"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setAwbCostDialog({ open: true, id: item.id });
+                                                                }}
+                                                            >
+                                                                <OpenCostIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    )}
+                                                    {canDeleteAwb && (
+                                                        <Tooltip title="Eliminar línea de costeo">
+                                                            <IconButton
+                                                                size="small"
+                                                                color="error"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    setAwbDeleteDialog({ open: true, id: item.id, reference: item.reference || item.awb_number });
+                                                                }}
+                                                            >
+                                                                <DeleteIcon fontSize="small" />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    )}
+                                                </Box>
                                             </TableCell>
                                         )}
                                     </TableRow>
                                 ))}
-                                {awbCostList.length === 0 && (
+                                {displayedAwbCostList.length === 0 && (
                                     <TableRow>
-                                        <TableCell colSpan={canEditCosting ? 14 : 13} align="center" sx={{ py: 6 }}>
+                                        <TableCell colSpan={(canEditCosting || canDeleteAwb) ? 14 : 13} align="center" sx={{ py: 6 }}>
                                             <FlightIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
                                             <Typography color="text.secondary">
-                                                No hay líneas de costeo AWB registradas.
+                                                {awbSearchTerm ? 'No hay resultados para la búsqueda.' : 'No hay líneas de costeo AWB registradas.'}
                                             </Typography>
                                             <Typography variant="caption" color="text.secondary">
                                                 Las líneas se crean automáticamente al aprobar borradores en Correos Entrantes Aéreo.
@@ -1037,6 +1135,22 @@ export default function CostingPanelChinaAir() {
                     loadStats();
                 }}
             />
+
+            {/* Confirmación de eliminación de línea de costeo AWB */}
+            <Dialog open={awbDeleteDialog.open} onClose={() => !awbDeleting && setAwbDeleteDialog({ open: false, id: null })}>
+                <DialogTitle>Eliminar línea de costeo</DialogTitle>
+                <DialogContent>
+                    <Typography>
+                        ¿Seguro que deseas eliminar la línea <b>{awbDeleteDialog.reference || ''}</b>? Esta acción no se puede deshacer.
+                    </Typography>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setAwbDeleteDialog({ open: false, id: null })} disabled={awbDeleting}>Cancelar</Button>
+                    <Button color="error" variant="contained" onClick={handleDeleteAwbCost} disabled={awbDeleting} startIcon={awbDeleting ? <CircularProgress size={16} /> : <DeleteIcon />}>
+                        Eliminar
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }
