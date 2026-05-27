@@ -1435,8 +1435,8 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
     const { consolidation_ids, referencia, notas } = req.body as {
       consolidation_ids: number[]; referencia?: string | null; notas?: string | null;
     };
-    const adminId = req.user?.id;
-    const adminName = req.user?.name || 'Sistema';
+    const adminId = (req.user as any)?.userId ?? (req.user as any)?.id;
+    const adminName = (req.user as any)?.email ?? (req.user as any)?.name ?? 'Sistema';
 
     if (!Array.isArray(consolidation_ids) || consolidation_ids.length === 0) {
       res.status(400).json({ error: 'Se requiere al menos una consolidación' });
