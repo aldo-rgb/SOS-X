@@ -96,6 +96,7 @@ import {
   AttachFile as AttachFileIcon,
   PictureAsPdf as PdfIcon,
   InsertDriveFile as FileIcon,
+  Image as ImageIcon,
   BugReport as BugIcon,
   MonetizationOn as BillingIcon,
   PersonOff as ClientIssueIcon,
@@ -3042,21 +3043,66 @@ export default function DashboardAdvisor() {
                   </Box>
                 </DialogContent>
                 {selectedAdvisorTicket.status !== 'resolved' && selectedAdvisorTicket.status !== 'closed' && (
-                  <DialogActions sx={{ p: 2, gap: 1 }}>
-                    <TextField
-                      fullWidth size="small" multiline maxRows={3}
-                      placeholder="Escribe tu respuesta..."
-                      value={ticketReply}
-                      onChange={e => setTicketReply(e.target.value)}
-                    />
-                    <IconButton
-                      onClick={handleSendTicketReply}
-                      disabled={!ticketReply.trim() || ticketReplySending}
-                      sx={{ color: '#F05A28' }}
-                    >
-                      {ticketReplySending ? <CircularProgress size={20} /> : <SendIcon />}
-                    </IconButton>
-                  </DialogActions>
+                  <Box sx={{ p: 2, pt: 0 }}>
+                    {ticketReplyFiles.length > 0 && (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                        {ticketReplyFiles.map((f, i) => (
+                          <Chip
+                            key={i}
+                            label={f.name}
+                            size="small"
+                            onDelete={() => setTicketReplyFiles(prev => prev.filter((_, j) => j !== i))}
+                            icon={f.type.startsWith('image/')
+                              ? <ImageIcon fontSize="small" />
+                              : f.type.includes('pdf') ? <PdfIcon fontSize="small" /> : <FileIcon fontSize="small" />}
+                          />
+                        ))}
+                      </Box>
+                    )}
+                    <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+                      <IconButton component="label" sx={{ color: '#F05A28' }} title="Adjuntar imagen">
+                        <ImageIcon />
+                        <input
+                          hidden
+                          type="file"
+                          accept="image/*"
+                          multiple
+                          onChange={(e) => {
+                            const fs = Array.from(e.target.files || []);
+                            setTicketReplyFiles(prev => [...prev, ...fs]);
+                            e.target.value = '';
+                          }}
+                        />
+                      </IconButton>
+                      <IconButton component="label" sx={{ color: '#F05A28' }} title="Adjuntar PDF o Excel">
+                        <AttachFileIcon />
+                        <input
+                          hidden
+                          type="file"
+                          accept="application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                          multiple
+                          onChange={(e) => {
+                            const fs = Array.from(e.target.files || []);
+                            setTicketReplyFiles(prev => [...prev, ...fs]);
+                            e.target.value = '';
+                          }}
+                        />
+                      </IconButton>
+                      <TextField
+                        fullWidth size="small" multiline maxRows={3}
+                        placeholder="Escribe tu respuesta..."
+                        value={ticketReply}
+                        onChange={e => setTicketReply(e.target.value)}
+                      />
+                      <IconButton
+                        onClick={handleSendTicketReply}
+                        disabled={(!ticketReply.trim() && ticketReplyFiles.length === 0) || ticketReplySending}
+                        sx={{ color: '#F05A28' }}
+                      >
+                        {ticketReplySending ? <CircularProgress size={20} /> : <SendIcon />}
+                      </IconButton>
+                    </Box>
+                  </Box>
                 )}
               </>
             )}
