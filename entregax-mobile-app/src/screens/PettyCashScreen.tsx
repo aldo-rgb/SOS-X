@@ -30,6 +30,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { API_URL, api } from '../services/api';
+import { parseMontoEs } from '../utils/parseMontoEs';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -281,7 +282,7 @@ export default function PettyCashScreen({ navigation, route }: any) {
   };
 
   const submitExpense = async () => {
-    const amount = Number(expAmount.replace(',', '.'));
+    const amount = parseMontoEs(expAmount);
     if (!Number.isFinite(amount) || amount <= 0) { Alert.alert('Monto inválido', 'Captura un monto mayor a $0'); return; }
     if (!expPhoto) { Alert.alert('Foto requerida', 'Toma una foto del ticket o factura'); return; }
     setExpSaving(true);

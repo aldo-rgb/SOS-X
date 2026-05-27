@@ -29,6 +29,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { api, API_URL } from '../services/api';
+import { parseMontoEs } from '../utils/parseMontoEs';
 
 const ORANGE = '#F05A28';
 const GREEN = '#00B894';
@@ -232,7 +233,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
   };
 
   const submitAdvance = async () => {
-    const amount = Number(advAmount.replace(',', '.'));
+    const amount = parseMontoEs(advAmount);
     if (!advDriver) {
       Alert.alert('Falta chofer', 'Selecciona el chofer destinatario');
       return;
@@ -296,7 +297,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
   };
 
   const submitGasto = async () => {
-    const amount = Number(gastoAmount.replace(',', '.'));
+    const amount = parseMontoEs(gastoAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       Alert.alert('Monto inválido', 'Captura un monto mayor a $0');
       return;
