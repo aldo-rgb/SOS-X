@@ -388,15 +388,28 @@ export const sendPoboxReceptionNotification = async (
  */
 export const sendEnvioCancelado = async (phone: string, nombre: string, tracking: string): Promise<void> => {
     const templateName = process.env.WHATSAPP_CANCEL_TEMPLATE || 'envio_cancelado';
+    const firstName = nombre.split(' ')[0] ?? nombre;
     try {
         await sendTemplate({
             to: phone,
             template: templateName,
             languageCode: 'es_MX',
-            parameters: [nombre.split(' ')[0] ?? nombre, tracking],
+            parameters: [firstName, tracking],
         });
-    } catch (e) {
-        console.error('[WHATSAPP] Error enviando envio_cancelado:', e);
+    } catch {
+        // Fallback: si envio_cancelado no está aprobado aún, usar paquete_recibido
+        // con un mensaje de contexto para que el cliente sepa que hubo un cambio.
+        try {
+            const fallback = process.env.WHATSAPP_PACKAGE_TEMPLATE || 'paquete_recibido';
+            await sendTemplate({
+                to: phone,
+                template: fallback,
+                languageCode: 'es_MX',
+                parameters: [firstName, tracking, 'cancelado'],
+            });
+        } catch (e) {
+            console.error('[WHATSAPP] Error enviando notificación cancelación:', e);
+        }
     }
 };
 
