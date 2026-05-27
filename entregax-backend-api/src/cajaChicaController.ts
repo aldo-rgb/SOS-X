@@ -1435,8 +1435,8 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
     const { consolidation_ids, referencia, notas } = req.body as {
       consolidation_ids: number[]; referencia?: string | null; notas?: string | null;
     };
-    const adminId = req.user?.userId;
-    const adminName = req.user?.email || 'Sistema';
+    const adminId = req.user?.id;
+    const adminName = req.user?.name || 'Sistema';
 
     if (!Array.isArray(consolidation_ids) || consolidation_ids.length === 0) {
       res.status(400).json({ error: 'Se requiere al menos una consolidación' });
@@ -1445,7 +1445,9 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
 
     await client.query('BEGIN');
 
-    // Cargar consolidaciones pagables (sólo paquetes que llegaron, no pagados aún)
+    // Cargar consolidaciones pagables (sólo paquetes que llegaron, no pagados aún).
+    // Excluimos packages master con múltiples cajas: sus hijas ya tienen el costo
+    // individual; incluir el master duplicaría el monto cobrado.
     const consResult = await client.query(`
       SELECT
         c.id AS consolidation_id,
@@ -1461,7 +1463,8 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
         AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)
         AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
         AND COALESCE(p.is_lost, FALSE) = FALSE
-        AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))
+        AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))
+        AND NOT (COALESCE(p.is_master, FALSE) = TRUE AND COALESCE(p.total_boxes, 1) > 1)
       GROUP BY c.id, s.id, s.name
     `, [consolidation_ids]);
 
@@ -1504,7 +1507,8 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
     const transaccionId: number = txInsert.rows[0].id;
     const paymentRef = referencia || `CAJA-${transaccionId}`;
 
-    // Marcar paquetes como pagados (sólo los que llegaron)
+    // Marcar paquetes como pagados — mismos filtros que el SELECT para consistencia.
+    // Los masters multi-caja se excluyen: sus hijas son las que llevan el costo real.
     const updateRes = await client.query(`
       UPDATE packages
          SET costing_paid = TRUE,
@@ -1515,7 +1519,8 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
          AND (costing_paid IS NULL OR costing_paid = FALSE)
          AND COALESCE(missing_on_arrival, FALSE) = FALSE
          AND COALESCE(is_lost, FALSE) = FALSE
-         AND (status::text LIKE 'received%' OR status::text IN ('delivered', 'out_for_delivery'))
+         AND (status::text LIKE 'received%' OR status::text IN ('delivered', 'out_for_delivery', 'returned_to_warehouse'))
+         AND NOT (COALESCE(is_master, FALSE) = TRUE AND COALESCE(total_boxes, 1) > 1)
       RETURNING id, consolidation_id, supplier_id
     `, [paymentRef, consolidation_ids]);
 
