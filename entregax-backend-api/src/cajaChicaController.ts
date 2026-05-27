@@ -1622,7 +1622,7 @@ export const updateTransaccion = async (req: AuthRequest, res: Response): Promis
   }
   try {
     const r = await pool.query(
-      `UPDATE caja_chica_transacciones SET monto = $1, updated_at = NOW() WHERE id = $2 RETURNING id, monto, tipo`,
+      `UPDATE caja_chica_transacciones SET monto = $1 WHERE id = $2 RETURNING id, monto, tipo`,
       [n.toFixed(2), txId]
     );
     if (r.rowCount === 0) {

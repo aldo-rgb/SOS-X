@@ -356,7 +356,7 @@ export const sendPoboxReceptionNotification = async (
         await sendTemplate({
             to: phone,
             template: templateName,
-            languageCode: 'es_MX',
+            languageCode: process.env.WHATSAPP_POBOX_TEMPLATE_LANG || 'en',
             parameters: [firstName, trackingMaster, String(totalCajas), guiaParam],
         });
     } catch {
@@ -393,7 +393,7 @@ export const sendEnvioCancelado = async (phone: string, nombre: string, tracking
         await sendTemplate({
             to: phone,
             template: templateName,
-            languageCode: 'es_MX',
+            languageCode: process.env.WHATSAPP_CANCEL_TEMPLATE_LANG || 'en',
             parameters: [firstName, tracking],
         });
     } catch {
