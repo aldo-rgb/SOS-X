@@ -820,6 +820,7 @@ import {
   getAwbCostProfit,
   calcReleaseCosts,
   deleteAwbCost,
+  updateAwbCostReference,
   uploadAwbDocument,
   handleAwbDocumentUpload
 } from './airWaybillCostController';
@@ -8288,6 +8289,7 @@ app.get('/api/awb-costs/:id/profit', authenticateToken, requireMinLevel(ROLES.CO
 app.get('/api/awb-costs/:id/calc-release-costs', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), calcReleaseCosts);
 app.post('/api/awb-costs/:id/upload-document', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadAwbDocument, handleAwbDocumentUpload);
 app.delete('/api/awb-costs/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteAwbCost);
+app.patch('/api/awb-costs/:id/reference', authenticateToken, requireMinLevel(ROLES.ADMIN), updateAwbCostReference);
 
 // ========== TDI EXPRESS — recepción en serie ruta TDI-EXPRES ==========
 app.get('/api/tdi-express/product-types', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getTdiProductTypes);

@@ -512,6 +512,38 @@ export const deleteAwbCost = async (req: AuthRequest, res: Response): Promise<vo
 };
 
 // ============================================
+// 6.1 EDITAR REFERENCIA (PATCH /api/awb-costs/:id/reference)
+// Actualiza la referencia del borrador (air_reception_drafts) vinculado a este awb_cost.
+// Si no hay borrador vinculado, devuelve 400.
+// ============================================
+export const updateAwbCostReference = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+    const { reference } = req.body || {};
+    const ref = typeof reference === 'string' ? reference.trim() : '';
+    if (!ref) {
+      res.status(400).json({ error: 'Referencia inválida' });
+      return;
+    }
+    const acRes = await pool.query('SELECT awb_draft_id FROM air_waybill_costs WHERE id = $1', [id]);
+    if (acRes.rows.length === 0) {
+      res.status(404).json({ error: 'Línea de costeo no encontrada' });
+      return;
+    }
+    const draftId = acRes.rows[0].awb_draft_id;
+    if (!draftId) {
+      res.status(400).json({ error: 'Esta línea no tiene un borrador vinculado; no se puede editar la referencia' });
+      return;
+    }
+    await pool.query('UPDATE air_reception_drafts SET reference = $1 WHERE id = $2', [ref, draftId]);
+    res.json({ success: true, reference: ref });
+  } catch (error: any) {
+    console.error('✈️ [AWB-COST] Error updateReference:', error.message);
+    res.status(500).json({ error: 'Error al actualizar referencia', detail: error?.message });
+  }
+};
+
+// ============================================
 // 6.5 CALCULAR GASTOS DE LIBERACIÓN AUTOMÁTICOS (GET /api/awb-costs/:id/calc-release-costs)
 // ============================================
 export const calcReleaseCosts = async (req: AuthRequest, res: Response): Promise<void> => {

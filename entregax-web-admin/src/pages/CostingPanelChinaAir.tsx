@@ -43,6 +43,7 @@ import {
     Receipt as ReceiptIcon,
     OpenInNew as OpenCostIcon,
     Delete as DeleteIcon,
+    Edit as EditIcon,
     ArrowUpward as ArrowUpwardIcon,
     ArrowDownward as ArrowDownwardIcon,
     SwapVert as SwapVertIcon,
@@ -143,6 +144,7 @@ export default function CostingPanelChinaAir() {
     const [awbDeleteDialog, setAwbDeleteDialog] = useState<{ open: boolean; id: number | null; reference?: string }>({ open: false, id: null });
     const [awbDeleting, setAwbDeleting] = useState(false);
     const [awbDeleteError, setAwbDeleteError] = useState<string | null>(null);
+    const [editRefDialog, setEditRefDialog] = useState<{ open: boolean; id: number | null; value: string; saving: boolean; error: string | null }>({ open: false, id: null, value: '', saving: false, error: null });
     const [, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
     // Datos de la guía actual
@@ -399,6 +401,35 @@ export default function CostingPanelChinaAir() {
             setAwbDeleteError(`Error de conexión: ${e?.message || 'desconocido'}`);
         } finally {
             setAwbDeleting(false);
+        }
+    };
+
+    const handleSaveAwbReference = async () => {
+        if (!editRefDialog.id) return;
+        const val = editRefDialog.value.trim();
+        if (!val) {
+            setEditRefDialog(p => ({ ...p, error: 'La referencia no puede estar vacía' }));
+            return;
+        }
+        setEditRefDialog(p => ({ ...p, saving: true, error: null }));
+        try {
+            const res = await fetch(`${API_URL}/api/awb-costs/${editRefDialog.id}/reference`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                body: JSON.stringify({ reference: val }),
+            });
+            const text = await res.text();
+            let body: any = {};
+            try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
+            if (res.ok) {
+                setMessage({ type: 'success', text: 'Referencia actualizada' });
+                setEditRefDialog({ open: false, id: null, value: '', saving: false, error: null });
+                await loadAwbCostList();
+            } else {
+                setEditRefDialog(p => ({ ...p, saving: false, error: `(${res.status}) ${body.error || body.message || 'Error al actualizar'}` }));
+            }
+        } catch (e: any) {
+            setEditRefDialog(p => ({ ...p, saving: false, error: `Error de conexión: ${e?.message || 'desconocido'}` }));
         }
     };
 
@@ -1028,9 +1059,24 @@ export default function CostingPanelChinaAir() {
                                             : undefined}
                                     >
                                         <TableCell>
-                                            {item.reference
-                                                ? <Typography variant="body2" fontWeight="bold">{item.reference}</Typography>
-                                                : <Typography variant="body2" color="text.disabled">-</Typography>}
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                {item.reference
+                                                    ? <Typography variant="body2" fontWeight="bold">{item.reference}</Typography>
+                                                    : <Typography variant="body2" color="text.disabled">-</Typography>}
+                                                {canDeleteAwb && (
+                                                    <Tooltip title="Editar referencia">
+                                                        <IconButton
+                                                            size="small"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setEditRefDialog({ open: true, id: item.id, value: item.reference || '', saving: false, error: null });
+                                                            }}
+                                                        >
+                                                            <EditIcon fontSize="small" />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                )}
+                                            </Box>
                                         </TableCell>
                                         <TableCell>
                                             <Typography variant="body2" fontWeight="bold" color="primary">
@@ -1155,6 +1201,31 @@ export default function CostingPanelChinaAir() {
                     <Button onClick={() => { setAwbDeleteDialog({ open: false, id: null }); setAwbDeleteError(null); }} disabled={awbDeleting}>Cancelar</Button>
                     <Button color="error" variant="contained" onClick={handleDeleteAwbCost} disabled={awbDeleting} startIcon={awbDeleting ? <CircularProgress size={16} /> : <DeleteIcon />}>
                         Eliminar
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Editar referencia */}
+            <Dialog open={editRefDialog.open} onClose={() => !editRefDialog.saving && setEditRefDialog({ open: false, id: null, value: '', saving: false, error: null })} maxWidth="xs" fullWidth>
+                <DialogTitle>Editar referencia</DialogTitle>
+                <DialogContent>
+                    <TextField
+                        label="Referencia"
+                        fullWidth
+                        autoFocus
+                        value={editRefDialog.value}
+                        onChange={(e) => setEditRefDialog(p => ({ ...p, value: e.target.value }))}
+                        disabled={editRefDialog.saving}
+                        sx={{ mt: 1 }}
+                    />
+                    {editRefDialog.error && (
+                        <Alert severity="error" sx={{ mt: 2 }}>{editRefDialog.error}</Alert>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setEditRefDialog({ open: false, id: null, value: '', saving: false, error: null })} disabled={editRefDialog.saving}>Cancelar</Button>
+                    <Button variant="contained" onClick={handleSaveAwbReference} disabled={editRefDialog.saving}>
+                        {editRefDialog.saving ? 'Guardando...' : 'Guardar'}
                     </Button>
                 </DialogActions>
             </Dialog>
