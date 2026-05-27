@@ -1606,3 +1606,32 @@ export const deleteTransaccion = async (req: AuthRequest, res: Response): Promis
     res.status(500).json({ error: 'Error al eliminar transacción' });
   }
 };
+
+// ============================================================
+// PATCH /api/caja-chica/transacciones/:id — solo super_admin
+// Permite editar el monto de una transacción. El signo (tipo) se mantiene.
+// ============================================================
+export const updateTransaccion = async (req: AuthRequest, res: Response): Promise<void> => {
+  const txId = parseInt(req.params['id'] as string, 10);
+  if (!txId) { res.status(400).json({ error: 'ID inválido' }); return; }
+  const { monto } = req.body || {};
+  const n = Number(monto);
+  if (!Number.isFinite(n) || n <= 0) {
+    res.status(400).json({ error: 'Monto inválido (debe ser un número mayor a 0)' });
+    return;
+  }
+  try {
+    const r = await pool.query(
+      `UPDATE caja_chica_transacciones SET monto = $1, updated_at = NOW() WHERE id = $2 RETURNING id, monto, tipo`,
+      [n.toFixed(2), txId]
+    );
+    if (r.rowCount === 0) {
+      res.status(404).json({ error: 'Transacción no encontrada' });
+      return;
+    }
+    res.json({ success: true, transaccion: r.rows[0] });
+  } catch (error: any) {
+    console.error('Error en updateTransaccion:', error);
+    res.status(500).json({ error: 'Error al actualizar transacción', detail: error?.message });
+  }
+};

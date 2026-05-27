@@ -323,6 +323,7 @@ const CajaChicaPage: React.FC = () => {
     catch { return false; }
   })();
   const [deletingTxId, setDeletingTxId] = useState<number | null>(null);
+  const [editTxDialog, setEditTxDialog] = useState<{ open: boolean; tx: any | null; monto: string; saving: boolean; error: string | null }>({ open: false, tx: null, monto: '', saving: false, error: null });
 
   const categoriasEgreso = [
     { value: 'gastos_operativos', label: 'Gastos Operativos' },
@@ -350,6 +351,30 @@ const CajaChicaPage: React.FC = () => {
       setSnackbar({ open: true, message: 'Error al eliminar', severity: 'error' });
     } finally {
       setDeletingTxId(null);
+    }
+  };
+
+  const openEditTx = (tx: any) => {
+    setEditTxDialog({ open: true, tx, monto: String(tx.monto ?? ''), saving: false, error: null });
+  };
+
+  const handleSaveEditTx = async () => {
+    const tx = editTxDialog.tx;
+    if (!tx) return;
+    const n = parseMontoEs(editTxDialog.monto);
+    if (!Number.isFinite(n) || n <= 0) {
+      setEditTxDialog(p => ({ ...p, error: 'Monto inválido' }));
+      return;
+    }
+    setEditTxDialog(p => ({ ...p, saving: true, error: null }));
+    try {
+      await api.patch(`/caja-chica/transacciones/${tx.id}`, { monto: n });
+      setTransacciones(prev => prev.map(t => t.id === tx.id ? { ...t, monto: n } : t));
+      setSnackbar({ open: true, message: 'Transacción actualizada', severity: 'success' });
+      setEditTxDialog({ open: false, tx: null, monto: '', saving: false, error: null });
+      fetchStats();
+    } catch (e: any) {
+      setEditTxDialog(p => ({ ...p, saving: false, error: e?.response?.data?.error || 'Error al actualizar' }));
     }
   };
 
@@ -1185,9 +1210,7 @@ const CajaChicaPage: React.FC = () => {
                           <IconButton
                             size="small"
                             color="primary"
-                            onClick={() => {
-                              alert('Editar transacción: ' + tx.id);
-                            }}
+                            onClick={() => openEditTx(tx)}
                           >
                             <EditIcon fontSize="small" />
                           </IconButton>
@@ -2498,6 +2521,35 @@ const CajaChicaPage: React.FC = () => {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* Dialog editar transacción (solo super admin, edita monto) */}
+      <Dialog open={editTxDialog.open} onClose={() => !editTxDialog.saving && setEditTxDialog({ open: false, tx: null, monto: '', saving: false, error: null })} maxWidth="xs" fullWidth>
+        <DialogTitle>Editar transacción #{editTxDialog.tx?.id}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Tipo: <b>{editTxDialog.tx?.tipo === 'ingreso' ? 'Ingreso' : 'Egreso'}</b> · Concepto: {editTxDialog.tx?.concepto || '—'}
+          </Typography>
+          <TextField
+            label="Monto"
+            type="text"
+            inputMode="decimal"
+            fullWidth
+            autoFocus
+            value={editTxDialog.monto}
+            onChange={(e) => setEditTxDialog(p => ({ ...p, monto: e.target.value }))}
+            disabled={editTxDialog.saving}
+          />
+          {editTxDialog.error && (
+            <Alert severity="error" sx={{ mt: 2 }}>{editTxDialog.error}</Alert>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditTxDialog({ open: false, tx: null, monto: '', saving: false, error: null })} disabled={editTxDialog.saving}>Cancelar</Button>
+          <Button variant="contained" onClick={handleSaveEditTx} disabled={editTxDialog.saving}>
+            {editTxDialog.saving ? 'Guardando...' : 'Guardar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
