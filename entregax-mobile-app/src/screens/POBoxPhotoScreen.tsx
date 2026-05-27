@@ -2,7 +2,10 @@
  * POBoxPhotoScreen — Agregar fotos a guías sin fotografía
  *
  * Flujo por guía:
- *   1. Lista de paquetes sin foto  →  2. Escanear guía interna  →  3. Tomar foto  →  4. Guardar
+ *   1. Lista (hijas para multi-caja, master/standalone para 1 caja)
+ *   2. Escanear guía interna
+ *   3. Tomar foto
+ *   4. Guardar
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -33,12 +36,15 @@ const BLACK = '#111';
 interface PkgItem {
   id: number;
   tracking: string;
-  trackingProvider?: string;
+  trackingProvider?: string | null;
   imageUrl?: string | null;
   client?: { name?: string; boxId?: string } | null;
   receivedAt?: string;
   totalBoxes?: number;
   isMaster?: boolean;
+  masterId?: number | null;
+  masterTracking?: string | null;
+  boxNumber?: number | null;
 }
 
 type Phase = 'list' | 'scanning' | 'preview';
@@ -62,17 +68,20 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const manualRef = useRef<TextInput>(null);
 
+  // Ref para disparar la cámara DESPUÉS de que el Modal del scanner se cierre.
+  // Usar ref (no state) evita stale closures y re-renders intermedios.
+  const pendingCameraRef = useRef(false);
+
   // ─── Carga ────────────────────────────────────────────────────────────────
 
   const fetchPackages = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/packages?limit=300`, {
+      const res = await fetch(`${API_URL}/api/packages/pobox-photos-needed`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error('Error al cargar paquetes');
       const data = await res.json();
-      const all: PkgItem[] = data.packages || [];
-      setPackages(all.filter((p) => !p.imageUrl));
+      setPackages(data.packages || []);
     } catch (e) {
       Alert.alert('Error', 'No se pudieron cargar los paquetes');
     } finally {
@@ -84,6 +93,50 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
   useEffect(() => { fetchPackages(); }, [fetchPackages]);
 
   const onRefresh = () => { setRefreshing(true); fetchPackages(); };
+
+  // ─── Lanzar cámara deferred ───────────────────────────────────────────────
+  // Cuando el scanner Modal se cierra (phase vuelve a 'list') y hay una
+  // cámara pendiente, esperamos 550ms para que el CameraView libere el
+  // hardware antes de abrir ImagePicker.
+  useEffect(() => {
+    if (phase !== 'list' || !pendingCameraRef.current) return;
+    pendingCameraRef.current = false;
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (cancelled) return;
+
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (cancelled) return;
+
+      if (status !== 'granted') {
+        Alert.alert('Permiso requerido', 'Se necesita acceso a la cámara');
+        resetFlow();
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.75,
+      });
+
+      if (cancelled) return;
+
+      if (result.canceled || !result.assets?.[0]) {
+        resetFlow();
+        return;
+      }
+
+      setPhotoUri(result.assets[0].uri);
+      setPhase('preview');
+    }, 550);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Iniciar flujo ────────────────────────────────────────────────────────
 
@@ -110,8 +163,16 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
     const scanned = result.data.trim().toUpperCase();
     const expected = (activePkg.tracking || '').trim().toUpperCase();
     const expectedProvider = (activePkg.trackingProvider || '').trim().toUpperCase();
+    const expectedMaster = (activePkg.masterTracking || '').trim().toUpperCase();
 
-    if (scanned === expected || scanned === expectedProvider || expected.includes(scanned) || scanned.includes(expected)) {
+    const matches =
+      scanned === expected ||
+      scanned === expectedProvider ||
+      scanned === expectedMaster ||
+      expected.includes(scanned) ||
+      scanned.includes(expected);
+
+    if (matches) {
       launchCamera();
     } else {
       Alert.alert(
@@ -130,8 +191,16 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
     if (!typed || !activePkg) return;
     const expected = (activePkg.tracking || '').trim().toUpperCase();
     const expectedProvider = (activePkg.trackingProvider || '').trim().toUpperCase();
+    const expectedMaster = (activePkg.masterTracking || '').trim().toUpperCase();
 
-    if (typed === expected || typed === expectedProvider || expected.includes(typed) || typed.includes(expected)) {
+    const matches =
+      typed === expected ||
+      typed === expectedProvider ||
+      typed === expectedMaster ||
+      expected.includes(typed) ||
+      typed.includes(expected);
+
+    if (matches) {
       launchCamera();
     } else {
       Alert.alert(
@@ -146,27 +215,11 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
   };
 
   // ─── Cámara ───────────────────────────────────────────────────────────────
-
-  const launchCamera = async () => {
-    setPhase('list'); // oculta scanner modal antes de abrir cámara
-    await new Promise((r) => setTimeout(r, 200));
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permiso requerido', 'Se necesita acceso a la cámara');
-      resetFlow();
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
-      quality: 0.75,
-    });
-    if (result.canceled || !result.assets?.[0]) {
-      resetFlow();
-      return;
-    }
-    setPhotoUri(result.assets[0].uri);
-    setPhase('preview');
+  // Solo cierra el scanner Modal y marca la cámara como pendiente.
+  // El useEffect de arriba la abre cuando el hardware está libre.
+  const launchCamera = () => {
+    pendingCameraRef.current = true;
+    setPhase('list');
   };
 
   // ─── Upload ───────────────────────────────────────────────────────────────
@@ -190,7 +243,6 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
 
       if (!res.ok) throw new Error('Error al guardar');
 
-      // Quitar de la lista
       setPackages((prev) => prev.filter((p) => p.id !== activePkg.id));
       resetFlow();
     } catch {
@@ -201,6 +253,7 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
   };
 
   const resetFlow = () => {
+    pendingCameraRef.current = false;
     setPhase('list');
     setActivePkg(null);
     setPhotoUri(null);
@@ -210,29 +263,40 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
 
   // ─── Render ───────────────────────────────────────────────────────────────
 
-  const renderItem = ({ item }: { item: PkgItem }) => (
-    <TouchableOpacity style={styles.card} onPress={() => startFlow(item)} activeOpacity={0.75}>
-      <View style={styles.cardLeft}>
-        <View style={styles.noPhotoIcon}>
-          <Ionicons name="image-outline" size={22} color="#bbb" />
+  const renderItem = ({ item }: { item: PkgItem }) => {
+    const isChild = !!item.masterId;
+    const boxLabel = item.boxNumber ? `Caja ${item.boxNumber}` : null;
+    const contextLabel = isChild && item.masterTracking
+      ? `${item.masterTracking}${boxLabel ? ` · ${boxLabel}` : ''}`
+      : null;
+
+    return (
+      <TouchableOpacity style={styles.card} onPress={() => startFlow(item)} activeOpacity={0.75}>
+        <View style={styles.cardLeft}>
+          <View style={styles.noPhotoIcon}>
+            <Ionicons name="image-outline" size={22} color="#bbb" />
+          </View>
         </View>
-      </View>
-      <View style={styles.cardBody}>
-        <Text style={styles.cardTracking}>{item.tracking}</Text>
-        {item.trackingProvider ? (
-          <Text style={styles.cardSub}>{item.trackingProvider}</Text>
-        ) : null}
-        <Text style={styles.cardClient}>
-          {item.client?.name || 'Sin cliente'}
-          {item.client?.boxId ? ` · ${item.client.boxId}` : ''}
-        </Text>
-        {item.isMaster && (item.totalBoxes || 0) > 1 && (
-          <Text style={styles.cardMulti}>📦 {item.totalBoxes} cajas</Text>
-        )}
-      </View>
-      <Ionicons name="camera-outline" size={24} color={ORANGE} />
-    </TouchableOpacity>
-  );
+        <View style={styles.cardBody}>
+          <Text style={styles.cardTracking}>{item.tracking}</Text>
+          {item.trackingProvider ? (
+            <Text style={styles.cardSub}>{item.trackingProvider}</Text>
+          ) : null}
+          {contextLabel ? (
+            <Text style={styles.cardMaster}>📦 {contextLabel}</Text>
+          ) : null}
+          <Text style={styles.cardClient}>
+            {item.client?.name || 'Sin cliente'}
+            {item.client?.boxId ? ` · ${item.client.boxId}` : ''}
+          </Text>
+          {!isChild && item.isMaster && (item.totalBoxes || 0) > 1 && (
+            <Text style={styles.cardMulti}>📦 {item.totalBoxes} cajas</Text>
+          )}
+        </View>
+        <Ionicons name="camera-outline" size={24} color={ORANGE} />
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
@@ -283,6 +347,7 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
               {activePkg && (
                 <Text style={styles.scannerSub} numberOfLines={1}>
                   Esperando: {activePkg.tracking}
+                  {activePkg.masterTracking ? ` (${activePkg.masterTracking})` : ''}
                 </Text>
               )}
             </View>
@@ -347,6 +412,9 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
 
           <View style={styles.previewInfo}>
             <Text style={styles.previewTracking}>{activePkg?.tracking}</Text>
+            {activePkg?.masterTracking && (
+              <Text style={styles.previewMaster}>📦 {activePkg.masterTracking}</Text>
+            )}
             <Text style={styles.previewClient}>
               {activePkg?.client?.name || 'Sin cliente'}
               {activePkg?.client?.boxId ? ` · ${activePkg.client.boxId}` : ''}
@@ -427,6 +495,7 @@ const styles = StyleSheet.create({
   cardBody: { flex: 1 },
   cardTracking: { fontSize: 15, fontWeight: '700', color: ORANGE },
   cardSub: { fontSize: 11, color: '#888', marginTop: 1 },
+  cardMaster: { fontSize: 11, color: '#1565c0', marginTop: 2, fontWeight: '600' },
   cardClient: { fontSize: 12, color: '#555', marginTop: 3 },
   cardMulti: { fontSize: 11, color: '#1976d2', marginTop: 2 },
 
@@ -516,6 +585,7 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   previewTracking: { fontSize: 16, fontWeight: '700', color: ORANGE },
+  previewMaster: { fontSize: 12, color: '#90caf9', marginTop: 2 },
   previewClient: { fontSize: 13, color: '#ccc', marginTop: 4 },
   previewActions: {
     flexDirection: 'row',
