@@ -1532,24 +1532,43 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
       arr.push(row.id);
       bySupplier.set(row.supplier_id, arr);
     }
+    // Historial pobox: aislado en SAVEPOINT para que un fallo aquí NO aborte
+    // la transacción principal (caja_chica + costing_paid). Antes el .catch
+    // silenciaba el error pero la transacción quedaba abortada y el COMMIT
+    // se convertía en ROLLBACK silencioso -> "todo OK" sin persistir nada.
     for (const [supplierId, packageIds] of bySupplier.entries()) {
       const monto = consolidaciones
         .filter(c => Number(c.supplier_id) === Number(supplierId))
         .reduce((s, c) => s + Number(c.total_mxn || 0), 0);
-      await client.query(`
-        INSERT INTO pobox_payment_history
-          (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
-        VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
-      `, [JSON.stringify(packageIds), monto, paymentRef, adminId, supplierId]).catch(async (err) => {
-        if (err.code === '42703') {
-          await client.query('ALTER TABLE pobox_payment_history ADD COLUMN IF NOT EXISTS supplier_id INTEGER').catch(() => {});
-          await client.query(`
-            INSERT INTO pobox_payment_history
-              (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
-            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
-          `, [JSON.stringify(packageIds), monto, paymentRef, adminId, supplierId]).catch(() => {});
+      await client.query('SAVEPOINT sp_pobox_hist');
+      try {
+        await client.query(`
+          INSERT INTO pobox_payment_history
+            (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
+          VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
+        `, [JSON.stringify(packageIds), monto, paymentRef, adminId, supplierId]);
+        await client.query('RELEASE SAVEPOINT sp_pobox_hist');
+      } catch (err: any) {
+        await client.query('ROLLBACK TO SAVEPOINT sp_pobox_hist');
+        if (err?.code === '42703') {
+          // Columna supplier_id ausente: la creamos fuera de la tx y reintentamos en otro savepoint.
+          try { await pool.query('ALTER TABLE pobox_payment_history ADD COLUMN IF NOT EXISTS supplier_id INTEGER'); } catch {}
+          await client.query('SAVEPOINT sp_pobox_hist2');
+          try {
+            await client.query(`
+              INSERT INTO pobox_payment_history
+                (package_ids, total_cost, payment_reference, paid_by, paid_at, supplier_id)
+              VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
+            `, [JSON.stringify(packageIds), monto, paymentRef, adminId, supplierId]);
+            await client.query('RELEASE SAVEPOINT sp_pobox_hist2');
+          } catch {
+            await client.query('ROLLBACK TO SAVEPOINT sp_pobox_hist2');
+            console.warn('pobox_payment_history retry failed, continuando sin historial', { supplierId });
+          }
+        } else {
+          console.warn('pobox_payment_history insert falló, continuando sin historial', { supplierId, code: err?.code, message: err?.message });
         }
-      });
+      }
     }
 
     await client.query('COMMIT');
