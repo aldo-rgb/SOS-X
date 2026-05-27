@@ -1452,8 +1452,8 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
         s.id AS supplier_id,
         s.name AS supplier_name,
         COUNT(p.id)::int AS package_count,
-        COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, p.pobox_provider_cost_usd * p.registered_exchange_rate, 0)), 0)::numeric AS total_mxn,
-        COALESCE(SUM(p.pobox_provider_cost_usd), 0)::numeric AS total_usd
+        COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd) * p.registered_exchange_rate, 0)), 0)::numeric AS total_mxn,
+        COALESCE(SUM(COALESCE(p.pobox_provider_cost_usd, p.pobox_cost_usd)), 0)::numeric AS total_usd
       FROM consolidations c
       JOIN packages p ON p.consolidation_id = c.id
       LEFT JOIN suppliers s ON p.supplier_id = s.id
