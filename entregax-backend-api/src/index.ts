@@ -133,6 +133,8 @@ import {
   addBulkBoxToMaster,
   updateBulkMaster,
   removeBulkBoxFromMaster,
+  notifyBulkMasterReception,
+  cancelBulkMaster,
   getUnassignedPackages,
   searchClients
 } from './packageController';
@@ -1406,6 +1408,48 @@ app.use(express.text({ limit: bodyLimit, type: ['text/plain', 'text/html'] })); 
 
 // Servir archivos estáticos de uploads
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+
+// ── MAINTENANCE MODE ─────────────────────────────────────────────────────────
+let _maintenanceCache: { enabled: boolean; ts: number } | null = null;
+const MAINTENANCE_CACHE_TTL_MS = 10_000;
+
+async function isMaintenanceModeEnabled(): Promise<boolean> {
+  const now = Date.now();
+  if (_maintenanceCache && now - _maintenanceCache.ts < MAINTENANCE_CACHE_TTL_MS) {
+    return _maintenanceCache.enabled;
+  }
+  try {
+    const r = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'maintenance_mode' AND is_active = TRUE LIMIT 1`
+    );
+    const enabled = r.rows[0]?.config_value?.enabled === true;
+    _maintenanceCache = { enabled, ts: now };
+    return enabled;
+  } catch {
+    return false;
+  }
+}
+
+app.use(async (req: Request, res: Response, next: NextFunction) => {
+  if (
+    req.path === '/health' ||
+    req.path === '/api/system/payment-status' ||
+    req.path.startsWith('/api/admin/system/maintenance')
+  ) return next();
+
+  const maintenance = await isMaintenanceModeEnabled();
+  if (!maintenance) return next();
+
+  const auth = req.headers.authorization;
+  if (auth?.startsWith('Bearer ')) {
+    try {
+      const decoded = jsonwebtokenLib.verify(auth.slice(7), process.env.JWT_SECRET || 'fallback_secret') as any;
+      if (decoded?.role === 'super_admin' || decoded?.role === 'admin') return next();
+    } catch { /* token inválido o expirado */ }
+  }
+  res.status(503).json({ error: 'Sistema en mantenimiento. Por favor intenta de nuevo más tarde.', maintenance: true });
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 // Endpoint de salud - Para probar que el servidor funciona
 app.get('/health', (_req: Request, res: Response) => {
@@ -3688,6 +3732,28 @@ app.post('/api/packages/bulk-master/start', authenticateToken, requireMinLevel(R
 app.patch('/api/packages/bulk-master/:masterId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateBulkMaster);
 app.post('/api/packages/bulk-master/:masterId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), addBulkBoxToMaster);
 app.delete('/api/packages/bulk-master/:masterId/child/:childId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), removeBulkBoxFromMaster);
+app.post('/api/packages/bulk-master/:masterId/notify-reception', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), notifyBulkMasterReception);
+app.delete('/api/packages/bulk-master/:masterId/cancel', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), cancelBulkMaster);
+
+// POST /api/packages/:id/reception-photo — sube foto de recepción y la asocia al paquete
+const receptionPhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+app.post('/api/packages/:id/reception-photo', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), receptionPhotoUpload.single('photo'), async (req: AuthRequest, res: Response) => {
+  try {
+    const pkgId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(pkgId)) return res.status(400).json({ error: 'id inválido' });
+    const file = (req as any).file;
+    if (!file) return res.status(400).json({ error: 'No se envió foto' });
+    const { uploadToS3 } = await import('./s3Service');
+    const ext = file.mimetype === 'image/png' ? 'png' : 'jpg';
+    const key = `reception-photos/${pkgId}_${Date.now()}.${ext}`;
+    const imageUrl = await uploadToS3(file.buffer, key, file.mimetype || 'image/jpeg');
+    await pool.query('UPDATE packages SET image_url = $1, updated_at = NOW() WHERE id = $2', [imageUrl, pkgId]);
+    res.json({ success: true, imageUrl });
+  } catch (error: any) {
+    console.error('❌ Error reception-photo:', error);
+    res.status(500).json({ error: error.message || 'Error al subir foto' });
+  }
+});
 
 //  Lookup de cliente por casillero (busca en users y legacy_clients)
 app.get('/api/packages/lookup-client/:boxId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req, res) => {
@@ -9893,7 +9959,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load', 'external_sync_enabled', 'cajito_enabled')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -9943,6 +10009,11 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['cajito_enabled']?.enabled === true
       : false;
 
+    // maintenance_mode: bloquea acceso a usuarios no administradores. OFF por defecto.
+    const maintenanceMode = byKey['maintenance_mode'] !== undefined
+      ? byKey['maintenance_mode']?.enabled === true
+      : false;
+
     // cajito_avatar_url: imagen activa del avatar de Cajito (slot brand_assets)
     let cajitoAvatarUrl: string | null = null;
     try {
@@ -9966,9 +10037,10 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       external_sync_enabled: externalSyncEnabled,
       cajito_enabled: cajitoEnabled,
       cajito_avatar_url: cajitoAvatarUrl,
+      maintenance_mode: maintenanceMode,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, maintenance_mode: false });
   }
 });
 
@@ -10240,6 +10312,27 @@ app.post('/api/admin/system/cajito-toggle', authenticateToken, requireRole('supe
   } catch (err: any) {
     console.error('[CAJITO-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de Cajito' });
+  }
+});
+
+// POST /api/admin/system/maintenance-toggle — activa/desactiva modo mantenimiento (Super Admin)
+app.post('/api/admin/system/maintenance-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('maintenance_mode', $1::jsonb, 'Modo mantenimiento — bloquea acceso a todos los usuarios no administradores', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled }), userId]
+    );
+    _maintenanceCache = { enabled, ts: Date.now() };
+    console.log(`🔧 [MAINTENANCE] ${enabled ? '🔴 Activado' : '✅ Desactivado'} por user #${userId}`);
+    res.json({ success: true, maintenance_mode: enabled });
+  } catch (err: any) {
+    console.error('[MAINTENANCE-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar modo de mantenimiento' });
   }
 });
 

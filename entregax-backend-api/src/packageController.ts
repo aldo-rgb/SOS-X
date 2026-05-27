@@ -5506,60 +5506,8 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
 
     const savedTracking = r.rows[0].tracking_internal;
 
-    // Notificar al cliente cuando se identifica su paquete PO Box
-    if (user?.id) {
-      const notifTitle = '📦 Paquete recibido · PO Box USA';
-      const notifBody = `Tu paquete ${savedTracking} llegó a la bodega.`;
-      const notifData = { screen: 'Home', tracking: savedTracking };
-
-      pool.query(
-        `SELECT notif_push, notif_whatsapp, notif_pobox AS notif_service, phone, phone_verified, whatsapp_verified, full_name FROM users WHERE id = $1`,
-        [user.id]
-      ).then(async (prefRow: any) => {
-        const prefs = prefRow.rows[0] || {};
-        const wantPush = prefs.notif_push !== false;
-        const wantService = prefs.notif_service !== false;
-        const wantWhatsapp = prefs.notif_whatsapp !== false && (prefs.phone_verified === true || prefs.whatsapp_verified === true);
-
-        const { createCustomNotification } = await import('./notificationController');
-        await createCustomNotification(user.id!, notifTitle, notifBody, 'info', 'package', notifData);
-
-        if (wantPush && wantService) {
-          const { sendPushToUsers } = await import('./pushService');
-          await sendPushToUsers([user.id!], { title: notifTitle, body: notifBody, data: notifData });
-        }
-
-        if (wantWhatsapp && wantService && prefs.phone) {
-          const { sendPackageArrival } = await import('./whatsappService').catch(() => ({ sendPackageArrival: undefined })) as any;
-          if (typeof sendPackageArrival === 'function') {
-            const firstName = (prefs.full_name || user.full_name || '').split(' ')[0] || 'Cliente';
-            await sendPackageArrival(prefs.phone, firstName, savedTracking, 'PO Box USA').catch(() => {});
-          }
-        }
-      }).catch((e: any) => console.warn('[notif] bulk client notify failed:', e?.message));
-    }
-
-    // Notificar a asesores cuando se recibe una guía PO Box sin cliente identificado
-    if (!user) {
-      const notifTitle = '📦 Guía sin identificar · PO Box USA';
-      const notifBody = `${savedTracking} — Sin cliente asignado`;
-      const notifData = { screen: 'AdvisorPackages', filter: 'unidentified', tracking: savedTracking };
-
-      pool.query(
-        `SELECT id FROM users WHERE role IN ('asesor','sub_advisor','advisor')`
-      ).then(async (nr: any) => {
-        const { createCustomNotification } = await import('./notificationController');
-        await Promise.all(nr.rows.map((row: any) =>
-          createCustomNotification(row.id, notifTitle, notifBody, 'info', 'search', notifData)
-        ));
-      }).catch(() => {});
-
-      import('./pushService').then(({ sendPushToRole }) => {
-        sendPushToRole(['asesor', 'sub_advisor', 'advisor'], {
-          title: notifTitle, body: notifBody, data: notifData,
-        }).catch(() => {});
-      }).catch(() => {});
-    }
+    // Las notificaciones al cliente/asesores se envían al FINALIZAR el wizard
+    // (POST /api/packages/bulk-master/:masterId/notify-reception), no al crear el master.
 
     return res.status(201).json({
       success: true,
@@ -6124,6 +6072,102 @@ export const removeBulkBoxFromMaster = async (req: Request, res: Response): Prom
     await client.query('ROLLBACK').catch(() => {});
     console.error('❌ Error removeBulkBoxFromMaster:', error?.message || error);
     return res.status(500).json({ error: error.message || 'Error al eliminar caja' });
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * POST /api/packages/bulk-master/:masterId/notify-reception
+ * Dispara las notificaciones al cliente/asesores cuando el wizard de recepción
+ * se completa exitosamente. Se llama desde el frontend al finalizar el embarque.
+ */
+export const notifyBulkMasterReception = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const masterId = parseInt(String(req.params.masterId), 10);
+    if (!Number.isFinite(masterId)) return res.status(400).json({ error: 'masterId inválido' });
+
+    const m = await pool.query(
+      `SELECT p.id, p.tracking_internal, p.user_id, p.box_id,
+              u.full_name, u.notif_push, u.notif_whatsapp, u.notif_pobox AS notif_service,
+              u.phone, u.phone_verified, u.whatsapp_verified
+       FROM packages p
+       LEFT JOIN users u ON u.id = p.user_id
+       WHERE p.id = $1`,
+      [masterId]
+    );
+    if (m.rows.length === 0) return res.status(404).json({ error: 'Master no encontrado' });
+    const pkg = m.rows[0];
+    const savedTracking = pkg.tracking_internal;
+
+    if (pkg.user_id) {
+      const notifTitle = '📦 Paquete recibido · PO Box USA';
+      const notifBody = `Tu paquete ${savedTracking} llegó a la bodega.`;
+      const notifData = { screen: 'Home', tracking: savedTracking };
+
+      const { createCustomNotification } = await import('./notificationController');
+      await createCustomNotification(pkg.user_id, notifTitle, notifBody, 'info', 'package', notifData);
+
+      if (pkg.notif_push !== false && pkg.notif_service !== false) {
+        const { sendPushToUsers } = await import('./pushService');
+        await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData }).catch(() => {});
+      }
+
+      const wantWhatsapp = pkg.notif_whatsapp !== false && (pkg.phone_verified === true || pkg.whatsapp_verified === true);
+      if (wantWhatsapp && pkg.notif_service !== false && pkg.phone) {
+        const { sendPackageArrival } = await import('./whatsappService').catch(() => ({ sendPackageArrival: undefined })) as any;
+        if (typeof sendPackageArrival === 'function') {
+          const firstName = (pkg.full_name || '').split(' ')[0] || 'Cliente';
+          await sendPackageArrival(pkg.phone, firstName, savedTracking, 'PO Box USA').catch(() => {});
+        }
+      }
+    } else {
+      // Sin cliente: notificar a asesores
+      const notifTitle = '📦 Guía sin identificar · PO Box USA';
+      const notifBody = `${savedTracking} — Sin cliente asignado`;
+      const notifData = { screen: 'AdvisorPackages', filter: 'unidentified', tracking: savedTracking };
+
+      const nr = await pool.query(`SELECT id FROM users WHERE role IN ('asesor','sub_advisor','advisor')`);
+      const { createCustomNotification } = await import('./notificationController');
+      await Promise.all(nr.rows.map((row: any) =>
+        createCustomNotification(row.id, notifTitle, notifBody, 'info', 'search', notifData)
+      )).catch(() => {});
+
+      import('./pushService').then(({ sendPushToRole }) => {
+        sendPushToRole(['asesor', 'sub_advisor', 'advisor'], { title: notifTitle, body: notifBody, data: notifData }).catch(() => {});
+      }).catch(() => {});
+    }
+
+    return res.json({ success: true });
+  } catch (error: any) {
+    console.error('❌ Error notifyBulkMasterReception:', error);
+    return res.status(500).json({ error: error.message || 'Error al notificar' });
+  }
+};
+
+/**
+ * DELETE /api/packages/bulk-master/:masterId/cancel
+ * Cancela y elimina un master (y sus hijas) cuando el wizard se cierra
+ * antes de completarse. No envía ninguna notificación al cliente.
+ */
+export const cancelBulkMaster = async (req: Request, res: Response): Promise<any> => {
+  const client = await pool.connect();
+  try {
+    const masterId = parseInt(String(req.params.masterId), 10);
+    if (!Number.isFinite(masterId)) return res.status(400).json({ error: 'masterId inválido' });
+
+    await client.query('BEGIN');
+    // Borrar hijas primero (FK), luego el master
+    await client.query(`DELETE FROM packages WHERE master_package_id = $1`, [masterId]);
+    const r = await client.query(`DELETE FROM packages WHERE id = $1 RETURNING tracking_internal`, [masterId]);
+    await client.query('COMMIT');
+
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Master no encontrado' });
+    return res.json({ success: true, deletedTracking: r.rows[0].tracking_internal });
+  } catch (error: any) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('❌ Error cancelBulkMaster:', error);
+    return res.status(500).json({ error: error.message || 'Error al cancelar master' });
   } finally {
     client.release();
   }

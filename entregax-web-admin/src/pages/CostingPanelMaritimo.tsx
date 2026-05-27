@@ -204,6 +204,7 @@ interface MaritimeStats {
         total_shipments: string;
         unassigned_shipments: string;
         costed_containers: string;
+        without_reference_containers: string;
     };
     totalCosts: string;
 }
@@ -1373,13 +1374,13 @@ export default function CostingPanelMaritimo() {
                         </Card>
                     </Grid>
                     <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-                        <Card sx={{ bgcolor: '#E8F5E9' }}>
+                        <Card sx={{ bgcolor: '#FFF8E1' }}>
                             <CardContent>
                                 <Typography color="text.secondary" variant="body2">
-                                    {t('maritime.costed')}
+                                    Sin Referencia
                                 </Typography>
-                                <Typography variant="h4" fontWeight="bold" color="#388E3C">
-                                    {stats.totals.costed_containers}
+                                <Typography variant="h4" fontWeight="bold" color="#F57F17">
+                                    {stats.totals.without_reference_containers ?? '-'}
                                 </Typography>
                             </CardContent>
                         </Card>
@@ -1810,7 +1811,7 @@ export default function CostingPanelMaritimo() {
                                                             <Typography variant="body2" sx={{ fontWeight: 600, fontFamily: 'monospace', color: '#1565C0' }}>
                                                                 {selectedContainer.reference_code || '-'}
                                                             </Typography>
-                                                            {canEditReference && (
+                                                            {canEditReference && !!selectedContainer.reference_code && (
                                                                 <IconButton size="small" onClick={() => { setReferenceValue(selectedContainer.reference_code || ''); setEditingReference(true); }} sx={{ color: '#999', p: 0.3 }}>
                                                                     <EditIcon sx={{ fontSize: 14 }} />
                                                                 </IconButton>

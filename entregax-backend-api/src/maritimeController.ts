@@ -875,7 +875,8 @@ export const getMaritimeStats = async (req: AuthRequest, res: Response): Promise
         (SELECT COUNT(*) FROM containers WHERE status = 'in_transit') as in_transit_containers,
         (SELECT COUNT(*) FROM maritime_shipments) as total_shipments,
         (SELECT COUNT(*) FROM maritime_shipments WHERE container_id IS NULL) as unassigned_shipments,
-        (SELECT COUNT(*) FROM container_costs WHERE is_fully_costed = true) as costed_containers
+        (SELECT COUNT(*) FROM container_costs WHERE is_fully_costed = true) as costed_containers,
+        (SELECT COUNT(*) FROM containers WHERE reference_code IS NULL OR reference_code = '') as without_reference_containers
     `);
 
     // Costos totales de contenedores finalizados

@@ -541,6 +541,12 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [bulkScaleLive, setBulkScaleLive] = useState(false);
     const [bulkBoxQuantity, setBulkBoxQuantity] = useState('1');
     const [bulkMultiScanOpen, setBulkMultiScanOpen] = useState(false);
+    const [bulkPhotoMode, setBulkPhotoMode] = useState<'now' | 'later'>('later');
+    const [bulkCancelConfirmOpen, setBulkCancelConfirmOpen] = useState(false);
+    const [bulkPhotoCaptureOpen, setBulkPhotoCaptureOpen] = useState(false);
+    const [bulkPhotoCaptureBoxId, setBulkPhotoCaptureBoxId] = useState<number | null>(null);
+    const [bulkPhotoCaptureResolve, setBulkPhotoCaptureResolve] = useState<(() => void) | null>(null);
+    const bulkPhotoInputRef = useRef<HTMLInputElement>(null);
 
     // Normaliza la guía: si es FedEx de 34 dígitos puros, extrae últimos 12
     const normalizeCarrierGuide = (raw: string): string => {
@@ -693,6 +699,38 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }
     };
 
+    // Muestra el modal de foto y espera a que el operador capture o omita
+    const waitForPhotoCapture = (dbId: number): Promise<void> => {
+        return new Promise((resolve) => {
+            setBulkPhotoCaptureBoxId(dbId);
+            setBulkPhotoCaptureResolve(() => resolve);
+            setBulkPhotoCaptureOpen(true);
+        });
+    };
+
+    const handleBulkPhotoSelected = async (file: File) => {
+        if (!bulkPhotoCaptureBoxId) return;
+        try {
+            const token = localStorage.getItem('token');
+            const formData = new FormData();
+            formData.append('photo', file);
+            await axios.post(
+                `${API_URL}/api/packages/${bulkPhotoCaptureBoxId}/reception-photo`,
+                formData,
+                { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'multipart/form-data' } }
+            );
+        } catch { /* no bloquear el flujo si falla la foto */ }
+        closeBulkPhotoCapture();
+    };
+
+    const closeBulkPhotoCapture = () => {
+        setBulkPhotoCaptureOpen(false);
+        setBulkPhotoCaptureBoxId(null);
+        const resolve = bulkPhotoCaptureResolve;
+        setBulkPhotoCaptureResolve(null);
+        resolve?.();
+    };
+
     // Agregar caja: crea hija en backend Y la imprime inmediatamente
     const handleAddBulkBox = async () => {
         if (!bulkCurrentBox.weight || !bulkCurrentBox.length || !bulkCurrentBox.width || !bulkCurrentBox.height) {
@@ -723,6 +761,10 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
         setBulkBoxQuantity('1');
         setBulkError('');
+        // Si está en modo "foto ahora", pedir foto antes de imprimir
+        if (bulkPhotoMode === 'now' && newBox.dbId) {
+            await waitForPhotoCapture(newBox.dbId);
+        }
         // Imprimir la etiqueta de este bloque en un solo archivo - SIN QR para recepción PO BOX
         await printAllLabelsAtOnce([label], true);
         const totalAfter = bulkBoxes.length + 1;
@@ -1110,6 +1152,15 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                     { headers: { Authorization: `Bearer ${token}` } }
                 );
             }
+            // Notificar al cliente/asesores ahora que el wizard está completo
+            if (bulkMasterId !== null) {
+                const token = localStorage.getItem('token') || '';
+                await axios.post(
+                    `${API_URL}/api/packages/bulk-master/${bulkMasterId}/notify-reception`,
+                    {},
+                    { headers: { Authorization: `Bearer ${token}` } }
+                ).catch(() => { /* no bloquear si falla la notificación */ });
+            }
             setSnackbar({
                 open: true,
                 message: `✅ Embarque cerrado: ${bulkBoxes.length} caja(s) registrada(s)${bulkImage ? ' con foto' : ''}`,
@@ -1134,8 +1185,8 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         }
     };
 
-    // Cerrar modal de recepción en serie
-    const handleCloseBulkReceive = () => {
+    // Cierra el modal limpiando todo — sin preguntar (ya se confirmó o no había master)
+    const forceCloseBulkReceive = () => {
         closeBulkCamera();
         setBulkReceiveOpen(false);
         setBulkStep(0);
@@ -1150,6 +1201,30 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkMasterTracking('');
         setBulkImage(null);
         setBulkError('');
+    };
+
+    // Cerrar modal de recepción en serie — pide confirmación si ya hay un master creado
+    const handleCloseBulkReceive = () => {
+        if (bulkMasterId !== null && bulkStep >= 1) {
+            setBulkCancelConfirmOpen(true);
+            return;
+        }
+        forceCloseBulkReceive();
+    };
+
+    // Confirma cancelación: borra el master en backend y cierra
+    const handleConfirmCancelBulk = async () => {
+        setBulkCancelConfirmOpen(false);
+        if (bulkMasterId !== null) {
+            try {
+                const token = localStorage.getItem('token');
+                await axios.delete(
+                    `${API_URL}/api/packages/bulk-master/${bulkMasterId}/cancel`,
+                    { headers: { Authorization: `Bearer ${token}` } }
+                );
+            } catch { /* si falla el borrado igual cerramos */ }
+        }
+        forceCloseBulkReceive();
     };
 
     // =========== LÓGICA PARA INVENTARIO ===========
@@ -2096,6 +2171,38 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
 
                                         <Divider sx={{ my: 2 }} />
 
+                                        {/* Toggle foto */}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                                            <CameraAltIcon sx={{ color: bulkPhotoMode === 'now' ? ORANGE : '#aaa', fontSize: 20 }} />
+                                            <Box sx={{ display: 'flex', borderRadius: 2, overflow: 'hidden', border: '1px solid #e0e0e0' }}>
+                                                <Box
+                                                    onClick={() => setBulkPhotoMode('now')}
+                                                    sx={{
+                                                        px: 2, py: 0.6, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, userSelect: 'none',
+                                                        bgcolor: bulkPhotoMode === 'now' ? ORANGE : 'white',
+                                                        color: bulkPhotoMode === 'now' ? 'white' : '#555',
+                                                        transition: 'all .15s',
+                                                    }}
+                                                >
+                                                    📷 Agregar fotos ahora
+                                                </Box>
+                                                <Box
+                                                    onClick={() => setBulkPhotoMode('later')}
+                                                    sx={{
+                                                        px: 2, py: 0.6, cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600, userSelect: 'none',
+                                                        bgcolor: bulkPhotoMode === 'later' ? '#555' : 'white',
+                                                        color: bulkPhotoMode === 'later' ? 'white' : '#555',
+                                                        transition: 'all .15s',
+                                                        borderLeft: '1px solid #e0e0e0',
+                                                    }}
+                                                >
+                                                    Agregar fotos después
+                                                </Box>
+                                            </Box>
+                                        </Box>
+
+                                        <Divider sx={{ my: 2 }} />
+
                                         {/* Sección 3: Cantidad + acciones */}
                                         <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1 }}>
                                             3 · Cantidad y Agregar
@@ -2373,6 +2480,90 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                         )}
                     </Box>
                 </DialogActions>
+            </Dialog>
+
+            {/* Diálogo de confirmación al cerrar con master activo */}
+            <Dialog open={bulkCancelConfirmOpen} maxWidth="xs" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <WarningIcon sx={{ color: '#F57C00' }} />
+                    ¿Cancelar recepción?
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary">
+                        Si cierras ahora, <strong>se borrarán el master y todas las cajas</strong> registradas en esta sesión. No se notificará al cliente.
+                    </Typography>
+                    {bulkBoxes.length > 0 && (
+                        <Alert severity="warning" sx={{ mt: 2 }}>
+                            Se perderán <strong>{bulkBoxes.length} caja(s)</strong> ya registradas.
+                        </Alert>
+                    )}
+                </DialogContent>
+                <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+                    <Button onClick={() => setBulkCancelConfirmOpen(false)} variant="outlined" sx={{ borderRadius: 2, textTransform: 'none' }}>
+                        Seguir registrando
+                    </Button>
+                    <Button onClick={handleConfirmCancelBulk} variant="contained" color="error" sx={{ borderRadius: 2, textTransform: 'none' }}>
+                        Sí, cancelar y borrar
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Input oculto para captura de foto en modo "ahora" */}
+            <input
+                ref={bulkPhotoInputRef}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                style={{ display: 'none' }}
+                onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleBulkPhotoSelected(file);
+                    else closeBulkPhotoCapture();
+                    e.target.value = '';
+                }}
+            />
+
+            {/* Modal captura de foto por caja */}
+            <Dialog
+                open={bulkPhotoCaptureOpen}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{ sx: { borderRadius: 3 } }}
+            >
+                <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
+                    <CameraAltIcon sx={{ color: ORANGE }} />
+                    Foto de recepción
+                </DialogTitle>
+                <DialogContent>
+                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                        Toma una foto del paquete o sube una imagen desde tu dispositivo.
+                    </Typography>
+                    <Button
+                        fullWidth
+                        variant="contained"
+                        size="large"
+                        startIcon={<CameraAltIcon />}
+                        onClick={() => bulkPhotoInputRef.current?.click()}
+                        sx={{
+                            mb: 1.5,
+                            background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)`,
+                            borderRadius: 2,
+                            textTransform: 'none',
+                            fontWeight: 700,
+                        }}
+                    >
+                        Tomar / Subir foto
+                    </Button>
+                    <Button
+                        fullWidth
+                        variant="outlined"
+                        size="large"
+                        onClick={closeBulkPhotoCapture}
+                        sx={{ borderRadius: 2, textTransform: 'none', color: '#777', borderColor: '#ccc' }}
+                    >
+                        Omitir — agregar foto después
+                    </Button>
+                </DialogContent>
             </Dialog>
 
             {/* Multi-box scan dialog (N guías) */}
