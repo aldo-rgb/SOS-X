@@ -38,11 +38,12 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleExternalSync, toggleCajito, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleExternalSync, toggleCajito, toggleMaintenanceMode, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 import CajitoAuditDialog from '../components/CajitoAuditDialog';
 import HistoryIcon from '@mui/icons-material/History';
+import BuildIcon from '@mui/icons-material/Build';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 
@@ -85,7 +86,7 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, cajitoEnabled, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, cajitoEnabled, maintenanceMode, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [togglingGex, setTogglingGex] = useState(false);
@@ -104,6 +105,8 @@ export default function SettingsPage() {
     const [togglingCajito, setTogglingCajito] = useState(false);
     const [cajitoAuditOpen, setCajitoAuditOpen] = useState(false);
     const [localCajito, setLocalCajito] = useState<boolean | null>(null);
+    const [togglingMaintenance, setTogglingMaintenance] = useState(false);
+    const [localMaintenance, setLocalMaintenance] = useState<boolean | null>(null);
     const [externalSyncKey, setExternalSyncKey] = useState<string | null>(null);
     const [externalSyncKeyVisible, setExternalSyncKeyVisible] = useState(false);
     const [loadingKey, setLoadingKey] = useState(false);
@@ -119,8 +122,9 @@ export default function SettingsPage() {
             setLocalReqLabel(requireLabelToLoad);
             setLocalExternalSync(externalSyncEnabled);
             setLocalCajito(cajitoEnabled);
+            setLocalMaintenance(maintenanceMode);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, cajitoEnabled]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, cajitoEnabled, maintenanceMode]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -242,6 +246,22 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar el estado de Cajito', severity: 'error' });
         } finally {
             setTogglingCajito(false);
+        }
+    };
+
+    const handleToggleMaintenance = async (checked: boolean) => {
+        setTogglingMaintenance(true);
+        const prev = localMaintenance;
+        setLocalMaintenance(checked);
+        try {
+            await toggleMaintenanceMode(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Modo mantenimiento ${checked ? 'activado' : 'desactivado'}`, severity: checked ? 'warning' : 'success' });
+        } catch (err: any) {
+            setLocalMaintenance(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar el modo de mantenimiento', severity: 'error' });
+        } finally {
+            setTogglingMaintenance(false);
         }
     };
 
@@ -420,6 +440,52 @@ export default function SettingsPage() {
                     </Typography>
                 </Box>
             </Box>
+
+            {/* Modo Mantenimiento — solo super_admin */}
+            {isSuperAdmin && (
+                <Card elevation={0} sx={{ border: 2, borderColor: localMaintenance ? 'error.main' : 'divider', borderRadius: 3, mb: 3 }}>
+                    <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                            <BuildIcon sx={{ color: localMaintenance ? '#d32f2f' : 'text.secondary' }} />
+                            <Typography variant="h6" fontWeight={600}>
+                                Modo Mantenimiento
+                            </Typography>
+                            <Chip label="Super Admin" size="small" color="warning" sx={{ ml: 1 }} />
+                            {localMaintenance && <Chip label="ACTIVO" size="small" color="error" sx={{ ml: 0.5 }} />}
+                        </Box>
+                        <Alert severity="error" sx={{ mb: 2 }}>
+                            Al activar, <strong>todos los usuarios no administradores</strong> (web, app móvil y API externa) recibirán un error 503. Úsalo antes de mover o restaurar la base de datos.
+                        </Alert>
+                        <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, borderColor: localMaintenance ? 'error.light' : undefined }}>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                                <Typography variant="subtitle1" fontWeight={600}>
+                                    🔧 Sistema en Mantenimiento
+                                </Typography>
+                                <Typography variant="body2" color="text.secondary">
+                                    Bloquea todas las peticiones de clientes y usuarios no admin. Los administradores pueden seguir operando con normalidad.
+                                </Typography>
+                            </Box>
+                            {paymentsStatusLoading || localMaintenance === null ? (
+                                <CircularProgress size={20} />
+                            ) : (
+                                <FormControlLabel
+                                    control={
+                                        <Switch
+                                            checked={!!localMaintenance}
+                                            onChange={(e) => handleToggleMaintenance(e.target.checked)}
+                                            disabled={togglingMaintenance}
+                                            color="error"
+                                        />
+                                    }
+                                    label={togglingMaintenance ? '...' : (localMaintenance ? 'Activado' : 'Desactivado')}
+                                    labelPlacement="start"
+                                    sx={{ m: 0 }}
+                                />
+                            )}
+                        </Paper>
+                    </CardContent>
+                </Card>
+            )}
 
             {/* Sistema de Pagos — solo super_admin */}
             {isSuperAdmin && (

@@ -20,6 +20,7 @@ interface PaymentStatusCache {
   external_sync_enabled: boolean;
   cajito_enabled: boolean;
   cajito_avatar_url: string | null;
+  maintenance_mode: boolean;
 }
 
 let cached: PaymentStatusCache | null = null;
@@ -37,6 +38,7 @@ const FALLBACK: PaymentStatusCache = {
   external_sync_enabled: true,
   cajito_enabled: false,
   cajito_avatar_url: null,
+  maintenance_mode: false,
 };
 
 export function usePaymentStatus() {
@@ -68,6 +70,7 @@ export function usePaymentStatus() {
             external_sync_enabled: data.external_sync_enabled !== false,
             cajito_enabled: data.cajito_enabled === true,
             cajito_avatar_url: typeof data.cajito_avatar_url === 'string' ? data.cajito_avatar_url : null,
+            maintenance_mode: data.maintenance_mode === true,
           };
           lastFetch = Date.now();
           setStatus(cached);
@@ -92,6 +95,7 @@ export function usePaymentStatus() {
     externalSyncEnabled: status.external_sync_enabled,
     cajitoEnabled: status.cajito_enabled,
     cajitoAvatarUrl: status.cajito_avatar_url,
+    maintenanceMode: status.maintenance_mode,
     loading,
   };
 }
@@ -147,5 +151,11 @@ export async function toggleExternalSync(enabled: boolean): Promise<void> {
 /** Habilita o deshabilita el asistente IA Cajito (solo Super Admin) */
 export async function toggleCajito(enabled: boolean): Promise<void> {
   await api.post('/admin/system/cajito-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Activa o desactiva el modo mantenimiento (solo Super Admin) */
+export async function toggleMaintenanceMode(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/maintenance-toggle', { enabled });
   invalidatePaymentStatusCache();
 }
