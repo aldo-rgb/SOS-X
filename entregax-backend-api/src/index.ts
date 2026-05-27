@@ -3737,7 +3737,7 @@ app.delete('/api/packages/bulk-master/:masterId/cancel', authenticateToken, requ
 
 // POST /api/packages/:id/reception-photo — sube foto de recepción y la asocia al paquete
 const receptionPhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
-app.post('/api/packages/:id/reception-photo', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), receptionPhotoUpload.single('photo'), async (req: AuthRequest, res: Response) => {
+app.post('/api/packages/:id/reception-photo', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), receptionPhotoUpload.single('photo'), async (req: AuthRequest, res: Response) => {
   try {
     const pkgId = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(pkgId)) return res.status(400).json({ error: 'id inválido' });
@@ -3756,13 +3756,13 @@ app.post('/api/packages/:id/reception-photo', authenticateToken, requireMinLevel
 });
 
 // GET /api/packages/:id/children — devuelve las cajas hijas de un master
-app.get('/api/packages/:id/children', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: AuthRequest, res: Response) => {
+app.get('/api/packages/:id/children', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
   try {
     const pkgId = parseInt(String(req.params.id), 10);
     if (!Number.isFinite(pkgId)) return res.status(400).json({ error: 'ID inválido' });
     const result = await pool.query(
       `SELECT id, tracking_internal AS tracking, image_url FROM packages
-       WHERE master_id = $1 OR master_package_id = $1
+       WHERE master_id = $1
        ORDER BY id ASC`,
       [pkgId]
     );

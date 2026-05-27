@@ -242,6 +242,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const [consolidationFilter, setConsolidationFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [photoFilter, setPhotoFilter] = useState<'all' | 'no_photo'>('all');
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [photoUploadPkg, setPhotoUploadPkg] = useState<Package | null>(null);
   const [photoUploadChildren, setPhotoUploadChildren] = useState<{ id: number; tracking: string; image_url: string | null }[]>([]);
   const [photoUploadOpen, setPhotoUploadOpen] = useState(false);
@@ -1794,7 +1795,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                     <TableCell><Typography variant="body2">{new Date(pkg.receivedAt).toLocaleDateString(i18n.language === 'es' ? 'es-MX' : 'en-US')}</Typography></TableCell>
                     <TableCell align="center">
                       {pkg.imageUrl
-                        ? <Tooltip title="Ver foto"><Box component="img" src={pkg.imageUrl} sx={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 1, cursor: 'pointer', border: '2px solid #4caf50' }} onClick={() => window.open(pkg.imageUrl!, '_blank')} /></Tooltip>
+                        ? <Tooltip title="Ver foto"><Box component="img" src={pkg.imageUrl} sx={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 1, cursor: 'pointer', border: '2px solid #4caf50' }} onClick={() => setImagePreviewUrl(pkg.imageUrl!)} /></Tooltip>
                         : <Tooltip title="Sin foto"><ImageNotSupportedIcon sx={{ color: '#bdbdbd', fontSize: 22 }} /></Tooltip>}
                     </TableCell>
                     <TableCell align="center">
@@ -1862,16 +1863,21 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           try {
             const fd = new FormData();
             fd.append('photo', file);
-            await axios.post(`${API_URL}/packages/${targetId}/reception-photo`, fd, {
-              headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'multipart/form-data' },
+            const resp = await axios.post(`${API_URL}/packages/${targetId}/reception-photo`, fd, {
+              headers: { Authorization: `Bearer ${getToken()}` },
             });
+            const newImageUrl: string | undefined = resp.data?.imageUrl;
+            // Update local package list immediately
+            if (newImageUrl) {
+              setPackages(prev => prev.map(p => p.id === targetId ? { ...p, imageUrl: newImageUrl } : p));
+              if (photoUploadPkg?.id === targetId) setPhotoUploadPkg(prev => prev ? { ...prev, imageUrl: newImageUrl } : prev);
+            }
             // Refresh children list if multi-box dialog open
             if (photoUploadPkg?.isMaster && (photoUploadPkg.totalBoxes || 1) > 1) {
               const r = await axios.get(`${API_URL}/packages/${photoUploadPkg.id}/children`, { headers: { Authorization: `Bearer ${getToken()}` } });
               setPhotoUploadChildren(r.data.children || []);
             } else {
               setPhotoUploadOpen(false);
-              fetchPackages();
             }
             setSnackbar({ open: true, message: '✅ Foto guardada', severity: 'success' });
           } catch {
@@ -1939,6 +1945,17 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
               )}
             </Box>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* ============ IMAGE PREVIEW DIALOG ============ */}
+      <Dialog open={!!imagePreviewUrl} onClose={() => setImagePreviewUrl(null)} maxWidth="md">
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1 }}>
+          <Typography variant="h6">Fotografía</Typography>
+          <IconButton onClick={() => setImagePreviewUrl(null)}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 1, textAlign: 'center' }}>
+          {imagePreviewUrl && <Box component="img" src={imagePreviewUrl} sx={{ maxWidth: '100%', maxHeight: '80vh', borderRadius: 2 }} />}
         </DialogContent>
       </Dialog>
 

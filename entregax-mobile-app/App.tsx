@@ -60,6 +60,7 @@ import SupplierPaymentScreen from './src/screens/SupplierPaymentScreen';
 import ExternalProviderTransitionScreen from './src/screens/ExternalProviderTransitionScreen';
 import ReferidosScreen from './src/screens/ReferidosScreen';
 // PO Box Screens
+import POBoxPhotoScreen from './src/screens/POBoxPhotoScreen';
 import POBoxReceiveScreen from './src/screens/POBoxReceiveScreen';
 import POBoxEntryScreen from './src/screens/POBoxEntryScreen';
 import POBoxExitScreen from './src/screens/POBoxExitScreen';
@@ -159,6 +160,7 @@ export type RootStackParamList = {
   ExternalProviderTransition: { user: any; token: string; target?: string; label?: string };
   Referidos: { user: any; token: string };
   // PO Box Screens
+  POBoxPhoto: { user: any; token: string };
   POBoxReceive: { user: any; token: string };
   POBoxEntry: { user: any; token: string };
   POBoxExit: { user: any; token: string };
@@ -409,6 +411,7 @@ function App() {
             }}
           />
           {/* PO Box Screens */}
+          <Stack.Screen name="POBoxPhoto" component={POBoxPhotoScreen} />
           <Stack.Screen name="POBoxReceive" component={POBoxReceiveScreen} />
           <Stack.Screen name="POBoxEntry" component={POBoxEntryScreen} />
           <Stack.Screen name="POBoxExit" component={POBoxExitScreen} />

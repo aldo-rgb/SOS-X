@@ -37,6 +37,15 @@ interface POBoxModule {
 
 const POBOX_MODULES: POBoxModule[] = [
   {
+    id: 'photos',
+    title: 'Agregar Fotos',
+    subtitle: 'Fotografiar guías sin imagen',
+    icon: 'camera-outline',
+    color: '#E91E63',
+    screen: 'POBoxPhoto',
+    moduleKey: 'photos',
+  },
+  {
     id: 'exit',
     title: 'Salida',
     subtitle: 'Procesar consolidaciones y despachos',
