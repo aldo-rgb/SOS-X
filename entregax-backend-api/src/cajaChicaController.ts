@@ -33,19 +33,19 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
         COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
       FROM caja_chica_transacciones
       WHERE COALESCE(currency, 'USD') = 'USD'
-        AND concepto NOT ILIKE '%PO Box%'
+        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
-    
+
     const saldoUSD = parseFloat(saldoUSDResult.rows[0].total_ingresos) - parseFloat(saldoUSDResult.rows[0].total_egresos);
-    
+
     // Estadísticas por moneda (MXN) - excluyendo PO Box
     const saldoMXNResult = await pool.query(`
-      SELECT 
+      SELECT
         COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE 0 END), 0) as total_ingresos,
         COALESCE(SUM(CASE WHEN tipo = 'egreso' THEN monto ELSE 0 END), 0) as total_egresos
       FROM caja_chica_transacciones
       WHERE currency = 'MXN'
-        AND concepto NOT ILIKE '%PO Box%'
+        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
     
     const saldoMXN = parseFloat(saldoMXNResult.rows[0].total_ingresos) - parseFloat(saldoMXNResult.rows[0].total_egresos);
@@ -59,7 +59,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
       FROM caja_chica_transacciones
       WHERE DATE(created_at) = CURRENT_DATE
         AND COALESCE(currency, 'USD') = 'USD'
-        AND concepto NOT ILIKE '%PO Box%'
+        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
     
     // Transacciones del día por moneda (MXN) - excluyendo PO Box
@@ -71,7 +71,7 @@ export const getCajaChicaStats = async (req: AuthRequest, res: Response): Promis
       FROM caja_chica_transacciones
       WHERE DATE(created_at) = CURRENT_DATE
         AND currency = 'MXN'
-        AND concepto NOT ILIKE '%PO Box%'
+        AND (categoria = 'pago_proveedor' OR concepto NOT ILIKE '%PO Box%')
     `);
     
     // Último corte por moneda
@@ -687,7 +687,7 @@ export const getTransacciones = async (req: AuthRequest, res: Response): Promise
         ) AS consolidaciones
       FROM caja_chica_transacciones t
       LEFT JOIN users u ON u.id = t.cliente_id
-      WHERE t.concepto NOT ILIKE '%PO Box%'
+      WHERE (t.categoria = 'pago_proveedor' OR t.concepto NOT ILIKE '%PO Box%')
     `;
     const params: (string | number)[] = [];
     let paramIndex = 1;
