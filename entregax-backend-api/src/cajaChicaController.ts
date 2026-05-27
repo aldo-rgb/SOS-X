@@ -1452,8 +1452,8 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
         s.id AS supplier_id,
         s.name AS supplier_name,
         COUNT(p.id)::int AS package_count,
-        COALESCE(SUM(p.pobox_service_cost), 0)::numeric AS total_mxn,
-        COALESCE(SUM(p.pobox_cost_usd), 0)::numeric AS total_usd
+        COALESCE(SUM(COALESCE(p.pobox_provider_cost_mxn, p.pobox_provider_cost_usd * p.registered_exchange_rate, 0)), 0)::numeric AS total_mxn,
+        COALESCE(SUM(p.pobox_provider_cost_usd), 0)::numeric AS total_usd
       FROM consolidations c
       JOIN packages p ON p.consolidation_id = c.id
       LEFT JOIN suppliers s ON p.supplier_id = s.id
@@ -1461,6 +1461,7 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
         AND (p.costing_paid IS NULL OR p.costing_paid = FALSE)
         AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
         AND COALESCE(p.is_lost, FALSE) = FALSE
+        AND (p.status::text LIKE 'received%' OR p.status::text IN ('delivered', 'out_for_delivery'))
       GROUP BY c.id, s.id, s.name
     `, [consolidation_ids]);
 
@@ -1514,6 +1515,7 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
          AND (costing_paid IS NULL OR costing_paid = FALSE)
          AND COALESCE(missing_on_arrival, FALSE) = FALSE
          AND COALESCE(is_lost, FALSE) = FALSE
+         AND (status::text LIKE 'received%' OR status::text IN ('delivered', 'out_for_delivery'))
       RETURNING id, consolidation_id, supplier_id
     `, [paymentRef, consolidation_ids]);
 
