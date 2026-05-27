@@ -193,6 +193,38 @@ interface ConsolidacionPendiente {
   }>;
 }
 
+// Parser robusto para montos en es-MX. Maneja:
+//   "1360"      → 1360
+//   "1,360"     → 1360   (coma como separador de miles)
+//   "1.360"     → 1360   (punto como separador de miles, 3 dígitos)
+//   "1360.50"   → 1360.5 (punto como decimal)
+//   "1,360.50"  → 1360.5
+//   "1.360,50"  → 1360.5
+// El bug original: type="number" con locale es convertía "1.360" a 1.36
+// (parseFloat interpreta el punto como decimal).
+const parseMontoEs = (raw: string): number => {
+  if (!raw) return NaN;
+  let t = String(raw).trim().replace(/\s/g, '').replace(/[^\d.,-]/g, '');
+  if (!t) return NaN;
+  const lastDot = t.lastIndexOf('.');
+  const lastComma = t.lastIndexOf(',');
+  if (lastDot >= 0 && lastComma >= 0) {
+    const decAt = Math.max(lastDot, lastComma);
+    t = t.slice(0, decAt).replace(/[.,]/g, '') + '.' + t.slice(decAt + 1).replace(/[.,]/g, '');
+  } else if (lastComma >= 0) {
+    const after = t.slice(lastComma + 1);
+    t = (after.length === 3 && (t.match(/,/g) || []).length === 1)
+      ? t.replace(/,/g, '')
+      : t.replace(/,/g, '.');
+  } else if (lastDot >= 0) {
+    const after = t.slice(lastDot + 1);
+    if (after.length === 3 && (t.match(/\./g) || []).length === 1) {
+      t = t.replace(/\./g, '');
+    }
+  }
+  return parseFloat(t);
+};
+
 const CajaChicaPage: React.FC = () => {
   const [stats, setStats] = useState<CajaChicaStats | null>(null);
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
@@ -857,10 +889,10 @@ const CajaChicaPage: React.FC = () => {
     try {
       await api.post('/caja-chica/confirmar-pago-referencia', {
         referencia: refFound.referencia,
-        monto: parseFloat(montoRecibido),
+        monto: parseMontoEs(montoRecibido),
         notas: notasPago
       });
-      setSnackbar({ open: true, message: `✅ Pago de ${formatCurrency(parseFloat(montoRecibido))} registrado correctamente`, severity: 'success' });
+      setSnackbar({ open: true, message: `✅ Pago de ${formatCurrency(parseMontoEs(montoRecibido))} registrado correctamente`, severity: 'success' });
       setPagoDialogOpen(false);
       setRefFound(null);
       setSearchRef('');
@@ -880,7 +912,7 @@ const CajaChicaPage: React.FC = () => {
   const handleRegistrarEgreso = async () => {
     try {
       await api.post('/caja-chica/egreso', {
-        monto: parseFloat(egresoForm.monto),
+        monto: parseMontoEs(egresoForm.monto),
         concepto: egresoForm.concepto,
         categoria: egresoForm.categoria,
         notas: egresoForm.notas || null,
@@ -899,7 +931,7 @@ const CajaChicaPage: React.FC = () => {
   const handleRegistrarIngresoGeneral = async () => {
     try {
       await api.post('/caja-chica/ingreso', {
-        monto: parseFloat(ingresoForm.monto),
+        monto: parseMontoEs(ingresoForm.monto),
         concepto: ingresoForm.concepto,
         categoria: ingresoForm.categoria,
         notas: ingresoForm.notas || null,
@@ -1405,7 +1437,8 @@ const CajaChicaPage: React.FC = () => {
                   <TextField
                     fullWidth
                     label="Monto Recibido"
-                    type="number"
+                    type="text"
+                    inputMode="decimal"
                     value={montoRecibido}
                     onChange={(e) => setMontoRecibido(e.target.value)}
                     InputProps={{
@@ -1435,7 +1468,7 @@ const CajaChicaPage: React.FC = () => {
             disabled={!refFound || procesandoPago || !montoRecibido}
             startIcon={procesandoPago ? <CircularProgress size={20} /> : <CheckCircleIcon />}
           >
-            {procesandoPago ? 'Procesando...' : `Registrar Pago de ${formatCurrency(parseFloat(montoRecibido) || 0)}`}
+            {procesandoPago ? 'Procesando...' : `Registrar Pago de ${formatCurrency(parseMontoEs(montoRecibido) || 0)}`}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1453,7 +1486,8 @@ const CajaChicaPage: React.FC = () => {
               <TextField
                 fullWidth
                 label="Monto"
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={egresoForm.monto}
                 onChange={(e) => setEgresoForm({ ...egresoForm, monto: e.target.value })}
                 InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
@@ -1520,7 +1554,8 @@ const CajaChicaPage: React.FC = () => {
               <TextField
                 fullWidth
                 label="Monto"
-                type="number"
+                type="text"
+                inputMode="decimal"
                 value={ingresoForm.monto}
                 onChange={(e) => setIngresoForm({ ...ingresoForm, monto: e.target.value })}
                 InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
