@@ -3614,6 +3614,9 @@ app.get('/api/packages/pobox-photos-needed', authenticateToken, requireMinLevel(
       WHERE
         p.image_url IS NULL
         AND p.status = 'received'
+        -- Para hijos: el master también debe estar en 'received' (evita mostrar
+        -- hijos de masters que ya salieron de CEDIS)
+        AND (p.master_id IS NULL OR mp.status = 'received')
         AND (
           p.service_type = 'POBOX_USA'
           OR (p.service_type IS NULL AND (
