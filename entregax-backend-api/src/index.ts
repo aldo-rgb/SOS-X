@@ -480,6 +480,7 @@ import {
   pagarConsolidacionProveedor,
   pagarMultiplesConsolidaciones,
   deleteTransaccion,
+  updateTransaccion,
 } from './cajaChicaController';
 import {
   // Exchange Rate Config
@@ -3570,6 +3571,85 @@ app.get('/api/packages/saved-constancia', authenticateToken, getSavedConstancia)
 app.get('/api/packages/unassigned', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getUnassignedPackages);
 // 🔎 Búsqueda libre de clientes (users + legacy_clients) - DEBE IR ANTES DE /:id
 app.get('/api/packages/search-clients', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), searchClients);
+
+// 📷 Paquetes PO Box que necesitan foto (hijas para multi-caja, master/standalone para 1 caja)
+app.get('/api/packages/pobox-photos-needed', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+  try {
+    const result = await pool.query(`
+      WITH child_counts AS (
+        SELECT master_id, COUNT(*) AS cnt
+        FROM packages WHERE master_id IS NOT NULL
+        GROUP BY master_id
+      )
+      SELECT
+        p.id,
+        p.tracking_internal AS tracking,
+        p.tracking_provider,
+        p.image_url,
+        p.is_master,
+        p.master_id,
+        p.box_number,
+        p.received_at,
+        mp.tracking_internal AS master_tracking,
+        COALESCE(cc_child.cnt, cc_master.cnt, 0) AS total_boxes,
+        COALESCE(
+          CASE WHEN p.master_id IS NOT NULL THEN mu.full_name ELSE u.full_name END,
+          CASE WHEN p.master_id IS NOT NULL THEN mlc.full_name ELSE lc.full_name END
+        ) AS client_name,
+        COALESCE(
+          CASE WHEN p.master_id IS NOT NULL THEN mu.box_id ELSE u.box_id END,
+          CASE WHEN p.master_id IS NOT NULL THEN mlc.box_id ELSE lc.box_id END,
+          p.box_id, mp.box_id
+        ) AS client_box_id
+      FROM packages p
+      LEFT JOIN child_counts cc_child ON cc_child.master_id = p.master_id
+      LEFT JOIN child_counts cc_master ON cc_master.master_id = p.id
+      LEFT JOIN packages mp ON mp.id = p.master_id
+      LEFT JOIN users u ON p.user_id = u.id AND p.master_id IS NULL
+      LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND p.master_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
+      LEFT JOIN users mu ON mp.user_id = mu.id AND p.master_id IS NOT NULL
+      LEFT JOIN legacy_clients mlc ON mp.user_id IS NULL AND p.master_id IS NOT NULL AND UPPER(mp.box_id) = UPPER(mlc.box_id)
+      WHERE
+        p.image_url IS NULL
+        AND p.status = 'received'
+        AND (
+          p.service_type = 'POBOX_USA'
+          OR (p.service_type IS NULL AND (
+            p.tracking_internal LIKE 'US-%'
+            OR (p.master_id IS NOT NULL AND mp.tracking_internal LIKE 'US-%')
+          ))
+        )
+        AND (
+          (p.master_id IS NULL AND NOT p.is_master)
+          OR (p.master_id IS NOT NULL AND cc_child.cnt >= 2)
+          OR (p.is_master AND COALESCE(cc_master.cnt, 0) <= 1)
+        )
+      ORDER BY COALESCE(p.received_at, p.created_at) DESC
+      LIMIT 500
+    `);
+
+    const packages = result.rows.map((row: any) => ({
+      id: row.id,
+      tracking: row.tracking,
+      trackingProvider: row.tracking_provider || null,
+      isMaster: row.is_master,
+      masterId: row.master_id || null,
+      masterTracking: row.master_tracking || null,
+      boxNumber: row.box_number || null,
+      totalBoxes: parseInt(row.total_boxes) || 0,
+      receivedAt: row.received_at,
+      client: {
+        name: row.client_name || 'Sin cliente',
+        boxId: row.client_box_id || 'N/A',
+      },
+    }));
+
+    return res.json({ packages });
+  } catch (error: any) {
+    console.error('Error pobox-photos-needed:', error);
+    return res.status(500).json({ error: error.message || 'Error' });
+  }
+});
 
 // Obtener detalle de paquete por ID (usuario dueño o staff+)
 app.get('/api/packages/:id', authenticateToken, getPackageById);
@@ -9378,6 +9458,7 @@ app.get('/api/caja-chica/cortes', authenticateToken, getCortes);
 app.post('/api/caja-chica/pagar-consolidacion', authenticateToken, pagarConsolidacionProveedor);
 app.post('/api/caja-chica/pagar-consolidaciones-multiple', authenticateToken, pagarMultiplesConsolidaciones);
 app.delete('/api/caja-chica/transacciones/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteTransaccion);
+app.patch('/api/caja-chica/transacciones/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), updateTransaccion);
 
 // ============================================
 // DATOS FISCALES Y FACTURACIÓN CFDI 4.0
