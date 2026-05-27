@@ -1455,6 +1455,7 @@ export default function DashboardClient() {
   const [quoteResult, setQuoteResult] = useState<any>(null);
   const [publicRates, setPublicRates] = useState<any>(null);
   const [ratesLoading, setRatesLoading] = useState(false);
+  const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     // Limpiar datos en caché al montar el componente
@@ -9841,23 +9842,39 @@ export default function DashboardClient() {
                   </Box>
                 )}
 
-                {/* Botón Movimientos de la guía */}
-                {selectedPackage.tracking && (
-                  <Button
-                    variant="outlined"
-                    size="small"
-                    startIcon={<HistoryIcon />}
-                    onClick={() => handleOpenTrajectory(selectedPackage.tracking)}
-                    sx={{
-                      mt: 1.5,
-                      borderColor: ORANGE,
-                      color: ORANGE,
-                      '&:hover': { borderColor: ORANGE, bgcolor: 'rgba(255,87,34,0.08)' }
-                    }}
-                  >
-                    Ver Movimientos
-                  </Button>
-                )}
+                {/* Botones de acción */}
+                <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
+                  {selectedPackage.tracking && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<HistoryIcon />}
+                      onClick={() => handleOpenTrajectory(selectedPackage.tracking)}
+                      sx={{
+                        borderColor: ORANGE,
+                        color: ORANGE,
+                        '&:hover': { borderColor: ORANGE, bgcolor: 'rgba(255,87,34,0.08)' }
+                      }}
+                    >
+                      Ver Movimientos
+                    </Button>
+                  )}
+                  {selectedPackage.image_url && (
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<span>📷</span>}
+                      onClick={() => setPhotoPreviewUrl(selectedPackage.image_url!)}
+                      sx={{
+                        borderColor: '#1976d2',
+                        color: '#1976d2',
+                        '&:hover': { borderColor: '#1976d2', bgcolor: 'rgba(25,118,210,0.08)' }
+                      }}
+                    >
+                      Ver Foto
+                    </Button>
+                  )}
+                </Box>
               </Box>
 
               {/* Info General */}
@@ -14148,6 +14165,24 @@ export default function DashboardClient() {
           </BottomNavigation>
         </Paper>
       )}
+
+      {/* Lightbox foto paquete */}
+      <Dialog open={!!photoPreviewUrl} onClose={() => setPhotoPreviewUrl(null)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 1.5, px: 2 }}>
+          <Typography variant="subtitle1" fontWeight="bold">📷 Foto del paquete</Typography>
+          <IconButton onClick={() => setPhotoPreviewUrl(null)} size="small"><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ p: 1, textAlign: 'center', bgcolor: '#000' }}>
+          {photoPreviewUrl && (
+            <Box
+              component="img"
+              src={photoPreviewUrl}
+              alt="Foto del paquete"
+              sx={{ maxWidth: '100%', maxHeight: '75vh', objectFit: 'contain', borderRadius: 1 }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Footer corporativo: privacidad, contacto, redes sociales.
           En mobile dejamos un margen extra abajo para que la BottomNavigation

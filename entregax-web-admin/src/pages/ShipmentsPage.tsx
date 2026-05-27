@@ -404,7 +404,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
     try {
       const response = await axios.get(`${API_URL}/packages`, {
         headers: { Authorization: `Bearer ${getToken()}` },
-        params: statusFilter !== 'all' ? { status: statusFilter } : {}
+        params: { limit: 1000, ...(statusFilter !== 'all' ? { status: statusFilter } : {}) }
       });
       setPackages(response.data.packages || []);
     } catch {

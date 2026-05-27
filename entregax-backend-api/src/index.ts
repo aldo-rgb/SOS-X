@@ -3282,6 +3282,13 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       console.log('Exchange rate config not available, using defaults');
     }
 
+    // Firmar URLs de S3 para fotos de paquetes (bucket privado)
+    const { signS3UrlIfNeeded } = await import('./s3Service');
+    const allPackagesSigned = await Promise.all(allPackages.map(async (pkg: any) => {
+      if (!pkg.image_url) return pkg;
+      return { ...pkg, image_url: await signS3UrlIfNeeded(pkg.image_url) };
+    }));
+
     // 6. Construir respuesta
     res.json({
       stats: {
@@ -3316,7 +3323,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           ultimo_pago: 'N/A', // TODO: Obtener del historial de pagos
         },
       },
-      packages: allPackages,
+      packages: allPackagesSigned,
       invoices: invoicesRows,
       tipo_cambio_por_servicio: tipoCambioPorServicio,
       tipo_cambio_base: tipoCambioBase,
