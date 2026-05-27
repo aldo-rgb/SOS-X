@@ -7,6 +7,7 @@ import { actualizarCarteraVencida, sincronizarCartera } from './customerServiceC
 import { syncActiveMJCustomerOrders } from './chinaController';
 import { runFacturapiSyncAll } from './facturapiController';
 import { runMJCustomerFclSync } from './mjcustomerFclSync';
+import { runDatabaseBackup } from './dbBackupService';
 
 /**
  * CRON JOB: Detección automática de clientes en riesgo
@@ -660,6 +661,19 @@ export const startAutoCheckoutCron = () => {
   console.log('📅 [CRON] Job de auto-checkout programado: 00:01 diario (cierra jornadas sin salida a las 19:00)');
 };
 
+export const startDatabaseBackupCron = () => {
+  // Todos los días a las 02:00 AM UTC
+  cron.schedule('0 2 * * *', async () => {
+    console.log('[CRON] Iniciando backup diario de base de datos...');
+    try {
+      await runDatabaseBackup();
+    } catch (error: any) {
+      console.error('[CRON] Error en backup de DB:', error.message);
+    }
+  });
+  console.log('📅 [CRON] Backup diario de DB programado: 02:00 UTC');
+};
+
 /**
  * Inicializar todos los CRON jobs
  */
@@ -677,6 +691,7 @@ export const initCronJobs = () => {
   startMJCustomerFclSyncCron();
   startFacturapiSyncCron();
   startAutoCheckoutCron();
+  startDatabaseBackupCron();
 };
 
 export default initCronJobs;
