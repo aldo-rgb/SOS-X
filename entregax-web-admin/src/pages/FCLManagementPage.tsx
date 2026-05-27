@@ -44,6 +44,7 @@ import {
     Refresh as RefreshIcon,
     Visibility as VisibilityIcon,
     Delete as DeleteIcon,
+    Edit as EditIcon,
     Close as CloseIcon,
     LocalShipping as ShippingIcon,
     AttachMoney as MoneyIcon,
@@ -125,6 +126,15 @@ const formatDate = (dateStr: string | null): string => {
 const getToken = () => localStorage.getItem('token');
 
 export default function FCLManagementPage() {
+    // Rol del usuario para mostrar el botón de editar costo de venta
+    const currentUserRole = (() => {
+        try {
+            const raw = localStorage.getItem('user');
+            return raw ? (JSON.parse(raw)?.role || '') : '';
+        } catch { return ''; }
+    })();
+    const canEditSalePrice = ['super_admin', 'admin', 'director'].includes(currentUserRole);
+
     const [containers, setContainers] = useState<FCLContainer[]>([]);
     const [stats, setStats] = useState<FCLStats | null>(null);
     const [loading, setLoading] = useState(true);
@@ -133,6 +143,9 @@ export default function FCLManagementPage() {
     const [selectedContainer, setSelectedContainer] = useState<FCLContainer | null>(null);
     const [detailDialogOpen, setDetailDialogOpen] = useState(false);
     const [extraCostDialogOpen, setExtraCostDialogOpen] = useState(false);
+    const [salePriceDialogOpen, setSalePriceDialogOpen] = useState(false);
+    const [salePriceForm, setSalePriceForm] = useState<{ amount: string; currency: 'USD' | 'MXN' }>({ amount: '', currency: 'USD' });
+    const [salePriceSaving, setSalePriceSaving] = useState(false);
     const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'info' });
     
     // Estado para nuevo gasto extra
@@ -285,6 +298,42 @@ export default function FCLManagementPage() {
         } catch (error) {
             console.error('Error adding extra cost:', error);
             setSnackbar({ open: true, message: 'Error al agregar gasto extra', severity: 'error' });
+        }
+    };
+
+    // Abrir dialog de costo de venta (precarga el valor actual)
+    const handleOpenSalePrice = (container: FCLContainer) => {
+        setSelectedContainer(container);
+        setSalePriceForm({
+            amount: container.sale_price != null ? String(container.sale_price) : '',
+            currency: ((container.sale_price_currency as 'USD' | 'MXN') || 'USD'),
+        });
+        setSalePriceDialogOpen(true);
+    };
+
+    // Guardar nuevo costo de venta
+    const handleSaveSalePrice = async () => {
+        if (!selectedContainer) return;
+        const price = salePriceForm.amount === '' ? null : Number(salePriceForm.amount);
+        if (price != null && (!Number.isFinite(price) || price < 0)) {
+            setSnackbar({ open: true, message: 'Monto inválido', severity: 'error' });
+            return;
+        }
+        setSalePriceSaving(true);
+        try {
+            await axios.patch(
+                `${API_URL}/api/maritime/containers/${selectedContainer.id}/sale-price`,
+                { sale_price: price, sale_price_currency: salePriceForm.currency },
+                { headers: { Authorization: `Bearer ${getToken()}` } }
+            );
+            setSnackbar({ open: true, message: 'Costo de venta actualizado', severity: 'success' });
+            setSalePriceDialogOpen(false);
+            fetchContainers();
+        } catch (err: any) {
+            const msg = err?.response?.data?.error || 'Error al actualizar costo de venta';
+            setSnackbar({ open: true, message: msg, severity: 'error' });
+        } finally {
+            setSalePriceSaving(false);
         }
     };
 
@@ -530,13 +579,26 @@ export default function FCLManagementPage() {
                                         />
                                     </TableCell>
                                     <TableCell>
-                                        {container.sale_price ? (
-                                            <Typography fontWeight="bold" color="success.main">
-                                                ${formatCurrency(container.sale_price)} {container.sale_price_currency || 'MXN'}
-                                            </Typography>
-                                        ) : (
-                                            <Typography color="text.secondary">Sin tarifa</Typography>
-                                        )}
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                            {container.sale_price ? (
+                                                <Typography fontWeight="bold" color="success.main">
+                                                    ${formatCurrency(container.sale_price)} {container.sale_price_currency || 'MXN'}
+                                                </Typography>
+                                            ) : (
+                                                <Typography color="text.secondary">Sin tarifa</Typography>
+                                            )}
+                                            {canEditSalePrice && (
+                                                <Tooltip title="Editar costo de venta">
+                                                    <IconButton
+                                                        size="small"
+                                                        onClick={() => handleOpenSalePrice(container)}
+                                                        sx={{ color: FCL_COLOR }}
+                                                    >
+                                                        <EditIcon fontSize="small" />
+                                                    </IconButton>
+                                                </Tooltip>
+                                            )}
+                                        </Box>
                                     </TableCell>
                                     <TableCell>
                                         <Typography fontWeight="bold" color={container.total_extra_costs ? FCL_COLOR : 'text.secondary'}>
@@ -849,6 +911,65 @@ export default function FCLManagementPage() {
                         startIcon={<SaveIcon />}
                     >
                         Guardar
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Dialog: editar Costo de Venta */}
+            <Dialog
+                open={salePriceDialogOpen}
+                onClose={() => !salePriceSaving && setSalePriceDialogOpen(false)}
+                maxWidth="xs"
+                fullWidth
+            >
+                <DialogTitle sx={{ bgcolor: FCL_COLOR, color: 'white' }}>
+                    Editar Costo de Venta
+                </DialogTitle>
+                <DialogContent dividers>
+                    {selectedContainer && (
+                        <Box sx={{ mb: 2 }}>
+                            <Typography variant="caption" color="text.secondary">Contenedor</Typography>
+                            <Typography fontFamily="monospace">{selectedContainer.container_number}</Typography>
+                        </Box>
+                    )}
+                    <Grid container spacing={2}>
+                        <Grid size={{ xs: 8 }}>
+                            <TextField
+                                fullWidth
+                                label="Monto"
+                                type="number"
+                                value={salePriceForm.amount}
+                                onChange={(e) => setSalePriceForm({ ...salePriceForm, amount: e.target.value })}
+                                InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                                autoFocus
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 4 }}>
+                            <FormControl fullWidth>
+                                <InputLabel>Moneda</InputLabel>
+                                <Select
+                                    value={salePriceForm.currency}
+                                    onChange={(e) => setSalePriceForm({ ...salePriceForm, currency: e.target.value as 'USD' | 'MXN' })}
+                                    label="Moneda"
+                                >
+                                    <MenuItem value="USD">USD</MenuItem>
+                                    <MenuItem value="MXN">MXN</MenuItem>
+                                </Select>
+                            </FormControl>
+                        </Grid>
+                    </Grid>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setSalePriceDialogOpen(false)} disabled={salePriceSaving}>
+                        Cancelar
+                    </Button>
+                    <Button
+                        variant="contained"
+                        onClick={handleSaveSalePrice}
+                        disabled={salePriceSaving}
+                        sx={{ bgcolor: FCL_COLOR, '&:hover': { bgcolor: FCL_DARK } }}
+                    >
+                        {salePriceSaving ? 'Guardando...' : 'Guardar'}
                     </Button>
                 </DialogActions>
             </Dialog>

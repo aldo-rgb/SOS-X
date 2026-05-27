@@ -677,6 +677,7 @@ import {
   getWeekSavedAddresses,
   assignWeekContainerAddress,
   updateContainerReference,
+  updateContainerSalePrice,
 } from './maritimeController';
 import {
   // Módulo de Anticipos a Proveedores
@@ -3766,7 +3767,12 @@ app.get('/api/packages/:id/children', authenticateToken, requireMinLevel(ROLES.C
        ORDER BY id ASC`,
       [pkgId]
     );
-    return res.json({ children: result.rows });
+    const { signS3UrlIfNeeded } = await import('./s3Service');
+    const children = await Promise.all(result.rows.map(async (row: any) => ({
+      ...row,
+      image_url: await signS3UrlIfNeeded(row.image_url),
+    })));
+    return res.json({ children });
   } catch (error: any) {
     return res.status(500).json({ error: error.message || 'Error' });
   }
@@ -5153,6 +5159,7 @@ app.delete('/api/maritime/containers/:id', authenticateToken, requireMinLevel(RO
 app.get('/api/maritime/week-saved-addresses', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getWeekSavedAddresses);
 app.post('/api/maritime/containers/:id/week-address', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignWeekContainerAddress);
 app.patch('/api/maritime/containers/:id/reference', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateContainerReference);
+app.patch('/api/maritime/containers/:id/sale-price', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateContainerSalePrice);
 
 // 👁️ Lista de monitoristas disponibles para asignar a contenedores FCL
 app.get('/api/maritime/monitors', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (_req: AuthRequest, res: Response) => {

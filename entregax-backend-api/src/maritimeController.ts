@@ -144,6 +144,39 @@ export const createContainer = async (req: AuthRequest, res: Response): Promise<
   }
 };
 
+// PATCH /api/maritime/containers/:id/sale-price — admin/super_admin/director editan el costo de venta
+export const updateContainerSalePrice = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { sale_price, sale_price_currency } = req.body as {
+      sale_price?: number | string | null;
+      sale_price_currency?: string | null;
+    };
+    const price = sale_price == null || sale_price === '' ? null : Number(sale_price);
+    if (price != null && (!Number.isFinite(price) || price < 0)) {
+      return res.status(400).json({ error: 'sale_price inválido' });
+    }
+    const currency = (sale_price_currency || 'USD').toUpperCase();
+    if (!['USD', 'MXN'].includes(currency)) {
+      return res.status(400).json({ error: 'sale_price_currency debe ser USD o MXN' });
+    }
+    const r = await pool.query(
+      `UPDATE containers
+          SET sale_price = $1,
+              sale_price_currency = $2,
+              updated_at = NOW()
+        WHERE id = $3
+      RETURNING id, sale_price, sale_price_currency`,
+      [price, currency, id]
+    );
+    if (r.rows.length === 0) return res.status(404).json({ error: 'Contenedor no encontrado' });
+    return res.json({ success: true, ...r.rows[0] });
+  } catch (error: any) {
+    console.error('Error updateContainerSalePrice:', error);
+    return res.status(500).json({ error: 'Error al actualizar costo de venta' });
+  }
+};
+
 // Actualizar contenedor
 // PATCH /api/maritime/containers/:id/reference — actualizar solo reference_code
 export const updateContainerReference = async (req: AuthRequest, res: Response): Promise<any> => {
