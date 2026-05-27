@@ -2317,6 +2317,7 @@ const CajaChicaPage: React.FC = () => {
                       <TableRow>
                         <TableCell><strong>Consolidación</strong></TableCell>
                         <TableCell><strong>Proveedor</strong></TableCell>
+                        <TableCell align="center"><strong>Cajas</strong></TableCell>
                         <TableCell align="right"><strong>MXN</strong></TableCell>
                       </TableRow>
                     </TableHead>
@@ -2325,6 +2326,9 @@ const CajaChicaPage: React.FC = () => {
                         <TableRow key={c.id}>
                           <TableCell>#{c.id}</TableCell>
                           <TableCell>{c.supplier_name}</TableCell>
+                          <TableCell align="center">
+                            <Chip label={Number(c.package_count || 0)} size="small" color="primary" variant="outlined" />
+                          </TableCell>
                           <TableCell align="right">
                             {Number(c.total_cost_mxn || 0) > 0
                               ? formatCurrency(Number(c.total_cost_mxn))
@@ -2337,11 +2341,15 @@ const CajaChicaPage: React.FC = () => {
                 </TableContainer>
                 <Paper sx={{ p: 2, bgcolor: 'warning.light', mb: 2 }}>
                   <Grid container spacing={1}>
-                    <Grid size={{ xs: 6 }}>
+                    <Grid size={{ xs: 4 }}>
                       <Typography variant="caption" color="text.secondary">Total USD</Typography>
                       <Typography variant="h6" fontWeight="bold">${totalUsd.toFixed(2)}</Typography>
                     </Grid>
-                    <Grid size={{ xs: 6 }}>
+                    <Grid size={{ xs: 4 }}>
+                      <Typography variant="caption" color="text.secondary">Total cajas</Typography>
+                      <Typography variant="h6" fontWeight="bold">{pagables.reduce((s, c) => s + Number(c.package_count || 0), 0)}</Typography>
+                    </Grid>
+                    <Grid size={{ xs: 4 }}>
                       <Typography variant="caption" color="text.secondary">Total MXN a pagar</Typography>
                       <Typography variant="h6" fontWeight="bold" color="primary.dark">{formatCurrency(totalMxn)}</Typography>
                     </Grid>
