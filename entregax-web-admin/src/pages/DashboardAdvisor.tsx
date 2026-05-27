@@ -94,6 +94,8 @@ import {
   ConfirmationNumber as TicketIcon,
   Send as SendIcon,
   AttachFile as AttachFileIcon,
+  PictureAsPdf as PdfIcon,
+  InsertDriveFile as FileIcon,
   BugReport as BugIcon,
   MonetizationOn as BillingIcon,
   PersonOff as ClientIssueIcon,
@@ -429,6 +431,7 @@ export default function DashboardAdvisor() {
   const [selectedAdvisorTicket, setSelectedAdvisorTicket] = useState<any | null>(null);
   const [ticketMessages, setTicketMessages] = useState<any[]>([]);
   const [ticketReply, setTicketReply] = useState('');
+  const [ticketReplyFiles, setTicketReplyFiles] = useState<File[]>([]);
   const [ticketReplySending, setTicketReplySending] = useState(false);
 
   // Preferencias de notificaciones
@@ -671,11 +674,20 @@ export default function DashboardAdvisor() {
   };
 
   const handleSendTicketReply = async () => {
-    if (!selectedAdvisorTicket || !ticketReply.trim()) return;
+    if (!selectedAdvisorTicket) return;
+    if (!ticketReply.trim() && ticketReplyFiles.length === 0) return;
     setTicketReplySending(true);
     try {
-      await api.post(`/support/ticket/${selectedAdvisorTicket.id}/message`, { message: ticketReply.trim() });
+      const form = new FormData();
+      form.append('message', ticketReply.trim());
+      ticketReplyFiles.forEach((f) => form.append('images', f, f.name));
+      await api.post(
+        `/support/ticket/${selectedAdvisorTicket.id}/message`,
+        form,
+        { headers: { 'Content-Type': 'multipart/form-data' } }
+      );
       setTicketReply('');
+      setTicketReplyFiles([]);
       fetchTicketMessages(selectedAdvisorTicket.id);
     } catch { /* silencioso */ } finally {
       setTicketReplySending(false);
@@ -2969,7 +2981,14 @@ export default function DashboardAdvisor() {
                     {ticketMessages.length === 0 && (
                       <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>Cargando mensajes...</Typography>
                     )}
-                    {ticketMessages.map(msg => (
+                    {ticketMessages.map(msg => {
+                      let attUrls: string[] = [];
+                      if (Array.isArray(msg.attachments)) attUrls = msg.attachments as string[];
+                      else if (typeof msg.attachments === 'string') {
+                        try { const p = JSON.parse(msg.attachments); if (Array.isArray(p)) attUrls = p; } catch { /* ignore */ }
+                      }
+                      if (attUrls.length === 0 && msg.attachment_url) attUrls = [msg.attachment_url];
+                      return (
                       <Box key={msg.id} sx={{
                         alignSelf: msg.sender_type === 'employee' ? 'flex-end' : 'flex-start',
                         maxWidth: '80%',
@@ -2977,12 +2996,49 @@ export default function DashboardAdvisor() {
                         color: msg.sender_type === 'employee' ? '#fff' : '#111',
                         borderRadius: 2, px: 1.5, py: 1,
                       }}>
-                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{msg.message}</Typography>
+                        {msg.message && (
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{msg.message}</Typography>
+                        )}
+                        {attUrls.length > 0 && (
+                          <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: msg.message ? 0.75 : 0 }}>
+                            {attUrls.map((u, i) => {
+                              const low = u.toLowerCase();
+                              const isPdf = low.endsWith('.pdf') || low.includes('/pdf');
+                              const isExcel = /\.(xlsx?|csv)$/i.test(low);
+                              const isImg = /\.(png|jpe?g|gif|webp|heic|heif)$/i.test(low) || (!isPdf && !isExcel);
+                              if (isImg && !isPdf && !isExcel) {
+                                return (
+                                  <a key={i} href={u} target="_blank" rel="noreferrer">
+                                    <Box component="img" src={u} alt={`adj-${i}`}
+                                      sx={{ width: 110, height: 110, objectFit: 'cover', borderRadius: 1, border: '1px solid rgba(0,0,0,0.1)' }}
+                                    />
+                                  </a>
+                                );
+                              }
+                              return (
+                                <a key={i} href={u} target="_blank" rel="noreferrer"
+                                  style={{
+                                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                                    padding: '4px 8px', borderRadius: 6, textDecoration: 'none',
+                                    background: msg.sender_type === 'employee' ? 'rgba(255,255,255,0.2)' : '#fff',
+                                    color: msg.sender_type === 'employee' ? '#fff' : (isPdf ? '#c62828' : '#2E7D32'),
+                                    border: msg.sender_type === 'employee' ? 'none' : '1px solid #ddd',
+                                  }}>
+                                  {isPdf ? <PdfIcon sx={{ fontSize: 18 }} /> : <FileIcon sx={{ fontSize: 18 }} />}
+                                  <Typography variant="caption" fontWeight={600}>
+                                    {isPdf ? 'Ver PDF' : isExcel ? 'Ver Excel' : 'Ver archivo'}
+                                  </Typography>
+                                </a>
+                              );
+                            })}
+                          </Box>
+                        )}
                         <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', textAlign: 'right', mt: 0.3 }}>
                           {formatDate(msg.created_at)}
                         </Typography>
                       </Box>
-                    ))}
+                      );
+                    })}
                   </Box>
                 </DialogContent>
                 {selectedAdvisorTicket.status !== 'resolved' && selectedAdvisorTicket.status !== 'closed' && (

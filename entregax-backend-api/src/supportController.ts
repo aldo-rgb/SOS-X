@@ -8,7 +8,7 @@ import { pool } from './db';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { uploadToS3, isS3Configured, getSignedDownloadUrl } from './s3Service';
+import { uploadToS3, isS3Configured, getSignedDownloadUrl, signS3UrlIfNeeded } from './s3Service';
 import { sendPushToUsers } from './pushService';
 import { sendTicketConfirmation, sendTicketResolved } from './whatsappService';
 
@@ -29,8 +29,8 @@ const multerUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB por archivo
   fileFilter: (_req, file, cb) => {
-    // Aceptar cualquier imagen (incluyendo HEIC/HEIF de iPhone) y PDFs
-    const allowedMime = /^image\/|^application\/pdf$/.test(file.mimetype);
+    // Aceptar imágenes (incl. HEIC/HEIF), PDFs y Excel (xls/xlsx/csv)
+    const allowedMime = /^image\/|^application\/pdf$|^application\/vnd\.ms-excel$|^application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet$|^text\/csv$/.test(file.mimetype);
     cb(null, allowedMime);
   }
 }).array('images', 10);
@@ -623,7 +623,8 @@ export const getTicketMessages = async (req: Request, res: Response): Promise<an
       [id]
     );
 
-    res.json(result.rows);
+    const rows = await Promise.all(result.rows.map(signRowAttachments));
+    res.json(rows);
   } catch (error) {
     console.error('Error obteniendo mensajes:', error);
     res.status(500).json({ error: 'Error obteniendo mensajes' });
@@ -647,11 +648,35 @@ export const getAdminTicketMessages = async (req: Request, res: Response): Promi
        ORDER BY tm.created_at ASC`,
       [id]
     );
-    res.json(result.rows);
+    const rows = await Promise.all(result.rows.map(signRowAttachments));
+    res.json(rows);
   } catch (error) {
     console.error('Error obteniendo mensajes admin:', error);
     res.status(500).json({ error: 'Error obteniendo mensajes' });
   }
+};
+
+// Helper: firmar URLs S3 de attachment_url + attachments
+const signRowAttachments = async (row: any): Promise<any> => {
+  try {
+    if (row.attachment_url) {
+      row.attachment_url = await signS3UrlIfNeeded(row.attachment_url);
+    }
+    if (row.attachments) {
+      let urls: string[] = [];
+      if (Array.isArray(row.attachments)) urls = row.attachments;
+      else if (typeof row.attachments === 'string') {
+        try { const p = JSON.parse(row.attachments); if (Array.isArray(p)) urls = p; } catch { /* ignore */ }
+      }
+      if (urls.length > 0) {
+        const signed = await Promise.all(urls.map(u => signS3UrlIfNeeded(u)));
+        row.attachments = signed.filter(Boolean);
+      }
+    }
+  } catch (e) {
+    console.warn('No se pudo firmar adjuntos:', e);
+  }
+  return row;
 };
 
 /**
@@ -664,8 +689,9 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
     const { message } = req.body;
     const userId = (req as any).user?.userId;
 
-    if (!message || !message.trim()) {
-      return res.status(400).json({ error: 'Mensaje requerido' });
+    const files = (req.files as Express.Multer.File[]) || [];
+    if ((!message || !message.trim()) && files.length === 0) {
+      return res.status(400).json({ error: 'Mensaje o adjunto requerido' });
     }
 
     // Verificar que el ticket pertenece al cliente
@@ -678,10 +704,31 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
       return res.status(404).json({ error: 'Ticket no encontrado' });
     }
 
+    // Procesar adjuntos (imágenes / PDF / Excel)
+    const attachmentUrls: string[] = [];
+    for (const f of files) {
+      const ext = path.extname(f.originalname) || (f.mimetype.includes('pdf') ? '.pdf' : '.bin');
+      const filename = `support-reply-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+      try {
+        if (isS3Configured()) {
+          const url = await uploadToS3(f.buffer, `support/${filename}`, f.mimetype);
+          attachmentUrls.push(url);
+        } else {
+          const filePath = path.join(supportUploadsDir, filename);
+          fs.writeFileSync(filePath, f.buffer);
+          const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+          attachmentUrls.push(`${baseUrl}/uploads/support/${filename}`);
+        }
+      } catch (err) {
+        console.error('⚠️ Error subiendo adjunto de respuesta cliente:', err);
+      }
+    }
+    const attachmentsJson = attachmentUrls.length > 0 ? JSON.stringify(attachmentUrls) : null;
+
     // Guardar mensaje del cliente
     await pool.query(
-      `INSERT INTO ticket_messages (ticket_id, sender_type, message) VALUES ($1, 'client', $2)`,
-      [id, message.trim()]
+      `INSERT INTO ticket_messages (ticket_id, sender_type, message, attachments) VALUES ($1, 'client', $2, $3)`,
+      [id, (message || '').trim(), attachmentsJson]
     );
 
     // Si el ticket estaba resuelto/cerrado, reabrirlo automáticamente
@@ -711,7 +758,7 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
         if (shouldPush) {
           sendPushToUsers([info.assigned_agent_id], {
             title: '💬 Respuesta del cliente',
-            body: `${info.ticket_folio}: ${message.trim().substring(0, 100)}`,
+            body: `${info.ticket_folio}: ${(message || '📎 Adjunto').trim().substring(0, 100)}`,
             data: {
               type: 'support_client_reply',
               ticket_id: String(id),

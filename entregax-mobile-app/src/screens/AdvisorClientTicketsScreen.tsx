@@ -11,10 +11,14 @@ import {
   ScrollView,
   TextInput,
   Alert,
+  Image,
+  Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { api } from '../services/api';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { api, API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111';
@@ -44,6 +48,7 @@ interface TicketMessage {
   sender_type: string;
   message: string;
   attachment_url: string | null;
+  attachments?: string[] | string | null;
   created_at: string;
 }
 
@@ -105,6 +110,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const [replyAttachments, setReplyAttachments] = useState<{ uri: string; name: string; type: string }[]>([]);
   const [replySending, setReplySending] = useState(false);
 
   const loadTickets = useCallback(async () => {
@@ -167,25 +173,79 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
     }
   };
 
+  const pickReplyImage = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7, mediaTypes: 'images' });
+    if (result.canceled || !result.assets?.[0]) return;
+    const a = result.assets[0];
+    const ext = (a.uri.split('.').pop() || 'jpg').toLowerCase();
+    setReplyAttachments(prev => [...prev, { uri: a.uri, name: a.fileName || `img.${ext}`, type: `image/${ext === 'jpg' ? 'jpeg' : ext}` }]);
+  };
+
+  const pickReplyDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/pdf',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'text/csv',
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const a = result.assets[0];
+      if (a.size && a.size > 20 * 1024 * 1024) {
+        Alert.alert('Archivo muy grande', 'El máximo es 20MB.');
+        return;
+      }
+      setReplyAttachments(prev => [...prev, {
+        uri: a.uri,
+        name: a.name || 'archivo',
+        type: a.mimeType || 'application/octet-stream',
+      }]);
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo seleccionar el archivo.');
+    }
+  };
+
   const sendAdvisorReply = async () => {
-    if (!replyText.trim() || !selectedTicket) return;
+    if (!selectedTicket) return;
+    if (!replyText.trim() && replyAttachments.length === 0) return;
     setReplySending(true);
     try {
       const endpoint = viewMode === 'mine'
         ? `/api/support/ticket/${selectedTicket.id}/message`
         : `/api/admin/support/ticket/${selectedTicket.id}/reply`;
-      await api.post(endpoint, { message: replyText.trim() }, {
-        headers: { Authorization: `Bearer ${token}` },
+      const form = new FormData();
+      form.append('message', replyText.trim());
+      replyAttachments.forEach((f) => {
+        form.append('images', { uri: f.uri, name: f.name, type: f.type } as any);
       });
+      const resp = await fetch(`${API_URL}${endpoint}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: form as any,
+      });
+      if (!resp.ok) {
+        const txt = await resp.text().catch(() => '');
+        throw new Error(`HTTP ${resp.status}: ${txt.slice(0, 200)}`);
+      }
       setReplyText('');
+      setReplyAttachments([]);
       // Reload messages
       const res = viewMode === 'mine'
         ? await api.get(`/api/support/ticket/${selectedTicket.id}/messages`, { headers: { Authorization: `Bearer ${token}` } })
         : await api.get(`/api/advisor/client-tickets/${selectedTicket.id}`, { headers: { Authorization: `Bearer ${token}` } });
       const msgs = viewMode === 'mine' ? (Array.isArray(res.data) ? res.data : []) : (res.data.success ? res.data.messages : []);
       setTicketMessages(msgs);
-    } catch {
-      Alert.alert('Error', 'No se pudo enviar el mensaje. Intenta de nuevo.');
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudo enviar el mensaje. Intenta de nuevo.');
     } finally {
       setReplySending(false);
     }
@@ -197,13 +257,16 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
   };
 
   const formatTime = (dateStr: string) => {
-    const d = new Date(dateStr);
+    // Postgres devuelve naive timestamps ("2026-05-27T22:57:00") — interpretarlos como UTC.
+    const hasTz = /Z$|[+-]\d{2}:?\d{2}$/.test(dateStr);
+    const d = new Date(hasTz ? dateStr : dateStr + 'Z');
     return d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
   };
 
   const timeAgo = (dateStr: string) => {
+    const hasTz = /Z$|[+-]\d{2}:?\d{2}$/.test(dateStr);
+    const d = new Date(hasTz ? dateStr : dateStr + 'Z');
     const now = new Date();
-    const d = new Date(dateStr);
     const diffMs = now.getTime() - d.getTime();
     const diffMins = Math.floor(diffMs / 60000);
     if (diffMins < 60) return `hace ${diffMins}m`;
@@ -321,21 +384,27 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
   const renderMessageBubble = (msg: TicketMessage) => {
     const isUser = msg.sender_type === 'user';
     const isAI = msg.sender_type === 'ai';
-    const isAgent = msg.sender_type === 'agent';
+
+    let attachUrls: string[] = [];
+    if (Array.isArray(msg.attachments)) attachUrls = msg.attachments as string[];
+    else if (typeof msg.attachments === 'string') {
+      try { const p = JSON.parse(msg.attachments); if (Array.isArray(p)) attachUrls = p; } catch {}
+    }
+    if (attachUrls.length === 0 && msg.attachment_url) attachUrls = [msg.attachment_url];
 
     return (
-      <View 
-        key={msg.id} 
+      <View
+        key={msg.id}
         style={[
           styles.messageBubble,
           isUser ? styles.userBubble : styles.systemBubble,
         ]}
       >
         <View style={styles.messageHeader}>
-          <Ionicons 
-            name={isUser ? 'person' : isAI ? 'sparkles' : 'headset'} 
-            size={14} 
-            color={isUser ? '#fff' : '#666'} 
+          <Ionicons
+            name={isUser ? 'person' : isAI ? 'sparkles' : 'headset'}
+            size={14}
+            color={isUser ? '#fff' : '#666'}
           />
           <Text style={[styles.senderLabel, isUser && { color: '#fff' }]}>
             {isUser ? 'Cliente' : isAI ? 'Orlando (IA)' : 'Agente'}
@@ -344,9 +413,43 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
             {formatTime(msg.created_at)}
           </Text>
         </View>
-        <Text style={[styles.messageText, isUser && { color: '#fff' }]}>
-          {msg.message}
-        </Text>
+        {!!msg.message?.trim() && (
+          <Text style={[styles.messageText, isUser && { color: '#fff' }]}>
+            {msg.message}
+          </Text>
+        )}
+        {attachUrls.length > 0 && (
+          <View style={{ marginTop: msg.message?.trim() ? 8 : 0, gap: 6 }}>
+            {attachUrls.map((url, i) => {
+              const low = url.toLowerCase();
+              const isPdf = low.endsWith('.pdf') || low.includes('/pdf');
+              const isExcel = /\.(xlsx?|csv)(\?|$)/i.test(low);
+              if (isPdf || isExcel) {
+                return (
+                  <TouchableOpacity
+                    key={i}
+                    style={[styles.attachFileBtn, isUser && { backgroundColor: 'rgba(255,255,255,0.2)', borderColor: 'rgba(255,255,255,0.4)' }]}
+                    onPress={() => Linking.openURL(url)}
+                  >
+                    <Ionicons
+                      name={isPdf ? 'document-text' : 'document-attach'}
+                      size={18}
+                      color={isUser ? '#fff' : (isPdf ? '#c62828' : '#2E7D32')}
+                    />
+                    <Text style={[styles.attachFileText, isUser && { color: '#fff' }]}>
+                      {isPdf ? 'Ver PDF' : 'Ver Excel'}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              }
+              return (
+                <TouchableOpacity key={i} onPress={() => Linking.openURL(url)}>
+                  <Image source={{ uri: url }} style={styles.attachImage} resizeMode="cover" />
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
       </View>
     );
   };
@@ -595,25 +698,64 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
 
           {/* Reply bar */}
           {selectedTicket && (
-            <View style={[styles.replyBar, { paddingBottom: insets.bottom + 8 }]}>
-              <TextInput
-                style={styles.replyInput}
-                placeholder="Escribe una respuesta..."
-                placeholderTextColor="#aaa"
-                value={replyText}
-                onChangeText={setReplyText}
-                multiline
-                maxLength={1000}
-              />
-              <TouchableOpacity
-                style={[styles.replySendBtn, (!replyText.trim() || replySending) && { opacity: 0.4 }]}
-                onPress={sendAdvisorReply}
-                disabled={!replyText.trim() || replySending}
-              >
-                {replySending
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Ionicons name="send" size={18} color="#fff" />}
-              </TouchableOpacity>
+            <View style={{ paddingBottom: insets.bottom + 8 }}>
+              {replyAttachments.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                  style={{ paddingHorizontal: 12, paddingTop: 8 }}
+                  contentContainerStyle={{ gap: 8 }}
+                >
+                  {replyAttachments.map((f, i) => {
+                    const isImg = f.type.startsWith('image/');
+                    const isPdf = f.type.includes('pdf');
+                    return (
+                      <View key={i} style={styles.replyAttachChip}>
+                        {isImg ? (
+                          <Image source={{ uri: f.uri }} style={{ width: 36, height: 36, borderRadius: 4 }} />
+                        ) : (
+                          <Ionicons
+                            name={isPdf ? 'document-text' : 'document-attach'}
+                            size={22}
+                            color={isPdf ? '#c62828' : '#2E7D32'}
+                          />
+                        )}
+                        <Text style={styles.replyAttachName} numberOfLines={1}>{f.name}</Text>
+                        <TouchableOpacity
+                          onPress={() => setReplyAttachments(prev => prev.filter((_, j) => j !== i))}
+                          style={{ padding: 2 }}
+                        >
+                          <Ionicons name="close-circle" size={18} color="#f44336" />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+              <View style={styles.replyBar}>
+                <TouchableOpacity style={styles.replyAttachBtn} onPress={pickReplyImage}>
+                  <Ionicons name="image-outline" size={22} color={ORANGE} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.replyAttachBtn} onPress={pickReplyDocument}>
+                  <Ionicons name="document-attach-outline" size={22} color={ORANGE} />
+                </TouchableOpacity>
+                <TextInput
+                  style={styles.replyInput}
+                  placeholder="Escribe una respuesta..."
+                  placeholderTextColor="#aaa"
+                  value={replyText}
+                  onChangeText={setReplyText}
+                  multiline
+                  maxLength={1000}
+                />
+                <TouchableOpacity
+                  style={[styles.replySendBtn, ((!replyText.trim() && replyAttachments.length === 0) || replySending) && { opacity: 0.4 }]}
+                  onPress={sendAdvisorReply}
+                  disabled={(!replyText.trim() && replyAttachments.length === 0) || replySending}
+                >
+                  {replySending
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Ionicons name="send" size={18} color="#fff" />}
+                </TouchableOpacity>
+              </View>
             </View>
           )}
         </View>
@@ -1035,6 +1177,55 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#333',
     lineHeight: 20,
+  },
+  attachImage: {
+    width: 180,
+    height: 180,
+    borderRadius: 8,
+    backgroundColor: '#eee',
+  },
+  attachFileBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    alignSelf: 'flex-start',
+  },
+  attachFileText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#333',
+  },
+  replyAttachBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF1EC',
+  },
+  replyAttachChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    maxWidth: 200,
+  },
+  replyAttachName: {
+    fontSize: 11,
+    color: '#333',
+    fontWeight: '500',
+    maxWidth: 120,
   },
   replyBar: {
     flexDirection: 'row',

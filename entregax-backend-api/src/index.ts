@@ -5121,7 +5121,7 @@ app.get('/api/support/ticket/:id/messages', authenticateToken, getTicketMessages
 app.get('/api/admin/support/ticket/:id/messages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminTicketMessages);
 
 // Cliente: Responder a su ticket
-app.post('/api/support/ticket/:id/message', authenticateToken, clientReplyTicket);
+app.post('/api/support/ticket/:id/message', authenticateToken, uploadSupportImages, clientReplyTicket);
 
 // Admin: Ver todos los tickets (tablero Kanban)
 app.get('/api/admin/support/tickets', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminTickets);

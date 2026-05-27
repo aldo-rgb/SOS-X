@@ -6,6 +6,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -34,6 +35,7 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
   const [category, setCategory] = useState<string | null>(null);
   const [description, setDescription] = useState('');
   const [screenshot, setScreenshot] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [attachedFile, setAttachedFile] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [folio, setFolio] = useState('');
@@ -75,6 +77,34 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
     if (!result.canceled) setScreenshot(result.assets[0]);
   };
 
+  const pickDocument = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/pdf',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'text/csv',
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled || !result.assets?.[0]) return;
+      const a = result.assets[0];
+      if (a.size && a.size > 20 * 1024 * 1024) {
+        Alert.alert('Archivo muy grande', 'El máximo es 20MB.');
+        return;
+      }
+      setAttachedFile({
+        uri: a.uri,
+        name: a.name || 'archivo',
+        mimeType: a.mimeType || 'application/octet-stream',
+      });
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo seleccionar el archivo.');
+    }
+  };
+
   const submit = async () => {
     if (!category) { Alert.alert('Categoría requerida', 'Selecciona una categoría.'); return; }
     if (!description.trim()) { Alert.alert('Descripción requerida', 'Describe el problema.'); return; }
@@ -112,6 +142,14 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
         const uri = screenshot.uri;
         const ext = uri.split('.').pop() || 'jpg';
         form.append('images', { uri, name: `screenshot.${ext}`, type: `image/${ext}` } as any);
+      }
+
+      if (attachedFile) {
+        form.append('images', {
+          uri: attachedFile.uri,
+          name: attachedFile.name,
+          type: attachedFile.mimeType,
+        } as any);
       }
 
       const res = await fetch(`${API_URL}/api/support/message`, {
@@ -258,27 +296,43 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
           textAlignVertical="top"
         />
 
-        {/* Screenshot */}
-        <Text style={styles.label}>Captura de pantalla (opcional)</Text>
-        {screenshot ? (
+        {/* Adjuntos */}
+        <Text style={styles.label}>Adjuntos (opcional)</Text>
+        {screenshot && (
           <View style={styles.screenshotPreview}>
             <Image source={{ uri: screenshot.uri }} style={styles.screenshotImg} resizeMode="cover" />
             <TouchableOpacity style={styles.removeScreenshot} onPress={() => setScreenshot(null)}>
               <Ionicons name="close-circle" size={24} color="#f44336" />
             </TouchableOpacity>
           </View>
-        ) : (
-          <View style={styles.screenshotBtns}>
-            <TouchableOpacity style={styles.screenshotBtn} onPress={takePhoto}>
-              <Ionicons name="camera-outline" size={22} color={ORANGE} />
-              <Text style={styles.screenshotBtnText}>Tomar foto</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.screenshotBtn} onPress={pickScreenshot}>
-              <Ionicons name="image-outline" size={22} color={ORANGE} />
-              <Text style={styles.screenshotBtnText}>Galería</Text>
+        )}
+        {attachedFile && (
+          <View style={styles.filePreview}>
+            <Ionicons
+              name={attachedFile.mimeType.includes('pdf') ? 'document-text' : 'document-attach'}
+              size={28}
+              color={attachedFile.mimeType.includes('pdf') ? '#c62828' : '#2E7D32'}
+            />
+            <Text style={styles.filePreviewName} numberOfLines={1}>{attachedFile.name}</Text>
+            <TouchableOpacity onPress={() => setAttachedFile(null)} style={{ padding: 4 }}>
+              <Ionicons name="close-circle" size={22} color="#f44336" />
             </TouchableOpacity>
           </View>
         )}
+        <View style={styles.screenshotBtns}>
+          <TouchableOpacity style={styles.screenshotBtn} onPress={takePhoto}>
+            <Ionicons name="camera-outline" size={20} color={ORANGE} />
+            <Text style={styles.screenshotBtnText}>Foto</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.screenshotBtn} onPress={pickScreenshot}>
+            <Ionicons name="image-outline" size={20} color={ORANGE} />
+            <Text style={styles.screenshotBtnText}>Galería</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.screenshotBtn} onPress={pickDocument}>
+            <Ionicons name="document-attach-outline" size={20} color={ORANGE} />
+            <Text style={styles.screenshotBtnText}>Archivo</Text>
+          </TouchableOpacity>
+        </View>
 
         {/* Enviar */}
         <TouchableOpacity
@@ -354,9 +408,15 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: ORANGE, borderStyle: 'dashed',
   },
   screenshotBtnText: { color: ORANGE, fontWeight: '600', fontSize: 14 },
-  screenshotPreview: { position: 'relative', marginBottom: 24 },
+  screenshotPreview: { position: 'relative', marginBottom: 12 },
   screenshotImg: { width: '100%', height: 200, borderRadius: 12 },
   removeScreenshot: { position: 'absolute', top: 8, right: 8 },
+  filePreview: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#fff', borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: '#e0e0e0', marginBottom: 12,
+  },
+  filePreviewName: { flex: 1, fontSize: 13, color: '#333', fontWeight: '500' },
   submitBtn: {
     backgroundColor: ORANGE, borderRadius: 14, paddingVertical: 16,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
