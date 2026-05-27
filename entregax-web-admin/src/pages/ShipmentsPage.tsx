@@ -31,6 +31,8 @@ import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import PlaceIcon from '@mui/icons-material/Place';
 import CameraAltIcon from '@mui/icons-material/CameraAlt';
+import AddPhotoAlternateIcon from '@mui/icons-material/AddPhotoAlternate';
+import ImageNotSupportedIcon from '@mui/icons-material/ImageNotSupported';
 import PersonIcon from '@mui/icons-material/Person';
 import HomeIcon from '@mui/icons-material/Home';
 import WarningIcon from '@mui/icons-material/Warning';
@@ -65,6 +67,7 @@ interface Package {
   declaredValue?: number;
   status: PackageStatus;
   statusLabel: string;
+  imageUrl?: string | null;
   receivedAt: string;
   deliveredAt?: string;
   consolidationId?: number;
@@ -238,6 +241,13 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const [searchTerm, setSearchTerm] = useState('');
   const [consolidationFilter, setConsolidationFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [photoFilter, setPhotoFilter] = useState<'all' | 'no_photo'>('all');
+  const [photoUploadPkg, setPhotoUploadPkg] = useState<Package | null>(null);
+  const [photoUploadChildren, setPhotoUploadChildren] = useState<{ id: number; tracking: string; image_url: string | null }[]>([]);
+  const [photoUploadOpen, setPhotoUploadOpen] = useState(false);
+  const [photoUploadingId, setPhotoUploadingId] = useState<number | null>(null);
+  const photoFileInputRef = useRef<HTMLInputElement>(null);
+  const photoFileTargetId = useRef<number | null>(null);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   
@@ -407,6 +417,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   useEffect(() => { fetchPackages(); }, [fetchPackages]);
 
   const filteredPackages = packages.filter(pkg => {
+    if (photoFilter === 'no_photo' && pkg.imageUrl) return false;
     // 🔢 Filtro específico por # de consolidación (campo dedicado)
     if (consolidationFilter.trim()) {
       const wanted = consolidationFilter.replace(/[^0-9]/g, '');
@@ -1666,18 +1677,14 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           { label: 'Recibido CEDIS HIDALGO TX', statuses: ['received'], color: '#2196f3', icon: '📦' },
           { label: 'RECIBIDO EN CEDIS MTY', statuses: ['received_mty'], color: '#00acc1', icon: '🏢' },
           { label: 'EN TRANSITO A MTY NL', statuses: ['in_transit'], color: '#ff9800', icon: '🚚' },
-          { label: 'Procesando', statuses: ['customs', 'processing'], color: '#f44336', icon: '⚙️' },
-          { label: 'En Ruta', statuses: ['ready_pickup', 'out_for_delivery'], color: '#4caf50', icon: '🛣️' },
-          { label: 'ENTREGADO', statuses: ['delivered'], color: '#9e9e9e', icon: '✅' },
-          { label: 'ENVIADO', statuses: ['shipped'], color: '#607d8b', icon: '📤' },
         ].map((stat) => {
           const count = packages.filter(p => stat.statuses.includes(p.status as PackageStatus)).length;
           return (
-            <Grid size={{ xs: 6, sm: 2, md: 12 / 7 }} key={stat.label}>
+            <Grid size={{ xs: 6, sm: 3, md: 3 }} key={stat.label}>
               <Paper sx={{ p: 2, textAlign: 'center', cursor: 'pointer',
                   border: stat.statuses.includes(statusFilter as PackageStatus) ? `2px solid ${stat.color}` : '2px solid transparent',
                   '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 } }}
-                onClick={() => setStatusFilter(stat.statuses.includes(statusFilter as PackageStatus) ? 'all' : stat.statuses[0])}>
+                onClick={() => { setStatusFilter(stat.statuses.includes(statusFilter as PackageStatus) ? 'all' : stat.statuses[0]); setPhotoFilter('all'); }}>
                 <Typography variant="h3" sx={{ color: stat.color }}>{stat.icon}</Typography>
                 <Typography variant="h4" fontWeight="bold">{count}</Typography>
                 <Typography variant="body2" color="text.secondary">{stat.label}</Typography>
@@ -1685,6 +1692,17 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
             </Grid>
           );
         })}
+        {/* Sin Foto */}
+        <Grid size={{ xs: 6, sm: 3, md: 3 }}>
+          <Paper sx={{ p: 2, textAlign: 'center', cursor: 'pointer',
+              border: photoFilter === 'no_photo' ? '2px solid #e91e63' : '2px solid transparent',
+              '&:hover': { transform: 'translateY(-2px)', boxShadow: 3 } }}
+            onClick={() => { setPhotoFilter(prev => prev === 'no_photo' ? 'all' : 'no_photo'); setStatusFilter('all'); }}>
+            <ImageNotSupportedIcon sx={{ fontSize: 48, color: '#e91e63' }} />
+            <Typography variant="h4" fontWeight="bold">{packages.filter(p => !p.imageUrl).length}</Typography>
+            <Typography variant="body2" color="text.secondary">Sin Fotografía</Typography>
+          </Paper>
+        </Grid>
       </Grid>
 
       {/* Search */}
@@ -1714,10 +1732,6 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
               <MenuItem value="received">📦 Recibido CEDIS HIDALGO TX</MenuItem>
               <MenuItem value="received_mty">🏢 RECIBIDO EN CEDIS MTY</MenuItem>
               <MenuItem value="in_transit">🚚 EN TRANSITO A MTY NL</MenuItem>
-              <MenuItem value="processing">⚙️ Procesando</MenuItem>
-              <MenuItem value="ready_pickup">🛣️ En Ruta</MenuItem>
-              <MenuItem value="delivered">✅ ENTREGADO</MenuItem>
-              <MenuItem value="shipped">📤 ENVIADO</MenuItem>
             </Select>
           </FormControl>
           <IconButton onClick={fetchPackages} color="primary"><RefreshIcon /></IconButton>
@@ -1740,6 +1754,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>{t('common.status')}</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>Consolidación</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }}>{t('status.received')}</TableCell>
+                  <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">Foto</TableCell>
                   <TableCell sx={{ color: 'white', fontWeight: 'bold' }} align="center">{t('common.actions')}</TableCell>
                 </TableRow>
               </TableHead>
@@ -1778,6 +1793,25 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                     </TableCell>
                     <TableCell><Typography variant="body2">{new Date(pkg.receivedAt).toLocaleDateString(i18n.language === 'es' ? 'es-MX' : 'en-US')}</Typography></TableCell>
                     <TableCell align="center">
+                      {pkg.imageUrl
+                        ? <Tooltip title="Ver foto"><Box component="img" src={pkg.imageUrl} sx={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 1, cursor: 'pointer', border: '2px solid #4caf50' }} onClick={() => window.open(pkg.imageUrl!, '_blank')} /></Tooltip>
+                        : <Tooltip title="Sin foto"><ImageNotSupportedIcon sx={{ color: '#bdbdbd', fontSize: 22 }} /></Tooltip>}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Tooltip title="Agregar foto">
+                        <IconButton size="small" sx={{ color: pkg.imageUrl ? '#4caf50' : '#e91e63' }} onClick={async () => {
+                          setPhotoUploadPkg(pkg);
+                          if (pkg.isMaster && (pkg.totalBoxes || 1) > 1) {
+                            const r = await axios.get(`${API_URL}/packages/${pkg.id}/children`, { headers: { Authorization: `Bearer ${getToken()}` } });
+                            setPhotoUploadChildren(r.data.children || []);
+                          } else {
+                            setPhotoUploadChildren([]);
+                          }
+                          setPhotoUploadOpen(true);
+                        }}>
+                          <AddPhotoAlternateIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
                       <Tooltip title={t('clients.viewDetails')}><IconButton size="small" onClick={() => { setSelectedPackage(pkg); setDetailsOpen(true); setEditingClient(false); }}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
                       <Tooltip title={t('shipments.printLabels')}><IconButton size="small" onClick={async () => {
                         try {
@@ -1812,6 +1846,101 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
           </>
         )}
       </TableContainer>
+
+      {/* ============ PHOTO UPLOAD DIALOG ============ */}
+      <input
+        ref={photoFileInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        style={{ display: 'none' }}
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file || photoFileTargetId.current === null) return;
+          const targetId = photoFileTargetId.current;
+          setPhotoUploadingId(targetId);
+          try {
+            const fd = new FormData();
+            fd.append('photo', file);
+            await axios.post(`${API_URL}/packages/${targetId}/reception-photo`, fd, {
+              headers: { Authorization: `Bearer ${getToken()}`, 'Content-Type': 'multipart/form-data' },
+            });
+            // Refresh children list if multi-box dialog open
+            if (photoUploadPkg?.isMaster && (photoUploadPkg.totalBoxes || 1) > 1) {
+              const r = await axios.get(`${API_URL}/packages/${photoUploadPkg.id}/children`, { headers: { Authorization: `Bearer ${getToken()}` } });
+              setPhotoUploadChildren(r.data.children || []);
+            } else {
+              setPhotoUploadOpen(false);
+              fetchPackages();
+            }
+            setSnackbar({ open: true, message: '✅ Foto guardada', severity: 'success' });
+          } catch {
+            setSnackbar({ open: true, message: 'Error al subir foto', severity: 'error' });
+          } finally {
+            setPhotoUploadingId(null);
+            e.target.value = '';
+          }
+        }}
+      />
+      <Dialog open={photoUploadOpen} onClose={() => setPhotoUploadOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: BLACK, color: 'white', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <AddPhotoAlternateIcon />
+            <Typography variant="h6">Agregar Fotografía</Typography>
+          </Box>
+          <IconButton onClick={() => setPhotoUploadOpen(false)} sx={{ color: 'white' }}><CloseIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 2 }}>
+          {photoUploadPkg && (
+            <Box>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                <strong>{photoUploadPkg.tracking}</strong>
+                {photoUploadPkg.client?.name ? ` · ${photoUploadPkg.client.name}` : ''}
+              </Typography>
+              {/* Single box or master with single child */}
+              {(!photoUploadPkg.isMaster || (photoUploadPkg.totalBoxes || 1) <= 1) && (
+                <Box sx={{ textAlign: 'center', py: 2 }}>
+                  {photoUploadPkg.imageUrl
+                    ? <Box component="img" src={photoUploadPkg.imageUrl} sx={{ maxHeight: 180, maxWidth: '100%', borderRadius: 2, mb: 2 }} />
+                    : <ImageNotSupportedIcon sx={{ fontSize: 64, color: '#bdbdbd', mb: 1 }} />}
+                  <Button variant="contained" startIcon={photoUploadingId === photoUploadPkg.id ? <CircularProgress size={16} color="inherit" /> : <CameraAltIcon />}
+                    disabled={photoUploadingId !== null}
+                    onClick={() => { photoFileTargetId.current = photoUploadPkg.id; photoFileInputRef.current?.click(); }}
+                    sx={{ bgcolor: ORANGE }}>
+                    {photoUploadPkg.imageUrl ? 'Cambiar foto' : 'Tomar / Subir foto'}
+                  </Button>
+                </Box>
+              )}
+              {/* Multi-box master: list all children */}
+              {photoUploadPkg.isMaster && (photoUploadPkg.totalBoxes || 1) > 1 && (
+                <Box>
+                  <Typography variant="body2" sx={{ mb: 1 }}><strong>{photoUploadChildren.length}</strong> caja(s) hija(s):</Typography>
+                  {photoUploadChildren.map((child) => (
+                    <Box key={child.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1, borderBottom: '1px solid #f0f0f0' }}>
+                      {child.image_url
+                        ? <Box component="img" src={child.image_url} sx={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 1, border: '2px solid #4caf50', cursor: 'pointer' }} onClick={() => window.open(child.image_url!, '_blank')} />
+                        : <Box sx={{ width: 52, height: 52, bgcolor: '#f5f5f5', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px dashed #bdbdbd' }}>
+                            <ImageNotSupportedIcon sx={{ color: '#bdbdbd', fontSize: 24 }} />
+                          </Box>}
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="body2" fontWeight="bold" sx={{ color: ORANGE }}>{child.tracking}</Typography>
+                        <Typography variant="caption" color="text.secondary">{child.image_url ? '✅ Con foto' : 'Sin foto'}</Typography>
+                      </Box>
+                      <IconButton size="small" color={child.image_url ? 'success' : 'error'} disabled={photoUploadingId !== null}
+                        onClick={() => { photoFileTargetId.current = child.id; photoFileInputRef.current?.click(); }}>
+                        {photoUploadingId === child.id ? <CircularProgress size={18} /> : <AddPhotoAlternateIcon />}
+                      </IconButton>
+                    </Box>
+                  ))}
+                  <Box sx={{ mt: 2, textAlign: 'center' }}>
+                    <Button variant="outlined" onClick={() => { setPhotoUploadOpen(false); fetchPackages(); }}>Cerrar</Button>
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* ============ WIZARD DIALOG ============ */}
       <Dialog open={wizardOpen} onClose={handleCloseWizard} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>

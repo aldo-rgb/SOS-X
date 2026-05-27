@@ -959,6 +959,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             totalBoxes: parseInt(pkg.real_children_count) > 0 ? parseInt(pkg.real_children_count) : (pkg.total_boxes || 1),
             declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
             status: pkg.status, statusLabel: getStatusLabel(pkg.status),
+            imageUrl: pkg.image_url || null,
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
             // Fecha en la que el paquete entró en su estado actual (recepción
             // en Hidalgo, en MTY, salida a ruta, etc.). Cae a received_at /

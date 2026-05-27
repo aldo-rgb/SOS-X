@@ -3755,6 +3755,23 @@ app.post('/api/packages/:id/reception-photo', authenticateToken, requireMinLevel
   }
 });
 
+// GET /api/packages/:id/children — devuelve las cajas hijas de un master
+app.get('/api/packages/:id/children', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: AuthRequest, res: Response) => {
+  try {
+    const pkgId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(pkgId)) return res.status(400).json({ error: 'ID inválido' });
+    const result = await pool.query(
+      `SELECT id, tracking_internal AS tracking, image_url FROM packages
+       WHERE master_id = $1 OR master_package_id = $1
+       ORDER BY id ASC`,
+      [pkgId]
+    );
+    return res.json({ children: result.rows });
+  } catch (error: any) {
+    return res.status(500).json({ error: error.message || 'Error' });
+  }
+});
+
 //  Lookup de cliente por casillero (busca en users y legacy_clients)
 app.get('/api/packages/lookup-client/:boxId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req, res) => {
   try {
