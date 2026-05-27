@@ -5324,7 +5324,12 @@ export const deletePackage = async (req: Request, res: Response): Promise<any> =
     await client.query('BEGIN');
 
     const exists = await client.query(
-      'SELECT id, tracking_internal, is_master FROM packages WHERE id = $1',
+      `SELECT p.id, p.tracking_internal, p.is_master, p.user_id,
+              u.full_name, u.phone, u.phone_verified, u.whatsapp_verified,
+              u.notif_whatsapp, u.notif_pobox
+       FROM packages p
+       LEFT JOIN users u ON u.id = p.user_id
+       WHERE p.id = $1`,
       [packageId]
     );
     if (exists.rows.length === 0) {
@@ -5333,6 +5338,7 @@ export const deletePackage = async (req: Request, res: Response): Promise<any> =
     }
 
     const isMaster = !!exists.rows[0].is_master;
+    const pkgRow = exists.rows[0];
 
     // 1) Si es master, recolectar IDs de las cajas hijas para borrarlas en cascada
     const idsToDelete: number[] = [packageId];
@@ -5366,9 +5372,24 @@ export const deletePackage = async (req: Request, res: Response): Promise<any> =
     await client.query('DELETE FROM packages WHERE id = $1', [packageId]);
 
     await client.query('COMMIT');
+
+    // WhatsApp: notificar cancelación al cliente si tenía número verificado
+    const wantWhatsapp = pkgRow.notif_whatsapp !== false
+      && (pkgRow.phone_verified === true || pkgRow.whatsapp_verified === true)
+      && pkgRow.notif_pobox !== false
+      && pkgRow.phone
+      && pkgRow.user_id;
+    if (wantWhatsapp) {
+      const { sendEnvioCancelado } = await import('./whatsappService').catch(() => ({ sendEnvioCancelado: undefined })) as any;
+      if (typeof sendEnvioCancelado === 'function') {
+        const firstName = (pkgRow.full_name || '').split(' ')[0] || 'Cliente';
+        sendEnvioCancelado(pkgRow.phone, firstName, pkgRow.tracking_internal || String(packageId)).catch(() => {});
+      }
+    }
+
     return res.json({
       success: true,
-      message: `Paquete ${exists.rows[0].tracking_internal || packageId} eliminado correctamente${isMaster ? ` (incluyendo ${idsToDelete.length - 1} cajas hijas)` : ''}`,
+      message: `Paquete ${pkgRow.tracking_internal || packageId} eliminado correctamente${isMaster ? ` (incluyendo ${idsToDelete.length - 1} cajas hijas)` : ''}`,
       deleted_count: idsToDelete.length,
     });
   } catch (error: any) {

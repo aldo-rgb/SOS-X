@@ -374,6 +374,32 @@ export const sendPoboxReceptionNotification = async (
     }
 };
 
+/**
+ * Notifica al cliente que su envío fue cancelado/eliminado del sistema.
+ * Requiere plantilla "envio_cancelado" aprobada en Meta Business (UTILITY, es_MX).
+ *
+ * Body del template a aprobar:
+ * ————————————————————————————————————
+ * ¡Hola {{1}}! 📦 Te informamos que el registro del paquete *{{2}}* ha sido
+ * cancelado en nuestro sistema. Si crees que es un error o necesitas ayuda,
+ * contáctanos a través de tu portal EntregaX.
+ * ————————————————————————————————————
+ * Variables: {{1}} = nombre (first name), {{2}} = tracking
+ */
+export const sendEnvioCancelado = async (phone: string, nombre: string, tracking: string): Promise<void> => {
+    const templateName = process.env.WHATSAPP_CANCEL_TEMPLATE || 'envio_cancelado';
+    try {
+        await sendTemplate({
+            to: phone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [nombre.split(' ')[0] ?? nombre, tracking],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] Error enviando envio_cancelado:', e);
+    }
+};
+
 export const whatsappStatus = (): { enabled: boolean; phoneNumberId: string | null } => {
     return {
         enabled: isEnabled(),
