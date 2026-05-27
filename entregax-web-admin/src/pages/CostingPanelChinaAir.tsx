@@ -30,6 +30,7 @@ import {
     Tabs,
     Tab,
     Tooltip,
+    Alert,
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -141,6 +142,7 @@ export default function CostingPanelChinaAir() {
     const [awbSortOrder, setAwbSortOrder] = useState<'asc' | 'desc' | null>(null);
     const [awbDeleteDialog, setAwbDeleteDialog] = useState<{ open: boolean; id: number | null; reference?: string }>({ open: false, id: null });
     const [awbDeleting, setAwbDeleting] = useState(false);
+    const [awbDeleteError, setAwbDeleteError] = useState<string | null>(null);
     const [, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
     // Datos de la guía actual
@@ -377,21 +379,26 @@ export default function CostingPanelChinaAir() {
     const handleDeleteAwbCost = async () => {
         if (!awbDeleteDialog.id) return;
         setAwbDeleting(true);
+        setAwbDeleteError(null);
         try {
             const res = await fetch(`${API_URL}/api/awb-costs/${awbDeleteDialog.id}`, {
                 method: 'DELETE',
                 headers: { Authorization: `Bearer ${token}` },
             });
+            const text = await res.text();
+            let body: any = {};
+            try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
+            console.log('[delete awb-cost]', res.status, body);
             if (res.ok) {
                 setMessage({ type: 'success', text: 'Línea de costeo eliminada' });
                 setAwbDeleteDialog({ open: false, id: null });
                 loadAwbCostList();
             } else {
-                const j = await res.json().catch(() => ({}));
-                setMessage({ type: 'error', text: j.error || 'Error al eliminar' });
+                setAwbDeleteError(`(${res.status}) ${body.error || body.message || body.raw || 'Error al eliminar'}`);
             }
-        } catch {
-            setMessage({ type: 'error', text: 'Error de conexión' });
+        } catch (e: any) {
+            console.error('[delete awb-cost] network error', e);
+            setAwbDeleteError(`Error de conexión: ${e?.message || 'desconocido'}`);
         } finally {
             setAwbDeleting(false);
         }
@@ -1142,9 +1149,12 @@ export default function CostingPanelChinaAir() {
                     <Typography>
                         ¿Seguro que deseas eliminar la línea <b>{awbDeleteDialog.reference || ''}</b>? Esta acción no se puede deshacer.
                     </Typography>
+                    {awbDeleteError && (
+                        <Alert severity="error" sx={{ mt: 2 }}>{awbDeleteError}</Alert>
+                    )}
                 </DialogContent>
                 <DialogActions>
-                    <Button onClick={() => setAwbDeleteDialog({ open: false, id: null })} disabled={awbDeleting}>Cancelar</Button>
+                    <Button onClick={() => { setAwbDeleteDialog({ open: false, id: null }); setAwbDeleteError(null); }} disabled={awbDeleting}>Cancelar</Button>
                     <Button color="error" variant="contained" onClick={handleDeleteAwbCost} disabled={awbDeleting} startIcon={awbDeleting ? <CircularProgress size={16} /> : <DeleteIcon />}>
                         Eliminar
                     </Button>
