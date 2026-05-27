@@ -138,6 +138,7 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
   const { gexEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
   const [loading, setLoading] = useState(true);
   const [details, setDetails] = useState<PackageDetails | null>(null);
+  const [imageLoadError, setImageLoadError] = useState(false);
   const [childPackages, setChildPackages] = useState<ChildPackage[]>([]);
   const [selectedChildImage, setSelectedChildImage] = useState<string | null>(null);
   const [showChildren, setShowChildren] = useState(false);
@@ -488,14 +489,15 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Imagen del paquete - Solo mostrar para paquetes individuales (no multi/repack) */}
-        {!isMultiPackage && details.image_url && (
+        {!isMultiPackage && details.image_url && !imageLoadError && (
           <Image
             source={{ uri: details.image_url }}
             style={styles.packageImage}
             resizeMode="cover"
+            onError={() => setImageLoadError(true)}
           />
         )}
-        {!isMultiPackage && !details.image_url && (
+        {!isMultiPackage && (!details.image_url || imageLoadError) && (
           <View style={styles.noImageContainer}>
             <MaterialCommunityIcons name="camera-off" size={48} color="#ccc" />
             <Text style={styles.noImageText}>Sin foto disponible</Text>
