@@ -8198,6 +8198,79 @@ app.post('/api/admin/email/whitelist', authenticateToken, requireMinLevel(ROLES.
 app.delete('/api/admin/email/whitelist/:id', authenticateToken, requireMinLevel(ROLES.ADMIN), removeFromWhitelist);
 app.get('/api/admin/email/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getEmailStats);
 
+// Verificación: drafts aprobados sin contenedor correspondiente (solo lectura)
+app.get('/api/admin/maritime/drafts/verify', authenticateToken, requireMinLevel(ROLES.ADMIN), async (_req: AuthRequest, res: Response) => {
+  try {
+    // Drafts FCL/LCL aprobados: cruzar contra containers por container_number o bl_number
+    const result = await pool.query(`
+      SELECT
+        d.id                                             AS draft_id,
+        d.document_type,
+        d.container_number                               AS draft_container,
+        d.bl_number                                      AS draft_bl,
+        (d.extracted_data->>'reference_code')            AS draft_reference,
+        d.reviewed_at,
+        c.id                                             AS container_id,
+        c.container_number                               AS container_number,
+        c.reference_code                                 AS container_reference,
+        c.status                                         AS container_status
+      FROM maritime_reception_drafts d
+      LEFT JOIN containers c
+        ON  (c.container_number = d.container_number AND d.container_number IS NOT NULL AND d.container_number != '')
+        OR  (c.bl_number        = d.bl_number        AND d.bl_number        IS NOT NULL AND d.bl_number        != '')
+      WHERE d.status = 'approved'
+        AND d.document_type IN ('FCL','LCL')
+      ORDER BY d.reviewed_at DESC
+      LIMIT 500
+    `);
+
+    const matched   = result.rows.filter((r: any) => r.container_id   != null);
+    const unmatched = result.rows.filter((r: any) => r.container_id   == null);
+
+    // Anticipo: cuáles referencias tienen bolsa
+    const refs = matched
+      .map((r: any) => r.container_reference || r.draft_reference)
+      .filter(Boolean);
+
+    let anticipoMap: Record<string, boolean> = {};
+    if (refs.length > 0) {
+      const aRes = await pool.query(
+        `SELECT DISTINCT referencia FROM anticipo_referencias WHERE referencia = ANY($1)`,
+        [refs]
+      );
+      aRes.rows.forEach((r: any) => { anticipoMap[r.referencia] = true; });
+    }
+
+    res.json({
+      total_approved_drafts : result.rows.length,
+      matched_with_container: matched.length,
+      unmatched_no_container: unmatched.length,
+      unmatched: unmatched.map((r: any) => ({
+        draft_id       : r.draft_id,
+        document_type  : r.document_type,
+        container      : r.draft_container,
+        bl             : r.draft_bl,
+        reference      : r.draft_reference,
+        reviewed_at    : r.reviewed_at,
+      })),
+      matched_without_anticipo: matched
+        .filter((r: any) => {
+          const ref = r.container_reference || r.draft_reference;
+          return ref && !anticipoMap[ref];
+        })
+        .map((r: any) => ({
+          draft_id           : r.draft_id,
+          container_id       : r.container_id,
+          container_number   : r.container_number,
+          reference          : r.container_reference || r.draft_reference,
+          container_status   : r.container_status,
+        })),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Servir PDFs de drafts (endpoint que sirve el archivo directamente)
 app.get('/api/admin/email/draft/:id/pdf/:type', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), serveDraftPdf);
 // Servir Excel SUMMARY de drafts LCL
