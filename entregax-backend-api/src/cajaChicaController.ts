@@ -1564,10 +1564,15 @@ export const pagarMultiplesConsolidaciones = async (req: AuthRequest, res: Respo
       })),
       packages_updated: updateRes.rows.length,
     });
-  } catch (error) {
+  } catch (error: any) {
     await client.query('ROLLBACK').catch(() => {});
     console.error('Error en pagarMultiplesConsolidaciones:', error);
-    res.status(500).json({ error: 'Error al procesar pago múltiple a proveedor' });
+    res.status(500).json({
+      error: 'Error al procesar pago múltiple a proveedor',
+      detail: error?.message,
+      code: error?.code,
+      where: error?.where,
+    });
   } finally {
     client.release();
   }
