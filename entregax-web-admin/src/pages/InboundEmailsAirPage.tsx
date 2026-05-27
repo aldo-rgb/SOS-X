@@ -4,7 +4,7 @@
 // Extracción con IA (GPT-4o Vision) + xlsx parsing
 // ============================================
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
     Box,
     Typography,
@@ -56,6 +56,10 @@ import {
     FlightTakeoff as TakeoffIcon,
     FlightLand as LandIcon,
     Inventory as InventoryIcon,
+    Search as SearchIcon,
+    ArrowUpward as ArrowUpwardIcon,
+    ArrowDownward as ArrowDownwardIcon,
+    SwapVert as SwapVertIcon,
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -164,6 +168,33 @@ export default function InboundEmailsAirPage() {
     const [drafts, setDrafts] = useState<AirDraft[]>([]);
     const [loading, setLoading] = useState(true);
     const [statusFilter, setStatusFilter] = useState('draft');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [refSortOrder, setRefSortOrder] = useState<'asc' | 'desc' | null>(null);
+
+    const displayedDrafts = useMemo(() => {
+        const term = searchTerm.trim().toLowerCase();
+        let list = drafts;
+        if (term) {
+            list = list.filter((d: any) => {
+                const fields = [d.reference, d.awb_number, d.carrier, d.flight_number, d.origin_airport, d.destination_airport];
+                return fields.some(v => v && String(v).toLowerCase().includes(term));
+            });
+        }
+        if (refSortOrder) {
+            list = [...list].sort((a: any, b: any) => {
+                const av = (a.reference || '').toString().toLowerCase();
+                const bv = (b.reference || '').toString().toLowerCase();
+                if (av === bv) return 0;
+                const cmp = av < bv ? -1 : 1;
+                return refSortOrder === 'asc' ? cmp : -cmp;
+            });
+        }
+        return list;
+    }, [drafts, searchTerm, refSortOrder]);
+
+    const toggleRefSort = () => {
+        setRefSortOrder(p => p === 'asc' ? 'desc' : p === 'desc' ? null : 'asc');
+    };
 
     // Stats
     const [stats, setStats] = useState<{ pending: number; approved: number; rejected: number; total: number; last_24h: number; total_pieces_approved: number; total_kg_approved: number } | null>(null);
@@ -632,7 +663,7 @@ export default function InboundEmailsAirPage() {
             {activeTab === 0 && (
                 <Box>
                     {/* Filter chips */}
-                    <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+                    <Box sx={{ display: 'flex', gap: 1, mb: 2, alignItems: 'center', flexWrap: 'wrap' }}>
                         {['draft', 'approved', 'rejected', 'all'].map(s => (
                             <Chip
                                 key={s}
@@ -643,6 +674,14 @@ export default function InboundEmailsAirPage() {
                                 sx={{ cursor: 'pointer', fontWeight: statusFilter === s ? 700 : 400 }}
                             />
                         ))}
+                        <TextField
+                            size="small"
+                            placeholder="Buscar referencia, MAWB, carrier..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} /> }}
+                            sx={{ minWidth: 280, ml: 'auto' }}
+                        />
                     </Box>
 
                     {loading ? (
@@ -656,7 +695,16 @@ export default function InboundEmailsAirPage() {
                             <Table size="small">
                                 <TableHead>
                                     <TableRow sx={{ bgcolor: '#F5F5F5' }}>
-                                        <TableCell sx={{ fontWeight: 700 }}>Referencia</TableCell>
+                                        <TableCell sx={{ fontWeight: 700 }}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                Referencia
+                                                <Tooltip title={refSortOrder === 'asc' ? 'Ascendente (clic: descendente)' : refSortOrder === 'desc' ? 'Descendente (clic: quitar)' : 'Ordenar por referencia'}>
+                                                    <IconButton size="small" onClick={toggleRefSort}>
+                                                        {refSortOrder === 'asc' ? <ArrowUpwardIcon fontSize="small" /> : refSortOrder === 'desc' ? <ArrowDownwardIcon fontSize="small" /> : <SwapVertIcon fontSize="small" />}
+                                                    </IconButton>
+                                                </Tooltip>
+                                            </Box>
+                                        </TableCell>
                                         <TableCell sx={{ fontWeight: 700 }}>MAWB</TableCell>
                                         <TableCell sx={{ fontWeight: 700 }}>Ruta</TableCell>
                                         <TableCell sx={{ fontWeight: 700 }}>Vuelo</TableCell>
@@ -671,7 +719,7 @@ export default function InboundEmailsAirPage() {
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                    {drafts.map(d => (
+                                    {displayedDrafts.map(d => (
                                         <TableRow key={d.id} hover sx={{ '&:hover': { bgcolor: AIR_BG } }}>
                                             <TableCell>
                                                 <Typography variant="body2" sx={{ fontWeight: 700 }}>
