@@ -4291,6 +4291,11 @@ export const getPackageById = async (req: Request, res: Response): Promise<any> 
                 }
             } catch { /* sin hijas o tabla no accesible — silencioso */ }
         }
+        // Firmar URL de S3 si es un objeto privado
+        if (effectiveImageUrl) {
+            const { signS3UrlIfNeeded } = await import('./s3Service');
+            effectiveImageUrl = await signS3UrlIfNeeded(effectiveImageUrl);
+        }
 
         const packageDetail = {
             id: pkg.id,
