@@ -689,6 +689,9 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
     const { message } = req.body;
     const userId = (req as any).user?.userId;
 
+    // Asegurar columna attachments (idempotente)
+    await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS attachments JSONB`);
+
     const files = (req.files as Express.Multer.File[]) || [];
     if ((!message || !message.trim()) && files.length === 0) {
       return res.status(400).json({ error: 'Mensaje o adjunto requerido' });
@@ -909,6 +912,9 @@ export const adminReplyTicket = async (req: Request, res: Response): Promise<any
     const { id } = req.params;
     const { message } = req.body;
     const agentId = (req as any).user?.userId;
+
+    // Asegurar columna attachments (idempotente)
+    await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS attachments JSONB`);
 
     if (!message && !(req.files as Express.Multer.File[])?.length) {
       return res.status(400).json({ error: 'Mensaje o adjunto requerido' });
@@ -1141,6 +1147,8 @@ export const ensureDepartmentsSchema = async () => {
     await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS is_internal BOOLEAN DEFAULT FALSE`);
     // Quién envió el mensaje (para agentes)
     await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS sender_id INT REFERENCES users(id)`);
+    // Adjuntos de mensajes (imágenes / PDF / Excel) — array de URLs
+    await pool.query(`ALTER TABLE ticket_messages ADD COLUMN IF NOT EXISTS attachments JSONB`);
     // Número de guía reportada al crear el ticket
     await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS tracking_number VARCHAR(100)`);
     // Timestamp de resolución (para stats de tiempo promedio)
