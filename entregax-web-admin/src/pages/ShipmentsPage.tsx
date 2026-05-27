@@ -1924,7 +1924,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                   {photoUploadChildren.map((child) => (
                     <Box key={child.id} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 1, borderBottom: '1px solid #f0f0f0' }}>
                       {child.image_url
-                        ? <Box component="img" src={child.image_url} sx={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 1, border: '2px solid #4caf50', cursor: 'pointer' }} onClick={() => window.open(child.image_url!, '_blank')} />
+                        ? <Box component="img" src={child.image_url} sx={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 1, border: '2px solid #4caf50', cursor: 'pointer' }} onClick={() => setImagePreviewUrl(child.image_url!)} />
                         : <Box sx={{ width: 52, height: 52, bgcolor: '#f5f5f5', borderRadius: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px dashed #bdbdbd' }}>
                             <ImageNotSupportedIcon sx={{ color: '#bdbdbd', fontSize: 24 }} />
                           </Box>}

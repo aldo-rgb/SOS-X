@@ -137,8 +137,9 @@ export default function POBoxHubScreen({ route, navigation }: any) {
     navigation.navigate(module.screen, { user, token });
   };
 
+  // 'photos' siempre visible si el usuario puede acceder al hub PO Box
   const visibleModules = POBOX_MODULES.filter((m) =>
-    permissions.includes(m.moduleKey)
+    m.moduleKey === 'photos' ? permissions.length > 0 : permissions.includes(m.moduleKey)
   );
 
   return (

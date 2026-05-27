@@ -888,7 +888,14 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
                         WHERE ph.package_id = p.id
                           AND ph.status::text = p.status::text
                    ) AS status_date,
-                   (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id) AS real_children_count
+                   (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id) AS real_children_count,
+                   CASE
+                     WHEN p.image_url IS NOT NULL THEN p.image_url
+                     WHEN p.is_master = true AND (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id) > 0
+                          AND (SELECT COUNT(*) = COUNT(c2.image_url) FROM packages c2 WHERE c2.master_id = p.id)
+                     THEN (SELECT image_url FROM packages c3 WHERE c3.master_id = p.id ORDER BY box_number ASC LIMIT 1)
+                     ELSE NULL
+                   END AS effective_image_url
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
@@ -945,7 +952,8 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
         const result = await pool.query(query, params);
         console.log('📦 Query completada, filas:', result.rows.length);
 
-        const packages = result.rows.map(pkg => ({
+        const { signS3UrlIfNeeded } = await import('./s3Service');
+        const packages = await Promise.all(result.rows.map(async pkg => ({
             id: pkg.id, tracking: pkg.tracking_internal, trackingProvider: pkg.tracking_provider,
             description: pkg.description,
             weight: pkg.weight ? parseFloat(pkg.weight) : null,
@@ -959,7 +967,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             totalBoxes: parseInt(pkg.real_children_count) > 0 ? parseInt(pkg.real_children_count) : (pkg.total_boxes || 1),
             declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,
             status: pkg.status, statusLabel: getStatusLabel(pkg.status),
-            imageUrl: pkg.image_url || null,
+            imageUrl: await signS3UrlIfNeeded(pkg.effective_image_url || pkg.image_url || null),
             receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
             // Fecha en la que el paquete entró en su estado actual (recepción
             // en Hidalgo, en MTY, salida a ruta, etc.). Cae a received_at /
@@ -975,7 +983,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
                 : pkg.legacy_name
                     ? { id: 0, name: pkg.legacy_name, email: '', boxId: pkg.legacy_box_id || pkg.box_id || 'N/A', isLegacy: true }
                     : { id: 0, name: pkg.box_id ? `Casillero ${pkg.box_id}` : 'Sin Cliente', email: '', boxId: pkg.box_id || 'N/A' }
-        }));
+        })));
 
         res.json({ success: true, total: packages.length, packages });
     } catch (error: any) {
