@@ -3407,6 +3407,21 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                 {selectedPackage.isMaster && <Chip icon={<AccountTreeIcon />} label={t('shipments.masterTracking').toUpperCase()} color="warning" sx={{ mb: 1 }} />}
                 <Typography variant="h4" sx={{ color: ORANGE, fontWeight: 'bold' }}>{selectedPackage.tracking}</Typography>
               </Box>
+              {/* Foto del paquete */}
+              {selectedPackage.imageUrl && (
+                <Box sx={{ textAlign: 'center', mb: 2 }}>
+                  <Box
+                    component="img"
+                    src={selectedPackage.imageUrl}
+                    alt="Foto del paquete"
+                    onClick={() => setImagePreviewUrl(selectedPackage.imageUrl!)}
+                    sx={{ maxWidth: '100%', maxHeight: 220, borderRadius: 2, cursor: 'zoom-in', border: '2px solid #e0e0e0', objectFit: 'cover' }}
+                  />
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                    Click para ampliar
+                  </Typography>
+                </Box>
+              )}
               <Grid container spacing={2}>
                 <Grid size={6}><Typography variant="body2" color="text.secondary">{t('clients.client')}</Typography>
                   {editingClient ? (
