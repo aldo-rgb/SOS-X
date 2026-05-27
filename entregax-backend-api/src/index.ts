@@ -1343,6 +1343,7 @@ setInterval(() => {
 // Middlewares
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
+app.set('etag', false);
 
 // Helmet: CSP + headers de seguridad estandarizados.
 // crossOriginResourcePolicy 'cross-origin' permite servir /uploads desde otros orígenes.
