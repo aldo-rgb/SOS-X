@@ -683,8 +683,11 @@ function App() {
     .map(item => {
       // Filtrar subItems según permisos del usuario
       let filteredSubItems = item.subItems;
-      
-      if (item.subItems && !isSuperAdmin && permissionsLoaded) {
+
+      // director/finanzas tienen acceso al grupo Caja por rol, sin permisos granulares.
+      const bypassSubPerms = item.key === 'cajaChicaGroup' && (currentUser?.role === 'director' || currentUser?.role === 'finanzas');
+
+      if (item.subItems && !isSuperAdmin && !bypassSubPerms && permissionsLoaded) {
         filteredSubItems = item.subItems.filter(sub => {
           // Verificar si tiene permisos en esa categoría
           return hasPermissionInCategory(sub.key);
