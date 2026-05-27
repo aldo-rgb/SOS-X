@@ -6115,10 +6115,18 @@ export const notifyBulkMasterReception = async (req: Request, res: Response): Pr
 
       const wantWhatsapp = pkg.notif_whatsapp !== false && (pkg.phone_verified === true || pkg.whatsapp_verified === true);
       if (wantWhatsapp && pkg.notif_service !== false && pkg.phone) {
-        const { sendPackageArrival } = await import('./whatsappService').catch(() => ({ sendPackageArrival: undefined })) as any;
-        if (typeof sendPackageArrival === 'function') {
+        const { sendPoboxReceptionNotification } = await import('./whatsappService').catch(() => ({ sendPoboxReceptionNotification: undefined })) as any;
+        if (typeof sendPoboxReceptionNotification === 'function') {
           const firstName = (pkg.full_name || '').split(' ')[0] || 'Cliente';
-          await sendPackageArrival(pkg.phone, firstName, savedTracking, 'PO Box USA').catch(() => {});
+          // Query children to get total boxes and origin guide
+          const childRows = await pool.query(
+            `SELECT COUNT(*) as total, MIN(tracking_provider) as guia_origen
+             FROM packages WHERE master_package_id = $1`,
+            [masterId]
+          );
+          const totalCajas = parseInt(childRows.rows[0]?.total || '1', 10) || 1;
+          const guiaOrigen = totalCajas === 1 ? (childRows.rows[0]?.guia_origen || null) : null;
+          await sendPoboxReceptionNotification(pkg.phone, firstName, savedTracking, totalCajas, guiaOrigen).catch(() => {});
         }
       }
     } else {

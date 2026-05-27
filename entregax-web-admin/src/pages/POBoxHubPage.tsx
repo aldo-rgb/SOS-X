@@ -543,6 +543,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
     const [bulkMultiScanOpen, setBulkMultiScanOpen] = useState(false);
     const [bulkPhotoMode, setBulkPhotoMode] = useState<'now' | 'later'>('later');
     const [bulkCancelConfirmOpen, setBulkCancelConfirmOpen] = useState(false);
+    const [bulkIsSingleBox, setBulkIsSingleBox] = useState(false);
     const [bulkPhotoCaptureOpen, setBulkPhotoCaptureOpen] = useState(false);
     const [bulkPhotoCaptureBoxId, setBulkPhotoCaptureBoxId] = useState<number | null>(null);
     const [bulkPhotoCaptureResolve, setBulkPhotoCaptureResolve] = useState<(() => void) | null>(null);
@@ -656,6 +657,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             if (!id) throw new Error('No se obtuvo masterId');
             setBulkMasterId(id);
             setBulkMasterTracking(tracking || '');
+            setBulkIsSingleBox(r.data?.isSingleBox === true);
             setBulkRegisteredIds(prev => [...prev, id]);
             return id;
         } catch (err: any) {
@@ -793,6 +795,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             id: baseId + i,
             trackingCourier: normalizeCarrierGuide(g || ''),
         }));
+        // Cerrar el multi-scan dialog ANTES de empezar (para que el modal de foto
+        // no aparezca debajo del dialog de guías)
+        setBulkMultiScanOpen(false);
         setBulkSubmitting(true);
         const batchLabels: any[] = [];
         const successfulBoxes: BoxItem[] = [];
@@ -802,6 +807,10 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             if (!result) { allOk = false; break; }
             box.dbId = result.childId;
             box.dbTracking = result.childTracking;
+            // Foto por caja si modo "ahora"
+            if (bulkPhotoMode === 'now' && box.dbId) {
+                await waitForPhotoCapture(box.dbId);
+            }
             successfulBoxes.push(box);
             if (result.label) batchLabels.push(result.label);
         }
@@ -818,7 +827,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
         setBulkBoxQuantity('1');
         if (!allOk) {
-            setBulkMultiScanOpen(false);
             // bulkError ya fue seteado por addBoxToBulkMaster
             if (successfulBoxes.length > 0) {
                 setSnackbar({
@@ -829,7 +837,6 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             }
             return;
         }
-        setBulkMultiScanOpen(false);
         setBulkError('');
         // Imprimir TODAS las etiquetas de este bloque en un solo archivo (multi-página) - SIN QR para recepción PO BOX
         if (batchLabels.length > 0) await printAllLabelsAtOnce(batchLabels, true);
@@ -1139,27 +1146,28 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         doc.close();
     };
 
-    // Finalizar embarque: asocia la foto del embarque a todos los paquetes creados en esta sesión
+    // Finalizar embarque: asocia la foto del embarque al master y notifica al cliente (multi-caja)
     const handleSaveBulkPackage = async () => {
         setBulkSubmitting(true);
         setBulkError('');
         try {
-            if (bulkImage && bulkRegisteredIds.length > 0) {
+            // Foto del embarque → solo al master (las fotos por caja ya están en los hijos)
+            if (bulkImage && bulkMasterId !== null) {
                 const token = localStorage.getItem('token') || '';
                 await axios.patch(
                     `${API_URL}/api/packages/batch-image`,
-                    { packageIds: bulkRegisteredIds, imageUrl: bulkImage },
+                    { packageIds: [bulkMasterId], imageUrl: bulkImage },
                     { headers: { Authorization: `Bearer ${token}` } }
                 );
             }
-            // Notificar al cliente/asesores ahora que el wizard está completo
+            // Notificar al cliente (multi-caja: se notifica aquí al finalizar embarque)
             if (bulkMasterId !== null) {
                 const token = localStorage.getItem('token') || '';
-                await axios.post(
+                axios.post(
                     `${API_URL}/api/packages/bulk-master/${bulkMasterId}/notify-reception`,
                     {},
                     { headers: { Authorization: `Bearer ${token}` } }
-                ).catch(() => { /* no bloquear si falla la notificación */ });
+                ).catch(() => {});
             }
             setSnackbar({
                 open: true,
@@ -1199,8 +1207,45 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         setBulkRegisteredIds([]);
         setBulkMasterId(null);
         setBulkMasterTracking('');
+        setBulkIsSingleBox(false);
         setBulkImage(null);
         setBulkError('');
+    };
+
+    // "Aceptar" en el success dialog: avanza al siguiente paso
+    // - 1 caja: notifica aquí (foto ya capturada) y finaliza directamente sin Foto Final
+    // - N cajas: va a Foto Final (step 2); la notificación se dispara al dar "Finalizar Embarque"
+    const handleCompleteBlock = () => {
+        setBulkSuccessDialog(prev => ({ ...prev, open: false }));
+        setBulkError('');
+        if (bulkIsSingleBox) {
+            // Single box: notify now (no Foto Final step)
+            if (bulkMasterId !== null) {
+                const token = localStorage.getItem('token') || '';
+                axios.post(
+                    `${API_URL}/api/packages/bulk-master/${bulkMasterId}/notify-reception`,
+                    {},
+                    { headers: { Authorization: `Bearer ${token}` } }
+                ).catch(() => {});
+            }
+            // 1 caja individual: no hay foto de embarque — finalizar y resetear
+            setBulkBoxes([]);
+            setSessionLabels([]);
+            setBulkCurrentBox({ weight: '', length: '', width: '', height: '', trackingCourier: '', originCarrier: '' });
+            setBulkBoxId('');
+            setBulkClientLookup({ status: 'idle' });
+            setBulkExpectedBoxes('');
+            setBulkRegisteredIds([]);
+            setBulkMasterId(null);
+            setBulkMasterTracking('');
+            setBulkIsSingleBox(false);
+            setBulkImage(null);
+            setBulkStep(0);
+            setSnackbar({ open: true, message: '✅ Recepción completada', severity: 'success' });
+        } else {
+            // Múltiples cajas: ir a Foto Final para foto del embarque completo
+            setBulkStep(2);
+        }
     };
 
     // Cerrar modal de recepción en serie — pide confirmación si ya hay un master creado
@@ -2578,10 +2623,7 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             {/* =========== DIÁLOGO DE CONFIRMACIÓN FINAL (al terminar última captura) =========== */}
             <Dialog
                 open={bulkSuccessDialog.open}
-                onClose={() => {
-                    setBulkSuccessDialog(prev => ({ ...prev, open: false }));
-                    handleCloseBulkReceive();
-                }}
+                onClose={handleCompleteBlock}
                 maxWidth="sm"
                 fullWidth
                 PaperProps={{ sx: { borderRadius: 3 } }}
@@ -2663,14 +2705,11 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
                         variant="contained"
                         size="large"
                         startIcon={<CheckCircleIcon />}
-                        onClick={() => {
-                            setBulkSuccessDialog(prev => ({ ...prev, open: false }));
-                            handleCloseBulkReceive();
-                        }}
+                        onClick={handleCompleteBlock}
                         sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' }, fontWeight: 'bold' }}
                         fullWidth
                     >
-                        Aceptar y cerrar
+                        Aceptar
                     </Button>
                 </DialogActions>
             </Dialog>

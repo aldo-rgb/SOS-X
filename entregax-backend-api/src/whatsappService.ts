@@ -317,6 +317,63 @@ export const sendPackageArrival = async (phone: string, nombre: string, tracking
     }
 };
 
+/**
+ * Notificación PO Box — paquete recibido en bodega.
+ * Plantilla: "paquete_recibido_pobox"  (4 variables, categoría UTILITY)
+ *
+ *   Body del template a aprobar en Meta:
+ *   ————————————————————————————————————————
+ *   📦 ¡Hola {{1}}! Tu paquete ha llegado.
+ *
+ *   🔎 Tracking: {{2}}
+ *   🚚 Servicio: PO Box USA
+ *   📦 Cajas: {{3}}
+ *   🏷️ Guía origen: {{4}}
+ *
+ *   ✅ Tu paquete fue recibido exitosamente en nuestra bodega y ya está disponible para asignación de instrucciones de entrega.
+ *   ————————————————————————————————————————
+ *
+ *   {{1}} = nombre (first name del cliente)
+ *   {{2}} = tracking interno master (US-XXXXXXXXXX)
+ *   {{3}} = número de cajas (ej. "1", "3")
+ *   {{4}} = guía de origen cuando es 1 caja (ej. "1Z999AA10123456784")
+ *           o "Múltiples (ver en portal)" cuando son varias cajas
+ *
+ * Si no existe la plantilla avanzada, cae al template básico como fallback.
+ */
+export const sendPoboxReceptionNotification = async (
+    phone: string,
+    nombre: string,
+    trackingMaster: string,
+    totalCajas: number,
+    guiaOrigen: string | null
+): Promise<void> => {
+    const templateName = process.env.WHATSAPP_POBOX_RECEPTION_TEMPLATE || 'paquete_recibido_pobox';
+    const basicTemplate = process.env.WHATSAPP_PACKAGE_TEMPLATE || 'paquete_recibido';
+    const firstName = nombre.split(' ')[0] ?? nombre;
+    const guiaParam = guiaOrigen || (totalCajas > 1 ? 'Múltiples (ver en portal)' : 'No registrada');
+    try {
+        await sendTemplate({
+            to: phone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [firstName, trackingMaster, String(totalCajas), guiaParam],
+        });
+    } catch {
+        // Fallback al template básico si la plantilla nueva no está aprobada aún
+        try {
+            await sendTemplate({
+                to: phone,
+                template: basicTemplate,
+                languageCode: 'es_MX',
+                parameters: [firstName, trackingMaster, 'PO Box USA'],
+            });
+        } catch (e) {
+            console.error('[WHATSAPP] Error enviando notificación PO Box recepción:', e);
+        }
+    }
+};
+
 export const whatsappStatus = (): { enabled: boolean; phoneNumberId: string | null } => {
     return {
         enabled: isEnabled(),
