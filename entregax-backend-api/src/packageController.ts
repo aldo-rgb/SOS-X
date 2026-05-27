@@ -6143,15 +6143,14 @@ export const notifyBulkMasterReception = async (req: Request, res: Response): Pr
         await sendPushToUsers([pkg.user_id], { title: notifTitle, body: notifBody, data: notifData }).catch(() => {});
       }
 
-      const wantWhatsapp = pkg.notif_whatsapp !== false && (pkg.phone_verified === true || pkg.whatsapp_verified === true);
-      if (wantWhatsapp && pkg.notif_service !== false && pkg.phone) {
+      const wantWhatsapp = pkg.notif_whatsapp !== false && pkg.notif_service !== false && pkg.phone;
+      if (wantWhatsapp) {
         const { sendPoboxReceptionNotification } = await import('./whatsappService').catch(() => ({ sendPoboxReceptionNotification: undefined })) as any;
         if (typeof sendPoboxReceptionNotification === 'function') {
           const firstName = (pkg.full_name || '').split(' ')[0] || 'Cliente';
-          // Query children to get total boxes and origin guide
           const childRows = await pool.query(
             `SELECT COUNT(*) as total, MIN(tracking_provider) as guia_origen
-             FROM packages WHERE master_package_id = $1`,
+             FROM packages WHERE master_id = $1`,
             [masterId]
           );
           const totalCajas = parseInt(childRows.rows[0]?.total || '1', 10) || 1;
