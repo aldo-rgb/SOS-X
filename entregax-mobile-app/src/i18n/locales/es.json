@@ -121,7 +121,7 @@
     "alreadyHaveAccount": "¿Ya tienes cuenta?",
     "dontHaveAccount": "¿No tienes cuenta?",
     "enterCredentials": "Ingresa tus credenciales",
-    "invalidCredentials": "Credenciales inválidas",
+    "invalidCredentials": "Verifique su nombre de usuario y/o contraseña",
     "passwordMismatch": "Las contraseñas no coinciden",
     "referralCode": "Código de Referido (opcional)",
     "termsAccept": "Al registrarte, aceptas nuestros",

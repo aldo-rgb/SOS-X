@@ -50,6 +50,8 @@ import LocalOfferIcon from '@mui/icons-material/LocalOffer';
 import HistoryIcon from '@mui/icons-material/History';
 import EditIcon from '@mui/icons-material/Edit';
 import LockResetIcon from '@mui/icons-material/LockReset';
+import BlockIcon from '@mui/icons-material/Block';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
@@ -62,6 +64,7 @@ interface Client {
   box_id: string;
   created_at: string;
   is_verified: boolean;
+  is_active: boolean;
   referred_by_id: number | null;
   advisor_id: number | null;
   first_transaction_date: string | null;
@@ -165,6 +168,8 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
 
   // Resetear contraseña
   const [resetPwdClient, setResetPwdClient] = useState<Client | null>(null);
+  const [toggleActiveClient, setToggleActiveClient] = useState<Client | null>(null);
+  const [toggleActiveLoading, setToggleActiveLoading] = useState(false);
   const [resetPwdLoading, setResetPwdLoading] = useState(false);
 
   // Snackbar
@@ -378,6 +383,25 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
       setSnackbar({ open: true, message: 'Error al resetear contraseña', severity: 'error' });
     } finally {
       setResetPwdLoading(false);
+    }
+  };
+
+  const handleToggleActive = async () => {
+    if (!toggleActiveClient) return;
+    setToggleActiveLoading(true);
+    try {
+      const res = await axios.patch(
+        `${API_URL}/admin/crm/clients/${toggleActiveClient.id}/toggle-active`,
+        {},
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setClients(prev => prev.map(c => c.id === toggleActiveClient.id ? { ...c, is_active: res.data.is_active } : c));
+      setSnackbar({ open: true, message: res.data.is_active ? 'Cliente activado' : 'Cliente desactivado', severity: 'success' });
+      setToggleActiveClient(null);
+    } catch {
+      setSnackbar({ open: true, message: 'Error al cambiar estado del cliente', severity: 'error' });
+    } finally {
+      setToggleActiveLoading(false);
     }
   };
 
@@ -645,11 +669,15 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
                       ) : '-'}
                     </TableCell>
                     <TableCell>
-                      <Chip 
-                        label={getStatusLabel(client.recovery_status).label}
-                        size="small"
-                        color={getStatusLabel(client.recovery_status).color}
-                      />
+                      {client.is_active === false ? (
+                        <Chip label="Inactivo" size="small" color="default" />
+                      ) : (
+                        <Chip
+                          label={getStatusLabel(client.recovery_status).label}
+                          size="small"
+                          color={getStatusLabel(client.recovery_status).color}
+                        />
+                      )}
                     </TableCell>
                     <TableCell align="center">
                       <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
@@ -668,6 +696,17 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
                           <Tooltip title="Resetear Contraseña">
                             <IconButton size="small" color="warning" onClick={() => setResetPwdClient(client)}>
                               <LockResetIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {canEditClients && (
+                          <Tooltip title={client.is_active === false ? 'Activar Cliente' : 'Desactivar Cliente'}>
+                            <IconButton
+                              size="small"
+                              color={client.is_active === false ? 'success' : 'error'}
+                              onClick={() => setToggleActiveClient(client)}
+                            >
+                              {client.is_active === false ? <CheckCircleIcon fontSize="small" /> : <BlockIcon fontSize="small" />}
                             </IconButton>
                           </Tooltip>
                         )}
@@ -917,6 +956,33 @@ export default function CRMClientsPage({ canEdit: canEditProp }: { canEdit?: boo
           <Button onClick={() => setResetPwdClient(null)}>Cancelar</Button>
           <Button variant="contained" color="warning" onClick={handleResetPassword} disabled={resetPwdLoading}>
             {resetPwdLoading ? <CircularProgress size={20} /> : 'Resetear Contraseña'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Activar/Desactivar Cliente Dialog */}
+      <Dialog open={!!toggleActiveClient} onClose={() => setToggleActiveClient(null)} maxWidth="xs" fullWidth>
+        <DialogTitle>
+          {toggleActiveClient?.is_active === false ? 'Activar Cliente' : 'Desactivar Cliente'}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Alert severity={toggleActiveClient?.is_active === false ? 'success' : 'warning'} sx={{ mb: 2 }}>
+            {toggleActiveClient?.is_active === false ? (
+              <>El cliente <strong>{toggleActiveClient?.full_name}</strong> podrá iniciar sesión y usar la plataforma nuevamente.</>
+            ) : (
+              <>El cliente <strong>{toggleActiveClient?.full_name}</strong> no podrá iniciar sesión hasta que sea reactivado.</>
+            )}
+          </Alert>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setToggleActiveClient(null)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color={toggleActiveClient?.is_active === false ? 'success' : 'error'}
+            onClick={handleToggleActive}
+            disabled={toggleActiveLoading}
+          >
+            {toggleActiveLoading ? <CircularProgress size={20} /> : (toggleActiveClient?.is_active === false ? 'Activar' : 'Desactivar')}
           </Button>
         </DialogActions>
       </Dialog>

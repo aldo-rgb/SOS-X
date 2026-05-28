@@ -364,6 +364,7 @@ export const getCRMClients = async (req: Request, res: Response): Promise<any> =
         u.box_id,
         u.created_at,
         u.is_verified,
+        u.is_active,
         u.referred_by_id,
         COALESCE(u.advisor_id, u.referred_by_id) as advisor_id,
         u.first_transaction_date,
@@ -1205,6 +1206,25 @@ export const resetClientPassword = async (req: Request, res: Response): Promise<
       [hashed, id]
     );
     res.json({ success: true });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+/**
+ * PATCH /api/admin/crm/clients/:id/toggle-active
+ * Activa o desactiva un cliente (toggle de users.is_active).
+ */
+export const toggleClientActive = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const cur = await pool.query(`SELECT is_active FROM users WHERE id = $1 AND role = 'client'`, [id]);
+    if (cur.rows.length === 0) {
+      return res.status(404).json({ error: 'Cliente no encontrado' });
+    }
+    const newState = !cur.rows[0].is_active;
+    await pool.query(`UPDATE users SET is_active = $1 WHERE id = $2`, [newState, id]);
+    res.json({ success: true, is_active: newState });
   } catch (error: any) {
     res.status(500).json({ error: error.message });
   }

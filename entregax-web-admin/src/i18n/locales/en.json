@@ -189,7 +189,7 @@
     "forgotPassword": "Forgot your password?",
     "welcomeBack": "Welcome back",
     "enterCredentials": "Enter your credentials to continue",
-    "invalidCredentials": "Invalid credentials",
+    "invalidCredentials": "Please verify your username and/or password",
     "sessionExpired": "Your session has expired"
   },
   "menu": {

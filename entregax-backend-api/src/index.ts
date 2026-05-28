@@ -564,7 +564,8 @@ import {
   getAdvisorsForCRM,
   getTeamLeaders,
   changeClientAdvisor,
-  resetClientPassword
+  resetClientPassword,
+  toggleClientActive
 } from './crmController';
 import {
   handleSupportMessage,
@@ -5089,6 +5090,7 @@ app.get('/api/admin/crm/recovery/history/:userId', authenticateToken, requireMin
 app.post('/api/admin/crm/recovery/detect', authenticateToken, requireMinLevel(ROLES.DIRECTOR), detectAtRiskClients);
 app.patch('/api/admin/crm/clients/:id/advisor', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), changeClientAdvisor);
 app.post('/api/admin/crm/clients/:id/reset-password', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resetClientPassword);
+app.patch('/api/admin/crm/clients/:id/toggle-active', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), toggleClientActive);
 
 // Módulo 3: Prospectos (Leads mejorado)
 app.get('/api/admin/crm/prospects', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getProspects);

@@ -123,7 +123,7 @@
     "alreadyHaveAccount": "Already have an account?",
     "dontHaveAccount": "Don't have an account?",
     "enterCredentials": "Enter your credentials",
-    "invalidCredentials": "Invalid credentials",
+    "invalidCredentials": "Please verify your username and/or password",
     "passwordMismatch": "Passwords do not match",
     "referralCode": "Referral Code (optional)",
     "termsAccept": "By registering, you accept our",

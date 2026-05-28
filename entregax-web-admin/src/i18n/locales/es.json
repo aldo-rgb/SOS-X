@@ -218,7 +218,7 @@
     "forgotPassword": "¿Olvidaste tu contraseña?",
     "welcomeBack": "Bienvenido de nuevo",
     "enterCredentials": "Ingresa tus credenciales para continuar",
-    "invalidCredentials": "Credenciales inválidas",
+    "invalidCredentials": "Verifique su nombre de usuario y/o contraseña",
     "sessionExpired": "Tu sesión ha expirado"
   },
   "menu": {

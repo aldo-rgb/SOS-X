@@ -340,7 +340,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
         const userQuery = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
         
         if (userQuery.rows.length === 0) {
-            res.status(401).json({ error: 'Credenciales inválidas' });
+            res.status(401).json({ error: 'Verifique su nombre de usuario y/o contraseña' });
             return;
         }
 
@@ -350,7 +350,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
         const validPassword = await bcrypt.compare(password, user.password);
         
         if (!validPassword) {
-            res.status(401).json({ error: 'Credenciales inválidas' });
+            res.status(401).json({ error: 'Verifique su nombre de usuario y/o contraseña' });
             return;
         }
 
