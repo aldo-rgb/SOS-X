@@ -103,12 +103,11 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
     let result: ImagePicker.ImagePickerResult;
     try {
       result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ['images'],
         allowsEditing: false,
         quality: 0.75,
       });
-    } catch (e) {
-      Alert.alert('Error', 'No se pudo abrir la cámara. Intenta de nuevo.');
+    } catch (e: any) {
+      Alert.alert('Error al abrir cámara', String(e?.message || e || 'desconocido'));
       resetFlow();
       return;
     }

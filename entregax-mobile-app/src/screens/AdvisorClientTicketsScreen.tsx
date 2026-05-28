@@ -13,6 +13,8 @@ import {
   Alert,
   Image,
   Linking,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -599,6 +601,10 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
 
       {/* Ticket Detail Modal */}
       <Modal visible={showDetail} animationType="slide" onRequestClose={() => setShowDetail(false)}>
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
         <View style={[styles.modalContainer, { paddingTop: insets.top }]}>
           {/* Modal Header */}
           <View style={styles.modalHeader}>
@@ -759,6 +765,7 @@ export default function AdvisorClientTicketsScreen({ navigation, route }: any) {
             </View>
           )}
         </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );

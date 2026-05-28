@@ -34,8 +34,7 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
 
   const [category, setCategory] = useState<string | null>(null);
   const [description, setDescription] = useState('');
-  const [screenshot, setScreenshot] = useState<ImagePicker.ImagePickerAsset | null>(null);
-  const [attachedFile, setAttachedFile] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
+  const [attachments, setAttachments] = useState<{ uri: string; name: string; type: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [sent, setSent] = useState(false);
   const [folio, setFolio] = useState('');
@@ -51,20 +50,29 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
   const showClientFields = category ? NEEDS_CLIENT_FIELDS.includes(category) : false;
   const showGuia = category ? NEEDS_GUIA.includes(category) : false;
 
+  const addImageAsset = (a: ImagePicker.ImagePickerAsset) => {
+    const ext = (a.uri.split('.').pop() || 'jpg').toLowerCase();
+    setAttachments(prev => [...prev, {
+      uri: a.uri,
+      name: a.fileName || `img.${ext}`,
+      type: `image/${ext === 'jpg' ? 'jpeg' : ext}`,
+    }]);
+  };
+
   const pickScreenshot = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
-      const cam = await ImagePicker.requestCameraPermissionsAsync();
-      if (!cam.granted) {
-        Alert.alert('Permiso requerido', 'Necesitamos acceso a tu cámara o galería para adjuntar capturas.');
-        return;
-      }
-      const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
-      if (!result.canceled) setScreenshot(result.assets[0]);
+      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.');
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7, mediaTypes: 'images' });
-    if (!result.canceled) setScreenshot(result.assets[0]);
+    const result = await ImagePicker.launchImageLibraryAsync({
+      quality: 0.7,
+      mediaTypes: 'images',
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
+    });
+    if (result.canceled || !result.assets?.length) return;
+    result.assets.forEach(addImageAsset);
   };
 
   const takePhoto = async () => {
@@ -74,7 +82,7 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
       return;
     }
     const result = await ImagePicker.launchCameraAsync({ quality: 0.7 });
-    if (!result.canceled) setScreenshot(result.assets[0]);
+    if (!result.canceled && result.assets?.[0]) addImageAsset(result.assets[0]);
   };
 
   const pickDocument = async () => {
@@ -87,19 +95,20 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
           'text/csv',
         ],
         copyToCacheDirectory: true,
-        multiple: false,
+        multiple: true,
       });
-      if (result.canceled || !result.assets?.[0]) return;
-      const a = result.assets[0];
-      if (a.size && a.size > 20 * 1024 * 1024) {
-        Alert.alert('Archivo muy grande', 'El máximo es 20MB.');
-        return;
+      if (result.canceled || !result.assets?.length) return;
+      for (const a of result.assets) {
+        if (a.size && a.size > 20 * 1024 * 1024) {
+          Alert.alert('Archivo muy grande', `"${a.name}" supera 20MB y se omitió.`);
+          continue;
+        }
+        setAttachments(prev => [...prev, {
+          uri: a.uri,
+          name: a.name || 'archivo',
+          type: a.mimeType || 'application/octet-stream',
+        }]);
       }
-      setAttachedFile({
-        uri: a.uri,
-        name: a.name || 'archivo',
-        mimeType: a.mimeType || 'application/octet-stream',
-      });
     } catch (e: any) {
       Alert.alert('Error', e.message || 'No se pudo seleccionar el archivo.');
     }
@@ -134,23 +143,13 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
       form.append('category', category);
       form.append('escalateDirectly', 'true');
 
-      if (ticketClientNumber.trim()) form.append('clientNumber', ticketClientNumber.trim());
-      if (ticketCedis) form.append('cedis', ticketCedis);
+      if (showClientFields && ticketClientNumber.trim()) form.append('clientNumber', ticketClientNumber.trim());
+      if (showClientFields && ticketCedis) form.append('cedis', ticketCedis);
       if (ticketGuia.trim()) form.append('trackingNumber', ticketGuia.trim());
 
-      if (screenshot) {
-        const uri = screenshot.uri;
-        const ext = uri.split('.').pop() || 'jpg';
-        form.append('images', { uri, name: `screenshot.${ext}`, type: `image/${ext}` } as any);
-      }
-
-      if (attachedFile) {
-        form.append('images', {
-          uri: attachedFile.uri,
-          name: attachedFile.name,
-          type: attachedFile.mimeType,
-        } as any);
-      }
+      attachments.forEach((f) => {
+        form.append('images', { uri: f.uri, name: f.name, type: f.type } as any);
+      });
 
       const res = await fetch(`${API_URL}/api/support/message`, {
         method: 'POST',
@@ -298,27 +297,39 @@ export default function AdvisorSupportTicketScreen({ navigation, route }: any) {
 
         {/* Adjuntos */}
         <Text style={styles.label}>Adjuntos (opcional)</Text>
-        {screenshot && (
-          <View style={styles.screenshotPreview}>
-            <Image source={{ uri: screenshot.uri }} style={styles.screenshotImg} resizeMode="cover" />
-            <TouchableOpacity style={styles.removeScreenshot} onPress={() => setScreenshot(null)}>
-              <Ionicons name="close-circle" size={24} color="#f44336" />
-            </TouchableOpacity>
-          </View>
-        )}
-        {attachedFile && (
-          <View style={styles.filePreview}>
-            <Ionicons
-              name={attachedFile.mimeType.includes('pdf') ? 'document-text' : 'document-attach'}
-              size={28}
-              color={attachedFile.mimeType.includes('pdf') ? '#c62828' : '#2E7D32'}
-            />
-            <Text style={styles.filePreviewName} numberOfLines={1}>{attachedFile.name}</Text>
-            <TouchableOpacity onPress={() => setAttachedFile(null)} style={{ padding: 4 }}>
-              <Ionicons name="close-circle" size={22} color="#f44336" />
-            </TouchableOpacity>
-          </View>
-        )}
+        {attachments.map((f, i) => {
+          const isImg = f.type.startsWith('image/');
+          const isPdf = f.type.includes('pdf');
+          if (isImg) {
+            return (
+              <View key={i} style={styles.screenshotPreview}>
+                <Image source={{ uri: f.uri }} style={styles.screenshotImg} resizeMode="cover" />
+                <TouchableOpacity
+                  style={styles.removeScreenshot}
+                  onPress={() => setAttachments(prev => prev.filter((_, j) => j !== i))}
+                >
+                  <Ionicons name="close-circle" size={24} color="#f44336" />
+                </TouchableOpacity>
+              </View>
+            );
+          }
+          return (
+            <View key={i} style={styles.filePreview}>
+              <Ionicons
+                name={isPdf ? 'document-text' : 'document-attach'}
+                size={28}
+                color={isPdf ? '#c62828' : '#2E7D32'}
+              />
+              <Text style={styles.filePreviewName} numberOfLines={1}>{f.name}</Text>
+              <TouchableOpacity
+                onPress={() => setAttachments(prev => prev.filter((_, j) => j !== i))}
+                style={{ padding: 4 }}
+              >
+                <Ionicons name="close-circle" size={22} color="#f44336" />
+              </TouchableOpacity>
+            </View>
+          );
+        })}
         <View style={styles.screenshotBtns}>
           <TouchableOpacity style={styles.screenshotBtn} onPress={takePhoto}>
             <Ionicons name="camera-outline" size={20} color={ORANGE} />

@@ -1226,6 +1226,13 @@ export default function SupportBoardPage() {
                   </Alert>
                 </Box>
               )}
+              {selectedTicket.status !== 'resolved' && !isInternalNote && isOperaciones && (
+                <Box sx={{ px: 2, pt: 1 }}>
+                  <Alert severity="info" icon={false} sx={{ mb: 1, py: 0.5, fontSize: 12, bgcolor: '#E3F2FD', color: '#0D47A1' }}>
+                    ⚠️ <strong>Atención:</strong> esta no es una conversación interna. El mensaje y las fotos que envíes <strong>serán visibles para el cliente</strong>. Si necesitas comentar entre el equipo, usa el botón 🔒 de Nota interna.
+                  </Alert>
+                </Box>
+              )}
               {selectedTicket.status !== 'resolved' && (
                 <Box sx={{ px: 2, pb: 2 }}>
                   {/* Previews de adjuntos */}

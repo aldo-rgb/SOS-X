@@ -154,19 +154,6 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
   
   // === BODEGA (warehouse_ops) - Legacy ===
   {
-    id: 'warehouse_scanner',
-    title: 'Escáner de Bodega',
-    subtitle: 'Entrada y salida de paquetes',
-    icon: 'barcode-outline',
-    iconFamily: 'ionicons',
-    color: '#F05A28',
-    screen: 'WarehouseScanner',
-    roles: ['warehouse_ops', 'branch_manager', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-    hideIfPOBox: true, // Ocultar si tiene permisos PO Box (usa Entrada/Salida)
-    panelKey: 'ops_scanner',
-  },
-  {
     id: 'warehouse_inventory',
     title: 'Inventario CEDIS',
     subtitle: 'Ver paquetes en bodega',
@@ -310,33 +297,7 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
   },
 
   // Legacy counter modules (mantener compatibilidad)
-  {
-    id: 'counter_pickup',
-    title: 'Entrega en Mostrador',
-    subtitle: 'Entregar paquetes a clientes',
-    icon: 'storefront-outline',
-    iconFamily: 'ionicons',
-    color: '#00BCD4',
-    screen: 'CounterPickup',
-    roles: ['branch_manager', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-    hideIfPOBox: true, // Ocultar si tiene permisos PO Box
-    panelKey: 'ops_mx_cedis',
-  },
-  {
-    id: 'counter_reception',
-    title: 'Recepción de Paquetes',
-    subtitle: 'Recibir envíos de clientes',
-    icon: 'download-outline',
-    iconFamily: 'ionicons',
-    color: '#8BC34A',
-    screen: 'CounterReception',
-    roles: ['branch_manager', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-    hideIfPOBox: true, // Ocultar si tiene permisos PO Box
-    panelKey: 'ops_mx_cedis',
-  },
-  
+
   // === SERVICIO A CLIENTE ===
   {
     id: 'support_tickets',
@@ -349,45 +310,6 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     roles: ['customer_service', 'branch_manager', 'admin', 'super_admin', 'operaciones'],
     requiresOnboarding: false,
     panelKey: 'cs_support',
-  },
-  {
-    id: 'client_lookup',
-    title: 'Buscar Cliente',
-    subtitle: 'Consultar info y paquetes',
-    icon: 'search-outline',
-    iconFamily: 'ionicons',
-    color: '#795548',
-    screen: 'ClientLookup',
-    roles: ['customer_service', 'branch_manager', 'admin', 'super_admin', 'operaciones'],
-    requiresOnboarding: false,
-    hideIfPOBox: true, // El personal de mostrador usa los módulos PO Box
-    panelKey: 'cs_support',
-  },
-  
-  // === GERENTE DE SUCURSAL ===
-  {
-    id: 'branch_dashboard',
-    title: 'Dashboard Sucursal',
-    subtitle: 'Métricas y rendimiento',
-    icon: 'analytics-outline',
-    iconFamily: 'ionicons',
-    color: '#E91E63',
-    screen: 'BranchDashboard',
-    roles: ['branch_manager', 'director', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-    panelKey: 'ops_mx_cedis',
-  },
-  {
-    id: 'team_management',
-    title: 'Mi Equipo',
-    subtitle: 'Gestionar empleados',
-    icon: 'people-outline',
-    iconFamily: 'ionicons',
-    color: '#673AB7',
-    screen: 'AdvisorTeam',
-    roles: ['branch_manager', 'director', 'admin', 'super_admin'],
-    requiresOnboarding: true,
-    panelKey: 'ops_mx_cedis',
   },
 
   // === ASESORES ===

@@ -243,11 +243,6 @@ export default function WarehouseHubPage({ users = [] }: Props) {
 
                 console.log('📍 Ubicaciones permitidas:', filteredLocations.map(l => l.code));
                 setLocations(filteredLocations);
-
-                // Si solo tiene un panel, ir directo a él
-                if (filteredLocations.length === 1) {
-                    setSelectedPanel(filteredLocations[0].code);
-                }
             } else {
                 // Sin permisos específicos, no mostrar nada
                 setLocations([]);

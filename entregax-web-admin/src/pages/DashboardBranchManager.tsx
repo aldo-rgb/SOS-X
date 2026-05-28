@@ -18,6 +18,9 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogActions,
+  Button,
+  TextField,
   IconButton,
   Stack,
   Divider,
@@ -40,6 +43,9 @@ import {
   VerifiedUserOutlined as VerifiedUserIcon,
   GavelOutlined as GavelIcon,
   AllInboxOutlined as AllInboxIcon,
+  AttachFile as AttachFileIcon,
+  PictureAsPdf as PdfIcon,
+  Send as SendIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import DelayedPackagesPage from './DelayedPackagesPage';
@@ -126,6 +132,45 @@ export default function DashboardBranchManager() {
   /* eslint-enable @typescript-eslint/no-explicit-any */
   const [branchSupportDept, setBranchSupportDept] = useState<string>('');
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
+
+  // Crear ticket de soporte (operaciones)
+  const [createTicketOpen, setCreateTicketOpen] = useState(false);
+  const [newTicketCategory, setNewTicketCategory] = useState<string>('systemError');
+  const [newTicketDescription, setNewTicketDescription] = useState('');
+  const [newTicketFiles, setNewTicketFiles] = useState<File[]>([]);
+  const [newTicketSubmitting, setNewTicketSubmitting] = useState(false);
+  const [newTicketSuccessFolio, setNewTicketSuccessFolio] = useState('');
+
+  const OPS_TICKET_CATEGORIES = [
+    { key: 'systemError', label: 'Error del Sistema' },
+    { key: 'billing',     label: 'Comisiones / Pagos' },
+    { key: 'tracking',    label: 'Ajustes a un paquete' },
+    { key: 'clientIssue', label: 'Problema con Cliente' },
+    { key: 'other',       label: 'Otro' },
+  ];
+
+  const handleSubmitOpsTicket = async () => {
+    if (!newTicketCategory || !newTicketDescription.trim()) return;
+    setNewTicketSubmitting(true);
+    try {
+      const form = new FormData();
+      form.append('message', newTicketDescription.trim());
+      form.append('category', newTicketCategory);
+      form.append('escalateDirectly', 'true');
+      newTicketFiles.forEach((f, i) => {
+        form.append('images', f, f.name || `attach_${i}`);
+      });
+      const res = await api.post('/support/message', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+      setNewTicketSuccessFolio(res.data?.ticketFolio || res.data?.folio || '');
+      setNewTicketCategory('systemError');
+      setNewTicketDescription('');
+      setNewTicketFiles([]);
+    } catch {
+      alert('Error al crear ticket. Intenta de nuevo.');
+    } finally {
+      setNewTicketSubmitting(false);
+    }
+  };
 
   const getCedisDeptName = (code: string, name: string): string => {
     const c = code.toUpperCase();
@@ -330,6 +375,11 @@ export default function DashboardBranchManager() {
   ];
 
   const handleQuickAction = (action: QuickAction['action']) => {
+    if (action === 'service_tickets') {
+      setNewTicketSuccessFolio('');
+      setCreateTicketOpen(true);
+      return;
+    }
     window.dispatchEvent(new CustomEvent('branch-manager-quick-nav', { detail: { action } }));
   };
 
@@ -862,7 +912,7 @@ export default function DashboardBranchManager() {
 
 
       {/* === Sección: Guías Registradas (totales históricos) === */}
-      {stats?.totales_historicos && (
+      {stats?.totales_historicos && ['director', 'admin', 'super_admin'].includes(userRole) && (
         <>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5, mt: 1 }}>
             <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
@@ -1352,6 +1402,132 @@ export default function DashboardBranchManager() {
           </Grid>
         ))}
       </Grid>
+
+      {/* Dialog: Crear Ticket de Soporte */}
+      <Dialog
+        open={createTicketOpen}
+        onClose={() => setCreateTicketOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6 }}>
+          <HeadsetIcon sx={{ color: '#F05A28' }} />
+          Nuevo Ticket de Soporte
+          <IconButton
+            onClick={() => setCreateTicketOpen(false)}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {newTicketSuccessFolio ? (
+            <Alert severity="success" sx={{ my: 1 }}>
+              Ticket <strong>{newTicketSuccessFolio}</strong> creado. Un agente te atenderá pronto.
+            </Alert>
+          ) : (
+            <>
+              <Alert severity="info" sx={{ mb: 2, py: 0.5 }}>
+                Describe tu problema. Un agente del equipo de soporte lo atenderá.
+              </Alert>
+
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Categoría *</Typography>
+              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                {OPS_TICKET_CATEGORIES.map(cat => (
+                  <Chip
+                    key={cat.key}
+                    label={cat.label}
+                    onClick={() => setNewTicketCategory(cat.key)}
+                    variant={newTicketCategory === cat.key ? 'filled' : 'outlined'}
+                    sx={{
+                      bgcolor: newTicketCategory === cat.key ? '#F05A28' : undefined,
+                      color: newTicketCategory === cat.key ? '#fff' : undefined,
+                      borderColor: newTicketCategory === cat.key ? '#F05A28' : undefined,
+                      fontWeight: 600, cursor: 'pointer',
+                    }}
+                  />
+                ))}
+              </Box>
+
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Descripción del problema *</Typography>
+              <TextField
+                fullWidth
+                multiline
+                minRows={4}
+                placeholder="Describe detalladamente qué ocurrió, cuándo y qué estabas haciendo..."
+                value={newTicketDescription}
+                onChange={(e) => setNewTicketDescription(e.target.value)}
+                sx={{ mb: 2 }}
+              />
+
+              <Typography variant="body2" fontWeight={600} sx={{ mb: 1 }}>Adjuntos (fotos o PDF)</Typography>
+              <Button
+                component="label"
+                variant="outlined"
+                startIcon={<AttachFileIcon />}
+                sx={{ mb: 1, borderColor: '#F05A28', color: '#F05A28' }}
+              >
+                Adjuntar archivos
+                <input
+                  type="file"
+                  hidden
+                  multiple
+                  accept="image/*,application/pdf"
+                  onChange={(e) => {
+                    if (e.target.files) setNewTicketFiles(prev => [...prev, ...Array.from(e.target.files!)]);
+                    e.target.value = '';
+                  }}
+                />
+              </Button>
+              {newTicketFiles.length > 0 && (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
+                  {newTicketFiles.map((f, i) => (
+                    <Box
+                      key={i}
+                      sx={{
+                        display: 'inline-flex', alignItems: 'center', gap: 0.5,
+                        bgcolor: '#f5f5f5', borderRadius: 1, border: '1px solid #ddd',
+                        p: 0.5, pr: 1,
+                      }}
+                    >
+                      {f.type === 'application/pdf'
+                        ? <PdfIcon sx={{ color: '#e53935', fontSize: 24 }} />
+                        : <Box component="img" src={URL.createObjectURL(f)} sx={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 0.5 }} />
+                      }
+                      <Typography variant="caption" sx={{ maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {f.name}
+                      </Typography>
+                      <IconButton size="small" onClick={() => setNewTicketFiles(prev => prev.filter((_, j) => j !== i))} sx={{ p: 0.2 }}>
+                        <CloseIcon sx={{ fontSize: 14 }} />
+                      </IconButton>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, py: 2 }}>
+          {newTicketSuccessFolio ? (
+            <Button variant="contained" onClick={() => setCreateTicketOpen(false)} sx={{ bgcolor: '#F05A28' }}>
+              Cerrar
+            </Button>
+          ) : (
+            <>
+              <Button onClick={() => setCreateTicketOpen(false)}>Cancelar</Button>
+              <Button
+                variant="contained"
+                startIcon={<SendIcon />}
+                disabled={!newTicketCategory || !newTicketDescription.trim() || newTicketSubmitting}
+                onClick={handleSubmitOpsTicket}
+                sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#D14A20' } }}
+              >
+                {newTicketSubmitting ? 'Enviando...' : 'Enviar Ticket'}
+              </Button>
+            </>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }

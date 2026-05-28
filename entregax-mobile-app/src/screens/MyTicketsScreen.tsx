@@ -2,10 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, FlatList, TouchableOpacity,
   ActivityIndicator, RefreshControl, Modal, ScrollView,
-  TextInput, Alert, KeyboardAvoidingView, Platform,
+  TextInput, Alert, KeyboardAvoidingView, Platform, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -84,6 +86,8 @@ export default function MyTicketsScreen({ navigation, route }: any) {
   const [showNew, setShowNew] = useState(false);
   const [newCategory, setNewCategory] = useState('other');
   const [newMessage, setNewMessage] = useState('');
+  const [newAttachments, setNewAttachments] = useState<{ uri: string; name: string; type: string }[]>([]);
+  const [replyAttachments, setReplyAttachments] = useState<{ uri: string; name: string; type: string }[]>([]);
   const [creating, setCreating] = useState(false);
 
   const loadTickets = useCallback(async () => {
@@ -119,18 +123,26 @@ export default function MyTicketsScreen({ navigation, route }: any) {
   };
 
   const createTicket = async () => {
-    if (!newMessage.trim()) return;
+    if (!newMessage.trim() && newAttachments.length === 0) return;
     setCreating(true);
     try {
+      const form = new FormData();
+      form.append('message', newMessage.trim());
+      form.append('category', newCategory);
+      form.append('escalateDirectly', 'true');
+      newAttachments.forEach((f) => {
+        form.append('images', { uri: f.uri, name: f.name, type: f.type } as any);
+      });
       const res = await fetch(`${API_URL}/api/support/message`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: newMessage.trim(), category: newCategory, escalateDirectly: true }),
+        headers: { Authorization: `Bearer ${token}` },
+        body: form as any,
       });
       if (!res.ok) throw new Error();
       setShowNew(false);
       setNewMessage('');
       setNewCategory('other');
+      setNewAttachments([]);
       await loadTickets();
       Alert.alert('✅ Ticket creado', 'Tu ticket fue enviado. Un agente te responderá pronto.');
     } catch {
@@ -140,18 +152,65 @@ export default function MyTicketsScreen({ navigation, route }: any) {
     }
   };
 
+  const pickImageFor = async (target: 'new' | 'reply') => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ quality: 0.7, mediaTypes: 'images', allowsMultipleSelection: true, selectionLimit: 10 });
+    if (result.canceled || !result.assets?.length) return;
+    const items = result.assets.map(a => {
+      const ext = (a.uri.split('.').pop() || 'jpg').toLowerCase();
+      return { uri: a.uri, name: a.fileName || `img.${ext}`, type: `image/${ext === 'jpg' ? 'jpeg' : ext}` };
+    });
+    if (target === 'new') setNewAttachments(prev => [...prev, ...items]);
+    else setReplyAttachments(prev => [...prev, ...items]);
+  };
+
+  const pickDocumentFor = async (target: 'new' | 'reply') => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf'],
+        copyToCacheDirectory: true,
+        multiple: true,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const items: { uri: string; name: string; type: string }[] = [];
+      for (const a of result.assets) {
+        if (a.size && a.size > 20 * 1024 * 1024) {
+          Alert.alert('Archivo muy grande', `"${a.name}" supera 20MB y se omitió.`);
+          continue;
+        }
+        items.push({ uri: a.uri, name: a.name || 'archivo.pdf', type: a.mimeType || 'application/pdf' });
+      }
+      if (!items.length) return;
+      if (target === 'new') setNewAttachments(prev => [...prev, ...items]);
+      else setReplyAttachments(prev => [...prev, ...items]);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudo seleccionar el archivo.');
+    }
+  };
+
   const sendReply = async () => {
-    if (!reply.trim() || !selectedTicket) return;
+    if (!selectedTicket) return;
+    if (!reply.trim() && replyAttachments.length === 0) return;
     setReplySending(true);
     try {
+      const form = new FormData();
+      form.append('message', reply.trim());
+      replyAttachments.forEach((f) => {
+        form.append('images', { uri: f.uri, name: f.name, type: f.type } as any);
+      });
       const res = await fetch(`${API_URL}/api/support/ticket/${selectedTicket.id}/message`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: reply.trim() }),
+        headers: { Authorization: `Bearer ${token}` },
+        body: form as any,
       });
       if (!res.ok) throw new Error();
       const json = await res.json();
       setReply('');
+      setReplyAttachments([]);
       // Si se reabrió, actualizar estado local del ticket
       if (json.reopened) {
         setSelectedTicket(prev => prev ? { ...prev, status: 'escalated_human' } : prev);
@@ -273,10 +332,43 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                 textAlignVertical="top"
               />
 
+              {/* Adjuntos */}
+              <Text style={styles.newLabel}>Adjuntos (opcional)</Text>
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 12 }}>
+                <TouchableOpacity style={styles.attachAddBtn} onPress={() => pickImageFor('new')}>
+                  <Ionicons name="image-outline" size={20} color={ORANGE} />
+                  <Text style={styles.attachAddText}>Fotos</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.attachAddBtn} onPress={() => pickDocumentFor('new')}>
+                  <Ionicons name="document-attach-outline" size={20} color={ORANGE} />
+                  <Text style={styles.attachAddText}>PDF</Text>
+                </TouchableOpacity>
+              </View>
+              {newAttachments.length > 0 && (
+                <View style={{ marginBottom: 18, gap: 8 }}>
+                  {newAttachments.map((f, i) => {
+                    const isImg = f.type.startsWith('image/');
+                    return (
+                      <View key={i} style={styles.attachChip}>
+                        {isImg ? (
+                          <Image source={{ uri: f.uri }} style={{ width: 38, height: 38, borderRadius: 6 }} />
+                        ) : (
+                          <Ionicons name="document-text" size={26} color="#c62828" />
+                        )}
+                        <Text style={styles.attachChipName} numberOfLines={1}>{f.name}</Text>
+                        <TouchableOpacity onPress={() => setNewAttachments(prev => prev.filter((_, j) => j !== i))}>
+                          <Ionicons name="close-circle" size={20} color="#f44336" />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
               <TouchableOpacity
-                style={[styles.submitBtn, (!newMessage.trim() || creating) && { opacity: 0.45 }]}
+                style={[styles.submitBtn, ((!newMessage.trim() && newAttachments.length === 0) || creating) && { opacity: 0.45 }]}
                 onPress={createTicket}
-                disabled={!newMessage.trim() || creating}
+                disabled={(!newMessage.trim() && newAttachments.length === 0) || creating}
               >
                 {creating
                   ? <ActivityIndicator size="small" color="#fff" />
@@ -342,7 +434,37 @@ export default function MyTicketsScreen({ navigation, route }: any) {
             )}
 
             {/* Reply box — always visible; sends reopen if resolved */}
-            <View style={[styles.replyBox, { paddingBottom: insets.bottom + 10 }]}>
+            <View style={{ paddingBottom: insets.bottom + 10, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e0e0e0' }}>
+              {replyAttachments.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}
+                  style={{ paddingHorizontal: 10, paddingTop: 8 }}
+                  contentContainerStyle={{ gap: 8 }}
+                >
+                  {replyAttachments.map((f, i) => {
+                    const isImg = f.type.startsWith('image/');
+                    return (
+                      <View key={i} style={styles.attachChipSmall}>
+                        {isImg ? (
+                          <Image source={{ uri: f.uri }} style={{ width: 34, height: 34, borderRadius: 4 }} />
+                        ) : (
+                          <Ionicons name="document-text" size={22} color="#c62828" />
+                        )}
+                        <Text style={styles.attachChipNameSmall} numberOfLines={1}>{f.name}</Text>
+                        <TouchableOpacity onPress={() => setReplyAttachments(prev => prev.filter((_, j) => j !== i))}>
+                          <Ionicons name="close-circle" size={18} color="#f44336" />
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+              <View style={styles.replyBox}>
+                <TouchableOpacity style={styles.replyIconBtn} onPress={() => pickImageFor('reply')}>
+                  <Ionicons name="image-outline" size={22} color={ORANGE} />
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.replyIconBtn} onPress={() => pickDocumentFor('reply')}>
+                  <Ionicons name="document-attach-outline" size={22} color={ORANGE} />
+                </TouchableOpacity>
                 <TextInput
                   style={styles.replyInput}
                   placeholder="Escribe un mensaje..."
@@ -352,9 +474,9 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                   multiline
                 />
                 <TouchableOpacity
-                  style={[styles.sendBtn, (!reply.trim() || replySending) && { opacity: 0.4 }]}
+                  style={[styles.sendBtn, ((!reply.trim() && replyAttachments.length === 0) || replySending) && { opacity: 0.4 }]}
                   onPress={sendReply}
-                  disabled={!reply.trim() || replySending}
+                  disabled={(!reply.trim() && replyAttachments.length === 0) || replySending}
                 >
                   {replySending
                     ? <ActivityIndicator size="small" color="#fff" />
@@ -362,6 +484,7 @@ export default function MyTicketsScreen({ navigation, route }: any) {
                   }
                 </TouchableOpacity>
               </View>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -484,4 +607,28 @@ const styles = StyleSheet.create({
     gap: 8, paddingVertical: 14,
   },
   submitBtnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  replyIconBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    justifyContent: 'center', alignItems: 'center',
+    backgroundColor: '#FFF3EE',
+  },
+  attachAddBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    borderWidth: 1.5, borderColor: ORANGE, borderRadius: 10,
+    paddingHorizontal: 14, paddingVertical: 9,
+    backgroundColor: '#FFF3EE',
+  },
+  attachAddText: { color: ORANGE, fontWeight: '700', fontSize: 13 },
+  attachChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: '#e0e0e0',
+    borderRadius: 10, padding: 8,
+  },
+  attachChipName: { flex: 1, fontSize: 13, color: '#333' },
+  attachChipSmall: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#f5f5f5', borderRadius: 8, padding: 6,
+    maxWidth: 180,
+  },
+  attachChipNameSmall: { flex: 1, fontSize: 11, color: '#333' },
 });
