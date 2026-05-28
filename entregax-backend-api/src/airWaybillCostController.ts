@@ -65,7 +65,7 @@ export const listAwbCosts = async (req: AuthRequest, res: Response): Promise<voi
           // Vincular paquetes S al nuevo awb_cost_id
           await pool.query(`
             UPDATE packages SET awb_cost_id = (
-              SELECT id FROM air_waybill_costs WHERE awb_number = $1 LIMIT 1
+              SELECT id FROM air_waybill_costs WHERE awb_number = $1 AND COALESCE(status, '') <> 'deleted' ORDER BY id DESC LIMIT 1
             )
             WHERE international_tracking = $1 AND awb_cost_id IS NULL
           `, [row.awb]);

@@ -1,11 +1,11 @@
 /**
  * POBoxPhotoScreen — Agregar fotos a guías sin fotografía
  *
- * Flujo por guía:
- *   1. Lista (hijas para multi-caja, master/standalone para 1 caja)
- *   2. Escanear guía interna
- *   3. Tomar foto
- *   4. Guardar
+ * Flujos:
+ *  A) Card de caja conocida (item.masterId presente) → cámara directa.
+ *  B) Card de master/standalone → scanner para validar guía externa → cámara.
+ *  C) Botón "Abrir escáner" → escaneo libre → lookup → cámara (con confirmación
+ *     de reemplazo si la guía ya tiene foto).
  */
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
@@ -56,20 +56,17 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Flujo activo
   const [phase, setPhase] = useState<Phase>('list');
   const [activePkg, setActivePkg] = useState<PkgItem | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [lookingUp, setLookingUp] = useState(false);
 
-  // Scanner
   const [scannerReady, setScannerReady] = useState(true);
   const [manualInput, setManualInput] = useState('');
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
   const manualRef = useRef<TextInput>(null);
 
-  // Ref para disparar la cámara DESPUÉS de que el Modal del scanner se cierre.
-  // Usar ref (no state) evita stale closures y re-renders intermedios.
   const pendingCameraRef = useRef(false);
 
   // ─── Carga ────────────────────────────────────────────────────────────────
@@ -94,10 +91,37 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
 
   const onRefresh = () => { setRefreshing(true); fetchPackages(); };
 
-  // ─── Lanzar cámara deferred ───────────────────────────────────────────────
-  // Cuando el scanner Modal se cierra (phase vuelve a 'list') y hay una
-  // cámara pendiente, esperamos 550ms para que el CameraView libere el
-  // hardware antes de abrir ImagePicker.
+  // ─── Cámara ───────────────────────────────────────────────────────────────
+  // Función reusable que abre la cámara nativa y avanza a 'preview'.
+  const openCameraNow = useCallback(async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permiso requerido', 'Se necesita acceso a la cámara');
+      resetFlow();
+      return;
+    }
+    let result: ImagePicker.ImagePickerResult;
+    try {
+      result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.75,
+      });
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo abrir la cámara. Intenta de nuevo.');
+      resetFlow();
+      return;
+    }
+    if (result.canceled || !result.assets?.[0]) {
+      resetFlow();
+      return;
+    }
+    setPhotoUri(result.assets[0].uri);
+    setPhase('preview');
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cuando el scanner se cierra (phase 'list') y hay cámara pendiente,
+  // esperamos a que el CameraView libere el hardware antes de abrir ImagePicker.
   useEffect(() => {
     if (phase !== 'list' || !pendingCameraRef.current) return;
     pendingCameraRef.current = false;
@@ -105,32 +129,8 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
     let cancelled = false;
     const timer = setTimeout(async () => {
       if (cancelled) return;
-
-      const { status } = await ImagePicker.requestCameraPermissionsAsync();
-      if (cancelled) return;
-
-      if (status !== 'granted') {
-        Alert.alert('Permiso requerido', 'Se necesita acceso a la cámara');
-        resetFlow();
-        return;
-      }
-
-      const result = await ImagePicker.launchCameraAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 0.75,
-      });
-
-      if (cancelled) return;
-
-      if (result.canceled || !result.assets?.[0]) {
-        resetFlow();
-        return;
-      }
-
-      setPhotoUri(result.assets[0].uri);
-      setPhase('preview');
-    }, 550);
+      await openCameraNow();
+    }, 900);
 
     return () => {
       cancelled = true;
@@ -138,86 +138,126 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
     };
   }, [phase]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Iniciar flujo ────────────────────────────────────────────────────────
+  // ─── Permisos cámara ──────────────────────────────────────────────────────
 
-  const startFlow = async (pkg: PkgItem) => {
-    if (!cameraPermission?.granted) {
-      const { granted } = await requestCameraPermission();
-      if (!granted) {
-        Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara para escanear y fotografiar');
-        return;
-      }
+  const ensureCameraPermission = async (): Promise<boolean> => {
+    if (cameraPermission?.granted) return true;
+    const { granted } = await requestCameraPermission();
+    if (!granted) {
+      Alert.alert('Permiso requerido', 'Necesitamos acceso a la cámara');
+      return false;
     }
+    return true;
+  };
+
+  // ─── Iniciar flujos ──────────────────────────────────────────────────────
+
+  // Tap en una card de la lista → cámara directa (sin escáner).
+  const startFlow = async (pkg: PkgItem) => {
+    if (!(await ensureCameraPermission())) return;
     setActivePkg(pkg);
+    // Ya estamos en phase 'list' y no hay scanner abierto, abrimos cámara directo.
+    openCameraNow();
+  };
+
+  // Botón "Abrir escáner" (escaneo libre)
+  const openGlobalScanner = async () => {
+    if (!(await ensureCameraPermission())) return;
+    setActivePkg(null);
     setManualInput('');
     setScannerReady(true);
     setPhase('scanning');
   };
 
-  // ─── Scanner ──────────────────────────────────────────────────────────────
+  // ─── Scanner (escaneo libre) ──────────────────────────────────────────────
+
+  const handleGlobalScan = async (code: string) => {
+    const scanned = code.trim().toUpperCase();
+    if (!scanned) {
+      setScannerReady(true);
+      return;
+    }
+
+    // 1) ¿Está en la lista pendiente (sin foto)?
+    const localMatch = packages.find((p) => {
+      const a = (p.tracking || '').toUpperCase();
+      const b = (p.trackingProvider || '').toUpperCase();
+      const m = (p.masterTracking || '').toUpperCase();
+      return scanned === a || scanned === b || scanned === m;
+    });
+
+    if (localMatch) {
+      setActivePkg(localMatch);
+      launchCameraFromScanner();
+      return;
+    }
+
+    // 2) Lookup en backend (puede tener ya foto, o no existir).
+    setLookingUp(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/packages/pobox-lookup?tracking=${encodeURIComponent(scanned)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await res.json();
+
+      if (!data.found) {
+        Alert.alert('Guía no encontrada', `No existe una guía con tracking:\n${scanned}`, [
+          { text: 'OK', onPress: () => setTimeout(() => setScannerReady(true), 600) },
+        ]);
+        return;
+      }
+
+      const pkg: PkgItem = data.package;
+
+      if (data.hasPhoto) {
+        Alert.alert(
+          '⚠️ Foto existente',
+          `La guía ${pkg.tracking} ya tiene foto.\n\n¿Deseas reemplazarla?`,
+          [
+            { text: 'Cancelar', onPress: () => setTimeout(() => setScannerReady(true), 600) },
+            {
+              text: 'Reemplazar',
+              style: 'destructive',
+              onPress: () => {
+                setActivePkg(pkg);
+                launchCameraFromScanner();
+              },
+            },
+          ]
+        );
+        return;
+      }
+
+      // Existe sin foto.
+      setActivePkg(pkg);
+      launchCameraFromScanner();
+    } catch (e) {
+      Alert.alert('Error', 'No se pudo verificar la guía', [
+        { text: 'OK', onPress: () => setTimeout(() => setScannerReady(true), 600) },
+      ]);
+    } finally {
+      setLookingUp(false);
+    }
+  };
+
+  // ─── Scanner: handler común ───────────────────────────────────────────────
 
   const handleBarCodeScanned = (result: BarcodeScanningResult) => {
-    if (!scannerReady || !activePkg) return;
+    if (!scannerReady) return;
     setScannerReady(false);
-
-    const scanned = result.data.trim().toUpperCase();
-    const expected = (activePkg.tracking || '').trim().toUpperCase();
-    const expectedProvider = (activePkg.trackingProvider || '').trim().toUpperCase();
-    const expectedMaster = (activePkg.masterTracking || '').trim().toUpperCase();
-
-    const matches =
-      scanned === expected ||
-      scanned === expectedProvider ||
-      scanned === expectedMaster ||
-      expected.includes(scanned) ||
-      scanned.includes(expected);
-
-    if (matches) {
-      launchCamera();
-    } else {
-      Alert.alert(
-        '⚠️ Guía no coincide',
-        `Escaneaste: ${scanned}\nEsperado: ${expected}\n\n¿Continuar de todas formas?`,
-        [
-          { text: 'Cancelar', onPress: () => setTimeout(() => setScannerReady(true), 800) },
-          { text: 'Continuar', onPress: launchCamera },
-        ]
-      );
-    }
+    handleGlobalScan(result.data);
   };
 
   const handleManualConfirm = () => {
     const typed = manualInput.trim().toUpperCase();
-    if (!typed || !activePkg) return;
-    const expected = (activePkg.tracking || '').trim().toUpperCase();
-    const expectedProvider = (activePkg.trackingProvider || '').trim().toUpperCase();
-    const expectedMaster = (activePkg.masterTracking || '').trim().toUpperCase();
-
-    const matches =
-      typed === expected ||
-      typed === expectedProvider ||
-      typed === expectedMaster ||
-      expected.includes(typed) ||
-      typed.includes(expected);
-
-    if (matches) {
-      launchCamera();
-    } else {
-      Alert.alert(
-        '⚠️ Guía no coincide',
-        `Ingresaste: ${typed}\nEsperado: ${expected}\n\n¿Continuar de todas formas?`,
-        [
-          { text: 'Cancelar' },
-          { text: 'Continuar', onPress: launchCamera },
-        ]
-      );
-    }
+    if (!typed) return;
+    setScannerReady(false);
+    handleGlobalScan(typed);
   };
 
-  // ─── Cámara ───────────────────────────────────────────────────────────────
-  // Solo cierra el scanner Modal y marca la cámara como pendiente.
-  // El useEffect de arriba la abre cuando el hardware está libre.
-  const launchCamera = () => {
+  // Cierra scanner y dispara cámara con delay (libera hardware).
+  const launchCameraFromScanner = () => {
     pendingCameraRef.current = true;
     setPhase('list');
   };
@@ -311,6 +351,12 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
         </View>
       </View>
 
+      {/* Botón global "Abrir escáner" */}
+      <TouchableOpacity style={styles.scanButton} onPress={openGlobalScanner} activeOpacity={0.85}>
+        <Ionicons name="scan" size={20} color="#fff" />
+        <Text style={styles.scanButtonText}>Abrir escáner</Text>
+      </TouchableOpacity>
+
       {/* Lista */}
       {loading ? (
         <View style={styles.center}>
@@ -336,6 +382,7 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
 
       {/* ── SCANNER MODAL ── */}
       <Modal visible={phase === 'scanning'} animationType="slide" onRequestClose={resetFlow}>
+        {phase === 'scanning' && (
         <View style={styles.scannerContainer}>
           {/* Top bar */}
           <View style={styles.scannerHeader}>
@@ -343,13 +390,8 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
               <Ionicons name="close" size={28} color="#fff" />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <Text style={styles.scannerTitle}>Escanear Guía</Text>
-              {activePkg && (
-                <Text style={styles.scannerSub} numberOfLines={1}>
-                  Esperando: {activePkg.tracking}
-                  {activePkg.masterTracking ? ` (${activePkg.masterTracking})` : ''}
-                </Text>
-              )}
+              <Text style={styles.scannerTitle}>Escanear guía</Text>
+              <Text style={styles.scannerSub} numberOfLines={1}>Apunta a cualquier guía</Text>
             </View>
           </View>
 
@@ -365,9 +407,15 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
           <View style={styles.scanOverlay} pointerEvents="none">
             <View style={styles.scanFrame} />
             <Text style={styles.scanHint}>Apunta al código de barras de la guía</Text>
+            {lookingUp && (
+              <View style={styles.lookupBadge}>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.lookupText}>Buscando guía...</Text>
+              </View>
+            )}
           </View>
 
-          {/* Manual input */}
+          {/* Manual input (sin "Saltar escaneo") */}
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={styles.manualContainer}
@@ -389,11 +437,9 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
                 <Ionicons name="arrow-forward" size={22} color="#fff" />
               </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.skipBtn} onPress={launchCamera}>
-              <Text style={styles.skipText}>Saltar escaneo — ir directo a foto</Text>
-            </TouchableOpacity>
           </KeyboardAvoidingView>
         </View>
+        )}
       </Modal>
 
       {/* ── PREVIEW MODAL ── */}
@@ -422,7 +468,7 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
           </View>
 
           <View style={styles.previewActions}>
-            <TouchableOpacity style={styles.retakeBtn} onPress={launchCamera} disabled={uploading}>
+            <TouchableOpacity style={styles.retakeBtn} onPress={() => { setPhotoUri(null); setPhase('list'); openCameraNow(); }} disabled={uploading}>
               <Ionicons name="camera-reverse-outline" size={20} color={ORANGE} />
               <Text style={styles.retakeText}>Repetir</Text>
             </TouchableOpacity>
@@ -444,7 +490,6 @@ export default function POBoxPhotoScreen({ route, navigation }: any) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F5' },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -458,7 +503,19 @@ const styles = StyleSheet.create({
   badge: { backgroundColor: '#e91e63', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 4 },
   badgeText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 
-  // List
+  scanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: ORANGE,
+    marginHorizontal: 12,
+    marginTop: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  scanButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+
   list: { padding: 12, paddingBottom: 40 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
   loadingText: { marginTop: 12, color: '#666', fontSize: 14 },
@@ -466,7 +523,6 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginTop: 16 },
   emptySubtitle: { fontSize: 14, color: '#888', marginTop: 6 },
 
-  // Card
   card: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -499,7 +555,6 @@ const styles = StyleSheet.create({
   cardClient: { fontSize: 12, color: '#555', marginTop: 3 },
   cardMulti: { fontSize: 11, color: '#1976d2', marginTop: 2 },
 
-  // Scanner
   scannerContainer: { flex: 1, backgroundColor: '#000' },
   scannerHeader: {
     flexDirection: 'row',
@@ -537,6 +592,17 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 20,
   },
+  lookupBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 18,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 24,
+  },
+  lookupText: { color: '#fff', fontSize: 13, fontWeight: '600' },
   manualContainer: {
     position: 'absolute',
     bottom: 0,
@@ -566,10 +632,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  skipBtn: { marginTop: 14, alignItems: 'center' },
-  skipText: { color: '#aaa', fontSize: 13, textDecorationLine: 'underline' },
 
-  // Preview
   previewContainer: { flex: 1, backgroundColor: '#000' },
   previewHeader: {
     flexDirection: 'row',

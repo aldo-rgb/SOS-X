@@ -829,9 +829,10 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
 
     // === VALIDAR QUE NO EXISTA UN AWB YA APROBADO CON ESTE MAWB ===
     if (mawb) {
-      // Checar en air_waybill_costs
+      // Checar en air_waybill_costs (ignorando los soft-deleted).
       const existingAwb = await client.query(
-        'SELECT id FROM air_waybill_costs WHERE awb_number = $1', [mawb]
+        `SELECT id FROM air_waybill_costs WHERE awb_number = $1 AND COALESCE(status, '') <> 'deleted'`,
+        [mawb]
       );
       if (existingAwb.rows.length > 0) {
         await client.query('ROLLBACK');
@@ -1248,7 +1249,7 @@ export async function approveAirDraft(req: AuthRequest, res: Response) {
     if (countS > 0) {
       await client.query(`
         UPDATE packages SET awb_cost_id = (
-          SELECT id FROM air_waybill_costs WHERE awb_number = $1 LIMIT 1
+          SELECT id FROM air_waybill_costs WHERE awb_number = $1 AND COALESCE(status, '') <> 'deleted' ORDER BY id DESC LIMIT 1
         )
         WHERE international_tracking = $1 AND awb_cost_id IS NULL
       `, [mawb]);

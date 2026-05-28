@@ -3664,6 +3664,76 @@ app.get('/api/packages/pobox-photos-needed', authenticateToken, requireMinLevel(
   }
 });
 
+// GET /api/packages/pobox-lookup?tracking=XXX — busca una guía por tracking
+// (interno o del proveedor) para el flujo de "Agregar Fotos" con escáner global.
+// Devuelve: { found, hasPhoto, package: { id, tracking, ... } }
+app.get('/api/packages/pobox-lookup', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+  try {
+    const raw = String(req.query.tracking || '').trim().toUpperCase();
+    if (!raw) return res.status(400).json({ error: 'tracking requerido' });
+
+    const result = await pool.query(`
+      SELECT
+        p.id,
+        p.tracking_internal AS tracking,
+        p.tracking_provider,
+        p.image_url,
+        p.is_master,
+        p.master_id,
+        p.box_number,
+        p.status,
+        mp.tracking_internal AS master_tracking,
+        COALESCE(
+          CASE WHEN p.master_id IS NOT NULL THEN mu.full_name ELSE u.full_name END,
+          CASE WHEN p.master_id IS NOT NULL THEN mlc.full_name ELSE lc.full_name END
+        ) AS client_name,
+        COALESCE(
+          CASE WHEN p.master_id IS NOT NULL THEN mu.box_id ELSE u.box_id END,
+          CASE WHEN p.master_id IS NOT NULL THEN mlc.box_id ELSE lc.box_id END,
+          p.box_id, mp.box_id
+        ) AS client_box_id
+      FROM packages p
+      LEFT JOIN packages mp ON mp.id = p.master_id
+      LEFT JOIN users u ON p.user_id = u.id AND p.master_id IS NULL
+      LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND p.master_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
+      LEFT JOIN users mu ON mp.user_id = mu.id AND p.master_id IS NOT NULL
+      LEFT JOIN legacy_clients mlc ON mp.user_id IS NULL AND p.master_id IS NOT NULL AND UPPER(mp.box_id) = UPPER(mlc.box_id)
+      WHERE UPPER(p.tracking_internal) = $1
+         OR UPPER(p.tracking_provider) = $1
+      ORDER BY p.id DESC
+      LIMIT 1
+    `, [raw]);
+
+    if (result.rows.length === 0) {
+      return res.json({ found: false });
+    }
+
+    const row = result.rows[0];
+    return res.json({
+      found: true,
+      hasPhoto: !!row.image_url,
+      package: {
+        id: row.id,
+        tracking: row.tracking,
+        trackingProvider: row.tracking_provider || null,
+        imageUrl: row.image_url || null,
+        isMaster: row.is_master,
+        masterId: row.master_id || null,
+        masterTracking: row.master_tracking || null,
+        boxNumber: row.box_number || null,
+        status: row.status,
+        client: {
+          name: row.client_name || 'Sin cliente',
+          boxId: row.client_box_id || 'N/A',
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error('Error pobox-lookup:', error);
+    return res.status(500).json({ error: error.message || 'Error' });
+  }
+});
+
 // Obtener detalle de paquete por ID (usuario dueño o staff+)
 app.get('/api/packages/:id', authenticateToken, getPackageById);
 
