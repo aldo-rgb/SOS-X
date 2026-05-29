@@ -1727,6 +1727,24 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
 
         const result = await pool.query(query, values);
 
+        // Auto-reclamar paquetes huérfanos: si se asignó/cambió box_id, todos los
+        // packages con ese box_id y user_id=NULL pasan a pertenecer a este usuario.
+        if (box_id !== undefined && box_id) {
+          try {
+            const claim = await pool.query(
+              `UPDATE packages SET user_id = $1, updated_at = NOW()
+               WHERE user_id IS NULL AND UPPER(TRIM(box_id)) = UPPER(TRIM($2))
+               RETURNING id`,
+              [id, box_id]
+            );
+            if (claim.rowCount && claim.rowCount > 0) {
+              console.log(`[updateUser] Reclamados ${claim.rowCount} paquetes huérfanos para user ${id} (box_id=${box_id})`);
+            }
+          } catch (claimErr) {
+            console.error('[updateUser] Error reclamando paquetes huérfanos:', claimErr);
+          }
+        }
+
         res.json({ 
             success: true,
             message: 'Usuario actualizado correctamente',

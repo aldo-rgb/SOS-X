@@ -615,7 +615,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     let paramIdx = 2;
 
     if (clientId) {
-      pkgWhere += ` AND p.user_id = $${paramIdx}`;
+      pkgWhere += ` AND u.id = $${paramIdx}`;
       marWhere += ` AND mo.user_id = $${paramIdx}`;
       dhlWhere += ` AND ds.user_id = $${paramIdx}`;
       params.push(parseInt(clientId));

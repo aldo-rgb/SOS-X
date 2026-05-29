@@ -95,6 +95,7 @@ export default function CajitoFab() {
   }, [messages, thinking]);
 
   if (loading || !cajitoEnabled) return null;
+  if (!isSuperAdmin) return null;
 
   const avatar = imgError ? null : resolveUrl(cajitoAvatarUrl);
 
