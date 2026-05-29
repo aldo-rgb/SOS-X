@@ -222,6 +222,45 @@ export const api = {
       throw { response: { data: { error: error.message || 'Error de conexión' } } };
     }
   },
+  put: async (endpoint: string, body?: any, config?: { headers?: Record<string, string> }) => {
+    try {
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...config?.headers,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const data = await parseJsonResponse(response);
+      if (!response.ok) {
+        throw { response: { data, status: response.status } };
+      }
+      return { data };
+    } catch (error: any) {
+      if (error.response) throw error;
+      throw { response: { data: { error: error.message || 'Error de conexión' } } };
+    }
+  },
+  delete: async (endpoint: string, config?: { headers?: Record<string, string> }) => {
+    try {
+      const response = await fetch(`${API_URL}${endpoint}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+          ...config?.headers,
+        },
+      });
+      const data = await parseJsonResponse(response);
+      if (!response.ok) {
+        throw { response: { data, status: response.status } };
+      }
+      return { data };
+    } catch (error: any) {
+      if (error.response) throw error;
+      throw { response: { data: { error: error.message || 'Error de conexión' } } };
+    }
+  },
 };
 
 // ============ MULTI-SERVICE PAYMENT APIs ============
