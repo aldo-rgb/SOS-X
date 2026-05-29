@@ -220,6 +220,10 @@ export const listWallets = async (req: Request, res: Response): Promise<any> => 
           WHERE m.wallet_id = w.id AND m.status = 'pending' AND m.movement_type = 'expense'
         ) AS pending_expenses_count,
         (
+          SELECT COALESCE(SUM(m.amount_mxn), 0) FROM petty_cash_movements m
+          WHERE m.wallet_id = w.id AND m.status = 'approved' AND m.movement_type = 'expense'
+        ) AS total_spent_mxn,
+        (
           SELECT u2.full_name FROM users u2
           WHERE u2.branch_id = w.branch_id
             AND LOWER(u2.role) IN ('operaciones', 'branch_manager', 'monitoreo')

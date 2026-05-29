@@ -45,6 +45,7 @@ type Wallet = {
   balance_mxn: string | number;
   pending_to_verify_mxn: string | number;
   pending_expenses_count: string | number;
+  total_spent_mxn?: string | number;
   status: string;
   currency?: string;
 };
@@ -460,7 +461,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>Total gastado</Text>
               <Text style={[styles.statValue, { color: '#1A1A1A' }]}>
-                {fmtMoney(stats.total_spent_mxn)}
+                {fmtMoney(branchWallet?.total_spent_mxn ?? stats.total_spent_mxn)}
               </Text>
             </View>
             <View style={styles.statCard}>
