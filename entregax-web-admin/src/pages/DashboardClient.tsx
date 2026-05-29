@@ -6680,9 +6680,6 @@ export default function DashboardClient() {
                               <Typography fontWeight="bold" color="primary.main">
                                 ${svc.precio_base_usd.toFixed(2)} USD/{svc.unidad}
                               </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                ≈ ${svc.precio_base_mxn.toFixed(2)} MXN/{svc.unidad}
-                              </Typography>
                             </TableCell>
                             <TableCell>
                               <Typography variant="body2" color="text.secondary">
@@ -6747,7 +6744,7 @@ export default function DashboardClient() {
                   </TableContainer>
                 )}
                 <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                  * Precios de referencia. Tipo de cambio: ${publicRates?.tipo_cambio || '20.00'} MXN/USD. Consulta cotización exacta.
+                  * Precios de referencia. Tipo de cambio actual: ${Number(publicRates?.tipo_cambio || 0).toFixed(4)} MXN/USD. Consulta cotización exacta.
                 </Typography>
               </Paper>
             </Box>

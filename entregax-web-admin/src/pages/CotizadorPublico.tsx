@@ -83,6 +83,10 @@ export default function CotizadorPublico() {
   const [cantidad, setCantidad] = useState('1');
   const [categoria, setCategoria] = useState('generico');
   const [dhlTipo, setDhlTipo] = useState('standard');
+  const [cbm, setCbm] = useState('');
+  const [cbmManual, setCbmManual] = useState(false);
+  const [dimUnit, setDimUnit] = useState<'cm' | 'in'>('cm');
+  const [weightUnit, setWeightUnit] = useState<'kg' | 'lb'>('kg');
   
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
@@ -91,6 +95,26 @@ export default function CotizadorPublico() {
   useEffect(() => {
     loadRates();
   }, []);
+
+  // Auto-calcular CBM cuando cambian las dimensiones (salvo que el usuario lo haya capturado manualmente)
+  useEffect(() => {
+    if (selectedService !== 'maritimo') return;
+    if (cbmManual) return;
+    const L = parseFloat(largo);
+    const W = parseFloat(ancho);
+    const H = parseFloat(alto);
+    if (L > 0 && W > 0 && H > 0) {
+      // Convertir a cm si vienen en pulgadas (1 in = 2.54 cm)
+      const factor = dimUnit === 'in' ? 2.54 : 1;
+      const Lc = L * factor;
+      const Wc = W * factor;
+      const Hc = H * factor;
+      const calc = (Lc * Wc * Hc) / 1_000_000;
+      setCbm(calc.toFixed(4));
+    } else {
+      setCbm('');
+    }
+  }, [largo, ancho, alto, selectedService, cbmManual, dimUnit]);
   
   const loadRates = async () => {
     setLoading(true);
@@ -117,6 +141,8 @@ export default function CotizadorPublico() {
     setCantidad('1');
     setCategoria('generico');
     setDhlTipo('standard');
+    setCbm('');
+    setCbmManual(false);
     setQuoteResult(null);
     setQuoteError(null);
   };
@@ -134,9 +160,16 @@ export default function CotizadorPublico() {
       };
       
       if (selectedService === 'maritimo') {
-        body.largo = parseFloat(largo) || 0;
-        body.ancho = parseFloat(ancho) || 0;
-        body.alto = parseFloat(alto) || 0;
+        const dimFactor = dimUnit === 'in' ? 2.54 : 1; // a cm
+        const weightFactor = weightUnit === 'lb' ? 0.45359237 : 1; // a kg
+        if (cbmManual && cbm) {
+          body.cbm = parseFloat(cbm) || 0;
+        } else {
+          body.largo = (parseFloat(largo) || 0) * dimFactor;
+          body.ancho = (parseFloat(ancho) || 0) * dimFactor;
+          body.alto = (parseFloat(alto) || 0) * dimFactor;
+        }
+        body.peso = (parseFloat(peso) || 0) * weightFactor;
         body.categoria = categoria;
         body.cantidad = parseInt(cantidad) || 1;
       } else if (selectedService === 'aereo') {
@@ -238,40 +271,76 @@ export default function CotizadorPublico() {
           <Grid container spacing={2}>
             <Grid size={{ xs: 12 }}>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Ingresa las dimensiones del bulto en centímetros:
+                Ingresa las dimensiones y el peso del bulto:
               </Typography>
             </Grid>
-            <Grid size={{ xs: 4 }}>
+            <Grid size={{ xs: 12, sm: 3 }}>
+              <FormControl fullWidth>
+                <InputLabel>UOM (dimensiones)</InputLabel>
+                <Select
+                  value={dimUnit}
+                  label="UOM (dimensiones)"
+                  onChange={(e) => setDimUnit(e.target.value as 'cm' | 'in')}
+                >
+                  <MenuItem value="cm">centímetro (cm)</MenuItem>
+                  <MenuItem value="in">pulgada (in)</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 4, sm: 3 }}>
               <TextField
                 fullWidth
-                label="Largo (cm)"
+                label={`Longitud (${dimUnit})`}
                 type="number"
                 value={largo}
                 onChange={(e) => setLargo(e.target.value)}
                 inputProps={{ min: 0, step: 1 }}
               />
             </Grid>
-            <Grid size={{ xs: 4 }}>
+            <Grid size={{ xs: 4, sm: 3 }}>
               <TextField
                 fullWidth
-                label="Ancho (cm)"
+                label={`Ancho (${dimUnit})`}
                 type="number"
                 value={ancho}
                 onChange={(e) => setAncho(e.target.value)}
                 inputProps={{ min: 0, step: 1 }}
               />
             </Grid>
-            <Grid size={{ xs: 4 }}>
+            <Grid size={{ xs: 4, sm: 3 }}>
               <TextField
                 fullWidth
-                label="Alto (cm)"
+                label={`Altura (${dimUnit})`}
                 type="number"
                 value={alto}
                 onChange={(e) => setAlto(e.target.value)}
                 inputProps={{ min: 0, step: 1 }}
               />
             </Grid>
-            <Grid size={{ xs: 6 }}>
+            <Grid size={{ xs: 6, sm: 4 }}>
+              <TextField
+                fullWidth
+                label={`Peso (${weightUnit})`}
+                type="number"
+                value={peso}
+                onChange={(e) => setPeso(e.target.value)}
+                inputProps={{ min: 0, step: 0.1 }}
+              />
+            </Grid>
+            <Grid size={{ xs: 6, sm: 4 }}>
+              <FormControl fullWidth>
+                <InputLabel>Unidad de peso</InputLabel>
+                <Select
+                  value={weightUnit}
+                  label="Unidad de peso"
+                  onChange={(e) => setWeightUnit(e.target.value as 'kg' | 'lb')}
+                >
+                  <MenuItem value="kg">kilogramo (kg)</MenuItem>
+                  <MenuItem value="lb">libra (lb)</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <TextField
                 fullWidth
                 label="Cantidad de bultos"
@@ -281,7 +350,38 @@ export default function CotizadorPublico() {
                 inputProps={{ min: 1, step: 1 }}
               />
             </Grid>
-            <Grid size={{ xs: 6 }}>
+            <Grid size={{ xs: 12 }}>
+              <TextField
+                fullWidth
+                label="Metros cúbicos (CBM)"
+                type="number"
+                value={cbm}
+                onChange={(e) => {
+                  setCbm(e.target.value);
+                  setCbmManual(true);
+                }}
+                inputProps={{ min: 0, step: 0.0001 }}
+                helperText={
+                  cbmManual
+                    ? 'Valor capturado manualmente. Limpia este campo para volver a calcular desde las dimensiones.'
+                    : 'Se calcula automáticamente con longitud × ancho × altura. También puedes escribirlo directamente.'
+                }
+                InputProps={{
+                  endAdornment: cbmManual ? (
+                    <Button
+                      size="small"
+                      onClick={() => {
+                        setCbmManual(false);
+                        setCbm('');
+                      }}
+                    >
+                      Auto
+                    </Button>
+                  ) : null,
+                }}
+              />
+            </Grid>
+            <Grid size={{ xs: 12 }}>
               <FormControl fullWidth>
                 <InputLabel>Categoría</InputLabel>
                 <Select
@@ -290,9 +390,7 @@ export default function CotizadorPublico() {
                   onChange={(e) => setCategoria(e.target.value)}
                 >
                   <MenuItem value="generico">Genérico</MenuItem>
-                  <MenuItem value="sensible">Sensible</MenuItem>
-                  <MenuItem value="logo">Logotipo</MenuItem>
-                  <MenuItem value="startup">StartUp</MenuItem>
+                  <MenuItem value="logo">Marca Registrada (Tengo documentos de uso de marca)</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -610,7 +708,7 @@ export default function CotizadorPublico() {
         </Grid>
         
         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
-          * Tipo de cambio actual: ${rates.tipo_cambio?.toFixed(2)} MXN/USD
+          * Tipo de cambio actual: ${Number(rates.tipo_cambio || 0).toFixed(4)} MXN/USD
         </Typography>
       </Paper>
     );

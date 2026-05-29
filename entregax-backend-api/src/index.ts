@@ -9062,9 +9062,24 @@ app.get('/api/driver/check-carrier-guide/:guide', authenticateToken, requireMinL
 // GET /api/public/rates - Obtener tarifas de referencia de todos los servicios
 app.get('/api/public/rates', async (_req: Request, res: Response) => {
   try {
-    // 1. Tipo de cambio actual
-    const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
-    const fxRate = parseFloat(fxRes.rows[0]?.rate || '20.00');
+    // 1. Tipos de cambio dinámicos por servicio (exchange_rate_config = tc_api + sobreprecio).
+    //    Si no hay config para un servicio, cae al más reciente de exchange_rates.
+    const fxByServiceRes = await pool.query(`
+      SELECT servicio, COALESCE(tipo_cambio_final, COALESCE(tipo_cambio_manual, ultimo_tc_api, 0) + COALESCE(sobreprecio, 0))::float AS tc
+      FROM exchange_rate_config
+      WHERE estado = TRUE
+    `);
+    const fxByService: Record<string, number> = {};
+    for (const r of fxByServiceRes.rows) {
+      fxByService[r.servicio] = parseFloat(r.tc);
+    }
+    const fxFallbackRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+    const fxFallback = parseFloat(fxFallbackRes.rows[0]?.rate || '20.00');
+    const fxFor = (svc: string) => fxByService[svc] ?? fxFallback;
+    // TC de referencia general (promedio) para mostrar al pie del cotizador.
+    const fxRate = Object.values(fxByService).length > 0
+      ? Object.values(fxByService).reduce((a, b) => a + b, 0) / Object.values(fxByService).length
+      : fxFallback;
 
     // 2. Tarifas Marítimo China (precio base por CBM)
     const maritimoRes = await pool.query(`
@@ -9076,15 +9091,17 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
     `);
     const maritimoBase = parseFloat(maritimoRes.rows[0]?.price || '39');
 
-    // 3. Tarifas Aéreo China (obtener tarifa G - Genérico de la ruta activa)
+    // 3. Tarifas Aéreo China (Génerico = cost_per_kg_usd + $8 sobre la ruta activa)
+    //    Fuente única de verdad: air_routes.cost_per_kg_usd + markup fijo (L=+9, G=+8, F=+7).
+    //    Evita desfase con air_tariffs cuando el admin ajusta sólo el Costo Ruta.
     const aereoRes = await pool.query(`
-      SELECT at.price_per_kg
-      FROM air_tariffs at
-      JOIN air_routes ar ON at.route_id = ar.id
-      WHERE ar.is_active = true AND at.tariff_type = 'G' AND at.is_active = true
-      ORDER BY ar.id ASC LIMIT 1
+      SELECT cost_per_kg_usd
+      FROM air_routes
+      WHERE is_active = true
+      ORDER BY id ASC LIMIT 1
     `);
-    const aereoBase = parseFloat(aereoRes.rows[0]?.price_per_kg || '8');
+    const aereoCost = parseFloat(aereoRes.rows[0]?.cost_per_kg_usd || '0');
+    const aereoBase = aereoCost > 0 ? aereoCost + 8 : 8;
 
     // 4. Tarifas PO Box USA (nivel 1 - precio base)
     const poboxRes = await pool.query(`
@@ -9119,7 +9136,8 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
           tiempo_estimado: '45-60 días',
           unidad: 'CBM',
           precio_base_usd: maritimoBase,
-          precio_base_mxn: maritimoBase * fxRate,
+          precio_base_mxn: maritimoBase * fxFor('maritimo'),
+          tipo_cambio: fxFor('maritimo'),
           icono: '🚢',
           notas: 'Incluye entrega en Monterrey. Mínimo cobrable: 0.010 m³',
         },
@@ -9130,7 +9148,8 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
           tiempo_estimado: '10-15 días',
           unidad: 'kg',
           precio_base_usd: aereoBase,
-          precio_base_mxn: aereoBase * fxRate,
+          precio_base_mxn: aereoBase * fxFor('tdi'),
+          tipo_cambio: fxFor('tdi'),
           icono: '✈️',
           notas: 'Precio por kilogramo. Se usa el mayor entre peso real y volumétrico.',
         },
@@ -9141,7 +9160,8 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
           tiempo_estimado: '5-10 días',
           unidad: 'paquete',
           precio_base_usd: 39,
-          precio_base_mxn: 39 * fxRate,
+          precio_base_mxn: 39 * fxFor('pobox_usa'),
+          tipo_cambio: fxFor('pobox_usa'),
           icono: '📦',
           notas: 'Compras en Amazon, eBay y tiendas USA. Precio base desde $39 USD.',
         },
@@ -9152,7 +9172,8 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
           tiempo_estimado: '1-3 días',
           unidad: 'liberación',
           precio_base_usd: dhlStandard,
-          precio_base_mxn: dhlStandard * fxRate,
+          precio_base_mxn: dhlStandard * fxFor('dhl_monterrey'),
+          tipo_cambio: fxFor('dhl_monterrey'),
           icono: '📮',
           notas: 'Liberación + entrega local. High Value: $' + dhlHighValue + ' USD',
         },
@@ -9167,15 +9188,13 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
 // POST /api/public/quote - Cotizador universal
 app.post('/api/public/quote', async (req: Request, res: Response) => {
   try {
-    const { servicio, largo, ancho, alto, peso, cantidad = 1, categoria } = req.body;
+    const { servicio, largo, ancho, alto, peso, cantidad = 1, categoria, cbm: cbmInput } = req.body;
 
     if (!servicio) {
       return res.status(400).json({ error: 'El tipo de servicio es requerido' });
     }
 
-    // Tipo de cambio
-    const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
-    const fxRate = parseFloat(fxRes.rows[0]?.rate || '20.00');
+    // Tipo de cambio: por servicio desde exchange_rate_config (din\u00e1mico).\n    //  maritimo \u2192 'maritimo' · aereo \u2192 'tdi' · pobox \u2192 'pobox_usa' · dhl \u2192 'dhl_monterrey'\n    const fxKeyMap: Record<string, string> = {\n      maritimo: 'maritimo',\n      aereo: 'tdi',\n      pobox: 'pobox_usa',\n      dhl: 'dhl_monterrey',\n    };\n    const fxKey = fxKeyMap[servicio];\n    let fxRate = 20.00;\n    if (fxKey) {\n      const fxCfg = await pool.query(\n        `SELECT COALESCE(tipo_cambio_final, COALESCE(tipo_cambio_manual, ultimo_tc_api, 0) + COALESCE(sobreprecio, 0))::float AS tc\n         FROM exchange_rate_config WHERE servicio = $1 AND estado = TRUE LIMIT 1`,\n        [fxKey]\n      );\n      if (fxCfg.rows[0]?.tc) fxRate = parseFloat(fxCfg.rows[0].tc);\n    }\n    if (!fxRate || fxRate <= 0) {\n      const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');\n      fxRate = parseFloat(fxRes.rows[0]?.rate || '20.00');\n    }
 
     let resultado: any = {
       servicio,
@@ -9185,12 +9204,16 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
 
     switch (servicio) {
       case 'maritimo': {
-        if (!largo || !ancho || !alto) {
-          return res.status(400).json({ error: 'Dimensiones (largo, ancho, alto en cm) son requeridas' });
+        const cbmDirect = cbmInput !== undefined && cbmInput !== null && cbmInput !== '' ? parseFloat(cbmInput) : NaN;
+        const hasDims = largo && ancho && alto;
+        if (!hasDims && !(cbmDirect > 0)) {
+          return res.status(400).json({ error: 'Dimensiones (largo, ancho, alto en cm) o CBM son requeridos' });
         }
         
-        // Calcular CBM
-        let cbm = (parseFloat(largo) * parseFloat(ancho) * parseFloat(alto)) / 1000000;
+        // Calcular CBM (desde dimensiones o usar el directo)
+        let cbm = cbmDirect > 0
+          ? cbmDirect
+          : (parseFloat(largo) * parseFloat(ancho) * parseFloat(alto)) / 1000000;
         const cbmOriginal = cbm;
         
         // Mínimo cobrable
@@ -9254,17 +9277,30 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
           : 0;
         const pesoCobrable = Math.max(pesoReal, pesoVol) * cantidad;
 
-        // Obtener tarifa
-        const tariffType = categoria || 'G'; // G = Genérico
-        const tariffRes = await pool.query(`
-          SELECT at.price_per_kg
-          FROM air_tariffs at
-          JOIN air_routes ar ON at.route_id = ar.id
-          WHERE ar.is_active = true AND at.tariff_type = $1 AND at.is_active = true
-          ORDER BY ar.id ASC LIMIT 1
-        `, [tariffType]);
-
-        const precioPorKg = parseFloat(tariffRes.rows[0]?.price_per_kg || '8');
+        // Obtener tarifa (markup vivo sobre air_routes.cost_per_kg_usd para L/G/F).
+        // S (sensible) sigue siendo manual desde air_tariffs.
+        const tariffType = categoria || 'G';
+        const markupByType: Record<string, number> = { L: 9, G: 8, F: 7 };
+        let precioPorKg = 0;
+        if (tariffType in markupByType) {
+          const routeRes = await pool.query(`
+            SELECT cost_per_kg_usd
+            FROM air_routes
+            WHERE is_active = true
+            ORDER BY id ASC LIMIT 1
+          `);
+          const cost = parseFloat(routeRes.rows[0]?.cost_per_kg_usd || '0');
+          precioPorKg = cost > 0 ? cost + markupByType[tariffType] : 8;
+        } else {
+          const tariffRes = await pool.query(`
+            SELECT at.price_per_kg
+            FROM air_tariffs at
+            JOIN air_routes ar ON at.route_id = ar.id
+            WHERE ar.is_active = true AND at.tariff_type = $1 AND at.is_active = true
+            ORDER BY ar.id ASC LIMIT 1
+          `, [tariffType]);
+          precioPorKg = parseFloat(tariffRes.rows[0]?.price_per_kg || '8');
+        }
         const precioUsd = pesoCobrable * precioPorKg;
 
         resultado = {
