@@ -735,6 +735,11 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               value={advAmount}
               onChangeText={setAdvAmount}
             />
+            {advAmount ? (
+              <Text style={{ marginTop: -8, marginBottom: 8, fontSize: 12, color: '#666' }}>
+                Se registrará como: <Text style={{ fontWeight: '700', color: '#1A1A1A' }}>{fmtMoney(parseMontoEs(advAmount))}</Text>
+              </Text>
+            ) : null}
 
             <Text style={styles.label}>Motivo / Ruta (opcional)</Text>
             <TextInput
@@ -813,6 +818,11 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               value={gastoAmount}
               onChangeText={setGastoAmount}
             />
+            {gastoAmount ? (
+              <Text style={{ marginTop: -8, marginBottom: 8, fontSize: 12, color: '#666' }}>
+                Se registrará como: <Text style={{ fontWeight: '700', color: '#1A1A1A' }}>{fmtMoney(parseMontoEs(gastoAmount))}</Text>
+              </Text>
+            ) : null}
 
             <Text style={styles.label}>Concepto / descripción (opcional)</Text>
             <TextInput
