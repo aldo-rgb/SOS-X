@@ -1636,7 +1636,7 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
     console.log('[getDrafts] Fetching drafts with status:', status);
 
     let query = `
-      SELECT d.*,
+      SELECT DISTINCT ON (d.id) d.*,
         e.from_email, e.subject, e.received_at,
         lc.full_name as matched_client_name, lc.box_id as matched_box_id,
         -- Cruzar con containers para saber si el draft ya está reflejado en sistema
@@ -1668,7 +1668,7 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
       idx++;
     }
 
-    query += ' ORDER BY d.created_at DESC LIMIT 500';
+    query += ' ORDER BY d.id DESC, d.created_at DESC LIMIT 500';
 
     const result = await pool.query(query, params);
     console.log('[getDrafts] Found', result.rows.length, 'drafts');
