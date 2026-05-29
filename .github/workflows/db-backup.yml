@@ -11,6 +11,9 @@ jobs:
     name: Dump Railway DB → entregax-uploads/db-backups/
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      # Forzar Node.js 24 para acciones que aún declaran Node 20 (deprecado jun/2026)
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
     steps:
       - name: Instalar cliente PostgreSQL 17 (coincide con Railway)
