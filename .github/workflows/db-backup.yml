@@ -18,6 +18,10 @@ jobs:
     steps:
       - name: Instalar cliente PostgreSQL 17 (coincide con Railway)
         run: |
+          set -e
+          # Remover el cliente v16 preinstalado de Ubuntu para evitar conflicto
+          sudo apt-get remove -y postgresql-client-16 postgresql-client-common || true
+
           sudo install -d /usr/share/postgresql-common/pgdg
           sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
             --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
@@ -25,7 +29,10 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -qq
           sudo apt-get install -y postgresql-client-17
-          pg_dump --version
+
+          # Asegurar que el binario v17 sea el primero en PATH
+          echo "/usr/lib/postgresql/17/bin" >> $GITHUB_PATH
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       - name: Generar dump completo y comprimido
         env:
