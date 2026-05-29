@@ -1633,7 +1633,8 @@ export const updateMovement = async (req: Request, res: Response): Promise<any> 
         fund: 1,       // fondeo suma al saldo
         return: 1,     // devolución suma al saldo
         advance: -1,   // anticipo resta del saldo
-        adjustment: 1  // ajuste suma al saldo
+        adjustment: 1, // ajuste suma al saldo
+        expense: -1    // gasto resta del saldo
       };
       const sign = signMap[mov.movement_type] ?? 0;
       if (sign !== 0) {
