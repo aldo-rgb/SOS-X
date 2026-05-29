@@ -45,6 +45,7 @@ import {
     Email as EmailIcon,
     Description as DocIcon,
     Refresh as RefreshIcon,
+    RestartAlt as RestoreIcon,
     LocalShipping as ShipIcon,
     Person as PersonIcon,
     PictureAsPdf as PdfIcon,
@@ -580,6 +581,32 @@ export default function InboundEmailsPage() {
         }
     };
 
+    // Restaurar borrador aprobado (recrea el contenedor en sistema en un solo paso)
+    const handleRestore = async (draft: Draft) => {
+        if (!window.confirm(`¿Restaurar borrador #${draft.id}? Se recrearán los datos del contenedor en sistema usando la información ya extraída.`)) return;
+        try {
+            const res = await fetch(`${API_URL}/api/admin/maritime/drafts/${draft.id}/restore`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify({})
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setSnackbar({ open: true, message: data.message || 'Contenedor restaurado correctamente.', severity: 'success' });
+                loadDrafts();
+                loadStats();
+            } else {
+                setSnackbar({ open: true, message: data.error || 'Error al restaurar', severity: 'error' });
+            }
+        } catch (error) {
+            console.error('Error restoring draft:', error);
+            setSnackbar({ open: true, message: 'Error al restaurar el borrador', severity: 'error' });
+        }
+    };
+
     // Rechazar borrador
     const handleReject = async () => {
         if (!selectedDraft) return;
@@ -954,6 +981,17 @@ export default function InboundEmailsPage() {
                                                             </IconButton>
                                                         </Tooltip>
                                                     </>
+                                                )}
+                                                {draft.status === 'approved' && !draft.container_id_found && (
+                                                    <Tooltip title="Restaurar: re-cargar datos del contenedor">
+                                                        <IconButton
+                                                            size="small"
+                                                            color="warning"
+                                                            onClick={() => handleRestore(draft)}
+                                                        >
+                                                            <RestoreIcon />
+                                                        </IconButton>
+                                                    </Tooltip>
                                                 )}
                                             </TableCell>
                                         </TableRow>

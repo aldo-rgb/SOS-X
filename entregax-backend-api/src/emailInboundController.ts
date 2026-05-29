@@ -1636,21 +1636,28 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
     console.log('[getDrafts] Fetching drafts with status:', status);
 
     let query = `
-      SELECT DISTINCT ON (d.id) d.*,
+      SELECT d.*,
         e.from_email, e.subject, e.received_at,
         lc.full_name as matched_client_name, lc.box_id as matched_box_id,
         -- Cruzar con containers para saber si el draft ya está reflejado en sistema
-        c.id              AS container_id_found,
-        c.reference_code  AS container_reference_found,
-        c.status          AS container_status_found
+        COALESCE(cc.id, cb.id)                         AS container_id_found,
+        COALESCE(cc.reference_code, cb.reference_code) AS container_reference_found,
+        COALESCE(cc.status, cb.status)                 AS container_status_found
       FROM maritime_reception_drafts d
       LEFT JOIN email_inbound_logs e ON e.id = d.email_log_id
       LEFT JOIN legacy_clients lc ON lc.id = d.matched_user_id
-      LEFT JOIN containers c
-        ON (
-             (d.container_number IS NOT NULL AND d.container_number != '' AND c.container_number = d.container_number)
-          OR (d.bl_number        IS NOT NULL AND d.bl_number        != '' AND c.bl_number        = d.bl_number)
-        )
+      LEFT JOIN LATERAL (
+        SELECT id, reference_code, status
+          FROM containers
+         WHERE container_number = d.container_number
+         LIMIT 1
+      ) cc ON d.container_number IS NOT NULL AND d.container_number <> ''
+      LEFT JOIN LATERAL (
+        SELECT id, reference_code, status
+          FROM containers
+         WHERE bl_number = d.bl_number
+         LIMIT 1
+      ) cb ON d.bl_number IS NOT NULL AND d.bl_number <> ''
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -1668,7 +1675,7 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
       idx++;
     }
 
-    query += ' ORDER BY d.id DESC, d.created_at DESC LIMIT 500';
+    query += ' ORDER BY d.id DESC LIMIT 500';
 
     const result = await pool.query(query, params);
     console.log('[getDrafts] Found', result.rows.length, 'drafts');
@@ -2485,8 +2492,92 @@ export const approveDraft = async (req: Request, res: Response): Promise<any> =>
 };
 
 /**
+ * PATCH /api/admin/maritime/drafts/:id/fields
+ * Editar campos clave del draft (reference_code, bl_number) — solo super_admin.
+ * Si el draft tiene un contenedor asociado en sistema, también lo actualiza.
+ */
+export const updateDraftFields = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+    const { reference_code, bl_number } = req.body as { reference_code?: string | null; bl_number?: string | null };
+
+    if (reference_code === undefined && bl_number === undefined) {
+      return res.status(400).json({ error: 'No hay campos para actualizar (reference_code, bl_number)' });
+    }
+
+    const draftRes = await pool.query(
+      'SELECT id, extracted_data, container_number, bl_number FROM maritime_reception_drafts WHERE id = $1',
+      [id]
+    );
+    if (draftRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Borrador no encontrado' });
+    }
+    const draft = draftRes.rows[0];
+
+    const newExtracted = { ...(draft.extracted_data || {}) };
+    if (reference_code !== undefined) {
+      const v = (reference_code ?? '').trim() || null;
+      newExtracted.reference_code = v;
+      newExtracted.referenceCode = v;
+    }
+    if (bl_number !== undefined) {
+      const v = (bl_number ?? '').trim() || null;
+      newExtracted.blNumber = v;
+    }
+
+    const newBl = bl_number !== undefined ? ((bl_number ?? '').trim() || null) : draft.bl_number;
+
+    await pool.query(
+      `UPDATE maritime_reception_drafts
+          SET extracted_data = $1,
+              bl_number = $2,
+              updated_at = NOW()
+        WHERE id = $3`,
+      [JSON.stringify(newExtracted), newBl, id]
+    );
+
+    // Propagar a contenedor asociado si existe
+    let containerUpdated: any = null;
+    const targetContainer = draft.container_number || newBl;
+    if (targetContainer) {
+      const cRes = await pool.query(
+        `SELECT id FROM containers
+          WHERE ($1::text IS NOT NULL AND $1 <> '' AND container_number = $1)
+             OR ($2::text IS NOT NULL AND $2 <> '' AND bl_number = $2)
+          LIMIT 1`,
+        [draft.container_number, newBl]
+      );
+      if (cRes.rows.length > 0) {
+        const containerId = cRes.rows[0].id;
+        if (reference_code !== undefined && bl_number !== undefined) {
+          await pool.query(
+            'UPDATE containers SET reference_code = $1, bl_number = $2, updated_at = NOW() WHERE id = $3',
+            [(reference_code ?? '').trim() || null, newBl, containerId]
+          );
+        } else if (reference_code !== undefined) {
+          await pool.query(
+            'UPDATE containers SET reference_code = $1, updated_at = NOW() WHERE id = $2',
+            [(reference_code ?? '').trim() || null, containerId]
+          );
+        } else if (bl_number !== undefined) {
+          await pool.query(
+            'UPDATE containers SET bl_number = $1, updated_at = NOW() WHERE id = $2',
+            [newBl, containerId]
+          );
+        }
+        containerUpdated = { id: containerId };
+      }
+    }
+
+    res.json({ success: true, message: 'Campos actualizados', containerUpdated });
+  } catch (error: any) {
+    console.error('Error actualizando campos del borrador:', error);
+    res.status(500).json({ error: 'Error al actualizar campos', details: error.message });
+  }
+};
+
+/**
  * POST /api/admin/maritime/drafts/:id/reject
- * Rechazar borrador
  */
 export const rejectDraft = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -2503,6 +2594,93 @@ export const rejectDraft = async (req: Request, res: Response): Promise<any> => 
   } catch (error) {
     console.error('Error rechazando borrador:', error);
     res.status(500).json({ error: 'Error al rechazar borrador' });
+  }
+};
+
+/**
+ * POST /api/admin/maritime/drafts/:id/restore
+ * Restaurar un draft APROBADO recreando el contenedor en sistema.
+ * No deja el draft en estado 'pendiente': ejecuta toda la lógica de
+ * aprobación internamente y deja el draft como 'approved' al terminar.
+ * Solo procede si NO existe ya un contenedor con el mismo container_number
+ * o bl_number CON reference_code asignado.
+ */
+export const restoreDraft = async (req: Request, res: Response): Promise<any> => {
+  const { id } = req.params;
+  try {
+    const draftRes = await pool.query(
+      'SELECT id, status, container_number, bl_number, document_type, extracted_data FROM maritime_reception_drafts WHERE id = $1',
+      [id]
+    );
+    if (draftRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Borrador no encontrado' });
+    }
+    const draft = draftRes.rows[0];
+
+    if (draft.status !== 'approved') {
+      return res.status(400).json({ error: 'Solo se pueden restaurar borradores aprobados' });
+    }
+
+    // Pre-check: si el contenedor o BL ya existe CON referencia, no es restaurable
+    const conflict = await pool.query(
+      `SELECT id, container_number, bl_number, reference_code
+         FROM containers
+        WHERE (($1::text IS NOT NULL AND $1 <> '' AND container_number = $1)
+            OR ($2::text IS NOT NULL AND $2 <> '' AND bl_number = $2))
+          AND reference_code IS NOT NULL
+          AND TRIM(reference_code) <> ''
+        LIMIT 1`,
+      [draft.container_number, draft.bl_number]
+    );
+    if (conflict.rows.length > 0) {
+      const c = conflict.rows[0];
+      return res.status(400).json({
+        error: `Ya existe un contenedor con referencia asignada (${c.reference_code}). No se puede restaurar.`,
+        details: `Container ID: ${c.id}, BL: ${c.bl_number || 'N/A'}, Container#: ${c.container_number || 'N/A'}`,
+        duplicateContainer: true,
+      });
+    }
+
+    // Marcar como 'draft' temporalmente para que approveDraft lo procese
+    await pool.query(
+      `UPDATE maritime_reception_drafts SET status = 'draft', updated_at = NOW() WHERE id = $1`,
+      [id]
+    );
+
+    // Asegurar que approveDraft use los datos ya guardados (no pasar editedData/modifiedData)
+    const originalBody = req.body || {};
+    req.body = {
+      userId: originalBody.userId,
+      // editedData/modifiedData se omiten → approveDraft usa draft.extracted_data tal cual
+    };
+
+    try {
+      return await approveDraft(req, res);
+    } catch (innerErr: any) {
+      // Si approveDraft falló sin responder, revertir status y devolver error
+      await pool.query(
+        `UPDATE maritime_reception_drafts SET status = 'approved', updated_at = NOW() WHERE id = $1`,
+        [id]
+      );
+      console.error('Error en approveDraft durante restore:', innerErr);
+      if (!res.headersSent) {
+        return res.status(500).json({ error: 'Error al restaurar', details: innerErr.message });
+      }
+      return;
+    }
+  } catch (error: any) {
+    console.error('Error restaurando borrador:', error);
+    // Intentar revertir status si quedó como draft
+    try {
+      await pool.query(
+        `UPDATE maritime_reception_drafts SET status = 'approved', updated_at = NOW() WHERE id = $1 AND status = 'draft'`,
+        [id]
+      );
+    } catch {}
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Error al restaurar borrador', details: error.message });
+    }
+    return;
   }
 };
 

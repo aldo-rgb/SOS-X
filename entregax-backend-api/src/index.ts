@@ -5723,6 +5723,8 @@ import {
   getDraftDetail,
   approveDraft,
   rejectDraft,
+  restoreDraft,
+  updateDraftFields,
   matchClientToDraft,
   getWhitelist,
   addToWhitelist,
@@ -8262,6 +8264,8 @@ app.get('/api/admin/maritime/drafts', authenticateToken, requireMinLevel(ROLES.W
 app.get('/api/admin/maritime/drafts/:id', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDraftDetail);
 app.post('/api/admin/maritime/drafts/:id/approve', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), approveDraft);
 app.post('/api/admin/maritime/drafts/:id/reject', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), rejectDraft);
+app.post('/api/admin/maritime/drafts/:id/restore', authenticateToken, requireMinLevel(ROLES.ADMIN), restoreDraft);
+app.patch('/api/admin/maritime/drafts/:id/fields', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateDraftFields);
 app.put('/api/admin/maritime/drafts/:id/match-client', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), matchClientToDraft);
 
 // Whitelist de correos (Lectura: Gerente+, Escritura: Admin+)
