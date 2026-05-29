@@ -681,12 +681,29 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         // 6. Marcar como reclamado
         await client.query(`
-            UPDATE legacy_clients 
-            SET is_claimed = TRUE, 
-                claimed_by_user_id = $1, 
+            UPDATE legacy_clients
+            SET is_claimed = TRUE,
+                claimed_by_user_id = $1,
                 claimed_at = NOW()
             WHERE box_id = $2
         `, [newUserId, boxId.toUpperCase()]);
+
+        // 6.1 Auto-reclamar paquetes huérfanos (user_id NULL + mismo box_id).
+        const claimedPkgs = await client.query(`
+            UPDATE packages
+            SET user_id = $1, updated_at = NOW()
+            WHERE user_id IS NULL
+              AND UPPER(TRIM(box_id)) = $2
+            RETURNING id, service_type
+        `, [newUserId, boxId.toUpperCase().trim()]);
+        if (claimedPkgs.rowCount && claimedPkgs.rowCount > 0) {
+            const byService: Record<string, number> = {};
+            claimedPkgs.rows.forEach((p: any) => {
+                const svc = p.service_type || 'unknown';
+                byService[svc] = (byService[svc] || 0) + 1;
+            });
+            console.log(`[LEGACY-CLAIM] ✅ ${claimedPkgs.rowCount} paquetes reclamados para ${boxId.toUpperCase()} (user ${newUserId}):`, byService);
+        }
 
         // 7. Procesar código de referido (asesor o amigo)
         let hasAdvisor = false;
