@@ -83,6 +83,10 @@ interface Draft {
     subject: string;
     received_at: string;
     created_at: string;
+    // Cruce con containers (solo lectura, viene del backend)
+    container_id_found: number | null;
+    container_reference_found: string | null;
+    container_status_found: string | null;
 }
 
 interface WhitelistEntry {
@@ -785,6 +789,18 @@ export default function InboundEmailsPage() {
                         ))}
                     </Box>
 
+                    {/* Resumen de faltantes cuando se ven aprobados */}
+                    {statusFilter === 'approved' && !loading && drafts.length > 0 && (() => {
+                        const sinContenedor = drafts.filter(d => !d.container_id_found);
+                        if (sinContenedor.length === 0) return null;
+                        return (
+                            <Alert severity="warning" sx={{ mb: 2 }}>
+                                <strong>{sinContenedor.length} draft(s) aprobado(s) sin contenedor en sistema:</strong>{' '}
+                                {sinContenedor.map(d => d.extracted_data?.blNumber || d.extracted_data?.containerNumber || `ID ${d.id}`).join(', ')}
+                            </Alert>
+                        );
+                    })()}
+
                     {loading ? (
                         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                             <CircularProgress />
@@ -857,11 +873,18 @@ export default function InboundEmailsPage() {
                                                 />
                                             </TableCell>
                                             <TableCell>
-                                                <Chip
-                                                    label={draft.status}
-                                                    size="small"
-                                                    color={draft.status === 'approved' ? 'success' : draft.status === 'rejected' ? 'error' : 'warning'}
-                                                />
+                                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                                                    <Chip
+                                                        label={draft.status}
+                                                        size="small"
+                                                        color={draft.status === 'approved' ? 'success' : draft.status === 'rejected' ? 'error' : 'warning'}
+                                                    />
+                                                    {draft.status === 'approved' && (
+                                                        draft.container_id_found
+                                                            ? <Chip label="✅ En sistema" size="small" sx={{ bgcolor: '#e8f5e9', color: '#2e7d32', fontSize: 10 }} />
+                                                            : <Chip label="⚠️ Sin contenedor" size="small" sx={{ bgcolor: '#fff3e0', color: '#e65100', fontSize: 10, fontWeight: 700 }} />
+                                                    )}
+                                                </Box>
                                             </TableCell>
                                             <TableCell align="center">
                                                 <Tooltip title="Ver detalle">

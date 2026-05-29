@@ -1636,12 +1636,21 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
     console.log('[getDrafts] Fetching drafts with status:', status);
 
     let query = `
-      SELECT d.*, 
+      SELECT d.*,
         e.from_email, e.subject, e.received_at,
-        lc.full_name as matched_client_name, lc.box_id as matched_box_id
+        lc.full_name as matched_client_name, lc.box_id as matched_box_id,
+        -- Cruzar con containers para saber si el draft ya está reflejado en sistema
+        c.id              AS container_id_found,
+        c.reference_code  AS container_reference_found,
+        c.status          AS container_status_found
       FROM maritime_reception_drafts d
       LEFT JOIN email_inbound_logs e ON e.id = d.email_log_id
       LEFT JOIN legacy_clients lc ON lc.id = d.matched_user_id
+      LEFT JOIN containers c
+        ON (
+             (d.container_number IS NOT NULL AND d.container_number != '' AND c.container_number = d.container_number)
+          OR (d.bl_number        IS NOT NULL AND d.bl_number        != '' AND c.bl_number        = d.bl_number)
+        )
       WHERE 1=1
     `;
     const params: any[] = [];
@@ -1659,7 +1668,7 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
       idx++;
     }
 
-    query += ' ORDER BY d.created_at DESC LIMIT 100';
+    query += ' ORDER BY d.created_at DESC LIMIT 500';
 
     const result = await pool.query(query, params);
     console.log('[getDrafts] Found', result.rows.length, 'drafts');

@@ -1093,7 +1093,7 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
               </Box>
               <Switch checked={notifPrefs.dhl} onChange={(e) => updateNotifPref('dhl', e.target.checked)}
                 sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE } }} />
-            </Box>
+            </Box>                                                                                                                                                                                            
 
             <Divider sx={{ mx: 2 }} />
 
