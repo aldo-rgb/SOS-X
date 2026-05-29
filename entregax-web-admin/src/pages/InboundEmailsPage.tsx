@@ -153,6 +153,7 @@ export default function InboundEmailsPage() {
     const [tabValue, setTabValue] = useState(0);
     const [statusFilter, setStatusFilter] = useState<'draft' | 'approved' | 'rejected' | 'all'>('draft');
     const [onlySinContenedor, setOnlySinContenedor] = useState(false);
+    const [searchTerm, setSearchTerm] = useState('');
     
     // Dialog states
     const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
@@ -797,6 +798,20 @@ export default function InboundEmailsPage() {
                                 sx={{ ml: { sm: 'auto' } }}
                             />
                         )}
+                        <TextField
+                            size="small"
+                            placeholder="Buscar por referencia, BL o contenedor..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            sx={{ minWidth: 280, ml: userRole === 'super_admin' ? 0 : { sm: 'auto' } }}
+                            InputProps={{
+                                endAdornment: searchTerm ? (
+                                    <IconButton size="small" onClick={() => setSearchTerm('')}>
+                                        <CloseIcon fontSize="small" />
+                                    </IconButton>
+                                ) : undefined,
+                            }}
+                        />
                     </Box>
 
                     {/* Resumen de faltantes cuando se ven aprobados */}
@@ -826,7 +841,8 @@ export default function InboundEmailsPage() {
                                 <TableHead>
                                     <TableRow sx={{ bgcolor: 'grey.100' }}>
                                         <TableCell>Tipo</TableCell>
-                                        <TableCell>Referencia / BL</TableCell>
+                                        <TableCell>Referencia</TableCell>
+                                        <TableCell>BL / Contenedor</TableCell>
                                         <TableCell>Cliente</TableCell>
                                         <TableCell>De</TableCell>
                                         <TableCell>Recibido</TableCell>
@@ -846,9 +862,19 @@ export default function InboundEmailsPage() {
                                                 />
                                             </TableCell>
                                             <TableCell>
+                                                <Typography variant="body2" fontWeight="bold" color="primary.main">
+                                                    {draft.extracted_data?.reference_code || draft.extracted_data?.referenceCode || draft.container_reference_found || '-'}
+                                                </Typography>
+                                            </TableCell>
+                                            <TableCell>
                                                 <Typography variant="body2" fontWeight="bold">
                                                     {draft.extracted_data?.logNumber || draft.extracted_data?.blNumber || '-'}
                                                 </Typography>
+                                                {draft.extracted_data?.containerNumber && (
+                                                    <Typography variant="caption" color="text.secondary" display="block">
+                                                        {draft.extracted_data.containerNumber}
+                                                    </Typography>
+                                                )}
                                             </TableCell>
                                             <TableCell>
                                                 {draft.matched_client_name ? (
