@@ -739,6 +739,14 @@ export default function DashboardAdvisor() {
     'tdi_express': 'tdi_express',
   };
 
+  // Servicios donde Paquete Express viene INCLUIDO en la tarifa base
+  // (TDI Aéreo China y TDI Express) — no se cobra extra al cliente.
+  const isPqtxIncludedService = (serviceType?: string | null): boolean => {
+    if (!serviceType) return false;
+    const s = String(serviceType).toUpperCase();
+    return s === 'AIR_CHN_MX' || s === 'TDI_EXPRESS';
+  };
+
   const handleViewAddresses = async (clientId: number, clientName: string) => {
     setAddressesClient({ id: clientId, name: clientName });
     setAddressesModalOpen(true);
@@ -869,7 +877,7 @@ export default function DashboardAdvisor() {
     setInstrCarrierKey(preselected);
     const carrier = instrCarriers.find((c: any) => c.carrier_key === preselected);
     setInstrIsCollect(carrier?.allows_collect || false);
-    if (preselected === 'paquete_express' && instrShipment && addr.zip_code) {
+    if (preselected === 'paquete_express' && instrShipment && addr.zip_code && !isPqtxIncludedService(instrShipment.serviceType)) {
       fetchPqtxEstimate(addr.zip_code, instrShipment);
     }
   };
@@ -879,7 +887,7 @@ export default function DashboardAdvisor() {
     setInstrCarrierKey(newKey);
     setInstrIsCollect(newKey ? (carrier.allows_collect || false) : false);
     setInstrPriceEstimate(null);
-    if (newKey === 'paquete_express' && instrShipment) {
+    if (newKey === 'paquete_express' && instrShipment && !isPqtxIncludedService(instrShipment.serviceType)) {
       const zip = addrZip || instrAddresses.find((a: any) => String(a.id) === instrSelectedId)?.zip_code;
       if (zip) fetchPqtxEstimate(zip, instrShipment);
     }
@@ -3957,6 +3965,7 @@ export default function DashboardAdvisor() {
                   {instrCarriers.map((carrier: any) => {
                     const isCarrierSelected = instrCarrierKey === carrier.carrier_key;
                     const isUrl = carrier.icon && (carrier.icon.startsWith('/') || carrier.icon.startsWith('http'));
+                    const isPqtxIncluded = carrier.carrier_key === 'paquete_express' && isPqtxIncludedService(instrShipment?.serviceType);
                     return (
                       <Paper
                         key={carrier.carrier_key}
@@ -3988,10 +3997,20 @@ export default function DashboardAdvisor() {
                         <Typography variant="caption" fontWeight={isCarrierSelected ? 700 : 400} align="center" sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
                           {carrier.name}
                         </Typography>
-                        {carrier.price_label && (
+                        {carrier.price_label && !isPqtxIncluded && (
                           <Typography variant="caption" color={carrier.allows_collect ? 'warning.main' : 'text.secondary'} align="center" sx={{ fontSize: '0.65rem', fontWeight: carrier.allows_collect ? 700 : 400 }}>
                             {carrier.price_label}
                           </Typography>
+                        )}
+                        {isPqtxIncluded && (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.2 }}>
+                            <Typography variant="caption" sx={{ fontSize: '0.6rem', color: 'text.disabled', textDecoration: 'line-through', lineHeight: 1 }}>
+                              $400
+                            </Typography>
+                            <Typography variant="caption" sx={{ fontSize: '0.65rem', fontWeight: 700, color: '#2E7D32' }}>
+                              INCLUIDO
+                            </Typography>
+                          </Box>
                         )}
                       </Paper>
                     );
@@ -3999,32 +4018,50 @@ export default function DashboardAdvisor() {
                 </Box>
               )}
 
-              {/* ── Estimado de costo ── */}
-              <Collapse in={!!instrCarrierKey && (instrPriceLoading || !!instrPriceEstimate)}>
-                <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#F3F8FF', border: '1px solid #BBDEFB', display: 'flex', alignItems: 'center', gap: 1.5 }}>
-                  {instrPriceLoading ? (
-                    <>
-                      <CircularProgress size={18} sx={{ color: '#1976D2' }} />
-                      <Typography variant="body2" color="text.secondary">Calculando costo estimado…</Typography>
-                    </>
-                  ) : instrPriceEstimate ? (
-                    <>
-                      <Typography sx={{ fontSize: 22 }}>💰</Typography>
-                      <Box>
-                        <Typography variant="body2" fontWeight={700} color="#1565C0">
-                          Costo estimado: ${instrPriceEstimate.price.toFixed(2)} MXN
-                          {instrPriceEstimate.boxes > 1 && (
-                            <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
-                              (${instrPriceEstimate.perBox.toFixed(2)}/caja × {instrPriceEstimate.boxes})
-                            </Typography>
-                          )}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">Entrega aprox. {instrPriceEstimate.days}</Typography>
-                      </Box>
-                    </>
-                  ) : null}
+              {/* ── Estimado de costo / Aviso "Incluido" para TDI ── */}
+              {instrCarrierKey === 'paquete_express' && isPqtxIncludedService(instrShipment?.serviceType) ? (
+                <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#E8F5E9', border: '1px solid #A5D6A7', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                  <Typography sx={{ fontSize: 22 }}>✅</Typography>
+                  <Box>
+                    <Typography variant="body2" fontWeight={700} sx={{ color: '#2E7D32' }}>
+                      Costo:{' '}
+                      <Typography component="span" sx={{ textDecoration: 'line-through', color: 'text.disabled', fontWeight: 500, mr: 0.5 }}>
+                        $400.00 MXN
+                      </Typography>
+                      INCLUIDO
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 600 }}>
+                      ⚠️ Asegúrese de no exceder las dimensiones de esta cuota
+                    </Typography>
+                  </Box>
                 </Box>
-              </Collapse>
+              ) : (
+                <Collapse in={!!instrCarrierKey && (instrPriceLoading || !!instrPriceEstimate)}>
+                  <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 2, bgcolor: '#F3F8FF', border: '1px solid #BBDEFB', display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                    {instrPriceLoading ? (
+                      <>
+                        <CircularProgress size={18} sx={{ color: '#1976D2' }} />
+                        <Typography variant="body2" color="text.secondary">Calculando costo estimado…</Typography>
+                      </>
+                    ) : instrPriceEstimate ? (
+                      <>
+                        <Typography sx={{ fontSize: 22 }}>💰</Typography>
+                        <Box>
+                          <Typography variant="body2" fontWeight={700} color="#1565C0">
+                            Costo estimado: ${instrPriceEstimate.price.toFixed(2)} MXN
+                            {instrPriceEstimate.boxes > 1 && (
+                              <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                                (${instrPriceEstimate.perBox.toFixed(2)}/caja × {instrPriceEstimate.boxes})
+                              </Typography>
+                            )}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">Entrega aprox. {instrPriceEstimate.days}</Typography>
+                        </Box>
+                      </>
+                    ) : null}
+                  </Box>
+                </Collapse>
+              )}
 
               {/* ── Documentos para paquetería por cobrar ── */}
               <Collapse in={instrIsCollect}>
