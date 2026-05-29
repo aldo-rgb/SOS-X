@@ -44,7 +44,16 @@ RUN apt-get update && apt-get install -y \
     xdg-utils \
     gnupg \
     poppler-utils \
+    curl \
     --no-install-recommends
+
+# Instalar PostgreSQL client 17 (coincide con Railway) para pg_dump completo en backups
+RUN install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y postgresql-client-17 --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 
 # Instalar Google Chrome Stable
 RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/googlechrome-linux-keyring.gpg \
