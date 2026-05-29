@@ -303,7 +303,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
   };
 
   const submitGasto = async () => {
-    const amount = parseMontoEs(gastoAmount);
+    const amount = parseMontoEs(gastoAmount, gastoCategory === 'impuestos_dhl');
     if (!Number.isFinite(amount) || amount <= 0) {
       Alert.alert('Monto inválido', 'Captura un monto mayor a $0');
       return;
@@ -839,7 +839,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
             />
             {gastoAmount ? (
               <Text style={{ marginTop: -8, marginBottom: 8, fontSize: 12, color: '#666' }}>
-                Se registrará como: <Text style={{ fontWeight: '700', color: '#1A1A1A' }}>{fmtMoney(parseMontoEs(gastoAmount))}</Text>
+                Se registrará como: <Text style={{ fontWeight: '700', color: '#1A1A1A' }}>{fmtMoney(parseMontoEs(gastoAmount, gastoCategory === 'impuestos_dhl'))}</Text>
               </Text>
             ) : null}
 

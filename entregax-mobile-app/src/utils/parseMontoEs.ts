@@ -7,10 +7,15 @@
 //   "1.360,50"  → 1360.5
 // Bug original: Number("1.360".replace(',', '.')) = 1.36 cuando el usuario
 // usa el punto como separador de miles (uso común en MX).
-export const parseMontoEs = (raw: string): number => {
+export const parseMontoEs = (raw: string, forceDotDecimal = false): number => {
   if (!raw) return NaN;
   let t = String(raw).trim().replace(/\s/g, '').replace(/[^\d.,-]/g, '');
   if (!t) return NaN;
+  if (forceDotDecimal) {
+    // Modo escáner / formato DHL: el "." siempre es decimal,
+    // las "," se eliminan como separadores de miles.
+    return parseFloat(t.replace(/,/g, ''));
+  }
   const lastDot = t.lastIndexOf('.');
   const lastComma = t.lastIndexOf(',');
   if (lastDot >= 0 && lastComma >= 0) {
