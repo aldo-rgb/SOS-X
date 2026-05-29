@@ -2814,7 +2814,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 FROM packages p
                 LEFT JOIN users u ON p.user_id = u.id
                 LEFT JOIN consolidations c ON p.consolidation_id = c.id
-                WHERE (p.user_id = $1 OR ($2 IS NOT NULL AND p.box_id = $2))
+                WHERE (p.user_id = $1 OR ($2 IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM($2))))
                   AND (p.is_master = true OR p.master_id IS NULL)
                   AND COALESCE(p.air_source, '') <> 'tdi_express'
                 ORDER BY p.id
@@ -5471,16 +5471,17 @@ export const startBulkMaster = async (req: Request, res: Response): Promise<any>
     // Buscar usuario opcional
     let user: { id: number | null; full_name: string; box_id: string } | null = null;
     if (boxId && boxId.trim()) {
+      const normalized = boxId.trim().toUpperCase();
       const u = await client.query(
-        'SELECT id, full_name, box_id FROM users WHERE UPPER(box_id) = $1',
-        [boxId.toUpperCase()]
+        'SELECT id, full_name, box_id FROM users WHERE UPPER(TRIM(box_id)) = $1',
+        [normalized]
       );
       if (u.rows.length > 0) {
         user = { id: u.rows[0].id, full_name: u.rows[0].full_name, box_id: u.rows[0].box_id };
       } else {
         const lg = await client.query(
-          'SELECT id, full_name, box_id FROM legacy_clients WHERE UPPER(box_id) = $1',
-          [boxId.toUpperCase()]
+          'SELECT id, full_name, box_id FROM legacy_clients WHERE UPPER(TRIM(box_id)) = $1',
+          [normalized]
         );
         if (lg.rows.length > 0) {
           user = { id: null, full_name: lg.rows[0].full_name, box_id: lg.rows[0].box_id };

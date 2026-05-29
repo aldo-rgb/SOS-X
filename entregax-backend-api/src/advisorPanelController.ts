@@ -534,7 +534,10 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_city,
         (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_recipient
       FROM packages p
-      JOIN users u ON p.user_id = u.id
+      JOIN users u ON (
+        p.user_id = u.id
+        OR (p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM(u.box_id)))
+      )
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client' AND p.master_id IS NULL
     `;
 
