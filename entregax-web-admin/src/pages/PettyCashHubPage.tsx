@@ -1296,26 +1296,49 @@ export default function PettyCashHubPage() {
           📒 Estado de cuenta — {detailWallet?.owner_name || ''}
         </DialogTitle>
         <DialogContent>
-          {detailWallet && (
-            <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 2 }}>
-              <Box>
-                <Typography variant="caption" color="text.secondary">Saldo disponible</Typography>
-                <Typography variant="h5" fontWeight="bold" color="success.main">
-                  {fmtMoney(detailWallet.balance_mxn, detailWallet.currency)}
-                </Typography>
-              </Box>
-              <Box>
-                <Typography variant="caption" color="text.secondary">Movimientos</Typography>
-                <Typography variant="h5" fontWeight="bold">{detailMovs.length}</Typography>
-              </Box>
-              {detailWallet.branch_name && (
+          {detailWallet && (() => {
+            let totalCargo = 0;
+            let totalAbono = 0;
+            for (const m of detailMovs) {
+              if (m.status !== 'approved') continue;
+              const meta = MOVEMENT_TYPE_META[m.movement_type] || { sign: 1 as const };
+              const amt = Number(m.amount_mxn) || 0;
+              if (meta.sign < 0) totalCargo += amt;
+              else totalAbono += amt;
+            }
+            return (
+              <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap', mb: 2 }}>
                 <Box>
-                  <Typography variant="caption" color="text.secondary">Sucursal</Typography>
-                  <Typography variant="h6" fontWeight="bold">{detailWallet.branch_name}</Typography>
+                  <Typography variant="caption" color="text.secondary">Saldo disponible</Typography>
+                  <Typography variant="h5" fontWeight="bold" color="success.main">
+                    {fmtMoney(detailWallet.balance_mxn, detailWallet.currency)}
+                  </Typography>
                 </Box>
-              )}
-            </Box>
-          )}
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Movimientos</Typography>
+                  <Typography variant="h5" fontWeight="bold">{detailMovs.length}</Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Total abono</Typography>
+                  <Typography variant="h5" fontWeight="bold" sx={{ color: '#2E7D32' }}>
+                    +{fmtMoney(totalAbono, detailWallet.currency)}
+                  </Typography>
+                </Box>
+                <Box>
+                  <Typography variant="caption" color="text.secondary">Total cargo</Typography>
+                  <Typography variant="h5" fontWeight="bold" sx={{ color: '#C62828' }}>
+                    -{fmtMoney(totalCargo, detailWallet.currency)}
+                  </Typography>
+                </Box>
+                {detailWallet.branch_name && (
+                  <Box>
+                    <Typography variant="caption" color="text.secondary">Sucursal</Typography>
+                    <Typography variant="h6" fontWeight="bold">{detailWallet.branch_name}</Typography>
+                  </Box>
+                )}
+              </Box>
+            );
+          })()}
           {detailLoading && <CircularProgress />}
           {!detailLoading && (
             <TableContainer component={Paper} variant="outlined">
