@@ -702,7 +702,9 @@ import {
   getAsignacionesByBolsa,
   asignarAnticipo,
   revertirAsignacion,
-  getAnticiposStats
+  getAnticiposStats,
+  updateReferenciaMonto,
+  revalidarReferenciasBolsa
 } from './anticiposController';
 import {
   getProveedoresTransporte,
@@ -5533,6 +5535,8 @@ app.get('/api/anticipos/referencias/disponibles', authenticateToken, requireMinL
 app.get('/api/anticipos/referencias/validas', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getReferenciasValidas);
 app.post('/api/anticipos/referencias/validar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), validarReferenciasExisten);
 app.post('/api/anticipos/referencias/asignar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), asignarReferenciaAContainer);
+app.patch('/api/anticipos/referencias/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateReferenciaMonto);
+app.post('/api/anticipos/bolsas/:bolsaId/revalidar', authenticateToken, requireMinLevel(ROLES.DIRECTOR), revalidarReferenciasBolsa);
 
 // Anticipos por contenedor
 app.get('/api/anticipos/container/:containerId/anticipos', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAnticiposByContainer);
@@ -5724,6 +5728,7 @@ import {
   approveDraft,
   rejectDraft,
   restoreDraft,
+  reopenDraft,
   updateDraftFields,
   matchClientToDraft,
   getWhitelist,
@@ -8265,6 +8270,7 @@ app.get('/api/admin/maritime/drafts/:id', authenticateToken, requireMinLevel(ROL
 app.post('/api/admin/maritime/drafts/:id/approve', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), approveDraft);
 app.post('/api/admin/maritime/drafts/:id/reject', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), rejectDraft);
 app.post('/api/admin/maritime/drafts/:id/restore', authenticateToken, requireMinLevel(ROLES.ADMIN), restoreDraft);
+app.post('/api/admin/maritime/drafts/:id/reopen', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), reopenDraft);
 app.patch('/api/admin/maritime/drafts/:id/fields', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateDraftFields);
 app.put('/api/admin/maritime/drafts/:id/match-client', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), matchClientToDraft);
 

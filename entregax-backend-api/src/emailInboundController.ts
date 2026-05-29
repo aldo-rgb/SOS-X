@@ -1653,9 +1653,9 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
         e.from_email, e.subject, e.received_at,
         lc.full_name as matched_client_name, lc.box_id as matched_box_id,
         -- Cruzar con containers para saber si el draft ya está reflejado en sistema
-        COALESCE(cc.id, cb.id)                         AS container_id_found,
-        COALESCE(cc.reference_code, cb.reference_code) AS container_reference_found,
-        COALESCE(cc.status, cb.status)                 AS container_status_found
+        COALESCE(cc.id, cb.id)                                AS container_id_found,
+        COALESCE(cc.reference_code, cb.reference_code)        AS container_reference_found,
+        COALESCE(cc.status, cb.status)                        AS container_status_found
       FROM maritime_reception_drafts d
       LEFT JOIN email_inbound_logs e ON e.id = d.email_log_id
       LEFT JOIN legacy_clients lc ON lc.id = d.matched_user_id
@@ -2698,6 +2698,45 @@ export const restoreDraft = async (req: Request, res: Response): Promise<any> =>
 };
 
 /**
+ * POST /api/admin/maritime/drafts/:id/reopen
+ * Regresar un draft (approved / rejected) a estado 'draft' (pendiente)
+ * para permitir re-extracción / revisión manual de los datos.
+ * No modifica datos del contenedor en sistema.
+ */
+export const reopenDraft = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params;
+
+    const draftRes = await pool.query(
+      'SELECT id, status FROM maritime_reception_drafts WHERE id = $1',
+      [id]
+    );
+    if (draftRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Borrador no encontrado' });
+    }
+    if (draftRes.rows[0].status === 'draft') {
+      return res.status(400).json({ error: 'El borrador ya está en pendientes' });
+    }
+
+    await pool.query(
+      `UPDATE maritime_reception_drafts
+          SET status = 'draft',
+              reviewed_at = NULL,
+              reviewed_by = NULL,
+              rejection_reason = NULL,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [id]
+    );
+
+    return res.json({ success: true, message: 'Borrador regresado a pendientes' });
+  } catch (error: any) {
+    console.error('Error reabriendo borrador:', error);
+    return res.status(500).json({ error: 'Error al regresar borrador a pendientes', details: error.message });
+  }
+};
+
+/**
  * PUT /api/admin/maritime/drafts/:id/match-client
  * Asignar cliente legacy manualmente a un borrador
  */
@@ -3336,10 +3375,10 @@ export const reExtractDraftData = async (req: Request, res: Response): Promise<a
     const updatedResult = await pool.query(`
       SELECT 
         d.*,
-        u.full_name as matched_client_name,
-        u.box_id as matched_box_id
+        lc.full_name as matched_client_name,
+        lc.box_id as matched_box_id
       FROM maritime_reception_drafts d
-      LEFT JOIN users u ON d.matched_user_id = u.id
+      LEFT JOIN legacy_clients lc ON lc.id = d.matched_user_id
       WHERE d.id = $1
     `, [id]);
     

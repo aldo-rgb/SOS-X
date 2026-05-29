@@ -152,27 +152,35 @@ export const getBolsasAnticipos = async (req: AuthRequest, res: Response): Promi
   try {
     const { proveedor_id, estado, con_saldo } = req.query;
 
-    let query = "SELECT * FROM vista_bolsas_anticipos WHERE estado != 'eliminado'";
+    let query = `
+      SELECT v.*,
+             COALESCE((
+               SELECT COUNT(*)::int FROM anticipo_referencias ar
+               WHERE ar.bolsa_anticipo_id = v.id AND ar.estado = 'no_encontrada'
+             ), 0) AS refs_no_encontradas
+      FROM vista_bolsas_anticipos v
+      WHERE v.estado != 'eliminado'
+    `;
     const params: (string | number)[] = [];
     let paramIndex = 1;
 
     if (proveedor_id) {
-      query += ` AND proveedor_id = $${paramIndex}`;
+      query += ` AND v.proveedor_id = $${paramIndex}`;
       params.push(Number(proveedor_id));
       paramIndex++;
     }
 
     if (estado) {
-      query += ` AND estado = $${paramIndex}`;
+      query += ` AND v.estado = $${paramIndex}`;
       params.push(estado as string);
       paramIndex++;
     }
 
     if (con_saldo === 'true') {
-      query += ` AND saldo_disponible > 0`;
+      query += ` AND v.saldo_disponible > 0`;
     }
 
-    query += ' ORDER BY fecha_pago DESC';
+    query += ' ORDER BY v.fecha_pago DESC';
 
     const result = await pool.query(query, params);
     
@@ -399,7 +407,7 @@ export const getReferenciasByBolsa = async (req: AuthRequest, res: Response): Pr
       FROM anticipo_referencias ar
       LEFT JOIN containers c ON c.reference_code = ar.referencia
       LEFT JOIN users u ON u.id = ar.usado_por
-      WHERE ar.bolsa_anticipo_id = $1 AND ar.estado != 'eliminado'
+      WHERE ar.bolsa_anticipo_id = $1
       ORDER BY ar.created_at DESC
     `, [bolsaId]);
     res.json(result.rows);
@@ -976,5 +984,90 @@ export const getAnticiposStats = async (_req: AuthRequest, res: Response): Promi
   } catch (error) {
     console.error('Error fetching stats:', error);
     res.status(500).json({ error: 'Error al obtener estadísticas' });
+  }
+};
+
+// Actualizar monto de una referencia (solo si está 'no_encontrada' o 'disponible' — no usada)
+export const updateReferenciaMonto = async (req: AuthRequest, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const { monto } = req.body;
+    const nuevoMonto = Number(monto);
+
+    if (!nuevoMonto || nuevoMonto <= 0 || isNaN(nuevoMonto)) {
+      res.status(400).json({ error: 'Monto inválido' });
+      return;
+    }
+
+    await client.query('BEGIN');
+    const cur = await client.query(`SELECT id, monto, estado, bolsa_anticipo_id FROM anticipo_referencias WHERE id = $1`, [id]);
+    if (cur.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Referencia no encontrada' });
+      return;
+    }
+    const ref = cur.rows[0];
+    if (ref.estado === 'usada') {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'No se puede editar el monto de una referencia ya usada' });
+      return;
+    }
+
+    await client.query(`UPDATE anticipo_referencias SET monto = $1, updated_at = NOW() WHERE id = $2`, [nuevoMonto, id]);
+    await client.query('COMMIT');
+    res.json({ success: true, id: ref.id, monto: nuevoMonto });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error updating referencia monto:', error);
+    res.status(500).json({ error: 'Error al actualizar monto' });
+  } finally {
+    client.release();
+  }
+};
+
+// Revalidar referencias 'no_encontrada' de una bolsa contra containers.reference_code
+// Si encuentra match, vincula y cambia estado a 'disponible'.
+export const revalidarReferenciasBolsa = async (req: AuthRequest, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    const { bolsaId } = req.params;
+    await client.query('BEGIN');
+
+    const refs = await client.query(
+      `SELECT id, referencia FROM anticipo_referencias
+       WHERE bolsa_anticipo_id = $1 AND estado = 'no_encontrada'`,
+      [bolsaId]
+    );
+
+    let actualizadas = 0;
+    const detalles: { id: number; referencia: string; container_id: number }[] = [];
+    for (const r of refs.rows) {
+      const c = await client.query(`SELECT id FROM containers WHERE reference_code = $1`, [r.referencia]);
+      if (c.rows.length > 0) {
+        await client.query(
+          `UPDATE anticipo_referencias
+           SET estado = 'disponible', container_id = $1, updated_at = NOW()
+           WHERE id = $2`,
+          [c.rows[0].id, r.id]
+        );
+        actualizadas++;
+        detalles.push({ id: r.id, referencia: r.referencia, container_id: c.rows[0].id });
+      }
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      success: true,
+      revisadas: refs.rows.length,
+      vinculadas: actualizadas,
+      detalles,
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error revalidando referencias:', error);
+    res.status(500).json({ error: 'Error al revalidar referencias' });
+  } finally {
+    client.release();
   }
 };

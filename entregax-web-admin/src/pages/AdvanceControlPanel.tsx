@@ -50,6 +50,8 @@ import {
     CloudUpload as UploadIcon,
     Refresh as RefreshIcon,
     Delete as DeleteIcon,
+    Edit as EditIcon,
+    Sync as SyncIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -94,6 +96,7 @@ interface Bolsa {
     notas: string | null;
     estado: string;
     total_asignaciones: number;
+    refs_no_encontradas?: number;
 }
 
 interface Referencia {
@@ -174,6 +177,16 @@ export default function AdvanceControlPanel() {
     const [referencias, setReferencias] = useState<Referencia[]>([]);
     const [expandedBolsa, setExpandedBolsa] = useState<number | null>(null);
     const [referenciaSearch, setReferenciaSearch] = useState('');
+    const [onlySinId, setOnlySinId] = useState(false);
+
+    // Editar monto de referencia
+    const [editRefDialog, setEditRefDialog] = useState<{ open: boolean; ref: Referencia | null; monto: string }>({ open: false, ref: null, monto: '' });
+    const [savingRefMonto, setSavingRefMonto] = useState(false);
+    const [revalidandoBolsa, setRevalidandoBolsa] = useState<number | null>(null);
+    // Edición inline de monto (click en el número)
+    const [inlineEditId, setInlineEditId] = useState<number | null>(null);
+    const [inlineEditValue, setInlineEditValue] = useState<string>('');
+    const [inlineSavingId, setInlineSavingId] = useState<number | null>(null);
     
     // Eliminar bolsa
     const [deleteDialog, setDeleteDialog] = useState(false);
@@ -264,6 +277,94 @@ export default function AdvanceControlPanel() {
             setReferencias(res.data);
         } catch (error) {
             console.error('Error fetching referencias:', error);
+        }
+    };
+
+    // Guardar monto inline (Enter en el TextField del monto)
+    const handleSaveInlineMonto = async (refId: number) => {
+        const monto = parseFloat(inlineEditValue.replace(/,/g, ''));
+        if (!monto || isNaN(monto) || monto <= 0) {
+            setSnackbar({ open: true, message: 'Monto inválido', severity: 'error' });
+            return;
+        }
+        setInlineSavingId(refId);
+        try {
+            await axios.patch(`${API_URL}/api/anticipos/referencias/${refId}`, { monto }, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            setSnackbar({ open: true, message: 'Monto actualizado', severity: 'success' });
+            setInlineEditId(null);
+            setInlineEditValue('');
+            if (expandedBolsa) await fetchReferenciasBolsa(expandedBolsa);
+        } catch (e: any) {
+            setSnackbar({ open: true, message: e.response?.data?.error || 'Error al actualizar', severity: 'error' });
+        } finally {
+            setInlineSavingId(null);
+        }
+    };
+
+    // Guardar nuevo monto de una referencia (solo no_encontrada / disponible)
+    const handleSaveRefMonto = async () => {
+        if (!editRefDialog.ref) return;
+        const monto = parseFloat(editRefDialog.monto.replace(/,/g, ''));
+        if (!monto || isNaN(monto) || monto <= 0) {
+            setSnackbar({ open: true, message: 'Monto inválido', severity: 'error' });
+            return;
+        }
+        setSavingRefMonto(true);
+        try {
+            await axios.patch(`${API_URL}/api/anticipos/referencias/${editRefDialog.ref.id}`, { monto }, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            setSnackbar({ open: true, message: 'Monto actualizado', severity: 'success' });
+            setEditRefDialog({ open: false, ref: null, monto: '' });
+            if (expandedBolsa) await fetchReferenciasBolsa(expandedBolsa);
+        } catch (e: any) {
+            setSnackbar({ open: true, message: e.response?.data?.error || 'Error al actualizar', severity: 'error' });
+        } finally {
+            setSavingRefMonto(false);
+        }
+    };
+
+    // Revalidar referencias no_encontrada de una bolsa contra containers actuales
+    const handleRevalidarBolsa = async (bolsaId: number) => {
+        // Si la bolsa está expandida (vemos sus refs), validar que la suma cuadre con el total
+        const bolsa = bolsas.find(b => b.id === bolsaId);
+        if (expandedBolsa === bolsaId && bolsa && referencias.length > 0) {
+            const sumRefs = referencias
+                .filter(r => r.estado !== 'eliminado')
+                .reduce((s, r) => s + Number(r.monto), 0);
+            const totalBolsa = Number(bolsa.monto_original);
+            const diff = +(sumRefs - totalBolsa).toFixed(2);
+            if (Math.abs(diff) >= 0.01) {
+                const proceed = window.confirm(
+                    `⚠ La suma de referencias ($${sumRefs.toFixed(2)}) no cuadra con el total de la bolsa ($${totalBolsa.toFixed(2)}).\n` +
+                    `Diferencia: ${diff > 0 ? '+' : ''}$${diff.toFixed(2)}\n\n` +
+                    `Edita los montos antes de revalidar para que cuadren.\n\n` +
+                    `¿Continuar de todas formas?`
+                );
+                if (!proceed) return;
+            }
+        }
+        setRevalidandoBolsa(bolsaId);
+        try {
+            const res = await axios.post(`${API_URL}/api/anticipos/bolsas/${bolsaId}/revalidar`, {}, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            const { revisadas, vinculadas } = res.data;
+            setSnackbar({
+                open: true,
+                message: vinculadas > 0
+                    ? `✓ ${vinculadas} de ${revisadas} referencia(s) vinculadas a contenedor`
+                    : `Sin cambios: ${revisadas} referencia(s) siguen sin contenedor`,
+                severity: vinculadas > 0 ? 'success' : 'info'
+            });
+            await fetchBolsas();
+            if (expandedBolsa === bolsaId) await fetchReferenciasBolsa(bolsaId);
+        } catch (e: any) {
+            setSnackbar({ open: true, message: e.response?.data?.error || 'Error al revalidar', severity: 'error' });
+        } finally {
+            setRevalidandoBolsa(null);
         }
     };
 
@@ -676,12 +777,13 @@ export default function AdvanceControlPanel() {
                         </Alert>
                     ) : (
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                            <TextField
-                                size="small"
-                                fullWidth
-                                placeholder="🔍 Buscar por referencia (ej. EPG26-0023)"
-                                value={referenciaSearch}
-                                onChange={(e) => {
+                            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <TextField
+                                    size="small"
+                                    sx={{ flex: 1, minWidth: 240 }}
+                                    placeholder="🔍 Buscar por referencia (ej. EPG26-0023)"
+                                    value={referenciaSearch}
+                                    onChange={(e) => {
                                     const v = e.target.value;
                                     setReferenciaSearch(v);
                                     const term = v.trim().toUpperCase();
@@ -702,17 +804,34 @@ export default function AdvanceControlPanel() {
                                         </IconButton>
                                     ) : null
                                 }}
-                                sx={{ mb: 1 }}
-                            />
+                                />
+                                {(() => {
+                                    const total = bolsas.filter(b => (b.refs_no_encontradas ?? 0) > 0).length;
+                                    return (
+                                        <Button
+                                            size="small"
+                                            variant={onlySinId ? 'contained' : 'outlined'}
+                                            color="warning"
+                                            onClick={() => setOnlySinId(v => !v)}
+                                            sx={{ whiteSpace: 'nowrap' }}
+                                        >
+                                            ⚠ Sin identificar {total > 0 ? `(${total})` : ''}
+                                        </Button>
+                                    );
+                                })()}
+                            </Box>
                             {(() => {
                                 const term = referenciaSearch.trim().toUpperCase();
-                                const filtered = term
+                                let filtered = term
                                     ? bolsas.filter(b => (b.referencia_pago || '').toUpperCase().includes(term))
                                     : bolsas;
-                                if (term && filtered.length === 0) {
+                                if (onlySinId) {
+                                    filtered = filtered.filter(b => (b.refs_no_encontradas ?? 0) > 0);
+                                }
+                                if ((term || onlySinId) && filtered.length === 0) {
                                     return (
                                         <Alert severity="warning">
-                                            No se encontró ninguna bolsa con la referencia «{referenciaSearch}».
+                                            No se encontró ninguna bolsa{onlySinId ? ' con pagos sin identificar' : ''}{term ? ` para «${referenciaSearch}»` : ''}.
                                         </Alert>
                                     );
                                 }
@@ -722,7 +841,19 @@ export default function AdvanceControlPanel() {
                                         <Grid container spacing={2} alignItems="center">
                                             <Grid size={{ xs: 12, md: 3 }}>
                                                 <Typography variant="subtitle2" color="text.secondary">Proveedor</Typography>
-                                                <Typography fontWeight="bold">{bolsa.proveedor_nombre}</Typography>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                                    <Typography fontWeight="bold">{bolsa.proveedor_nombre}</Typography>
+                                                    {(bolsa.refs_no_encontradas ?? 0) > 0 && (
+                                                        <Tooltip title={`${bolsa.refs_no_encontradas} referencia(s) sin contenedor / monto estimado`}>
+                                                            <Chip
+                                                                label={`⚠ ${bolsa.refs_no_encontradas} sin id`}
+                                                                size="small"
+                                                                color="warning"
+                                                                sx={{ height: 20, fontSize: '0.7rem', fontWeight: 'bold' }}
+                                                            />
+                                                        </Tooltip>
+                                                    )}
+                                                </Box>
                                                 <Typography variant="caption" color="text.secondary">
                                                     {bolsa.referencia_pago || 'Sin referencia'}
                                                 </Typography>
@@ -754,6 +885,20 @@ export default function AdvanceControlPanel() {
                                                             <IconButton size="small" disabled>
                                                                 <VisibilityIcon sx={{ opacity: 0.3 }} />
                                                             </IconButton>
+                                                        </Tooltip>
+                                                    )}
+                                                    {(bolsa.refs_no_encontradas ?? 0) > 0 && (
+                                                        <Tooltip title="Revalidar referencias sin contenedor (vincula las que ahora existen en containers)">
+                                                            <span>
+                                                                <IconButton
+                                                                    size="small"
+                                                                    color="info"
+                                                                    onClick={(e) => { e.stopPropagation(); handleRevalidarBolsa(bolsa.id); }}
+                                                                    disabled={revalidandoBolsa === bolsa.id}
+                                                                >
+                                                                    <SyncIcon sx={{ animation: revalidandoBolsa === bolsa.id ? 'spin 1s linear infinite' : 'none', '@keyframes spin': { '0%': { transform: 'rotate(0deg)' }, '100%': { transform: 'rotate(360deg)' } } }} />
+                                                                </IconButton>
+                                                            </span>
                                                         </Tooltip>
                                                     )}
                                                     <Tooltip title={expandedBolsa === bolsa.id ? 'Ocultar historial' : 'Ver historial'}>
@@ -795,6 +940,37 @@ export default function AdvanceControlPanel() {
                                                 <Typography variant="subtitle2" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                                     <HistoryIcon fontSize="small" /> Referencias Asignadas ({bolsa.total_asignaciones})
                                                 </Typography>
+                                                {referencias.length > 0 && (() => {
+                                                    const sumRefs = referencias
+                                                        .filter(r => r.estado !== 'eliminado')
+                                                        .reduce((s, r) => s + Number(r.monto), 0);
+                                                    const totalBolsa = Number(bolsa.monto_original);
+                                                    const diff = +(sumRefs - totalBolsa).toFixed(2);
+                                                    const cuadra = Math.abs(diff) < 0.01;
+                                                    return (
+                                                        <Box sx={{
+                                                            mb: 2, p: 1.5, borderRadius: 1,
+                                                            bgcolor: cuadra ? '#E8F5E9' : '#FFF3E0',
+                                                            border: `1px solid ${cuadra ? '#A5D6A7' : '#FFB74D'}`,
+                                                            display: 'flex', gap: 3, flexWrap: 'wrap', alignItems: 'center'
+                                                        }}>
+                                                            <Box>
+                                                                <Typography variant="caption" color="text.secondary">Total bolsa</Typography>
+                                                                <Typography fontWeight="bold">${formatCurrency(totalBolsa)}</Typography>
+                                                            </Box>
+                                                            <Box>
+                                                                <Typography variant="caption" color="text.secondary">Suma referencias</Typography>
+                                                                <Typography fontWeight="bold">${formatCurrency(sumRefs)}</Typography>
+                                                            </Box>
+                                                            <Box>
+                                                                <Typography variant="caption" color="text.secondary">Diferencia</Typography>
+                                                                <Typography fontWeight="bold" color={cuadra ? 'success.main' : 'warning.main'}>
+                                                                    {cuadra ? '✓ Cuadra' : `${diff > 0 ? '+' : ''}$${formatCurrency(diff)}`}
+                                                                </Typography>
+                                                            </Box>
+                                                        </Box>
+                                                    );
+                                                })()}
                                                 {referencias.length === 0 ? (
                                                     <Typography variant="body2" color="text.secondary">
                                                         No hay referencias registradas para esta bolsa.
@@ -833,9 +1009,55 @@ export default function AdvanceControlPanel() {
                                                                             )}
                                                                         </TableCell>
                                                                         <TableCell align="right">
-                                                                            <Typography fontWeight="bold" color={noEncontrada ? 'error.main' : 'success.main'}>
-                                                                                ${formatCurrency(ref.monto)}
-                                                                            </Typography>
+                                                                            {inlineEditId === ref.id ? (
+                                                                                <TextField
+                                                                                    size="small"
+                                                                                    type="number"
+                                                                                    autoFocus
+                                                                                    value={inlineEditValue}
+                                                                                    onChange={(e) => setInlineEditValue(e.target.value)}
+                                                                                    onKeyDown={(e) => {
+                                                                                        if (e.key === 'Enter') {
+                                                                                            e.preventDefault();
+                                                                                            handleSaveInlineMonto(ref.id);
+                                                                                        } else if (e.key === 'Escape') {
+                                                                                            setInlineEditId(null);
+                                                                                            setInlineEditValue('');
+                                                                                        }
+                                                                                    }}
+                                                                                    onBlur={() => {
+                                                                                        // Si no se guardó, cancelar al perder foco
+                                                                                        if (inlineSavingId !== ref.id) {
+                                                                                            setInlineEditId(null);
+                                                                                            setInlineEditValue('');
+                                                                                        }
+                                                                                    }}
+                                                                                    disabled={inlineSavingId === ref.id}
+                                                                                    InputProps={{ startAdornment: <Typography sx={{ mr: 0.5 }}>$</Typography> }}
+                                                                                    sx={{ width: 140 }}
+                                                                                />
+                                                                            ) : (
+                                                                                <Tooltip title={ref.estado === 'usado' ? 'No se puede editar (ya usada)' : 'Click para editar (Enter guarda)'}>
+                                                                                    <Typography
+                                                                                        fontWeight="bold"
+                                                                                        color={noEncontrada ? 'error.main' : 'success.main'}
+                                                                                        onClick={() => {
+                                                                                            if (ref.estado === 'usado' || ref.estado === 'eliminado') return;
+                                                                                            setInlineEditId(ref.id);
+                                                                                            setInlineEditValue(String(ref.monto));
+                                                                                        }}
+                                                                                        sx={{
+                                                                                            cursor: (ref.estado === 'usado' || ref.estado === 'eliminado') ? 'not-allowed' : 'pointer',
+                                                                                            display: 'inline-block',
+                                                                                            px: 0.75,
+                                                                                            borderRadius: 0.5,
+                                                                                            '&:hover': (ref.estado === 'usado' || ref.estado === 'eliminado') ? {} : { bgcolor: 'action.hover', outline: '1px dashed', outlineColor: 'primary.main' }
+                                                                                        }}
+                                                                                    >
+                                                                                        ${formatCurrency(ref.monto)}
+                                                                                    </Typography>
+                                                                                </Tooltip>
+                                                                            )}
                                                                         </TableCell>
                                                                         <TableCell>
                                                                             {new Date(ref.created_at).toLocaleDateString()}
@@ -847,6 +1069,8 @@ export default function AdvanceControlPanel() {
                                                                                 <Chip label="✓ Disponible" size="small" color="success" />
                                                                             ) : ref.estado === 'usado' ? (
                                                                                 <Chip label="Usado" size="small" color="warning" />
+                                                                            ) : ref.estado === 'eliminado' ? (
+                                                                                <Chip label="🗑 Eliminada" size="small" sx={{ bgcolor: '#9E9E9E', color: 'white' }} />
                                                                             ) : (
                                                                                 <Chip label={ref.estado} size="small" />
                                                                             )}
@@ -868,6 +1092,38 @@ export default function AdvanceControlPanel() {
                     )}
                 </Box>
             )}
+
+            {/* Dialog: Editar monto de referencia */}
+            <Dialog open={editRefDialog.open} onClose={() => setEditRefDialog({ open: false, ref: null, monto: '' })} maxWidth="xs" fullWidth>
+                <DialogTitle>Editar monto de referencia</DialogTitle>
+                <DialogContent>
+                    {editRefDialog.ref && (
+                        <Box sx={{ pt: 1 }}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                                Referencia: <strong>{editRefDialog.ref.referencia}</strong>
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+                                Monto actual (estimado): ${formatCurrency(editRefDialog.ref.monto)}
+                            </Typography>
+                            <TextField
+                                autoFocus
+                                fullWidth
+                                label="Nuevo monto"
+                                type="number"
+                                value={editRefDialog.monto}
+                                onChange={(e) => setEditRefDialog({ ...editRefDialog, monto: e.target.value })}
+                                InputProps={{ startAdornment: <Typography sx={{ mr: 0.5 }}>$</Typography> }}
+                            />
+                        </Box>
+                    )}
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setEditRefDialog({ open: false, ref: null, monto: '' })} disabled={savingRefMonto}>Cancelar</Button>
+                    <Button onClick={handleSaveRefMonto} variant="contained" disabled={savingRefMonto}>
+                        {savingRefMonto ? 'Guardando...' : 'Guardar'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
 
             {/* Dialog: Nuevo Proveedor */}
             <Dialog open={proveedorDialog} onClose={() => setProveedorDialog(false)} maxWidth="sm" fullWidth>

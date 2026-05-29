@@ -46,6 +46,7 @@ import {
     Description as DocIcon,
     Refresh as RefreshIcon,
     RestartAlt as RestoreIcon,
+    Replay as ReopenIcon,
     LocalShipping as ShipIcon,
     Person as PersonIcon,
     PictureAsPdf as PdfIcon,
@@ -616,6 +617,31 @@ export default function InboundEmailsPage() {
         }
     };
 
+    // Regresar a pendientes (para re-extraer datos)
+    const handleReopen = async (draft: Draft) => {
+        if (!window.confirm(`¿Regresar borrador #${draft.id} a pendientes? Esto permitirá re-extraer / revisar los datos.`)) return;
+        try {
+            const res = await fetch(`${API_URL}/api/admin/maritime/drafts/${draft.id}/reopen`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                }
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setSnackbar({ open: true, message: data.message || 'Borrador regresado a pendientes.', severity: 'success' });
+                loadDrafts();
+                loadStats();
+            } else {
+                setSnackbar({ open: true, message: data.error || 'Error al regresar a pendientes', severity: 'error' });
+            }
+        } catch (error) {
+            console.error('Error reopening draft:', error);
+            setSnackbar({ open: true, message: 'Error al regresar el borrador a pendientes', severity: 'error' });
+        }
+    };
+
     // Abrir dialog para editar referencia o BL (solo super_admin)
     const openEditField = (draft: Draft, field: 'reference_code' | 'bl_number') => {
         const current = field === 'reference_code'
@@ -1058,6 +1084,17 @@ export default function InboundEmailsPage() {
                                                             onClick={() => handleRestore(draft)}
                                                         >
                                                             <RestoreIcon />
+                                                        </IconButton>
+                                                    </Tooltip>
+                                                )}
+                                                {(draft.status === 'approved' || draft.status === 'rejected') && (
+                                                    <Tooltip title="Regresar a pendientes (re-extraer datos)">
+                                                        <IconButton
+                                                            size="small"
+                                                            color="info"
+                                                            onClick={() => handleReopen(draft)}
+                                                        >
+                                                            <ReopenIcon />
                                                         </IconButton>
                                                     </Tooltip>
                                                 )}

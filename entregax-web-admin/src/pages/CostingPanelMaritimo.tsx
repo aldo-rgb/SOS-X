@@ -40,6 +40,8 @@ import {
     Select,
     MenuItem,
     Autocomplete,
+    Checkbox,
+    FormControlLabel,
 } from '@mui/material';
 import {
     DirectionsBoat as BoatIcon,
@@ -294,6 +296,7 @@ export default function CostingPanelMaritimo() {
     const [newContainerDialog, setNewContainerDialog] = useState(false);
     const [newContainer, setNewContainer] = useState({ containerNumber: '', blNumber: '', eta: '', notes: '' });
     const [statusFilter, setStatusFilter] = useState('all');
+    const [onlyNoReference, setOnlyNoReference] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
     
@@ -1429,6 +1432,16 @@ export default function CostingPanelMaritimo() {
                                 ))}
                             </Select>
                         </FormControl>
+                        <FormControlLabel
+                            control={
+                                <Checkbox
+                                    checked={onlyNoReference}
+                                    onChange={(e) => setOnlyNoReference(e.target.checked)}
+                                    sx={{ color: 'warning.main', '&.Mui-checked': { color: 'warning.main' } }}
+                                />
+                            }
+                            label="Solo sin referencia"
+                        />
                     </Box>
                 </CardContent>
             </Card>
@@ -1452,7 +1465,9 @@ export default function CostingPanelMaritimo() {
                         </TableRow>
                     </TableHead>
                     <TableBody>
-                        {containers.map((container) => (
+                        {containers
+                            .filter((c) => !onlyNoReference || !c.reference_code || String(c.reference_code).trim() === '')
+                            .map((container) => (
                             <TableRow key={container.id} hover>
                                 <TableCell align="center">
                                     <Tooltip title={t('maritime.editCosts')}>
