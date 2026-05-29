@@ -1299,8 +1299,13 @@ export default function PettyCashHubPage() {
           {detailWallet && (() => {
             let totalCargo = 0;
             let totalAbono = 0;
+            // Solo movimientos propios de esta wallet afectan su balance.
+            // (Para una sucursal, el endpoint también devuelve los gastos de sus
+            //  choferes como informativos — esos NO afectan balance_mxn de la
+            //  sucursal, el anticipo original ya descontó esos fondos.)
             for (const m of detailMovs) {
               if (m.status !== 'approved') continue;
+              if (Number((m as any).wallet_id) !== Number((detailWallet as any).id)) continue;
               const meta = MOVEMENT_TYPE_META[m.movement_type] || { sign: 1 as const };
               const amt = Number(m.amount_mxn) || 0;
               if (meta.sign < 0) totalCargo += amt;
