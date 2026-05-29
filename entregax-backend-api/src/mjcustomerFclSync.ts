@@ -195,7 +195,7 @@ async function loginToMJCustomer(): Promise<string | null> {
             },
             15000
         );
-        const data = (await resp.json()) as { code: number; result?: { accessToken: string } };
+        const data = (await resp.json()) as unknown as { code: number; result?: { accessToken: string } };
         if (data.code === 200 && data.result?.accessToken) {
             await persistToken(data.result.accessToken);
             return data.result.accessToken;
@@ -221,7 +221,7 @@ async function loginToMJCustomer(): Promise<string | null> {
             },
             15000
         );
-        const data = (await resp.json()) as { code: number; result?: { accessToken: string } };
+        const data = (await resp.json()) as unknown as { code: number; result?: { accessToken: string } };
         if (data.code === 200 && data.result?.accessToken) {
             await persistToken(data.result.accessToken);
             return data.result.accessToken;
@@ -279,7 +279,7 @@ async function fetchWithTimeout(
 // equivalente o anterior (el status manual posterior no se pisa).
 function mapMJStatusToInternal(statusEn: string | null): string | null {
     if (!statusEn) return null;
-    const map: Record<string, string> = {
+    const map: Record<string, string | null> = {
         GITM: 'received_origin',        // 进场
         DEPT: 'in_transit',             // 离港
         TSDC: 'in_transit',             // 中转卸船
@@ -405,7 +405,7 @@ async function fetchClearancePage(token: string, page: number): Promise<MJCleara
         },
         body: JSON.stringify({ page, pageSize: MJC_PAGE_SIZE, code: '' }),
     });
-    return (await resp.json()) as MJClearanceResponse;
+    return (await resp.json()) as unknown as MJClearanceResponse;
 }
 
 // =============== UPSERT DE UN ITEM ===============
@@ -784,7 +784,7 @@ export async function runMJCustomerFclSync(triggeredBy: string): Promise<SyncSum
         );
     }
 
-    return {
+    const summary: SyncSummary = {
         success,
         pagesFetched,
         itemsFetched,
@@ -792,9 +792,10 @@ export async function runMJCustomerFclSync(triggeredBy: string): Promise<SyncSum
         itemsUpdated,
         itemsSkipped,
         itemsConflict,
-        error: errorMessage,
         durationMs: Date.now() - t0,
     };
+    if (errorMessage) summary.error = errorMessage;
+    return summary;
 }
 
 // =============== ENDPOINTS HTTP ===============
@@ -805,7 +806,7 @@ export const triggerMJCustomerFclSync = async (
     res: Response
 ): Promise<any> => {
     try {
-        const userId = req.user?.id || 0;
+        const userId = req.user?.userId || 0;
         const summary = await runMJCustomerFclSync(`manual:${userId}`);
         return res.json({ success: summary.success, summary });
     } catch (err: any) {

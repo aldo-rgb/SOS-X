@@ -971,10 +971,9 @@ export const cancelEmittedInvoice = async (req: AuthRequest, res: Response): Pro
     if (row.facturama_id || row.uuid_sat) {
         try {
             const client = await FacturamaClient.fromEmitterId(emitterId);
-            await client.invoices.cancel(row.facturama_id || row.uuid_sat, {
-                motive,
-                folioSustitucion,
-            });
+            const cancelOpts: { motive?: string; folioSustitucion?: string } = { motive };
+            if (folioSustitucion) cancelOpts.folioSustitucion = folioSustitucion;
+            await client.invoices.cancel(row.facturama_id || row.uuid_sat, cancelOpts);
         } catch (e: any) {
             const details = e instanceof FacturamaError ? (e.details || e.message) : e.message;
             console.error('[cancelEmittedInvoice] Facturama error:', details);

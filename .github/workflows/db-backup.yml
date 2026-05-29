@@ -32,26 +32,37 @@ jobs:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
         run: |
           set -uo pipefail
+
+          # Validar que el secret exista
+          if [ -z "${DATABASE_URL:-}" ]; then
+            echo "❌ Secret RAILWAY_DATABASE_URL está vacío o no configurado"
+            exit 1
+          fi
+          echo "DATABASE_URL length: ${#DATABASE_URL} chars"
+          echo "DATABASE_URL scheme: $(echo "$DATABASE_URL" | grep -oE '^[a-z]+://' || echo 'INVALID')"
+
+          # Probar conectividad
+          echo "--- Probando conexión ---"
+          psql "$DATABASE_URL" -c "SELECT version();" || {
+            echo "❌ No se pudo conectar a la base de datos"
+            exit 1
+          }
+
           FILENAME="entregax_$(date +'%Y-%m-%d').sql.gz"
           DUMPFILE="entregax_$(date +'%Y-%m-%d').sql"
           echo "FILENAME=$FILENAME" >> $GITHUB_ENV
 
-          echo "::group::pg_dump version"
+          echo "--- pg_dump version ---"
           pg_dump --version
-          echo "::endgroup::"
 
-          echo "::group::Ejecutando pg_dump (a archivo, sin pipe)"
+          echo "--- Ejecutando pg_dump (stderr visible) ---"
           pg_dump "$DATABASE_URL" \
             --no-owner \
             --no-acl \
             --quote-all-identifiers \
-            --verbose \
-            -f "$DUMPFILE" 2> pg_dump.log
+            -f "$DUMPFILE"
           PG_EXIT=$?
           echo "pg_dump exit code: $PG_EXIT"
-          echo "--- últimas 30 líneas de pg_dump.log ---"
-          tail -30 pg_dump.log || true
-          echo "::endgroup::"
 
           if [ "$PG_EXIT" -ne 0 ]; then
             echo "❌ pg_dump falló con exit $PG_EXIT"
@@ -60,20 +71,20 @@ jobs:
 
           if [ ! -s "$DUMPFILE" ]; then
             echo "❌ Dump vacío o inexistente"
+            ls -la "$DUMPFILE" || true
             exit 1
           fi
 
           DUMP_SIZE=$(stat -c%s "$DUMPFILE")
-          echo "Tamaño del SQL sin comprimir: $(du -sh "$DUMPFILE" | cut -f1) ($DUMP_SIZE bytes)"
+          echo "Tamaño SQL sin comprimir: $(du -sh "$DUMPFILE" | cut -f1) ($DUMP_SIZE bytes)"
 
-          # Comprimir
           gzip -f "$DUMPFILE"
           SIZE_BYTES=$(stat -c%s "$FILENAME")
           SIZE_HUMAN=$(du -sh "$FILENAME" | cut -f1)
-          echo "Tamaño del backup comprimido: $SIZE_HUMAN ($SIZE_BYTES bytes)"
+          echo "Tamaño comprimido: $SIZE_HUMAN ($SIZE_BYTES bytes)"
 
           if [ "$SIZE_BYTES" -lt 102400 ]; then
-            echo "❌ Backup demasiado pequeño (<100KB). Probablemente falló."
+            echo "❌ Backup demasiado pequeño (<100KB)"
             exit 1
           fi
 
@@ -85,7 +96,7 @@ jobs:
           TABLE_COUNT=$(gunzip -c "$FILENAME" | grep -cE "^CREATE TABLE")
           echo "Tablas en el dump: $TABLE_COUNT"
           if [ "$TABLE_COUNT" -lt 5 ]; then
-            echo "❌ Dump tiene muy pocas tablas ($TABLE_COUNT). Algo salió mal."
+            echo "❌ Dump tiene muy pocas tablas ($TABLE_COUNT)"
             exit 1
           fi
           echo "✅ Dump válido con $TABLE_COUNT tablas"
