@@ -50,7 +50,6 @@ import {
     CloudUpload as UploadIcon,
     Refresh as RefreshIcon,
     Delete as DeleteIcon,
-    Edit as EditIcon,
     Sync as SyncIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
