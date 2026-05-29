@@ -634,7 +634,10 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                             await api.delete(`/api/admin/petty-cash/movements/${m.id}`, { headers: authHeaders });
                             loadData();
                           } catch (err: any) {
-                            Alert.alert('Error', err?.response?.data?.error || 'No se pudo eliminar');
+                            const status = err?.response?.status;
+                            const data = err?.response?.data;
+                            const msg = data?.error || data?.details || err?.message || 'No se pudo eliminar';
+                            Alert.alert('Error', status ? `${status}: ${msg}` : msg);
                           }
                         },
                       },
