@@ -228,6 +228,15 @@ export default function InboundEmailsPage() {
     
     // User role for conditional rendering
     const [userRole, setUserRole] = useState<string>('');
+
+    // Dialog para editar referencia / BL (solo super_admin)
+    const [editFieldDialog, setEditFieldDialog] = useState<{
+        open: boolean;
+        draft: Draft | null;
+        field: 'reference_code' | 'bl_number';
+        value: string;
+        saving: boolean;
+    }>({ open: false, draft: null, field: 'reference_code', value: '', saving: false });
     
     // Estados para edición de datos extraídos
     const [editableLogs, setEditableLogs] = useState<EditableLog[]>([]);
@@ -607,6 +616,45 @@ export default function InboundEmailsPage() {
         }
     };
 
+    // Abrir dialog para editar referencia o BL (solo super_admin)
+    const openEditField = (draft: Draft, field: 'reference_code' | 'bl_number') => {
+        const current = field === 'reference_code'
+            ? (draft.extracted_data?.reference_code || draft.extracted_data?.referenceCode || draft.container_reference_found || '')
+            : (draft.extracted_data?.blNumber || (draft as any).bl_number || '');
+        setEditFieldDialog({ open: true, draft, field, value: String(current || ''), saving: false });
+    };
+
+    const saveEditField = async () => {
+        const { draft, field, value } = editFieldDialog;
+        if (!draft) return;
+        setEditFieldDialog(prev => ({ ...prev, saving: true }));
+        try {
+            const body: any = {};
+            body[field] = value.trim();
+            const res = await fetch(`${API_URL}/api/admin/maritime/drafts/${draft.id}/fields`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Authorization: `Bearer ${token}`
+                },
+                body: JSON.stringify(body)
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setSnackbar({ open: true, message: data.message || 'Actualizado', severity: 'success' });
+                setEditFieldDialog({ open: false, draft: null, field: 'reference_code', value: '', saving: false });
+                loadDrafts();
+            } else {
+                setSnackbar({ open: true, message: data.error || 'Error al actualizar', severity: 'error' });
+                setEditFieldDialog(prev => ({ ...prev, saving: false }));
+            }
+        } catch (error) {
+            console.error('Error editing field:', error);
+            setSnackbar({ open: true, message: 'Error al actualizar el campo', severity: 'error' });
+            setEditFieldDialog(prev => ({ ...prev, saving: false }));
+        }
+    };
+
     // Rechazar borrador
     const handleReject = async () => {
         if (!selectedDraft) return;
@@ -889,19 +937,39 @@ export default function InboundEmailsPage() {
                                                 />
                                             </TableCell>
                                             <TableCell>
-                                                <Typography variant="body2" fontWeight="bold" color="primary.main">
-                                                    {draft.extracted_data?.reference_code || draft.extracted_data?.referenceCode || draft.container_reference_found || '-'}
-                                                </Typography>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                    <Typography variant="body2" fontWeight="bold" color="primary.main">
+                                                        {draft.extracted_data?.reference_code || draft.extracted_data?.referenceCode || draft.container_reference_found || '-'}
+                                                    </Typography>
+                                                    {userRole === 'super_admin' && (
+                                                        <Tooltip title="Editar referencia">
+                                                            <IconButton size="small" onClick={() => openEditField(draft, 'reference_code')} sx={{ p: 0.25 }}>
+                                                                <EditIcon sx={{ fontSize: 14 }} />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    )}
+                                                </Box>
                                             </TableCell>
                                             <TableCell>
-                                                <Typography variant="body2" fontWeight="bold">
-                                                    {draft.extracted_data?.logNumber || draft.extracted_data?.blNumber || '-'}
-                                                </Typography>
-                                                {draft.extracted_data?.containerNumber && (
-                                                    <Typography variant="caption" color="text.secondary" display="block">
-                                                        {draft.extracted_data.containerNumber}
-                                                    </Typography>
-                                                )}
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                    <Box>
+                                                        <Typography variant="body2" fontWeight="bold">
+                                                            {draft.extracted_data?.logNumber || draft.extracted_data?.blNumber || '-'}
+                                                        </Typography>
+                                                        {draft.extracted_data?.containerNumber && (
+                                                            <Typography variant="caption" color="text.secondary" display="block">
+                                                                {draft.extracted_data.containerNumber}
+                                                            </Typography>
+                                                        )}
+                                                    </Box>
+                                                    {userRole === 'super_admin' && (
+                                                        <Tooltip title="Editar BL">
+                                                            <IconButton size="small" onClick={() => openEditField(draft, 'bl_number')} sx={{ p: 0.25 }}>
+                                                                <EditIcon sx={{ fontSize: 14 }} />
+                                                            </IconButton>
+                                                        </Tooltip>
+                                                    )}
+                                                </Box>
                                             </TableCell>
                                             <TableCell>
                                                 {draft.matched_client_name ? (
@@ -1633,6 +1701,40 @@ export default function InboundEmailsPage() {
                     <Button onClick={() => setRejectDialogOpen(false)}>Cancelar</Button>
                     <Button color="error" variant="contained" onClick={handleReject}>
                         Rechazar
+                    </Button>
+                </DialogActions>
+            </Dialog>
+
+            {/* Dialog: Editar Referencia / BL (solo super_admin) */}
+            <Dialog open={editFieldDialog.open} onClose={() => !editFieldDialog.saving && setEditFieldDialog({ open: false, draft: null, field: 'reference_code', value: '', saving: false })} maxWidth="xs" fullWidth>
+                <DialogTitle>
+                    Editar {editFieldDialog.field === 'reference_code' ? 'Referencia' : 'BL'}
+                    {editFieldDialog.draft && (
+                        <Typography variant="caption" display="block" color="text.secondary">
+                            Draft #{editFieldDialog.draft.id} · {editFieldDialog.draft.document_type}
+                        </Typography>
+                    )}
+                </DialogTitle>
+                <DialogContent>
+                    <TextField
+                        autoFocus
+                        fullWidth
+                        label={editFieldDialog.field === 'reference_code' ? 'Referencia' : 'BL Number'}
+                        value={editFieldDialog.value}
+                        onChange={(e) => setEditFieldDialog(prev => ({ ...prev, value: e.target.value }))}
+                        sx={{ mt: 1 }}
+                        disabled={editFieldDialog.saving}
+                    />
+                    <Alert severity="info" sx={{ mt: 2, fontSize: 12 }}>
+                        Si el draft ya está vinculado a un contenedor en sistema, también se actualizará allí.
+                    </Alert>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={() => setEditFieldDialog({ open: false, draft: null, field: 'reference_code', value: '', saving: false })} disabled={editFieldDialog.saving}>
+                        Cancelar
+                    </Button>
+                    <Button variant="contained" onClick={saveEditField} disabled={editFieldDialog.saving}>
+                        {editFieldDialog.saving ? 'Guardando...' : 'Guardar'}
                     </Button>
                 </DialogActions>
             </Dialog>
