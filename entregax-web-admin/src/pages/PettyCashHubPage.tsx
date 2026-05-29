@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Box, Paper, Typography, Button, Card, CardContent, Grid, Tabs, Tab,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -153,6 +153,7 @@ const CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
   refacciones: { label: 'Refacciones', icon: '🔩' },
   hidratacion: { label: 'Hielo/Agua', icon: '💧' },
   peaje_internacional: { label: 'Peaje internacional', icon: '🛂' },
+  impuestos_dhl: { label: 'Impuestos DHL', icon: '📮' },
   otros: { label: 'Otros', icon: '📝' }
 };
 
@@ -211,6 +212,9 @@ export default function PettyCashHubPage() {
   const [gastoPhoto, setGastoPhoto] = useState<File | null>(null);
   const [gastoPhotoPreview, setGastoPhotoPreview] = useState<string | null>(null);
   const [gastoBusy, setGastoBusy] = useState(false);
+  const gastoAmountRef = useRef<HTMLInputElement>(null);
+  const gastoConceptRef = useRef<HTMLInputElement>(null);
+  const gastoPhotoInputRef = useRef<HTMLInputElement>(null);
 
   // Modal Detalle de gasto + aprobación
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -408,6 +412,10 @@ export default function PettyCashHubPage() {
     }
     if (!gastoPhoto) {
       setSnack({ severity: 'error', msg: 'Foto del ticket requerida' });
+      return;
+    }
+    if (gastoCategory === 'impuestos_dhl' && !gastoConcept.trim()) {
+      setSnack({ severity: 'error', msg: 'Guía DHL requerida' });
       return;
     }
     setGastoBusy(true);
@@ -1139,7 +1147,13 @@ export default function PettyCashHubPage() {
           <TextField
             select fullWidth margin="normal" label="Categoría"
             value={gastoCategory}
-            onChange={e => setGastoCategory(e.target.value)}
+            onChange={e => {
+              const v = e.target.value;
+              setGastoCategory(v);
+              if (v === 'impuestos_dhl') {
+                setTimeout(() => gastoAmountRef.current?.focus(), 50);
+              }
+            }}
           >
             {Object.entries(CATEGORY_LABELS).map(([key, c]) => (
               <MenuItem key={key} value={key}>{c.icon} {c.label}</MenuItem>
@@ -1149,15 +1163,31 @@ export default function PettyCashHubPage() {
             fullWidth margin="normal" label={`Monto (${gastoCurrency})`} type="number"
             value={gastoAmount}
             onChange={e => setGastoAmount(e.target.value)}
+            inputRef={gastoAmountRef}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && gastoCategory === 'impuestos_dhl' && gastoAmount) {
+                e.preventDefault();
+                gastoConceptRef.current?.focus();
+              }
+            }}
             InputProps={{ startAdornment: <InputAdornment position="start">{gastoCurrency === 'USD' ? 'US$' : '$'}</InputAdornment> }}
           />
           <TextField
-            fullWidth margin="normal" label="Concepto / descripción (opcional)"
+            fullWidth margin="normal"
+            label={gastoCategory === 'impuestos_dhl' ? 'Guía DHL (requerida)' : 'Concepto / descripción (opcional)'}
             value={gastoConcept}
             onChange={e => setGastoConcept(e.target.value)}
-            placeholder="ej. Tóner impresora, factura A1234"
-            multiline
-            minRows={2}
+            placeholder={gastoCategory === 'impuestos_dhl' ? 'Ej. 1234567890' : 'ej. Tóner impresora, factura A1234'}
+            required={gastoCategory === 'impuestos_dhl'}
+            multiline={gastoCategory !== 'impuestos_dhl'}
+            minRows={gastoCategory === 'impuestos_dhl' ? 1 : 2}
+            inputRef={gastoConceptRef}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && gastoCategory === 'impuestos_dhl' && gastoConcept.trim()) {
+                e.preventDefault();
+                gastoPhotoInputRef.current?.click();
+              }
+            }}
           />
           <Box sx={{ mt: 2 }}>
             <Button
@@ -1172,6 +1202,7 @@ export default function PettyCashHubPage() {
                 hidden
                 accept="image/*"
                 capture="environment"
+                ref={gastoPhotoInputRef}
                 onChange={onGastoPhotoChange}
               />
             </Button>
@@ -1191,7 +1222,7 @@ export default function PettyCashHubPage() {
             variant="contained"
             color="warning"
             onClick={submitGasto}
-            disabled={gastoBusy || !gastoAmount || !gastoPhoto}
+            disabled={gastoBusy || !gastoAmount || !gastoPhoto || (gastoCategory === 'impuestos_dhl' && !gastoConcept.trim())}
             startIcon={gastoBusy ? <CircularProgress size={16} /> : <ReceiptIcon />}
           >
             {gastoBusy ? 'Guardando…' : 'Registrar Gasto'}

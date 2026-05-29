@@ -9,7 +9,7 @@
  *  - Ver el historial de movimientos de la sucursal.
  */
 
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -101,6 +101,7 @@ const CATEGORIES: Record<string, { label: string; icon: string }> = {
   hidratacion: { label: 'Hielo/Agua', icon: '💧' },
   peaje_internacional: { label: 'Peaje internacional', icon: '🛂' },
   propina: { label: 'Propina', icon: '💵' },
+  impuestos_dhl: { label: 'Impuestos DHL', icon: '📮' },
   otros: { label: 'Otros', icon: '📝' },
 };
 
@@ -177,6 +178,8 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
   const [gastoConcept, setGastoConcept] = useState('');
   const [gastoPhoto, setGastoPhoto] = useState<{ uri: string; name: string; type: string } | null>(null);
   const [gastoBusy, setGastoBusy] = useState(false);
+  const gastoAmountRef = useRef<TextInput>(null);
+  const gastoConceptRef = useRef<TextInput>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -307,6 +310,10 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
     }
     if (!gastoPhoto) {
       Alert.alert('Foto requerida', 'Toma una foto del ticket o factura');
+      return;
+    }
+    if (gastoCategory === 'impuestos_dhl' && !gastoConcept.trim()) {
+      Alert.alert('Guía DHL requerida', 'Captura el número de guía DHL');
       return;
     }
     setGastoBusy(true);
@@ -794,7 +801,12 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               {Object.entries(CATEGORIES).map(([key, c]) => (
                 <TouchableOpacity
                   key={key}
-                  onPress={() => setGastoCategory(key)}
+                  onPress={() => {
+                    setGastoCategory(key);
+                    if (key === 'impuestos_dhl') {
+                      setTimeout(() => gastoAmountRef.current?.focus(), 100);
+                    }
+                  }}
                   style={{
                     paddingVertical: 8,
                     paddingHorizontal: 12,
@@ -812,11 +824,18 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
 
             <Text style={styles.label}>Monto ({branchWallet?.currency || 'MXN'})</Text>
             <TextInput
+              ref={gastoAmountRef}
               style={styles.input}
               keyboardType="decimal-pad"
               placeholder="0.00"
               value={gastoAmount}
               onChangeText={setGastoAmount}
+              returnKeyType={gastoCategory === 'impuestos_dhl' ? 'next' : 'done'}
+              onSubmitEditing={() => {
+                if (gastoCategory === 'impuestos_dhl') {
+                  gastoConceptRef.current?.focus();
+                }
+              }}
             />
             {gastoAmount ? (
               <Text style={{ marginTop: -8, marginBottom: 8, fontSize: 12, color: '#666' }}>
@@ -824,13 +843,23 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               </Text>
             ) : null}
 
-            <Text style={styles.label}>Concepto / descripción (opcional)</Text>
+            <Text style={styles.label}>
+              {gastoCategory === 'impuestos_dhl' ? 'Guía DHL (requerida)' : 'Concepto / descripción (opcional)'}
+            </Text>
             <TextInput
-              style={[styles.input, { minHeight: 60, textAlignVertical: 'top' }]}
-              placeholder="Ej. Tóner impresora, factura A1234"
+              ref={gastoConceptRef}
+              style={gastoCategory === 'impuestos_dhl' ? styles.input : [styles.input, { minHeight: 60, textAlignVertical: 'top' }]}
+              placeholder={gastoCategory === 'impuestos_dhl' ? 'Ej. 1234567890' : 'Ej. Tóner impresora, factura A1234'}
               value={gastoConcept}
               onChangeText={setGastoConcept}
-              multiline
+              multiline={gastoCategory !== 'impuestos_dhl'}
+              autoCapitalize="characters"
+              returnKeyType={gastoCategory === 'impuestos_dhl' ? 'done' : 'default'}
+              onSubmitEditing={() => {
+                if (gastoCategory === 'impuestos_dhl' && gastoConcept.trim()) {
+                  pickGastoPhoto(true);
+                }
+              }}
             />
 
             <Text style={styles.label}>Foto del ticket (requerida)</Text>
@@ -865,10 +894,10 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               style={[
                 styles.actionBtn,
                 { backgroundColor: GREEN, marginTop: 22 },
-                (gastoBusy || !gastoAmount || !gastoPhoto) && { opacity: 0.6 },
+                (gastoBusy || !gastoAmount || !gastoPhoto || (gastoCategory === 'impuestos_dhl' && !gastoConcept.trim())) && { opacity: 0.6 },
               ]}
               onPress={submitGasto}
-              disabled={gastoBusy || !gastoAmount || !gastoPhoto}
+              disabled={gastoBusy || !gastoAmount || !gastoPhoto || (gastoCategory === 'impuestos_dhl' && !gastoConcept.trim())}
             >
               {gastoBusy ? (
                 <ActivityIndicator color="#fff" />
