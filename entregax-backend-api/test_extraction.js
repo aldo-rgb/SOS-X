@@ -17,7 +17,7 @@ async function test() {
   console.log('✅ Container ID:', containers.rows[0]?.id);
   
   const form = new FormData();
-  form.append('file', fs.createReadStream('/Users/kmpsdeveloper/Desktop/Proyectos/SOS-X/DN-SA26010033-LOGINPC.pdf'));
+  form.append('file', fs.createReadStream('/Users/aldokmps/SOS-X-5/DN-SA26010033-LOGINPC.pdf'));
   form.append('containerId', containers.rows[0].id.toString());
   
   console.log('🚀 Enviando request al endpoint...');

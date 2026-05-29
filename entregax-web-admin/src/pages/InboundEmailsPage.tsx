@@ -152,6 +152,7 @@ export default function InboundEmailsPage() {
     const [loading, setLoading] = useState(false);
     const [tabValue, setTabValue] = useState(0);
     const [statusFilter, setStatusFilter] = useState<'draft' | 'approved' | 'rejected' | 'all'>('draft');
+    const [onlySinContenedor, setOnlySinContenedor] = useState(false);
     
     // Dialog states
     const [selectedDraft, setSelectedDraft] = useState<Draft | null>(null);
@@ -775,7 +776,7 @@ export default function InboundEmailsPage() {
             {tabValue === 0 && (
                 <>
                     {/* Filtros - Solo super_admin ve todos los filtros */}
-                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                         {(userRole === 'super_admin' 
                             ? ['draft', 'approved', 'rejected', 'all'] 
                             : ['draft']
@@ -787,6 +788,15 @@ export default function InboundEmailsPage() {
                                 onClick={() => setStatusFilter(s as typeof statusFilter)}
                             />
                         ))}
+                        {userRole === 'super_admin' && (
+                            <Chip
+                                label={`⚠️ Sin contenedor${onlySinContenedor ? ' ✓' : ''}`}
+                                color={onlySinContenedor ? 'warning' : 'default'}
+                                variant={onlySinContenedor ? 'filled' : 'outlined'}
+                                onClick={() => setOnlySinContenedor(v => !v)}
+                                sx={{ ml: { sm: 'auto' } }}
+                            />
+                        )}
                     </Box>
 
                     {/* Resumen de faltantes cuando se ven aprobados */}
@@ -805,9 +815,12 @@ export default function InboundEmailsPage() {
                         <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                             <CircularProgress />
                         </Box>
-                    ) : drafts.length === 0 ? (
-                        <Alert severity="info">No hay borradores {statusFilter !== 'all' ? statusFilter : ''}</Alert>
-                    ) : (
+                    ) : (() => {
+                        const visibleDrafts = onlySinContenedor ? drafts.filter(d => !d.container_id_found) : drafts;
+                        if (visibleDrafts.length === 0) {
+                            return <Alert severity="info">No hay borradores {onlySinContenedor ? 'sin contenedor' : (statusFilter !== 'all' ? statusFilter : '')}</Alert>;
+                        }
+                        return (
                         <TableContainer component={Paper}>
                             <Table size="small">
                                 <TableHead>
@@ -823,8 +836,7 @@ export default function InboundEmailsPage() {
                                     </TableRow>
                                 </TableHead>
                                 <TableBody>
-                                    {drafts.map(draft => (
-                                        <TableRow key={draft.id} hover>
+                                    {visibleDrafts.map(draft => (                                        <TableRow key={draft.id} hover>
                                             <TableCell>
                                                 <Chip
                                                     icon={draft.document_type === 'LOG' ? <DocIcon /> : <ShipIcon />}
@@ -923,7 +935,8 @@ export default function InboundEmailsPage() {
                                 </TableBody>
                             </Table>
                         </TableContainer>
-                    )}
+                        );
+                    })()}
                 </>
             )}
 

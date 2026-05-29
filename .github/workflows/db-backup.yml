@@ -13,19 +13,57 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Instalar cliente PostgreSQL
+      - name: Instalar cliente PostgreSQL 17 (coincide con Railway)
         run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          sudo curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+            --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update -qq
-          sudo apt-get install -y postgresql-client
+          sudo apt-get install -y postgresql-client-17
+          pg_dump --version
 
-      - name: Generar dump comprimido
+      - name: Generar dump completo y comprimido
         env:
           DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL }}
         run: |
+          set -euo pipefail
           FILENAME="entregax_$(date +'%Y-%m-%d').sql.gz"
           echo "FILENAME=$FILENAME" >> $GITHUB_ENV
-          pg_dump "$DATABASE_URL" | gzip > "$FILENAME"
-          echo "Tamaño del backup: $(du -sh $FILENAME | cut -f1)"
+
+          # Dump completo: schema + datos + indices + triggers + funciones + vistas + secuencias
+          # --no-owner --no-acl: portable a otros servidores sin errores de roles
+          # --quote-all-identifiers: máxima compatibilidad
+          pg_dump "$DATABASE_URL" \
+            --no-owner \
+            --no-acl \
+            --quote-all-identifiers \
+            --verbose 2> pg_dump.log \
+            | gzip > "$FILENAME"
+
+          # Validar tamaño mínimo (un dump real pesa >1MB; <1MB = fallo)
+          SIZE_BYTES=$(stat -c%s "$FILENAME")
+          SIZE_HUMAN=$(du -sh "$FILENAME" | cut -f1)
+          echo "Tamaño del backup: $SIZE_HUMAN ($SIZE_BYTES bytes)"
+          if [ "$SIZE_BYTES" -lt 1048576 ]; then
+            echo "❌ Backup demasiado pequeño (<1MB). Probablemente falló."
+            tail -50 pg_dump.log
+            exit 1
+          fi
+
+          # Verificar que el archivo se descomprime y contiene tablas
+          if ! gunzip -t "$FILENAME"; then
+            echo "❌ Archivo gzip corrupto"
+            exit 1
+          fi
+          TABLE_COUNT=$(gunzip -c "$FILENAME" | grep -c "^CREATE TABLE" || true)
+          echo "Tablas en el dump: $TABLE_COUNT"
+          if [ "$TABLE_COUNT" -lt 5 ]; then
+            echo "❌ Dump tiene muy pocas tablas ($TABLE_COUNT). Algo salió mal."
+            exit 1
+          fi
+          echo "✅ Dump válido con $TABLE_COUNT tablas"
 
       - name: Configurar credenciales AWS
         uses: aws-actions/configure-aws-credentials@v4

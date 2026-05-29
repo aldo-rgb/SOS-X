@@ -2,7 +2,7 @@ const { Pool } = require('pg');
 const fs = require('fs');
 
 const pool = new Pool({
-  user: 'kmpsdeveloper',
+  user: 'aldokmps',
   host: 'localhost',
   database: 'entregax_db',
   password: '',
@@ -10,7 +10,7 @@ const pool = new Pool({
 });
 
 // Leer el archivo
-const data = fs.readFileSync('/Users/kmpsdeveloper/Desktop/listado-clientes-2026-02-13.csv', 'utf8');
+const data = fs.readFileSync('/Users/aldokmps/Desktop/listado-clientes-2026-02-13.csv', 'utf8');
 const lineas = data.split('\n').filter(l => l.trim());
 
 function parseLine(line) {
