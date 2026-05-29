@@ -1636,7 +1636,20 @@ export const getDrafts = async (req: Request, res: Response): Promise<any> => {
     console.log('[getDrafts] Fetching drafts with status:', status);
 
     let query = `
-      SELECT d.*,
+      SELECT
+        d.id, d.email_log_id, d.document_type, d.status, d.confidence,
+        d.matched_user_id, d.detected_client_code, d.route_id,
+        d.container_number, d.bl_number,
+        d.pdf_url, d.telex_pdf_url,
+        d.created_at, d.updated_at, d.reviewed_at, d.reviewed_by, d.rejection_reason,
+        -- Solo campos del JSON usados en el listado (evita transferir el JSON completo)
+        jsonb_build_object(
+          'reference_code',  d.extracted_data->>'reference_code',
+          'referenceCode',   d.extracted_data->>'referenceCode',
+          'logNumber',       d.extracted_data->>'logNumber',
+          'blNumber',        d.extracted_data->>'blNumber',
+          'containerNumber', d.extracted_data->>'containerNumber'
+        ) AS extracted_data,
         e.from_email, e.subject, e.received_at,
         lc.full_name as matched_client_name, lc.box_id as matched_box_id,
         -- Cruzar con containers para saber si el draft ya está reflejado en sistema
