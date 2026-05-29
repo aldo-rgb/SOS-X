@@ -1341,12 +1341,19 @@ export const getPettyCashStats = async (req: Request, res: Response): Promise<an
       WHERE status='pending' AND movement_type='expense'
         ${scope.allBranches ? '' : `AND branch_id = ${scope.branchId || 0}`}
     `);
+    const totalSpent = await pool.query(`
+      SELECT COALESCE(SUM(amount_mxn), 0) AS total
+      FROM petty_cash_movements m
+      WHERE status='approved' AND movement_type='expense'
+        ${scope.allBranches ? '' : `AND branch_id = ${scope.branchId || 0}`}
+    `);
     return res.json({
       branches_balance: Number(totalBranches.rows[0].total),
       drivers_balance: Number(totalDrivers.rows[0].total),
       drivers_pending_to_verify: Number(totalDrivers.rows[0].pending),
       pending_approvals_count: Number(pendApr.rows[0].c),
       pending_approvals_total: Number(pendApr.rows[0].total),
+      total_spent_mxn: Number(totalSpent.rows[0].total),
       user_role: userRole
     });
   } catch (err: any) {

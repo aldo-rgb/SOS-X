@@ -81,6 +81,7 @@ type Stats = {
   drivers_pending_to_verify: number;
   pending_approvals_count: number;
   pending_approvals_total: number;
+  total_spent_mxn?: number;
   user_role?: string;
 };
 
@@ -436,8 +437,8 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
         contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[ORANGE]} />}
       >
-        {/* Saldo de la sucursal - Solo visible para director, admin, super_admin */}
-        {stats?.user_role && ['director', 'admin', 'super_admin'].includes(stats.user_role) && (
+        {/* Saldo de la sucursal */}
+        {branchWallet && (
           <View style={styles.balanceCard}>
             <View style={styles.balanceRow}>
               <MaterialIcons name="account-balance" size={20} color="rgba(255,255,255,0.9)" />
@@ -456,6 +457,12 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
         {/* Mini-stats */}
         {stats && (
           <View style={styles.statsRow}>
+            <View style={styles.statCard}>
+              <Text style={styles.statLabel}>Total gastado</Text>
+              <Text style={[styles.statValue, { color: '#1A1A1A' }]}>
+                {fmtMoney(stats.total_spent_mxn)}
+              </Text>
+            </View>
             <View style={styles.statCard}>
               <Text style={styles.statLabel}>Por comprobar</Text>
               <Text style={[styles.statValue, { color: '#E68A00' }]}>
