@@ -22,6 +22,7 @@ import {
   Modal,
   TextInput,
   Image,
+  KeyboardAvoidingView,
   Platform,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -680,14 +681,20 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
 
       {/* Modal: Anticipo */}
       <Modal visible={advOpen} animationType="slide" onRequestClose={() => !advBusy && setAdvOpen(false)}>
-        <View style={styles.container}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
             <TouchableOpacity onPress={() => setAdvOpen(false)} disabled={advBusy}>
               <MaterialIcons name="close" size={28} color="#333" />
             </TouchableOpacity>
             <Text style={[styles.headerTitle, { marginLeft: 12 }]}>Anticipo a Chofer</Text>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          <ScrollView
+            contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={styles.infoBox}>
               <Text style={styles.infoText}>
                 El anticipo sale del saldo de la sucursal. El chofer debe "Aceptar y Firmar" desde su app
@@ -752,19 +759,25 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               )}
             </TouchableOpacity>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal: Registrar gasto de sucursal */}
       <Modal visible={gastoOpen} animationType="slide" onRequestClose={() => !gastoBusy && setGastoOpen(false)}>
-        <View style={styles.container}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
           <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
             <TouchableOpacity onPress={() => setGastoOpen(false)} disabled={gastoBusy}>
               <MaterialIcons name="close" size={28} color="#333" />
             </TouchableOpacity>
             <Text style={[styles.headerTitle, { marginLeft: 12 }]}>Registrar Gasto</Text>
           </View>
-          <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
+          <ScrollView
+            contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
+            keyboardShouldPersistTaps="handled"
+          >
             <View style={styles.infoBox}>
               <Text style={styles.infoText}>
                 Este gasto se deduce de la wallet de <Text style={{ fontWeight: '700' }}>{branchWallet?.owner_name || 'la sucursal'}</Text> y se registra como aprobado automáticamente. Se requiere foto del ticket.
@@ -857,7 +870,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               )}
             </TouchableOpacity>
           </ScrollView>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Modal: Revisar gasto */}
