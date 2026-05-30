@@ -119,7 +119,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const fetchPending = useCallback(async () => {
     setLoadingPending(true);
     try {
-      const r = await api.get('/support/tickets', { headers: { Authorization: `Bearer ${token}` } });
+      const r = await api.get('/api/support/tickets', { headers: { Authorization: `Bearer ${token}` } });
       const all: QuoteTicket[] = r.data?.tickets || r.data || [];
       setPendingTickets(all.filter(t => t.category === 'quote' || t.category === 'quote_request'));
     } catch (e) { /* noop */ }
@@ -129,7 +129,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const fetchMyQuotes = useCallback(async () => {
     setLoadingMyQuotes(true);
     try {
-      const r = await api.get('/advisor/formal-quotes', { headers: { Authorization: `Bearer ${token}` } });
+      const r = await api.get('/api/advisor/formal-quotes', { headers: { Authorization: `Bearer ${token}` } });
       setMyQuotes(r.data || []);
     } catch (e) { /* noop */ }
     finally { setLoadingMyQuotes(false); }
@@ -138,7 +138,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const fetchClients = useCallback(async () => {
     if (clients.length > 0) return;
     try {
-      const r = await api.get('/advisor/clients?limit=500', { headers: { Authorization: `Bearer ${token}` } });
+      const r = await api.get('/api/advisor/clients?limit=500', { headers: { Authorization: `Bearer ${token}` } });
       const raw = r.data?.clients || r.data || [];
       // Backend devuelve camelCase (fullName, boxId) — normalizamos a snake_case que usa la UI
       const data = (Array.isArray(raw) ? raw : []).map((c: any) => ({
@@ -216,7 +216,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
       if (alto) body.alto = Number(alto);
       if (peso) body.peso = Number(peso);
       if (cbm) body.cbm = Number(cbm);
-      const r = await api.post('/public/quote', body);
+      const r = await api.post('/api/public/quote', body);
       setCalcResult(r.data);
     } catch (err: any) {
       Alert.alert('Error', err?.response?.data?.error || 'No se pudo calcular');
@@ -256,7 +256,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
         validityDays: 7,
         ticketId: ticketId || undefined,
       };
-      const r = await api.post('/advisor/formal-quotes', body, { headers: { Authorization: `Bearer ${token}` } });
+      const r = await api.post('/api/advisor/formal-quotes', body, { headers: { Authorization: `Bearer ${token}` } });
       Alert.alert(
         '✅ Cotización generada',
         `Folio: ${r.data?.folio}\n\n¿Abrir el PDF ahora?`,
