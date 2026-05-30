@@ -56,6 +56,7 @@ import {
   ListItem,
   Switch,
   Autocomplete,
+  Badge,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -603,6 +604,12 @@ export default function DashboardAdvisor() {
     if (activeTab === 5 || activeTab === 6) fetchAdvisorTickets();
     if (activeTab === 6) fetchFormalQuotesList();
   }, [activeTab]);
+
+  // Carga inicial de tickets para mostrar puntos de notificación en pestañas
+  useEffect(() => {
+    fetchAdvisorTickets();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (activeTab === 7) fetchTeam();
@@ -3205,6 +3212,16 @@ export default function DashboardAdvisor() {
         setFormalQuoteCbm(meta.cbm ? String(meta.cbm) : '');
         setFormalQuoteCantidad(meta.cantidad ? String(meta.cantidad) : '1');
         setFormalQuoteDescripcion(meta.descripcion_producto || '');
+        // Prefill GEX: valor declarado del ticket (USD → MXN con TC del ticket)
+        const valUsd = Number(meta.valor_declarado_usd || 0);
+        const tc = Number(meta.tipo_cambio || 0);
+        if (valUsd > 0 && tc > 0) {
+          setFormalQuoteGexEnabled(true);
+          setFormalQuoteGexValor((valUsd * tc).toFixed(2));
+        } else {
+          setFormalQuoteGexEnabled(false);
+          setFormalQuoteGexValor('');
+        }
       }
     } else {
       setFormalQuoteTicketId(null);
@@ -3243,9 +3260,13 @@ export default function DashboardAdvisor() {
     }
     setFormalQuoteGenerating(true);
     try {
-      // Calcular prima GEX: 5% del valor declarado (configurable luego)
+      // Calcular prima GEX: 5% del valor declarado + costo fijo de póliza $625 MXN
+      const GEX_FIXED_FEE_MXN = 625;
       const gexValor = formalQuoteGexEnabled ? Number(formalQuoteGexValor) || 0 : 0;
-      const gexPrima = gexValor > 0 ? Math.round(gexValor * 0.05 * 100) / 100 : 0;
+      const gexVariable = gexValor > 0 ? Math.round(gexValor * 0.05 * 100) / 100 : 0;
+      const gexPrima = formalQuoteGexEnabled
+        ? Math.round((gexVariable + GEX_FIXED_FEE_MXN) * 100) / 100
+        : 0;
       const body: any = {
         clientId: formalQuoteClient?.id || null,
         clientName: formalQuoteClient?.full_name || formalQuoteClient?.name,
@@ -3295,7 +3316,13 @@ export default function DashboardAdvisor() {
 
   const renderQuotes = () => {
     const quoteTickets = advisorTickets.filter(t => t.category === 'quote' || t.category === 'quote_request');
-    const formatDate = (d: string) => new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const formatDate = (d: string) => {
+      if (!d) return '';
+      // El backend devuelve TIMESTAMP WITHOUT TZ como string sin 'Z' (UTC).
+      // Forzamos a tratarlo como UTC para que toLocaleString lo convierta a la zona local del navegador.
+      const iso = /[zZ]|[+-]\d{2}:?\d{2}$/.test(d) ? d : (d.includes('T') ? `${d}Z` : `${d.replace(' ', 'T')}Z`);
+      return new Date(iso).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    };
     const getTicketStatusLabel = (status: string) => {
       const map: Record<string, { label: string; color: 'default' | 'warning' | 'info' | 'error' | 'success' }> = {
         open_ai: { label: 'En revisión', color: 'info' },
@@ -3472,20 +3499,42 @@ export default function DashboardAdvisor() {
   // ════════════════════════════════════
 
   const tabConfig = useMemo(() => {
+    // Indicadores tipo punto naranja en pestañas
+    const hasNewClients = (dashboardData?.clients?.new7d || 0) > 0;
+    const isActiveStatus = (s: string) => s !== 'resolved' && s !== 'closed';
+    const ticketsNonQuote = advisorTickets.filter(t => t.category !== 'quote' && t.category !== 'quote_request');
+    const ticketsQuote = advisorTickets.filter(t => t.category === 'quote' || t.category === 'quote_request');
+    const hasTicketResponses = ticketsNonQuote.some(t => isActiveStatus(t.status) && t.last_sender && t.last_sender !== 'advisor');
+    // Solo mostrar punto naranja cuando la pelota esté del lado del asesor (cliente envió y aún no se ha cotizado).
+    // Si el último mensaje ya es del asesor (ya cotizó), se considera atendida aunque el ticket siga abierto esperando al cliente.
+    const hasPendingQuotes = ticketsQuote.some(t => isActiveStatus(t.status) && (!t.last_sender || t.last_sender !== 'advisor'));
+
+    const dotIcon = (icon: React.ReactNode, show: boolean) => (
+      <Badge
+        variant="dot"
+        invisible={!show}
+        overlap="circular"
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{ '& .MuiBadge-badge': { bgcolor: '#F05A28', boxShadow: '0 0 0 2px #fff' } }}
+      >
+        {icon}
+      </Badge>
+    );
+
     const tabs = [
       { label: isMobile ? 'Inicio' : t('advisor.tabDashboard'), icon: <DashboardIcon />, shortLabel: 'Inicio' },
-      { label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: <PeopleIcon />, shortLabel: 'Clientes' },
+      { label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: dotIcon(<PeopleIcon />, hasNewClients), shortLabel: 'Clientes' },
       { label: isMobile ? 'Envíos' : t('advisor.tabShipments'), icon: <ShippingIcon />, shortLabel: 'Envíos' },
       { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
       { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
-      { label: isMobile ? 'Tickets' : 'Tickets', icon: <TicketIcon />, shortLabel: 'Tickets' },
-      { label: isMobile ? 'Cotiz.' : 'Cotizaciones', icon: <QuoteIcon />, shortLabel: 'Cotizaciones' },
+      { label: isMobile ? 'Tickets' : 'Tickets', icon: dotIcon(<TicketIcon />, hasTicketResponses), shortLabel: 'Tickets' },
+      { label: isMobile ? 'Cotiz.' : 'Cotizaciones', icon: dotIcon(<QuoteIcon />, hasPendingQuotes), shortLabel: 'Cotizaciones' },
       ...(dashboardData && dashboardData.subAdvisors > 0
         ? [{ label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' }]
         : []),
     ];
     return tabs;
-  }, [t, isMobile, dashboardData]);
+  }, [t, isMobile, dashboardData, advisorTickets]);
 
   // ─── GATE: Verificación + Aviso de privacidad firmado ───
   const onboardingComplete = !!(
@@ -4851,6 +4900,18 @@ export default function DashboardAdvisor() {
                 options={formalQuoteClients}
                 value={formalQuoteClient}
                 onChange={(_, v) => setFormalQuoteClient(v)}
+                onInputChange={async (_, val, reason) => {
+                  if (reason !== 'input') return;
+                  const q = (val || '').trim();
+                  if (q.length < 1) return;
+                  try {
+                    const r = await api.get(`/advisor/clients?search=${encodeURIComponent(q)}&limit=30`);
+                    const data = r.data?.clients || r.data || [];
+                    if (Array.isArray(data)) setFormalQuoteClients(data);
+                  } catch { /* noop */ }
+                }}
+                filterOptions={(x) => x}
+                noOptionsText="Sin resultados"
                 getOptionLabel={(o: any) => o ? `${o.full_name || o.name || '—'}${o.box_id ? ` · Box ${o.box_id}` : ''}${o.email ? ` · ${o.email}` : ''}` : ''}
                 isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id}
                 renderInput={(params) => <TextField {...params} size="small" label="Buscar cliente por nombre / box / email" />}
@@ -4927,15 +4988,35 @@ export default function DashboardAdvisor() {
                   <TextField size="small" fullWidth multiline minRows={2} label="Descripción de mercancía (opcional)" value={formalQuoteDescripcion} onChange={e => setFormalQuoteDescripcion(e.target.value)} />
                 </Grid>
               </Grid>
-              <Box sx={{ mt: 1.5, display: 'flex', gap: 1, alignItems: 'center' }}>
+              <Box sx={{ mt: 1.5, display: 'flex', gap: 1, alignItems: 'stretch', flexWrap: 'wrap' }}>
                 <Button variant="outlined" onClick={handleCalculateFormalQuote} disabled={formalQuoteCalculating} sx={{ textTransform: 'none' }}>
                   {formalQuoteCalculating ? <CircularProgress size={18} /> : 'Calcular precio'}
                 </Button>
                 {formalQuoteCalcResult && (
-                  <Chip
-                    label={`$${Number(formalQuoteCalcResult.precio_mxn).toLocaleString('es-MX')} MXN  ·  USD $${Number(formalQuoteCalcResult.precio_usd).toFixed(2)}`}
-                    color="success" sx={{ fontWeight: 700 }}
-                  />
+                  <Box
+                    sx={{
+                      flex: 1,
+                      minWidth: 260,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      bgcolor: '#FFF3E0',
+                      border: '1px solid #FFB74D',
+                      borderRadius: 1.5,
+                      px: 1.5,
+                      py: 1,
+                    }}
+                  >
+                    <Typography variant="body2" fontWeight={700} sx={{ color: '#E65100' }}>
+                      Precio del Servicio
+                    </Typography>
+                    <Typography variant="body2" fontWeight={800} sx={{ color: '#E65100' }}>
+                      ${Number(formalQuoteCalcResult.precio_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                      <Box component="span" sx={{ color: '#A0522D', fontWeight: 600, ml: 1 }}>
+                        · USD ${Number(formalQuoteCalcResult.precio_usd).toFixed(2)}
+                      </Box>
+                    </Typography>
+                  </Box>
                 )}
               </Box>
             </Grid>
@@ -4949,15 +5030,45 @@ export default function DashboardAdvisor() {
               />
               {formalQuoteGexEnabled && (
                 <Grid container spacing={1} sx={{ mt: 0.5 }}>
-                  <Grid size={{ xs: 6 }}>
-                    <TextField size="small" fullWidth label="Valor declarado (MXN)" type="number" value={formalQuoteGexValor} onChange={e => setFormalQuoteGexValor(e.target.value)} />
-                  </Grid>
-                  <Grid size={{ xs: 6 }}>
+                  <Grid size={{ xs: 12, sm: 4 }}>
                     <TextField
-                      size="small" fullWidth label="Prima GEX (MXN)" type="number"
-                      value={formalQuoteGexValor ? (Number(formalQuoteGexValor) * 0.05).toFixed(2) : ''}
-                      InputProps={{ readOnly: true }}
+                      size="small" fullWidth label="Valor declarado (MXN)" type="number"
+                      value={formalQuoteGexValor}
+                      onChange={e => setFormalQuoteGexValor(e.target.value)}
+                      helperText={(() => {
+                        const tc = Number(formalQuoteCalcResult?.tipo_cambio || 0);
+                        const valMxn = Number(formalQuoteGexValor || 0);
+                        if (valMxn > 0 && tc > 0) {
+                          const usd = valMxn / tc;
+                          return `≈ USD $${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${formalQuoteTicketId ? ' · Autocompletado del ticket' : ''}`;
+                        }
+                        return formalQuoteTicketId ? 'Autocompletado del ticket' : ' ';
+                      })()}
                     />
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 4 }}>
+                    <Box sx={{ bgcolor: '#FAFAFA', border: '1px solid #EEE', borderRadius: 1.5, px: 1.5, py: 1, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography variant="caption" sx={{ color: '#888', fontWeight: 600 }}>Variable (5%)</Typography>
+                      <Typography variant="body2" fontWeight={700} sx={{ color: '#333' }}>
+                        ${((Number(formalQuoteGexValor) || 0) * 0.05).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </Typography>
+                    </Box>
+                    <Typography variant="caption" sx={{ color: '#999', display: 'block', mt: 0.25, ml: 0.5 }}>Calculado automáticamente</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 6, sm: 4 }}>
+                    <Box sx={{ bgcolor: '#FAFAFA', border: '1px solid #EEE', borderRadius: 1.5, px: 1.5, py: 1, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Typography variant="caption" sx={{ color: '#888', fontWeight: 600 }}>Fijo Póliza</Typography>
+                      <Typography variant="body2" fontWeight={700} sx={{ color: '#333' }}>$625.00</Typography>
+                    </Box>
+                    <Typography variant="caption" sx={{ color: '#999', display: 'block', mt: 0.25, ml: 0.5 }}>Costo fijo MXN</Typography>
+                  </Grid>
+                  <Grid size={12}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#FFF3E0', border: '1px solid #FFB74D', borderRadius: 1.5, px: 1.5, py: 1 }}>
+                      <Typography variant="body2" fontWeight={700} sx={{ color: '#E65100' }}>Total Prima GEX</Typography>
+                      <Typography variant="body2" fontWeight={800} sx={{ color: '#E65100' }}>
+                        ${(((Number(formalQuoteGexValor) || 0) * 0.05) + 625).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                      </Typography>
+                    </Box>
                   </Grid>
                 </Grid>
               )}
@@ -4972,17 +5083,25 @@ export default function DashboardAdvisor() {
                     <Typography variant="body2">Servicio</Typography>
                     <Typography variant="body2" fontWeight={700}>${Number(formalQuoteCalcResult.precio_mxn).toLocaleString('es-MX')} MXN</Typography>
                   </Box>
-                  {formalQuoteGexEnabled && Number(formalQuoteGexValor) > 0 && (
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                      <Typography variant="body2">GEX (5% de ${Number(formalQuoteGexValor).toLocaleString('es-MX')})</Typography>
-                      <Typography variant="body2" fontWeight={700}>${(Number(formalQuoteGexValor) * 0.05).toLocaleString('es-MX')} MXN</Typography>
-                    </Box>
+                  {formalQuoteGexEnabled && (
+                    <>
+                      {Number(formalQuoteGexValor) > 0 && (
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                          <Typography variant="body2">GEX Variable (5% de ${Number(formalQuoteGexValor).toLocaleString('es-MX')})</Typography>
+                          <Typography variant="body2" fontWeight={700}>${(Number(formalQuoteGexValor) * 0.05).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN</Typography>
+                        </Box>
+                      )}
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                        <Typography variant="body2">Fijo Póliza</Typography>
+                        <Typography variant="body2" fontWeight={700}>$625.00 MXN</Typography>
+                      </Box>
+                    </>
                   )}
                   <Divider sx={{ my: 1 }} />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="subtitle1" fontWeight={700}>TOTAL</Typography>
                     <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#F05A28' }}>
-                      ${(Number(formalQuoteCalcResult.precio_mxn) + (formalQuoteGexEnabled ? Number(formalQuoteGexValor || 0) * 0.05 : 0)).toLocaleString('es-MX')} MXN
+                      ${(Number(formalQuoteCalcResult.precio_mxn) + (formalQuoteGexEnabled ? (Number(formalQuoteGexValor || 0) * 0.05 + 625) : 0)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                     </Typography>
                   </Box>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>

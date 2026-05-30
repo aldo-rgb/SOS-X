@@ -10,10 +10,54 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { pool } from './db';
-import { isS3Configured, uploadToS3 } from './s3Service';
+import { isS3Configured, uploadToS3WithSignedUrl, signS3UrlIfNeeded } from './s3Service';
 
 const supportUploadsDir = path.join(process.cwd(), 'uploads', 'support');
 if (!fs.existsSync(supportUploadsDir)) fs.mkdirSync(supportUploadsDir, { recursive: true });
+
+/**
+ * Carga el logo monocromático de EntregaX (slot `entregax_monochrome`) desde brand_assets
+ * y lo devuelve como data URI (base64) para embebido directo en el HTML del PDF.
+ * Devuelve null si no hay logo activo o si la descarga falla.
+ */
+let _cachedMonoLogo: { dataUri: string | null; ts: number } = { dataUri: null, ts: 0 };
+const getEntregaxMonoLogoDataUri = async (): Promise<string | null> => {
+  // Cache 10 min para no golpear DB+S3 en cada PDF
+  if (_cachedMonoLogo.dataUri && Date.now() - _cachedMonoLogo.ts < 10 * 60 * 1000) {
+    return _cachedMonoLogo.dataUri;
+  }
+  try {
+    const r = await pool.query(
+      `SELECT url, mime_type FROM brand_assets
+       WHERE slot = 'entregax_monochrome' AND is_active = TRUE
+       ORDER BY id DESC LIMIT 1`
+    );
+    if (!r.rows.length) return null;
+    const { url, mime_type } = r.rows[0];
+    if (!url) return null;
+
+    let buf: Buffer | null = null;
+    if (url.startsWith('http://') || url.startsWith('https://')) {
+      // S3 (firmar si es necesario) o URL pública
+      const signed = (await signS3UrlIfNeeded(url, 60 * 5)) || url;
+      const resp = await fetch(signed);
+      if (!resp.ok) return null;
+      buf = Buffer.from(await resp.arrayBuffer());
+    } else if (url.startsWith('/uploads/')) {
+      // Local fallback
+      const localPath = path.join(process.cwd(), url.replace(/^\//, ''));
+      if (fs.existsSync(localPath)) buf = fs.readFileSync(localPath);
+    }
+    if (!buf) return null;
+    const mime = mime_type || 'image/png';
+    const dataUri = `data:${mime};base64,${buf.toString('base64')}`;
+    _cachedMonoLogo = { dataUri, ts: Date.now() };
+    return dataUri;
+  } catch (e) {
+    console.warn('[advisorQuote] No se pudo cargar logo monocromático:', (e as any)?.message);
+    return null;
+  }
+};
 
 let _quotesTableEnsured = false;
 const ensureAdvisorQuotesTable = async () => {
@@ -42,7 +86,7 @@ const ensureAdvisorQuotesTable = async () => {
         total_mxn NUMERIC(14,2),
         valid_until TIMESTAMP,
         pdf_url TEXT,
-        ticket_id INT REFERENCES support_tickets(id),
+        ticket_id INT,
         created_at TIMESTAMP DEFAULT NOW()
       )
     `);
@@ -97,7 +141,14 @@ export const listAdvisorFormalQuotes = async (req: Request, res: Response): Prom
        LIMIT 200`,
       [advisorId]
     );
-    res.json(r.rows);
+    // Firmar URLs S3 (bucket privado) — vigencia 7 días
+    const rows = await Promise.all((r.rows || []).map(async (q: any) => {
+      if (q.pdf_url) {
+        try { q.pdf_url = await signS3UrlIfNeeded(q.pdf_url, 60 * 60 * 24 * 7); } catch { /* keep original */ }
+      }
+      return q;
+    }));
+    res.json(rows);
   } catch (e: any) {
     console.error('listAdvisorFormalQuotes:', e);
     res.status(500).json({ error: 'Error al listar cotizaciones' });
@@ -138,18 +189,25 @@ const buildQuoteHtml = (q: any): string => {
 <style>
   * { box-sizing: border-box; font-family: 'Helvetica', 'Arial', sans-serif; }
   body { margin: 0; color: #1A1A1A; font-size: 12px; }
-  .header { background: linear-gradient(135deg, #F05A28 0%, #C44114 100%); color: #fff; padding: 24px 28px; }
-  .header h1 { margin: 0; font-size: 26px; letter-spacing: 1px; }
-  .header .brand { font-size: 11px; letter-spacing: 4px; opacity: 0.9; margin-bottom: 4px; text-transform: uppercase; }
-  .header .folio { float: right; text-align: right; }
+  .header { background: linear-gradient(135deg, #F05A28 0%, #C44114 100%); color: #fff; padding: 24px 28px; position: relative; overflow: hidden; }
+  .header h1 { margin: 0; font-size: 26px; letter-spacing: 1px; position: relative; z-index: 2; }
+  .header .brand { font-size: 11px; letter-spacing: 4px; opacity: 0.9; margin-bottom: 4px; text-transform: uppercase; position: relative; z-index: 2; }
+  .header .folio { float: right; text-align: right; position: relative; z-index: 2; }
   .header .folio .num { font-size: 18px; font-weight: 700; }
   .header .folio .date { font-size: 10px; opacity: 0.9; }
-  .section { padding: 18px 28px; }
-  .section h2 { font-size: 13px; color: #F05A28; margin: 0 0 10px 0; border-bottom: 1px solid #F05A28; padding-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
+  .header .watermark { position: absolute; right: -40px; top: 50%; transform: translateY(-50%); height: 180px; opacity: 0.08; z-index: 1; pointer-events: none; }
+  .section { padding: 12px 28px; }
+  .section h2 { font-size: 13px; color: #F05A28; margin: 0 0 8px 0; border-bottom: 1px solid #F05A28; padding-bottom: 3px; text-transform: uppercase; letter-spacing: 1px; }
   .grid { display: flex; gap: 24px; }
   .grid > div { flex: 1; }
-  .grid p { margin: 3px 0; font-size: 11px; }
+  .grid p { margin: 2px 0; font-size: 11px; }
   .grid p strong { color: #555; min-width: 90px; display: inline-block; }
+  .kv-grid { display: flex; gap: 18px; }
+  .kv-grid > div { flex: 1; }
+  .kv-row { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 10px; border-bottom: 1px solid #eee; font-size: 11px; }
+  .kv-row:nth-child(odd) { background: #FAFAFA; }
+  .kv-row .k { font-weight: 700; color: #555; }
+  .kv-row .v { color: #1A1A1A; text-align: right; }
   table { width: 100%; border-collapse: collapse; margin-top: 6px; }
   table thead th { background: #1A1A1A; color: #fff; padding: 8px 10px; text-align: left; font-size: 11px; }
   table tbody td { padding: 7px 10px; border-bottom: 1px solid #eee; font-size: 11px; }
@@ -164,12 +222,13 @@ const buildQuoteHtml = (q: any): string => {
   .badge { display: inline-block; background: #FF9800; color: #fff; padding: 3px 10px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
 </style></head><body>
 <div class="header">
+  ${q.logo_data_uri ? `<img class="watermark" src="${q.logo_data_uri}" alt="EntregaX" />` : ''}
   <div class="folio">
     <div class="num">${q.folio}</div>
     <div class="date">Emitida: ${fmt(created)}</div>
   </div>
   <div class="brand">EntregaX · Paquetería Internacional</div>
-  <h1>Cotización Formal</h1>
+  <h1>Cotización</h1>
 </div>
 
 <div class="section">
@@ -191,16 +250,39 @@ const buildQuoteHtml = (q: any): string => {
 
 <div class="section">
   <h2>Detalles del Servicio</h2>
-  <table>
-    <thead><tr><th style="width:40%">Concepto</th><th>Valor</th></tr></thead>
-    <tbody>
-      ${rows.map(r => `<tr><td><strong>${r.label}</strong></td><td>${r.value}</td></tr>`).join('')}
-    </tbody>
-  </table>
+  <div class="kv-grid">
+    <div>
+      ${rows.slice(0, Math.ceil(rows.length / 2)).map(r => `<div class="kv-row"><span class="k">${r.label}</span><span class="v">${r.value}</span></div>`).join('')}
+    </div>
+    <div>
+      ${rows.slice(Math.ceil(rows.length / 2)).map(r => `<div class="kv-row"><span class="k">${r.label}</span><span class="v">${r.value}</span></div>`).join('')}
+    </div>
+  </div>
 </div>
 
 <div class="section">
   <h2>Desglose de Precio</h2>
+  ${(() => {
+    // Unidad de medida según el servicio para mostrar precio unitario
+    let unitQty = 0;
+    let unitLabel = '';
+    if (q.servicio === 'maritimo' && q.subservicio !== 'fcl_40') {
+      unitQty = Number(d.cbm || 0);
+      unitLabel = 'm³';
+    } else if (q.servicio === 'aereo' || q.servicio === 'dhl' || q.servicio === 'pobox') {
+      unitQty = Number(d.peso_cobrable || d.peso || 0);
+      unitLabel = 'kg';
+    } else if (q.servicio === 'maritimo' && q.subservicio === 'fcl_40') {
+      unitQty = Number(d.cantidad || 1);
+      unitLabel = 'contenedor';
+    }
+    if (!unitQty || !unitLabel || subtotal <= 0) return '';
+    const mxnPerUnit = subtotal / unitQty;
+    const usdPerUnit = q.precio_usd ? Number(q.precio_usd) / unitQty : 0;
+    return `<p style="margin: 0 0 6px 0; font-size: 11px; color: #555;">
+      <strong>Tarifa unitaria:</strong> ${fmtMxn(mxnPerUnit)} MXN${usdPerUnit ? ` <span style="color:#888">(${fmtUsd(usdPerUnit)} USD)</span>` : ''} por ${unitLabel} · ${unitQty} ${unitLabel}${unitQty !== 1 ? 's' : ''} × ${fmtMxn(mxnPerUnit)} = ${fmtMxn(subtotal)}
+    </p>`;
+  })()}
   <table>
     <thead><tr><th>Concepto</th><th class="right">Importe</th></tr></thead>
     <tbody>
@@ -218,20 +300,39 @@ ${validUntil ? `<div class="section" style="padding-top:0">
   </div>
 </div>` : ''}
 
+${(q.servicio === 'maritimo' && q.subservicio !== 'fcl_40' && Array.isArray(q.maritime_tiers) && q.maritime_tiers.length) ? `<div class="section" style="padding-top:0">
+  <h2>🚢 Tabla de Precios Marítimo China · Genérico (por CBM)</h2>
+  <p style="margin: 0 0 8px 0; font-size: 10px; color: #666;">Precios escalonados por metro cúbico. A mayor volumen, menor tarifa unitaria.</p>
+  <table>
+    <thead><tr><th>Rango CBM</th><th class="right">Precio USD/CBM</th></tr></thead>
+    <tbody>
+      ${q.maritime_tiers.map((t: any) => {
+        const min = Number(t.min_cbm || 0).toFixed(2);
+        const maxNum = t.max_cbm == null ? null : Number(t.max_cbm);
+        // Tratar valores "centinela" (>= 9999) como infinito visual
+        const max = (maxNum == null || maxNum >= 9999) ? '∞' : maxNum.toFixed(2);
+        const price = fmtUsd(Number(t.price || 0));
+        const rangeLabel = t.is_flat_fee
+          ? `Tarifa plana (≤ ${max} m³)`
+          : `${min} – ${max} m³`;
+        return `<tr><td>${rangeLabel}</td><td class="right" style="color:#F05A28; font-weight:700;">${price}</td></tr>`;
+      }).join('')}
+    </tbody>
+  </table>
+</div>` : ''}
+
 <div class="section">
   <div class="terms">
     <strong>Términos y condiciones:</strong><br/>
     1. Esta cotización tiene una vigencia de <strong>7 días naturales</strong> a partir de su fecha de emisión.<br/>
     2. Los precios están sujetos al tipo de cambio del día de pago, fluctuaciones de combustibles y/o ajustes aduanales.<br/>
-    3. La cotización contempla únicamente el flete; cargos por almacenaje, inspecciones aduanales especiales, certificados sanitarios, NOMs o aranceles correrán por cuenta del cliente, salvo acuerdo expreso.<br/>
-    4. La <strong>Garantía Extendida (GEX)</strong>, cuando es contratada, cubre la mercancía declarada hasta el monto indicado contra extravío total durante el tránsito internacional. Quedan excluidos daños por mal embalaje, mercancía prohibida o sin declarar.<br/>
-    5. Es responsabilidad del cliente entregar la mercancía debidamente etiquetada con su Box ID y empacada según las recomendaciones de EntregaX.<br/>
-    6. Para confirmar el servicio, comparte esta cotización con tu asesor y realiza la transferencia o pago referenciado.
+    3. La <strong>Garantía Extendida (GEX)</strong>, cuando es contratada, cubre la mercancía declarada hasta el monto indicado contra extravío total durante el tránsito internacional. Quedan excluidos faltantes, daños por mal embalaje, mercancía prohibida o sin declarar.<br/>
+    4. Es responsabilidad del cliente entregar la mercancía debidamente etiquetada con su Numero de Cliente Idetificable y empacada según las recomendaciones de EntregaX.<br/>
   </div>
 </div>
 
 <div class="footer">
-  EntregaX · Paquetería Internacional · <a href="https://entregax.com">entregax.com</a><br/>
+  EntregaX · Paquetería Internacional · <a href="https://www.entregax.com">www.entregax.com</a><br/>
   Documento generado automáticamente · No requiere firma para validez fiscal (la factura se emite por separado)
 </div>
 </body></html>`;
@@ -323,6 +424,25 @@ export const createAdvisorFormalQuote = async (req: Request, res: Response): Pro
     const createdAt = ins.rows[0].created_at;
 
     // Generar HTML + PDF
+    const monoLogoDataUri = await getEntregaxMonoLogoDataUri();
+
+    // Cargar tabla de precios Genérico solo para cotizaciones marítimas (no FCL)
+    let maritimeTiers: any[] = [];
+    if (servicio === 'maritimo' && subservicio !== 'fcl_40') {
+      try {
+        const tiersRes = await pool.query(
+          `SELECT pt.min_cbm, pt.max_cbm, pt.price, pt.is_flat_fee, pt.notes
+           FROM pricing_tiers pt
+           JOIN pricing_categories pc ON pt.category_id = pc.id
+           WHERE pc.name = 'Generico' AND pt.is_active = TRUE
+           ORDER BY pt.min_cbm ASC`
+        );
+        maritimeTiers = tiersRes.rows || [];
+      } catch (e) {
+        console.warn('[advisorQuote] No se pudieron cargar tarifas marítimas Genérico:', (e as any)?.message);
+      }
+    }
+
     const html = buildQuoteHtml({
       folio,
       created_at: createdAt,
@@ -337,6 +457,8 @@ export const createAdvisorFormalQuote = async (req: Request, res: Response): Pro
       servicio, subservicio, categoria, details,
       gex_enabled, gex_valor_declarado_mxn, gex_prima_mxn,
       precio_usd, precio_mxn, tipo_cambio, total_mxn: totalMxn,
+      logo_data_uri: monoLogoDataUri,
+      maritime_tiers: maritimeTiers,
     });
 
     const puppeteer = require('puppeteer');
@@ -364,7 +486,9 @@ export const createAdvisorFormalQuote = async (req: Request, res: Response): Pro
     const filename = `cotizacion-${folio}.pdf`;
     let pdfUrl = '';
     if (isS3Configured()) {
-      pdfUrl = await uploadToS3(pdfBuffer, `quotes/${filename}`, 'application/pdf');
+      // Bucket privado: usar URL firmada con vigencia de 7 días (igual que la cotización)
+      const { signedUrl } = await uploadToS3WithSignedUrl(pdfBuffer, `quotes/${filename}`, 'application/pdf', 60 * 60 * 24 * 7);
+      pdfUrl = signedUrl;
     } else {
       const filePath = path.join(supportUploadsDir, filename);
       fs.writeFileSync(filePath, pdfBuffer);

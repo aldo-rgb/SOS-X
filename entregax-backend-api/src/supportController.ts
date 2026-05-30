@@ -1529,6 +1529,7 @@ export const createFormalQuoteRequest = async (req: Request, res: Response): Pro
       precio_por_kg,
       tipo_cambio,
       tiempo_estimado,
+      valor_declarado_usd,
       descripcion_producto,
       observaciones,
     } = req.body || {};
@@ -1611,6 +1612,7 @@ export const createFormalQuoteRequest = async (req: Request, res: Response): Pro
         servicio, subservicio, categoria,
         largo, ancho, alto, peso, peso_cobrable, cbm, cantidad,
         precio_usd, precio_mxn, precio_por_kg, tipo_cambio, tiempo_estimado,
+        valor_declarado_usd,
         descripcion_producto, observaciones,
         photos: photoUrls,
         packing_list: packingListUrl,
@@ -1634,6 +1636,7 @@ export const createFormalQuoteRequest = async (req: Request, res: Response): Pro
     if (peso_cobrable) lines.push(`*Peso cobrable:* ${peso_cobrable} kg`);
     if (cbm) lines.push(`*CBM:* ${cbm} m³`);
     if (cantidad) lines.push(`*Cantidad:* ${cantidad}`);
+    if (valor_declarado_usd) lines.push(`*Valor declarado:* $${Number(valor_declarado_usd).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`);
     if (tiempo_estimado) lines.push(`*Tiempo estimado:* ${tiempo_estimado}`);
     if (precio_por_kg) lines.push(`*Tarifa por kg:* $${Number(precio_por_kg).toFixed(2)} USD/kg`);
     if (precio_usd) lines.push(`*Cotización estimada:* $${Number(precio_usd).toFixed(2)} USD${precio_mxn ? ` (≈ $${Number(precio_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN)` : ''}`);

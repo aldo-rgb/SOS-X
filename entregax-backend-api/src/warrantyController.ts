@@ -8,18 +8,38 @@ interface AuthRequest extends Request {
 // ============ OBTENER TIPO DE CAMBIO ACTUAL ============
 export const getExchangeRate = async (_req: Request, res: Response): Promise<void> => {
     try {
+        // 1) Preferir el TC final configurado por servicio GEX (incluye sobreprecio)
+        const cfgRes = await pool.query(
+            `SELECT tipo_cambio_final, ultimo_tc_api, sobreprecio, ultima_actualizacion, fuente
+               FROM exchange_rate_config
+              WHERE servicio = 'gex' AND estado = TRUE
+              LIMIT 1`
+        );
+        if (cfgRes.rows.length > 0 && cfgRes.rows[0].tipo_cambio_final) {
+            res.json({
+                rate: parseFloat(cfgRes.rows[0].tipo_cambio_final),
+                base: cfgRes.rows[0].ultimo_tc_api ? parseFloat(cfgRes.rows[0].ultimo_tc_api) : null,
+                surcharge: cfgRes.rows[0].sobreprecio ? parseFloat(cfgRes.rows[0].sobreprecio) : 0,
+                source: cfgRes.rows[0].fuente || 'config',
+                updatedAt: cfgRes.rows[0].ultima_actualizacion,
+            });
+            return;
+        }
+
+        // 2) Fallback: última tasa registrada en exchange_rates
         const result = await pool.query(
             'SELECT rate, created_at FROM exchange_rates ORDER BY created_at DESC LIMIT 1'
         );
-        
+
         if (result.rows.length === 0) {
             res.json({ rate: 20.50, source: 'default' });
             return;
         }
-        
-        res.json({ 
-            rate: parseFloat(result.rows[0].rate), 
-            updatedAt: result.rows[0].created_at 
+
+        res.json({
+            rate: parseFloat(result.rows[0].rate),
+            source: 'exchange_rates',
+            updatedAt: result.rows[0].created_at
         });
     } catch (error) {
         console.error('Error getting exchange rate:', error);

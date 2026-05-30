@@ -37,9 +37,11 @@ export const BRAND_SLOTS = [
   'entregax_full_white',  // EntregaX completo en blanco
   'entregax_full_black',  // EntregaX completo en negro
   'entregax_x_only',      // Solo la "X" de EntregaX
+  'entregax_monochrome',  // EntregaX logo monocromático (1 solo color, ideal para sellos, marcas de agua, impresión BN)
   'xpay_full_white',      // X-Pay completo en blanco
   'xpay_full_black',      // X-Pay completo en negro
   'xpay_only',            // Solo el icono X-Pay
+  'xpay_monochrome',      // X-Pay logo monocromático (1 solo color, ideal para sellos, marcas de agua, impresión BN)
   'cajito_avatar',        // Avatar/identidad visual del asistente IA Cajito
 ] as const;
 
@@ -49,9 +51,11 @@ const SLOT_LABELS: Record<BrandSlot, string> = {
   entregax_full_white: 'EntregaX · Logo completo (Blanco)',
   entregax_full_black: 'EntregaX · Logo completo (Negro)',
   entregax_x_only:     'EntregaX · Solo la X',
+  entregax_monochrome: 'EntregaX · Logo monocromático',
   xpay_full_white:     'X-Pay · Logo completo (Blanco)',
   xpay_full_black:     'X-Pay · Logo completo (Negro)',
   xpay_only:           'X-Pay · Solo icono',
+  xpay_monochrome:     'X-Pay · Logo monocromático',
   cajito_avatar:       'Cajito · Avatar del asistente IA',
 };
 

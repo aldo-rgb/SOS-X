@@ -1450,6 +1450,7 @@ export default function DashboardClient() {
   const [cbmAlto, setCbmAlto] = useState('');
   const [cbmPeso, setCbmPeso] = useState('');
   const [quoteCantidad, setQuoteCantidad] = useState('1');
+  const [quoteValorUsd, setQuoteValorUsd] = useState('');
   const [quoteCategoria, setQuoteCategoria] = useState('');
   const [quoteCbm, setQuoteCbm] = useState('');
   const [quoteMaritimoMode, setQuoteMaritimoMode] = useState<'volumen' | 'fcl_40'>('volumen');
@@ -4317,6 +4318,7 @@ export default function DashboardClient() {
     setCbmAlto('');
     setCbmPeso('');
     setQuoteCantidad('1');
+    setQuoteValorUsd('');
     setQuoteCategoria('');
     setQuoteCbm('');
     setQuoteMaritimoMode('volumen');
@@ -4343,6 +4345,7 @@ export default function DashboardClient() {
       if (cbmAlto) fd.append('alto', cbmAlto);
       if (cbmPeso) fd.append('peso', cbmPeso);
       if (quoteCantidad) fd.append('cantidad', quoteCantidad);
+      if (quoteValorUsd) fd.append('valor_declarado_usd', quoteValorUsd);
       if (quoteResult?.cbm_cobrable) fd.append('cbm', String(quoteResult.cbm_cobrable));
       if (quoteResult?.precio_usd) fd.append('precio_usd', String(quoteResult.precio_usd));
       if (quoteResult?.precio_mxn) fd.append('precio_mxn', String(quoteResult.precio_mxn));
@@ -6723,7 +6726,7 @@ export default function DashboardClient() {
                                 onChange={(e) => setCbmAlto(e.target.value)}
                               />
                             </Grid>
-                            <Grid size={12}>
+                            <Grid size={6}>
                               <TextField
                                 fullWidth
                                 size="small"
@@ -6731,6 +6734,18 @@ export default function DashboardClient() {
                                 type="number"
                                 value={quoteCantidad}
                                 onChange={(e) => setQuoteCantidad(e.target.value)}
+                              />
+                            </Grid>
+                            <Grid size={6}>
+                              <TextField
+                                fullWidth
+                                size="small"
+                                label="Valor estimado (USD)"
+                                type="number"
+                                value={quoteValorUsd}
+                                onChange={(e) => setQuoteValorUsd(e.target.value)}
+                                inputProps={{ min: 0, step: 1 }}
+                                helperText="Valor de la mercancía para GEX"
                               />
                             </Grid>
                           </Grid>
@@ -6838,7 +6853,7 @@ export default function DashboardClient() {
                               </Alert>
                             </Grid>
                           )}
-                          <Grid size={12}>
+                          <Grid size={6}>
                             <TextField
                               fullWidth
                               size="small"
@@ -6847,6 +6862,18 @@ export default function DashboardClient() {
                               value={quoteCantidad}
                               onChange={(e) => setQuoteCantidad(e.target.value)}
                               inputProps={{ min: 1 }}
+                            />
+                          </Grid>
+                          <Grid size={6}>
+                            <TextField
+                              fullWidth
+                              size="small"
+                              label="Valor estimado (USD)"
+                              type="number"
+                              value={quoteValorUsd}
+                              onChange={(e) => setQuoteValorUsd(e.target.value)}
+                              inputProps={{ min: 0, step: 1 }}
+                              helperText="Valor de la mercancía para GEX"
                             />
                           </Grid>
                         </Grid>
@@ -6960,14 +6987,14 @@ export default function DashboardClient() {
                                 letterSpacing: '-1.5px',
                               }}
                             >
-                              ${quoteResult.precio_usd}
+                              ${Number(quoteResult.precio_usd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </Typography>
                             <Typography sx={{ fontSize: '1rem', fontWeight: 800, color: ORANGE }}>
                               USD
                             </Typography>
                           </Box>
                           <Typography variant="body2" sx={{ color: '#666', mt: 0.5 }}>
-                            ≈ <strong>${quoteResult.precio_mxn}</strong> MXN
+                            ≈ <strong>${Number(quoteResult.precio_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> MXN
                           </Typography>
                         </Box>
 
@@ -6991,44 +7018,86 @@ export default function DashboardClient() {
                           }}
                         />
 
-                        {/* Detalles */}
+                        {/* Detalles — 2 columnas (mitad / mitad) */}
                         <Box sx={{ px: 3, py: 2 }}>
-                          {quoteResult.cbm_cobrable && (
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.75 }}>
-                              <Typography variant="body2" sx={{ color: '#666' }}>Volumen (CBM)</Typography>
-                              <Typography variant="body2" fontWeight={700}>{quoteResult.cbm_cobrable} m³</Typography>
-                            </Box>
-                          )}
-                          {quoteResult.peso_cobrable && (
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.75 }}>
-                              <Typography variant="body2" sx={{ color: '#666' }}>Peso Cobrable</Typography>
-                              <Typography variant="body2" fontWeight={700}>{quoteResult.peso_cobrable} kg</Typography>
-                            </Box>
-                          )}
-                          {quoteResult.precio_por_kg && (
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.75 }}>
-                              <Typography variant="body2" sx={{ color: '#666' }}>Tarifa por kg</Typography>
-                              <Typography variant="body2" fontWeight={700} sx={{ color: ORANGE }}>
-                                ${quoteResult.precio_por_kg} USD/kg
-                              </Typography>
-                            </Box>
-                          )}
-                          {quoteResult.categoria && (
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', py: 0.75 }}>
-                              <Typography variant="body2" sx={{ color: '#666' }}>Categoría</Typography>
-                              <Chip
-                                label={quoteResult.categoria}
-                                size="small"
-                                sx={{ bgcolor: '#1A1A1A', color: 'white', fontWeight: 700 }}
-                              />
-                            </Box>
-                          )}
-                          {quoteResult.tipo_cambio && (
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.75 }}>
-                              <Typography variant="body2" sx={{ color: '#666' }}>Tipo de cambio</Typography>
-                              <Typography variant="body2" fontWeight={700}>${quoteResult.tipo_cambio} MXN/USD</Typography>
-                            </Box>
-                          )}
+                          {(() => {
+                            const labelSx = { color: '#666', fontSize: '0.78rem', mb: 0.25, textTransform: 'none' as const };
+                            const valueSx = { fontWeight: 700, fontSize: '0.92rem', color: '#1A1A1A', lineHeight: 1.25 };
+                            const items: { key: string; label: string; value: React.ReactNode }[] = [];
+                            if (quoteResult.cbm_cobrable) {
+                              items.push({ key: 'cbm', label: 'Volumen (CBM)', value: <Typography sx={valueSx}>{quoteResult.cbm_cobrable} m³</Typography> });
+                            }
+                            if (cbmLargo && cbmAncho && cbmAlto) {
+                              items.push({ key: 'dims', label: 'Dimensiones (cm)', value: <Typography sx={valueSx}>{cbmLargo} × {cbmAncho} × {cbmAlto}</Typography> });
+                            }
+                            if (cbmPeso) {
+                              items.push({ key: 'peso', label: 'Peso real', value: <Typography sx={valueSx}>{cbmPeso} kg</Typography> });
+                            }
+                            if (quoteResult.peso_cobrable) {
+                              items.push({ key: 'pesoc', label: 'Peso cobrable', value: <Typography sx={valueSx}>{quoteResult.peso_cobrable} kg</Typography> });
+                            }
+                            if (quoteCantidad && parseInt(quoteCantidad) > 0) {
+                              const labelCant = quoteService === 'dhl' ? 'Cantidad de cajas'
+                                : quoteService === 'pobox' ? 'Cantidad de paquetes'
+                                : quoteService === 'maritimo' && quoteMaritimoMode === 'fcl_40' ? 'Contenedores (40 pies)'
+                                : 'Cantidad';
+                              items.push({ key: 'cant', label: labelCant, value: <Typography sx={valueSx}>{quoteCantidad}</Typography> });
+                            }
+                            if (quoteValorUsd && parseFloat(quoteValorUsd) > 0) {
+                              items.push({ key: 'valor', label: 'Valor declarado', value: <Typography sx={valueSx}>${Number(quoteValorUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD</Typography> });
+                            }
+                            if (quoteResult.precio_por_kg) {
+                              items.push({ key: 'kg', label: 'Tarifa por kg', value: <Typography sx={{ ...valueSx, color: ORANGE }}>${quoteResult.precio_por_kg} USD/kg</Typography> });
+                            }
+                            if (quoteResult.categoria) {
+                              items.push({ key: 'cat', label: 'Categoría', value: <Typography sx={valueSx}>{quoteResult.categoria}</Typography> });
+                            }
+                            if (quoteResult.tipo_cambio) {
+                              items.push({ key: 'tc', label: 'Tipo de cambio', value: <Typography sx={valueSx}>${quoteResult.tipo_cambio} MXN/USD</Typography> });
+                            }
+
+                            const mid = Math.ceil(items.length / 2);
+                            const leftCol = items.slice(0, mid);
+                            const rightCol = items.slice(mid);
+
+                            const renderCell = (it: { key: string; label: string; value: React.ReactNode }) => (
+                              <Box
+                                key={it.key}
+                                sx={{
+                                  bgcolor: '#FAFAFA',
+                                  border: '1px solid #EEE',
+                                  borderRadius: 1.5,
+                                  px: 1.5,
+                                  py: 1,
+                                  display: 'flex',
+                                  flexDirection: 'column',
+                                  justifyContent: 'center',
+                                  minHeight: 56,
+                                }}
+                              >
+                                <Typography sx={labelSx}>{it.label}</Typography>
+                                {it.value}
+                              </Box>
+                            );
+
+                            return (
+                              <Box
+                                sx={{
+                                  display: 'grid',
+                                  gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' },
+                                  columnGap: 1.5,
+                                  rowGap: 1,
+                                }}
+                              >
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                  {leftCol.map(renderCell)}
+                                </Box>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                  {rightCol.map(renderCell)}
+                                </Box>
+                              </Box>
+                            );
+                          })()}
                         </Box>
 
                         <Box sx={{ px: 3, pb: 3, mt: 'auto' }}>

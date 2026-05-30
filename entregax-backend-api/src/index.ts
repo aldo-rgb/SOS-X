@@ -9316,16 +9316,18 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
           return res.status(400).json({ error: 'Dimensiones (largo, ancho, alto en cm) o CBM son requeridos' });
         }
         
-        // Calcular CBM (desde dimensiones o usar el directo)
-        let cbm = cbmDirect > 0
-          ? cbmDirect
-          : (parseFloat(largo) * parseFloat(ancho) * parseFloat(alto)) / 1000000;
+        // Calcular CBM:
+        //  - Si hay dimensiones + cantidad: cbm_calc = (L*A*A/1e6) * cantidad
+        //  - Si hay CBM directo: cbm_directo (ya es total)
+        //  - Si están ambos, se toma el MAYOR (protección al cobro real).
+        const cbmCalc = (parseFloat(largo) > 0 && parseFloat(ancho) > 0 && parseFloat(alto) > 0)
+          ? ((parseFloat(largo) * parseFloat(ancho) * parseFloat(alto)) / 1000000) * cantidad
+          : 0;
+        let cbm = Math.max(cbmDirect > 0 ? cbmDirect : 0, cbmCalc);
         const cbmOriginal = cbm;
         
         // Mínimo cobrable
         if (cbm < 0.01) cbm = 0.01;
-        
-        cbm *= cantidad;
 
         // Auto-detección de categoría: ≤0.75 CBM → StartUp, sino Generico.
         // Redondeo 0.76-0.99 → 1 sólo aplica para Generico.

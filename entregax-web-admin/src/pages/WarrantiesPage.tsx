@@ -403,6 +403,7 @@ export default function WarrantiesPage() {
             color="info" 
             variant="outlined"
           />
+          {false && (
           <Button
             variant="contained"
             startIcon={<AddIcon />}
@@ -411,6 +412,7 @@ export default function WarrantiesPage() {
           >
             {t('warranties.newPolicy')}
           </Button>
+          )}
         </Box>
       </Box>
 

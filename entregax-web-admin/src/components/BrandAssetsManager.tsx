@@ -54,9 +54,11 @@ const SLOT_META: Record<string, { previewBg: string; group: 'entregax' | 'xpay' 
     entregax_full_white: { previewBg: '#0a0a0c', group: 'entregax' },
     entregax_full_black: { previewBg: '#ffffff', group: 'entregax' },
     entregax_x_only:     { previewBg: '#0a0a0c', group: 'entregax' },
+    entregax_monochrome: { previewBg: '#f5f5f5', group: 'entregax' },
     xpay_full_white:     { previewBg: '#0a0a0c', group: 'xpay' },
     xpay_full_black:     { previewBg: '#ffffff', group: 'xpay' },
     xpay_only:           { previewBg: '#0a0a0c', group: 'xpay' },
+    xpay_monochrome:     { previewBg: '#f5f5f5', group: 'xpay' },
     cajito_avatar:       { previewBg: '#faf5ff', group: 'cajito' },
 };
 

@@ -5,6 +5,7 @@
 
 import { Request, Response } from 'express';
 import { pool } from './db';
+import { signS3UrlIfNeeded } from './s3Service';
 
 // ─── Helper: asegurar que existan columnas de onboarding (idempotente) ───
 let _advisorColumnsEnsured = false;
@@ -1307,10 +1308,25 @@ export const getAdvisorTicketDetail = async (req: Request, res: Response): Promi
       ORDER BY created_at ASC
     `, [ticketId]);
 
+    // Firmar URLs de S3 (bucket privado) para que las imágenes sean accesibles desde la app
+    const SIGN_TTL = 60 * 60 * 6; // 6 horas
+    const messages = await Promise.all((messagesRes.rows || []).map(async (m: any) => {
+      const out: any = { ...m };
+      if (out.attachment_url) {
+        out.attachment_url = await signS3UrlIfNeeded(out.attachment_url, SIGN_TTL);
+      }
+      if (Array.isArray(out.attachments)) {
+        out.attachments = await Promise.all(out.attachments.map((u: any) =>
+          typeof u === 'string' ? signS3UrlIfNeeded(u, SIGN_TTL) : u
+        ));
+      }
+      return out;
+    }));
+
     res.json({
       success: true,
       ticket,
-      messages: messagesRes.rows,
+      messages,
     });
   } catch (error) {
     console.error('Error fetching ticket detail:', error);
