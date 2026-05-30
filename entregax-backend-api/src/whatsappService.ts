@@ -304,6 +304,51 @@ export const sendQuoteRequestConfirmation = async (
 };
 
 /**
+ * Aviso al ASESOR: nueva solicitud de cotización pendiente de generar.
+ * Requiere plantilla "cotizacion_pendiente_asesor" aprobada en Meta Business (UTILITY, es_MX).
+ * Variables:
+ *   {{1}} = nombre del asesor
+ *   {{2}} = cliente (nombre + Box)
+ *   {{3}} = servicio (MARITIMO/AEREO/POBOX/DHL)
+ *   {{4}} = volumen / peso / cantidad (ej. "2.50 CBM", "150.00 kg", "5 pieza(s)")
+ *   {{5}} = folio del ticket
+ *
+ * Sugerencia de body:
+ *   "Hola {{1}} 👋, tienes una nueva cotización pendiente de generar.
+ *    Cliente: {{2}}
+ *    Servicio: {{3}}
+ *    Volumen/Peso: {{4}}
+ *    Ticket: {{5}}
+ *    Entra a EntregaX → Cotizaciones para generar el PDF formal."
+ */
+export const sendAdvisorQuotePending = async (
+    advisorPhone: string,
+    advisorName: string,
+    clientLabel: string,
+    servicio: string,
+    volumenOPeso: string,
+    ticketFolio: string,
+): Promise<void> => {
+    const templateName = process.env.WHATSAPP_ADVISOR_QUOTE_PENDING_TEMPLATE || 'cotizacion_pendiente_asesor';
+    try {
+        await sendTemplate({
+            to: advisorPhone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [
+                (advisorName || '').split(' ')[0] || 'Asesor',
+                clientLabel,
+                servicio,
+                volumenOPeso,
+                ticketFolio,
+            ],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] Error enviando aviso de cotización al asesor:', e);
+    }
+};
+
+/**
  * Notifica al cliente que su ticket fue resuelto/cerrado.
  * Requiere plantilla "ticket_resuelto" aprobada en Meta Business (UTILITY, es_MX).
  * Variables: {{1}} = nombre, {{2}} = folio del ticket.

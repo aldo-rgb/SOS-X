@@ -10,7 +10,7 @@ import path from 'path';
 import fs from 'fs';
 import { uploadToS3, isS3Configured, getSignedDownloadUrl, signS3UrlIfNeeded } from './s3Service';
 import { sendPushToUsers } from './pushService';
-import { sendTicketConfirmation, sendTicketResolved, sendQuoteRequestConfirmation } from './whatsappService';
+import { sendTicketConfirmation, sendTicketResolved, sendQuoteRequestConfirmation, sendAdvisorQuotePending } from './whatsappService';
 
 // ============================================================
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES DE SOPORTE
@@ -1567,10 +1567,10 @@ export const createFormalQuoteRequest = async (req: Request, res: Response): Pro
     let packingListUrl: string | null = null;
     try { packingListUrl = await uploadFile(packingList, 'quote-packing'); } catch (e) { console.error('upload packing err', e); }
 
-    // Obtener usuario + asesor
+    // Obtener usuario + asesor (incluye phone del asesor para notificacion WhatsApp)
     const userRow = await pool.query(
       `SELECT u.id, u.full_name, u.email, u.phone, u.box_id, u.advisor_id,
-              a.id AS advisor_user_id, a.full_name AS advisor_name
+              a.id AS advisor_user_id, a.full_name AS advisor_name, a.phone AS advisor_phone
        FROM users u
        LEFT JOIN users a ON a.id = u.advisor_id
        WHERE u.id = $1`,
@@ -1697,6 +1697,29 @@ export const createFormalQuoteRequest = async (req: Request, res: Response): Pro
           user.full_name || 'Cliente',
           ticketFolio,
           String(servicio).toUpperCase()
+        ).catch(() => {});
+      }
+    } catch (e) { /* noop */ }
+
+    // WhatsApp al asesor: aviso de cotización pendiente con cliente + servicio + volumen/peso
+    try {
+      if (advisorId && user.advisor_phone) {
+        // Volumen / peso a mostrar: CBM (marítimo) o peso (aéreo/dhl) o cantidad
+        const volumen = cbm
+          ? `${Number(cbm).toFixed(2)} CBM`
+          : peso
+            ? `${Number(peso).toFixed(2)} kg`
+            : cantidad
+              ? `${cantidad} pieza(s)`
+              : '—';
+        const clienteLabel = `${user.full_name || 'Cliente'}${user.box_id ? ` (Box ${user.box_id})` : ''}`;
+        sendAdvisorQuotePending(
+          user.advisor_phone,
+          user.advisor_name || 'Asesor',
+          clienteLabel,
+          String(servicio).toUpperCase(),
+          volumen,
+          ticketFolio,
         ).catch(() => {});
       }
     } catch (e) { /* noop */ }
