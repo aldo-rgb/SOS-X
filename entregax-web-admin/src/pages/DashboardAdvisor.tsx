@@ -3000,7 +3000,8 @@ export default function DashboardAdvisor() {
             </Grid>
           </Grid>
 
-          {/* Dialog conversación de ticket */}
+          {/* Dialog conversación de ticket (movido a top-level) */}
+          {false && (
           <Dialog
             open={!!selectedAdvisorTicket}
             onClose={() => { setSelectedAdvisorTicket(null); setTicketMessages([]); setTicketReply(''); }}
@@ -3148,6 +3149,7 @@ export default function DashboardAdvisor() {
               </>
             )}
           </Dialog>
+          )}
         </Box>
       </Fade>
     );
@@ -4666,6 +4668,149 @@ export default function DashboardAdvisor() {
             {newAddrSaving ? <CircularProgress size={18} color="inherit" /> : 'Guardar dirección'}
           </Button>
         </DialogActions>
+      </Dialog>
+
+      {/* ═════════ Dialog: Conversación de ticket (asesor, global) ═════════ */}
+      <Dialog
+        open={!!selectedAdvisorTicket}
+        onClose={() => { setSelectedAdvisorTicket(null); setTicketMessages([]); setTicketReply(''); }}
+        maxWidth="sm" fullWidth fullScreen={isMobile}
+        PaperProps={{ sx: { borderRadius: isMobile ? 0 : 3 } }}
+      >
+        {selectedAdvisorTicket && (
+          <>
+            <DialogTitle sx={{ bgcolor: '#F05A28', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Box>
+                <Typography variant="subtitle1" fontWeight={700}>{selectedAdvisorTicket.subject || 'Ticket'}</Typography>
+                <Typography variant="caption" sx={{ opacity: 0.85 }}>
+                  {selectedAdvisorTicket.ticket_folio}
+                  {selectedAdvisorTicket.client_name ? ` · ${selectedAdvisorTicket.client_name}` : ''}
+                  {selectedAdvisorTicket.client_box_id ? ` · Box ${selectedAdvisorTicket.client_box_id}` : ''}
+                </Typography>
+              </Box>
+              <IconButton onClick={() => { setSelectedAdvisorTicket(null); setTicketMessages([]); }} sx={{ color: '#fff' }}>
+                <CloseIcon />
+              </IconButton>
+            </DialogTitle>
+            <DialogContent dividers sx={{ p: 0 }}>
+              <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.5, minHeight: 300, maxHeight: 420, overflowY: 'auto' }}>
+                {ticketMessages.length === 0 && (
+                  <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center', py: 2 }}>Cargando mensajes...</Typography>
+                )}
+                {ticketMessages.map(msg => {
+                  let attUrls: string[] = [];
+                  if (Array.isArray(msg.attachments)) attUrls = msg.attachments as string[];
+                  else if (typeof msg.attachments === 'string') {
+                    try { const p = JSON.parse(msg.attachments); if (Array.isArray(p)) attUrls = p; } catch { /* ignore */ }
+                  }
+                  if (attUrls.length === 0 && msg.attachment_url) attUrls = [msg.attachment_url];
+                  return (
+                  <Box key={msg.id} sx={{
+                    alignSelf: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? 'flex-end' : 'flex-start',
+                    maxWidth: '80%',
+                    bgcolor: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? '#F05A28' : '#f5f5f5',
+                    color: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? '#fff' : '#111',
+                    borderRadius: 2, px: 1.5, py: 1,
+                  }}>
+                    {msg.message && (
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{msg.message}</Typography>
+                    )}
+                    {attUrls.length > 0 && (
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75, mt: msg.message ? 0.75 : 0 }}>
+                        {attUrls.map((u, i) => {
+                          const clean = u.split('?')[0].toLowerCase();
+                          const isPdf = clean.endsWith('.pdf') || clean.includes('/pdf');
+                          const isExcel = /\.(xlsx?|csv)$/i.test(clean);
+                          const isImg = /\.(png|jpe?g|gif|webp|heic|heif|bmp|svg)$/i.test(clean);
+                          const fileName = u.split('?')[0].split('/').pop() || `adjunto-${i + 1}`;
+                          if (isImg) {
+                            return (
+                              <a key={i} href={u} target="_blank" rel="noreferrer" download={fileName}>
+                                <Box component="img" src={u} alt={fileName}
+                                  sx={{ width: 110, height: 110, objectFit: 'cover', borderRadius: 1, border: '1px solid rgba(0,0,0,0.1)' }}
+                                />
+                              </a>
+                            );
+                          }
+                          return (
+                            <a key={i} href={u} target="_blank" rel="noreferrer" download={fileName}
+                              style={{
+                                display: 'inline-flex', alignItems: 'center', gap: 6,
+                                padding: '6px 10px', borderRadius: 6, textDecoration: 'none',
+                                background: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? 'rgba(255,255,255,0.2)' : '#fff',
+                                color: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? '#fff' : (isPdf ? '#c62828' : '#2E7D32'),
+                                border: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? 'none' : '1px solid #ddd',
+                                maxWidth: 220,
+                              }}>
+                              {isPdf ? <PdfIcon sx={{ fontSize: 18 }} /> : <FileIcon sx={{ fontSize: 18 }} />}
+                              <Typography variant="caption" fontWeight={600} noWrap sx={{ maxWidth: 170 }}>
+                                {fileName}
+                              </Typography>
+                            </a>
+                          );
+                        })}
+                      </Box>
+                    )}
+                    <Typography variant="caption" sx={{ opacity: 0.7, display: 'block', textAlign: 'right', mt: 0.3 }}>
+                      {new Date(msg.created_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </Typography>
+                  </Box>
+                  );
+                })}
+              </Box>
+            </DialogContent>
+            {selectedAdvisorTicket.status !== 'resolved' && selectedAdvisorTicket.status !== 'closed' && (
+              <Box sx={{ p: 2, pt: 0 }}>
+                {ticketReplyFiles.length > 0 && (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 1 }}>
+                    {ticketReplyFiles.map((f, i) => (
+                      <Chip
+                        key={i}
+                        label={f.name}
+                        size="small"
+                        onDelete={() => setTicketReplyFiles(prev => prev.filter((_, j) => j !== i))}
+                        icon={f.type.startsWith('image/')
+                          ? <ImageIcon fontSize="small" />
+                          : f.type.includes('pdf') ? <PdfIcon fontSize="small" /> : <FileIcon fontSize="small" />}
+                      />
+                    ))}
+                  </Box>
+                )}
+                <Box sx={{ display: 'flex', alignItems: 'flex-end', gap: 1 }}>
+                  <IconButton component="label" sx={{ color: '#F05A28' }} title="Adjuntar imagen">
+                    <ImageIcon />
+                    <input
+                      hidden type="file" accept="image/*" multiple
+                      onChange={(e) => { const fs = Array.from(e.target.files || []); setTicketReplyFiles(prev => [...prev, ...fs]); e.target.value = ''; }}
+                    />
+                  </IconButton>
+                  <IconButton component="label" sx={{ color: '#F05A28' }} title="Adjuntar PDF o Excel">
+                    <AttachFileIcon />
+                    <input
+                      hidden type="file"
+                      accept="application/pdf,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv"
+                      multiple
+                      onChange={(e) => { const fs = Array.from(e.target.files || []); setTicketReplyFiles(prev => [...prev, ...fs]); e.target.value = ''; }}
+                    />
+                  </IconButton>
+                  <TextField
+                    fullWidth size="small" multiline maxRows={3}
+                    placeholder="Escribe tu respuesta..."
+                    value={ticketReply}
+                    onChange={e => setTicketReply(e.target.value)}
+                  />
+                  <IconButton
+                    onClick={handleSendTicketReply}
+                    disabled={(!ticketReply.trim() && ticketReplyFiles.length === 0) || ticketReplySending}
+                    sx={{ color: '#F05A28' }}
+                  >
+                    {ticketReplySending ? <CircularProgress size={20} /> : <SendIcon />}
+                  </IconButton>
+                </Box>
+              </Box>
+            )}
+          </>
+        )}
       </Dialog>
 
       {/* ═════════ Dialog: Generador de Cotización Formal ═════════ */}
