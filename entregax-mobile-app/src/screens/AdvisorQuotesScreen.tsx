@@ -147,6 +147,28 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   }, [token]);
   const [generating, setGenerating] = useState(false);
 
+  const archiveTicket = useCallback((t: QuoteTicket) => {
+    Alert.alert(
+      'Archivar ticket',
+      `¿Archivar ${t.ticket_folio}? Se marcará como resuelto y desaparecerá de Pendientes.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Archivar',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await api.put(`/api/admin/support/ticket/${t.id}/resolve`, {}, { headers: { Authorization: `Bearer ${token}` } });
+              setPendingTickets(prev => prev.filter(p => p.id !== t.id));
+            } catch (e: any) {
+              Alert.alert('Error', e?.response?.data?.error || 'No se pudo archivar');
+            }
+          },
+        },
+      ]
+    );
+  }, [token]);
+
   const fetchPending = useCallback(async () => {
     setLoadingPending(true);
     try {
@@ -441,6 +463,9 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                 </TouchableOpacity>
                 <TouchableOpacity style={s.cotizarBtn} onPress={() => startQuoteFromTicket(item)}>
                   <Text style={s.cotizarBtnText}>Cotizar</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={s.archivarBtn} onPress={() => archiveTicket(item)}>
+                  <Ionicons name="archive-outline" size={16} color="#616161" />
                 </TouchableOpacity>
               </View>
             )}
@@ -842,6 +867,11 @@ const s = StyleSheet.create({
     borderWidth: 1, borderColor: ORANGE, backgroundColor: '#FFF3E0',
   },
   verBtnText: { color: ORANGE, fontWeight: '700', fontSize: 13 },
+  archivarBtn: {
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8,
+    borderWidth: 1, borderColor: '#9E9E9E', backgroundColor: '#F5F5F5',
+    alignItems: 'center', justifyContent: 'center',
+  },
   sectionTitle: { fontWeight: '700', color: ORANGE, marginTop: 16, marginBottom: 8, fontSize: 14 },
   pickerBtn: {
     backgroundColor: CARD, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 10,

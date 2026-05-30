@@ -3418,6 +3418,22 @@ export default function DashboardAdvisor() {
                               >
                                 Cotizar
                               </Button>
+                              <Button
+                                size="small" variant="outlined"
+                                sx={{ borderColor: '#9E9E9E', color: '#616161', textTransform: 'none', fontWeight: 700, '&:hover': { borderColor: '#616161', bgcolor: '#F5F5F5' } }}
+                                onClick={async () => {
+                                  if (!window.confirm(`¿Archivar ticket ${ticket.ticket_folio}? Se marcará como resuelto y desaparecerá de Pendientes.`)) return;
+                                  try {
+                                    await api.put(`/admin/support/ticket/${ticket.id}/resolve`);
+                                    setSnackbar({ open: true, message: 'Ticket archivado', severity: 'success' });
+                                    fetchAdvisorTickets();
+                                  } catch (e: any) {
+                                    setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo archivar', severity: 'error' });
+                                  }
+                                }}
+                              >
+                                Archivar
+                              </Button>
                             </Box>
                           }
                         >
@@ -5178,7 +5194,6 @@ export default function DashboardAdvisor() {
               </Grid>
               );
             })()}
-            )}
           </Grid>
         </DialogContent>
         <DialogActions>
