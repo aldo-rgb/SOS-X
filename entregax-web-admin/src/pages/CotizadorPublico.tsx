@@ -88,7 +88,8 @@ export default function CotizadorPublico() {
   const [alto, setAlto] = useState('');
   const [peso, setPeso] = useState('');
   const [cantidad, setCantidad] = useState('1');
-  const [categoria, setCategoria] = useState('generico');
+  // categoria reservado para uso futuro; actualmente se manda hard-coded 'G' al backend
+  const [, setCategoria] = useState('generico');
   const [dhlTipo, setDhlTipo] = useState('standard');
   const [airSubservice, setAirSubservice] = useState<'tdi_aereo' | 'tdi_express'>('tdi_aereo');
   const [cbm, setCbm] = useState('');

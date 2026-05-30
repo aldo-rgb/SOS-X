@@ -465,7 +465,7 @@ export default function DashboardAdvisor() {
   const [notifLoading, setNotifLoading] = useState(false);
 
   // Snackbar
-  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' | 'warning' }>({
     open: false, message: '', severity: 'info'
   });
 
@@ -3504,10 +3504,14 @@ export default function DashboardAdvisor() {
     const isActiveStatus = (s: string) => s !== 'resolved' && s !== 'closed';
     const ticketsNonQuote = advisorTickets.filter(t => t.category !== 'quote' && t.category !== 'quote_request');
     const ticketsQuote = advisorTickets.filter(t => t.category === 'quote' || t.category === 'quote_request');
-    const hasTicketResponses = ticketsNonQuote.some(t => isActiveStatus(t.status) && t.last_sender && t.last_sender !== 'advisor');
-    // Solo mostrar punto naranja cuando la pelota esté del lado del asesor (cliente envió y aún no se ha cotizado).
-    // Si el último mensaje ya es del asesor (ya cotizó), se considera atendida aunque el ticket siga abierto esperando al cliente.
-    const hasPendingQuotes = ticketsQuote.some(t => isActiveStatus(t.status) && (!t.last_sender || t.last_sender !== 'advisor'));
+    // sender_type del backend: 'agent' (asesor/admin) | 'client' | 'system'.
+    // Consideramos "atendido por asesor" cualquier valor distinto de 'client'.
+    const isClientSender = (s?: string | null) => s === 'client';
+    const hasTicketResponses = ticketsNonQuote.some(t => isActiveStatus(t.status) && isClientSender(t.last_sender));
+    // Solo mostrar punto naranja en Cotizaciones cuando la pelota esté del lado del asesor
+    // (último mensaje del cliente, aún no cotizado / sin respuesta). Si el último ya es del asesor
+    // (agent/system tras generar la cotización), se considera atendida.
+    const hasPendingQuotes = ticketsQuote.some(t => isActiveStatus(t.status) && (!t.last_sender || isClientSender(t.last_sender)));
 
     const dotIcon = (icon: React.ReactNode, show: boolean) => (
       <Badge
@@ -4793,7 +4797,8 @@ export default function DashboardAdvisor() {
                         {attUrls.map((u, i) => {
                           const clean = u.split('?')[0].toLowerCase();
                           const isPdf = clean.endsWith('.pdf') || clean.includes('/pdf');
-                          const isExcel = /\.(xlsx?|csv)$/i.test(clean);
+                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
+                          const _isExcel = /\.(xlsx?|csv)$/i.test(clean);
                           const isImg = /\.(png|jpe?g|gif|webp|heic|heif|bmp|svg)$/i.test(clean);
                           const fileName = u.split('?')[0].split('/').pop() || `adjunto-${i + 1}`;
                           if (isImg) {
