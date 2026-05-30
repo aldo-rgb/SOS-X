@@ -338,6 +338,17 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     roles: ['admin', 'super_admin', 'director'],
     requiresOnboarding: false,
   },
+  {
+    id: 'panel_commissions',
+    title: 'Comisiones',
+    subtitle: 'Aprobar y consultar comisiones de asesores',
+    icon: 'cash-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'Commissions',
+    roles: ['admin', 'super_admin', 'director'],
+    requiresOnboarding: false,
+  },
 
   // === SUPER ADMIN (exclusivos) ===
   {
