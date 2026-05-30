@@ -327,14 +327,14 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
       }
     } else if (isMaritimeFCL) {
       // FCL 40: no requiere peso/CBM, solo cantidad de contenedores
+    } else if (selectedService.key === 'maritime') {
+      // Marítimo por volumen: basta con CBM (peso es opcional).
+      if (cbm <= 0) { setLoading(false); setError('Captura los metros cúbicos (CBM)'); return; }
     } else {
       if (w <= 0) { setLoading(false); setError('Captura el peso (kg)'); return; }
-      // Marítimo se cotiza por CBM (m³) + peso, no por medidas.
       // TDI Aéreo se cotiza por peso (medidas opcionales).
       // PO Box sí cotiza por volumen y exige medidas.
-      if (selectedService.key === 'maritime') {
-        if (cbm <= 0) { setLoading(false); setError('Captura los metros cúbicos (CBM)'); return; }
-      } else if (selectedService.key === 'pobox') {
+      if (selectedService.key === 'pobox') {
         if (l <= 0 || wd <= 0 || h <= 0) {
           setLoading(false); setError('Captura las medidas (largo, ancho, alto)'); return;
         }
