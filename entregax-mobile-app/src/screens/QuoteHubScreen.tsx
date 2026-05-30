@@ -115,6 +115,17 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
   const [rates, setRates] = useState<RatesService[]>([]);
   const [maritimeTiers, setMaritimeTiers] = useState<MaritimeTier[]>([]);
   const [ratesLoading, setRatesLoading] = useState(false);
+  const [globalFxRate, setGlobalFxRate] = useState<number | null>(null);
+
+  // Calcula días desde la última actualización de precios (más reciente entre servicios)
+  const ratesAgeDays = useMemo(() => {
+    const dates = rates
+      .map(r => r.precio_actualizado ? new Date(r.precio_actualizado).getTime() : null)
+      .filter((t): t is number => !!t);
+    if (dates.length === 0) return null;
+    const mostRecent = Math.max(...dates);
+    return Math.floor((Date.now() - mostRecent) / (1000 * 60 * 60 * 24));
+  }, [rates]);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,6 +138,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         ]);
         if (cancelled) return;
         if (rRates?.servicios) setRates(rRates.servicios as RatesService[]);
+        if (rRates?.tipo_cambio) setGlobalFxRate(Number(rRates.tipo_cambio));
         if (rTiers?.tiers) setMaritimeTiers(rTiers.tiers as MaritimeTier[]);
       } catch {
         /* ignorar — se mostrarán los textos hardcoded como fallback */
@@ -409,6 +421,18 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
           <View style={styles.refTableHeaderBar}>
             <MaterialCommunityIcons name="tag-multiple-outline" size={18} color="#fff" />
             <Text style={styles.refTableHeaderTitle}>Tarifas de Referencia</Text>
+            {ratesAgeDays !== null && ratesAgeDays > 10 && (
+              <View style={styles.staleChip}>
+                <MaterialCommunityIcons name="alert-outline" size={11} color="#7a4f00" />
+                <Text style={styles.staleChipTxt}>{ratesAgeDays} días sin cambios</Text>
+              </View>
+            )}
+            {ratesAgeDays !== null && ratesAgeDays <= 10 && (
+              <View style={styles.freshChip}>
+                <MaterialCommunityIcons name="check-circle" size={11} color="#1b5e20" />
+                <Text style={styles.freshChipTxt}>Actualizado</Text>
+              </View>
+            )}
           </View>
           {ratesLoading && rates.length === 0 ? (
             <View style={{ padding: 16, alignItems: 'center' }}>
@@ -432,6 +456,18 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
                   </Text>
                 </View>
               ))}
+              {/* Footer con tipo de cambio actual */}
+              {globalFxRate && (
+                <View style={styles.fxFooter}>
+                  <Text style={styles.fxFooterTxt}>
+                    * Precios de referencia. Tipo de cambio actual:{' '}
+                    <Text style={{ fontWeight: '700', color: BLACK }}>
+                      ${globalFxRate.toFixed(4)} MXN/USD
+                    </Text>
+                    . Consulta cotización exacta.
+                  </Text>
+                </View>
+              )}
             </>
           )}
         </View>
@@ -1358,6 +1394,40 @@ const styles = StyleSheet.create({
     backgroundColor: BLACK,
   },
   refTableHeaderTitle: { color: '#fff', fontSize: 13, fontWeight: '700', flex: 1 },
+
+  // Chips de actualización de precios (paridad con web)
+  staleChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#fff8e1',
+    borderWidth: 1,
+    borderColor: '#ffe082',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  staleChipTxt: { fontSize: 10, color: '#7a4f00', fontWeight: '700' },
+  freshChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#e8f5e9',
+    borderWidth: 1,
+    borderColor: '#a5d6a7',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 999,
+  },
+  freshChipTxt: { fontSize: 10, color: '#1b5e20', fontWeight: '700' },
+  fxFooter: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: '#FAFAFA',
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  fxFooterTxt: { fontSize: 11, color: '#666', lineHeight: 16 },
 
   // Card "Cotización Estimada" estilo web (step 2)
   estCardHeader: {
