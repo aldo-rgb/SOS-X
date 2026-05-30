@@ -80,10 +80,12 @@ const SUBSERVICIO_OPTIONS: Record<ServicioKey, { value: string; label: string }[
 const CATEGORIAS_MARITIMO = ['Generico', 'StartUp', 'Sensible', 'Logotipo', 'FCL40'];
 
 export default function AdvisorQuotesScreen({ navigation, route }: any) {
-  const { user, token } = route.params;
+  const { user, token, initialTab } = route.params;
   const insets = useSafeAreaInsets();
 
-  const [tab, setTab] = useState<'pendientes' | 'generar' | 'mias'>('pendientes');
+  const [tab, setTab] = useState<'pendientes' | 'generar' | 'mias'>(
+    (initialTab === 'generar' || initialTab === 'mias' || initialTab === 'pendientes') ? initialTab : 'pendientes'
+  );
   const [refreshing, setRefreshing] = useState(false);
 
   // Pendientes

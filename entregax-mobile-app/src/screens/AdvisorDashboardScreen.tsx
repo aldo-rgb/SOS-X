@@ -428,14 +428,14 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           <Text style={s.sectionTitle}>COTIZACIONES FORMALES</Text>
         </View>
         <View style={s.supportRow}>
-          <TouchableOpacity style={s.supportBtn} onPress={() => navigation.navigate('AdvisorQuotes' as any, { user, token })}>
+          <TouchableOpacity style={s.supportBtn} onPress={() => navigation.navigate('AdvisorQuotes' as any, { user, token, initialTab: 'generar' })}>
             <View style={[s.supportIcon, { backgroundColor: '#FFF3E0' }]}>
               <Ionicons name="calculator" size={26} color={ORANGE} />
             </View>
             <Text style={s.supportBtnLabel}>Generar Cotización</Text>
             <Text style={s.supportBtnSub}>PDF profesional 7 días</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.supportBtn} onPress={() => navigation.navigate('AdvisorQuotes' as any, { user, token })}>
+          <TouchableOpacity style={s.supportBtn} onPress={() => navigation.navigate('AdvisorQuotes' as any, { user, token, initialTab: 'mias' })}>
             <View style={[s.supportIcon, { backgroundColor: '#FFF8E1' }]}>
               <Ionicons name="document-text" size={26} color="#FF9800" />
             </View>
