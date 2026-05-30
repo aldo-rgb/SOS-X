@@ -4797,8 +4797,6 @@ export default function DashboardAdvisor() {
                         {attUrls.map((u, i) => {
                           const clean = u.split('?')[0].toLowerCase();
                           const isPdf = clean.endsWith('.pdf') || clean.includes('/pdf');
-                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                          const _isExcel = /\.(xlsx?|csv)$/i.test(clean);
                           const isImg = /\.(png|jpe?g|gif|webp|heic|heif|bmp|svg)$/i.test(clean);
                           const fileName = u.split('?')[0].split('/').pop() || `adjunto-${i + 1}`;
                           if (isImg) {
