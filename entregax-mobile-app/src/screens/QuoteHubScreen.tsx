@@ -153,7 +153,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
   // tipo de mercancía / categoría. Hardcodeo abajo en el body.
 
   // GEX universal
-  const [includeGex, setIncludeGex] = useState(false);
+  const [includeGex, setIncludeGex] = useState(true);
   const [declaredValueMxn, setDeclaredValueMxn] = useState('');
 
   // Acordeón "¿Cómo se cotiza?" — colapsado por defecto.
@@ -302,7 +302,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     setWeightKg(''); setLengthCm(''); setWidthCm(''); setHeightCm('');
     setCbmM3(''); setQuantity('1');
     setMaritimeMode('volumen'); setEstimatedValueUsd('');
-    setIncludeGex(false); setDeclaredValueMxn('');
+    setIncludeGex(true); setDeclaredValueMxn('');
   };
 
   const handleQuote = async () => {
