@@ -5113,6 +5113,11 @@ app.post('/api/advisor/clients/:clientId/addresses', authenticateToken, createAd
 app.put('/api/advisor/clients/:clientId/addresses/:addressId/default-for-service', authenticateToken, setAdvisorClientDefaultForService);
 app.put('/api/advisor/shipments/:uid/instructions', authenticateToken, uploadDeliveryDocs, assignAdvisorShipmentInstructions);
 app.put('/api/advisor/packages/:packageId/assign-client', authenticateToken, assignClientToPackage);
+
+// ========== COTIZACIONES FORMALES POR ASESOR (PDF) ==========
+import { listAdvisorFormalQuotes, createAdvisorFormalQuote } from './advisorQuoteController';
+app.get('/api/advisor/formal-quotes', authenticateToken, listAdvisorFormalQuotes);
+app.post('/api/advisor/formal-quotes', authenticateToken, createAdvisorFormalQuote);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
 app.get('/api/advisor/shipment/:uid', authenticateToken, getAdvisorShipmentDetail);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);

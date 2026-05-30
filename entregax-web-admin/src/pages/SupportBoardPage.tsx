@@ -1179,17 +1179,35 @@ export default function SupportBoardPage() {
                         return (
                           <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mt: 1 }}>
                             {urls.map((u, i) => {
-                              const isPdf = u.toLowerCase().endsWith('.pdf') || u.includes('/pdf') || u.includes('application/pdf');
+                              const isPdf = u.toLowerCase().includes('.pdf') || u.includes('/pdf') || u.includes('application/pdf');
+                              // Extraer nombre del archivo de la URL
+                              let fileName = '';
+                              try {
+                                const cleanUrl = u.split('?')[0];
+                                fileName = decodeURIComponent(cleanUrl.split('/').pop() || `archivo-${i}`);
+                              } catch { fileName = `archivo-${i}`; }
                               return isPdf ? (
-                                <a key={i} href={u} target="_blank" rel="noreferrer"
-                                  style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#fce4ec', borderRadius: 6, border: '1px solid #ef9a9a', textDecoration: 'none', color: '#c62828' }}>
-                                  <PdfIcon sx={{ fontSize: 20 }} />
-                                  <Typography variant="caption" fontWeight={600}>Ver PDF</Typography>
-                                </a>
+                                <Box key={i} sx={{ display: 'flex', flexDirection: 'column', gap: 0.3 }}>
+                                  <a href={u} target="_blank" rel="noreferrer"
+                                    style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '4px 8px', background: '#fce4ec', borderRadius: 6, border: '1px solid #ef9a9a', textDecoration: 'none', color: '#c62828' }}>
+                                    <PdfIcon sx={{ fontSize: 20 }} />
+                                    <Typography variant="caption" fontWeight={600}>Ver PDF</Typography>
+                                  </a>
+                                  <a href={u} download={fileName}
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '3px 8px', background: '#fff', borderRadius: 6, border: '1px solid #1976d2', textDecoration: 'none', color: '#1976d2' }}>
+                                    <Typography variant="caption" fontWeight={600}>⬇ Descargar</Typography>
+                                  </a>
+                                </Box>
                               ) : (
-                                <ProtectedImage key={i} s3Url={u} alt={`adj-${i}`}
-                                  sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd', cursor: 'pointer' }}
-                                />
+                                <Box key={i} sx={{ display: 'flex', flexDirection: 'column', gap: 0.3, alignItems: 'center' }}>
+                                  <ProtectedImage s3Url={u} alt={`adj-${i}`}
+                                    sx={{ width: 100, height: 100, objectFit: 'cover', borderRadius: 1, border: '1px solid #ddd', cursor: 'pointer' }}
+                                  />
+                                  <a href={u} download={fileName} target="_blank" rel="noreferrer"
+                                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '3px 8px', background: '#fff', borderRadius: 6, border: '1px solid #1976d2', textDecoration: 'none', color: '#1976d2', width: '100%' }}>
+                                    <Typography variant="caption" fontWeight={600}>⬇ Descargar</Typography>
+                                  </a>
+                                </Box>
                               );
                             })}
                           </Box>

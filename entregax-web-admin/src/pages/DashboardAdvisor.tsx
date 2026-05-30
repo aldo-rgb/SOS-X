@@ -55,6 +55,7 @@ import {
   List,
   ListItem,
   Switch,
+  Autocomplete,
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon,
@@ -92,6 +93,7 @@ import {
   LocationOn as LocationIcon,
   LocalShipping as CarrierIcon,
   ConfirmationNumber as TicketIcon,
+  Calculate as QuoteIcon,
   Send as SendIcon,
   AttachFile as AttachFileIcon,
   PictureAsPdf as PdfIcon,
@@ -435,6 +437,28 @@ export default function DashboardAdvisor() {
   const [ticketReplyFiles, setTicketReplyFiles] = useState<File[]>([]);
   const [ticketReplySending, setTicketReplySending] = useState(false);
 
+  // ── Cotizaciones formales (asesor) ──
+  const [formalQuotesList, setFormalQuotesList] = useState<any[]>([]);
+  const [formalQuoteDialogOpen, setFormalQuoteDialogOpen] = useState(false);
+  const [formalQuoteClient, setFormalQuoteClient] = useState<any | null>(null);
+  const [formalQuoteClients, setFormalQuoteClients] = useState<any[]>([]);
+  const [formalQuoteServicio, setFormalQuoteServicio] = useState<'maritimo' | 'aereo' | 'pobox' | 'dhl'>('maritimo');
+  const [formalQuoteSubservicio, setFormalQuoteSubservicio] = useState<string>('');
+  const [formalQuoteCategoria, setFormalQuoteCategoria] = useState('Generico');
+  const [formalQuoteLargo, setFormalQuoteLargo] = useState('');
+  const [formalQuoteAncho, setFormalQuoteAncho] = useState('');
+  const [formalQuoteAlto, setFormalQuoteAlto] = useState('');
+  const [formalQuotePeso, setFormalQuotePeso] = useState('');
+  const [formalQuoteCbm, setFormalQuoteCbm] = useState('');
+  const [formalQuoteCantidad, setFormalQuoteCantidad] = useState('1');
+  const [formalQuoteDescripcion, setFormalQuoteDescripcion] = useState('');
+  const [formalQuoteCalcResult, setFormalQuoteCalcResult] = useState<any | null>(null);
+  const [formalQuoteCalculating, setFormalQuoteCalculating] = useState(false);
+  const [formalQuoteGexEnabled, setFormalQuoteGexEnabled] = useState(false);
+  const [formalQuoteGexValor, setFormalQuoteGexValor] = useState('');
+  const [formalQuoteTicketId, setFormalQuoteTicketId] = useState<number | null>(null);
+  const [formalQuoteGenerating, setFormalQuoteGenerating] = useState(false);
+
   // Preferencias de notificaciones
   const [notifPrefs, setNotifPrefs] = useState({ whatsapp: true, push: true, air: true, maritime: true, dhl: true, pobox: true });
   const [notifLoading, setNotifLoading] = useState(false);
@@ -576,11 +600,12 @@ export default function DashboardAdvisor() {
   }, [activeTab, fetchCommissions]);
 
   useEffect(() => {
-    if (activeTab === 5) fetchAdvisorTickets();
+    if (activeTab === 5 || activeTab === 6) fetchAdvisorTickets();
+    if (activeTab === 6) fetchFormalQuotesList();
   }, [activeTab]);
 
   useEffect(() => {
-    if (activeTab === 6) fetchTeam();
+    if (activeTab === 7) fetchTeam();
   }, [activeTab]);
 
   const fetchTeam = async () => {
@@ -2936,7 +2961,7 @@ export default function DashboardAdvisor() {
                   </Typography>
                 ) : (
                   <List disablePadding>
-                    {advisorTickets.map((ticket, idx) => (
+                    {advisorTickets.filter(t => t.category !== 'quote' && t.category !== 'quote_request').map((ticket, idx, arr) => (
                       <Box key={ticket.id}>
                         <ListItem
                           sx={{ px: 1, py: 1.5, borderRadius: 2, cursor: 'pointer', '&:hover': { bgcolor: 'action.hover' } }}
@@ -2952,13 +2977,21 @@ export default function DashboardAdvisor() {
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.3 }}>
                               <Typography variant="subtitle2" fontWeight={700} noWrap>{ticket.subject || ticket.ticket_folio}</Typography>
                               {getTicketStatusLabel(ticket.status)}
+                              {ticket.source === 'assigned' && (
+                                <Chip size="small" label="Asignado" color="warning" sx={{ height: 18, fontSize: 10, fontWeight: 700 }} />
+                              )}
                             </Box>
+                            <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block' }}>
+                              {ticket.source === 'assigned' && ticket.client_name
+                                ? `${ticket.client_name}${ticket.client_box_id ? ` · Box ${ticket.client_box_id}` : ''}`
+                                : ticket.ticket_folio}
+                            </Typography>
                             <Typography variant="caption" color="text.secondary">
                               {ticket.ticket_folio} · {formatDate(ticket.created_at)}
                             </Typography>
                           </Box>
                         </ListItem>
-                        {idx < advisorTickets.length - 1 && <Divider />}
+                        {idx < arr.length - 1 && <Divider />}
                       </Box>
                     ))}
                   </List>
@@ -2999,10 +3032,10 @@ export default function DashboardAdvisor() {
                       if (attUrls.length === 0 && msg.attachment_url) attUrls = [msg.attachment_url];
                       return (
                       <Box key={msg.id} sx={{
-                        alignSelf: msg.sender_type === 'employee' ? 'flex-end' : 'flex-start',
+                        alignSelf: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? 'flex-end' : 'flex-start',
                         maxWidth: '80%',
-                        bgcolor: msg.sender_type === 'employee' ? '#F05A28' : '#f5f5f5',
-                        color: msg.sender_type === 'employee' ? '#fff' : '#111',
+                        bgcolor: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? '#F05A28' : '#f5f5f5',
+                        color: (msg.sender_type === 'employee' || msg.sender_type === 'agent') ? '#fff' : '#111',
                         borderRadius: 2, px: 1.5, py: 1,
                       }}>
                         {msg.message && (
@@ -3121,6 +3154,284 @@ export default function DashboardAdvisor() {
   };
 
   // ════════════════════════════════════
+  // TAB 6: COTIZACIONES (pendientes + generador formal)
+  // ════════════════════════════════════
+  const fetchFormalQuotesList = useCallback(async () => {
+    try {
+      const r = await api.get('/advisor/formal-quotes');
+      setFormalQuotesList(r.data || []);
+    } catch { /* noop */ }
+  }, []);
+
+  const openFormalQuoteDialog = useCallback(async (preTicket?: any) => {
+    // Cargar clientes una sola vez
+    if (formalQuoteClients.length === 0) {
+      try {
+        const r = await api.get('/advisor/clients?limit=500');
+        const data = r.data?.clients || r.data || [];
+        setFormalQuoteClients(Array.isArray(data) ? data : []);
+      } catch { /* noop */ }
+    }
+    if (preTicket) {
+      // Prellenar desde un ticket de cotización
+      setFormalQuoteClient({
+        id: preTicket.user_id,
+        full_name: preTicket.client_name,
+        box_id: preTicket.client_box_id,
+      });
+      setFormalQuoteTicketId(preTicket.id);
+    } else {
+      setFormalQuoteTicketId(null);
+    }
+    setFormalQuoteDialogOpen(true);
+  }, [formalQuoteClients.length]);
+
+  const handleCalculateFormalQuote = async () => {
+    setFormalQuoteCalculating(true);
+    setFormalQuoteCalcResult(null);
+    try {
+      const body: any = {
+        servicio: formalQuoteServicio,
+        cantidad: Number(formalQuoteCantidad) || 1,
+        categoria: formalQuoteCategoria,
+      };
+      if (formalQuoteSubservicio) body.subservicio = formalQuoteSubservicio;
+      if (formalQuoteLargo) body.largo = Number(formalQuoteLargo);
+      if (formalQuoteAncho) body.ancho = Number(formalQuoteAncho);
+      if (formalQuoteAlto) body.alto = Number(formalQuoteAlto);
+      if (formalQuotePeso) body.peso = Number(formalQuotePeso);
+      if (formalQuoteCbm) body.cbm = Number(formalQuoteCbm);
+      const r = await api.post('/public/quote', body);
+      setFormalQuoteCalcResult(r.data);
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err?.response?.data?.error || 'Error calculando', severity: 'error' });
+    } finally {
+      setFormalQuoteCalculating(false);
+    }
+  };
+
+  const handleGenerateFormalQuotePdf = async () => {
+    if (!formalQuoteCalcResult) {
+      setSnackbar({ open: true, message: 'Primero calcula la cotización', severity: 'warning' });
+      return;
+    }
+    setFormalQuoteGenerating(true);
+    try {
+      // Calcular prima GEX: 5% del valor declarado (configurable luego)
+      const gexValor = formalQuoteGexEnabled ? Number(formalQuoteGexValor) || 0 : 0;
+      const gexPrima = gexValor > 0 ? Math.round(gexValor * 0.05 * 100) / 100 : 0;
+      const body: any = {
+        clientId: formalQuoteClient?.id || null,
+        clientName: formalQuoteClient?.full_name || formalQuoteClient?.name,
+        clientBoxId: formalQuoteClient?.box_id,
+        clientEmail: formalQuoteClient?.email,
+        clientPhone: formalQuoteClient?.phone,
+        servicio: formalQuoteServicio,
+        subservicio: formalQuoteSubservicio || undefined,
+        categoria: formalQuoteCategoria,
+        details: {
+          largo: formalQuoteLargo, ancho: formalQuoteAncho, alto: formalQuoteAlto,
+          peso: formalQuotePeso, cbm: formalQuoteCbm, cantidad: formalQuoteCantidad,
+          peso_cobrable: formalQuoteCalcResult?.peso_cobrable,
+          tiempo_estimado: formalQuoteCalcResult?.tiempo_estimado,
+          descripcion: formalQuoteDescripcion,
+        },
+        precio_usd: formalQuoteCalcResult?.precio_usd,
+        precio_mxn: formalQuoteCalcResult?.precio_mxn,
+        tipo_cambio: formalQuoteCalcResult?.tipo_cambio,
+        gex_enabled: formalQuoteGexEnabled,
+        gex_valor_declarado_mxn: gexValor || undefined,
+        gex_prima_mxn: gexPrima || undefined,
+        validityDays: 7,
+        ticketId: formalQuoteTicketId || undefined,
+      };
+      const r = await api.post('/advisor/formal-quotes', body);
+      setSnackbar({ open: true, message: `Cotización ${r.data?.folio} generada`, severity: 'success' });
+      // Reset
+      setFormalQuoteDialogOpen(false);
+      setFormalQuoteClient(null);
+      setFormalQuoteServicio('maritimo'); setFormalQuoteSubservicio('');
+      setFormalQuoteCategoria('Generico');
+      setFormalQuoteLargo(''); setFormalQuoteAncho(''); setFormalQuoteAlto('');
+      setFormalQuotePeso(''); setFormalQuoteCbm(''); setFormalQuoteCantidad('1');
+      setFormalQuoteDescripcion('');
+      setFormalQuoteCalcResult(null);
+      setFormalQuoteGexEnabled(false); setFormalQuoteGexValor('');
+      setFormalQuoteTicketId(null);
+      fetchFormalQuotesList();
+      if (r.data?.pdfUrl) window.open(r.data.pdfUrl, '_blank');
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err?.response?.data?.error || 'Error generando PDF', severity: 'error' });
+    } finally {
+      setFormalQuoteGenerating(false);
+    }
+  };
+
+  const renderQuotes = () => {
+    const quoteTickets = advisorTickets.filter(t => t.category === 'quote' || t.category === 'quote_request');
+    const formatDate = (d: string) => new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+    const getTicketStatusLabel = (status: string) => {
+      const map: Record<string, { label: string; color: 'default' | 'warning' | 'info' | 'error' | 'success' }> = {
+        open_ai: { label: 'En revisión', color: 'info' },
+        escalated_human: { label: 'Pendiente', color: 'warning' },
+        waiting_client: { label: 'Esperando cliente', color: 'default' },
+        waiting_agent: { label: 'En espera', color: 'default' },
+        resolved: { label: 'Cotizada', color: 'success' },
+        closed: { label: 'Cerrada', color: 'default' },
+      };
+      const s = map[status] || { label: status, color: 'default' as const };
+      return <Chip label={s.label} color={s.color} size="small" sx={{ fontWeight: 700 }} />;
+    };
+
+    return (
+      <Fade in timeout={400}>
+        <Box>
+          <Grid container spacing={3}>
+            {/* Pendientes */}
+            <Grid size={{ xs: 12, md: 7 }}>
+              <Paper sx={{ p: 3, borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                  <Box>
+                    <Typography variant="h6" fontWeight={700} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <QuoteIcon sx={{ color: '#FF9800' }} /> Cotizaciones Pendientes
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      Solicitudes de cotización de tus clientes que requieren tu respuesta.
+                    </Typography>
+                  </Box>
+                  <IconButton size="small" onClick={fetchAdvisorTickets}><RefreshIcon /></IconButton>
+                </Box>
+
+                {advisorTicketsLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                    <CircularProgress size={32} />
+                  </Box>
+                ) : quoteTickets.length === 0 ? (
+                  <Box sx={{ textAlign: 'center', py: 6 }}>
+                    <QuoteIcon sx={{ fontSize: 60, color: '#ddd', mb: 1 }} />
+                    <Typography variant="body2" color="text.secondary">
+                      Aún no tienes solicitudes de cotización asignadas.
+                    </Typography>
+                  </Box>
+                ) : (
+                  <List disablePadding>
+                    {quoteTickets.map((ticket, idx, arr) => (
+                      <Box key={ticket.id}>
+                        <ListItem
+                          sx={{
+                            px: 1.5, py: 1.5, borderRadius: 2,
+                            border: '1px solid #FFE0B2', mb: 1, bgcolor: '#FFF8E1',
+                            display: 'flex', gap: 1, alignItems: 'center',
+                          }}
+                          secondaryAction={
+                            <Button
+                              size="small" variant="contained"
+                              sx={{ bgcolor: '#FF9800', '&:hover': { bgcolor: '#F57C00' }, textTransform: 'none', fontWeight: 700 }}
+                              onClick={() => openFormalQuoteDialog(ticket)}
+                            >
+                              Cotizar
+                            </Button>
+                          }
+                        >
+                          <Avatar
+                            sx={{ bgcolor: alpha('#FF9800', 0.15), color: '#FF9800', mr: 1, width: 40, height: 40, cursor: 'pointer' }}
+                            onClick={() => { setSelectedAdvisorTicket(ticket); fetchTicketMessages(ticket.id); }}
+                          >
+                            <QuoteIcon fontSize="small" />
+                          </Avatar>
+                          <Box sx={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => { setSelectedAdvisorTicket(ticket); fetchTicketMessages(ticket.id); }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.3, flexWrap: 'wrap' }}>
+                              <Typography variant="subtitle2" fontWeight={700} noWrap sx={{ maxWidth: 220 }}>
+                                {ticket.subject || 'Cotización formal'}
+                              </Typography>
+                              {getTicketStatusLabel(ticket.status)}
+                            </Box>
+                            <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, color: '#5D4037' }}>
+                              {ticket.client_name || 'Cliente'}{ticket.client_box_id ? ` · Box ${ticket.client_box_id}` : ''}
+                            </Typography>
+                            <Typography variant="caption" color="text.secondary">
+                              {ticket.ticket_folio} · {formatDate(ticket.created_at)}
+                            </Typography>
+                          </Box>
+                        </ListItem>
+                        {idx < arr.length - 1 && <Divider sx={{ my: 0.5 }} />}
+                      </Box>
+                    ))}
+                  </List>
+                )}
+              </Paper>
+            </Grid>
+
+            {/* Acciones + Historial */}
+            <Grid size={{ xs: 12, md: 5 }}>
+              <Paper sx={{ p: 3, borderRadius: 2, mb: 2, background: 'linear-gradient(135deg, #FF9800 0%, #F05A28 100%)', color: '#fff' }}>
+                <Typography variant="h6" fontWeight={700} gutterBottom>
+                  📄 Generar Cotización Formal
+                </Typography>
+                <Typography variant="body2" sx={{ opacity: 0.9, mb: 2 }}>
+                  Crea un PDF profesional con vigencia de 7 días para tus clientes.
+                </Typography>
+                <Button
+                  fullWidth variant="contained"
+                  sx={{ bgcolor: '#1A1A1A', color: '#fff', fontWeight: 700, textTransform: 'none', '&:hover': { bgcolor: '#000' } }}
+                  startIcon={<QuoteIcon />}
+                  onClick={() => openFormalQuoteDialog()}
+                >
+                  Nueva Cotización Formal
+                </Button>
+              </Paper>
+
+              <Paper sx={{ p: 3, borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+                  <Typography variant="subtitle1" fontWeight={700}>
+                    Mis Cotizaciones Generadas
+                  </Typography>
+                  <IconButton size="small" onClick={fetchFormalQuotesList}><RefreshIcon /></IconButton>
+                </Box>
+                {formalQuotesList.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: 'center' }}>
+                    Aún no has generado cotizaciones formales.
+                  </Typography>
+                ) : (
+                  <List dense disablePadding sx={{ maxHeight: 360, overflowY: 'auto' }}>
+                    {formalQuotesList.map(q => {
+                      const expired = q.valid_until && new Date(q.valid_until) < new Date();
+                      return (
+                        <ListItem
+                          key={q.id}
+                          sx={{ px: 1, py: 0.8, borderRadius: 1, '&:hover': { bgcolor: 'action.hover' }, mb: 0.3 }}
+                          secondaryAction={
+                            q.pdf_url && (
+                              <IconButton size="small" onClick={() => window.open(q.pdf_url, '_blank')}>
+                                <PdfIcon sx={{ color: '#C62828' }} />
+                              </IconButton>
+                            )
+                          }
+                        >
+                          <Box sx={{ flex: 1, minWidth: 0 }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.2, flexWrap: 'wrap' }}>
+                              <Typography variant="body2" fontWeight={700} noWrap>{q.folio}</Typography>
+                              {expired ? <Chip label="Vencida" size="small" color="error" sx={{ height: 18, fontSize: 10 }} /> : <Chip label="Vigente" size="small" color="success" sx={{ height: 18, fontSize: 10 }} />}
+                              {q.gex_enabled && <Chip label="GEX" size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#9C27B0', color: '#fff' }} />}
+                            </Box>
+                            <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }} noWrap>
+                              {q.client_name || '—'} · {formatDate(q.created_at)} · ${Number(q.total_mxn || 0).toLocaleString('es-MX')}
+                            </Typography>
+                          </Box>
+                        </ListItem>
+                      );
+                    })}
+                  </List>
+                )}
+              </Paper>
+            </Grid>
+          </Grid>
+        </Box>
+      </Fade>
+    );
+  };
+
+  // ════════════════════════════════════
   // MAIN RENDER
   // ════════════════════════════════════
 
@@ -3132,6 +3443,7 @@ export default function DashboardAdvisor() {
       { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
       { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
       { label: isMobile ? 'Tickets' : 'Tickets', icon: <TicketIcon />, shortLabel: 'Tickets' },
+      { label: isMobile ? 'Cotiz.' : 'Cotizaciones', icon: <QuoteIcon />, shortLabel: 'Cotizaciones' },
       ...(dashboardData && dashboardData.subAdvisors > 0
         ? [{ label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' }]
         : []),
@@ -3294,7 +3606,8 @@ export default function DashboardAdvisor() {
             if (activeTab === 2) fetchShipments();
             if (activeTab === 3) fetchCommissions();
             if (activeTab === 5) fetchAdvisorTickets();
-            if (activeTab === 6) fetchTeam();
+            if (activeTab === 6) fetchAdvisorTickets();
+            if (activeTab === 7) fetchTeam();
           }}
           size={isMobile ? 'small' : 'medium'}
         >
@@ -3334,7 +3647,8 @@ export default function DashboardAdvisor() {
         {activeTab === 3 && renderCommissions()}
         {activeTab === 4 && renderTools()}
         {activeTab === 5 && renderTickets()}
-        {activeTab === 6 && renderTeam()}
+        {activeTab === 6 && renderQuotes()}
+        {activeTab === 7 && renderTeam()}
       </Box>
 
       {/* Bottom Navigation - Mobile Only */}
@@ -4340,6 +4654,176 @@ export default function DashboardAdvisor() {
             sx={{ bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6a1b9a' } }}
           >
             {newAddrSaving ? <CircularProgress size={18} color="inherit" /> : 'Guardar dirección'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ═════════ Dialog: Generador de Cotización Formal ═════════ */}
+      <Dialog open={formalQuoteDialogOpen} onClose={() => setFormalQuoteDialogOpen(false)} maxWidth="md" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#FF9800', color: '#fff', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <QuoteIcon /> Nueva Cotización Formal (vigencia 7 días)
+        </DialogTitle>
+        <DialogContent dividers sx={{ pt: 2 }}>
+          <Grid container spacing={2}>
+            {/* Cliente */}
+            <Grid size={12}>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ color: '#F05A28' }}>1. Cliente</Typography>
+              <Autocomplete
+                options={formalQuoteClients}
+                value={formalQuoteClient}
+                onChange={(_, v) => setFormalQuoteClient(v)}
+                getOptionLabel={(o: any) => o ? `${o.full_name || o.name || '—'}${o.box_id ? ` · Box ${o.box_id}` : ''}${o.email ? ` · ${o.email}` : ''}` : ''}
+                isOptionEqualToValue={(a: any, b: any) => a?.id === b?.id}
+                renderInput={(params) => <TextField {...params} size="small" label="Buscar cliente por nombre / box / email" />}
+              />
+            </Grid>
+
+            {/* Servicio */}
+            <Grid size={12}>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ color: '#F05A28', mt: 1 }}>2. Servicio</Typography>
+              <Grid container spacing={1}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Servicio</InputLabel>
+                    <Select
+                      value={formalQuoteServicio}
+                      label="Servicio"
+                      onChange={(e) => { setFormalQuoteServicio(e.target.value as any); setFormalQuoteSubservicio(''); setFormalQuoteCalcResult(null); }}
+                    >
+                      <MenuItem value="maritimo">🚢 Marítimo China</MenuItem>
+                      <MenuItem value="aereo">✈️ Aéreo China</MenuItem>
+                      <MenuItem value="pobox">📦 PO Box USA</MenuItem>
+                      <MenuItem value="dhl">🚚 DHL Nacional</MenuItem>
+                    </Select>
+                  </FormControl>
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <FormControl fullWidth size="small">
+                    <InputLabel>Subservicio</InputLabel>
+                    <Select
+                      value={formalQuoteSubservicio}
+                      label="Subservicio"
+                      onChange={(e) => setFormalQuoteSubservicio(e.target.value)}
+                    >
+                      <MenuItem value="">— Default —</MenuItem>
+                      {formalQuoteServicio === 'maritimo' && [
+                        <MenuItem key="vol" value="por_volumen">Marítimo por volumen (LCL)</MenuItem>,
+                        <MenuItem key="fcl" value="fcl_40">FCL 40 pies</MenuItem>,
+                      ]}
+                      {formalQuoteServicio === 'aereo' && [
+                        <MenuItem key="tdi" value="tdi_aereo">TDI Aéreo</MenuItem>,
+                        <MenuItem key="exp" value="tdi_express">Aéreo Express</MenuItem>,
+                      ]}
+                    </Select>
+                  </FormControl>
+                </Grid>
+                {formalQuoteServicio === 'maritimo' && (
+                  <Grid size={12}>
+                    <FormControl fullWidth size="small">
+                      <InputLabel>Categoría</InputLabel>
+                      <Select value={formalQuoteCategoria} label="Categoría" onChange={(e) => setFormalQuoteCategoria(e.target.value)}>
+                        <MenuItem value="Generico">Genérico</MenuItem>
+                        <MenuItem value="StartUp">StartUp</MenuItem>
+                        <MenuItem value="Sensible">Sensible</MenuItem>
+                        <MenuItem value="Logotipo">Logotipo / Marca</MenuItem>
+                        <MenuItem value="FCL40">FCL 40 pies</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                )}
+              </Grid>
+            </Grid>
+
+            {/* Dimensiones */}
+            <Grid size={12}>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ color: '#F05A28', mt: 1 }}>3. Dimensiones y peso</Typography>
+              <Grid container spacing={1}>
+                <Grid size={{ xs: 4, sm: 2 }}><TextField size="small" fullWidth label="Largo (cm)" type="number" value={formalQuoteLargo} onChange={e => setFormalQuoteLargo(e.target.value)} /></Grid>
+                <Grid size={{ xs: 4, sm: 2 }}><TextField size="small" fullWidth label="Ancho (cm)" type="number" value={formalQuoteAncho} onChange={e => setFormalQuoteAncho(e.target.value)} /></Grid>
+                <Grid size={{ xs: 4, sm: 2 }}><TextField size="small" fullWidth label="Alto (cm)" type="number" value={formalQuoteAlto} onChange={e => setFormalQuoteAlto(e.target.value)} /></Grid>
+                <Grid size={{ xs: 6, sm: 2 }}><TextField size="small" fullWidth label="Peso (kg)" type="number" value={formalQuotePeso} onChange={e => setFormalQuotePeso(e.target.value)} /></Grid>
+                <Grid size={{ xs: 6, sm: 2 }}><TextField size="small" fullWidth label="CBM" type="number" value={formalQuoteCbm} onChange={e => setFormalQuoteCbm(e.target.value)} /></Grid>
+                <Grid size={{ xs: 12, sm: 2 }}><TextField size="small" fullWidth label="Cantidad" type="number" value={formalQuoteCantidad} onChange={e => setFormalQuoteCantidad(e.target.value)} /></Grid>
+                <Grid size={12}>
+                  <TextField size="small" fullWidth multiline minRows={2} label="Descripción de mercancía (opcional)" value={formalQuoteDescripcion} onChange={e => setFormalQuoteDescripcion(e.target.value)} />
+                </Grid>
+              </Grid>
+              <Box sx={{ mt: 1.5, display: 'flex', gap: 1, alignItems: 'center' }}>
+                <Button variant="outlined" onClick={handleCalculateFormalQuote} disabled={formalQuoteCalculating} sx={{ textTransform: 'none' }}>
+                  {formalQuoteCalculating ? <CircularProgress size={18} /> : 'Calcular precio'}
+                </Button>
+                {formalQuoteCalcResult && (
+                  <Chip
+                    label={`$${Number(formalQuoteCalcResult.precio_mxn).toLocaleString('es-MX')} MXN  ·  USD $${Number(formalQuoteCalcResult.precio_usd).toFixed(2)}`}
+                    color="success" sx={{ fontWeight: 700 }}
+                  />
+                )}
+              </Box>
+            </Grid>
+
+            {/* GEX */}
+            <Grid size={12}>
+              <Typography variant="subtitle2" fontWeight={700} gutterBottom sx={{ color: '#F05A28', mt: 1 }}>4. Garantía Extendida (GEX)</Typography>
+              <FormControlLabel
+                control={<Switch checked={formalQuoteGexEnabled} onChange={(e) => setFormalQuoteGexEnabled(e.target.checked)} color="warning" />}
+                label="🛡️ Agregar Garantía Extendida (GEX) — prima 5% del valor declarado"
+              />
+              {formalQuoteGexEnabled && (
+                <Grid container spacing={1} sx={{ mt: 0.5 }}>
+                  <Grid size={{ xs: 6 }}>
+                    <TextField size="small" fullWidth label="Valor declarado (MXN)" type="number" value={formalQuoteGexValor} onChange={e => setFormalQuoteGexValor(e.target.value)} />
+                  </Grid>
+                  <Grid size={{ xs: 6 }}>
+                    <TextField
+                      size="small" fullWidth label="Prima GEX (MXN)" type="number"
+                      value={formalQuoteGexValor ? (Number(formalQuoteGexValor) * 0.05).toFixed(2) : ''}
+                      InputProps={{ readOnly: true }}
+                    />
+                  </Grid>
+                </Grid>
+              )}
+            </Grid>
+
+            {/* Resumen */}
+            {formalQuoteCalcResult && (
+              <Grid size={12}>
+                <Paper variant="outlined" sx={{ p: 2, bgcolor: '#FFF8E1', borderColor: '#FFB74D' }}>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>Resumen</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="body2">Servicio</Typography>
+                    <Typography variant="body2" fontWeight={700}>${Number(formalQuoteCalcResult.precio_mxn).toLocaleString('es-MX')} MXN</Typography>
+                  </Box>
+                  {formalQuoteGexEnabled && Number(formalQuoteGexValor) > 0 && (
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Typography variant="body2">GEX (5% de ${Number(formalQuoteGexValor).toLocaleString('es-MX')})</Typography>
+                      <Typography variant="body2" fontWeight={700}>${(Number(formalQuoteGexValor) * 0.05).toLocaleString('es-MX')} MXN</Typography>
+                    </Box>
+                  )}
+                  <Divider sx={{ my: 1 }} />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="subtitle1" fontWeight={700}>TOTAL</Typography>
+                    <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#F05A28' }}>
+                      ${(Number(formalQuoteCalcResult.precio_mxn) + (formalQuoteGexEnabled ? Number(formalQuoteGexValor || 0) * 0.05 : 0)).toLocaleString('es-MX')} MXN
+                    </Typography>
+                  </Box>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    Vigencia: 7 días naturales desde hoy. TC: ${Number(formalQuoteCalcResult.tipo_cambio).toFixed(2)}
+                  </Typography>
+                </Paper>
+              </Grid>
+            )}
+          </Grid>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setFormalQuoteDialogOpen(false)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            onClick={handleGenerateFormalQuotePdf}
+            disabled={formalQuoteGenerating || !formalQuoteCalcResult || !formalQuoteClient}
+            startIcon={formalQuoteGenerating ? <CircularProgress size={16} color="inherit" /> : <PdfIcon />}
+            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C44114' }, fontWeight: 700, textTransform: 'none' }}
+          >
+            Generar PDF
           </Button>
         </DialogActions>
       </Dialog>

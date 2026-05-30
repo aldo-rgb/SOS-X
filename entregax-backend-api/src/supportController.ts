@@ -587,17 +587,26 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
 
 /**
  * GET /api/support/tickets
- * Obtener tickets del usuario (cliente)
+ * Obtener tickets del usuario (cliente) o asignados (asesor)
  */
 export const getMyTickets = async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = (req as any).user?.userId;
-    
+    const userRole = (req as any).user?.role || '';
+    const isAdvisor = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider', 'sub_asesor'].includes(userRole);
+
     const result = await pool.query(
-      `SELECT id, ticket_folio, category, subject, status, priority, created_at, updated_at
-       FROM support_tickets 
-       WHERE user_id = $1 
-       ORDER BY updated_at DESC`,
+      `SELECT t.id, t.ticket_folio, t.category, t.subject, t.status, t.priority,
+              t.created_at, t.updated_at, t.user_id, t.assigned_to,
+              u.full_name AS client_name, u.box_id AS client_box_id,
+              d.name AS department_name, d.color AS department_color,
+              CASE WHEN t.user_id = $1 THEN 'own' ELSE 'assigned' END AS source
+       FROM support_tickets t
+       LEFT JOIN users u ON u.id = t.user_id
+       LEFT JOIN support_departments d ON d.id = t.department_id
+       WHERE t.user_id = $1
+          ${isAdvisor ? 'OR t.assigned_to = $1 OR t.assigned_agent_id = $1' : ''}
+       ORDER BY t.updated_at DESC`,
       [userId]
     );
 
@@ -699,15 +708,26 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
       return res.status(400).json({ error: 'Mensaje o adjunto requerido' });
     }
 
-    // Verificar que el ticket pertenece al cliente
+    // Verificar que el ticket pertenece al cliente o está asignado al asesor
+    const userRole = (req as any).user?.role || '';
+    const isAdvisor = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider', 'sub_asesor'].includes(userRole);
     const ticketCheck = await pool.query(
-      `SELECT id, status FROM support_tickets WHERE id = $1 AND user_id = $2`,
+      `SELECT id, status, user_id, assigned_to, assigned_agent_id
+       FROM support_tickets
+       WHERE id = $1
+         AND (user_id = $2 ${isAdvisor ? 'OR assigned_to = $2 OR assigned_agent_id = $2' : ''})`,
       [id, userId]
     );
 
     if (ticketCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Ticket no encontrado' });
     }
+
+    const isAdvisorOnTicket = isAdvisor && (
+      ticketCheck.rows[0].assigned_to === userId ||
+      ticketCheck.rows[0].assigned_agent_id === userId
+    ) && ticketCheck.rows[0].user_id !== userId;
+    const senderType = isAdvisorOnTicket ? 'agent' : 'client';
 
     // Procesar adjuntos (imágenes / PDF / Excel)
     const attachmentUrls: string[] = [];
@@ -730,10 +750,10 @@ export const clientReplyTicket = async (req: Request, res: Response): Promise<an
     }
     const attachmentsJson = attachmentUrls.length > 0 ? JSON.stringify(attachmentUrls) : null;
 
-    // Guardar mensaje del cliente
+    // Guardar mensaje del cliente / asesor
     await pool.query(
-      `INSERT INTO ticket_messages (ticket_id, sender_type, message, attachments) VALUES ($1, 'client', $2, $3)`,
-      [id, (message || '').trim(), attachmentsJson]
+      `INSERT INTO ticket_messages (ticket_id, sender_type, sender_id, message, attachments) VALUES ($1, $2, $3, $4, $5)`,
+      [id, senderType, userId, (message || '').trim(), attachmentsJson]
     );
 
     // Si el ticket estaba resuelto/cerrado, reabrirlo automáticamente
