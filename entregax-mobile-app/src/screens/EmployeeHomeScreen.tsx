@@ -592,7 +592,16 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   // Filtrar módulos según el rol del usuario Y permisos de PO Box / paneles
   // Roles directivos (admin/super_admin/director) NO operan ciertos módulos
   // de sucursal — se ocultan completamente para no contaminar su home.
-  const HIDE_FOR_ADMIN_LEVEL = ['warehouse_inventory', 'panel_mx_national', 'panel_relabeling'];
+  const HIDE_FOR_ADMIN_LEVEL = [
+    'warehouse_inventory',
+    'panel_mx_national',
+    'panel_relabeling',
+    // Hubs operativos de sucursal — directivos no operan aquí.
+    'panel_usa_pobox',
+    'panel_china_air',
+    'panel_china_sea',
+    'panel_mx_cedis',
+  ];
   const ADMIN_LEVEL_ROLES = ['admin', 'super_admin', 'director'];
   const availableModules = EMPLOYEE_MODULES.filter(module => {
     // Primero verificar si el rol tiene acceso
@@ -698,18 +707,9 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   };
 
   const handleModulePress = (module: ModuleCard) => {
-    // 👁️ Modo informativo para Admin / Super Admin / Director sobre módulos operativos.
-    // Estos roles no operan en sucursal; tocar la tarjeta solo muestra la descripción del módulo.
-    const INFO_ONLY_MODULES = ['panel_usa_pobox', 'panel_china_air', 'panel_china_sea', 'panel_mx_cedis'];
+    // Roles directivos que tienen vistas alternativas para algunos módulos
+    // operativos (p. ej. "Inventario por Sucursal" en lugar del flujo de bodega).
     const INFO_ONLY_ROLES = ['admin', 'super_admin', 'director'];
-    if (INFO_ONLY_MODULES.includes(module.id) && INFO_ONLY_ROLES.includes(user.role)) {
-      Alert.alert(
-        `${module.title}`,
-        `${module.subtitle}\n\nEste panel es operativo de sucursal. Tu rol (${ROLE_LABELS[user.role] || user.role}) lo ve en modo informativo. Para administrar usuarios, permisos o métricas usa el Panel Web.`,
-        [{ text: 'Entendido', style: 'default' }]
-      );
-      return;
-    }
 
     // 📊 Para roles directivos: "Inventario por Sucursal" abre el informe
     // consolidado por sucursal en vez del flujo operativo de bodega.
