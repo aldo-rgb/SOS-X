@@ -587,14 +587,18 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
       )}
 
       {/* Modal cliente */}
-      <Modal visible={clientPickerOpen} animationType="slide" onRequestClose={() => setClientPickerOpen(false)}>
-        <SafeAreaView style={{ flex: 1, backgroundColor: BG }} edges={['top']}>
-          <View style={s.modalHeader}>
-            <TouchableOpacity onPress={() => setClientPickerOpen(false)}>
+      <Modal visible={clientPickerOpen} animationType="slide" statusBarTranslucent onRequestClose={() => setClientPickerOpen(false)}>
+        <View style={{ flex: 1, backgroundColor: BG }}>
+          <View style={[s.modalHeader, { paddingTop: insets.top + 12 }]}>
+            <TouchableOpacity
+              onPress={() => setClientPickerOpen(false)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={{ padding: 4 }}
+            >
               <Ionicons name="close" size={26} color={BLACK} />
             </TouchableOpacity>
             <Text style={s.modalTitle}>Seleccionar cliente</Text>
-            <View style={{ width: 26 }} />
+            <View style={{ width: 34 }} />
           </View>
           <View style={{ padding: 12 }}>
             <TextInput
@@ -627,7 +631,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
             )}
             ListEmptyComponent={<Text style={{ textAlign: 'center', color: SUB, padding: 20 }}>Sin resultados</Text>}
           />
-        </SafeAreaView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
