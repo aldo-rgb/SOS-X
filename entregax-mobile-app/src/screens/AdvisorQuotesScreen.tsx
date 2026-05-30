@@ -82,9 +82,10 @@ const SUBSERVICIO_OPTIONS: Record<ServicioKey, { value: string; label: string }[
 const CATEGORIAS_MARITIMO = ['Generico', 'StartUp', 'Sensible', 'Logotipo', 'FCL40'];
 
 export default function AdvisorQuotesScreen({ navigation, route }: any) {
-  const { user, token, initialTab } = route.params;
+  const { user, token, initialTab, hideGenerate } = route.params;
   const insets = useSafeAreaInsets();
 
+  const TAB_KEYS = (hideGenerate ? ['pendientes', 'mias'] : ['pendientes', 'generar', 'mias']) as Array<'pendientes' | 'generar' | 'mias'>;
   const [tab, setTab] = useState<'pendientes' | 'generar' | 'mias'>(
     (initialTab === 'generar' || initialTab === 'mias' || initialTab === 'pendientes') ? initialTab : 'pendientes'
   );
@@ -387,7 +388,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
 
       {/* Tabs */}
       <View style={s.tabs}>
-        {(['pendientes', 'generar', 'mias'] as const).map(k => (
+        {TAB_KEYS.map(k => (
           <TouchableOpacity
             key={k}
             style={[s.tabBtn, tab === k && s.tabBtnActive]}

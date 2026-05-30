@@ -435,7 +435,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             <Text style={s.supportBtnLabel}>Generar Cotización</Text>
             <Text style={s.supportBtnSub}>Cotizacion PDF</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={s.supportBtn} onPress={() => navigation.navigate('AdvisorQuotes' as any, { user, token, initialTab: 'mias' })}>
+          <TouchableOpacity style={s.supportBtn} onPress={() => navigation.navigate('AdvisorQuotes' as any, { user, token, initialTab: 'mias', hideGenerate: true })}>
             <View style={[s.supportIcon, { backgroundColor: '#FFF8E1' }]}>
               <Ionicons name="document-text" size={26} color="#FF9800" />
             </View>
