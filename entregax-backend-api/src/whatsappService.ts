@@ -308,7 +308,7 @@ export const sendQuoteRequestConfirmation = async (
  * Requiere plantilla "cotizacion_pendiente_asesor" aprobada en Meta Business (UTILITY, es_MX).
  * Variables:
  *   {{1}} = nombre del asesor
- *   {{2}} = cliente (nombre + Box)
+ *   {{2}} = box id del cliente (ej. "S1")
  *   {{3}} = servicio (MARITIMO/AEREO/POBOX/DHL)
  *   {{4}} = volumen / peso / cantidad (ej. "2.50 CBM", "150.00 kg", "5 pieza(s)")
  *   {{5}} = folio del ticket

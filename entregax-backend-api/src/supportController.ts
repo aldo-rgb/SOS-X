@@ -1712,7 +1712,7 @@ export const createFormalQuoteRequest = async (req: Request, res: Response): Pro
             : cantidad
               ? `${cantidad} pieza(s)`
               : '—';
-        const clienteLabel = `${user.full_name || 'Cliente'}${user.box_id ? ` (Box ${user.box_id})` : ''}`;
+        const clienteLabel = user.box_id ? String(user.box_id) : (user.full_name || 'Cliente');
         sendAdvisorQuotePending(
           user.advisor_phone,
           user.advisor_name || 'Asesor',
