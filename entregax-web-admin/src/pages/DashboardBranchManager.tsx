@@ -46,6 +46,9 @@ import {
   AttachFile as AttachFileIcon,
   PictureAsPdf as PdfIcon,
   Send as SendIcon,
+  CurrencyExchange as CurrencyExchangeIcon,
+  TrendingUpOutlined as TrendingUpIcon,
+  CloudOffOutlined as CloudOffIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import DelayedPackagesPage from './DelayedPackagesPage';
@@ -118,6 +121,16 @@ export default function DashboardBranchManager() {
   const [delayedService, setDelayedService] = useState<'pobox' | 'air' | 'sea'>('pobox');
   const [userRole, setUserRole] = useState<string>('');
   const [pendingVerifications, setPendingVerifications] = useState<number>(0);
+
+  // Tipos de cambio del sistema (monitor de APIs) — solo admin/super_admin/director
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const [systemRates, setSystemRates] = useState<{
+    entangled: any | null;
+    pobox: any | null;
+    tdi_air: any | null;
+    stale_hours_threshold: number;
+  } | null>(null);
+  /* eslint-enable @typescript-eslint/no-explicit-any */
 
   // Abandonos listos para proceso (firmados por cliente)
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -202,6 +215,7 @@ export default function DashboardBranchManager() {
     loadDelayedCount();
     loadPendingVerifications();
     loadAbandonosListos();
+    loadSystemRates();
     const user = localStorage.getItem('user');
     if (user) {
       const parsed = JSON.parse(user);
@@ -271,6 +285,16 @@ export default function DashboardBranchManager() {
     } catch (err) {
       // Silenciar: usuarios sin nivel DIRECTOR no tienen acceso
       console.debug('No se pudieron cargar verificaciones pendientes:', err);
+    }
+  };
+
+  const loadSystemRates = async () => {
+    try {
+      const res = await api.get('/dashboard/system-rates');
+      if (res.data) setSystemRates(res.data);
+    } catch (err) {
+      // Silenciar: roles sin nivel DIRECTOR no tienen acceso
+      console.debug('No se pudieron cargar system rates:', err);
     }
   };
 
@@ -910,6 +934,206 @@ export default function DashboardBranchManager() {
         </>
       )}
 
+      {/* === Sección: Tipos de cambio y costos (monitor de APIs) === */}
+      {systemRates && ['super_admin', 'admin', 'director'].includes(userRole) && (
+        <>
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+            <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
+            <Typography sx={{ fontWeight: 700, color: '#0F172A', fontSize: '0.9rem', letterSpacing: 0.2, textTransform: 'uppercase' }}>
+              Tipos de cambio y costos
+            </Typography>
+            <Divider sx={{ flex: 1, ml: 1, borderColor: '#E5E7EB' }} />
+            <Typography variant="caption" sx={{ color: '#94A3B8', fontWeight: 600 }}>
+              Monitor de APIs · sin cambios &gt; {systemRates.stale_hours_threshold}h
+            </Typography>
+          </Stack>
+
+          <Grid container spacing={2} sx={{ mb: 4 }}>
+            {(() => {
+              const fmtAgo = (h: number | null): string => {
+                if (h === null || h === undefined) return 'sin datos';
+                if (h < 1) return `hace ${Math.max(1, Math.round(h * 60))} min`;
+                if (h < 24) return `hace ${Math.round(h)} h`;
+                const d = Math.round(h / 24);
+                return `hace ${d} día${d === 1 ? '' : 's'}`;
+              };
+              const fmtDate = (d: string | null | undefined) =>
+                d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+              const RateCard = (props: {
+                title: string;
+                main: string;
+                secondary?: string;
+                updatedAt: string | null | undefined;
+                hoursSince: number | null;
+                stale: boolean;
+                icon: React.ReactNode;
+              }) => {
+                const { title, main, secondary, updatedAt, hoursSince, stale, icon } = props;
+                const borderColor = stale ? '#FCA5A5' : '#E5E7EB';
+                const accent = stale ? '#DC2626' : '#F05A28';
+                return (
+                  <Paper
+                    elevation={0}
+                    sx={{
+                      position: 'relative',
+                      p: 2.25,
+                      height: '100%',
+                      bgcolor: '#fff',
+                      borderRadius: 2,
+                      border: `1px solid ${borderColor}`,
+                      boxShadow: '0 1px 2px rgba(15,23,42,0.04)',
+                      '&::before': {
+                        content: '""',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        height: 3,
+                        borderTopLeftRadius: 8,
+                        borderTopRightRadius: 8,
+                        bgcolor: accent,
+                      },
+                    }}
+                  >
+                    <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Typography variant="caption" sx={{ color: '#64748B', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase', fontSize: '0.7rem' }}>
+                          {title}
+                        </Typography>
+                        <Typography sx={{ color: '#0F172A', fontWeight: 700, fontSize: '1.6rem', lineHeight: 1.15, mt: 0.5 }}>
+                          {main}
+                        </Typography>
+                        {secondary && (
+                          <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 0.25 }}>
+                            {secondary}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Box
+                        sx={{
+                          width: 38,
+                          height: 38,
+                          borderRadius: 1.5,
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          bgcolor: stale ? '#FEE2E2' : '#F1F5F9',
+                          color: stale ? '#DC2626' : '#0F172A',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {stale ? <CloudOffIcon sx={{ fontSize: 22 }} /> : icon}
+                      </Box>
+                    </Stack>
+                    <Stack direction="row" alignItems="center" spacing={0.75} sx={{ mt: 1.25, flexWrap: 'wrap' }}>
+                      <Chip
+                        size="small"
+                        label={stale ? 'Sin cambios · revisar API' : `Actualizado ${fmtAgo(hoursSince)}`}
+                        sx={{
+                          height: 22,
+                          fontWeight: 700,
+                          fontSize: '0.7rem',
+                          bgcolor: stale ? '#FEE2E2' : '#ECFDF5',
+                          color: stale ? '#B91C1C' : '#047857',
+                        }}
+                      />
+                      <Typography variant="caption" sx={{ color: '#94A3B8' }}>
+                        {fmtDate(updatedAt)}
+                      </Typography>
+                    </Stack>
+                  </Paper>
+                );
+              };
+
+              const ent = systemRates.entangled;
+              const pob = systemRates.pobox;
+              const tdi = systemRates.tdi_air;
+
+              return (
+                <>
+                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    {ent ? (
+                      <RateCard
+                        title="Tipo de cambio · ENTANGLED"
+                        main={`$${Number(ent.tipo_cambio_usd).toFixed(4)} MXN / USD`}
+                        secondary={`${ent.provider || ent.code || 'Proveedor'} · RMB ${Number(ent.tipo_cambio_rmb).toFixed(4)}`}
+                        updatedAt={ent.updated_at}
+                        hoursSince={ent.hours_since_update}
+                        stale={ent.stale}
+                        icon={<CurrencyExchangeIcon sx={{ fontSize: 22 }} />}
+                      />
+                    ) : (
+                      <RateCard
+                        title="Tipo de cambio · ENTANGLED"
+                        main="Sin proveedor activo"
+                        updatedAt={null}
+                        hoursSince={null}
+                        stale={true}
+                        icon={<CurrencyExchangeIcon sx={{ fontSize: 22 }} />}
+                      />
+                    )}
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    {pob ? (
+                      <RateCard
+                        title="Tipo de cambio · PO Box USA"
+                        main={`$${Number(pob.tipo_cambio_final).toFixed(4)} MXN / USD`}
+                        secondary={
+                          pob.ultimo_tc_api !== null
+                            ? `API base $${Number(pob.ultimo_tc_api).toFixed(4)} · sobreprecio ${pob.sobreprecio ?? 0}`
+                            : 'Sin lectura previa del API'
+                        }
+                        updatedAt={pob.updated_at}
+                        hoursSince={pob.hours_since_update}
+                        stale={pob.stale}
+                        icon={<CurrencyExchangeIcon sx={{ fontSize: 22 }} />}
+                      />
+                    ) : (
+                      <RateCard
+                        title="Tipo de cambio · PO Box USA"
+                        main="Sin configurar"
+                        updatedAt={null}
+                        hoursSince={null}
+                        stale={true}
+                        icon={<CurrencyExchangeIcon sx={{ fontSize: 22 }} />}
+                      />
+                    )}
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    {tdi ? (
+                      <RateCard
+                        title="Costo / kg · TDI Aéreo"
+                        main={`$${Number(tdi.cost_per_kg_usd).toFixed(2)} USD / kg`}
+                        secondary={
+                          `${tdi.route_name || tdi.route_code || 'Ruta activa'}` +
+                          (tdi.tipo_cambio_final !== null
+                            ? ` · TC $${Number(tdi.tipo_cambio_final).toFixed(4)} MXN`
+                            : '')
+                        }
+                        updatedAt={tdi.updated_at}
+                        hoursSince={tdi.hours_since_update}
+                        stale={tdi.stale}
+                        icon={<TrendingUpIcon sx={{ fontSize: 22 }} />}
+                      />
+                    ) : (
+                      <RateCard
+                        title="Costo / kg · TDI Aéreo"
+                        main="Sin ruta activa"
+                        updatedAt={null}
+                        hoursSince={null}
+                        stale={true}
+                        icon={<TrendingUpIcon sx={{ fontSize: 22 }} />}
+                      />
+                    )}
+                  </Grid>
+                </>
+              );
+            })()}
+          </Grid>
+        </>
+      )}
 
       {/* === Sección: Guías Registradas (totales históricos) === */}
       {stats?.totales_historicos && ['director', 'admin', 'super_admin'].includes(userRole) && (

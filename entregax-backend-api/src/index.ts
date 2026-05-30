@@ -2566,6 +2566,103 @@ app.get('/api/dashboard/branch-manager', authenticateToken, requireMinLevel(ROLE
 // --- RUTA DE DASHBOARD COUNTER STAFF (Mostrador) ---
 app.get('/api/dashboard/counter-staff', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getCounterStaffDashboard);
 
+// --- RUTA: Tipos de cambio y costos del sistema (monitor de APIs) ---
+// Devuelve el estado actual de:
+//   - Tipo de cambio ENTANGLED (proveedor default activo)
+//   - Tipo de cambio PO Box USA (exchange_rate_config.servicio='pobox_usa')
+//   - Costo por kilo TDI Aéreo (air_routes activo, no TDI-EXPRES)
+// Se usa en el dashboard de admin/super_admin/director para detectar si una
+// API de tipo de cambio o de costos dejó de actualizarse.
+app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (_req: AuthRequest, res: Response) => {
+  try {
+    const STALE_HOURS = 24; // > 24h sin actualizar => "sin cambios" / posible API caída
+
+    const [entangledRes, poboxRes, tdiRes, tdiFxRes] = await Promise.all([
+      pool.query(
+        `SELECT name, code, tipo_cambio_usd, tipo_cambio_rmb, updated_at
+           FROM entangled_providers
+          WHERE is_active = true
+          ORDER BY is_default DESC, sort_order ASC, id ASC
+          LIMIT 1`
+      ),
+      pool.query(
+        `SELECT tipo_cambio_final, ultimo_tc_api, sobreprecio, ultima_actualizacion
+           FROM exchange_rate_config
+          WHERE servicio = 'pobox_usa' AND estado = TRUE
+          LIMIT 1`
+      ),
+      pool.query(
+        `SELECT code, name, cost_per_kg_usd, updated_at
+           FROM air_routes
+          WHERE is_active = true AND code <> 'TDI-EXPRES'
+          ORDER BY id ASC
+          LIMIT 1`
+      ),
+      pool.query(
+        `SELECT tipo_cambio_final, ultima_actualizacion
+           FROM exchange_rate_config
+          WHERE servicio = 'tdi' AND estado = TRUE
+          LIMIT 1`
+      ),
+    ]);
+
+    const hoursSince = (d: any): number | null => {
+      if (!d) return null;
+      const ts = new Date(d).getTime();
+      if (isNaN(ts)) return null;
+      return (Date.now() - ts) / (1000 * 60 * 60);
+    };
+
+    const entangled = entangledRes.rows[0] || null;
+    const pobox = poboxRes.rows[0] || null;
+    const tdi = tdiRes.rows[0] || null;
+    const tdiFx = tdiFxRes.rows[0] || null;
+
+    const entH = hoursSince(entangled?.updated_at);
+    const poboxH = hoursSince(pobox?.ultima_actualizacion);
+    const tdiH = hoursSince(tdi?.updated_at);
+
+    return res.json({
+      stale_hours_threshold: STALE_HOURS,
+      entangled: entangled
+        ? {
+            provider: entangled.name,
+            code: entangled.code,
+            tipo_cambio_usd: Number(entangled.tipo_cambio_usd),
+            tipo_cambio_rmb: Number(entangled.tipo_cambio_rmb),
+            updated_at: entangled.updated_at,
+            hours_since_update: entH,
+            stale: entH === null ? true : entH > STALE_HOURS,
+          }
+        : null,
+      pobox: pobox
+        ? {
+            tipo_cambio_final: Number(pobox.tipo_cambio_final),
+            ultimo_tc_api: pobox.ultimo_tc_api !== null ? Number(pobox.ultimo_tc_api) : null,
+            sobreprecio: pobox.sobreprecio !== null ? Number(pobox.sobreprecio) : null,
+            updated_at: pobox.ultima_actualizacion,
+            hours_since_update: poboxH,
+            stale: poboxH === null ? true : poboxH > STALE_HOURS,
+          }
+        : null,
+      tdi_air: tdi
+        ? {
+            route_code: tdi.code,
+            route_name: tdi.name,
+            cost_per_kg_usd: Number(tdi.cost_per_kg_usd),
+            tipo_cambio_final: tdiFx ? Number(tdiFx.tipo_cambio_final) : null,
+            updated_at: tdi.updated_at,
+            hours_since_update: tdiH,
+            stale: tdiH === null ? true : tdiH > STALE_HOURS,
+          }
+        : null,
+    });
+  } catch (err) {
+    console.error('[dashboard/system-rates]', err);
+    return res.status(500).json({ error: 'Error consultando tipos de cambio del sistema' });
+  }
+});
+
 // --- RUTA DE DASHBOARD CLIENTE (Portal del Cliente) ---
 app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res: Response) => {
   try {
