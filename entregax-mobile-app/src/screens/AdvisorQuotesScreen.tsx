@@ -179,6 +179,19 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
     setRefreshing(false);
   }, [tab, fetchPending, fetchMyQuotes]);
 
+  // Abre el PDF pidiendo siempre una URL fresca al backend (re-firma o sirve copia local)
+  const openQuotePdf = useCallback(async (quoteId: number, fallbackUrl?: string) => {
+    try {
+      const r = await api.get(`/api/advisor/formal-quotes/${quoteId}/pdf`, { headers: { Authorization: `Bearer ${token}` } });
+      const url = r.data?.pdfUrl;
+      if (url) { Linking.openURL(url); return; }
+      throw new Error('Sin URL');
+    } catch (err: any) {
+      if (fallbackUrl) { Linking.openURL(fallbackUrl); return; }
+      Alert.alert('Error', err?.response?.data?.error || 'No se pudo abrir el PDF');
+    }
+  }, [token]);
+
   const startQuoteFromTicket = (ticket: any) => {
     setSelectedClient({
       id: (ticket.user_id || ticket.client_id) as number,
@@ -277,7 +290,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
         `Folio: ${r.data?.folio}\n\n¿Abrir el PDF ahora?`,
         [
           { text: 'Más tarde', style: 'cancel' },
-          { text: 'Abrir PDF', onPress: () => r.data?.pdfUrl && Linking.openURL(r.data.pdfUrl) },
+          { text: 'Abrir PDF', onPress: () => r.data?.quoteId && openQuotePdf(r.data.quoteId, r.data?.pdfUrl) },
         ]
       );
       // Reset
@@ -620,7 +633,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
               return (
                 <TouchableOpacity
                   style={s.quoteCard}
-                  onPress={() => item.pdf_url && Linking.openURL(item.pdf_url)}
+                  onPress={() => openQuotePdf(item.id, item.pdf_url)}
                 >
                   <View style={s.quoteIcon}>
                     <Ionicons name="document-text" size={26} color={ORANGE} />

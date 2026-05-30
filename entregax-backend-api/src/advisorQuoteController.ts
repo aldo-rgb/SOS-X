@@ -10,10 +10,12 @@ import { Request, Response } from 'express';
 import fs from 'fs';
 import path from 'path';
 import { pool } from './db';
-import { isS3Configured, uploadToS3WithSignedUrl, signS3UrlIfNeeded } from './s3Service';
+import { isS3Configured, uploadToS3WithSignedUrl, signS3UrlIfNeeded, headS3Object, getSignedUrlForKey } from './s3Service';
 
 const supportUploadsDir = path.join(process.cwd(), 'uploads', 'support');
 if (!fs.existsSync(supportUploadsDir)) fs.mkdirSync(supportUploadsDir, { recursive: true });
+const quotesUploadsDir = path.join(process.cwd(), 'uploads', 'quotes');
+if (!fs.existsSync(quotesUploadsDir)) fs.mkdirSync(quotesUploadsDir, { recursive: true });
 
 /**
  * Carga el logo monocromático de EntregaX (slot `entregax_monochrome`) desde brand_assets
@@ -483,17 +485,37 @@ export const createAdvisorFormalQuote = async (req: Request, res: Response): Pro
     await browser.close();
     browser = null;
 
+    if (!pdfBuffer || pdfBuffer.length < 1024) {
+      console.error('[advisorQuote] PDF buffer inválido/vacío:', pdfBuffer?.length);
+      throw new Error('PDF generado vacío o corrupto');
+    }
+    console.log(`[advisorQuote] PDF generado folio=${folio} bytes=${pdfBuffer.length}`);
+
     const filename = `cotizacion-${folio}.pdf`;
-    let pdfUrl = '';
+    // Siempre guardar copia local como respaldo (Railway tiene volumen efímero pero sirve mientras el contenedor vive)
+    const localPath = path.join(quotesUploadsDir, filename);
+    try { fs.writeFileSync(localPath, pdfBuffer); } catch (e) { console.warn('[advisorQuote] no se pudo escribir copia local:', (e as any)?.message); }
+    const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+    const localUrl = `${baseUrl}/uploads/quotes/${filename}`;
+
+    let pdfUrl = localUrl;
     if (isS3Configured()) {
-      // Bucket privado: usar URL firmada con vigencia de 7 días (igual que la cotización)
-      const { signedUrl } = await uploadToS3WithSignedUrl(pdfBuffer, `quotes/${filename}`, 'application/pdf', 60 * 60 * 24 * 7);
-      pdfUrl = signedUrl;
-    } else {
-      const filePath = path.join(supportUploadsDir, filename);
-      fs.writeFileSync(filePath, pdfBuffer);
-      const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
-      pdfUrl = `${baseUrl}/uploads/support/${filename}`;
+      const s3Key = `quotes/${filename}`;
+      try {
+        const { signedUrl } = await uploadToS3WithSignedUrl(pdfBuffer, s3Key, 'application/pdf', 60 * 60 * 24 * 7);
+        // Verificar que el objeto realmente quedó en S3 antes de devolver la URL
+        const head = await headS3Object(s3Key);
+        if (!head.exists || (head.size || 0) < 1024) {
+          console.error(`[advisorQuote] S3 PUT aparentemente ok pero HEAD falló key=${s3Key} exists=${head.exists} size=${head.size}`);
+          pdfUrl = localUrl; // fallback
+        } else {
+          console.log(`[advisorQuote] S3 PUT verificado key=${s3Key} size=${head.size}`);
+          pdfUrl = signedUrl;
+        }
+      } catch (s3Err: any) {
+        console.error('[advisorQuote] Error subiendo a S3, usando fallback local:', s3Err?.message || s3Err);
+        pdfUrl = localUrl;
+      }
     }
 
     await pool.query(`UPDATE advisor_formal_quotes SET pdf_url = $1 WHERE id = $2`, [pdfUrl, quoteId]);
@@ -520,5 +542,60 @@ export const createAdvisorFormalQuote = async (req: Request, res: Response): Pro
     res.status(500).json({ error: e?.message || 'Error generando cotización' });
   } finally {
     if (browser) { try { await browser.close(); } catch { /* ignore */ } }
+  }
+};
+
+/**
+ * GET /api/advisor/formal-quotes/:id/pdf
+ * Devuelve una URL fresca al PDF (re-firma la URL S3 si aún existe, o sirve la copia local).
+ * Si ?redirect=1 → 302 directo al PDF. Si no, devuelve JSON { pdfUrl }.
+ */
+export const getAdvisorFormalQuotePdfUrl = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const advisorId = (req as any).user?.userId;
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+    const id = parseInt(String(req.params.id), 10);
+    if (!id) return res.status(400).json({ error: 'id inválido' });
+
+    const r = await pool.query(
+      `SELECT id, advisor_id, folio, pdf_url FROM advisor_formal_quotes WHERE id = $1`,
+      [id]
+    );
+    if (!r.rows.length) return res.status(404).json({ error: 'Cotización no encontrada' });
+    const q = r.rows[0];
+    // Permitir asesor dueño o roles admin/super_admin/director
+    const role = (req as any).user?.role || '';
+    if (q.advisor_id !== advisorId && !['admin', 'super_admin', 'director'].includes(role)) {
+      return res.status(403).json({ error: 'Sin permiso' });
+    }
+
+    const filename = `cotizacion-${q.folio}.pdf`;
+    const localPath = path.join(quotesUploadsDir, filename);
+    const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+    const localUrl = `${baseUrl}/uploads/quotes/${filename}`;
+
+    let freshUrl: string | null = null;
+    // 1) Intentar re-firmar la URL S3 si está en S3
+    if (q.pdf_url && /amazonaws\.com/.test(q.pdf_url)) {
+      const s3Key = `quotes/${filename}`;
+      const head = await headS3Object(s3Key);
+      if (head.exists) {
+        freshUrl = await getSignedUrlForKey(s3Key, 60 * 60 * 24 * 7);
+      }
+    }
+    // 2) Fallback a copia local
+    if (!freshUrl && fs.existsSync(localPath)) {
+      freshUrl = localUrl;
+    }
+    // 3) Si nada, error claro
+    if (!freshUrl) {
+      return res.status(404).json({ error: 'El PDF ya no está disponible. Regenera la cotización.' });
+    }
+
+    if (String(req.query.redirect || '') === '1') return res.redirect(302, freshUrl);
+    return res.json({ pdfUrl: freshUrl });
+  } catch (e: any) {
+    console.error('getAdvisorFormalQuotePdfUrl:', e);
+    res.status(500).json({ error: 'Error obteniendo URL del PDF' });
   }
 };

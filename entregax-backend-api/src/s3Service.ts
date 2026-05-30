@@ -3,7 +3,7 @@
  * Reemplaza el almacenamiento local efímero de Render
  */
 
-import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 
 // Configuración del cliente S3
@@ -180,3 +180,19 @@ export const isS3Configured = (): boolean => {
 };
 
 export { s3Client, BUCKET_NAME };
+
+/**
+ * Verifica si un objeto existe en S3 (HEAD).
+ */
+export const headS3Object = async (key: string): Promise<{ exists: boolean; size?: number }> => {
+  try {
+    const r: any = await s3Client.send(new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: key }));
+    return { exists: true, size: Number(r?.ContentLength || 0) };
+  } catch (err: any) {
+    if (err?.$metadata?.httpStatusCode === 404 || err?.name === 'NotFound' || err?.name === 'NoSuchKey') {
+      return { exists: false };
+    }
+    console.warn('[headS3Object] error:', err?.message || err);
+    return { exists: false };
+  }
+};

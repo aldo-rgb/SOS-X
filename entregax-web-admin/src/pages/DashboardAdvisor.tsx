@@ -3320,7 +3320,15 @@ export default function DashboardAdvisor() {
       setFormalQuoteGexEnabled(true); setFormalQuoteGexValor(''); setFormalQuoteGexCurrency('MXN');
       setFormalQuoteTicketId(null);
       fetchFormalQuotesList();
-      if (r.data?.pdfUrl) window.open(r.data.pdfUrl, '_blank');
+      if (r.data?.quoteId) {
+        try {
+          const u = await api.get(`/advisor/formal-quotes/${r.data.quoteId}/pdf`);
+          const url = u?.data?.pdfUrl || r.data?.pdfUrl;
+          if (url) window.open(url, '_blank');
+        } catch {
+          if (r.data?.pdfUrl) window.open(r.data.pdfUrl, '_blank');
+        }
+      } else if (r.data?.pdfUrl) window.open(r.data.pdfUrl, '_blank');
     } catch (err: any) {
       setSnackbar({ open: true, message: err?.response?.data?.error || 'Error generando PDF', severity: 'error' });
     } finally {
@@ -3479,7 +3487,14 @@ export default function DashboardAdvisor() {
                           sx={{ px: 1, py: 0.8, borderRadius: 1, '&:hover': { bgcolor: 'action.hover' }, mb: 0.3 }}
                           secondaryAction={
                             q.pdf_url && (
-                              <IconButton size="small" onClick={() => window.open(q.pdf_url, '_blank')}>
+                              <IconButton size="small" onClick={async () => {
+                                try {
+                                  const u = await api.get(`/advisor/formal-quotes/${q.id}/pdf`);
+                                  window.open(u?.data?.pdfUrl || q.pdf_url, '_blank');
+                                } catch {
+                                  window.open(q.pdf_url, '_blank');
+                                }
+                              }}>
                                 <PdfIcon sx={{ color: '#C62828' }} />
                               </IconButton>
                             )
