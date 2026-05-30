@@ -27,7 +27,7 @@ import {
   Modal,
   Alert,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
@@ -93,6 +93,7 @@ const formatUsd = (n: number | string | undefined | null): string => {
 
 export default function QuoteHubScreen({ navigation, route }: Props) {
   const { user, token } = route.params;
+  const insets = useSafeAreaInsets();
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [service, setService] = useState<ServiceKey | null>(null);
   const [loading, setLoading] = useState(false);
@@ -1056,26 +1057,24 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
 
   return (
     <View style={styles.safe}>
-      <SafeAreaView edges={['top']} style={{ backgroundColor: BLACK }}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => (step === 0 ? navigation.goBack() : setStep((step - 1) as 0 | 1))}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            style={{ padding: 4 }}
-          >
-            <Ionicons name="arrow-back" size={26} color="#fff" />
-          </TouchableOpacity>
-          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'center' }}>
-            <Image
-              source={require('../../assets/x-logo-entregax.png')}
-              style={{ width: 18, height: 18, marginRight: 6 }}
-              resizeMode="contain"
-            />
-            <Text style={styles.headerTitle}>Cotizar Envío</Text>
-          </View>
-          <View style={{ width: 34 }} />
+      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+        <TouchableOpacity
+          onPress={() => (step === 0 ? navigation.goBack() : setStep((step - 1) as 0 | 1))}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          style={{ padding: 4 }}
+        >
+          <Ionicons name="arrow-back" size={26} color="#fff" />
+        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'center' }}>
+          <Image
+            source={require('../../assets/x-logo-entregax.png')}
+            style={{ width: 18, height: 18, marginRight: 6 }}
+            resizeMode="contain"
+          />
+          <Text style={styles.headerTitle}>Cotizar Envío</Text>
         </View>
-      </SafeAreaView>
+        <View style={{ width: 34 }} />
+      </View>
 
       {/* Indicador de pasos */}
       <View style={styles.stepIndicator}>
@@ -1098,23 +1097,22 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         visible={formalOpen}
         animationType="slide"
         transparent={false}
+        statusBarTranslucent
         onRequestClose={() => !formalSubmitting && setFormalOpen(false)}
       >
         <View style={{ flex: 1, backgroundColor: '#fff' }}>
-          <SafeAreaView edges={['top']} style={{ backgroundColor: BLACK }}>
-            <View style={styles.header}>
-              <TouchableOpacity
-                onPress={() => !formalSubmitting && setFormalOpen(false)}
-                disabled={formalSubmitting}
-                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-                style={{ padding: 4 }}
-              >
-                <Ionicons name="close" size={26} color="#fff" />
-              </TouchableOpacity>
-              <Text style={[styles.headerTitle, { flex: 1, textAlign: 'center' }]}>Cotización Formal</Text>
-              <View style={{ width: 34 }} />
-            </View>
-          </SafeAreaView>
+          <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+            <TouchableOpacity
+              onPress={() => !formalSubmitting && setFormalOpen(false)}
+              disabled={formalSubmitting}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={{ padding: 4 }}
+            >
+              <Ionicons name="close" size={26} color="#fff" />
+            </TouchableOpacity>
+            <Text style={[styles.headerTitle, { flex: 1, textAlign: 'center' }]}>Cotización Formal</Text>
+            <View style={{ width: 34 }} />
+          </View>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={{ flex: 1 }}
