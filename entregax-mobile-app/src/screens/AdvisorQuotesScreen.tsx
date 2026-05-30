@@ -116,6 +116,30 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const [gexCurrency, setGexCurrency] = useState<'MXN' | 'USD'>('MXN');
   const [gexFallbackTc, setGexFallbackTc] = useState<number>(0);
   const [ticketId, setTicketId] = useState<number | null>(null);
+
+  // Modal "Ver ticket" — detalle inline (subject + cuerpo + metadata)
+  const [ticketDetailOpen, setTicketDetailOpen] = useState(false);
+  const [ticketDetailLoading, setTicketDetailLoading] = useState(false);
+  const [ticketDetail, setTicketDetail] = useState<QuoteTicket | null>(null);
+  const [ticketDetailBody, setTicketDetailBody] = useState<string>('');
+
+  const openTicketDetail = useCallback(async (t: QuoteTicket) => {
+    setTicketDetail(t);
+    setTicketDetailBody('');
+    setTicketDetailOpen(true);
+    setTicketDetailLoading(true);
+    try {
+      const r = await api.get(`/api/support/ticket/${t.id}/messages`, { headers: { Authorization: `Bearer ${token}` } });
+      const msgs: any[] = Array.isArray(r.data) ? r.data : (r.data?.messages || []);
+      // Tomar el primer mensaje del cliente (el cuerpo de la solicitud)
+      const first = msgs.find(m => m.sender_type === 'user' || m.sender_type === 'client') || msgs[0];
+      setTicketDetailBody(first?.message || '');
+    } catch (err: any) {
+      setTicketDetailBody('No se pudo cargar el detalle del ticket.');
+    } finally {
+      setTicketDetailLoading(false);
+    }
+  }, [token]);
   const [generating, setGenerating] = useState(false);
 
   const fetchPending = useCallback(async () => {
@@ -388,7 +412,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                 </View>
                 <TouchableOpacity
                   style={s.verBtn}
-                  onPress={() => navigation.navigate('SupportChat', { user, token, ticketId: item.id })}
+                  onPress={() => openTicketDetail(item)}
                 >
                   <Ionicons name="eye-outline" size={16} color={ORANGE} />
                   <Text style={s.verBtnText}>Ver</Text>
@@ -710,6 +734,48 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
             )}
             ListEmptyComponent={<Text style={{ textAlign: 'center', color: SUB, padding: 20 }}>Sin resultados</Text>}
           />
+        </View>
+      </Modal>
+
+      {/* ─── Modal: Detalle del ticket (solicitud de cotización) ─── */}
+      <Modal visible={ticketDetailOpen} animationType="slide" transparent onRequestClose={() => setTicketDetailOpen(false)} statusBarTranslucent>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#FFF', borderTopLeftRadius: 18, borderTopRightRadius: 18, maxHeight: '85%', paddingTop: 6 }}>
+            <View style={{ backgroundColor: ORANGE, padding: 16, borderTopLeftRadius: 18, borderTopRightRadius: 18, flexDirection: 'row', alignItems: 'flex-start' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#FFF', fontWeight: '700', fontSize: 16 }}>{ticketDetail?.subject || 'Cotización formal'}</Text>
+                <Text style={{ color: '#FFF', opacity: 0.9, fontSize: 12, marginTop: 2 }}>
+                  {ticketDetail?.ticket_folio} · {ticketDetail?.client_name || ''}{ticketDetail?.client_box_id ? ` · Box ${ticketDetail?.client_box_id}` : ''}
+                </Text>
+              </View>
+              <TouchableOpacity onPress={() => setTicketDetailOpen(false)}>
+                <Ionicons name="close" size={26} color="#FFF" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ padding: 16 }} contentContainerStyle={{ paddingBottom: 24 + insets.bottom }}>
+              {ticketDetailLoading ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <ActivityIndicator color={ORANGE} />
+                </View>
+              ) : (
+                <Text style={{ color: TEXT, fontSize: 14, lineHeight: 22 }}>{ticketDetailBody || 'Sin detalle disponible.'}</Text>
+              )}
+            </ScrollView>
+            <View style={{ flexDirection: 'row', gap: 10, padding: 14, paddingBottom: 14 + insets.bottom, borderTopWidth: 1, borderTopColor: '#EEE' }}>
+              <TouchableOpacity
+                style={[s.verBtn, { flex: 1, justifyContent: 'center' }]}
+                onPress={() => setTicketDetailOpen(false)}
+              >
+                <Text style={s.verBtnText}>Cerrar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[s.cotizarBtn, { flex: 1, alignItems: 'center' }]}
+                onPress={() => { if (ticketDetail) { setTicketDetailOpen(false); startQuoteFromTicket(ticketDetail); } }}
+              >
+                <Text style={s.cotizarBtnText}>Cotizar</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>
