@@ -597,8 +597,9 @@ export const getMyTickets = async (req: Request, res: Response): Promise<any> =>
 
     const result = await pool.query(
       `SELECT t.id, t.ticket_folio, t.category, t.subject, t.status, t.priority,
-              t.created_at, t.updated_at, t.user_id, t.assigned_to,
+              t.created_at, t.updated_at, t.user_id, t.assigned_to, t.metadata,
               u.full_name AS client_name, u.box_id AS client_box_id,
+              u.email AS client_email, u.phone AS client_phone,
               d.name AS department_name, d.color AS department_color,
               CASE WHEN t.user_id = $1 THEN 'own' ELSE 'assigned' END AS source
        FROM support_tickets t
@@ -1600,6 +1601,22 @@ export const createFormalQuoteRequest = async (req: Request, res: Response): Pro
     );
     const ticketId = insertTicket.rows[0].id;
     const ticketFolio = insertTicket.rows[0].ticket_folio;
+
+    // Guardar metadata estructurada del request (para prefill del generador de cotización del asesor)
+    try {
+      await pool.query(
+        `ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS metadata JSONB`
+      );
+      const metadata = {
+        servicio, subservicio, categoria,
+        largo, ancho, alto, peso, peso_cobrable, cbm, cantidad,
+        precio_usd, precio_mxn, precio_por_kg, tipo_cambio, tiempo_estimado,
+        descripcion_producto, observaciones,
+        photos: photoUrls,
+        packing_list: packingListUrl,
+      };
+      await pool.query(`UPDATE support_tickets SET metadata = $1 WHERE id = $2`, [JSON.stringify(metadata), ticketId]);
+    } catch (e) { console.warn('No se pudo guardar metadata del ticket:', e); }
 
     // Componer mensaje automático con datos de la cotización
     const lines: string[] = [];

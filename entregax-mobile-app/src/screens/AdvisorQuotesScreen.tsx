@@ -158,13 +158,37 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
     setRefreshing(false);
   }, [tab, fetchPending, fetchMyQuotes]);
 
-  const startQuoteFromTicket = (ticket: QuoteTicket) => {
+  const startQuoteFromTicket = (ticket: any) => {
     setSelectedClient({
       id: (ticket.user_id || ticket.client_id) as number,
       full_name: ticket.client_name,
       box_id: ticket.client_box_id,
+      email: ticket.client_email,
+      phone: ticket.client_phone,
     });
     setTicketId(ticket.id);
+
+    // Prefill desde metadata estructurada del ticket
+    let meta: any = ticket.metadata;
+    if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch { meta = null; } }
+    if (meta && typeof meta === 'object') {
+      const svc = String(meta.servicio || '').toLowerCase();
+      if (['maritimo', 'aereo', 'pobox', 'dhl'].includes(svc)) {
+        setServicio(svc as ServicioKey);
+      }
+      let sub = meta.subservicio || '';
+      if (!sub && svc === 'maritimo' && (meta.cbm || meta.CBM)) sub = 'por_volumen';
+      setSubservicio(sub || '');
+      if (meta.categoria) setCategoria(String(meta.categoria));
+      setLargo(meta.largo ? String(meta.largo) : '');
+      setAncho(meta.ancho ? String(meta.ancho) : '');
+      setAlto(meta.alto ? String(meta.alto) : '');
+      setPeso(meta.peso ? String(meta.peso) : '');
+      setCbm(meta.cbm ? String(meta.cbm) : '');
+      setCantidad(meta.cantidad ? String(meta.cantidad) : '1');
+      setDescripcion(meta.descripcion_producto || '');
+    }
+
     setTab('generar');
     fetchClients();
   };

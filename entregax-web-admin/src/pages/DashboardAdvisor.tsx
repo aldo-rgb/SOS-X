@@ -3180,8 +3180,32 @@ export default function DashboardAdvisor() {
         id: preTicket.user_id,
         full_name: preTicket.client_name,
         box_id: preTicket.client_box_id,
+        email: preTicket.client_email,
+        phone: preTicket.client_phone,
       });
       setFormalQuoteTicketId(preTicket.id);
+
+      // Prefill desde metadata estructurada del ticket
+      let meta: any = preTicket.metadata;
+      if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch { meta = null; } }
+      if (meta && typeof meta === 'object') {
+        const svc = String(meta.servicio || '').toLowerCase();
+        if (['maritimo', 'aereo', 'pobox', 'dhl'].includes(svc)) {
+          setFormalQuoteServicio(svc as any);
+        }
+        // Subservicio: si trae cbm y es marítimo sin subservicio explícito → por_volumen
+        let sub = meta.subservicio || '';
+        if (!sub && svc === 'maritimo' && (meta.cbm || meta.CBM)) sub = 'por_volumen';
+        setFormalQuoteSubservicio(sub || '');
+        if (meta.categoria) setFormalQuoteCategoria(String(meta.categoria));
+        setFormalQuoteLargo(meta.largo ? String(meta.largo) : '');
+        setFormalQuoteAncho(meta.ancho ? String(meta.ancho) : '');
+        setFormalQuoteAlto(meta.alto ? String(meta.alto) : '');
+        setFormalQuotePeso(meta.peso ? String(meta.peso) : '');
+        setFormalQuoteCbm(meta.cbm ? String(meta.cbm) : '');
+        setFormalQuoteCantidad(meta.cantidad ? String(meta.cantidad) : '1');
+        setFormalQuoteDescripcion(meta.descripcion_producto || '');
+      }
     } else {
       setFormalQuoteTicketId(null);
     }
