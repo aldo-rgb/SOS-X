@@ -156,11 +156,12 @@ export async function ignoreTransaction(req: Request, res: Response): Promise<an
 export async function webhookHandler(req: Request, res: Response): Promise<any> {
   try {
     const signature = (req.headers['x-syncfy-signature'] || req.headers['x-paybook-signature']) as string | undefined;
+    const tokenHeader = (req.headers['x-webhook-token'] || req.headers['x-syncfy-token']) as string | undefined;
     const rawBody = JSON.stringify(req.body);
 
-    if (!syncfy.verifyWebhookSignature(rawBody, signature)) {
-      console.warn('⚠️ Syncfy webhook: firma inválida');
-      return res.status(401).json({ error: 'Firma inválida' });
+    if (!syncfy.verifyWebhookAuth(rawBody, signature, tokenHeader)) {
+      console.warn('⚠️ Syncfy webhook: autenticación inválida');
+      return res.status(401).json({ error: 'No autorizado' });
     }
 
     console.log('🏦 Syncfy webhook:', String(rawBody).slice(0, 200));

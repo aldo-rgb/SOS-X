@@ -423,6 +423,8 @@ export async function syncAllEmitters(daysBack: number = 3): Promise<any[]> {
 }
 
 // --------------- WEBHOOK -------------------------------------
+const SYNCFY_WEBHOOK_TOKEN = process.env.SYNCFY_WEBHOOK_TOKEN || '';
+
 export function verifyWebhookSignature(rawBody: string, signature?: string): boolean {
   if (!SYNCFY_WEBHOOK_SECRET) return true; // si no se configuró firma, aceptamos
   if (!signature) return false;
@@ -430,6 +432,30 @@ export function verifyWebhookSignature(rawBody: string, signature?: string): boo
   try {
     return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
   } catch { return false; }
+}
+
+/**
+ * Valida auth del webhook: acepta firma HMAC (si SYNCFY_WEBHOOK_SECRET está set)
+ * O bien token simple por header X-Webhook-Token (si SYNCFY_WEBHOOK_TOKEN está set).
+ * Si ninguno está configurado, acepta el webhook (seguridad por URL única).
+ */
+export function verifyWebhookAuth(rawBody: string, signature?: string, tokenHeader?: string): boolean {
+  // Si hay token configurado, validar primero por token (más simple, lo usa Syncfy via cabeceras personalizadas)
+  if (SYNCFY_WEBHOOK_TOKEN) {
+    if (!tokenHeader) return false;
+    try {
+      const a = Buffer.from(tokenHeader);
+      const b = Buffer.from(SYNCFY_WEBHOOK_TOKEN);
+      if (a.length !== b.length) return false;
+      return crypto.timingSafeEqual(a, b);
+    } catch { return false; }
+  }
+  // Si no hay token pero sí secret HMAC, validar firma
+  if (SYNCFY_WEBHOOK_SECRET) {
+    return verifyWebhookSignature(rawBody, signature);
+  }
+  // Sin ninguna configuración, aceptar (no recomendado)
+  return true;
 }
 
 export async function processWebhookEvent(payload: any): Promise<any> {
