@@ -7,6 +7,7 @@ import * as Sharing from 'expo-sharing';
 import {
   View, Text, ScrollView, TextInput, TouchableOpacity, Alert,
   StyleSheet, ActivityIndicator, RefreshControl, Linking, Platform, Modal, Image, ImageBackground, Dimensions,
+  KeyboardAvoidingView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Circle, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
@@ -1503,7 +1504,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   );
 
   const renderWizard = () => (
-    <ScrollView style={{ flex: 1 }}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 80 : 0}
+    >
+    <ScrollView
+      style={{ flex: 1 }}
+      contentContainerStyle={{ paddingBottom: 320 }}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="interactive"
+    >
       <TouchableOpacity style={styles.backToDashBtn} onPress={() => setViewMode('dashboard')}>
         <Ionicons name="arrow-back" size={13} color={TEXT_MUTED} />
         <Text style={styles.backToDashText}>Volver al inicio</Text>
@@ -2293,6 +2304,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
 
       <View style={{ height: 40 }} />
     </ScrollView>
+    </KeyboardAvoidingView>
   );
 
   return (
