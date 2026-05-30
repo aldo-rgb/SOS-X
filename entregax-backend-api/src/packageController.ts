@@ -4750,6 +4750,17 @@ export const requestRepack = async (req: Request, res: Response): Promise<void> 
 // ============================================
 export const getOutboundReadyPackages = async (_req: Request, res: Response): Promise<void> => {
     try {
+        // Leer toggle: requerir instrucciones asignadas (solo PO Box / US-) para aparecer en Control de Salidas.
+        // Default FALSE para no romper instalaciones previas.
+        let requireInstructions = false;
+        try {
+            const cfg = await pool.query(
+                `SELECT config_value FROM system_configurations
+                 WHERE config_key = 'require_instructions_to_load_pobox' AND is_active = TRUE LIMIT 1`
+            );
+            requireInstructions = cfg.rows[0]?.config_value?.enabled === true;
+        } catch { /* tabla puede no existir aún */ }
+
         // Paquetes US en bodega listos para salir:
         // LÓGICA:
         // 1. REPACK (tracking contiene 'REPACK'): Mostrar la master (es un contenedor de cajas)
@@ -4757,6 +4768,17 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
         // 3. Guías master normales con hijas: NO mostrar (mostrar sus hijas en su lugar)
         // 4. Guías hijas de master normal (-01, -02, etc): Mostrar (son las que se escanean)
         // 5. Guías individuales sin hijas: Mostrar como están
+        // 6. Si requireInstructions === true: ocultar guías US que aún no tengan instrucciones
+        //    asignadas (instructions_assigned_at IS NULL Y needs_instructions != FALSE).
+        const instructionsFilter = requireInstructions
+            ? `AND (
+                COALESCE(p.needs_instructions, TRUE) = FALSE
+                OR p.instructions_assigned_at IS NOT NULL
+                OR p.delivery_address_id IS NOT NULL
+                OR p.assigned_address_id IS NOT NULL
+              )`
+            : '';
+
         const result = await pool.query(`
             SELECT 
                 p.id,
@@ -4771,6 +4793,10 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
                 p.pkg_length,
                 p.pkg_width,
                 p.pkg_height,
+                p.needs_instructions,
+                p.instructions_assigned_at,
+                p.delivery_address_id,
+                p.assigned_address_id,
                 COALESCE(u.box_id, lc.box_id, p.box_id) as box_id,
                 COALESCE(u.full_name, lc.full_name) as client_name
             FROM packages p
@@ -4779,6 +4805,7 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
             LEFT JOIN packages master ON p.master_id = master.id
             WHERE p.tracking_internal LIKE 'US-%'
               AND p.status IN ('received', 'reempacado')
+              ${instructionsFilter}
               AND (
                 -- REPACK: siempre mostrar (son contenedores)
                 p.tracking_internal LIKE 'US-REPACK-%'
@@ -4795,7 +4822,7 @@ export const getOutboundReadyPackages = async (_req: Request, res: Response): Pr
             ORDER BY p.created_at DESC
         `);
         
-        res.json({ packages: result.rows });
+        res.json({ packages: result.rows, require_instructions_to_load_pobox: requireInstructions });
     } catch (error: any) {
         console.error('❌ Error obteniendo paquetes para salida:', error);
         res.status(500).json({ error: 'Error al obtener paquetes', details: error.message });

@@ -10382,7 +10382,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -10429,6 +10429,12 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['require_label_to_load']?.enabled !== false
       : true;
 
+    // require_instructions_to_load_pobox: si está activado, las guías US (PO Box) sin instrucciones
+    // asignadas por el cliente no aparecen en Control de Salidas. Default FALSE para no romper flujos previos.
+    const requireInstructionsToLoadPobox = byKey['require_instructions_to_load_pobox'] !== undefined
+      ? byKey['require_instructions_to_load_pobox']?.enabled === true
+      : false;
+
     // payments_enabled: legacy (ambos activos si ambos activos)
     const paymentsEnabled = xpayEnabled && entregaxPaymentsEnabled;
 
@@ -10468,13 +10474,14 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       advisor_instructions_enabled: advisorInstructionsEnabled,
       require_payment_to_load: requirePaymentToLoad,
       require_label_to_load: requireLabelToLoad,
+      require_instructions_to_load_pobox: requireInstructionsToLoadPobox,
       external_sync_enabled: externalSyncEnabled,
       cajito_enabled: cajitoEnabled,
       cajito_avatar_url: cajitoAvatarUrl,
       maintenance_mode: maintenanceMode,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, maintenance_mode: false });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, maintenance_mode: false });
   }
 });
 
@@ -10636,6 +10643,26 @@ app.post('/api/admin/system/require-label-to-load-toggle', authenticateToken, re
   } catch (err: any) {
     console.error('[REQUIRE-LABEL-TO-LOAD-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar requisito de etiqueta para carga' });
+  }
+});
+
+// POST /api/admin/system/require-instructions-to-load-pobox-toggle — exigir instrucciones asignadas (solo PO Box US)
+app.post('/api/admin/system/require-instructions-to-load-pobox-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('require_instructions_to_load_pobox', $1::jsonb, 'Exigir que el cliente haya asignado instrucciones/dirección para que las guías PO Box aparezcan en Control de Salidas', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled }), userId]
+    );
+    console.log(`📋 [REQUIRE-INSTRUCTIONS-POBOX] ${enabled ? '✅ Requerido' : '🔴 Desactivado'} por user #${userId}`);
+    res.json({ success: true, require_instructions_to_load_pobox: enabled });
+  } catch (err: any) {
+    console.error('[REQUIRE-INSTRUCTIONS-POBOX-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar requisito de instrucciones para PO Box' });
   }
 });
 

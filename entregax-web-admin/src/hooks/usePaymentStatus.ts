@@ -18,6 +18,7 @@ interface PaymentStatusCache {
   advisor_instructions_enabled: boolean;
   require_payment_to_load: boolean;
   require_label_to_load: boolean;
+  require_instructions_to_load_pobox: boolean;
   external_sync_enabled: boolean;
   cajito_enabled: boolean;
   cajito_avatar_url: string | null;
@@ -37,6 +38,7 @@ const FALLBACK: PaymentStatusCache = {
   advisor_instructions_enabled: true,
   require_payment_to_load: true,
   require_label_to_load: true,
+  require_instructions_to_load_pobox: false,
   external_sync_enabled: true,
   cajito_enabled: false,
   cajito_avatar_url: null,
@@ -96,6 +98,7 @@ export function usePaymentStatus() {
             advisor_instructions_enabled: data.advisor_instructions_enabled !== false,
             require_payment_to_load: data.require_payment_to_load !== false,
             require_label_to_load: data.require_label_to_load !== false,
+            require_instructions_to_load_pobox: data.require_instructions_to_load_pobox === true,
             external_sync_enabled: data.external_sync_enabled !== false,
             cajito_enabled: data.cajito_enabled === true,
             cajito_avatar_url: typeof data.cajito_avatar_url === 'string' ? data.cajito_avatar_url : null,
@@ -128,6 +131,7 @@ export function usePaymentStatus() {
     advisorInstructionsEnabled: status.advisor_instructions_enabled,
     requirePaymentToLoad: status.require_payment_to_load,
     requireLabelToLoad: status.require_label_to_load,
+    requireInstructionsToLoadPobox: status.require_instructions_to_load_pobox,
     externalSyncEnabled: status.external_sync_enabled,
     cajitoEnabled: status.cajito_enabled,
     cajitoAvatarUrl: status.cajito_avatar_url,
@@ -178,6 +182,13 @@ export async function toggleRequirePaymentToLoad(enabled: boolean): Promise<void
 /** Controla si se exige etiqueta impresa para cargar una guía a la unidad (solo Super Admin) */
 export async function toggleRequireLabelToLoad(enabled: boolean): Promise<void> {
   await api.post('/admin/system/require-label-to-load-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Controla si las guías PO Box (US-) requieren instrucciones asignadas por el cliente para
+ *  aparecer en Control de Salidas (solo Super Admin, aplica solo a PO Box) */
+export async function toggleRequireInstructionsToLoadPobox(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/require-instructions-to-load-pobox-toggle', { enabled });
   invalidatePaymentStatusCache();
 }
 

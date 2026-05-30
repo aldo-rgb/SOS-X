@@ -38,7 +38,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleExternalSync, toggleCajito, toggleMaintenanceMode, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleCajito, toggleMaintenanceMode, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 import CajitoAuditDialog from '../components/CajitoAuditDialog';
@@ -86,13 +86,14 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, cajitoEnabled, maintenanceMode, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, cajitoEnabled, maintenanceMode, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [togglingGex, setTogglingGex] = useState(false);
     const [togglingAdvisorInstr, setTogglingAdvisorInstr] = useState(false);
     const [togglingReqPayment, setTogglingReqPayment] = useState(false);
     const [togglingReqLabel, setTogglingReqLabel] = useState(false);
+    const [togglingReqInstrPobox, setTogglingReqInstrPobox] = useState(false);
     // Estado local optimista que se sincroniza con el hook al cargar.
     const [localXpay, setLocalXpay] = useState<boolean | null>(null);
     const [localEntregax, setLocalEntregax] = useState<boolean | null>(null);
@@ -102,6 +103,7 @@ export default function SettingsPage() {
     const [localAdvisorInstr, setLocalAdvisorInstr] = useState<boolean | null>(null);
     const [localReqPayment, setLocalReqPayment] = useState<boolean | null>(null);
     const [localReqLabel, setLocalReqLabel] = useState<boolean | null>(null);
+    const [localReqInstrPobox, setLocalReqInstrPobox] = useState<boolean | null>(null);
     const [togglingExternalSync, setTogglingExternalSync] = useState(false);
     const [localExternalSync, setLocalExternalSync] = useState<boolean | null>(null);
     const [togglingCajito, setTogglingCajito] = useState(false);
@@ -123,11 +125,12 @@ export default function SettingsPage() {
             setLocalAdvisorInstr(advisorInstructionsEnabled);
             setLocalReqPayment(requirePaymentToLoad);
             setLocalReqLabel(requireLabelToLoad);
+            setLocalReqInstrPobox(requireInstructionsToLoadPobox);
             setLocalExternalSync(externalSyncEnabled);
             setLocalCajito(cajitoEnabled);
             setLocalMaintenance(maintenanceMode);
         }
-    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, externalSyncEnabled, cajitoEnabled, maintenanceMode]);
+    }, [paymentsStatusLoading, xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, cajitoEnabled, maintenanceMode]);
 
     const handleToggleXpay = async (checked: boolean) => {
         setTogglingXpay(true);
@@ -233,6 +236,21 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
         } finally {
             setTogglingReqLabel(false);
+        }
+    };
+    const handleToggleReqInstrPobox = async (checked: boolean) => {
+        setTogglingReqInstrPobox(true);
+        const prev = localReqInstrPobox;
+        setLocalReqInstrPobox(checked);
+        try {
+            await toggleRequireInstructionsToLoadPobox(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Requisito de instrucciones PO Box ${checked ? 'activado' : 'desactivado'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalReqInstrPobox(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar', severity: 'error' });
+        } finally {
+            setTogglingReqInstrPobox(false);
         }
     };
 
@@ -750,6 +768,36 @@ export default function SettingsPage() {
                                             />
                                         }
                                         label={togglingReqLabel ? '...' : (localReqLabel ? 'Activado' : 'Desactivado')}
+                                        labelPlacement="start"
+                                        sx={{ m: 0 }}
+                                    />
+                                )}
+                            </Paper>
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, borderColor: '#F05A28', borderStyle: 'dashed' }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                        📋 Requerir Instrucciones Asignadas (solo PO Box)
+                                        <Chip label="Solo PO Box" size="small" sx={{ ml: 1, bgcolor: '#F05A28', color: 'white', fontWeight: 600 }} />
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Si está activado, las guías PO Box (US-) no aparecen en <strong>Control de Salidas</strong> hasta que
+                                        el cliente asigne dirección o instrucciones de entrega desde la app. No aplica a otros servicios
+                                        (China, DHL, etc.).
+                                    </Typography>
+                                </Box>
+                                {paymentsStatusLoading || localReqInstrPobox === null ? (
+                                    <CircularProgress size={20} />
+                                ) : (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={!!localReqInstrPobox}
+                                                onChange={(e) => handleToggleReqInstrPobox(e.target.checked)}
+                                                disabled={togglingReqInstrPobox}
+                                                color="success"
+                                            />
+                                        }
+                                        label={togglingReqInstrPobox ? '...' : (localReqInstrPobox ? 'Activado' : 'Desactivado')}
                                         labelPlacement="start"
                                         sx={{ m: 0 }}
                                     />
