@@ -2164,56 +2164,92 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
         const { from, to, type, match_status, search } = req.query;
         const limit = Math.min(parseInt(String(req.query.limit || '300'), 10) || 300, 1000);
 
-        const conds: string[] = [`bt.emitter_id = $1`];
+        // Lee de la vista unificada (Belvo + Syncfy). Si la vista no existe
+        // todavía (migración pendiente), cae a sólo belvo_transactions.
+        const conds: string[] = [`m.emitter_id = $1`];
         const params: any[] = [emitterId];
-        if (from) { params.push(from); conds.push(`bt.value_date >= $${params.length}`); }
-        if (to) { params.push(to); conds.push(`bt.value_date <= $${params.length}`); }
-        if (type) { params.push(type); conds.push(`bt.type = $${params.length}`); }
-        if (match_status) { params.push(match_status); conds.push(`bt.match_status = $${params.length}`); }
+        if (from) { params.push(from); conds.push(`m.value_date >= $${params.length}`); }
+        if (to) { params.push(to); conds.push(`m.value_date <= $${params.length}`); }
+        if (type) { params.push(type); conds.push(`m.type = $${params.length}`); }
+        if (match_status) { params.push(match_status); conds.push(`m.match_status = $${params.length}`); }
         if (search) {
             params.push(`%${search}%`);
             const i = params.length;
-            conds.push(`(bt.description ILIKE $${i} OR bt.reference ILIKE $${i} OR bt.merchant_name ILIKE $${i})`);
+            conds.push(`(m.description ILIKE $${i} OR m.reference ILIKE $${i} OR m.merchant_name ILIKE $${i})`);
         }
 
         params.push(limit);
         const sql = `
-            SELECT bt.id, bt.value_date, bt.accounting_date, bt.amount, bt.balance, bt.currency,
-                   bt.description, bt.reference, bt.type, bt.category, bt.subcategory,
-                   bt.merchant_name, bt.status, bt.match_status, bt.matched_payment_id, bt.matched_at,
-                   bl.institution_name,
-                   u.full_name AS matched_client, pp.payment_reference AS matched_reference,
+            SELECT m.source, m.source_id AS id,
+                   m.value_date, m.accounting_date, m.amount, m.balance, m.currency,
+                   m.description, m.reference, m.type, m.category, m.subcategory,
+                   m.merchant_name, m.status, m.match_status, m.matched_payment_id, m.matched_at,
+                   m.institution_name,
+                   u.full_name AS matched_client,
+                   pp.payment_reference AS matched_reference,
                    pp.amount AS matched_amount
-            FROM belvo_transactions bt
-            JOIN belvo_links bl ON bl.id = bt.belvo_link_id
-            LEFT JOIN pobox_payments pp ON pp.id = bt.matched_payment_id
+            FROM v_bank_movements_unified m
+            LEFT JOIN pobox_payments pp ON pp.id = m.matched_payment_id
             LEFT JOIN users u ON u.id = pp.user_id
             WHERE ${conds.join(' AND ')}
-            ORDER BY bt.value_date DESC, bt.id DESC
+            ORDER BY m.value_date DESC, m.source_id DESC
             LIMIT $${params.length}
         `;
-        const r = await pool.query(sql, params);
+        let r;
+        try {
+            r = await pool.query(sql, params);
+        } catch (qErr: any) {
+            // Vista no existe (migración Syncfy pendiente) → fallback a Belvo only.
+            if (/v_bank_movements_unified/.test(qErr.message)) {
+                const fbConds = conds.map(c => c.replace(/m\./g, 'bt.'));
+                const fbSql = `
+                    SELECT 'belvo'::text AS source, bt.id, bt.value_date, bt.accounting_date, bt.amount, bt.balance, bt.currency,
+                           bt.description, bt.reference, bt.type, bt.category, bt.subcategory,
+                           bt.merchant_name, bt.status, bt.match_status, bt.matched_payment_id, bt.matched_at,
+                           bl.institution_name,
+                           u.full_name AS matched_client, pp.payment_reference AS matched_reference, pp.amount AS matched_amount
+                    FROM belvo_transactions bt
+                    JOIN belvo_links bl ON bl.id = bt.belvo_link_id
+                    LEFT JOIN pobox_payments pp ON pp.id = bt.matched_payment_id
+                    LEFT JOIN users u ON u.id = pp.user_id
+                    WHERE ${fbConds.join(' AND ')}
+                    ORDER BY bt.value_date DESC, bt.id DESC
+                    LIMIT $${params.length}
+                `;
+                r = await pool.query(fbSql, params);
+            } else { throw qErr; }
+        }
 
-        // Estadísticas del mismo filtro (sin LIMIT)
+        // Estadísticas del mismo filtro (sin LIMIT) desde la vista unificada
         const statsParams = params.slice(0, -1);
-        const stats = await pool.query(`
-            SELECT 
-              COUNT(*) FILTER (WHERE bt.type='INFLOW') AS in_count,
-              COUNT(*) FILTER (WHERE bt.type='OUTFLOW') AS out_count,
-              COALESCE(SUM(bt.amount) FILTER (WHERE bt.type='INFLOW'),0) AS in_total,
-              COALESCE(SUM(bt.amount) FILTER (WHERE bt.type='OUTFLOW'),0) AS out_total,
-              COUNT(*) FILTER (WHERE bt.match_status='matched') AS matched_count,
-              COUNT(*) FILTER (WHERE bt.match_status='pending') AS pending_count,
-              COUNT(*) FILTER (WHERE bt.match_status='unmatched') AS unmatched_count
-            FROM belvo_transactions bt
-            WHERE ${conds.join(' AND ')}
-        `, statsParams);
+        let stats;
+        try {
+            stats = await pool.query(`
+                SELECT
+                  COUNT(*) FILTER (WHERE m.type='INFLOW')  AS in_count,
+                  COUNT(*) FILTER (WHERE m.type='OUTFLOW') AS out_count,
+                  COALESCE(SUM(m.amount) FILTER (WHERE m.type='INFLOW'),0)  AS in_total,
+                  COALESCE(SUM(m.amount) FILTER (WHERE m.type='OUTFLOW'),0) AS out_total,
+                  COUNT(*) FILTER (WHERE m.match_status='matched')   AS matched_count,
+                  COUNT(*) FILTER (WHERE m.match_status='pending')   AS pending_count,
+                  COUNT(*) FILTER (WHERE m.match_status='unmatched') AS unmatched_count
+                FROM v_bank_movements_unified m
+                WHERE ${conds.join(' AND ')}
+            `, statsParams);
+        } catch {
+            stats = { rows: [{ in_count: 0, out_count: 0, in_total: 0, out_total: 0, matched_count: 0, pending_count: 0, unmatched_count: 0 }] } as any;
+        }
 
-        // Links activos de la empresa (para UI)
-        const linksRes = await pool.query(
-            `SELECT id, institution_name, last_sync_at, is_active FROM belvo_links WHERE emitter_id=$1 ORDER BY id DESC`,
+        // Links activos: combina Belvo + Syncfy (para UI)
+        const belvoLinks = await pool.query(
+            `SELECT id, institution_name, last_accessed_at AS last_sync_at, 'belvo' AS provider, TRUE AS is_active FROM belvo_links WHERE emitter_id=$1`,
             [emitterId]
-        );
+        ).catch(() => ({ rows: [] as any[] }));
+        const syncfyLinks = await pool.query(
+            `SELECT id, institution_name, last_sync_at, 'syncfy' AS provider, is_active FROM syncfy_credentials WHERE emitter_id=$1 AND is_active=TRUE`,
+            [emitterId]
+        ).catch(() => ({ rows: [] as any[] }));
+        const linksRes = { rows: [...syncfyLinks.rows, ...belvoLinks.rows] };
 
         return res.json({
             success: true,
@@ -2242,18 +2278,40 @@ export const syncBankMovements = async (req: AuthRequest, res: Response): Promis
         if (!access.ok) return res.status(403).json({ error: 'Sin acceso' });
 
         const { days_back = 7, link_id } = req.body || {};
-        const belvoService = require('./belvoService');
-        if (!belvoService.isBelvoConfigured || !belvoService.isBelvoConfigured()) {
-            return res.status(503).json({ error: 'Belvo no está configurado en el servidor' });
+
+        // Estrategia: si la empresa tiene credenciales Syncfy activas, sincronizamos por Syncfy.
+        // Si no, intentamos Belvo (legacy) por compatibilidad.
+        const syncfyService = require('./syncfyService');
+        const belvoService  = require('./belvoService');
+
+        const syncfyCount = await pool.query(
+            `SELECT COUNT(*)::int AS n FROM syncfy_credentials WHERE emitter_id=$1 AND is_active=TRUE`,
+            [emitterId]
+        ).catch(() => ({ rows: [{ n: 0 }] }));
+
+        if (syncfyCount.rows[0].n > 0) {
+            if (!syncfyService.isSyncfyConfigured()) {
+                return res.status(503).json({ error: 'Syncfy no está configurado en el servidor' });
+            }
+            try {
+                const result = await syncfyService.syncEmitter(emitterId, Number(days_back) || 7);
+                return res.json({ success: true, provider: 'syncfy', ...result });
+            } catch (e: any) {
+                return res.status(500).json({ error: 'Error sincronizando Syncfy', message: e.message });
+            }
         }
 
-        // Validar que el link pertenezca a la empresa
+        // Fallback Belvo (legacy)
+        if (!belvoService.isBelvoConfigured || !belvoService.isBelvoConfigured()) {
+            return res.status(503).json({ error: 'Ningún proveedor bancario configurado (Syncfy/Belvo)' });
+        }
+
         const linksQ = link_id
             ? await pool.query(`SELECT id FROM belvo_links WHERE id=$1 AND emitter_id=$2 AND is_active=TRUE`, [link_id, emitterId])
             : await pool.query(`SELECT id FROM belvo_links WHERE emitter_id=$1 AND is_active=TRUE`, [emitterId]);
 
         if (linksQ.rows.length === 0) {
-            return res.status(404).json({ error: 'Esta empresa no tiene bancos conectados en Belvo' });
+            return res.status(404).json({ error: 'Esta empresa no tiene bancos conectados' });
         }
 
         const results: any[] = [];
@@ -2266,7 +2324,7 @@ export const syncBankMovements = async (req: AuthRequest, res: Response): Promis
             }
         }
 
-        return res.json({ success: true, results });
+        return res.json({ success: true, provider: 'belvo', results });
     } catch (e: any) {
         console.error('syncBankMovements:', e);
         res.status(500).json({ error: 'Error sincronizando', message: e.message });

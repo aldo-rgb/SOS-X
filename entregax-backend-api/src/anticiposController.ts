@@ -1026,6 +1026,97 @@ export const updateReferenciaMonto = async (req: AuthRequest, res: Response): Pr
   }
 };
 
+// Desasignar una referencia de su contenedor.
+// La referencia regresa al estado 'no_encontrada' (pendiente de asignar) y se libera el saldo si estaba usada.
+// Solo super_admin / admin / director.
+export const desasignarReferencia = async (req: AuthRequest, res: Response): Promise<void> => {
+  const client = await pool.connect();
+  try {
+    const { id } = req.params;
+    const role = String((req as any).user?.role || '').toLowerCase();
+    const userId = (req as any).user?.userId;
+
+    if (!['super_admin', 'admin', 'director'].includes(role)) {
+      res.status(403).json({ error: 'Solo super_admin, admin o director pueden desasignar referencias' });
+      return;
+    }
+
+    await client.query('BEGIN');
+
+    const cur = await client.query(
+      `SELECT id, referencia, monto, estado, container_id, bolsa_anticipo_id
+         FROM anticipo_referencias WHERE id = $1 FOR UPDATE`,
+      [id]
+    );
+    if (cur.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ error: 'Referencia no encontrada' });
+      return;
+    }
+    const ref = cur.rows[0];
+
+    if (ref.estado === 'eliminado') {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'La referencia está eliminada' });
+      return;
+    }
+    if (ref.estado === 'no_encontrada' && !ref.container_id) {
+      await client.query('ROLLBACK');
+      res.status(400).json({ error: 'La referencia ya está sin asignar' });
+      return;
+    }
+
+    // Si estaba 'usada', restaurar saldo de la bolsa y borrar la asignación histórica
+    if (ref.estado === 'usada') {
+      await client.query(
+        `UPDATE bolsas_anticipos
+            SET saldo_disponible = saldo_disponible + $1,
+                estado = CASE WHEN estado = 'agotada' THEN 'con_saldo' ELSE estado END,
+                updated_at = NOW()
+          WHERE id = $2`,
+        [ref.monto, ref.bolsa_anticipo_id]
+      );
+      // Borrar la(s) asignación(es) creada(s) cuando se asignó esta referencia
+      await client.query(
+        `DELETE FROM asignaciones_anticipos
+          WHERE bolsa_anticipo_id = $1
+            AND container_id = $2
+            AND campo_anticipo = 'referencia'
+            AND monto_asignado = $3
+            AND concepto = $4`,
+        [ref.bolsa_anticipo_id, ref.container_id, ref.monto, `Referencia: ${ref.referencia}`]
+      );
+    }
+
+    // Regresar la referencia a estado 'no_encontrada' (pendiente de asignar)
+    await client.query(
+      `UPDATE anticipo_referencias
+          SET estado = 'no_encontrada',
+              container_id = NULL,
+              usado_at = NULL,
+              usado_por = NULL,
+              updated_at = NOW()
+        WHERE id = $1`,
+      [id]
+    );
+
+    await client.query('COMMIT');
+    console.log(`[anticipos] Referencia ${ref.referencia} (id=${ref.id}) desasignada por user=${userId}`);
+    res.json({
+      success: true,
+      id: ref.id,
+      referencia: ref.referencia,
+      message: `Referencia ${ref.referencia} regresada a "no encontrada"`
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error desasignando referencia:', error);
+    res.status(500).json({ error: 'Error al desasignar referencia' });
+  } finally {
+    client.release();
+  }
+};
+
 // Revalidar referencias 'no_encontrada' de una bolsa contra containers.reference_code
 // Si encuentra match, vincula y cambia estado a 'disponible'.
 export const revalidarReferenciasBolsa = async (req: AuthRequest, res: Response): Promise<void> => {

@@ -259,6 +259,17 @@ import {
   webhookHandler as handleBelvoWebhook,
 } from './belvoController';
 import {
+  getWidgetToken as getSyncfyWidgetToken,
+  registerLink as registerSyncfyLink,
+  getLinks as getSyncfyLinks,
+  deleteLinkHandler as deleteSyncfyLink,
+  syncTransactions as syncSyncfyTransactions,
+  getStats as getSyncfyStats,
+  manualMatch as syncfyManualMatch,
+  ignoreTransaction as syncfyIgnoreTransaction,
+  webhookHandler as handleSyncfyWebhook,
+} from './syncfyController';
+import {
   getFacturamaConfig,
   saveFacturamaConfig,
   testFacturamaConnection,
@@ -706,7 +717,8 @@ import {
   revertirAsignacion,
   getAnticiposStats,
   updateReferenciaMonto,
-  revalidarReferenciasBolsa
+  revalidarReferenciasBolsa,
+  desasignarReferencia
 } from './anticiposController';
 import {
   getProveedoresTransporte,
@@ -4555,6 +4567,21 @@ app.post('/api/admin/belvo/ignore', authenticateToken, requireMinLevel(ROLES.ADM
 app.post('/api/webhooks/belvo', handleBelvoWebhook);
 
 // ============================================
+// SYNCFY (Paybook) - REEMPLAZO DE BELVO
+// Multi-empresa: cada fiscal_emitter tiene su propio id_user.
+// ============================================
+app.post('/api/admin/syncfy/widget-token', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getSyncfyWidgetToken);
+app.get('/api/admin/syncfy/links', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getSyncfyLinks);
+app.post('/api/admin/syncfy/links', authenticateToken, requireMinLevel(ROLES.DIRECTOR), registerSyncfyLink);
+app.delete('/api/admin/syncfy/links/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteSyncfyLink);
+app.post('/api/admin/syncfy/sync', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncSyncfyTransactions);
+app.get('/api/admin/syncfy/stats', authenticateToken, requireMinLevel(ROLES.ADMIN), getSyncfyStats);
+app.post('/api/admin/syncfy/match', authenticateToken, requireMinLevel(ROLES.ADMIN), syncfyManualMatch);
+app.post('/api/admin/syncfy/ignore', authenticateToken, requireMinLevel(ROLES.ADMIN), syncfyIgnoreTransaction);
+// Webhook (público, recibe notificaciones de Syncfy)
+app.post('/api/webhooks/syncfy', handleSyncfyWebhook);
+
+// ============================================
 // FACTURAMA — Recepción automática de CFDI multi-emisor + Cuentas por Pagar
 // ============================================
 app.get('/api/admin/facturama/config/:emitterId', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getFacturamaConfig);
@@ -5895,6 +5922,7 @@ app.get('/api/anticipos/referencias/validas', authenticateToken, requireMinLevel
 app.post('/api/anticipos/referencias/validar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), validarReferenciasExisten);
 app.post('/api/anticipos/referencias/asignar', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), asignarReferenciaAContainer);
 app.patch('/api/anticipos/referencias/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateReferenciaMonto);
+app.post('/api/anticipos/referencias/:id/desasignar', authenticateToken, requireMinLevel(ROLES.DIRECTOR), desasignarReferencia);
 app.post('/api/anticipos/bolsas/:bolsaId/revalidar', authenticateToken, requireMinLevel(ROLES.DIRECTOR), revalidarReferenciasBolsa);
 
 // Anticipos por contenedor

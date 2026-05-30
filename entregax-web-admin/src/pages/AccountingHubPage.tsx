@@ -2305,7 +2305,7 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
 
       {links.length === 0 ? (
         <Alert severity="warning" icon={<WarningAmberIcon />} sx={{ mb: 2 }}>
-          Esta empresa no tiene bancos conectados vía Belvo. Pide al administrador que configure la conexión desde <b>Empresas → Belvo</b>.
+          Esta empresa no tiene bancos conectados. Pide al administrador que configure la conexión desde <b>Empresas → Syncfy</b> (BBVA Net Cash, Banregio, etc.).
         </Alert>
       ) : (
         <Alert severity="info" sx={{ mb: 2 }}>

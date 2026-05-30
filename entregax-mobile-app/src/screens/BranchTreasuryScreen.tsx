@@ -86,6 +86,8 @@ export default function BranchTreasuryScreen({ navigation, route }: Props) {
   const [fFxRate, setFFxRate] = useState('');
   const [fSourceMxn, setFSourceMxn] = useState('');
   const [fFxProvider, setFFxProvider] = useState('');
+  const [fOrigin, setFOrigin] = useState<'caja_cc' | 'otro' | ''>('');
+  const [fOriginDetail, setFOriginDetail] = useState('');
 
   // Anticipo
   const [aDriverId, setADriverId] = useState<number | null>(null);
@@ -150,6 +152,7 @@ export default function BranchTreasuryScreen({ navigation, route }: Props) {
   const openFund = (w: Wallet) => {
     setActive(w);
     setFAmount(''); setFConcept(''); setFFxRate(''); setFSourceMxn(''); setFFxProvider('');
+    setFOrigin(''); setFOriginDetail('');
     setModal('fund');
   };
   const openAdvance = (w: Wallet) => {
@@ -197,12 +200,17 @@ export default function BranchTreasuryScreen({ navigation, route }: Props) {
     if (!active) return;
     const amount = Number(fAmount);
     if (!amount || amount <= 0) { Alert.alert('Falta', 'Monto inválido'); return; }
+    if (!fOrigin) { Alert.alert('Falta', 'Selecciona el origen de los fondos'); return; }
+    if (fOrigin === 'otro' && !fOriginDetail.trim()) {
+      Alert.alert('Falta', '¿De dónde vienen los fondos?'); return;
+    }
     const needsFx = isUSD(active);
     const body: any = {
       branch_id: active.branch_id,
       amount_mxn: amount,
       concept: fConcept || undefined,
-      funds_origin: 'caja_cc',
+      funds_origin: fOrigin,
+      funds_origin_detail: fOrigin === 'otro' ? fOriginDetail.trim() : undefined,
     };
     if (needsFx) {
       const rate = Number(fFxRate), src = Number(fSourceMxn);
@@ -418,6 +426,41 @@ export default function BranchTreasuryScreen({ navigation, route }: Props) {
           onChangeText={(v) => { setFAmount(v); if (isUSD(active)) recalcSource(v, fFxRate); }}
           placeholderTextColor="#999"
         />
+        <FieldLabel>Origen de los fondos</FieldLabel>
+        <View style={styles.chipGrid}>
+          {([
+            { key: 'caja_cc', label: 'Caja CC' },
+            { key: 'otro',    label: 'Otro' },
+          ] as const).map(opt => {
+            const selected = fOrigin === opt.key;
+            return (
+              <TouchableOpacity
+                key={opt.key}
+                style={[styles.chip, selected && styles.chipOn]}
+                onPress={() => setFOrigin(opt.key)}
+              >
+                <Text style={[styles.chipTxt, selected && styles.chipTxtOn]}>{opt.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+        {fOrigin === 'otro' && (
+          <>
+            <FieldLabel>¿De dónde vienen los fondos?</FieldLabel>
+            <TextInput
+              style={styles.input}
+              placeholder="Ej. Depósito del director, venta de activo…"
+              value={fOriginDetail}
+              onChangeText={setFOriginDetail}
+              placeholderTextColor="#999"
+            />
+          </>
+        )}
+        {fOrigin && fOrigin !== 'caja_cc' && (
+          <Text style={styles.helperTxt}>
+            Se registrará automáticamente un ingreso (origen externo) y un egreso (fondeo) en Caja CC.
+          </Text>
+        )}
         {isUSD(active) && (
           <>
             <FieldLabel>Tipo de cambio (MXN por 1 USD)</FieldLabel>
@@ -645,6 +688,7 @@ const styles = StyleSheet.create({
 
   note: { flexDirection: 'row', gap: 8, padding: 10, backgroundColor: '#E3F2FD', borderRadius: 8, marginTop: 12 },
   noteTxt: { flex: 1, fontSize: 11, color: '#1565C0' },
+  helperTxt: { fontSize: 11, color: '#666', marginTop: 6, marginBottom: 4, lineHeight: 15 },
 
   modalBack: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   modalCard: { backgroundColor: '#fff', borderTopLeftRadius: 16, borderTopRightRadius: 16, maxHeight: '92%' },

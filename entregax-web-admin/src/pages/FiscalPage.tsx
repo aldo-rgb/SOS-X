@@ -154,6 +154,14 @@ export default function FiscalPage() {
   const [belvoStats, setBelvoStats] = useState<any>(null);
   const [syncingBelvo, setSyncingBelvo] = useState<number | null>(null);
 
+  // Modal Syncfy (reemplazo de Belvo)
+  const [openSyncfyModal, setOpenSyncfyModal] = useState(false);
+  const [selectedEmpresaSyncfy, setSelectedEmpresaSyncfy] = useState<any>(null);
+  const [syncfyLinks, setSyncfyLinks] = useState<any[]>([]);
+  const [syncfyLoading, setSyncfyLoading] = useState(false);
+  const [syncfyStats, setSyncfyStats] = useState<any>(null);
+  const [syncingSyncfy, setSyncingSyncfy] = useState<number | null>(null);
+
   // Modal Facturama (recepción CFDI)
   const [openFacturamaModal, setOpenFacturamaModal] = useState(false);
   const [selectedEmpresaFacturama, setSelectedEmpresaFacturama] = useState<any>(null);
@@ -557,6 +565,132 @@ export default function FiscalPage() {
     }
   };
 
+  // ========== FUNCIONES DE SYNCFY (reemplazo de Belvo) ==========
+  const handleOpenSyncfyModal = async (emitter: any) => {
+    setSelectedEmpresaSyncfy(emitter);
+    setSyncfyLoading(true);
+    setOpenSyncfyModal(true);
+    try {
+      const [linksRes, statsRes] = await Promise.all([
+        axios.get(`${API_URL}/admin/syncfy/links?emitter_id=${emitter.id}`, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        }).catch(() => ({ data: { links: [] } })),
+        axios.get(`${API_URL}/admin/syncfy/stats?emitter_id=${emitter.id}`, {
+          headers: { Authorization: `Bearer ${getToken()}` }
+        }).catch(() => ({ data: {} })),
+      ]);
+      setSyncfyLinks(linksRes.data.links || []);
+      setSyncfyStats(statsRes.data || null);
+    } catch (e) {
+      setSyncfyLinks([]);
+      setSyncfyStats(null);
+    } finally {
+      setSyncfyLoading(false);
+    }
+  };
+
+  const handleConnectSyncfy = async () => {
+    if (!selectedEmpresaSyncfy) return;
+    try {
+      const tokenRes = await axios.post(
+        `${API_URL}/admin/syncfy/widget-token`,
+        { emitter_id: selectedEmpresaSyncfy.id },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      const { token, id_user, widget_base } = tokenRes.data;
+
+      // Carga el Connect Widget de Syncfy.
+      // NOTA: ajustar src exacto cuando se reciba la doc oficial.
+      const widgetSrc = `${widget_base || 'https://connect.syncfy.com'}/v3/widget.js`;
+
+      const launch = () => {
+        const W: any = (window as any).SyncfyWidget || (window as any).PaybookConnect || (window as any).SyncfyConnect;
+        if (!W) {
+          setSnackbar({ open: true, message: 'No se pudo cargar el widget de Syncfy', severity: 'error' });
+          return;
+        }
+        const widget = W.create({
+          token,
+          id_user,
+          country: 'MX',
+          locale: 'es',
+          onSuccess: async () => {
+            try {
+              await axios.post(
+                `${API_URL}/admin/syncfy/links`,
+                { emitter_id: selectedEmpresaSyncfy.id },
+                { headers: { Authorization: `Bearer ${getToken()}` } }
+              );
+              setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${selectedEmpresaSyncfy.alias}`, severity: 'success' });
+              handleOpenSyncfyModal(selectedEmpresaSyncfy);
+              loadData();
+            } catch (err: any) {
+              setSnackbar({ open: true, message: err.response?.data?.error || 'Error registrando credencial', severity: 'error' });
+            }
+          },
+          onExit: () => { /* noop */ },
+          onError: (err: any) => {
+            console.error('Syncfy widget error:', err);
+            setSnackbar({ open: true, message: 'Error en el widget de Syncfy', severity: 'error' });
+          },
+        });
+        widget.open ? widget.open() : widget.build && widget.build();
+      };
+
+      if ((window as any).SyncfyWidget || (window as any).PaybookConnect) {
+        launch();
+      } else {
+        const script = document.createElement('script');
+        script.src = widgetSrc;
+        script.onload = launch;
+        script.onerror = () => setSnackbar({ open: true, message: 'No se pudo cargar el script del widget Syncfy', severity: 'error' });
+        document.body.appendChild(script);
+      }
+    } catch (error: any) {
+      setSnackbar({
+        open: true,
+        message: error.response?.data?.error || 'Error iniciando widget Syncfy. Verifica que SYNCFY_API_KEY esté configurado.',
+        severity: 'error',
+      });
+    }
+  };
+
+  const handleSyncSyncfy = async () => {
+    if (!selectedEmpresaSyncfy) return;
+    setSyncingSyncfy(-1);
+    try {
+      const res = await axios.post(
+        `${API_URL}/admin/syncfy/sync`,
+        { emitter_id: selectedEmpresaSyncfy.id, days_back: 7 },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+      setSnackbar({
+        open: true,
+        message: `✅ Sincronizado: ${res.data.new_count || 0} nuevas, ${res.data.matched_count || 0} conciliadas`,
+        severity: 'success',
+      });
+      handleOpenSyncfyModal(selectedEmpresaSyncfy);
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error sincronizando', severity: 'error' });
+    } finally {
+      setSyncingSyncfy(null);
+    }
+  };
+
+  const handleDeleteSyncfyCred = async (credId: number) => {
+    if (!confirm('¿Desconectar este banco? Se eliminarán las credenciales en Syncfy.')) return;
+    try {
+      await axios.delete(`${API_URL}/admin/syncfy/links/${credId}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setSnackbar({ open: true, message: '✅ Banco desconectado', severity: 'success' });
+      if (selectedEmpresaSyncfy) handleOpenSyncfyModal(selectedEmpresaSyncfy);
+      loadData();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error desconectando', severity: 'error' });
+    }
+  };
+
   // ========== FUNCIONES DE FACTURAMA ==========
   const handleOpenFacturamaModal = async (emitter: any) => {
     setSelectedEmpresaFacturama(emitter);
@@ -915,7 +1049,7 @@ export default function FiscalPage() {
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Openpay</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Banco</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>PayPal</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Belvo</TableCell>
+                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Syncfy</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturama</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturapi</TableCell>
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>
@@ -1018,27 +1152,27 @@ export default function FiscalPage() {
                         </Tooltip>
                       )}
                     </TableCell>
-                    {/* Belvo */}
+                    {/* Syncfy (reemplazo de Belvo) */}
                     <TableCell align="center">
-                      {(emitter as any).belvo_connected ? (
-                        <Tooltip title={`Belvo conectado: ${(emitter as any).belvo_institution || 'Banco'}`}>
-                          <Chip 
+                      {(emitter as any).syncfy_connected ? (
+                        <Tooltip title={`Syncfy conectado: ${(emitter as any).syncfy_institution || 'Banco'} (${(emitter as any).syncfy_env || 'sandbox'})`}>
+                          <Chip
                             icon={<LinkIcon />}
-                            label={(emitter as any).belvo_institution?.slice(0, 8) || 'Conectado'}
+                            label={(emitter as any).syncfy_institution?.slice(0, 10) || 'Conectado'}
                             color="success"
                             size="small"
-                            onClick={() => handleOpenBelvoModal(emitter)}
-                            sx={{ cursor: 'pointer', bgcolor: '#00695c', color: 'white' }}
+                            onClick={() => handleOpenSyncfyModal(emitter)}
+                            sx={{ cursor: 'pointer', bgcolor: '#1e88e5', color: 'white' }}
                           />
                         </Tooltip>
                       ) : (
-                        <Tooltip title="Conectar banco vía Belvo para extracción automática">
-                          <Chip 
+                        <Tooltip title="Conectar banco vía Syncfy para extracción automática">
+                          <Chip
                             icon={<LinkOffIcon />}
                             label="Conectar"
                             color="default"
                             size="small"
-                            onClick={() => handleOpenBelvoModal(emitter)}
+                            onClick={() => handleOpenSyncfyModal(emitter)}
                             sx={{ cursor: 'pointer' }}
                           />
                         </Tooltip>
@@ -1666,6 +1800,98 @@ export default function FiscalPage() {
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setOpenBelvoModal(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ========== Modal Syncfy - Reemplazo de Belvo ========== */}
+      <Dialog open={openSyncfyModal} onClose={() => setOpenSyncfyModal(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ bgcolor: '#1e88e5', color: 'white', fontWeight: 'bold' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <LinkIcon /> Syncfy - Conexión Bancaria - {selectedEmpresaSyncfy?.alias}
+          </Box>
+        </DialogTitle>
+        <DialogContent sx={{ pt: 3 }}>
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              🏦 <strong>Conexión bancaria automática (Syncfy):</strong> Conecta BBVA Net Cash, Banregio, Santander Empresas u otros bancos.
+              Los movimientos se descargan automáticamente y se concilian con los pagos pendientes.
+            </Typography>
+          </Alert>
+
+          {syncfyLoading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+              <CircularProgress sx={{ color: '#1e88e5' }} />
+            </Box>
+          ) : (
+            <>
+              {syncfyStats && (
+                <Box sx={{ display: 'flex', gap: 2, mb: 3, flexWrap: 'wrap' }}>
+                  <Chip label={`${syncfyStats.active_credentials || 0} bancos`} color="primary" size="small" />
+                  <Chip label={`${syncfyStats.total_inflows || 0} depósitos`} color="success" size="small" />
+                  <Chip label={`${syncfyStats.matched_count || 0} conciliados`} color="info" size="small" />
+                  <Chip label={`${syncfyStats.pending_count || 0} por revisar`} color="warning" size="small" />
+                  <Chip label={`Ambiente: ${syncfyStats.environment || 'sandbox'}`} size="small" />
+                </Box>
+              )}
+
+              {syncfyLinks.length > 0 && (
+                <Box sx={{ mb: 3 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                    <Typography variant="subtitle2" fontWeight="bold">Bancos Conectados</Typography>
+                    <Button
+                      size="small"
+                      startIcon={syncingSyncfy === -1 ? <CircularProgress size={14} /> : <SyncIcon />}
+                      onClick={handleSyncSyncfy}
+                      disabled={syncingSyncfy !== null}
+                    >
+                      Sincronizar todo
+                    </Button>
+                  </Box>
+                  {syncfyLinks.map((link: any) => (
+                    <Box key={link.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, mb: 1, bgcolor: 'grey.50', borderRadius: 2, border: '1px solid', borderColor: 'grey.200' }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+                        <AccountBalanceIcon color="primary" />
+                        <Box>
+                          <Typography fontWeight="bold" variant="body2">{link.institution_name}</Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            Estado: {link.status === 'active' ? '🟢 Activo' : '🔴 ' + link.status}
+                            {link.twofa_required ? ' • 2FA' : ''}
+                            {link.last_sync_at && ` • Último sync: ${new Date(link.last_sync_at).toLocaleDateString('es-MX')}`}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        <Tooltip title="Desconectar banco">
+                          <IconButton size="small" color="error" onClick={() => handleDeleteSyncfyCred(link.id)}>
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+
+              <Button
+                variant="contained"
+                startIcon={<LinkIcon />}
+                onClick={handleConnectSyncfy}
+                fullWidth
+                sx={{ bgcolor: '#1e88e5', '&:hover': { bgcolor: '#1565c0' }, py: 1.5 }}
+              >
+                {syncfyLinks.length > 0 ? 'Conectar Otro Banco' : 'Conectar Banco'}
+              </Button>
+
+              {syncfyLinks.length === 0 && (
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1, textAlign: 'center' }}>
+                  Se abrirá una ventana segura de Syncfy para conectar tu banca empresarial.
+                </Typography>
+              )}
+            </>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setOpenSyncfyModal(false)}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 

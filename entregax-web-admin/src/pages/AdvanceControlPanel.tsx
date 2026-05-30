@@ -51,6 +51,7 @@ import {
     Refresh as RefreshIcon,
     Delete as DeleteIcon,
     Sync as SyncIcon,
+    LinkOff as LinkOffIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -217,6 +218,31 @@ export default function AdvanceControlPanel() {
     }, [comprobanteFile]);
 
     const getToken = () => localStorage.getItem('token');
+
+    // Rol actual: solo super_admin / admin / director pueden desasignar referencias
+    const currentUserRole = (() => {
+        try {
+            const raw = localStorage.getItem('user');
+            return raw ? (JSON.parse(raw)?.role || '') : '';
+        } catch { return ''; }
+    })();
+    const canDesasignar = ['super_admin', 'admin', 'director'].includes(currentUserRole);
+
+    // Desasignar una referencia (regresa a estado 'no_encontrada')
+    const handleDesasignarRef = async (ref: Referencia) => {
+        const contenedorTxt = ref.container_number ? ` del contenedor ${ref.container_number}` : '';
+        if (!window.confirm(`¿Desasignar la referencia ${ref.referencia}${contenedorTxt}?\n\nQuedará como "✗ No encontrada" (pendiente de asignar).`)) return;
+        try {
+            await axios.post(`${API_URL}/api/anticipos/referencias/${ref.id}/desasignar`, {}, {
+                headers: { Authorization: `Bearer ${getToken()}` }
+            });
+            setSnackbar({ open: true, message: `Referencia ${ref.referencia} desasignada`, severity: 'success' });
+            if (expandedBolsa) await fetchReferenciasBolsa(expandedBolsa);
+            await fetchBolsas();
+        } catch (e: any) {
+            setSnackbar({ open: true, message: e.response?.data?.error || 'Error al desasignar', severity: 'error' });
+        }
+    };
 
     // Cargar referencias válidas del sistema
     const fetchReferenciasValidas = useCallback(async () => {
@@ -984,6 +1010,7 @@ export default function AdvanceControlPanel() {
                                                                     <TableCell align="right">Monto</TableCell>
                                                                     <TableCell>Fecha Registro</TableCell>
                                                                     <TableCell>Estado</TableCell>
+                                                                    {canDesasignar && <TableCell align="center">Acciones</TableCell>}
                                                                 </TableRow>
                                                             </TableHead>
                                                             <TableBody>
@@ -1074,6 +1101,21 @@ export default function AdvanceControlPanel() {
                                                                                 <Chip label={ref.estado} size="small" />
                                                                             )}
                                                                         </TableCell>
+                                                                        {canDesasignar && (
+                                                                            <TableCell align="center">
+                                                                                {(ref.estado === 'disponible' || ref.estado === 'usada' || ref.estado === 'usado') && (
+                                                                                    <Tooltip title="Desasignar (regresar a No encontrada)">
+                                                                                        <IconButton
+                                                                                            size="small"
+                                                                                            color="warning"
+                                                                                            onClick={() => handleDesasignarRef(ref)}
+                                                                                        >
+                                                                                            <LinkOffIcon fontSize="small" />
+                                                                                        </IconButton>
+                                                                                    </Tooltip>
+                                                                                )}
+                                                                            </TableCell>
+                                                                        )}
                                                                     </TableRow>
                                                                 );
                                                                 })}
