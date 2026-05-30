@@ -134,12 +134,14 @@ export const listAdvisorFormalQuotes = async (req: Request, res: Response): Prom
     const advisorId = (req as any).user?.userId;
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
     const r = await pool.query(
-      `SELECT id, folio, client_id, client_name, client_box_id, servicio, subservicio,
-              categoria, gex_enabled, precio_usd, precio_mxn, total_mxn, tipo_cambio,
-              valid_until, pdf_url, ticket_id, created_at
-       FROM advisor_formal_quotes
-       WHERE advisor_id = $1
-       ORDER BY created_at DESC
+      `SELECT q.id, q.folio, q.client_id, q.client_name, q.client_box_id, q.servicio, q.subservicio,
+              q.categoria, q.gex_enabled, q.precio_usd, q.precio_mxn, q.total_mxn, q.tipo_cambio,
+              q.valid_until, q.pdf_url, q.ticket_id, q.created_at,
+              t.ticket_folio AS ticket_folio
+       FROM advisor_formal_quotes q
+       LEFT JOIN support_tickets t ON t.id = q.ticket_id
+       WHERE q.advisor_id = $1
+       ORDER BY q.created_at DESC
        LIMIT 200`,
       [advisorId]
     );

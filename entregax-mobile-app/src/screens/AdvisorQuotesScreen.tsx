@@ -54,6 +54,8 @@ interface FormalQuote {
   created_at: string;
   gex_enabled: boolean;
   pdf_url?: string;
+  ticket_id?: number | null;
+  ticket_folio?: string | null;
 }
 
 const SERVICIO_LABELS: Record<ServicioKey, string> = {
@@ -149,7 +151,13 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
     try {
       const r = await api.get('/api/support/tickets', { headers: { Authorization: `Bearer ${token}` } });
       const all: QuoteTicket[] = r.data?.tickets || r.data || [];
-      setPendingTickets(all.filter(t => t.category === 'quote' || t.category === 'quote_request'));
+      // Solo tickets de cotización que sigan pendientes (ocultar 'resolved' = ya cotizada y 'closed')
+      setPendingTickets(
+        all.filter(t =>
+          (t.category === 'quote' || t.category === 'quote_request') &&
+          t.status !== 'resolved' && t.status !== 'closed'
+        )
+      );
     } catch (e) { /* noop */ }
     finally { setLoadingPending(false); }
   }, [token]);
@@ -686,6 +694,11 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                       {item.gex_enabled && (
                         <View style={[s.statusChip, { backgroundColor: '#F3E5F5' }]}>
                           <Text style={[s.statusChipText, { color: '#7B1FA2' }]}>GEX</Text>
+                        </View>
+                      )}
+                      {item.ticket_folio && (
+                        <View style={[s.statusChip, { backgroundColor: '#FFF3E0' }]}>
+                          <Text style={[s.statusChipText, { color: '#E65100' }]}>{item.ticket_folio}</Text>
                         </View>
                       )}
                     </View>

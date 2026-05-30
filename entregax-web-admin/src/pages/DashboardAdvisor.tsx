@@ -3337,7 +3337,10 @@ export default function DashboardAdvisor() {
   };
 
   const renderQuotes = () => {
-    const quoteTickets = advisorTickets.filter(t => t.category === 'quote' || t.category === 'quote_request');
+    const quoteTickets = advisorTickets.filter(t =>
+      (t.category === 'quote' || t.category === 'quote_request') &&
+      t.status !== 'resolved' && t.status !== 'closed'
+    );
     const formatDate = (d: string) => {
       if (!d) return '';
       // El backend devuelve TIMESTAMP WITHOUT TZ como string sin 'Z' (UTC).
@@ -3505,6 +3508,7 @@ export default function DashboardAdvisor() {
                               <Typography variant="body2" fontWeight={700} noWrap>{q.folio}</Typography>
                               {expired ? <Chip label="Vencida" size="small" color="error" sx={{ height: 18, fontSize: 10 }} /> : <Chip label="Vigente" size="small" color="success" sx={{ height: 18, fontSize: 10 }} />}
                               {q.gex_enabled && <Chip label="GEX" size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#9C27B0', color: '#fff' }} />}
+                              {q.ticket_folio && <Chip label={q.ticket_folio} size="small" sx={{ height: 18, fontSize: 10, bgcolor: '#FFF3E0', color: '#E65100', fontWeight: 700 }} />}
                             </Box>
                             <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }} noWrap>
                               {q.client_name || '—'} · {formatDate(q.created_at)} · ${Number(q.total_mxn || 0).toLocaleString('es-MX')}
