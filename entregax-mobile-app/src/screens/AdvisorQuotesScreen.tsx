@@ -245,6 +245,17 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
       setCbm(meta.cbm ? String(meta.cbm) : '');
       setCantidad(meta.cantidad ? String(meta.cantidad) : '1');
       setDescripcion(meta.descripcion_producto || '');
+      // Prefill GEX: valor declarado del ticket (USD → MXN con TC del ticket)
+      const valUsd = Number(meta.valor_declarado_usd || 0);
+      const tc = Number(meta.tipo_cambio || 0);
+      if (valUsd > 0 && tc > 0) {
+        setGexEnabled(true);
+        setGexCurrency('MXN');
+        setGexValor((valUsd * tc).toFixed(2));
+      } else {
+        setGexEnabled(false);
+        setGexValor('');
+      }
     }
 
     setTab('generar');
