@@ -321,6 +321,13 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                     {item.ticket_folio} · {new Date(item.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
                   </Text>
                 </View>
+                <TouchableOpacity
+                  style={s.verBtn}
+                  onPress={() => navigation.navigate('SupportChat', { user, token, ticketId: item.id })}
+                >
+                  <Ionicons name="eye-outline" size={16} color={ORANGE} />
+                  <Text style={s.verBtnText}>Ver</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={s.cotizarBtn} onPress={() => startQuoteFromTicket(item)}>
                   <Text style={s.cotizarBtnText}>Cotizar</Text>
                 </TouchableOpacity>
@@ -629,6 +636,12 @@ const s = StyleSheet.create({
   ticketFolio: { color: SUB, fontSize: 11, marginTop: 2 },
   cotizarBtn: { backgroundColor: ORANGE_LIGHT, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
   cotizarBtnText: { color: '#fff', fontWeight: '700' },
+  verBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 8, borderRadius: 8,
+    borderWidth: 1, borderColor: ORANGE, backgroundColor: '#FFF3E0',
+  },
+  verBtnText: { color: ORANGE, fontWeight: '700', fontSize: 13 },
   sectionTitle: { fontWeight: '700', color: ORANGE, marginTop: 16, marginBottom: 8, fontSize: 14 },
   pickerBtn: {
     backgroundColor: CARD, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 10,

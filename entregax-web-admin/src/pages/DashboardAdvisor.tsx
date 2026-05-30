@@ -3324,13 +3324,23 @@ export default function DashboardAdvisor() {
                             display: 'flex', gap: 1, alignItems: 'center',
                           }}
                           secondaryAction={
-                            <Button
-                              size="small" variant="contained"
-                              sx={{ bgcolor: '#FF9800', '&:hover': { bgcolor: '#F57C00' }, textTransform: 'none', fontWeight: 700 }}
-                              onClick={() => openFormalQuoteDialog(ticket)}
-                            >
-                              Cotizar
-                            </Button>
+                            <Box sx={{ display: 'flex', gap: 0.8 }}>
+                              <Button
+                                size="small" variant="outlined"
+                                startIcon={<VisibilityIcon sx={{ fontSize: 16 }} />}
+                                sx={{ borderColor: '#FF9800', color: '#E65100', textTransform: 'none', fontWeight: 700, '&:hover': { borderColor: '#F57C00', bgcolor: '#FFF3E0' } }}
+                                onClick={() => { setSelectedAdvisorTicket(ticket); fetchTicketMessages(ticket.id); }}
+                              >
+                                Ver ticket
+                              </Button>
+                              <Button
+                                size="small" variant="contained"
+                                sx={{ bgcolor: '#FF9800', '&:hover': { bgcolor: '#F57C00' }, textTransform: 'none', fontWeight: 700 }}
+                                onClick={() => openFormalQuoteDialog(ticket)}
+                              >
+                                Cotizar
+                              </Button>
+                            </Box>
                           }
                         >
                           <Avatar
