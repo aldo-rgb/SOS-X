@@ -1055,21 +1055,27 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => (step === 0 ? navigation.goBack() : setStep((step - 1) as 0 | 1))}>
-          <Ionicons name="arrow-back" size={24} color="#fff" />
-        </TouchableOpacity>
-        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'center' }}>
-          <Image
-            source={require('../../assets/x-logo-entregax.png')}
-            style={{ width: 18, height: 18, marginRight: 6 }}
-            resizeMode="contain"
-          />
-          <Text style={styles.headerTitle}>Cotizar Envío</Text>
+    <View style={styles.safe}>
+      <SafeAreaView edges={['top']} style={{ backgroundColor: BLACK }}>
+        <View style={styles.header}>
+          <TouchableOpacity
+            onPress={() => (step === 0 ? navigation.goBack() : setStep((step - 1) as 0 | 1))}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            style={{ padding: 4 }}
+          >
+            <Ionicons name="arrow-back" size={26} color="#fff" />
+          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, justifyContent: 'center' }}>
+            <Image
+              source={require('../../assets/x-logo-entregax.png')}
+              style={{ width: 18, height: 18, marginRight: 6 }}
+              resizeMode="contain"
+            />
+            <Text style={styles.headerTitle}>Cotizar Envío</Text>
+          </View>
+          <View style={{ width: 34 }} />
         </View>
-        <View style={{ width: 24 }} />
-      </View>
+      </SafeAreaView>
 
       {/* Indicador de pasos */}
       <View style={styles.stepIndicator}>
@@ -1094,17 +1100,21 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         transparent={false}
         onRequestClose={() => !formalSubmitting && setFormalOpen(false)}
       >
-        <SafeAreaView style={styles.safe}>
-          <View style={styles.header}>
-            <TouchableOpacity
-              onPress={() => !formalSubmitting && setFormalOpen(false)}
-              disabled={formalSubmitting}
-            >
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Cotización Formal</Text>
-            <View style={{ width: 24 }} />
-          </View>
+        <View style={{ flex: 1, backgroundColor: '#fff' }}>
+          <SafeAreaView edges={['top']} style={{ backgroundColor: BLACK }}>
+            <View style={styles.header}>
+              <TouchableOpacity
+                onPress={() => !formalSubmitting && setFormalOpen(false)}
+                disabled={formalSubmitting}
+                hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                style={{ padding: 4 }}
+              >
+                <Ionicons name="close" size={26} color="#fff" />
+              </TouchableOpacity>
+              <Text style={[styles.headerTitle, { flex: 1, textAlign: 'center' }]}>Cotización Formal</Text>
+              <View style={{ width: 34 }} />
+            </View>
+          </SafeAreaView>
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={{ flex: 1 }}
@@ -1197,9 +1207,9 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             </ScrollView>
           </KeyboardAvoidingView>
-        </SafeAreaView>
+        </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 
