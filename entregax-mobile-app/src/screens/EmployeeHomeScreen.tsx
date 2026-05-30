@@ -325,6 +325,43 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     roles: ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'],
     requiresOnboarding: false,
   },
+
+  // === DIRECTIVOS (admin / super_admin / director) ===
+  {
+    id: 'panel_caja',
+    title: 'Caja',
+    subtitle: 'CC, sucursales y cobranza',
+    icon: 'cash-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'CajaHub',
+    roles: ['admin', 'super_admin', 'director'],
+    requiresOnboarding: false,
+  },
+
+  // === SUPER ADMIN (exclusivos) ===
+  {
+    id: 'admin_users',
+    title: 'Usuarios',
+    subtitle: 'Listar, editar y resetear contraseñas',
+    icon: 'people-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'UsersAdmin',
+    roles: ['super_admin'],
+    requiresOnboarding: false,
+  },
+  {
+    id: 'admin_system_settings',
+    title: 'Ajustes de Sistema',
+    subtitle: 'Interruptores de pagos, despacho, IA y mantenimiento',
+    icon: 'settings-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'SystemSettings',
+    roles: ['super_admin'],
+    requiresOnboarding: false,
+  },
 ];
 
 // Mapeo de roles a labels legibles
@@ -553,9 +590,18 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   }, [token, user, navigation]);
 
   // Filtrar módulos según el rol del usuario Y permisos de PO Box / paneles
+  // Roles directivos (admin/super_admin/director) NO operan ciertos módulos
+  // de sucursal — se ocultan completamente para no contaminar su home.
+  const HIDE_FOR_ADMIN_LEVEL = ['warehouse_inventory', 'panel_mx_national', 'panel_relabeling'];
+  const ADMIN_LEVEL_ROLES = ['admin', 'super_admin', 'director'];
   const availableModules = EMPLOYEE_MODULES.filter(module => {
     // Primero verificar si el rol tiene acceso
     if (!module.roles.includes(user.role)) {
+      return false;
+    }
+
+    // Ocultar módulos puramente operativos a roles directivos
+    if (HIDE_FOR_ADMIN_LEVEL.includes(module.id) && ADMIN_LEVEL_ROLES.includes(user.role)) {
       return false;
     }
 
@@ -652,6 +698,26 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
   };
 
   const handleModulePress = (module: ModuleCard) => {
+    // 👁️ Modo informativo para Admin / Super Admin / Director sobre módulos operativos.
+    // Estos roles no operan en sucursal; tocar la tarjeta solo muestra la descripción del módulo.
+    const INFO_ONLY_MODULES = ['panel_usa_pobox', 'panel_china_air', 'panel_china_sea', 'panel_mx_cedis'];
+    const INFO_ONLY_ROLES = ['admin', 'super_admin', 'director'];
+    if (INFO_ONLY_MODULES.includes(module.id) && INFO_ONLY_ROLES.includes(user.role)) {
+      Alert.alert(
+        `${module.title}`,
+        `${module.subtitle}\n\nEste panel es operativo de sucursal. Tu rol (${ROLE_LABELS[user.role] || user.role}) lo ve en modo informativo. Para administrar usuarios, permisos o métricas usa el Panel Web.`,
+        [{ text: 'Entendido', style: 'default' }]
+      );
+      return;
+    }
+
+    // 📊 Para roles directivos: "Inventario por Sucursal" abre el informe
+    // consolidado por sucursal en vez del flujo operativo de bodega.
+    if (module.id === 'panel_inventory' && INFO_ONLY_ROLES.includes(user.role)) {
+      navigation.navigate('BranchInventoryReport', { user, token });
+      return;
+    }
+
     if (module.requiresOnboarding && !isOnboarded) {
       Alert.alert(
         '⚠️ Alta Requerida',

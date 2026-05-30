@@ -76,6 +76,13 @@ import ChinaAirHubScreen from './src/screens/ChinaAirHubScreen';
 import ChinaAirReceptionScreen from './src/screens/ChinaAirReceptionScreen';
 import ChinaAirInventoryScreen from './src/screens/ChinaAirInventoryScreen';
 import ChinaSeaHubScreen from './src/screens/ChinaSeaHubScreen';
+import BranchInventoryReportScreen from './src/screens/BranchInventoryReportScreen';
+import UsersAdminScreen from './src/screens/UsersAdminScreen';
+import SystemSettingsScreen from './src/screens/SystemSettingsScreen';
+import CajaHubScreen from './src/screens/CajaHubScreen';
+import CajaCCScreen from './src/screens/CajaCCScreen';
+import BranchTreasuryScreen from './src/screens/BranchTreasuryScreen';
+import CobranzaDashboardScreen from './src/screens/CobranzaDashboardScreen';
 import ChinaSeaReceptionScreen from './src/screens/ChinaSeaReceptionScreen';
 import ChinaSeaInventoryScreen from './src/screens/ChinaSeaInventoryScreen';
 import RelabelingScreen from './src/screens/RelabelingScreen';
@@ -180,6 +187,13 @@ export type RootStackParamList = {
   ChinaSeaReception: { user: any; token: string; mode?: 'LCL' | 'FCL' };
   ChinaSeaInventory: { user: any; token: string };
   Relabeling: { user: any; token: string };
+  BranchInventoryReport: { user: any; token: string };
+  UsersAdmin: { user: any; token: string };
+  SystemSettings: { user: any; token: string };
+  CajaHub: { user: any; token: string };
+  CajaCC: { user: any; token: string };
+  BranchTreasury: { user: any; token: string };
+  CobranzaDashboard: { user: any; token: string };
   // Advisor Screens
   AdvisorDashboard: { user: any; token: string };
   AdvisorClients: { user: any; token: string };
@@ -429,6 +443,13 @@ function App() {
           <Stack.Screen name="ChinaAirReception" component={ChinaAirReceptionScreen} />
           <Stack.Screen name="ChinaAirInventory" component={ChinaAirInventoryScreen} />
           <Stack.Screen name="ChinaSeaHub" component={ChinaSeaHubScreen} />
+          <Stack.Screen name="BranchInventoryReport" component={BranchInventoryReportScreen} />
+          <Stack.Screen name="UsersAdmin" component={UsersAdminScreen} />
+          <Stack.Screen name="SystemSettings" component={SystemSettingsScreen} />
+          <Stack.Screen name="CajaHub" component={CajaHubScreen} />
+          <Stack.Screen name="CajaCC" component={CajaCCScreen} />
+          <Stack.Screen name="BranchTreasury" component={BranchTreasuryScreen} />
+          <Stack.Screen name="CobranzaDashboard" component={CobranzaDashboardScreen} />
           <Stack.Screen name="ChinaSeaReception" component={ChinaSeaReceptionScreen} />
           <Stack.Screen name="ChinaSeaInventory" component={ChinaSeaInventoryScreen} />
           <Stack.Screen name="Relabeling" component={RelabelingScreen} />

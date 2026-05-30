@@ -4948,6 +4948,111 @@ app.get('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.COUNTER_
 app.post('/api/admin/branches', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createBranch);
 app.put('/api/admin/branches/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateBranch);
 app.delete('/api/admin/branches/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteBranch);
+
+// ============================================================
+// Informe directivo: Inventario por Sucursal (Admin / Super Admin / Director)
+// Devuelve, por cada sucursal activa, conteos agregados de paquetes en bodega
+// agrupados por servicio (PO Box, China Marítimo, China Aéreo, DHL) más
+// peso total, número de clientes únicos y última recepción. NO se exponen
+// paquetes individuales — es un panel de monitoreo de alto nivel.
+// ============================================================
+app.get('/api/admin/branches/inventory-report', authenticateToken, requireMinLevel(ROLES.ADMIN), async (_req: Request, res: Response) => {
+  try {
+    const branches = await pool.query(`
+      SELECT id, name, code, city, allowed_services, is_active
+      FROM branches
+      WHERE is_active = TRUE
+      ORDER BY name
+    `);
+
+    // Agregar conteos por servicio para todas las sucursales en una sola consulta.
+    // Considera paquetes "en bodega" los que tienen status received/reempacado y
+    // los que están aún sin entregar (NOT IN delivered, cancelled, returned).
+    const counts = await pool.query(`
+      SELECT
+        p.current_branch_id AS branch_id,
+        CASE
+          WHEN p.tracking_internal LIKE 'US-%' THEN 'pobox'
+          WHEN p.servicio IN ('SEA_CHN_MX','FCL_CHN_MX') OR p.shipment_type IN ('maritime','china_sea') THEN 'maritimo'
+          WHEN p.servicio = 'AIR_CHN_MX' OR p.shipment_type = 'china_air' THEN 'aereo'
+          WHEN p.shipment_type = 'dhl' OR p.tracking_internal LIKE 'DHL-%' THEN 'dhl'
+          ELSE 'otros'
+        END AS service_key,
+        COUNT(*)::int AS pkg_count,
+        COALESCE(SUM(p.weight), 0)::float AS total_weight,
+        COUNT(DISTINCT COALESCE(p.user_id::text, p.box_id))::int AS unique_clients,
+        MAX(p.created_at) AS last_received_at
+      FROM packages p
+      WHERE p.current_branch_id IS NOT NULL
+        AND p.status NOT IN ('delivered', 'cancelled', 'returned', 'in_transit')
+      GROUP BY p.current_branch_id, service_key
+    `);
+
+    // Indexar conteos por branch_id
+    const byBranch: Record<string, any> = {};
+    counts.rows.forEach((r: any) => {
+      const bid = String(r.branch_id);
+      if (!byBranch[bid]) byBranch[bid] = { services: {}, total_packages: 0, total_weight: 0, last_received_at: null };
+      byBranch[bid].services[r.service_key] = {
+        packages: r.pkg_count,
+        weight_kg: Number(r.total_weight.toFixed(2)),
+        unique_clients: r.unique_clients,
+      };
+      byBranch[bid].total_packages += r.pkg_count;
+      byBranch[bid].total_weight += Number(r.total_weight);
+      if (!byBranch[bid].last_received_at || new Date(r.last_received_at) > new Date(byBranch[bid].last_received_at)) {
+        byBranch[bid].last_received_at = r.last_received_at;
+      }
+    });
+
+    // Catálogo de tips operativos por código de sucursal. Si la sucursal
+    // no está catalogada, se usan tips genéricos.
+    const TIPS_BY_CODE: Record<string, string[]> = {
+      MTY: [
+        'Hub principal Monterrey: concentra liberaciones DHL Express AA.',
+        'Verifica diariamente los paquetes con instrucciones pendientes antes de las 14:00 para integrar la ruta MX.',
+        'Sucursal con mayor volumen de China marítimo: mantén espacio reservado para consolidaciones grandes.',
+      ],
+      HID: [
+        'Bodega Hidalgo TX (PO Box USA): el cliente recibe sus compras de Amazon/eBay aquí.',
+        'Antes de despachar revisa el toggle "Requerir Instrucciones" en Ajustes — clientes sin dirección no deben cargarse.',
+        'Coordina las salidas con la camioneta MTY para optimizar peso y volumen.',
+      ],
+    };
+    const GENERIC_TIPS = [
+      'Verifica que cada paquete tenga instrucciones asignadas antes de cargarlo a la unidad.',
+      'Las guías con más de 7 días sin retiro generan costo de almacenaje — escala a cobranza.',
+      'Mantén actualizada la información de WiFi y geocerca para la asistencia del personal.',
+    ];
+
+    const report = branches.rows.map((b: any) => {
+      const data = byBranch[String(b.id)] || { services: {}, total_packages: 0, total_weight: 0, last_received_at: null };
+      const tips = TIPS_BY_CODE[String(b.code || '').toUpperCase()] || GENERIC_TIPS;
+      return {
+        id: b.id,
+        name: b.name,
+        code: b.code,
+        city: b.city,
+        allowed_services: b.allowed_services || [],
+        total_packages: data.total_packages,
+        total_weight_kg: Number((data.total_weight || 0).toFixed(2)),
+        last_received_at: data.last_received_at,
+        services: {
+          pobox:    data.services.pobox    || { packages: 0, weight_kg: 0, unique_clients: 0 },
+          maritimo: data.services.maritimo || { packages: 0, weight_kg: 0, unique_clients: 0 },
+          aereo:    data.services.aereo    || { packages: 0, weight_kg: 0, unique_clients: 0 },
+          dhl:      data.services.dhl      || { packages: 0, weight_kg: 0, unique_clients: 0 },
+        },
+        tips,
+      };
+    });
+
+    res.json({ generated_at: new Date().toISOString(), branches: report });
+  } catch (err: any) {
+    console.error('[BRANCHES-INVENTORY-REPORT]', err.message);
+    res.status(500).json({ error: 'Error al generar informe de inventario por sucursal' });
+  }
+});
 // Inventario de activos por sucursal (módulo de control patrimonial).
 // El GET /:id va sin auth porque alimenta el QR pegado al equipo —
 // un supervisor lo escanea con su celular y debe poder ver la ficha
