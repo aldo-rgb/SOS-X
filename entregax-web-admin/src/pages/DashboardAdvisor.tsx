@@ -454,7 +454,7 @@ export default function DashboardAdvisor() {
   const [formalQuoteDescripcion, setFormalQuoteDescripcion] = useState('');
   const [formalQuoteCalcResult, setFormalQuoteCalcResult] = useState<any | null>(null);
   const [formalQuoteCalculating, setFormalQuoteCalculating] = useState(false);
-  const [formalQuoteGexEnabled, setFormalQuoteGexEnabled] = useState(false);
+  const [formalQuoteGexEnabled, setFormalQuoteGexEnabled] = useState(true);
   const [formalQuoteGexValor, setFormalQuoteGexValor] = useState('');
   const [formalQuoteTicketId, setFormalQuoteTicketId] = useState<number | null>(null);
   const [formalQuoteGenerating, setFormalQuoteGenerating] = useState(false);
@@ -3258,7 +3258,7 @@ export default function DashboardAdvisor() {
       setFormalQuotePeso(''); setFormalQuoteCbm(''); setFormalQuoteCantidad('1');
       setFormalQuoteDescripcion('');
       setFormalQuoteCalcResult(null);
-      setFormalQuoteGexEnabled(false); setFormalQuoteGexValor('');
+      setFormalQuoteGexEnabled(true); setFormalQuoteGexValor('');
       setFormalQuoteTicketId(null);
       fetchFormalQuotesList();
       if (r.data?.pdfUrl) window.open(r.data.pdfUrl, '_blank');

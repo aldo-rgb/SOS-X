@@ -112,7 +112,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const [descripcion, setDescripcion] = useState('');
   const [calcResult, setCalcResult] = useState<any | null>(null);
   const [calculating, setCalculating] = useState(false);
-  const [gexEnabled, setGexEnabled] = useState(false);
+  const [gexEnabled, setGexEnabled] = useState(true);
   const [gexValor, setGexValor] = useState('');
   const [ticketId, setTicketId] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -236,7 +236,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
       setCategoria('Generico');
       setLargo(''); setAncho(''); setAlto(''); setPeso(''); setCbm(''); setCantidad('1');
       setDescripcion(''); setCalcResult(null);
-      setGexEnabled(false); setGexValor('');
+      setGexEnabled(true); setGexValor('');
       setTicketId(null);
       fetchMyQuotes();
       setTab('mias');
