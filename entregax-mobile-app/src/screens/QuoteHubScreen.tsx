@@ -611,17 +611,6 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               keyboardType="number-pad"
             />
           </View>
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Valor estimado (USD) · opcional</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="0.00"
-              value={estimatedValueUsd}
-              onChangeText={setEstimatedValueUsd}
-              keyboardType="decimal-pad"
-            />
-            <Text style={styles.helpText}>Valor de la mercancía para Garantía Extendida (GEX).</Text>
-          </View>
         </>
       );
     }
