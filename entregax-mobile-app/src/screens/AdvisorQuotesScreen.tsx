@@ -1,0 +1,716 @@
+// ════════════════════════════════════════════════════════════
+// AdvisorQuotesScreen — Cotizaciones formales del asesor (mobile)
+// 3 tabs: Pendientes (tickets), Generar (PDF), Mis Cotizaciones
+// ════════════════════════════════════════════════════════════
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,
+  RefreshControl, Modal, ScrollView, TextInput, Alert, Switch, Linking,
+  KeyboardAvoidingView, Platform,
+} from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { api } from '../services/api';
+
+const ORANGE = '#F05A28';
+const ORANGE_LIGHT = '#FF9800';
+const BLACK = '#111';
+const BG = '#F4F4F6';
+const CARD = '#FFFFFF';
+const TEXT = '#111';
+const SUB = '#666';
+
+type ServicioKey = 'maritimo' | 'aereo' | 'pobox' | 'dhl';
+
+interface Client {
+  id: number;
+  full_name?: string;
+  name?: string;
+  email?: string;
+  phone?: string;
+  box_id?: string;
+}
+
+interface QuoteTicket {
+  id: number;
+  ticket_folio: string;
+  subject: string;
+  status: string;
+  category: string;
+  created_at: string;
+  client_id?: number;
+  user_id?: number;
+  client_name?: string;
+  client_box_id?: string;
+}
+
+interface FormalQuote {
+  id: number;
+  folio: string;
+  client_name: string;
+  servicio: string;
+  total_mxn: number;
+  valid_until: string;
+  created_at: string;
+  gex_enabled: boolean;
+  pdf_url?: string;
+}
+
+const SERVICIO_LABELS: Record<ServicioKey, string> = {
+  maritimo: '🚢 Marítimo China',
+  aereo: '✈️ Aéreo China',
+  pobox: '📦 PO Box USA',
+  dhl: '🚚 DHL Nacional',
+};
+
+const SUBSERVICIO_OPTIONS: Record<ServicioKey, { value: string; label: string }[]> = {
+  maritimo: [
+    { value: '', label: 'Default' },
+    { value: 'por_volumen', label: 'Marítimo por volumen (LCL)' },
+    { value: 'fcl_40', label: 'FCL 40 pies' },
+  ],
+  aereo: [
+    { value: '', label: 'Default' },
+    { value: 'tdi_aereo', label: 'TDI Aéreo' },
+    { value: 'tdi_express', label: 'Aéreo Express' },
+  ],
+  pobox: [{ value: '', label: 'Default' }],
+  dhl: [{ value: '', label: 'Default' }],
+};
+
+const CATEGORIAS_MARITIMO = ['Generico', 'StartUp', 'Sensible', 'Logotipo', 'FCL40'];
+
+export default function AdvisorQuotesScreen({ navigation, route }: any) {
+  const { user, token } = route.params;
+  const insets = useSafeAreaInsets();
+
+  const [tab, setTab] = useState<'pendientes' | 'generar' | 'mias'>('pendientes');
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Pendientes
+  const [pendingTickets, setPendingTickets] = useState<QuoteTicket[]>([]);
+  const [loadingPending, setLoadingPending] = useState(true);
+
+  // Cotizaciones generadas
+  const [myQuotes, setMyQuotes] = useState<FormalQuote[]>([]);
+  const [loadingMyQuotes, setLoadingMyQuotes] = useState(false);
+
+  // Generador
+  const [clients, setClients] = useState<Client[]>([]);
+  const [clientPickerOpen, setClientPickerOpen] = useState(false);
+  const [clientSearch, setClientSearch] = useState('');
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [servicio, setServicio] = useState<ServicioKey>('maritimo');
+  const [subservicio, setSubservicio] = useState('');
+  const [categoria, setCategoria] = useState('Generico');
+  const [largo, setLargo] = useState('');
+  const [ancho, setAncho] = useState('');
+  const [alto, setAlto] = useState('');
+  const [peso, setPeso] = useState('');
+  const [cbm, setCbm] = useState('');
+  const [cantidad, setCantidad] = useState('1');
+  const [descripcion, setDescripcion] = useState('');
+  const [calcResult, setCalcResult] = useState<any | null>(null);
+  const [calculating, setCalculating] = useState(false);
+  const [gexEnabled, setGexEnabled] = useState(false);
+  const [gexValor, setGexValor] = useState('');
+  const [ticketId, setTicketId] = useState<number | null>(null);
+  const [generating, setGenerating] = useState(false);
+
+  const fetchPending = useCallback(async () => {
+    setLoadingPending(true);
+    try {
+      const r = await api.get('/support/tickets', { headers: { Authorization: `Bearer ${token}` } });
+      const all: QuoteTicket[] = r.data?.tickets || r.data || [];
+      setPendingTickets(all.filter(t => t.category === 'quote' || t.category === 'quote_request'));
+    } catch (e) { /* noop */ }
+    finally { setLoadingPending(false); }
+  }, [token]);
+
+  const fetchMyQuotes = useCallback(async () => {
+    setLoadingMyQuotes(true);
+    try {
+      const r = await api.get('/advisor/formal-quotes', { headers: { Authorization: `Bearer ${token}` } });
+      setMyQuotes(r.data || []);
+    } catch (e) { /* noop */ }
+    finally { setLoadingMyQuotes(false); }
+  }, [token]);
+
+  const fetchClients = useCallback(async () => {
+    if (clients.length > 0) return;
+    try {
+      const r = await api.get('/advisor/clients?limit=500', { headers: { Authorization: `Bearer ${token}` } });
+      const data = r.data?.clients || r.data || [];
+      setClients(Array.isArray(data) ? data : []);
+    } catch (e) { /* noop */ }
+  }, [token, clients.length]);
+
+  useEffect(() => { fetchPending(); }, [fetchPending]);
+  useEffect(() => {
+    if (tab === 'mias') fetchMyQuotes();
+    if (tab === 'generar') fetchClients();
+  }, [tab, fetchMyQuotes, fetchClients]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    if (tab === 'pendientes') await fetchPending();
+    if (tab === 'mias') await fetchMyQuotes();
+    setRefreshing(false);
+  }, [tab, fetchPending, fetchMyQuotes]);
+
+  const startQuoteFromTicket = (ticket: QuoteTicket) => {
+    setSelectedClient({
+      id: (ticket.user_id || ticket.client_id) as number,
+      full_name: ticket.client_name,
+      box_id: ticket.client_box_id,
+    });
+    setTicketId(ticket.id);
+    setTab('generar');
+    fetchClients();
+  };
+
+  const handleCalculate = async () => {
+    setCalculating(true);
+    setCalcResult(null);
+    try {
+      const body: any = {
+        servicio,
+        cantidad: Number(cantidad) || 1,
+        categoria,
+      };
+      if (subservicio) body.subservicio = subservicio;
+      if (largo) body.largo = Number(largo);
+      if (ancho) body.ancho = Number(ancho);
+      if (alto) body.alto = Number(alto);
+      if (peso) body.peso = Number(peso);
+      if (cbm) body.cbm = Number(cbm);
+      const r = await api.post('/public/quote', body);
+      setCalcResult(r.data);
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error || 'No se pudo calcular');
+    } finally { setCalculating(false); }
+  };
+
+  const handleGeneratePdf = async () => {
+    if (!selectedClient) { Alert.alert('Falta cliente', 'Selecciona un cliente'); return; }
+    if (!calcResult) { Alert.alert('Falta cálculo', 'Calcula el precio primero'); return; }
+    setGenerating(true);
+    try {
+      const gexValorN = gexEnabled ? Number(gexValor) || 0 : 0;
+      const gexPrima = gexValorN > 0 ? Math.round(gexValorN * 0.05 * 100) / 100 : 0;
+      const body: any = {
+        clientId: selectedClient.id,
+        clientName: selectedClient.full_name || selectedClient.name,
+        clientBoxId: selectedClient.box_id,
+        clientEmail: selectedClient.email,
+        clientPhone: selectedClient.phone,
+        servicio,
+        subservicio: subservicio || undefined,
+        categoria,
+        details: {
+          largo, ancho, alto, peso, cbm, cantidad,
+          peso_cobrable: calcResult?.peso_cobrable,
+          tiempo_estimado: calcResult?.tiempo_estimado,
+          descripcion,
+        },
+        precio_usd: calcResult?.precio_usd,
+        precio_mxn: calcResult?.precio_mxn,
+        tipo_cambio: calcResult?.tipo_cambio,
+        gex_enabled: gexEnabled,
+        gex_valor_declarado_mxn: gexValorN || undefined,
+        gex_prima_mxn: gexPrima || undefined,
+        validityDays: 7,
+        ticketId: ticketId || undefined,
+      };
+      const r = await api.post('/advisor/formal-quotes', body, { headers: { Authorization: `Bearer ${token}` } });
+      Alert.alert(
+        '✅ Cotización generada',
+        `Folio: ${r.data?.folio}\n\n¿Abrir el PDF ahora?`,
+        [
+          { text: 'Más tarde', style: 'cancel' },
+          { text: 'Abrir PDF', onPress: () => r.data?.pdfUrl && Linking.openURL(r.data.pdfUrl) },
+        ]
+      );
+      // Reset
+      setSelectedClient(null); setServicio('maritimo'); setSubservicio('');
+      setCategoria('Generico');
+      setLargo(''); setAncho(''); setAlto(''); setPeso(''); setCbm(''); setCantidad('1');
+      setDescripcion(''); setCalcResult(null);
+      setGexEnabled(false); setGexValor('');
+      setTicketId(null);
+      fetchMyQuotes();
+      setTab('mias');
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error || 'No se pudo generar el PDF');
+    } finally { setGenerating(false); }
+  };
+
+  const filteredClients = useMemo(() => {
+    const q = clientSearch.trim().toLowerCase();
+    if (!q) return clients.slice(0, 80);
+    return clients.filter(c =>
+      (c.full_name || c.name || '').toLowerCase().includes(q) ||
+      (c.email || '').toLowerCase().includes(q) ||
+      (c.box_id || '').toLowerCase().includes(q)
+    ).slice(0, 80);
+  }, [clients, clientSearch]);
+
+  const totalConGex = useMemo(() => {
+    if (!calcResult) return 0;
+    const base = Number(calcResult.precio_mxn) || 0;
+    const gex = gexEnabled && Number(gexValor) > 0 ? Number(gexValor) * 0.05 : 0;
+    return base + gex;
+  }, [calcResult, gexEnabled, gexValor]);
+
+  return (
+    <SafeAreaView style={s.container} edges={['top']}>
+      {/* Header */}
+      <View style={[s.header, { paddingTop: insets.top > 0 ? 4 : 12 }]}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={s.backBtn}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <View style={{ flex: 1 }}>
+          <Text style={s.headerTitle}>Cotizaciones</Text>
+          <Text style={s.headerSub}>Genera PDFs formales con vigencia 7 días</Text>
+        </View>
+      </View>
+
+      {/* Tabs */}
+      <View style={s.tabs}>
+        {(['pendientes', 'generar', 'mias'] as const).map(k => (
+          <TouchableOpacity
+            key={k}
+            style={[s.tabBtn, tab === k && s.tabBtnActive]}
+            onPress={() => setTab(k)}
+          >
+            <Text style={[s.tabLabel, tab === k && s.tabLabelActive]}>
+              {k === 'pendientes' ? `Pendientes${pendingTickets.length ? ` (${pendingTickets.length})` : ''}`
+                : k === 'generar' ? 'Generar' : 'Mías'}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {/* ─── TAB: Pendientes ─── */}
+      {tab === 'pendientes' && (
+        loadingPending ? (
+          <View style={s.center}><ActivityIndicator size="large" color={ORANGE} /></View>
+        ) : (
+          <FlatList
+            data={pendingTickets}
+            keyExtractor={(i) => String(i.id)}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={ORANGE} />}
+            contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
+            ListEmptyComponent={
+              <View style={s.empty}>
+                <Ionicons name="calculator-outline" size={56} color="#ddd" />
+                <Text style={s.emptyText}>Sin cotizaciones pendientes</Text>
+              </View>
+            }
+            renderItem={({ item }) => (
+              <View style={s.ticketCard}>
+                <View style={{ flex: 1 }}>
+                  <View style={s.row}>
+                    <Ionicons name="calculator" size={18} color={ORANGE_LIGHT} />
+                    <Text style={s.ticketSubject} numberOfLines={1}>{item.subject || 'Cotización formal'}</Text>
+                  </View>
+                  <Text style={s.ticketClient}>
+                    {item.client_name || 'Cliente'}{item.client_box_id ? ` · Box ${item.client_box_id}` : ''}
+                  </Text>
+                  <Text style={s.ticketFolio}>
+                    {item.ticket_folio} · {new Date(item.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })}
+                  </Text>
+                </View>
+                <TouchableOpacity style={s.cotizarBtn} onPress={() => startQuoteFromTicket(item)}>
+                  <Text style={s.cotizarBtnText}>Cotizar</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          />
+        )
+      )}
+
+      {/* ─── TAB: Generar ─── */}
+      {tab === 'generar' && (
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+          <ScrollView contentContainerStyle={{ padding: 14, paddingBottom: 60 }}>
+            {/* Cliente */}
+            <Text style={s.sectionTitle}>1. Cliente</Text>
+            <TouchableOpacity style={s.pickerBtn} onPress={() => { fetchClients(); setClientPickerOpen(true); }}>
+              <Ionicons name="person" size={18} color={ORANGE} />
+              <Text style={[s.pickerBtnText, !selectedClient && { color: SUB }]} numberOfLines={1}>
+                {selectedClient ? `${selectedClient.full_name || selectedClient.name}${selectedClient.box_id ? ` · Box ${selectedClient.box_id}` : ''}` : 'Seleccionar cliente'}
+              </Text>
+              <Ionicons name="chevron-down" size={18} color={SUB} />
+            </TouchableOpacity>
+
+            {/* Servicio */}
+            <Text style={s.sectionTitle}>2. Servicio</Text>
+            <View style={s.chipRow}>
+              {(Object.keys(SERVICIO_LABELS) as ServicioKey[]).map(key => (
+                <TouchableOpacity
+                  key={key}
+                  style={[s.chip, servicio === key && s.chipActive]}
+                  onPress={() => { setServicio(key); setSubservicio(''); setCalcResult(null); }}
+                >
+                  <Text style={[s.chipText, servicio === key && s.chipTextActive]}>{SERVICIO_LABELS[key]}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {/* Subservicio */}
+            {SUBSERVICIO_OPTIONS[servicio].length > 1 && (
+              <View style={s.chipRow}>
+                {SUBSERVICIO_OPTIONS[servicio].map(opt => (
+                  <TouchableOpacity
+                    key={opt.value}
+                    style={[s.chipSmall, subservicio === opt.value && s.chipSmallActive]}
+                    onPress={() => setSubservicio(opt.value)}
+                  >
+                    <Text style={[s.chipSmallText, subservicio === opt.value && s.chipSmallTextActive]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Categoría marítimo */}
+            {servicio === 'maritimo' && (
+              <View style={s.chipRow}>
+                {CATEGORIAS_MARITIMO.map(c => (
+                  <TouchableOpacity
+                    key={c}
+                    style={[s.chipSmall, categoria === c && s.chipSmallActive]}
+                    onPress={() => setCategoria(c)}
+                  >
+                    <Text style={[s.chipSmallText, categoria === c && s.chipSmallTextActive]}>{c}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
+
+            {/* Dimensiones */}
+            <Text style={s.sectionTitle}>3. Dimensiones y peso</Text>
+            <View style={s.dimRow}>
+              <TextInput style={s.dimInput} placeholder="Largo cm" keyboardType="numeric" value={largo} onChangeText={setLargo} />
+              <TextInput style={s.dimInput} placeholder="Ancho cm" keyboardType="numeric" value={ancho} onChangeText={setAncho} />
+              <TextInput style={s.dimInput} placeholder="Alto cm" keyboardType="numeric" value={alto} onChangeText={setAlto} />
+            </View>
+            <View style={s.dimRow}>
+              <TextInput style={s.dimInput} placeholder="Peso kg" keyboardType="numeric" value={peso} onChangeText={setPeso} />
+              <TextInput style={s.dimInput} placeholder="CBM" keyboardType="numeric" value={cbm} onChangeText={setCbm} />
+              <TextInput style={s.dimInput} placeholder="Cantidad" keyboardType="numeric" value={cantidad} onChangeText={setCantidad} />
+            </View>
+            <TextInput
+              style={[s.input, { minHeight: 60, textAlignVertical: 'top' }]}
+              placeholder="Descripción de mercancía (opcional)"
+              multiline
+              value={descripcion}
+              onChangeText={setDescripcion}
+            />
+
+            <TouchableOpacity style={s.calcBtn} onPress={handleCalculate} disabled={calculating}>
+              {calculating ? <ActivityIndicator color="#fff" /> : (
+                <>
+                  <Ionicons name="calculator" size={18} color="#fff" />
+                  <Text style={s.calcBtnText}>Calcular precio</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {calcResult && (
+              <View style={s.calcResult}>
+                <Text style={s.calcResultLabel}>Precio servicio</Text>
+                <Text style={s.calcResultValue}>
+                  ${Number(calcResult.precio_mxn).toLocaleString('es-MX')} MXN
+                </Text>
+                <Text style={s.calcResultMeta}>
+                  USD ${Number(calcResult.precio_usd).toFixed(2)} · TC ${Number(calcResult.tipo_cambio).toFixed(2)}
+                </Text>
+                {calcResult.peso_cobrable && (
+                  <Text style={s.calcResultMeta}>Peso cobrable: {calcResult.peso_cobrable} kg</Text>
+                )}
+                {calcResult.tiempo_estimado && (
+                  <Text style={s.calcResultMeta}>Tiempo estimado: {calcResult.tiempo_estimado}</Text>
+                )}
+              </View>
+            )}
+
+            {/* GEX */}
+            <Text style={s.sectionTitle}>4. Garantía Extendida (GEX)</Text>
+            <View style={s.gexRow}>
+              <Text style={{ flex: 1, color: TEXT, fontWeight: '600' }}>🛡️ Agregar GEX (prima 5%)</Text>
+              <Switch value={gexEnabled} onValueChange={setGexEnabled} trackColor={{ true: ORANGE }} />
+            </View>
+            {gexEnabled && (
+              <View style={s.dimRow}>
+                <TextInput
+                  style={[s.dimInput, { flex: 2 }]}
+                  placeholder="Valor declarado MXN"
+                  keyboardType="numeric"
+                  value={gexValor}
+                  onChangeText={setGexValor}
+                />
+                <View style={[s.dimInput, { flex: 1, justifyContent: 'center' }]}>
+                  <Text style={{ color: ORANGE, fontWeight: '700' }}>
+                    Prima: ${gexValor ? (Number(gexValor) * 0.05).toFixed(2) : '0.00'}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {/* Resumen */}
+            {calcResult && (
+              <View style={s.totalCard}>
+                <View style={s.totalRow}>
+                  <Text style={s.totalLabel}>Servicio</Text>
+                  <Text style={s.totalValue}>${Number(calcResult.precio_mxn).toLocaleString('es-MX')}</Text>
+                </View>
+                {gexEnabled && Number(gexValor) > 0 && (
+                  <View style={s.totalRow}>
+                    <Text style={s.totalLabel}>GEX</Text>
+                    <Text style={s.totalValue}>${(Number(gexValor) * 0.05).toLocaleString('es-MX')}</Text>
+                  </View>
+                )}
+                <View style={[s.totalRow, { borderTopWidth: 1, borderTopColor: '#FFB74D', paddingTop: 8, marginTop: 4 }]}>
+                  <Text style={[s.totalLabel, { fontWeight: '700', fontSize: 16 }]}>TOTAL</Text>
+                  <Text style={[s.totalValue, { color: ORANGE, fontWeight: '700', fontSize: 18 }]}>
+                    ${totalConGex.toLocaleString('es-MX')} MXN
+                  </Text>
+                </View>
+                <Text style={{ fontSize: 11, color: SUB, marginTop: 6, textAlign: 'right' }}>Vigencia: 7 días</Text>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={[s.generateBtn, (!calcResult || !selectedClient || generating) && { opacity: 0.5 }]}
+              onPress={handleGeneratePdf}
+              disabled={!calcResult || !selectedClient || generating}
+            >
+              {generating ? <ActivityIndicator color="#fff" /> : (
+                <>
+                  <Ionicons name="document-text" size={20} color="#fff" />
+                  <Text style={s.generateBtnText}>Generar PDF de Cotización</Text>
+                </>
+              )}
+            </TouchableOpacity>
+            {ticketId && (
+              <Text style={{ textAlign: 'center', color: SUB, fontSize: 12, marginTop: 6 }}>
+                📎 Se adjuntará al ticket #{ticketId}
+              </Text>
+            )}
+          </ScrollView>
+        </KeyboardAvoidingView>
+      )}
+
+      {/* ─── TAB: Mías ─── */}
+      {tab === 'mias' && (
+        loadingMyQuotes ? (
+          <View style={s.center}><ActivityIndicator size="large" color={ORANGE} /></View>
+        ) : (
+          <FlatList
+            data={myQuotes}
+            keyExtractor={(i) => String(i.id)}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={ORANGE} />}
+            contentContainerStyle={{ padding: 12, paddingBottom: 40 }}
+            ListEmptyComponent={
+              <View style={s.empty}>
+                <Ionicons name="document-text-outline" size={56} color="#ddd" />
+                <Text style={s.emptyText}>Aún no has generado cotizaciones</Text>
+              </View>
+            }
+            renderItem={({ item }) => {
+              const expired = item.valid_until && new Date(item.valid_until) < new Date();
+              return (
+                <TouchableOpacity
+                  style={s.quoteCard}
+                  onPress={() => item.pdf_url && Linking.openURL(item.pdf_url)}
+                >
+                  <View style={s.quoteIcon}>
+                    <Ionicons name="document-text" size={26} color={ORANGE} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={s.row}>
+                      <Text style={s.quoteFolio}>{item.folio}</Text>
+                      <View style={[s.statusChip, { backgroundColor: expired ? '#FFEBEE' : '#E8F5E9' }]}>
+                        <Text style={[s.statusChipText, { color: expired ? '#C62828' : '#2E7D32' }]}>
+                          {expired ? 'Vencida' : 'Vigente'}
+                        </Text>
+                      </View>
+                      {item.gex_enabled && (
+                        <View style={[s.statusChip, { backgroundColor: '#F3E5F5' }]}>
+                          <Text style={[s.statusChipText, { color: '#7B1FA2' }]}>GEX</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={s.quoteClient}>{item.client_name || '—'}</Text>
+                    <Text style={s.quoteMeta}>
+                      ${Number(item.total_mxn || 0).toLocaleString('es-MX')} MXN · {new Date(item.created_at).toLocaleDateString('es-MX')}
+                    </Text>
+                  </View>
+                  {item.pdf_url && <Ionicons name="download-outline" size={22} color={ORANGE} />}
+                </TouchableOpacity>
+              );
+            }}
+          />
+        )
+      )}
+
+      {/* Modal cliente */}
+      <Modal visible={clientPickerOpen} animationType="slide" onRequestClose={() => setClientPickerOpen(false)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: BG }} edges={['top']}>
+          <View style={s.modalHeader}>
+            <TouchableOpacity onPress={() => setClientPickerOpen(false)}>
+              <Ionicons name="close" size={26} color={BLACK} />
+            </TouchableOpacity>
+            <Text style={s.modalTitle}>Seleccionar cliente</Text>
+            <View style={{ width: 26 }} />
+          </View>
+          <View style={{ padding: 12 }}>
+            <TextInput
+              style={s.searchInput}
+              placeholder="Buscar por nombre, email o box…"
+              value={clientSearch}
+              onChangeText={setClientSearch}
+            />
+          </View>
+          <FlatList
+            data={filteredClients}
+            keyExtractor={(c) => String(c.id)}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={s.clientRow}
+                onPress={() => { setSelectedClient(item); setClientPickerOpen(false); setClientSearch(''); }}
+              >
+                <View style={s.clientAvatar}>
+                  <Text style={{ color: '#fff', fontWeight: '700' }}>
+                    {(item.full_name || item.name || '?').charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.clientName}>{item.full_name || item.name}</Text>
+                  <Text style={s.clientMeta}>
+                    {item.box_id ? `Box ${item.box_id} · ` : ''}{item.email || item.phone || ''}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={<Text style={{ textAlign: 'center', color: SUB, padding: 20 }}>Sin resultados</Text>}
+          />
+        </SafeAreaView>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const s = StyleSheet.create({
+  container: { flex: 1, backgroundColor: BG },
+  header: {
+    backgroundColor: ORANGE, paddingHorizontal: 14, paddingBottom: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  backBtn: { padding: 4 },
+  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
+  headerSub: { color: '#FFE0CC', fontSize: 12 },
+  tabs: { flexDirection: 'row', backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee' },
+  tabBtn: { flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: 3, borderBottomColor: 'transparent' },
+  tabBtnActive: { borderBottomColor: ORANGE },
+  tabLabel: { color: SUB, fontWeight: '600', fontSize: 13 },
+  tabLabelActive: { color: ORANGE },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  empty: { alignItems: 'center', paddingVertical: 60 },
+  emptyText: { color: SUB, marginTop: 10 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  ticketCard: {
+    backgroundColor: '#FFF8E1', borderColor: '#FFE0B2', borderWidth: 1, borderRadius: 12,
+    padding: 12, marginBottom: 10, flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  ticketSubject: { fontWeight: '700', color: TEXT, flex: 1 },
+  ticketClient: { color: '#5D4037', fontWeight: '600', fontSize: 13, marginTop: 2 },
+  ticketFolio: { color: SUB, fontSize: 11, marginTop: 2 },
+  cotizarBtn: { backgroundColor: ORANGE_LIGHT, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 8 },
+  cotizarBtnText: { color: '#fff', fontWeight: '700' },
+  sectionTitle: { fontWeight: '700', color: ORANGE, marginTop: 16, marginBottom: 8, fontSize: 14 },
+  pickerBtn: {
+    backgroundColor: CARD, borderWidth: 1, borderColor: '#e0e0e0', borderRadius: 10,
+    padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10,
+  },
+  pickerBtnText: { flex: 1, color: TEXT, fontWeight: '600' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
+  chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20, backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd' },
+  chipActive: { backgroundColor: ORANGE, borderColor: ORANGE },
+  chipText: { color: TEXT, fontWeight: '600', fontSize: 13 },
+  chipTextActive: { color: '#fff' },
+  chipSmall: { paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: '#fff', borderWidth: 1, borderColor: '#ddd' },
+  chipSmallActive: { backgroundColor: ORANGE_LIGHT, borderColor: ORANGE_LIGHT },
+  chipSmallText: { color: TEXT, fontSize: 12 },
+  chipSmallTextActive: { color: '#fff', fontWeight: '700' },
+  dimRow: { flexDirection: 'row', gap: 8, marginBottom: 8 },
+  dimInput: {
+    flex: 1, backgroundColor: CARD, borderWidth: 1, borderColor: '#e0e0e0',
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 10, fontSize: 14,
+  },
+  input: {
+    backgroundColor: CARD, borderWidth: 1, borderColor: '#e0e0e0',
+    borderRadius: 8, paddingHorizontal: 10, paddingVertical: 10, fontSize: 14, marginBottom: 8,
+  },
+  calcBtn: {
+    backgroundColor: BLACK, borderRadius: 10, paddingVertical: 12, marginTop: 6,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  calcBtnText: { color: '#fff', fontWeight: '700' },
+  calcResult: {
+    backgroundColor: '#E8F5E9', borderRadius: 10, padding: 12, marginTop: 10,
+    borderWidth: 1, borderColor: '#A5D6A7',
+  },
+  calcResultLabel: { color: SUB, fontSize: 12 },
+  calcResultValue: { color: '#2E7D32', fontWeight: '700', fontSize: 22, marginTop: 2 },
+  calcResultMeta: { color: SUB, fontSize: 12, marginTop: 2 },
+  gexRow: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: CARD,
+    borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#e0e0e0', marginBottom: 8,
+  },
+  totalCard: {
+    backgroundColor: '#FFF8E1', borderRadius: 12, padding: 14, marginTop: 12, borderWidth: 1, borderColor: '#FFE0B2',
+  },
+  totalRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
+  totalLabel: { color: TEXT, fontWeight: '600' },
+  totalValue: { color: TEXT, fontWeight: '600' },
+  generateBtn: {
+    backgroundColor: ORANGE, borderRadius: 12, paddingVertical: 14, marginTop: 18,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+  },
+  generateBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  quoteCard: {
+    backgroundColor: CARD, borderRadius: 12, padding: 12, marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 1,
+  },
+  quoteIcon: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: '#FFF3E0',
+    justifyContent: 'center', alignItems: 'center',
+  },
+  quoteFolio: { fontWeight: '700', color: TEXT, fontSize: 14 },
+  quoteClient: { color: '#5D4037', fontSize: 13, marginTop: 2, fontWeight: '600' },
+  quoteMeta: { color: SUB, fontSize: 11, marginTop: 2 },
+  statusChip: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8 },
+  statusChipText: { fontSize: 10, fontWeight: '700' },
+  modalHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    padding: 14, backgroundColor: '#fff', borderBottomWidth: 1, borderBottomColor: '#eee',
+  },
+  modalTitle: { fontWeight: '700', fontSize: 16, color: TEXT },
+  searchInput: {
+    backgroundColor: '#fff', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10,
+    borderWidth: 1, borderColor: '#e0e0e0', fontSize: 14,
+  },
+  clientRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12,
+    backgroundColor: '#fff', marginHorizontal: 12, marginBottom: 6, borderRadius: 10,
+  },
+  clientAvatar: {
+    width: 38, height: 38, borderRadius: 19, backgroundColor: ORANGE,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  clientName: { fontWeight: '700', color: TEXT },
+  clientMeta: { color: SUB, fontSize: 12, marginTop: 2 },
+});
