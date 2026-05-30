@@ -352,6 +352,17 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
     requiresOnboarding: false,
   },
   {
+    id: 'admin_panel_permissions',
+    title: 'Permisos',
+    subtitle: 'Paneles por usuario (la matriz por rol sigue en Web)',
+    icon: 'shield-checkmark-outline',
+    iconFamily: 'ionicons',
+    color: '#F05A28',
+    screen: 'PanelPermissions',
+    roles: ['super_admin'],
+    requiresOnboarding: false,
+  },
+  {
     id: 'admin_system_settings',
     title: 'Ajustes de Sistema',
     subtitle: 'Interruptores de pagos, despacho, IA y mantenimiento',

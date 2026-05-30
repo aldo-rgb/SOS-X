@@ -79,6 +79,7 @@ import ChinaSeaHubScreen from './src/screens/ChinaSeaHubScreen';
 import BranchInventoryReportScreen from './src/screens/BranchInventoryReportScreen';
 import UsersAdminScreen from './src/screens/UsersAdminScreen';
 import SystemSettingsScreen from './src/screens/SystemSettingsScreen';
+import PanelPermissionsScreen from './src/screens/PanelPermissionsScreen';
 import CajaHubScreen from './src/screens/CajaHubScreen';
 import CajaCCScreen from './src/screens/CajaCCScreen';
 import BranchTreasuryScreen from './src/screens/BranchTreasuryScreen';
@@ -190,6 +191,7 @@ export type RootStackParamList = {
   BranchInventoryReport: { user: any; token: string };
   UsersAdmin: { user: any; token: string };
   SystemSettings: { user: any; token: string };
+  PanelPermissions: { user: any; token: string };
   CajaHub: { user: any; token: string };
   CajaCC: { user: any; token: string };
   BranchTreasury: { user: any; token: string };
@@ -446,6 +448,7 @@ function App() {
           <Stack.Screen name="BranchInventoryReport" component={BranchInventoryReportScreen} />
           <Stack.Screen name="UsersAdmin" component={UsersAdminScreen} />
           <Stack.Screen name="SystemSettings" component={SystemSettingsScreen} />
+          <Stack.Screen name="PanelPermissions" component={PanelPermissionsScreen} />
           <Stack.Screen name="CajaHub" component={CajaHubScreen} />
           <Stack.Screen name="CajaCC" component={CajaCCScreen} />
           <Stack.Screen name="BranchTreasury" component={BranchTreasuryScreen} />
