@@ -10393,10 +10393,20 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['xpay_enabled']?.enabled !== false
       : (byKey['payments_enabled']?.enabled !== false); // fallback al toggle global
 
-    // entregax_payments_enabled: controla botón Pagar de EntregaX
+    // entregax_payments_enabled: controla botón Pagar de EntregaX (master switch)
     const entregaxPaymentsEnabled = byKey['entregax_payments_enabled'] !== undefined
       ? byKey['entregax_payments_enabled']?.enabled !== false
       : (byKey['payments_enabled']?.enabled !== false); // fallback al toggle global
+
+    // entregax_payments_by_service: control granular por servicio (pobox, maritimo, aereo, dhl)
+    // Si no existe la clave, todos los servicios heredan del master switch.
+    const rawByService = byKey['entregax_payments_enabled']?.by_service;
+    const entregaxPaymentsByService = {
+      pobox:    rawByService?.pobox    !== false,
+      maritimo: rawByService?.maritimo !== false,
+      aereo:    rawByService?.aereo    !== false,
+      dhl:      rawByService?.dhl      !== false,
+    };
 
     // gex_enabled: controla la contratación de Garantía Extendida (GEX).
     // Por defecto TRUE — solo se desactiva si el super_admin lo apaga.
@@ -10453,6 +10463,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       payments_enabled: paymentsEnabled,
       xpay_enabled: xpayEnabled,
       entregax_payments_enabled: entregaxPaymentsEnabled,
+      entregax_payments_by_service: entregaxPaymentsByService,
       gex_enabled: gexEnabled,
       advisor_instructions_enabled: advisorInstructionsEnabled,
       require_payment_to_load: requirePaymentToLoad,
@@ -10463,7 +10474,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       maintenance_mode: maintenanceMode,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, maintenance_mode: false });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, maintenance_mode: false });
   }
 });
 
@@ -10510,20 +10521,38 @@ app.post('/api/admin/system/xpay-toggle', authenticateToken, requireRole('super_
   }
 });
 
-// POST /api/admin/system/entregax-payments-toggle — controla solo pagos EntregaX
+// POST /api/admin/system/entregax-payments-toggle — controla pagos EntregaX (master + por servicio)
+// Body: { enabled?: boolean, by_service?: { pobox?: boolean, maritimo?: boolean, aereo?: boolean, dhl?: boolean } }
+// Si se omite algún campo, se conserva su valor anterior.
 app.post('/api/admin/system/entregax-payments-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
   try {
-    const enabled = req.body?.enabled !== false;
     const userId = req.user?.userId || null;
+    // Leer config actual para preservar campos no incluidos en el body
+    const cur = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'entregax_payments_enabled' LIMIT 1`
+    );
+    const current = cur.rows[0]?.config_value || {};
+    const currentByService = current.by_service || { pobox: true, maritimo: true, aereo: true, dhl: true };
+
+    const nextEnabled = req.body?.enabled !== undefined ? !!req.body.enabled : (current.enabled !== false);
+    const incomingByService = req.body?.by_service || {};
+    const nextByService = {
+      pobox:    incomingByService.pobox    !== undefined ? !!incomingByService.pobox    : currentByService.pobox    !== false,
+      maritimo: incomingByService.maritimo !== undefined ? !!incomingByService.maritimo : currentByService.maritimo !== false,
+      aereo:    incomingByService.aereo    !== undefined ? !!incomingByService.aereo    : currentByService.aereo    !== false,
+      dhl:      incomingByService.dhl      !== undefined ? !!incomingByService.dhl      : currentByService.dhl      !== false,
+    };
+    const nextValue = { enabled: nextEnabled, by_service: nextByService };
+
     await pool.query(
       `INSERT INTO system_configurations (config_key, config_value, description, is_active)
-       VALUES ('entregax_payments_enabled', $1::jsonb, 'Control de pagos EntregaX (botón Pagar en app/web)', TRUE)
+       VALUES ('entregax_payments_enabled', $1::jsonb, 'Control de pagos EntregaX (botón Pagar en app/web) — master + por servicio', TRUE)
        ON CONFLICT (config_key) DO UPDATE
          SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
-      [JSON.stringify({ enabled: !!enabled }), userId]
+      [JSON.stringify(nextValue), userId]
     );
-    console.log(`💳 [ENTREGAX-PAYMENTS] ${enabled ? '✅ Habilitado' : '🔴 Deshabilitado'} por user #${userId}`);
-    res.json({ success: true, entregax_payments_enabled: !!enabled });
+    console.log(`💳 [ENTREGAX-PAYMENTS] master=${nextEnabled} by_service=${JSON.stringify(nextByService)} por user #${userId}`);
+    res.json({ success: true, entregax_payments_enabled: nextEnabled, entregax_payments_by_service: nextByService });
   } catch (err: any) {
     console.error('[ENTREGAX-PAYMENTS-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar estado de pagos EntregaX' });

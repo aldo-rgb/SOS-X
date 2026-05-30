@@ -373,7 +373,7 @@ export default function DashboardClient() {
   const { t } = useTranslation();
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
-  const { xpayEnabled, entregaxPaymentsEnabled: rawEntregaxPaymentsEnabled, gexEnabled } = usePaymentStatus();
+  const { xpayEnabled, entregaxPaymentsEnabled: rawEntregaxPaymentsEnabled, entregaxPaymentsByService, isEntregaxPaymentEnabledFor: rawIsEntregaxPaymentEnabledFor, gexEnabled } = usePaymentStatus();
   // Lee user del localStorage (puede haber sido actualizado tras OTP)
   const currentUser = useMemo(() => {
     try {
@@ -392,6 +392,9 @@ export default function DashboardClient() {
   const paymentsEnabled = xpayEnabled && isPhoneVerified;
   // Pagos nativos EntregaX también requieren teléfono verificado
   const entregaxPaymentsEnabled = rawEntregaxPaymentsEnabled && isPhoneVerified;
+  // Helper por-servicio (master + teléfono + sub-toggle por tipo)
+  const isEntregaxPaymentEnabledFor = (servicio?: string | null): boolean =>
+    isPhoneVerified && rawIsEntregaxPaymentEnabledFor(servicio);
 
   const SERVICE_CONFIG = useMemo<ServiceConfigItem[]>(() => [
     { type: 'china_air', name: t('cd.services.china_air'), icon: '✈️', timeframe: t('cd.services.china_air_time'), tutorial: t('cd.services.china_air_tutorial') },
@@ -3340,8 +3343,10 @@ export default function DashboardClient() {
   }, [packages, selectedPackageIds]);
 
   const getSelectedPayablePackages = useCallback(() => {
-    return getSelectedPackages().filter(isPackagePayable);
-  }, [getSelectedPackages]);
+    return getSelectedPackages()
+      .filter(isPackagePayable)
+      .filter(pkg => isEntregaxPaymentEnabledFor(pkg.servicio || pkg.shipment_type));
+  }, [getSelectedPackages, entregaxPaymentsByService, rawEntregaxPaymentsEnabled, isPhoneVerified]);
 
   useEffect(() => {
     setSelectedPackageIds(prev => {
@@ -11088,8 +11093,8 @@ export default function DashboardClient() {
                   );
                 })()}
 
-                {/* Estado y Costo — oculto si Pagos EntregaX está desactivado */}
-                {entregaxPaymentsEnabled && (
+                {/* Estado y Costo — oculto si Pagos EntregaX está desactivado (master o por servicio) */}
+                {isEntregaxPaymentEnabledFor(selectedPackage?.servicio || selectedPackage?.shipment_type) && (
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1 }}>
                     💰 {t('cd.detail.serviceCost')}

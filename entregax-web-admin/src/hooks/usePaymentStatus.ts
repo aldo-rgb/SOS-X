@@ -13,6 +13,7 @@ interface PaymentStatusCache {
   payments_enabled: boolean;
   xpay_enabled: boolean;
   entregax_payments_enabled: boolean;
+  entregax_payments_by_service: { pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean };
   gex_enabled: boolean;
   advisor_instructions_enabled: boolean;
   require_payment_to_load: boolean;
@@ -31,6 +32,7 @@ const FALLBACK: PaymentStatusCache = {
   payments_enabled: true,
   xpay_enabled: true,
   entregax_payments_enabled: true,
+  entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
   gex_enabled: true,
   advisor_instructions_enabled: true,
   require_payment_to_load: true,
@@ -40,6 +42,26 @@ const FALLBACK: PaymentStatusCache = {
   cajito_avatar_url: null,
   maintenance_mode: false,
 };
+
+export type EntregaxServiceKey = 'pobox' | 'maritimo' | 'aereo' | 'dhl';
+
+/** Mapea un servicio (string libre) a la clave canónica del toggle granular. */
+export function mapServiceKey(servicio?: string | null): EntregaxServiceKey | null {
+  if (!servicio) return null;
+  const s = String(servicio).toLowerCase();
+  // PO Box USA
+  if (s.includes('pobox') || s.includes('po_box') || s.includes('po-box')) return 'pobox';
+  // DHL
+  if (s.includes('dhl')) return 'dhl';
+  // Marítimo China
+  if (s.includes('marít') || s.includes('marit') || s.includes('maritime')
+      || s.startsWith('sea_') || s.startsWith('fcl_')
+      || s === 'china_sea' || s === 'sea' || s === 'fcl') return 'maritimo';
+  // Aéreo China
+  if (s.includes('aére') || s.includes('aere') || s.includes('aereo')
+      || s.startsWith('air_') || s === 'china_air' || s === 'air') return 'aereo';
+  return null;
+}
 
 export function usePaymentStatus() {
   const [status, setStatus] = useState<PaymentStatusCache>(cached ?? FALLBACK);
@@ -59,10 +81,17 @@ export function usePaymentStatus() {
         if (!res.ok) throw new Error('status error');
         const data = await res.json();
         if (!cancelled) {
+          const bs = data.entregax_payments_by_service || {};
           cached = {
             payments_enabled: data.payments_enabled !== false,
             xpay_enabled: data.xpay_enabled !== false,
             entregax_payments_enabled: data.entregax_payments_enabled !== false,
+            entregax_payments_by_service: {
+              pobox:    bs.pobox    !== false,
+              maritimo: bs.maritimo !== false,
+              aereo:    bs.aereo    !== false,
+              dhl:      bs.dhl      !== false,
+            },
             gex_enabled: data.gex_enabled !== false,
             advisor_instructions_enabled: data.advisor_instructions_enabled !== false,
             require_payment_to_load: data.require_payment_to_load !== false,
@@ -88,6 +117,13 @@ export function usePaymentStatus() {
     paymentsEnabled: status.payments_enabled,
     xpayEnabled: status.xpay_enabled,
     entregaxPaymentsEnabled: status.entregax_payments_enabled,
+    entregaxPaymentsByService: status.entregax_payments_by_service,
+    isEntregaxPaymentEnabledFor: (servicio?: string | null): boolean => {
+      if (!status.entregax_payments_enabled) return false;
+      const key = mapServiceKey(servicio);
+      if (!key) return true;
+      return status.entregax_payments_by_service[key] !== false;
+    },
     gexEnabled: status.gex_enabled,
     advisorInstructionsEnabled: status.advisor_instructions_enabled,
     requirePaymentToLoad: status.require_payment_to_load,
@@ -112,9 +148,12 @@ export async function toggleXPay(enabled: boolean): Promise<void> {
   invalidatePaymentStatusCache();
 }
 
-/** Actualiza el estado de pagos EntregaX (solo Super Admin) */
-export async function toggleEntregaxPayments(enabled: boolean): Promise<void> {
-  await api.post('/admin/system/entregax-payments-toggle', { enabled });
+/** Actualiza el estado de pagos EntregaX (solo Super Admin).
+ *  Si se omiten campos, se preservan los valores anteriores.
+ */
+export async function toggleEntregaxPayments(payload: boolean | { enabled?: boolean; by_service?: Partial<{ pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean }> }): Promise<void> {
+  const body = typeof payload === 'boolean' ? { enabled: payload } : payload;
+  await api.post('/admin/system/entregax-payments-toggle', body);
   invalidatePaymentStatusCache();
 }
 

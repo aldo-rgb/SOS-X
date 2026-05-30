@@ -135,7 +135,8 @@ const CARRIER_DISPLAY_NAMES: Record<string, string> = {
 
 export default function PackageDetailScreen({ navigation, route }: Props) {
   const { package: pkg, user, token } = route.params;
-  const { gexEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
+  const { gexEnabled, entregaxPaymentsEnabled, isEntregaxPaymentEnabledFor } = usePaymentStatus();
+  const entregaxPayForThis = isEntregaxPaymentEnabledFor((pkg as any)?.servicio || (pkg as any)?.shipment_type);
   const [loading, setLoading] = useState(true);
   const [details, setDetails] = useState<PackageDetails | null>(null);
   const [imageLoadError, setImageLoadError] = useState(false);
@@ -800,9 +801,8 @@ export default function PackageDetailScreen({ navigation, route }: Props) {
           </Card.Content>
         </Card>
 
-        {/* Costos — oculto si Pagos EntregaX está desactivado */}
-        {entregaxPaymentsEnabled && (
-        <Card style={styles.costsCard}>
+        {/* Costos — oculto si Pagos EntregaX está desactivado (master o por servicio) */}
+        {entregaxPayForThis && (        <Card style={styles.costsCard}>
           <Card.Content>
             <Text style={styles.sectionTitle}>💰 Desglose de Costos</Text>
             <Divider style={styles.divider} />

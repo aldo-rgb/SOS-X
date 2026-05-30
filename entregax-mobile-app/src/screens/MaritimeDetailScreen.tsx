@@ -61,7 +61,8 @@ interface Address {
 
 export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const { package: pkg, user, token } = route.params;
-  const { gexEnabled, entregaxPaymentsEnabled } = usePaymentStatus();
+  const { gexEnabled, entregaxPaymentsEnabled, isEntregaxPaymentEnabledFor } = usePaymentStatus();
+  const entregaxPayForThis = isEntregaxPaymentEnabledFor((pkg as any)?.servicio || (pkg as any)?.shipment_type);
   const [loading, setLoading] = useState(true);
   const [currentPkg, setCurrentPkg] = useState<any>(pkg as any);
   const [address, setAddress] = useState<Address | null>(null);
@@ -536,8 +537,8 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
           })()
         )}
 
-        {/* Desglose de Costos — oculto si Pagos EntregaX está desactivado */}
-        {entregaxPaymentsEnabled && (
+        {/* Desglose de Costos — oculto si Pagos EntregaX está desactivado (master o por servicio) */}
+        {entregaxPayForThis && (
         <Card style={styles.costsCard}>
           <Card.Content>
             <View style={styles.sectionHeader}>

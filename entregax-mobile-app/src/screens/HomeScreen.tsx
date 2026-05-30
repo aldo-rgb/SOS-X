@@ -85,7 +85,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const { user: initialUser, token } = route.params;
-  const { xpayEnabled, entregaxPaymentsEnabled, gexEnabled } = usePaymentStatus();
+  const { xpayEnabled, entregaxPaymentsEnabled, isEntregaxPaymentEnabledFor, gexEnabled } = usePaymentStatus();
   // Logos remotos (configurables desde Ajustes del Sistema > Brand Assets).
   const entregaxLogoUrl = useBrandAsset('entregax_full_white'); // appbar oscuro
   const xpayLogoUrl = useBrandAsset('xpay_full_white');
@@ -2413,6 +2413,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               } else {
                 if (!entregaxPaymentsEnabled) {
                   Alert.alert('No disponible', 'Los pagos están temporalmente desactivados.');
+                  return;
+                }
+                const blocked = selectedPackages.filter((p: any) => !isEntregaxPaymentEnabledFor(p.servicio || p.shipment_type));
+                if (blocked.length > 0) {
+                  Alert.alert('Servicio sin pagos habilitados',
+                    'Algunos paquetes seleccionados corresponden a un tipo de servicio cuyos pagos están temporalmente deshabilitados. Por favor desmarca esos paquetes para continuar.');
                   return;
                 }
                 navigation.navigate('PaymentSummary', {
