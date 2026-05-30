@@ -32,6 +32,9 @@ import {
   FlatList,
   RefreshControl,
   Switch,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -64,6 +67,14 @@ interface UserPermission {
   panel_key: string;
   can_view: boolean;
   can_edit: boolean;
+}
+
+interface SubModule {
+  module_key: string;
+  module_name: string;
+  description?: string;
+  can_view?: boolean;
+  can_edit?: boolean;
 }
 
 type WizardStep = 'users' | 'category' | 'modules';
@@ -142,6 +153,13 @@ export default function PanelPermissionsScreen({ navigation, route }: Props) {
   const [saving, setSaving] = useState(false);
   // Cuando un usuario seleccionado es Super Admin, no se puede modificar.
   const [superAdminBlock, setSuperAdminBlock] = useState<string[]>([]);
+
+  // Sub-módulos (drill-down dentro de un panel)
+  const [submodPanel, setSubmodPanel] = useState<Panel | null>(null);
+  const [submodList, setSubmodList] = useState<SubModule[]>([]);
+  const [submodState, setSubmodState] = useState<Record<string, { can_view: boolean; can_edit: boolean }>>({});
+  const [submodLoading, setSubmodLoading] = useState(false);
+  const [submodSaving, setSubmodSaving] = useState(false);
 
   // -------- Cargas --------
   const loadPanels = useCallback(async () => {
@@ -282,6 +300,101 @@ export default function PanelPermissionsScreen({ navigation, route }: Props) {
       });
       return next;
     });
+  };
+
+  // -------- Sub-módulos (drill-down) --------
+  // Carga los sub-módulos del panel para el PRIMER usuario seleccionado
+  // (los marca como referencia). Al guardar, replica a TODOS los usuarios.
+  const openSubmodules = useCallback(async (panel: Panel) => {
+    if (selectedUsers.length === 0) return;
+    setSubmodPanel(panel);
+    setSubmodList([]);
+    setSubmodState({});
+    setSubmodLoading(true);
+    try {
+      const refUser = selectedUsers.find((u) => !superAdminBlock.includes(u.full_name)) || selectedUsers[0];
+      const res = await fetch(
+        `${API_URL}/api/admin/panels/${panel.panel_key}/user/${refUser.id}/modules`,
+        { headers: authHeaders }
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const mods: SubModule[] = data.permissions || [];
+      setSubmodList(mods);
+      const map: Record<string, { can_view: boolean; can_edit: boolean }> = {};
+      mods.forEach((m) => {
+        map[m.module_key] = { can_view: !!m.can_view, can_edit: !!m.can_edit };
+      });
+      setSubmodState(map);
+    } catch (err) {
+      console.error('[PanelPermissions] openSubmodules:', err);
+      Alert.alert('Error', 'No se pudieron cargar los sub-módulos de este panel.');
+      setSubmodPanel(null);
+    } finally {
+      setSubmodLoading(false);
+    }
+  }, [authHeaders, selectedUsers, superAdminBlock]);
+
+  const toggleSubmod = (moduleKey: string, field: 'can_view' | 'can_edit') => {
+    setSubmodState((prev) => {
+      const cur = prev[moduleKey] || { can_view: false, can_edit: false };
+      const next = { ...cur, [field]: !cur[field] };
+      if (field === 'can_view' && !next.can_view) next.can_edit = false;
+      if (field === 'can_edit' && next.can_edit) next.can_view = true;
+      return { ...prev, [moduleKey]: next };
+    });
+  };
+
+  const bulkSubmodToggle = (value: boolean) => {
+    setSubmodState((prev) => {
+      const next = { ...prev };
+      submodList.forEach((m) => {
+        next[m.module_key] = { can_view: value, can_edit: value };
+      });
+      return next;
+    });
+  };
+
+  const saveSubmodules = async () => {
+    if (!submodPanel) return;
+    const editable = selectedUsers.filter((u) => !superAdminBlock.includes(u.full_name));
+    if (editable.length === 0) {
+      Alert.alert('Sin cambios', 'Todos los usuarios son Super Admin.');
+      return;
+    }
+    const permissionsArray = Object.entries(submodState).map(([module_key, p]) => ({
+      module_key,
+      can_view: p.can_view,
+      can_edit: p.can_edit,
+    }));
+
+    setSubmodSaving(true);
+    let ok = 0;
+    let fail = 0;
+    for (const u of editable) {
+      try {
+        const r = await fetch(
+          `${API_URL}/api/admin/panels/${submodPanel.panel_key}/user/${u.id}/modules`,
+          {
+            method: 'PUT',
+            headers: authHeaders,
+            body: JSON.stringify({ permissions: permissionsArray }),
+          }
+        );
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        ok += 1;
+      } catch (err) {
+        console.error(`[PanelPermissions] saveSubmodules ${u.id}:`, err);
+        fail += 1;
+      }
+    }
+    setSubmodSaving(false);
+
+    Alert.alert(
+      fail === 0 ? 'Sub-módulos aplicados' : 'Aplicado con errores',
+      `${ok} usuario(s) actualizado(s).${fail > 0 ? `\n${fail} con error.` : ''}`,
+      [{ text: 'OK', onPress: () => setSubmodPanel(null) }]
+    );
   };
 
   // Guarda los permisos de la categoría activa para todos los usuarios
@@ -613,6 +726,14 @@ export default function PanelPermissionsScreen({ navigation, route }: Props) {
                   {p.description ? (
                     <Text style={styles.panelDesc} numberOfLines={2}>{p.description}</Text>
                   ) : null}
+                  <TouchableOpacity
+                    onPress={() => openSubmodules(p)}
+                    disabled={allBlocked || !cur.can_view}
+                    style={[styles.subBtn, (allBlocked || !cur.can_view) && { opacity: 0.4 }]}
+                  >
+                    <Ionicons name="options-outline" size={14} color={ORANGE} />
+                    <Text style={styles.subBtnTxt}>Configurar sub-módulos</Text>
+                  </TouchableOpacity>
                 </View>
                 <View style={styles.switchCol}>
                   <View style={styles.switchItem}>
@@ -661,11 +782,129 @@ export default function PanelPermissionsScreen({ navigation, route }: Props) {
           )}
         </TouchableOpacity>
       </View>
+
+      {/* Modal de sub-módulos */}
+      <Modal
+        visible={!!submodPanel}
+        animationType="slide"
+        transparent
+        onRequestClose={() => !submodSaving && setSubmodPanel(null)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.modalTitle} numberOfLines={1}>
+                  Sub-módulos de {submodPanel?.panel_name}
+                </Text>
+                <Text style={styles.modalSubtitle} numberOfLines={1}>
+                  Se aplicará a {selectedUsers.length - superAdminBlock.length} usuario(s)
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => !submodSaving && setSubmodPanel(null)}
+                style={styles.modalClose}
+              >
+                <Ionicons name="close" size={22} color="#334155" />
+              </TouchableOpacity>
+            </View>
+
+            {submodLoading ? (
+              <View style={[styles.center, { paddingVertical: 40 }]}>
+                <ActivityIndicator color={ORANGE} />
+                <Text style={{ marginTop: 8, color: '#64748B' }}>Cargando sub-módulos…</Text>
+              </View>
+            ) : submodList.length === 0 ? (
+              <View style={[styles.center, { paddingVertical: 40 }]}>
+                <Ionicons name="folder-open-outline" size={42} color="#CBD5E1" />
+                <Text style={[styles.emptyText, { marginTop: 8 }]}>
+                  Este panel no tiene sub-módulos configurados.
+                </Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.bulkRow}>
+                  <TouchableOpacity onPress={() => bulkSubmodToggle(true)} style={styles.bulkBtn}>
+                    <Ionicons name="checkmark-done" size={14} color={ORANGE} />
+                    <Text style={styles.bulkBtnTxt}>Activar todo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => bulkSubmodToggle(false)} style={styles.bulkBtn}>
+                    <Ionicons name="remove-circle-outline" size={14} color="#64748B" />
+                    <Text style={[styles.bulkBtnTxt, { color: '#64748B' }]}>Quitar todo</Text>
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ paddingBottom: 8 }}>
+                  {submodList.map((m) => {
+                    const cur = submodState[m.module_key] || { can_view: false, can_edit: false };
+                    return (
+                      <View key={m.module_key} style={styles.panelRow}>
+                        <View style={{ flex: 1, minWidth: 0 }}>
+                          <Text style={styles.panelName} numberOfLines={2}>{m.module_name}</Text>
+                          <Text style={styles.panelKey} numberOfLines={1}>{m.module_key}</Text>
+                          {m.description ? (
+                            <Text style={styles.panelDesc} numberOfLines={2}>{m.description}</Text>
+                          ) : null}
+                        </View>
+                        <View style={styles.switchCol}>
+                          <View style={styles.switchItem}>
+                            <Text style={styles.switchLabel}>Ver</Text>
+                            <Switch
+                              value={cur.can_view}
+                              onValueChange={() => toggleSubmod(m.module_key, 'can_view')}
+                              trackColor={{ false: '#E2E8F0', true: ORANGE }}
+                              thumbColor="#fff"
+                            />
+                          </View>
+                          <View style={styles.switchItem}>
+                            <Text style={styles.switchLabel}>Editar</Text>
+                            <Switch
+                              value={cur.can_edit}
+                              onValueChange={() => toggleSubmod(m.module_key, 'can_edit')}
+                              disabled={!cur.can_view}
+                              trackColor={{ false: '#E2E8F0', true: '#9333EA' }}
+                              thumbColor="#fff"
+                            />
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              </>
+            )}
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.cancelBtn}
+                onPress={() => setSubmodPanel(null)}
+                disabled={submodSaving}
+              >
+                <Text style={styles.cancelBtnText}>Cancelar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.primaryBtn, { flex: 2 }, (submodSaving || submodLoading || submodList.length === 0) && styles.primaryBtnDisabled]}
+                onPress={saveSubmodules}
+                disabled={submodSaving || submodLoading || submodList.length === 0}
+              >
+                {submodSaving ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="save-outline" size={18} color="#fff" />
+                    <Text style={styles.primaryBtnText}>Guardar sub-módulos</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
-
-// -------- Stepper visual de 3 puntos --------
 function Stepper({ current }: { current: 1 | 2 | 3 }) {
   const items: Array<{ n: 1 | 2 | 3; label: string }> = [
     { n: 1, label: 'Usuarios' },
@@ -855,4 +1094,47 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', backgroundColor: '#fff',
   },
   cancelBtnText: { color: '#475569', fontWeight: '700' },
+
+  subBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    marginTop: 6, alignSelf: 'flex-start',
+    paddingHorizontal: 8, paddingVertical: 4,
+    borderRadius: 6, borderWidth: 1, borderColor: ORANGE, backgroundColor: '#FFF7F2',
+  },
+  subBtnTxt: { fontSize: 11, color: ORANGE, fontWeight: '700' },
+
+  bulkRow: {
+    flexDirection: 'row', gap: 8,
+    paddingHorizontal: 14, paddingTop: 10, paddingBottom: 6,
+  },
+  bulkBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 6, backgroundColor: '#FFF7F2', borderWidth: 1, borderColor: '#FCD9C6',
+  },
+  bulkBtnTxt: { fontSize: 11, color: ORANGE, fontWeight: '700' },
+
+  modalBackdrop: {
+    flex: 1, backgroundColor: 'rgba(15,23,42,0.45)',
+    justifyContent: 'flex-end',
+  },
+  modalCard: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 18, borderTopRightRadius: 18,
+    paddingBottom: 12,
+    maxHeight: '92%',
+  },
+  modalHeader: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: 14, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: '#E5E7EB',
+  },
+  modalTitle: { fontSize: 15, fontWeight: '800', color: '#0F172A' },
+  modalSubtitle: { fontSize: 11, color: '#64748B', marginTop: 2 },
+  modalClose: { padding: 6, marginLeft: 8 },
+  modalFooter: {
+    flexDirection: 'row', gap: 10,
+    paddingHorizontal: 14, paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: '#E5E7EB',
+  },
 });

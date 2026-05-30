@@ -2592,10 +2592,16 @@ app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.
           LIMIT 1`
       ),
       pool.query(
-        `SELECT code, name, cost_per_kg_usd, updated_at
-           FROM air_routes
-          WHERE is_active = true AND code <> 'TDI-EXPRES'
-          ORDER BY id ASC
+        `SELECT r.code, r.name, r.origin_airport, r.destination_airport,
+                r.origin_city, r.destination_city,
+                r.cost_per_kg_usd, r.updated_at,
+                (SELECT t.price_per_kg FROM air_tariffs t
+                  WHERE t.route_id = r.id AND t.tariff_type = 'G' AND t.is_active = true
+                    AND t.price_per_kg > 0
+                  ORDER BY t.id DESC LIMIT 1) AS price_generic_usd
+           FROM air_routes r
+          WHERE r.is_active = true AND r.code <> 'TDI-EXPRES'
+          ORDER BY r.id ASC
           LIMIT 1`
       ),
       pool.query(
@@ -2649,7 +2655,16 @@ app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.
         ? {
             route_code: tdi.code,
             route_name: tdi.name,
+            origin_airport: tdi.origin_airport || null,
+            destination_airport: tdi.destination_airport || null,
+            origin_city: tdi.origin_city || null,
+            destination_city: tdi.destination_city || null,
             cost_per_kg_usd: Number(tdi.cost_per_kg_usd),
+            // Precio de venta tarifa Genérico (G). Si no hay registro en air_tariffs
+            // se calcula como costo + $8 USD (fórmula por defecto del módulo aéreo).
+            price_generic_usd: tdi.price_generic_usd !== null && tdi.price_generic_usd !== undefined
+              ? Number(tdi.price_generic_usd)
+              : Number(tdi.cost_per_kg_usd) + 8,
             tipo_cambio_final: tdiFx ? Number(tdiFx.tipo_cambio_final) : null,
             updated_at: tdi.updated_at,
             hours_since_update: tdiH,

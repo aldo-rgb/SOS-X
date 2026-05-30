@@ -191,13 +191,40 @@ export const getTesoreriaDashboard = async (req: AuthRequest, res: Response): Pr
       return;
     }
     
-    // Obtener billeteras con saldos
+    // Obtener billeteras con saldos. La fuente de verdad de saldo es
+    // `petty_cash_wallets` (lo que ve el Panel Web → Caja Sucursales).
+    // Mostramos las billeteras configuradas en `billeteras_sucursal`,
+    // pero sobreescribimos el saldo de la billetera predeterminada con el
+    // balance real de la wallet de la sucursal para evitar divergencias.
     const billeterasResult = await pool.query(`
       SELECT id, nombre, tipo, saldo_actual, tipo_moneda, icono, color, is_default
       FROM billeteras_sucursal
       WHERE sucursal_id = $1 AND is_active = true
       ORDER BY is_default DESC, nombre
     `, [targetBranch]);
+
+    // Saldo real desde petty_cash_wallets (sucursal)
+    const pettyRes = await pool.query(`
+      SELECT COALESCE(balance_mxn, 0) AS balance_mxn,
+             COALESCE(pending_to_verify_mxn, 0) AS pending_to_verify_mxn,
+             COALESCE(currency, 'MXN') AS currency
+        FROM petty_cash_wallets
+       WHERE owner_type = 'branch' AND branch_id = $1
+       LIMIT 1
+    `, [targetBranch]);
+    const pettyRow = pettyRes.rows[0] || null;
+
+    // Reemplaza el saldo de la billetera predeterminada con el saldo real
+    // de petty_cash_wallets (o de la primera si no hay default).
+    if (pettyRow && billeterasResult.rows.length > 0) {
+      const idx = billeterasResult.rows.findIndex((b: any) => b.is_default);
+      const targetIdx = idx >= 0 ? idx : 0;
+      billeterasResult.rows[targetIdx] = {
+        ...billeterasResult.rows[targetIdx],
+        saldo_actual: String(pettyRow.balance_mxn),
+        tipo_moneda: pettyRow.currency,
+      };
+    }
     
     // Calcular totales del día
     const hoyResult = await pool.query(`

@@ -766,14 +766,28 @@ export default function DashboardBranchManager() {
                   <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     {tdi ? (
                       <RateCard
-                        title="Costo / kg · TDI Aéreo"
-                        main={`$${Number(tdi.cost_per_kg_usd).toFixed(2)} USD / kg`}
-                        secondary={
-                          `${tdi.route_name || tdi.route_code || 'Ruta activa'}` +
-                          (tdi.tipo_cambio_final !== null
+                        title="Precio Genérico / kg · TDI Aéreo"
+                        main={`$${Number(tdi.price_generic_usd ?? (Number(tdi.cost_per_kg_usd) + 8)).toFixed(2)} USD / kg`}
+                        secondary={(() => {
+                          // Alias amigables para aeropuertos conocidos
+                          const AIRPORT_ALIAS: Record<string, string> = {
+                            NLU: 'AIFA',
+                            MEX: 'AICM',
+                          };
+                          const aliasOf = (code?: string | null) =>
+                            code ? (AIRPORT_ALIAS[String(code).toUpperCase()] || String(code).toUpperCase()) : '';
+                          const orig = tdi.origin_city || aliasOf(tdi.origin_airport);
+                          const dest = tdi.destination_city || aliasOf(tdi.destination_airport);
+                          const route = (orig && dest) ? `${orig} → ${dest}` : (tdi.route_name || tdi.route_code || 'Ruta activa');
+                          const oa = aliasOf(tdi.origin_airport);
+                          const da = aliasOf(tdi.destination_airport);
+                          const airports = [oa, da].filter(Boolean).join('–');
+                          const routeStr = airports ? `${route} (${airports})` : route;
+                          const fx = tdi.tipo_cambio_final !== null && tdi.tipo_cambio_final !== undefined
                             ? ` · TC $${Number(tdi.tipo_cambio_final).toFixed(4)} MXN`
-                            : '')
-                        }
+                            : '';
+                          return `${routeStr} · costo $${Number(tdi.cost_per_kg_usd).toFixed(2)}${fx}`;
+                        })()}
                         updatedAt={tdi.updated_at}
                         hoursSince={tdi.hours_since_update}
                         stale={tdi.hours_since_update !== null && tdi.hours_since_update !== undefined && tdi.hours_since_update >= 168}
@@ -782,7 +796,7 @@ export default function DashboardBranchManager() {
                       />
                     ) : (
                       <RateCard
-                        title="Costo / kg · TDI Aéreo"
+                        title="Precio Genérico / kg · TDI Aéreo"
                         main="Sin ruta activa"
                         updatedAt={null}
                         hoursSince={null}
