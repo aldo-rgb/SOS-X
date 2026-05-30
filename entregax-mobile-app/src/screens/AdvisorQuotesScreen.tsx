@@ -229,7 +229,9 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
     setGenerating(true);
     try {
       const gexValorN = gexEnabled ? Number(gexValor) || 0 : 0;
-      const gexPrima = gexValorN > 0 ? Math.round(gexValorN * 0.05 * 100) / 100 : 0;
+      const gexInsurance = gexValorN > 0 ? Math.round(gexValorN * 0.05 * 100) / 100 : 0;
+      const gexFixed = gexValorN > 0 ? 625 : 0;
+      const gexPrima = gexInsurance + gexFixed;
       const body: any = {
         clientId: selectedClient.id,
         clientName: selectedClient.full_name || selectedClient.name,
@@ -290,7 +292,8 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const totalConGex = useMemo(() => {
     if (!calcResult) return 0;
     const base = Number(calcResult.precio_mxn) || 0;
-    const gex = gexEnabled && Number(gexValor) > 0 ? Number(gexValor) * 0.05 : 0;
+    const dv = Number(gexValor) || 0;
+    const gex = gexEnabled && dv > 0 ? (dv * 0.05) + 625 : 0;
     return base + gex;
   }, [calcResult, gexEnabled, gexValor]);
 
@@ -482,7 +485,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
             {/* GEX */}
             <Text style={s.sectionTitle}>4. Garantía Extendida (GEX)</Text>
             <View style={s.gexRow}>
-              <Text style={{ flex: 1, color: TEXT, fontWeight: '600' }}>🛡️ Agregar GEX (prima 5%)</Text>
+              <Text style={{ flex: 1, color: TEXT, fontWeight: '600' }}>🛡️ Agregar GEX (5% + $625 MXN)</Text>
               <Switch value={gexEnabled} onValueChange={setGexEnabled} trackColor={{ true: ORANGE }} />
             </View>
             {gexEnabled && (
@@ -496,7 +499,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                 />
                 <View style={[s.dimInput, { flex: 1, justifyContent: 'center' }]}>
                   <Text style={{ color: ORANGE, fontWeight: '700' }}>
-                    Prima: ${gexValor ? (Number(gexValor) * 0.05).toFixed(2) : '0.00'}
+                    Prima: ${gexValor && Number(gexValor) > 0 ? (Number(gexValor) * 0.05 + 625).toFixed(2) : '0.00'}
                   </Text>
                 </View>
               </View>
