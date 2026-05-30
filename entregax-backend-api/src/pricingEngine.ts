@@ -837,10 +837,9 @@ export const calculateMaritimeCost = async (req: Request, res: Response): Promis
 
         const directCbm = parseFloat(cbm) || 0;
         const hasDims = !!(lengthCm && widthCm && heightCm);
+        const parsedWeight = parseFloat(weightKg) || 0;
 
-        if (!weightKg) {
-            return res.status(400).json({ error: 'El peso es requerido' });
-        }
+        // El peso es opcional cuando se captura el CBM directo (paridad con web).
         if (directCbm <= 0 && !hasDims) {
             return res.status(400).json({ error: 'Captura el CBM (m³) o las dimensiones' });
         }
@@ -850,7 +849,7 @@ export const calculateMaritimeCost = async (req: Request, res: Response): Promis
             parseFloat(lengthCm) || 0,
             parseFloat(widthCm) || 0,
             parseFloat(heightCm) || 0,
-            parseFloat(weightKg),
+            parsedWeight,
             category || 'Generico',
             directCbm > 0 ? directCbm : undefined
         );
