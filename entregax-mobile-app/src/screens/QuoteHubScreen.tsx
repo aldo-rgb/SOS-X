@@ -995,33 +995,39 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         </View>
 
         {/* Tabla de tarifas Marítimo China (paridad con web) */}
-        {selectedService.key === 'maritime' && maritimeMode === 'volumen' && maritimeTiers.length > 0 && (
-          <View style={[styles.refTableWrap, { marginBottom: 12 }]}>
-            <View style={styles.refTableHeaderBar}>
-              <MaterialCommunityIcons name="ferry" size={18} color="#fff" />
-              <Text style={styles.refTableHeaderTitle}>Tabla de Precios Marítimo China · Genérico</Text>
+        {selectedService.key === 'maritime' && maritimeMode === 'volumen' && maritimeTiers.length > 0 && (() => {
+          const generico = maritimeTiers.filter(t => /generico/i.test(t.category));
+          if (generico.length === 0) return null;
+          return (
+            <View style={[styles.refTableWrap, { marginBottom: 12 }]}>
+              <View style={styles.refTableHeaderBar}>
+                <MaterialCommunityIcons name="ferry" size={18} color="#fff" />
+                <Text style={styles.refTableHeaderTitle}>Tabla de Precios Marítimo China · Genérico</Text>
+              </View>
+              <View style={[styles.tierRow, styles.tierHeader]}>
+                <Text style={[styles.tierCell, styles.tierCellHead, { flex: 1.5 }]}>Rango CBM</Text>
+                <Text style={[styles.tierCell, styles.tierCellHead, { flex: 1, textAlign: 'right' }]}>USD/CBM</Text>
+              </View>
+              {generico.map((t, i) => {
+                const minN = Number(t.min_cbm || 0);
+                const maxN = t.max_cbm == null ? null : Number(t.max_cbm);
+                const isActive = cbmCobrable != null &&
+                  Number(cbmCobrable) >= minN &&
+                  (maxN == null || Number(cbmCobrable) <= maxN);
+                return (
+                  <View key={i} style={[styles.tierRow, isActive && { backgroundColor: '#FFF4E5' }]}>
+                    <Text style={[styles.tierCell, { flex: 1.5, fontWeight: isActive ? '700' : '400' }]}>
+                      {minN.toFixed(2)} – {maxN == null ? '∞' : `${maxN.toFixed(2)} m³`}
+                    </Text>
+                    <Text style={[styles.tierCell, { flex: 1, textAlign: 'right', color: ORANGE, fontWeight: '700' }]}>
+                      ${Number(t.price).toFixed(2)}
+                    </Text>
+                  </View>
+                );
+              })}
             </View>
-            <View style={[styles.tierRow, styles.tierHeader]}>
-              <Text style={[styles.tierCell, styles.tierCellHead, { flex: 1.5 }]}>Rango CBM</Text>
-              <Text style={[styles.tierCell, styles.tierCellHead, { flex: 1, textAlign: 'right' }]}>USD/CBM</Text>
-            </View>
-            {maritimeTiers.map((t, i) => {
-              const isActive = cbmCobrable != null &&
-                Number(cbmCobrable) >= Number(t.cbm_min) &&
-                (t.cbm_max == null || Number(cbmCobrable) <= Number(t.cbm_max));
-              return (
-                <View key={i} style={[styles.tierRow, isActive && { backgroundColor: '#FFF4E5' }]}>
-                  <Text style={[styles.tierCell, { flex: 1.5, fontWeight: isActive ? '700' : '400' }]}>
-                    {Number(t.cbm_min).toFixed(2)} – {t.cbm_max == null ? '∞' : `${Number(t.cbm_max).toFixed(2)} m³`}
-                  </Text>
-                  <Text style={[styles.tierCell, { flex: 1, textAlign: 'right', color: ORANGE, fontWeight: '700' }]}>
-                    ${Number(t.precio_usd_cbm).toFixed(2)}
-                  </Text>
-                </View>
-              );
-            })}
-          </View>
-        )}
+          );
+        })()}
 
         <Text style={styles.disclaimer}>
           * Esta cotización es informativa. El cobro final puede variar según
