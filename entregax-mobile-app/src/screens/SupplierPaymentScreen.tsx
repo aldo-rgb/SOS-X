@@ -135,6 +135,7 @@ interface PaymentRequest {
   comprobante_subido_at?: string | null;
   payment_deadline_at?: string | null;
   instructions_snapshot?: any;
+  empresas_asignadas?: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>;
   created_at: string;
 }
 
@@ -1464,7 +1465,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                           style={[styles.linkBtn, { flex: 1, borderColor: ORANGE, justifyContent: 'center', paddingVertical: 9, paddingHorizontal: 8 }]}
                           onPress={() => downloadInstructionsPDF({
                             referencia: r.referencia_pago || `XP${String(r.id).padStart(6, '0')}`,
-                            empresas: r.instructions_snapshot?.empresas || [],
+                            empresas:
+                              (Array.isArray(r.empresas_asignadas) && r.empresas_asignadas.length > 0)
+                                ? r.empresas_asignadas
+                                : (r.instructions_snapshot?.empresas || []),
                           })}
                         >
                           <Ionicons name="document-text-outline" size={13} color={ORANGE} />

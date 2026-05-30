@@ -41,6 +41,22 @@ import {
 
 const SERVICIOS_VALIDOS: EntangledServicio[] = ['pago_con_factura', 'pago_sin_factura'];
 
+// ---------------------------------------------------------------------------
+// Cuenta ÚNICA para depósitos de servicios "pago_sin_factura".
+// ENTANGLED no asigna cuenta para este servicio (no requiere empresa SAT),
+// por lo que XPAY usa siempre esta misma cuenta de TREBOL/ANDINA en AFIRME.
+// Cualquier cambio futuro debe hacerse aquí.
+// ---------------------------------------------------------------------------
+const TREBOL_EMPRESA_SIN_FACTURA = {
+  empresa: 'ANDINA PROYECTOS ARQUITECTÓNICOS',
+  cuenta_bancaria: {
+    titular: 'ANDINA PROYECTOS ARQUITECTÓNICOS',
+    banco: 'AFIRME',
+    clabe: '062580120610037607',
+    moneda: 'MXN',
+  },
+};
+
 const getAuthUserId = (req: Request): number | null => {
   const u = (req as any).user;
   const id = Number(u?.userId ?? u?.id);
@@ -333,12 +349,17 @@ export const createPaymentRequestV2 = async (
   // podemos cumplir ninguno de los dos, así que dejamos la solicitud local en
   // 'esperando_comprobante' y la enviaremos cuando el cliente suba el archivo.
   if (!hasFile) {
+    // Para "pago_sin_factura" inyectamos la cuenta fija de TREBOL para
+    // que el cliente sepa a dónde depositar (ENTANGLED no devuelve cuenta
+    // para este servicio).
+    const empresasSinFactura = servicio === 'pago_sin_factura' ? [TREBOL_EMPRESA_SIN_FACTURA] : [];
     await pool.query(
       `UPDATE entangled_payment_requests
           SET estatus_global = 'esperando_comprobante',
+              empresas_asignadas = $1::jsonb,
               updated_at = NOW()
-        WHERE id = $1`,
-      [requestId]
+        WHERE id = $2`,
+      [JSON.stringify(empresasSinFactura), requestId]
     );
     return res.status(201).json({
       message: 'Solicitud creada. Sube el comprobante de pago para enviarla a ENTANGLED.',
@@ -346,6 +367,7 @@ export const createPaymentRequestV2 = async (
       referencia_pago: referenciaPago,
       status: 'esperando_comprobante',
       requires_proof_upload: true,
+      empresas_asignadas: empresasSinFactura,
     });
   }
 
@@ -412,6 +434,13 @@ export const createPaymentRequestV2 = async (
   // Estado tras fase 1: ya tenemos cuenta(s) — esperando comprobante del cliente.
   const estatusTrasFase1 = hasFile ? 'en_proceso' : 'esperando_comprobante';
 
+  // ENTANGLED no devuelve cuenta para "pago_sin_factura", así que forzamos
+  // la cuenta fija de TREBOL en ese caso.
+  const empresasFinales =
+    servicio === 'pago_sin_factura'
+      ? [TREBOL_EMPRESA_SIN_FACTURA]
+      : (remote.empresas_asignadas || []);
+
   let updated = (await pool.query(
     `UPDATE entangled_payment_requests
         SET entangled_transaccion_id = $1,
@@ -428,7 +457,7 @@ export const createPaymentRequestV2 = async (
       estatusTrasFase1,
       remote.comision_cobrada_porcentaje ?? null,
       remote.tc_aplicado_usd ?? null,
-      JSON.stringify(remote.empresas_asignadas || []),
+      JSON.stringify(empresasFinales),
       JSON.stringify(remote.raw || {}),
       requestId,
     ]
@@ -456,7 +485,7 @@ export const createPaymentRequestV2 = async (
     comision_cliente_final_porcentaje: commission.porcentaje,
     comision_cobrada_porcentaje: remote.comision_cobrada_porcentaje,
     tc_aplicado_usd: remote.tc_aplicado_usd,
-    empresas_asignadas: remote.empresas_asignadas || [],
+    empresas_asignadas: empresasFinales,
     entangled_transaccion_id: remote.transaccion_id,
     requires_proof_upload: false,
     status: estatusTrasFase1,
@@ -714,7 +743,11 @@ export async function sendPendingRequestToEntangled(
       remote.transaccion_id,
       remote.comision_cobrada_porcentaje ?? null,
       remote.tc_aplicado_usd ?? null,
-      JSON.stringify(remote.empresas_asignadas || []),
+      JSON.stringify(
+        servicio === 'pago_sin_factura'
+          ? [TREBOL_EMPRESA_SIN_FACTURA]
+          : (remote.empresas_asignadas || [])
+      ),
       remote.url_comprobante_cliente || reqRow.op_comprobante_cliente_url || null,
       JSON.stringify(remote.raw || {}),
       requestId,
@@ -729,7 +762,10 @@ export async function sendPendingRequestToEntangled(
       request: upd.rows[0],
       comision_cobrada_porcentaje: remote.comision_cobrada_porcentaje,
       tc_aplicado_usd: remote.tc_aplicado_usd,
-      empresas_asignadas: remote.empresas_asignadas || [],
+      empresas_asignadas:
+        servicio === 'pago_sin_factura'
+          ? [TREBOL_EMPRESA_SIN_FACTURA]
+          : (remote.empresas_asignadas || []),
     },
   };
 }
