@@ -5054,6 +5054,14 @@ app.delete('/api/admin/branches/:id', authenticateToken, requireRole(ROLES.SUPER
 // paquetes individuales — es un panel de monitoreo de alto nivel.
 // ============================================================
 app.get('/api/admin/branches/inventory-report', authenticateToken, requireMinLevel(ROLES.ADMIN), async (_req: Request, res: Response) => {
+  // Cada subconsulta va en su propio try/catch — si una falla (p.ej. tabla
+  // nueva todavía no migrada) el informe sigue regresando el resto de datos
+  // en vez de tronar todo con 500.
+  const safe = async <T,>(label: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try { return await fn(); }
+    catch (e: any) { console.error(`[INVENTORY-REPORT:${label}]`, e?.message || e); return fallback; }
+  };
+
   try {
     const branches = await pool.query(`
       SELECT id, name, code, city, allowed_services, is_active
@@ -5063,16 +5071,17 @@ app.get('/api/admin/branches/inventory-report', authenticateToken, requireMinLev
     `);
 
     // Agregar conteos por servicio para todas las sucursales en una sola consulta.
-    // Considera paquetes "en bodega" los que tienen status received/reempacado y
-    // los que están aún sin entregar (NOT IN delivered, cancelled, returned).
-    const counts = await pool.query(`
+    // Columnas reales: service_type (AIR_CHN_MX / SEA_CHN_MX / FCL_CHN_MX / POBOX_USA / DHL_*) y
+    // warehouse_location (china_air, china_sea, mexico, etc.). Excluimos los estados
+    // que indican que el paquete ya salió de la bodega.
+    const countsRows = await safe('packages_by_service', async () => (await pool.query(`
       SELECT
         p.current_branch_id AS branch_id,
         CASE
-          WHEN p.tracking_internal LIKE 'US-%' THEN 'pobox'
-          WHEN p.servicio IN ('SEA_CHN_MX','FCL_CHN_MX') OR p.shipment_type IN ('maritime','china_sea') THEN 'maritimo'
-          WHEN p.servicio = 'AIR_CHN_MX' OR p.shipment_type = 'china_air' THEN 'aereo'
-          WHEN p.shipment_type = 'dhl' OR p.tracking_internal LIKE 'DHL-%' THEN 'dhl'
+          WHEN p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%' THEN 'pobox'
+          WHEN p.service_type IN ('SEA_CHN_MX','FCL_CHN_MX') OR p.warehouse_location = 'china_sea' THEN 'maritimo'
+          WHEN p.service_type = 'AIR_CHN_MX' OR p.warehouse_location = 'china_air' THEN 'aereo'
+          WHEN p.tracking_internal LIKE 'DHL-%' OR p.service_type ILIKE 'DHL%' THEN 'dhl'
           ELSE 'otros'
         END AS service_key,
         COUNT(*)::int AS pkg_count,
@@ -5081,25 +5090,130 @@ app.get('/api/admin/branches/inventory-report', authenticateToken, requireMinLev
         MAX(p.created_at) AS last_received_at
       FROM packages p
       WHERE p.current_branch_id IS NOT NULL
-        AND p.status NOT IN ('delivered', 'cancelled', 'returned', 'in_transit')
+        AND p.status NOT IN ('delivered','dispatched_national','out_for_delivery')
+        AND COALESCE(p.is_lost, FALSE) = FALSE
       GROUP BY p.current_branch_id, service_key
-    `);
+    `)).rows, [] as any[]);
 
-    // Indexar conteos por branch_id
+    // Conteo de paquetes con pago pendiente por sucursal (saldo > 0)
+    const pendientesCobro = await safe('pending_payments', async () => (await pool.query(`
+      SELECT current_branch_id AS branch_id,
+             COUNT(*)::int AS count,
+             COALESCE(SUM(GREATEST(COALESCE(saldo_pendiente,0), 0)),0)::float AS monto
+      FROM packages
+      WHERE current_branch_id IS NOT NULL
+        AND status NOT IN ('delivered')
+        AND COALESCE(payment_status,'pending') IN ('pending','partial')
+      GROUP BY current_branch_id
+    `)).rows, [] as any[]);
+
+    // Paquetes marcados como perdidos / en abandono por sucursal
+    const perdidos = await safe('lost_packages', async () => (await pool.query(`
+      SELECT current_branch_id AS branch_id, COUNT(*)::int AS count
+      FROM packages
+      WHERE current_branch_id IS NOT NULL
+        AND (is_lost = TRUE OR status = 'lost' OR missing_on_arrival = TRUE)
+      GROUP BY current_branch_id
+    `)).rows, [] as any[]);
+
+    // Empleados activos por sucursal (cualquier rol no-cliente con branch_id)
+    const empleados = await safe('employees', async () => (await pool.query(`
+      SELECT branch_id, role, COUNT(*)::int AS count
+      FROM users
+      WHERE branch_id IS NOT NULL
+        AND COALESCE(is_active, TRUE) = TRUE
+        AND role IS NOT NULL
+        AND role <> 'client'
+      GROUP BY branch_id, role
+    `)).rows, [] as any[]);
+
+    // Vehículos por sucursal
+    const vehiculos = await safe('vehicles', async () => (await pool.query(`
+      SELECT branch_id,
+             COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE COALESCE(status,'active') = 'active')::int AS activos
+      FROM vehicles
+      WHERE branch_id IS NOT NULL
+      GROUP BY branch_id
+    `)).rows, [] as any[]);
+
+    // Activos / equipo por sucursal y categoría
+    const activos = await safe('assets', async () => (await pool.query(`
+      SELECT branch_id, category, COUNT(*)::int AS count
+      FROM branch_assets
+      WHERE branch_id IS NOT NULL
+      GROUP BY branch_id, category
+    `)).rows, [] as any[]);
+
+    // Indicadores globales: contenedores en distintos estados
+    const containersAgg = await safe('containers_global', async () => (await pool.query(`
+      SELECT status, COUNT(*)::int AS count
+      FROM containers
+      GROUP BY status
+    `)).rows, [] as any[]);
+
+    const globalContainers = {
+      en_camino: 0,        // in_transit / in_transit_clientfinal
+      en_puerto: 0,        // arrived_port / customs_cleared
+      consolidando: 0,     // consolidated / received_origin / received_partial
+      entregados: 0,
+    };
+    containersAgg.forEach((r: any) => {
+      const s = String(r.status || '').toLowerCase();
+      if (s.startsWith('in_transit')) globalContainers.en_camino += r.count;
+      else if (s === 'arrived_port' || s === 'customs_cleared') globalContainers.en_puerto += r.count;
+      else if (s === 'consolidated' || s.startsWith('received_')) globalContainers.consolidando += r.count;
+      else if (s === 'delivered') globalContainers.entregados += r.count;
+    });
+
+    // Indexar todo por branch_id
     const byBranch: Record<string, any> = {};
-    counts.rows.forEach((r: any) => {
+    const ensure = (bid: string) => {
+      if (!byBranch[bid]) byBranch[bid] = {
+        services: {},
+        total_packages: 0, total_weight: 0, last_received_at: null,
+        pendientes_cobro: { count: 0, monto_mxn: 0 },
+        perdidos: { count: 0 },
+        rrhh: { total: 0, por_rol: {} as Record<string, number> },
+        vehiculos: { total: 0, activos: 0 },
+        activos: { total: 0, por_categoria: {} as Record<string, number> },
+      };
+      return byBranch[bid];
+    };
+
+    countsRows.forEach((r: any) => {
       const bid = String(r.branch_id);
-      if (!byBranch[bid]) byBranch[bid] = { services: {}, total_packages: 0, total_weight: 0, last_received_at: null };
-      byBranch[bid].services[r.service_key] = {
+      const b = ensure(bid);
+      b.services[r.service_key] = {
         packages: r.pkg_count,
-        weight_kg: Number(r.total_weight.toFixed(2)),
+        weight_kg: Number(Number(r.total_weight).toFixed(2)),
         unique_clients: r.unique_clients,
       };
-      byBranch[bid].total_packages += r.pkg_count;
-      byBranch[bid].total_weight += Number(r.total_weight);
-      if (!byBranch[bid].last_received_at || new Date(r.last_received_at) > new Date(byBranch[bid].last_received_at)) {
-        byBranch[bid].last_received_at = r.last_received_at;
+      b.total_packages += r.pkg_count;
+      b.total_weight += Number(r.total_weight);
+      if (!b.last_received_at || new Date(r.last_received_at) > new Date(b.last_received_at)) {
+        b.last_received_at = r.last_received_at;
       }
+    });
+    pendientesCobro.forEach((r: any) => {
+      const b = ensure(String(r.branch_id));
+      b.pendientes_cobro = { count: r.count, monto_mxn: Number(Number(r.monto).toFixed(2)) };
+    });
+    perdidos.forEach((r: any) => {
+      ensure(String(r.branch_id)).perdidos = { count: r.count };
+    });
+    empleados.forEach((r: any) => {
+      const b = ensure(String(r.branch_id));
+      b.rrhh.total += r.count;
+      b.rrhh.por_rol[r.role] = r.count;
+    });
+    vehiculos.forEach((r: any) => {
+      ensure(String(r.branch_id)).vehiculos = { total: r.total, activos: r.activos };
+    });
+    activos.forEach((r: any) => {
+      const b = ensure(String(r.branch_id));
+      b.activos.total += r.count;
+      b.activos.por_categoria[r.category || 'otros'] = r.count;
     });
 
     // Catálogo de tips operativos por código de sucursal. Si la sucursal
@@ -5122,8 +5236,17 @@ app.get('/api/admin/branches/inventory-report', authenticateToken, requireMinLev
       'Mantén actualizada la información de WiFi y geocerca para la asistencia del personal.',
     ];
 
+    const emptyBranch = () => ({
+      services: {}, total_packages: 0, total_weight: 0, last_received_at: null,
+      pendientes_cobro: { count: 0, monto_mxn: 0 },
+      perdidos: { count: 0 },
+      rrhh: { total: 0, por_rol: {} },
+      vehiculos: { total: 0, activos: 0 },
+      activos: { total: 0, por_categoria: {} },
+    });
+
     const report = branches.rows.map((b: any) => {
-      const data = byBranch[String(b.id)] || { services: {}, total_packages: 0, total_weight: 0, last_received_at: null };
+      const data = byBranch[String(b.id)] || emptyBranch();
       const tips = TIPS_BY_CODE[String(b.code || '').toUpperCase()] || GENERIC_TIPS;
       return {
         id: b.id,
@@ -5140,14 +5263,23 @@ app.get('/api/admin/branches/inventory-report', authenticateToken, requireMinLev
           aereo:    data.services.aereo    || { packages: 0, weight_kg: 0, unique_clients: 0 },
           dhl:      data.services.dhl      || { packages: 0, weight_kg: 0, unique_clients: 0 },
         },
+        pendientes_cobro: data.pendientes_cobro,
+        perdidos: data.perdidos,
+        rrhh: data.rrhh,
+        vehiculos: data.vehiculos,
+        activos: data.activos,
         tips,
       };
     });
 
-    res.json({ generated_at: new Date().toISOString(), branches: report });
+    res.json({
+      generated_at: new Date().toISOString(),
+      global: { containers: globalContainers },
+      branches: report,
+    });
   } catch (err: any) {
-    console.error('[BRANCHES-INVENTORY-REPORT]', err.message);
-    res.status(500).json({ error: 'Error al generar informe de inventario por sucursal' });
+    console.error('[BRANCHES-INVENTORY-REPORT]', err.stack || err.message);
+    res.status(500).json({ error: 'Error al generar informe de inventario por sucursal', detail: err.message });
   }
 });
 // Inventario de activos por sucursal (módulo de control patrimonial).

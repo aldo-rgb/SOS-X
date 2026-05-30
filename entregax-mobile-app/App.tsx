@@ -77,6 +77,7 @@ import ChinaAirReceptionScreen from './src/screens/ChinaAirReceptionScreen';
 import ChinaAirInventoryScreen from './src/screens/ChinaAirInventoryScreen';
 import ChinaSeaHubScreen from './src/screens/ChinaSeaHubScreen';
 import BranchInventoryReportScreen from './src/screens/BranchInventoryReportScreen';
+import BranchesHubScreen from './src/screens/BranchesHubScreen';
 import UsersAdminScreen from './src/screens/UsersAdminScreen';
 import SystemSettingsScreen from './src/screens/SystemSettingsScreen';
 import PanelPermissionsScreen from './src/screens/PanelPermissionsScreen';
@@ -190,6 +191,7 @@ export type RootStackParamList = {
   ChinaSeaInventory: { user: any; token: string };
   Relabeling: { user: any; token: string };
   BranchInventoryReport: { user: any; token: string };
+  BranchesHub: { user: any; token: string };
   UsersAdmin: { user: any; token: string };
   SystemSettings: { user: any; token: string };
   PanelPermissions: { user: any; token: string };
@@ -448,6 +450,7 @@ function App() {
           <Stack.Screen name="ChinaAirInventory" component={ChinaAirInventoryScreen} />
           <Stack.Screen name="ChinaSeaHub" component={ChinaSeaHubScreen} />
           <Stack.Screen name="BranchInventoryReport" component={BranchInventoryReportScreen} />
+          <Stack.Screen name="BranchesHub" component={BranchesHubScreen} />
           <Stack.Screen name="UsersAdmin" component={UsersAdminScreen} />
           <Stack.Screen name="SystemSettings" component={SystemSettingsScreen} />
           <Stack.Screen name="PanelPermissions" component={PanelPermissionsScreen} />

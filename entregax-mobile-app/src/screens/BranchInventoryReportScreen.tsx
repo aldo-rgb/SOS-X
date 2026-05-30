@@ -47,8 +47,32 @@ interface BranchRow {
     aereo: ServiceStats;
     dhl: ServiceStats;
   };
+  pendientes_cobro: { count: number; monto_mxn: number };
+  perdidos: { count: number };
+  rrhh: { total: number; por_rol: Record<string, number> };
+  vehiculos: { total: number; activos: number };
+  activos: { total: number; por_categoria: Record<string, number> };
   tips: string[];
 }
+
+interface GlobalStats {
+  containers: { en_camino: number; en_puerto: number; consolidando: number; entregados: number };
+}
+
+const ROLE_LABELS: Record<string, string> = {
+  branch_manager: 'Gerentes',
+  counter_staff: 'Mostrador',
+  warehouse_ops: 'Almacén',
+  repartidor: 'Repartidores',
+  monitoreo: 'Monitoreo',
+  customer_service: 'Servicio cliente',
+  advisor: 'Asesores',
+  sub_advisor: 'Sub-asesores',
+  accountant: 'Contadores',
+  director: 'Directores',
+  admin: 'Admin',
+  super_admin: 'Super Admin',
+};
 
 const ORANGE = '#F05A28';
 const BG = '#F4F6F8';
@@ -77,6 +101,7 @@ export default function BranchInventoryReportScreen({ navigation, route }: Props
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [branches, setBranches] = useState<BranchRow[]>([]);
+  const [globalStats, setGlobalStats] = useState<GlobalStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
@@ -89,6 +114,7 @@ export default function BranchInventoryReportScreen({ navigation, route }: Props
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setBranches(data.branches || []);
+      setGlobalStats(data.global || null);
     } catch (e: any) {
       setError(e?.message || 'No se pudo cargar el informe');
     } finally {
@@ -189,6 +215,27 @@ export default function BranchInventoryReportScreen({ navigation, route }: Props
             </View>
           </View>
 
+          {/* Contenedores globales */}
+          {globalStats && (
+            <View style={styles.summaryCard}>
+              <Text style={styles.summaryTitle}>🚢 Contenedores (global)</Text>
+              <View style={styles.summaryRow}>
+                <View style={styles.summaryCol}>
+                  <Text style={styles.summaryNum}>{globalStats.containers.en_camino}</Text>
+                  <Text style={styles.summaryLbl}>En camino</Text>
+                </View>
+                <View style={styles.summaryCol}>
+                  <Text style={styles.summaryNum}>{globalStats.containers.en_puerto}</Text>
+                  <Text style={styles.summaryLbl}>En puerto / aduana</Text>
+                </View>
+                <View style={styles.summaryCol}>
+                  <Text style={styles.summaryNum}>{globalStats.containers.consolidando}</Text>
+                  <Text style={styles.summaryLbl}>Consolidando</Text>
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Cards por sucursal */}
           {branches.map(b => {
             const isOpen = expanded.has(b.id);
@@ -237,6 +284,65 @@ export default function BranchInventoryReportScreen({ navigation, route }: Props
                       <View style={styles.emptyHint}>
                         <Ionicons name="information-circle-outline" size={16} color="#888" />
                         <Text style={styles.emptyHintTxt}>Sin inventario activo en este momento.</Text>
+                      </View>
+                    )}
+
+                    {/* Estado financiero / operativo */}
+                    <Text style={[styles.sectionLabel, { marginTop: 14 }]}>Estado operativo</Text>
+                    <View style={styles.kpiGrid}>
+                      <View style={styles.kpiBox}>
+                        <Ionicons name="cash-outline" size={16} color="#2E7D32" />
+                        <Text style={styles.kpiNum}>{b.pendientes_cobro.count}</Text>
+                        <Text style={styles.kpiLbl}>Pendientes de cobro</Text>
+                        {b.pendientes_cobro.monto_mxn > 0 && (
+                          <Text style={styles.kpiSub}>${b.pendientes_cobro.monto_mxn.toFixed(0)} MXN</Text>
+                        )}
+                      </View>
+                      <View style={styles.kpiBox}>
+                        <Ionicons name="alert-circle-outline" size={16} color="#D32F2F" />
+                        <Text style={styles.kpiNum}>{b.perdidos.count}</Text>
+                        <Text style={styles.kpiLbl}>Perdidos / abandono</Text>
+                      </View>
+                    </View>
+
+                    {/* RRHH */}
+                    <Text style={[styles.sectionLabel, { marginTop: 14 }]}>👥 Personal ({b.rrhh.total})</Text>
+                    {b.rrhh.total === 0 ? (
+                      <Text style={styles.emptyHintTxt}>Sin empleados asignados.</Text>
+                    ) : (
+                      <View style={styles.chipWrap}>
+                        {Object.entries(b.rrhh.por_rol).map(([role, n]) => (
+                          <View key={role} style={styles.staffChip}>
+                            <Text style={styles.staffChipTxt}>{ROLE_LABELS[role] || role}: {n}</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {/* Flotilla */}
+                    <Text style={[styles.sectionLabel, { marginTop: 14 }]}>🚐 Flotilla</Text>
+                    <View style={styles.kpiGrid}>
+                      <View style={styles.kpiBox}>
+                        <Text style={styles.kpiNum}>{b.vehiculos.total}</Text>
+                        <Text style={styles.kpiLbl}>Vehículos totales</Text>
+                      </View>
+                      <View style={styles.kpiBox}>
+                        <Text style={styles.kpiNum}>{b.vehiculos.activos}</Text>
+                        <Text style={styles.kpiLbl}>En operación</Text>
+                      </View>
+                    </View>
+
+                    {/* Activos / equipo */}
+                    <Text style={[styles.sectionLabel, { marginTop: 14 }]}>📦 Equipo y activos ({b.activos.total})</Text>
+                    {b.activos.total === 0 ? (
+                      <Text style={styles.emptyHintTxt}>Sin activos registrados.</Text>
+                    ) : (
+                      <View style={styles.chipWrap}>
+                        {Object.entries(b.activos.por_categoria).map(([cat, n]) => (
+                          <View key={cat} style={styles.assetChip}>
+                            <Text style={styles.assetChipTxt}>{cat}: {n}</Text>
+                          </View>
+                        ))}
                       </View>
                     )}
 
@@ -325,4 +431,19 @@ const styles = StyleSheet.create({
   tipTxt: { flex: 1, fontSize: 13, color: '#444', lineHeight: 18 },
 
   footer: { textAlign: 'center', color: '#999', fontSize: 11, marginTop: 16 },
+
+  kpiGrid: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  kpiBox: {
+    flex: 1, backgroundColor: '#F8F9FB', borderRadius: 8, padding: 10, alignItems: 'center',
+    borderWidth: StyleSheet.hairlineWidth, borderColor: '#E5E5E5',
+  },
+  kpiNum: { fontSize: 18, fontWeight: '700', color: '#222', marginTop: 2 },
+  kpiLbl: { fontSize: 11, color: '#666', textAlign: 'center', marginTop: 2 },
+  kpiSub: { fontSize: 10, color: '#2E7D32', marginTop: 2, fontWeight: '600' },
+
+  chipWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 },
+  staffChip: { backgroundColor: '#E3F2FD', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  staffChipTxt: { fontSize: 11, color: '#1565C0', fontWeight: '600' },
+  assetChip: { backgroundColor: '#FFF3E0', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 12 },
+  assetChipTxt: { fontSize: 11, color: '#E65100', fontWeight: '600' },
 });

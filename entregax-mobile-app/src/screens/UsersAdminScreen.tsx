@@ -212,7 +212,7 @@ export default function UsersAdminScreen({ navigation, route }: Props) {
     if (!detailUser) return;
     Alert.alert(
       '🔐 Resetear a Entregax123',
-      `El usuario deberá cambiar su contraseña en el próximo inicio de sesión. ¿Confirmar?`,
+      'Esta acción SOLO cambia la contraseña a "Entregax123" y obliga al usuario a definir una nueva en su próximo inicio de sesión.\n\nNo afecta la verificación de identidad ni ningún otro dato del usuario.\n\n¿Confirmar?',
       [
         { text: 'Cancelar', style: 'cancel' },
         { text: 'Resetear', style: 'destructive', onPress: async () => {

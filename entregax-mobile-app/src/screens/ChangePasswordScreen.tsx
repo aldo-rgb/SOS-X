@@ -28,6 +28,9 @@ type RootStackParamList = {
   ChangePassword: { user: any; token: string; currentPassword: string };
   Verification: { user: any; token: string };
   EmployeeOnboarding: { user: any; token: string };
+  EmployeeHome: { user: any; token: string };
+  DriverHome: { user: any; token: string };
+  AdvisorDashboard: { user: any; token: string };
   Home: { user: any; token: string };
 };
 
@@ -69,119 +72,94 @@ export default function ChangePasswordScreen({ navigation, route }: ChangePasswo
     setLoading(true);
     try {
       await changePasswordApi(token, currentPassword, newPassword);
-      
-      // Roles de empleados que necesitan onboarding (INE, fotos, tallas, etc.)
-      const employeeRoles = ['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
-      const isEmployee = employeeRoles.includes(user.role);
-      
-      // Si es empleado, verificar si ya completó el onboarding
-      if (isEmployee) {
+
+      // ─────────────────────────────────────────────────────────────
+      // Routing post-cambio de contraseña.
+      // Debe replicar la lógica del LoginScreen: el flujo depende del
+      // rol del usuario. Sólo los clientes pasan por el flujo de
+      // verificación de identidad (/api/verify/status). Si el usuario
+      // ya está verificado, va directo a Home sin re-verificar.
+      // ─────────────────────────────────────────────────────────────
+
+      const role = user.role;
+
+      // Repartidor / monitoreo → DriverHome
+      if (role === 'repartidor' || role === 'monitoreo') {
+        Alert.alert('✅ Contraseña Actualizada', 'Tu contraseña ha sido cambiada exitosamente.', [
+          { text: 'Continuar', onPress: () => navigation.replace('DriverHome' as any, { user, token }) },
+        ]);
+        return;
+      }
+
+      // Asesores → AdvisorDashboard
+      const ADVISOR_ROLES = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
+      if (ADVISOR_ROLES.includes(role)) {
+        Alert.alert('✅ Contraseña Actualizada', 'Tu contraseña ha sido cambiada exitosamente.', [
+          { text: 'Continuar', onPress: () => navigation.replace('AdvisorDashboard' as any, { user, token }) },
+        ]);
+        return;
+      }
+
+      // Empleados (incluye admin / super_admin / director y staff operativo)
+      // Sólo roles que requieren onboarding (alta de RR. HH.) pasan por ese flujo.
+      const ONBOARDING_ROLES = ['warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+      const EMPLOYEE_ADMIN_ROLES = ['admin', 'super_admin', 'director'];
+
+      if (ONBOARDING_ROLES.includes(role)) {
         try {
-          // Verificar si ya completó el onboarding
           const onboardingResponse = await api.get('/api/hr/onboarding-status', {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { Authorization: `Bearer ${token}` },
           });
-          
           if (!onboardingResponse.data.isOnboarded) {
-            // Ir al wizard de onboarding de empleados
-            Alert.alert(
-              '✅ Contraseña Actualizada',
-              'Ahora necesitas completar tu alta como empleado.',
-              [
-                {
-                  text: 'Continuar',
-                  onPress: () => {
-                    navigation.replace('EmployeeOnboarding', { user, token });
-                  },
-                },
-              ]
-            );
+            Alert.alert('✅ Contraseña Actualizada', 'Ahora necesitas completar tu alta como empleado.', [
+              { text: 'Continuar', onPress: () => navigation.replace('EmployeeOnboarding' as any, { user, token }) },
+            ]);
             return;
           }
-        } catch (onboardError) {
-          // Si falla, asumir que necesita onboarding
-          Alert.alert(
-            '✅ Contraseña Actualizada',
-            'Ahora necesitas completar tu alta como empleado.',
-            [
-              {
-                text: 'Continuar',
-                onPress: () => {
-                  navigation.replace('EmployeeOnboarding', { user, token });
-                },
-              },
-            ]
-          );
+        } catch {
+          Alert.alert('✅ Contraseña Actualizada', 'Ahora necesitas completar tu alta como empleado.', [
+            { text: 'Continuar', onPress: () => navigation.replace('EmployeeOnboarding' as any, { user, token }) },
+          ]);
           return;
         }
-        
-        // Si ya completó onboarding, ir a EmployeeHome
-        Alert.alert(
-          '✅ Contraseña Actualizada',
-          'Tu contraseña ha sido cambiada exitosamente.',
-          [
-            {
-              text: 'Continuar',
-              onPress: () => {
-                if (user.role === 'repartidor' || user.role === 'monitoreo') {
-                  navigation.replace('DriverHome', { user, token });
-                  return;
-                }
-                navigation.replace('EmployeeHome', { user, token });
-              },
-            },
-          ]
-        );
+        Alert.alert('✅ Contraseña Actualizada', 'Tu contraseña ha sido cambiada exitosamente.', [
+          { text: 'Continuar', onPress: () => navigation.replace('EmployeeHome' as any, { user, token }) },
+        ]);
         return;
       }
-      
-      // Solo para clientes: Verificar si necesita verificación de identidad
+
+      if (EMPLOYEE_ADMIN_ROLES.includes(role)) {
+        Alert.alert('✅ Contraseña Actualizada', 'Tu contraseña ha sido cambiada exitosamente.', [
+          { text: 'Continuar', onPress: () => navigation.replace('EmployeeHome' as any, { user, token }) },
+        ]);
+        return;
+      }
+
+      // Sólo clientes: revisar verificación de identidad. Si ya está
+      // verificado, NO pedimos repetir el proceso — sólo confirmamos
+      // el cambio de contraseña y vamos a Home.
       let needsVerification = false;
-      
       try {
         const statusResponse = await api.get('/api/verify/status', {
-          headers: { Authorization: `Bearer ${token}` }
+          headers: { Authorization: `Bearer ${token}` },
         });
-        
-        console.log('🔍 Verification status response:', statusResponse.data);
         needsVerification = !statusResponse.data.isVerified;
-      } catch (verifyError) {
-        // Si falla el API, verificar si el usuario ya tiene isVerified en su objeto
-        console.log('⚠️ Error checking verification status:', verifyError);
-        // Usar el dato del usuario que viene del login si está disponible
+      } catch {
+        // Fallback al dato traído por login (evita falsos positivos al
+        // re-verificar cuando el API está intermitente).
         needsVerification = user.isVerified !== true;
-        console.log('🔍 Using user.isVerified fallback:', user.isVerified, '-> needsVerification:', needsVerification);
       }
-      
+
       if (needsVerification) {
-        Alert.alert(
-          '✅ Contraseña Actualizada',
-          'Ahora necesitas verificar tu identidad para continuar.',
-          [
-            {
-              text: 'Continuar',
-              onPress: () => {
-                navigation.replace('Verification', { user, token });
-              },
-            },
-          ]
-        );
+        Alert.alert('✅ Contraseña Actualizada', 'Ahora necesitas verificar tu identidad para continuar.', [
+          { text: 'Continuar', onPress: () => navigation.replace('Verification', { user, token }) },
+        ]);
         return;
       }
-      
-      // Si ya está verificado, ir directo a Home
-      Alert.alert(
-        '✅ Contraseña Actualizada',
-        'Tu contraseña ha sido cambiada exitosamente.',
-        [
-          {
-            text: 'Continuar',
-            onPress: () => {
-              navigation.replace('Home', { user, token });
-            },
-          },
-        ]
-      );
+
+      Alert.alert('✅ Contraseña Actualizada', 'Tu contraseña ha sido cambiada exitosamente.', [
+        { text: 'Continuar', onPress: () => navigation.replace('Home', { user, token }) },
+      ]);
     } catch (error: any) {
       Alert.alert('Error', error.message || 'No se pudo cambiar la contraseña');
     } finally {
