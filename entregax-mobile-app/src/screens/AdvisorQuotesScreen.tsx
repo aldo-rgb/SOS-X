@@ -65,7 +65,6 @@ const SERVICIO_LABELS: Record<ServicioKey, string> = {
 
 const SUBSERVICIO_OPTIONS: Record<ServicioKey, { value: string; label: string }[]> = {
   maritimo: [
-    { value: '', label: 'Default' },
     { value: 'por_volumen', label: 'Marítimo por volumen (LCL)' },
     { value: 'fcl_40', label: 'FCL 40 pies' },
   ],
@@ -101,7 +100,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const [clientSearch, setClientSearch] = useState('');
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [servicio, setServicio] = useState<ServicioKey>('maritimo');
-  const [subservicio, setSubservicio] = useState('');
+  const [subservicio, setSubservicio] = useState('por_volumen');
   const [categoria, setCategoria] = useState('Generico');
   const [largo, setLargo] = useState('');
   const [ancho, setAncho] = useState('');
@@ -140,8 +139,17 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
     if (clients.length > 0) return;
     try {
       const r = await api.get('/advisor/clients?limit=500', { headers: { Authorization: `Bearer ${token}` } });
-      const data = r.data?.clients || r.data || [];
-      setClients(Array.isArray(data) ? data : []);
+      const raw = r.data?.clients || r.data || [];
+      // Backend devuelve camelCase (fullName, boxId) — normalizamos a snake_case que usa la UI
+      const data = (Array.isArray(raw) ? raw : []).map((c: any) => ({
+        id: c.id,
+        full_name: c.fullName || c.full_name || c.name || '',
+        name: c.fullName || c.full_name || c.name || '',
+        email: c.email || '',
+        phone: c.phone || '',
+        box_id: c.boxId || c.box_id || '',
+      }));
+      setClients(data);
     } catch (e) { /* noop */ }
   }, [token, clients.length]);
 
@@ -256,7 +264,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
         ]
       );
       // Reset
-      setSelectedClient(null); setServicio('maritimo'); setSubservicio('');
+      setSelectedClient(null); setServicio('maritimo'); setSubservicio('por_volumen');
       setCategoria('Generico');
       setLargo(''); setAncho(''); setAlto(''); setPeso(''); setCbm(''); setCantidad('1');
       setDescripcion(''); setCalcResult(null);
@@ -382,7 +390,12 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                 <TouchableOpacity
                   key={key}
                   style={[s.chip, servicio === key && s.chipActive]}
-                  onPress={() => { setServicio(key); setSubservicio(''); setCalcResult(null); }}
+                  onPress={() => {
+                    setServicio(key);
+                    // Default subservicio: primer valor del array (marítimo arranca en 'por_volumen')
+                    setSubservicio(SUBSERVICIO_OPTIONS[key][0]?.value || '');
+                    setCalcResult(null);
+                  }}
                 >
                   <Text style={[s.chipText, servicio === key && s.chipTextActive]}>{SERVICIO_LABELS[key]}</Text>
                 </TouchableOpacity>
@@ -404,8 +417,8 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
               </View>
             )}
 
-            {/* Categoría marítimo */}
-            {servicio === 'maritimo' && (
+            {/* Categoría marítimo (oculto - siempre Genérico por defecto) */}
+            {false && servicio === 'maritimo' && (
               <View style={s.chipRow}>
                 {CATEGORIAS_MARITIMO.map(c => (
                   <TouchableOpacity
