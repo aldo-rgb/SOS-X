@@ -457,6 +457,8 @@ export default function DashboardAdvisor() {
   const [formalQuoteCalculating, setFormalQuoteCalculating] = useState(false);
   const [formalQuoteGexEnabled, setFormalQuoteGexEnabled] = useState(true);
   const [formalQuoteGexValor, setFormalQuoteGexValor] = useState('');
+  const [formalQuoteGexCurrency, setFormalQuoteGexCurrency] = useState<'MXN' | 'USD'>('MXN');
+  const [formalQuoteGexFallbackTc, setFormalQuoteGexFallbackTc] = useState<number>(0);
   const [formalQuoteTicketId, setFormalQuoteTicketId] = useState<number | null>(null);
   const [formalQuoteGenerating, setFormalQuoteGenerating] = useState(false);
 
@@ -3217,6 +3219,7 @@ export default function DashboardAdvisor() {
         const tc = Number(meta.tipo_cambio || 0);
         if (valUsd > 0 && tc > 0) {
           setFormalQuoteGexEnabled(true);
+          setFormalQuoteGexCurrency('MXN');
           setFormalQuoteGexValor((valUsd * tc).toFixed(2));
         } else {
           setFormalQuoteGexEnabled(false);
@@ -3226,8 +3229,17 @@ export default function DashboardAdvisor() {
     } else {
       setFormalQuoteTicketId(null);
     }
+    // Cargar TC GEX como fallback para conversión USD→MXN cuando aún no hay cálculo
+    if (!formalQuoteGexFallbackTc) {
+      api.get('/gex/exchange-rate')
+        .then((r: any) => {
+          const rate = Number(r?.data?.rate) || 0;
+          if (rate > 0) setFormalQuoteGexFallbackTc(rate);
+        })
+        .catch(() => { /* noop */ });
+    }
     setFormalQuoteDialogOpen(true);
-  }, [formalQuoteClients.length]);
+  }, [formalQuoteClients.length, formalQuoteGexFallbackTc]);
 
   const handleCalculateFormalQuote = async () => {
     setFormalQuoteCalculating(true);
@@ -3262,7 +3274,9 @@ export default function DashboardAdvisor() {
     try {
       // Calcular prima GEX: 5% del valor declarado + costo fijo de póliza $625 MXN
       const GEX_FIXED_FEE_MXN = 625;
-      const gexValor = formalQuoteGexEnabled ? Number(formalQuoteGexValor) || 0 : 0;
+      const gexTcForCalc = Number(formalQuoteCalcResult?.tipo_cambio) || formalQuoteGexFallbackTc || 0;
+      const gexValorRaw = formalQuoteGexEnabled ? Number(formalQuoteGexValor) || 0 : 0;
+      const gexValor = formalQuoteGexCurrency === 'USD' ? gexValorRaw * gexTcForCalc : gexValorRaw;
       const gexVariable = gexValor > 0 ? Math.round(gexValor * 0.05 * 100) / 100 : 0;
       const gexPrima = formalQuoteGexEnabled
         ? Math.round((gexVariable + GEX_FIXED_FEE_MXN) * 100) / 100
@@ -3303,7 +3317,7 @@ export default function DashboardAdvisor() {
       setFormalQuotePeso(''); setFormalQuoteCbm(''); setFormalQuoteCantidad('1');
       setFormalQuoteDescripcion('');
       setFormalQuoteCalcResult(null);
-      setFormalQuoteGexEnabled(true); setFormalQuoteGexValor('');
+      setFormalQuoteGexEnabled(true); setFormalQuoteGexValor(''); setFormalQuoteGexCurrency('MXN');
       setFormalQuoteTicketId(null);
       fetchFormalQuotesList();
       if (r.data?.pdfUrl) window.open(r.data.pdfUrl, '_blank');
@@ -5031,20 +5045,46 @@ export default function DashboardAdvisor() {
                 control={<Switch checked={formalQuoteGexEnabled} onChange={(e) => setFormalQuoteGexEnabled(e.target.checked)} color="warning" />}
                 label="🛡️ Agregar Garantía Extendida (GEX) — prima 5% del valor declarado"
               />
-              {formalQuoteGexEnabled && (
+              {formalQuoteGexEnabled && (() => {
+                const gexTc = Number(formalQuoteCalcResult?.tipo_cambio) || formalQuoteGexFallbackTc || 0;
+                const rawVal = Number(formalQuoteGexValor) || 0;
+                const valMxn = formalQuoteGexCurrency === 'USD' ? rawVal * gexTc : rawVal;
+                const valUsd = formalQuoteGexCurrency === 'MXN' && gexTc > 0 ? rawVal / gexTc : (formalQuoteGexCurrency === 'USD' ? rawVal : 0);
+                const variable5 = Math.round(valMxn * 0.05 * 100) / 100;
+                const totalPrima = Math.round((variable5 + 625) * 100) / 100;
+                return (
                 <Grid container spacing={1} sx={{ mt: 0.5 }}>
                   <Grid size={{ xs: 12, sm: 4 }}>
                     <TextField
-                      size="small" fullWidth label="Valor declarado (MXN)" type="number"
+                      size="small" fullWidth
+                      label={`Valor declarado (${formalQuoteGexCurrency})`}
+                      type="number"
                       value={formalQuoteGexValor}
                       onChange={e => setFormalQuoteGexValor(e.target.value)}
+                      InputProps={{
+                        endAdornment: (
+                          <InputAdornment position="end">
+                            <Select
+                              value={formalQuoteGexCurrency}
+                              onChange={e => setFormalQuoteGexCurrency(e.target.value as 'MXN' | 'USD')}
+                              variant="standard"
+                              disableUnderline
+                              sx={{ fontSize: 13, fontWeight: 700, color: '#F05A28', '& .MuiSelect-select': { py: 0, pr: '20px !important' } }}
+                            >
+                              <MenuItem value="MXN">MXN</MenuItem>
+                              <MenuItem value="USD">USD</MenuItem>
+                            </Select>
+                          </InputAdornment>
+                        )
+                      }}
                       helperText={(() => {
-                        const tc = Number(formalQuoteCalcResult?.tipo_cambio || 0);
-                        const valMxn = Number(formalQuoteGexValor || 0);
-                        if (valMxn > 0 && tc > 0) {
-                          const usd = valMxn / tc;
-                          return `≈ USD $${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${formalQuoteTicketId ? ' · Autocompletado del ticket' : ''}`;
+                        if (rawVal > 0 && gexTc > 0) {
+                          if (formalQuoteGexCurrency === 'USD') {
+                            return `≈ $${valMxn.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN (TC ${gexTc.toFixed(2)})`;
+                          }
+                          return `≈ USD $${valUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (TC ${gexTc.toFixed(2)})${formalQuoteTicketId ? ' · Autocompletado del ticket' : ''}`;
                         }
+                        if (rawVal > 0 && gexTc === 0) return 'Calcula el precio para obtener TC de conversión';
                         return formalQuoteTicketId ? 'Autocompletado del ticket' : ' ';
                       })()}
                     />
@@ -5053,7 +5093,7 @@ export default function DashboardAdvisor() {
                     <Box sx={{ bgcolor: '#FAFAFA', border: '1px solid #EEE', borderRadius: 1.5, px: 1.5, py: 1, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <Typography variant="caption" sx={{ color: '#888', fontWeight: 600 }}>Variable (5%)</Typography>
                       <Typography variant="body2" fontWeight={700} sx={{ color: '#333' }}>
-                        ${((Number(formalQuoteGexValor) || 0) * 0.05).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        ${variable5.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </Typography>
                     </Box>
                     <Typography variant="caption" sx={{ color: '#999', display: 'block', mt: 0.25, ml: 0.5 }}>Calculado automáticamente</Typography>
@@ -5069,16 +5109,21 @@ export default function DashboardAdvisor() {
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', bgcolor: '#FFF3E0', border: '1px solid #FFB74D', borderRadius: 1.5, px: 1.5, py: 1 }}>
                       <Typography variant="body2" fontWeight={700} sx={{ color: '#E65100' }}>Total Prima GEX</Typography>
                       <Typography variant="body2" fontWeight={800} sx={{ color: '#E65100' }}>
-                        ${(((Number(formalQuoteGexValor) || 0) * 0.05) + 625).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                        ${totalPrima.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                       </Typography>
                     </Box>
                   </Grid>
                 </Grid>
-              )}
+                );
+              })()}
             </Grid>
 
             {/* Resumen */}
-            {formalQuoteCalcResult && (
+            {formalQuoteCalcResult && (() => {
+              const resumenTc = Number(formalQuoteCalcResult?.tipo_cambio) || formalQuoteGexFallbackTc || 0;
+              const resumenRaw = Number(formalQuoteGexValor) || 0;
+              const resumenValMxn = formalQuoteGexCurrency === 'USD' ? resumenRaw * resumenTc : resumenRaw;
+              return (
               <Grid size={12}>
                 <Paper variant="outlined" sx={{ p: 2, bgcolor: '#FFF8E1', borderColor: '#FFB74D' }}>
                   <Typography variant="subtitle2" fontWeight={700} gutterBottom>Resumen</Typography>
@@ -5088,10 +5133,10 @@ export default function DashboardAdvisor() {
                   </Box>
                   {formalQuoteGexEnabled && (
                     <>
-                      {Number(formalQuoteGexValor) > 0 && (
+                      {resumenValMxn > 0 && (
                         <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                          <Typography variant="body2">GEX Variable (5% de ${Number(formalQuoteGexValor).toLocaleString('es-MX')})</Typography>
-                          <Typography variant="body2" fontWeight={700}>${(Number(formalQuoteGexValor) * 0.05).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN</Typography>
+                          <Typography variant="body2">GEX Variable (5% de ${resumenValMxn.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</Typography>
+                          <Typography variant="body2" fontWeight={700}>${(resumenValMxn * 0.05).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN</Typography>
                         </Box>
                       )}
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
@@ -5104,7 +5149,7 @@ export default function DashboardAdvisor() {
                   <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                     <Typography variant="subtitle1" fontWeight={700}>TOTAL</Typography>
                     <Typography variant="subtitle1" fontWeight={700} sx={{ color: '#F05A28' }}>
-                      ${(Number(formalQuoteCalcResult.precio_mxn) + (formalQuoteGexEnabled ? (Number(formalQuoteGexValor || 0) * 0.05 + 625) : 0)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
+                      ${(Number(formalQuoteCalcResult.precio_mxn) + (formalQuoteGexEnabled ? (resumenValMxn * 0.05 + 625) : 0)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
                     </Typography>
                   </Box>
                   <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
@@ -5112,6 +5157,8 @@ export default function DashboardAdvisor() {
                   </Typography>
                 </Paper>
               </Grid>
+              );
+            })()}
             )}
           </Grid>
         </DialogContent>

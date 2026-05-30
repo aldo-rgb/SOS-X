@@ -156,6 +156,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
   // GEX universal
   const [includeGex, setIncludeGex] = useState(true);
   const [declaredValueMxn, setDeclaredValueMxn] = useState('');
+  const [declaredCurrency, setDeclaredCurrency] = useState<'MXN' | 'USD'>('MXN');
 
   // Acordeón "¿Cómo se cotiza?" — colapsado por defecto.
   const [showPricingInfo, setShowPricingInfo] = useState(false);
@@ -303,7 +304,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     setWeightKg(''); setLengthCm(''); setWidthCm(''); setHeightCm('');
     setCbmM3(''); setQuantity('1');
     setMaritimeMode('volumen'); setEstimatedValueUsd('');
-    setIncludeGex(true); setDeclaredValueMxn('');
+    setIncludeGex(true); setDeclaredValueMxn(''); setDeclaredCurrency('MXN');
   };
 
   const handleQuote = async () => {
@@ -315,7 +316,8 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     const l = parseFloat(lengthCm) || 0;
     const wd = parseFloat(widthCm) || 0;
     const h = parseFloat(heightCm) || 0;
-    const dv = parseFloat(declaredValueMxn) || 0;
+    const rawDv = parseFloat(declaredValueMxn) || 0;
+    const dv = declaredCurrency === 'USD' && globalFxRate ? rawDv * globalFxRate : rawDv;
 
     const cbm = parseFloat(cbmM3) || 0;
     const isMaritimeFCL = selectedService.key === 'maritime' && maritimeMode === 'fcl_40';
@@ -851,7 +853,19 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         </View>
         {includeGex && (
           <View style={[styles.fieldGroup, { marginTop: 8 }]}>
-            <Text style={styles.label}>Valor declarado (MXN)</Text>
+            <Text style={styles.label}>Valor declarado ({declaredCurrency})</Text>
+            {/* Toggle MXN/USD */}
+            <View style={{ flexDirection: 'row', marginBottom: 6, borderRadius: 8, borderWidth: 1, borderColor: '#DDD', overflow: 'hidden', alignSelf: 'flex-start' }}>
+              {(['MXN', 'USD'] as const).map(c => (
+                <TouchableOpacity
+                  key={c}
+                  onPress={() => setDeclaredCurrency(c)}
+                  style={{ paddingVertical: 6, paddingHorizontal: 16, backgroundColor: declaredCurrency === c ? '#F05A28' : '#FFF' }}
+                >
+                  <Text style={{ color: declaredCurrency === c ? '#FFF' : '#666', fontWeight: '700', fontSize: 12 }}>{c}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <TextInput
               style={styles.input}
               placeholder="0.00"
@@ -859,6 +873,15 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               onChangeText={setDeclaredValueMxn}
               keyboardType="decimal-pad"
             />
+            {(() => {
+              const raw = parseFloat(declaredValueMxn) || 0;
+              const tc = globalFxRate || 0;
+              if (raw <= 0 || tc <= 0) return null;
+              const txt = declaredCurrency === 'USD'
+                ? `≈ $${(raw * tc).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN (TC ${tc.toFixed(2)})`
+                : `≈ USD $${(raw / tc).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (TC ${tc.toFixed(2)})`;
+              return <Text style={{ color: '#666', fontSize: 11, marginTop: 4 }}>{txt}</Text>;
+            })()}
           </View>
         )}
       </View>

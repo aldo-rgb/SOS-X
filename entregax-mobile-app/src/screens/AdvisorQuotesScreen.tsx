@@ -113,6 +113,8 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const [calculating, setCalculating] = useState(false);
   const [gexEnabled, setGexEnabled] = useState(true);
   const [gexValor, setGexValor] = useState('');
+  const [gexCurrency, setGexCurrency] = useState<'MXN' | 'USD'>('MXN');
+  const [gexFallbackTc, setGexFallbackTc] = useState<number>(0);
   const [ticketId, setTicketId] = useState<number | null>(null);
   const [generating, setGenerating] = useState(false);
 
@@ -158,6 +160,17 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
     if (tab === 'mias') fetchMyQuotes();
     if (tab === 'generar') fetchClients();
   }, [tab, fetchMyQuotes, fetchClients]);
+
+  // TC GEX como fallback para conversión USD→MXN antes de calcular
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await api.get('/api/gex/exchange-rate', { headers: { Authorization: `Bearer ${token}` } });
+        const rate = Number(r.data?.rate) || 0;
+        if (rate > 0) setGexFallbackTc(rate);
+      } catch { /* noop */ }
+    })();
+  }, [token]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -228,7 +241,9 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
     if (!calcResult) { Alert.alert('Falta cálculo', 'Calcula el precio primero'); return; }
     setGenerating(true);
     try {
-      const gexValorN = gexEnabled ? Number(gexValor) || 0 : 0;
+      const tcForGex = Number(calcResult?.tipo_cambio) || gexFallbackTc || 0;
+      const gexValorRaw = gexEnabled ? Number(gexValor) || 0 : 0;
+      const gexValorN = gexCurrency === 'USD' ? gexValorRaw * tcForGex : gexValorRaw;
       const gexInsurance = gexValorN > 0 ? Math.round(gexValorN * 0.05 * 100) / 100 : 0;
       const gexFixed = gexValorN > 0 ? 625 : 0;
       const gexPrima = gexInsurance + gexFixed;
@@ -270,7 +285,7 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
       setCategoria('Generico');
       setLargo(''); setAncho(''); setAlto(''); setPeso(''); setCbm(''); setCantidad('1');
       setDescripcion(''); setCalcResult(null);
-      setGexEnabled(true); setGexValor('');
+      setGexEnabled(true); setGexValor(''); setGexCurrency('MXN');
       setTicketId(null);
       fetchMyQuotes();
       setTab('mias');
@@ -292,10 +307,12 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
   const totalConGex = useMemo(() => {
     if (!calcResult) return 0;
     const base = Number(calcResult.precio_mxn) || 0;
-    const dv = Number(gexValor) || 0;
+    const tc = Number(calcResult?.tipo_cambio) || gexFallbackTc || 0;
+    const raw = Number(gexValor) || 0;
+    const dv = gexCurrency === 'USD' ? raw * tc : raw;
     const gex = gexEnabled && dv > 0 ? (dv * 0.05) + 625 : 0;
     return base + gex;
-  }, [calcResult, gexEnabled, gexValor]);
+  }, [calcResult, gexEnabled, gexValor, gexCurrency, gexFallbackTc]);
 
   return (
     <SafeAreaView style={s.container} edges={['top']}>
@@ -488,22 +505,55 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
               <Text style={{ flex: 1, color: TEXT, fontWeight: '600' }}>🛡️ Agregar GEX (5% + $625 MXN)</Text>
               <Switch value={gexEnabled} onValueChange={setGexEnabled} trackColor={{ true: ORANGE }} />
             </View>
-            {gexEnabled && (
-              <View style={s.dimRow}>
-                <TextInput
-                  style={[s.dimInput, { flex: 2 }]}
-                  placeholder="Valor declarado MXN"
-                  keyboardType="numeric"
-                  value={gexValor}
-                  onChangeText={setGexValor}
-                />
-                <View style={[s.dimInput, { flex: 1, justifyContent: 'center' }]}>
-                  <Text style={{ color: ORANGE, fontWeight: '700' }}>
-                    Prima: ${gexValor && Number(gexValor) > 0 ? (Number(gexValor) * 0.05 + 625).toFixed(2) : '0.00'}
-                  </Text>
+            {gexEnabled && (() => {
+              const gexTc = Number(calcResult?.tipo_cambio) || gexFallbackTc || 0;
+              const raw = Number(gexValor) || 0;
+              const valMxn = gexCurrency === 'USD' ? raw * gexTc : raw;
+              const valUsd = gexCurrency === 'MXN' && gexTc > 0 ? raw / gexTc : (gexCurrency === 'USD' ? raw : 0);
+              const prima = valMxn > 0 ? (valMxn * 0.05) + 625 : 0;
+              return (
+                <View>
+                  {/* Toggle MXN/USD */}
+                  <View style={{ flexDirection: 'row', marginTop: 8, marginBottom: 6, borderRadius: 8, borderWidth: 1, borderColor: '#DDD', overflow: 'hidden', alignSelf: 'flex-start' }}>
+                    {(['MXN', 'USD'] as const).map(c => (
+                      <TouchableOpacity
+                        key={c}
+                        onPress={() => setGexCurrency(c)}
+                        style={{ paddingVertical: 6, paddingHorizontal: 16, backgroundColor: gexCurrency === c ? ORANGE : '#FFF' }}
+                      >
+                        <Text style={{ color: gexCurrency === c ? '#FFF' : '#666', fontWeight: '700', fontSize: 12 }}>{c}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <View style={s.dimRow}>
+                    <TextInput
+                      style={[s.dimInput, { flex: 2 }]}
+                      placeholder={`Valor declarado ${gexCurrency}`}
+                      keyboardType="numeric"
+                      value={gexValor}
+                      onChangeText={setGexValor}
+                    />
+                    <View style={[s.dimInput, { flex: 1, justifyContent: 'center' }]}>
+                      <Text style={{ color: ORANGE, fontWeight: '700' }}>
+                        Prima: ${prima.toFixed(2)}
+                      </Text>
+                    </View>
+                  </View>
+                  {raw > 0 && gexTc > 0 && (
+                    <Text style={{ color: SUB, fontSize: 11, marginLeft: 4, marginTop: 2 }}>
+                      {gexCurrency === 'USD'
+                        ? `≈ $${valMxn.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN (TC ${gexTc.toFixed(2)})`
+                        : `≈ USD $${valUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (TC ${gexTc.toFixed(2)})`}
+                    </Text>
+                  )}
+                  {raw > 0 && gexTc === 0 && (
+                    <Text style={{ color: SUB, fontSize: 11, marginLeft: 4, marginTop: 2 }}>
+                      Calcula el precio para obtener TC de conversión
+                    </Text>
+                  )}
                 </View>
-              </View>
-            )}
+              );
+            })()}
 
             {/* Resumen */}
             {calcResult && (
