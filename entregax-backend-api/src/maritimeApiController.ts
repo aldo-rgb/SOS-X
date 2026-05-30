@@ -447,11 +447,44 @@ export const updateOrderTracking = async (ordersn: string): Promise<{
             await notifyTrackingUpdate(orderId, latestStatus, latestDetail);
         }
 
+        // Reset contador de fallos al sincronizar correctamente.
+        if (orderId) {
+            await pool.query(
+                `UPDATE maritime_orders SET tracking_fail_count = 0 WHERE id = $1 AND tracking_fail_count > 0`,
+                [orderId]
+            );
+        }
+
         return { success: true, logsAdded, latestStatus };
 
     } catch (error: any) {
-        console.error(`  ❌ Error actualizando tracking ${ordersn}:`, error.message);
-        return { success: false, logsAdded: 0, error: error.message };
+        const msg: string = error?.message || '';
+        // China API responde "订单号不存在" cuando la orden ya no existe en su sistema.
+        // Tras 3 fallos consecutivos por esa causa, deshabilitamos el tracking para no spamear el log.
+        const isNotFound = /订单号不存在|order.*not.*exist|order.*does.*not/i.test(msg);
+        const MAX_FAILS = 3;
+        try {
+            const upd = await pool.query(
+                `UPDATE maritime_orders
+                 SET tracking_fail_count = tracking_fail_count + 1,
+                     tracking_disabled = CASE WHEN tracking_fail_count + 1 >= $2 THEN TRUE ELSE tracking_disabled END,
+                     tracking_disabled_reason = CASE WHEN tracking_fail_count + 1 >= $2 THEN $3 ELSE tracking_disabled_reason END,
+                     tracking_disabled_at = CASE WHEN tracking_fail_count + 1 >= $2 AND tracking_disabled_at IS NULL THEN NOW() ELSE tracking_disabled_at END
+                 WHERE ordersn = $1
+                 RETURNING tracking_fail_count, tracking_disabled`,
+                [ordersn, MAX_FAILS, isNotFound ? 'NOT_FOUND_IN_PROVIDER' : 'REPEATED_FAILURES']
+            );
+            const row = upd.rows[0];
+            if (row?.tracking_disabled && row?.tracking_fail_count === MAX_FAILS) {
+                console.warn(`  🔕 Tracking deshabilitado para ${ordersn} tras ${MAX_FAILS} fallos (${isNotFound ? 'no existe en proveedor' : 'errores repetidos'}).`);
+            } else if (!isNotFound) {
+                console.error(`  ❌ Error actualizando tracking ${ordersn}:`, msg);
+            }
+            // Si es "no existe" pero aún no llegamos al máximo, lo dejamos silencioso.
+        } catch {
+            console.error(`  ❌ Error actualizando tracking ${ordersn}:`, msg);
+        }
+        return { success: false, logsAdded: 0, error: msg };
     }
 };
 
@@ -478,10 +511,11 @@ export const syncAllActiveTrackings = async (): Promise<{
     const syncLogId = syncLogResult.rows[0].id;
 
     try {
-        // Obtener órdenes activas (no entregadas ni canceladas)
+        // Obtener órdenes activas (no entregadas/canceladas/devueltas) y con tracking habilitado.
         const activeOrders = await pool.query(`
             SELECT ordersn FROM maritime_orders 
             WHERE status NOT IN ('delivered', 'cancelled', 'returned')
+              AND COALESCE(tracking_disabled, FALSE) = FALSE
             ORDER BY updated_at ASC
             LIMIT 100
         `);

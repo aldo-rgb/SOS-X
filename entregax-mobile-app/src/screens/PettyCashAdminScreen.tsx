@@ -181,6 +181,13 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
   const gastoAmountRef = useRef<TextInput>(null);
   const gastoConceptRef = useRef<TextInput>(null);
 
+  // Modal: cerrar ruta / devolución de sobrante
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [settleDriver, setSettleDriver] = useState<Wallet | null>(null);
+  const [settleCash, setSettleCash] = useState('');
+  const [settleNotes, setSettleNotes] = useState('');
+  const [settleBusy, setSettleBusy] = useState(false);
+
   const loadData = useCallback(async () => {
     try {
       const [s, bw, dw, pe] = await Promise.all([
@@ -266,6 +273,35 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
       Alert.alert('Error', err?.response?.data?.error || 'No se pudo crear el anticipo');
     } finally {
       setAdvBusy(false);
+    }
+  };
+
+  // ---- Cerrar ruta / devolución de sobrante ----
+  const submitSettle = async () => {
+    if (!settleDriver) return;
+    const cash = parseMontoEs(settleCash);
+    if (!Number.isFinite(cash) || cash < 0) {
+      Alert.alert('Monto inválido', 'Captura un monto válido (puede ser 0)');
+      return;
+    }
+    setSettleBusy(true);
+    try {
+      await api.post(
+        '/api/admin/petty-cash/route-settle',
+        {
+          driver_user_id: settleDriver.owner_id,
+          cash_returned_mxn: cash,
+          notes: settleNotes || undefined,
+        },
+        { headers: authHeaders }
+      );
+      Alert.alert('✅ Ruta cerrada', 'Devolución registrada y wallet del chofer reiniciada.');
+      setSettleOpen(false);
+      loadData();
+    } catch (err: any) {
+      Alert.alert('Error', err?.response?.data?.error || 'No se pudo cerrar la ruta');
+    } finally {
+      setSettleBusy(false);
     }
   };
 
@@ -590,6 +626,20 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                         </Text>
                       )}
                     </View>
+                    {(Number(w.balance_mxn) > 0 || Number(w.pending_to_verify_mxn) > 0) && (
+                      <TouchableOpacity
+                        style={styles.settleBtn}
+                        onPress={() => {
+                          setSettleDriver(w);
+                          setSettleCash('');
+                          setSettleNotes('');
+                          setSettleOpen(true);
+                        }}
+                      >
+                        <MaterialIcons name="assignment-turned-in" size={16} color="#fff" />
+                        <Text style={styles.settleBtnText}>Cerrar ruta / Devolución</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                   {Number(w.pending_expenses_count) > 0 && (
                     <View style={styles.countBadge}>
@@ -1014,6 +1064,71 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
           )}
         </View>
       </Modal>
+
+      {/* Modal: Cerrar Ruta / Devolución de sobrante */}
+      <Modal visible={settleOpen} animationType="slide" onRequestClose={() => !settleBusy && setSettleOpen(false)}>
+        <KeyboardAvoidingView
+          style={styles.container}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        >
+          <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
+            <TouchableOpacity onPress={() => setSettleOpen(false)} disabled={settleBusy}>
+              <MaterialIcons name="close" size={28} color="#333" />
+            </TouchableOpacity>
+            <Text style={[styles.headerTitle, { marginLeft: 12 }]}>Cerrar Ruta / Devolución</Text>
+          </View>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }} keyboardShouldPersistTaps="handled">
+            <View style={[styles.infoBox, { marginBottom: 16 }]}>
+              <Text style={styles.infoText}>
+                Liquida los vales aceptados del chofer, suma gastos aprobados, registra el efectivo
+                devuelto a la sucursal y reinicia el saldo del chofer.
+              </Text>
+            </View>
+            {settleDriver && (
+              <View style={[styles.card, { marginBottom: 16 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.cardTitle}>{settleDriver.owner_name}</Text>
+                  <Text style={styles.cardSub}>{settleDriver.branch_name || '—'}</Text>
+                  <Text style={styles.driverMeta}>Saldo: {fmtMoney(settleDriver.balance_mxn)}</Text>
+                  <Text style={styles.driverMeta}>Por comprobar: {fmtMoney(settleDriver.pending_to_verify_mxn)}</Text>
+                </View>
+              </View>
+            )}
+            <Text style={styles.inputLabel}>Efectivo devuelto (MXN)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="0.00"
+              keyboardType="decimal-pad"
+              value={settleCash}
+              onChangeText={setSettleCash}
+              editable={!settleBusy}
+            />
+            <Text style={[styles.inputLabel, { marginTop: 12 }]}>Notas (opcional)</Text>
+            <TextInput
+              style={[styles.input, { height: 80 }]}
+              placeholder="Observaciones del cierre…"
+              multiline
+              value={settleNotes}
+              onChangeText={setSettleNotes}
+              editable={!settleBusy}
+            />
+            <TouchableOpacity
+              style={[styles.primaryBtn, { marginTop: 20, backgroundColor: GREEN }]}
+              onPress={submitSettle}
+              disabled={settleBusy || settleCash === ''}
+            >
+              {settleBusy ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <MaterialIcons name="assignment-turned-in" size={20} color="#fff" />
+                  <Text style={styles.primaryBtnText}>Cerrar ruta</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1197,4 +1312,29 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderRadius: 12,
   },
+
+  inputLabel: { fontSize: 13, fontWeight: '600', color: '#444', marginBottom: 6 },
+  primaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: ORANGE,
+  },
+  primaryBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  settleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: GREEN,
+    marginTop: 8,
+    alignSelf: 'flex-start',
+  },
+  settleBtnText: { color: '#fff', fontSize: 12, fontWeight: '700' },
 });

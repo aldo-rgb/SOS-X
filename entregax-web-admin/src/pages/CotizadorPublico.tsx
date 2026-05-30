@@ -20,6 +20,12 @@ import {
   useMediaQuery,
   Container,
   Chip,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
 } from '@mui/material';
 import {
   DirectionsBoat as MaritimeIcon,
@@ -28,6 +34,7 @@ import {
   LocalShipping as DHLIcon,
   Calculate as CalculateIcon,
   Refresh as RefreshIcon,
+  TableChart as TableIcon,
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -83,6 +90,7 @@ export default function CotizadorPublico() {
   const [cantidad, setCantidad] = useState('1');
   const [categoria, setCategoria] = useState('generico');
   const [dhlTipo, setDhlTipo] = useState('standard');
+  const [airSubservice, setAirSubservice] = useState<'tdi_aereo' | 'tdi_express'>('tdi_aereo');
   const [cbm, setCbm] = useState('');
   const [cbmManual, setCbmManual] = useState(false);
   const [dimUnit, setDimUnit] = useState<'cm' | 'in'>('cm');
@@ -91,9 +99,24 @@ export default function CotizadorPublico() {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quoteResult, setQuoteResult] = useState<QuoteResult | null>(null);
   const [quoteError, setQuoteError] = useState<string | null>(null);
-  
+
+  // Tabla de precios marítimo (Generico + StartUp)
+  interface MaritimeTier {
+    category: string;
+    min_cbm: number;
+    max_cbm: number | null;
+    price: number;
+    is_flat_fee: boolean;
+    notes: string | null;
+  }
+  const [maritimeTiers, setMaritimeTiers] = useState<MaritimeTier[]>([]);
+
   useEffect(() => {
     loadRates();
+    fetch(`${API_URL}/api/public/maritime-tiers`)
+      .then(r => r.ok ? r.json() : { tiers: [] })
+      .then(d => setMaritimeTiers(d.tiers || []))
+      .catch(() => setMaritimeTiers([]));
   }, []);
 
   // Auto-calcular CBM cuando cambian las dimensiones (salvo que el usuario lo haya capturado manualmente)
@@ -141,6 +164,7 @@ export default function CotizadorPublico() {
     setCantidad('1');
     setCategoria('generico');
     setDhlTipo('standard');
+    setAirSubservice('tdi_aereo');
     setCbm('');
     setCbmManual(false);
     setQuoteResult(null);
@@ -170,14 +194,14 @@ export default function CotizadorPublico() {
           body.alto = (parseFloat(alto) || 0) * dimFactor;
         }
         body.peso = (parseFloat(peso) || 0) * weightFactor;
-        body.categoria = categoria;
         body.cantidad = parseInt(cantidad) || 1;
       } else if (selectedService === 'aereo') {
         body.peso = parseFloat(peso) || 0;
         body.largo = parseFloat(largo) || 0;
         body.ancho = parseFloat(ancho) || 0;
         body.alto = parseFloat(alto) || 0;
-        body.categoria = categoria;
+        body.categoria = 'G';
+        body.subservicio = airSubservice;
       } else if (selectedService === 'pobox') {
         body.peso = parseFloat(peso) || 0;
       } else if (selectedService === 'dhl') {
@@ -382,17 +406,44 @@ export default function CotizadorPublico() {
               />
             </Grid>
             <Grid size={{ xs: 12 }}>
-              <FormControl fullWidth>
-                <InputLabel>Categoría</InputLabel>
-                <Select
-                  value={categoria}
-                  label="Categoría"
-                  onChange={(e) => setCategoria(e.target.value)}
-                >
-                  <MenuItem value="generico">Genérico</MenuItem>
-                  <MenuItem value="logo">Marca Registrada (Tengo documentos de uso de marca)</MenuItem>
-                </Select>
-              </FormControl>
+              <Alert severity="info" icon={<TableIcon />} sx={{ mb: 1 }}>
+                Categoría <b>Genérico</b>. Si tu CBM total es ≤ 0.75 m³ se aplica automáticamente la tarifa <b>StartUp</b>.
+              </Alert>
+              {maritimeTiers.length > 0 && (
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow sx={{ backgroundColor: 'grey.100' }}>
+                        <TableCell><b>Categoría</b></TableCell>
+                        <TableCell align="right"><b>Desde (CBM)</b></TableCell>
+                        <TableCell align="right"><b>Hasta (CBM)</b></TableCell>
+                        <TableCell align="right"><b>Precio USD</b></TableCell>
+                        <TableCell><b>Tipo</b></TableCell>
+                        <TableCell><b>Notas</b></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {maritimeTiers.map((t, i) => (
+                        <TableRow key={i}>
+                          <TableCell>
+                            <Chip
+                              size="small"
+                              label={t.category}
+                              color={t.category === 'StartUp' ? 'warning' : 'primary'}
+                              variant="outlined"
+                            />
+                          </TableCell>
+                          <TableCell align="right">{Number(t.min_cbm).toFixed(4)}</TableCell>
+                          <TableCell align="right">{t.max_cbm == null ? '∞' : Number(t.max_cbm).toFixed(4)}</TableCell>
+                          <TableCell align="right"><b>${Number(t.price).toFixed(2)}</b></TableCell>
+                          <TableCell>{t.is_flat_fee ? 'Precio fijo' : 'Por CBM'}</TableCell>
+                          <TableCell>{t.notes || '—'}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
             </Grid>
           </Grid>
         )}
@@ -401,11 +452,24 @@ export default function CotizadorPublico() {
         {selectedService === 'aereo' && (
           <Grid container spacing={2}>
             <Grid size={{ xs: 12 }}>
+              <FormControl fullWidth>
+                <InputLabel>Tipo de servicio aéreo</InputLabel>
+                <Select
+                  value={airSubservice}
+                  label="Tipo de servicio aéreo"
+                  onChange={(e) => setAirSubservice(e.target.value as 'tdi_aereo' | 'tdi_express')}
+                >
+                  <MenuItem value="tdi_aereo">✈️ TDI Aéreo · 10-15 días</MenuItem>
+                  <MenuItem value="tdi_express">🚀 TDI Express · 7-10 días</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            <Grid size={{ xs: 12 }}>
               <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
                 Ingresa el peso real y las dimensiones:
               </Typography>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
+            <Grid size={{ xs: 12 }}>
               <TextField
                 fullWidth
                 label="Peso (kg)"
@@ -414,20 +478,6 @@ export default function CotizadorPublico() {
                 onChange={(e) => setPeso(e.target.value)}
                 inputProps={{ min: 0, step: 0.1 }}
               />
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6 }}>
-              <FormControl fullWidth>
-                <InputLabel>Tipo de Mercancía</InputLabel>
-                <Select
-                  value={categoria}
-                  label="Tipo de Mercancía"
-                  onChange={(e) => setCategoria(e.target.value)}
-                >
-                  <MenuItem value="generico">Genérico</MenuItem>
-                  <MenuItem value="logo">Logotipo</MenuItem>
-                  <MenuItem value="sensible">Sensible</MenuItem>
-                </Select>
-              </FormControl>
             </Grid>
             <Grid size={{ xs: 4 }}>
               <TextField
@@ -592,6 +642,9 @@ export default function CotizadorPublico() {
         )}
         
         <Box sx={{ mt: 3 }}>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            ⚠️ Los precios mostrados son referenciales y pueden variar según el <b>tipo de mercancía</b> (genérico, marca registrada, sensible, etc.). El precio final se confirma al evaluar tu envío.
+          </Alert>
           <Button
             fullWidth
             variant="contained"
@@ -624,8 +677,8 @@ export default function CotizadorPublico() {
               <Typography variant="h5" sx={{ fontWeight: 'bold', color: selectedCard?.color }}>
                 ${quoteResult.precio_usd?.toFixed(2)} USD
               </Typography>
-              <Typography variant="body1" sx={{ color: 'text.secondary' }}>
-                ≈ ${quoteResult.precio_mxn?.toFixed(2)} MXN
+              <Typography variant="body1" sx={{ color: 'text.primary', fontWeight: 'bold' }}>
+                ≈ ${Number(quoteResult.precio_mxn || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN
               </Typography>
               <Divider sx={{ my: 1 }} />
               {quoteResult.cbm && (

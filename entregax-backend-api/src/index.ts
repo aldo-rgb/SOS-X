@@ -594,6 +594,8 @@ import {
   getAdminTicketMessages,
   ensureDepartmentsSchema,
   signSupportImage,
+  createFormalQuoteRequest,
+  uploadFormalQuoteFiles,
 } from './supportController';
 import {
   getMyNotifications,
@@ -5197,6 +5199,9 @@ app.get('/api/admin/support/ticket/:id/messages', authenticateToken, requireMinL
 // Cliente: Responder a su ticket
 app.post('/api/support/ticket/:id/message', authenticateToken, uploadSupportImages, clientReplyTicket);
 
+// Cliente: Solicitar cotización formal (fotos + packing list)
+app.post('/api/support/quote-formal-request', authenticateToken, uploadFormalQuoteFiles, createFormalQuoteRequest);
+
 // Admin: Ver todos los tickets (tablero Kanban)
 app.get('/api/admin/support/tickets', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminTickets);
 
@@ -9095,13 +9100,25 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
     //    Fuente única de verdad: air_routes.cost_per_kg_usd + markup fijo (L=+9, G=+8, F=+7).
     //    Evita desfase con air_tariffs cuando el admin ajusta sólo el Costo Ruta.
     const aereoRes = await pool.query(`
-      SELECT cost_per_kg_usd
+      SELECT cost_per_kg_usd, updated_at
       FROM air_routes
-      WHERE is_active = true
+      WHERE is_active = true AND code <> 'TDI-EXPRES'
       ORDER BY id ASC LIMIT 1
     `);
     const aereoCost = parseFloat(aereoRes.rows[0]?.cost_per_kg_usd || '0');
     const aereoBase = aereoCost > 0 ? aereoCost + 8 : 8;
+    const aereoUpdatedAt = aereoRes.rows[0]?.updated_at || null;
+
+    // 3b. Tarifas TDI Express (ruta dedicada code='TDI-EXPRES')
+    const expressRes = await pool.query(`
+      SELECT cost_per_kg_usd, updated_at
+      FROM air_routes
+      WHERE is_active = true AND code = 'TDI-EXPRES'
+      LIMIT 1
+    `);
+    const expressCost = parseFloat(expressRes.rows[0]?.cost_per_kg_usd || '0');
+    const expressBase = expressCost > 0 ? expressCost + 8 : 0;
+    const expressUpdatedAt = expressRes.rows[0]?.updated_at || null;
 
     // 4. Tarifas PO Box USA (nivel 1 - precio base)
     const poboxRes = await pool.query(`
@@ -9143,7 +9160,7 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
         },
         {
           id: 'aereo',
-          nombre: 'Aéreo China',
+          nombre: 'Aéreo China (TDI Aéreo)',
           descripcion: 'Envío por avión desde China. Para envíos urgentes y pequeños.',
           tiempo_estimado: '10-15 días',
           unidad: 'kg',
@@ -9152,7 +9169,21 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
           tipo_cambio: fxFor('tdi'),
           icono: '✈️',
           notas: 'Precio por kilogramo. Se usa el mayor entre peso real y volumétrico.',
+          precio_actualizado: aereoUpdatedAt,
         },
+        ...(expressBase > 0 ? [{
+          id: 'tdi_express',
+          nombre: 'Aéreo China (TDI Express)',
+          descripcion: 'Servicio aéreo expreso China → México con tiempos de entrega más rápidos.',
+          tiempo_estimado: '7-10 días',
+          unidad: 'kg',
+          precio_base_usd: expressBase,
+          precio_base_mxn: expressBase * fxFor('tdi'),
+          tipo_cambio: fxFor('tdi'),
+          icono: '🚀',
+          notas: 'Servicio expreso. Precio por kilogramo (mayor entre peso real y volumétrico).',
+          precio_actualizado: expressUpdatedAt,
+        }] : []),
         {
           id: 'pobox',
           nombre: 'PO Box USA',
@@ -9185,16 +9216,54 @@ app.get('/api/public/rates', async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/public/maritime-tiers - Tabla de precios marítimo (Generico + StartUp)
+app.get('/api/public/maritime-tiers', async (_req: Request, res: Response) => {
+  try {
+    const r = await pool.query(`
+      SELECT pc.name AS category, pt.min_cbm, pt.max_cbm, pt.price, pt.is_flat_fee, pt.notes
+      FROM pricing_tiers pt
+      JOIN pricing_categories pc ON pt.category_id = pc.id
+      WHERE (pc.name IN ('Generico', 'StartUp') OR pc.name ILIKE 'FCL 40%') AND pt.is_active = TRUE
+      ORDER BY pc.name DESC, pt.min_cbm ASC
+    `);
+    return res.json({ tiers: r.rows });
+  } catch (err: any) {
+    console.error('public maritime-tiers error', err);
+    return res.status(500).json({ error: 'Error al obtener tarifas' });
+  }
+});
+
 // POST /api/public/quote - Cotizador universal
 app.post('/api/public/quote', async (req: Request, res: Response) => {
   try {
-    const { servicio, largo, ancho, alto, peso, cantidad = 1, categoria, cbm: cbmInput } = req.body;
+    const { servicio, largo, ancho, alto, peso, cantidad = 1, categoria, cbm: cbmInput, subservicio } = req.body;
 
     if (!servicio) {
       return res.status(400).json({ error: 'El tipo de servicio es requerido' });
     }
 
-    // Tipo de cambio: por servicio desde exchange_rate_config (din\u00e1mico).\n    //  maritimo \u2192 'maritimo' · aereo \u2192 'tdi' · pobox \u2192 'pobox_usa' · dhl \u2192 'dhl_monterrey'\n    const fxKeyMap: Record<string, string> = {\n      maritimo: 'maritimo',\n      aereo: 'tdi',\n      pobox: 'pobox_usa',\n      dhl: 'dhl_monterrey',\n    };\n    const fxKey = fxKeyMap[servicio];\n    let fxRate = 20.00;\n    if (fxKey) {\n      const fxCfg = await pool.query(\n        `SELECT COALESCE(tipo_cambio_final, COALESCE(tipo_cambio_manual, ultimo_tc_api, 0) + COALESCE(sobreprecio, 0))::float AS tc\n         FROM exchange_rate_config WHERE servicio = $1 AND estado = TRUE LIMIT 1`,\n        [fxKey]\n      );\n      if (fxCfg.rows[0]?.tc) fxRate = parseFloat(fxCfg.rows[0].tc);\n    }\n    if (!fxRate || fxRate <= 0) {\n      const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');\n      fxRate = parseFloat(fxRes.rows[0]?.rate || '20.00');\n    }
+    // Tipo de cambio: por servicio desde exchange_rate_config (dinámico).
+    //  maritimo → 'maritimo' · aereo → 'tdi' · pobox → 'pobox_usa' · dhl → 'dhl_monterrey'
+    const fxKeyMap: Record<string, string> = {
+      maritimo: 'maritimo',
+      aereo: 'tdi',
+      pobox: 'pobox_usa',
+      dhl: 'dhl_monterrey',
+    };
+    const fxKey = fxKeyMap[servicio];
+    let fxRate = 20.00;
+    if (fxKey) {
+      const fxCfg = await pool.query(
+        `SELECT COALESCE(tipo_cambio_final, COALESCE(tipo_cambio_manual, ultimo_tc_api, 0) + COALESCE(sobreprecio, 0))::float AS tc
+         FROM exchange_rate_config WHERE servicio = $1 AND estado = TRUE LIMIT 1`,
+        [fxKey]
+      );
+      if (fxCfg.rows[0]?.tc) fxRate = parseFloat(fxCfg.rows[0].tc);
+    }
+    if (!fxRate || fxRate <= 0) {
+      const fxRes = await pool.query('SELECT rate FROM exchange_rates ORDER BY created_at DESC LIMIT 1');
+      fxRate = parseFloat(fxRes.rows[0]?.rate || '20.00');
+    }
 
     let resultado: any = {
       servicio,
@@ -9204,6 +9273,38 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
 
     switch (servicio) {
       case 'maritimo': {
+        // Subservicio: 'fcl_40' = contenedor completo 40 pies (sólo cantidad)
+        if (subservicio === 'fcl_40') {
+          const qty = Math.max(parseInt(cantidad as any) || 1, 1);
+          const fclRes = await pool.query(`
+            SELECT pt.price, pt.is_flat_fee, pc.name AS category
+            FROM pricing_tiers pt
+            JOIN pricing_categories pc ON pt.category_id = pc.id
+            WHERE pc.name ILIKE 'FCL 40%' AND pt.is_active = true
+            ORDER BY pt.min_cbm ASC LIMIT 1
+          `);
+          let unitUsd = 0;
+          if (fclRes.rows.length > 0) {
+            unitUsd = parseFloat(fclRes.rows[0].price);
+          } else {
+            return res.status(400).json({ error: 'No hay tarifa configurada para FCL 40 Pies' });
+          }
+          const precioUsd = unitUsd * qty;
+          resultado = {
+            ...resultado,
+            subservicio: 'fcl_40',
+            cantidad: qty,
+            cbm_cobrable: (66 * qty).toFixed(2),
+            categoria: 'FCL 40 Pies',
+            tipo_calculo: 'contenedor',
+            precio_unitario_usd: unitUsd.toFixed(2),
+            precio_usd: precioUsd.toFixed(2),
+            precio_mxn: (precioUsd * fxRate).toFixed(2),
+            tiempo_estimado: '45-60 días',
+          };
+          break;
+        }
+
         const cbmDirect = cbmInput !== undefined && cbmInput !== null && cbmInput !== '' ? parseFloat(cbmInput) : NaN;
         const hasDims = largo && ancho && alto;
         if (!hasDims && !(cbmDirect > 0)) {
@@ -9219,14 +9320,19 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
         // Mínimo cobrable
         if (cbm < 0.01) cbm = 0.01;
         
-        // Redondeo 0.76-0.99 → 1
-        const decimal = cbm - Math.floor(cbm);
-        if (decimal >= 0.76) cbm = Math.ceil(cbm);
-        
         cbm *= cantidad;
 
+        // Auto-detección de categoría: ≤0.75 CBM → StartUp, sino Generico.
+        // Redondeo 0.76-0.99 → 1 sólo aplica para Generico.
+        let cat = 'Generico';
+        if (cbm <= 0.75) {
+          cat = 'StartUp';
+        } else {
+          const decimal = cbm - Math.floor(cbm);
+          if (decimal >= 0.76) cbm = Math.ceil(cbm);
+        }
+
         // Obtener tarifa
-        const cat = categoria || 'Generico';
         const tierRes = await pool.query(`
           SELECT pt.price, pt.is_flat_fee
           FROM pricing_tiers pt
@@ -9279,32 +9385,33 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
 
         // Obtener tarifa (markup vivo sobre air_routes.cost_per_kg_usd para L/G/F).
         // S (sensible) sigue siendo manual desde air_tariffs.
+        // Subservicio: 'tdi_express' usa ruta code='TDI-EXPRES'; default = primera ruta activa NO express.
         const tariffType = categoria || 'G';
+        const isExpress = subservicio === 'tdi_express';
         const markupByType: Record<string, number> = { L: 9, G: 8, F: 7 };
         let precioPorKg = 0;
         if (tariffType in markupByType) {
-          const routeRes = await pool.query(`
-            SELECT cost_per_kg_usd
-            FROM air_routes
-            WHERE is_active = true
-            ORDER BY id ASC LIMIT 1
-          `);
+          const routeRes = await pool.query(
+            isExpress
+              ? `SELECT cost_per_kg_usd FROM air_routes WHERE is_active = true AND code = 'TDI-EXPRES' LIMIT 1`
+              : `SELECT cost_per_kg_usd FROM air_routes WHERE is_active = true AND code <> 'TDI-EXPRES' ORDER BY id ASC LIMIT 1`
+          );
           const cost = parseFloat(routeRes.rows[0]?.cost_per_kg_usd || '0');
-          precioPorKg = cost > 0 ? cost + markupByType[tariffType] : 8;
+          precioPorKg = cost > 0 ? cost + (markupByType[tariffType] ?? 8) : 8;
         } else {
-          const tariffRes = await pool.query(`
-            SELECT at.price_per_kg
-            FROM air_tariffs at
-            JOIN air_routes ar ON at.route_id = ar.id
-            WHERE ar.is_active = true AND at.tariff_type = $1 AND at.is_active = true
-            ORDER BY ar.id ASC LIMIT 1
-          `, [tariffType]);
+          const tariffRes = await pool.query(
+            isExpress
+              ? `SELECT at.price_per_kg FROM air_tariffs at JOIN air_routes ar ON at.route_id = ar.id WHERE ar.is_active = true AND ar.code = 'TDI-EXPRES' AND at.tariff_type = $1 AND at.is_active = true LIMIT 1`
+              : `SELECT at.price_per_kg FROM air_tariffs at JOIN air_routes ar ON at.route_id = ar.id WHERE ar.is_active = true AND ar.code <> 'TDI-EXPRES' AND at.tariff_type = $1 AND at.is_active = true ORDER BY ar.id ASC LIMIT 1`,
+            [tariffType]
+          );
           precioPorKg = parseFloat(tariffRes.rows[0]?.price_per_kg || '8');
         }
         const precioUsd = pesoCobrable * precioPorKg;
 
         resultado = {
           ...resultado,
+          subservicio: isExpress ? 'tdi_express' : 'tdi_aereo',
           peso_real: pesoReal.toFixed(2),
           peso_volumetrico: pesoVol.toFixed(2),
           peso_cobrable: pesoCobrable.toFixed(2),
@@ -9313,7 +9420,7 @@ app.post('/api/public/quote', async (req: Request, res: Response) => {
           precio_por_kg: precioPorKg,
           precio_usd: precioUsd.toFixed(2),
           precio_mxn: (precioUsd * fxRate).toFixed(2),
-          tiempo_estimado: '10-15 días',
+          tiempo_estimado: isExpress ? '7-10 días' : '10-15 días',
         };
         break;
       }

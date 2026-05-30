@@ -24,9 +24,13 @@ import {
   Platform,
   Switch,
   Image,
+  Modal,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { API_URL } from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -89,8 +93,140 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
 
   // Acordeón "¿Cómo se cotiza?" — colapsado por defecto.
   const [showPricingInfo, setShowPricingInfo] = useState(false);
-
+  // Solicitud de cotización formal
+  const [formalOpen, setFormalOpen] = useState(false);
+  const [formalPhotos, setFormalPhotos] = useState<{ uri: string; name: string; type: string }[]>([]);
+  const [formalPacking, setFormalPacking] = useState<{ uri: string; name: string; type: string } | null>(null);
+  const [formalDesc, setFormalDesc] = useState('');
+  const [formalNotes, setFormalNotes] = useState('');
+  const [formalSubmitting, setFormalSubmitting] = useState(false);
   const selectedService = useMemo(() => SERVICES.find(s => s.key === service) || null, [service]);
+
+  // ───────── Solicitud de cotización formal ─────────
+  const pickFormalPhotos = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Permiso requerido', 'Necesitamos acceso a tu galería para adjuntar fotos.');
+      return;
+    }
+    const res = await ImagePicker.launchImageLibraryAsync({
+      quality: 0.7,
+      mediaTypes: 'images',
+      allowsMultipleSelection: true,
+      selectionLimit: 10,
+    });
+    if (res.canceled || !res.assets?.length) return;
+    const items = res.assets.map(a => {
+      const ext = (a.uri.split('.').pop() || 'jpg').toLowerCase();
+      return { uri: a.uri, name: a.fileName || `foto.${ext}`, type: `image/${ext === 'jpg' ? 'jpeg' : ext}` };
+    });
+    setFormalPhotos(prev => [...prev, ...items].slice(0, 10));
+  };
+
+  const pickFormalPacking = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: [
+          'application/pdf',
+          'application/vnd.ms-excel',
+          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+          'text/csv',
+        ],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (res.canceled || !res.assets?.length) return;
+      const a = res.assets[0];
+      if (a.size && a.size > 20 * 1024 * 1024) {
+        Alert.alert('Archivo muy grande', 'El packing list supera 20MB.');
+        return;
+      }
+      setFormalPacking({
+        uri: a.uri,
+        name: a.name || 'packing-list',
+        type: a.mimeType || 'application/pdf',
+      });
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudo seleccionar el archivo.');
+    }
+  };
+
+  const submitFormalQuote = async () => {
+    if (formalPhotos.length === 0) {
+      Alert.alert('Faltan fotos', 'Adjunta al menos una foto del producto.');
+      return;
+    }
+    if (!formalPacking) {
+      Alert.alert('Falta packing list', 'Adjunta el packing list (PDF o Excel).');
+      return;
+    }
+    if (!selectedService) return;
+    try {
+      setFormalSubmitting(true);
+      const fd = new FormData();
+      // Mapear el servicio del mobile al backend
+      const servicioMap: Record<ServiceKey, string> = {
+        pobox: 'pobox',
+        air_china: 'aereo',
+        maritime: 'maritimo',
+      };
+      fd.append('servicio', servicioMap[selectedService.key]);
+      if (lengthCm) fd.append('largo', lengthCm);
+      if (widthCm) fd.append('ancho', widthCm);
+      if (heightCm) fd.append('alto', heightCm);
+      if (weightKg) fd.append('peso', weightKg);
+      if (cbmM3) fd.append('cbm', cbmM3);
+      if (quantity) fd.append('cantidad', quantity);
+      const r: any = result || {};
+      const precioUsd = r.precioVentaUsd ?? r.salePriceUsd ?? r.finalPriceUsd ?? r.usd;
+      const precioMxn = r.totalMxn ?? r.precioVentaMxn ?? r.salePriceMxn ?? r.finalPriceMxn ?? r.mxn;
+      const tc = r.tcFinal ?? r.fxRate;
+      const pesoCobrable = r.pesoCobrable ?? r.chargeableWeight ?? r.peso_cobrable;
+      const precioPorKg = r.precioPorKg ?? r.pricePerKg ?? r.precio_por_kg;
+      const tiempoEstimado = r.tiempoEstimado ?? r.estimatedTime ?? r.tiempo_estimado ?? selectedService.eta;
+      const categoria = r.categoria ?? r.category;
+      const subservicio = r.subservicio ?? r.subservice;
+      if (precioUsd != null) fd.append('precio_usd', String(precioUsd));
+      if (precioMxn != null) fd.append('precio_mxn', String(precioMxn));
+      if (tc != null) fd.append('tipo_cambio', String(tc));
+      if (pesoCobrable != null) fd.append('peso_cobrable', String(pesoCobrable));
+      if (precioPorKg != null) fd.append('precio_por_kg', String(precioPorKg));
+      if (tiempoEstimado) fd.append('tiempo_estimado', String(tiempoEstimado));
+      if (categoria) fd.append('categoria', String(categoria));
+      if (subservicio) fd.append('subservicio', String(subservicio));
+      if (formalDesc) fd.append('descripcion_producto', formalDesc);
+      if (formalNotes) fd.append('observaciones', formalNotes);
+      formalPhotos.forEach(f => {
+        fd.append('photos', { uri: f.uri, name: f.name, type: f.type } as any);
+      });
+      fd.append('packing_list', { uri: formalPacking.uri, name: formalPacking.name, type: formalPacking.type } as any);
+
+      const resp = await fetch(`${API_URL}/api/support/quote-formal-request`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd as any,
+      });
+      const json = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        throw new Error(json?.error || 'Error enviando solicitud');
+      }
+      Alert.alert(
+        '✅ Solicitud enviada',
+        json?.message || `Folio: ${json?.ticketFolio || ''}`,
+        [{ text: 'OK', onPress: () => {
+          setFormalOpen(false);
+          setFormalPhotos([]);
+          setFormalPacking(null);
+          setFormalDesc('');
+          setFormalNotes('');
+        }}]
+      );
+    } catch (e: any) {
+      Alert.alert('Error', e?.message || 'No se pudo enviar la solicitud');
+    } finally {
+      setFormalSubmitting(false);
+    }
+  };
 
   const reset = () => {
     setStep(0);
@@ -226,6 +362,14 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
             <Text style={styles.dimX}>×</Text>
             <TextInput style={[styles.input, styles.dimInput]} placeholder="Alto" value={heightCm} onChangeText={setHeightCm} keyboardType="decimal-pad" />
           </View>
+          {selectedService?.key === 'air_china' && parseFloat(weightKg) > 0 && (parseFloat(lengthCm) <= 0 || parseFloat(widthCm) <= 0 || parseFloat(heightCm) <= 0) && (
+            <View style={[styles.disclaimerBox, { marginTop: 8, marginBottom: 0 }]}>
+              <MaterialCommunityIcons name="information-outline" size={16} color="#b26a00" />
+              <Text style={styles.disclaimerText}>
+                ℹ️ Cotizando sólo por peso real. El precio final puede variar si el peso volumétrico (dimensiones) resulta mayor. Te recomendamos capturar las medidas.
+              </Text>
+            </View>
+          )}
         </View>
       )}
     </>
@@ -454,6 +598,13 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
 
       {error && <Text style={styles.errorText}>{error}</Text>}
 
+      <View style={styles.disclaimerBox}>
+        <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#b26a00" />
+        <Text style={styles.disclaimerText}>
+          ⚠️ Los precios mostrados son referenciales y pueden variar según el tipo de mercancía (genérico, articulos medicos, sensibles, etc.). El precio final se confirma al evaluar tu envío.
+        </Text>
+      </View>
+
       <TouchableOpacity
         style={[styles.primaryBtn, loading && { opacity: 0.6 }]}
         onPress={handleQuote}
@@ -545,6 +696,14 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
           revisiones aduanales, fluctuación del tipo de cambio y servicios adicionales.
         </Text>
 
+        <TouchableOpacity
+          style={[styles.primaryBtn, { backgroundColor: '#2e7d32' }]}
+          onPress={() => setFormalOpen(true)}
+        >
+          <MaterialCommunityIcons name="file-document-edit" size={20} color="#fff" />
+          <Text style={styles.primaryBtnText}>Solicitar Cotización Formal</Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={styles.primaryBtn} onPress={reset}>
           <Ionicons name="refresh" size={20} color="#fff" />
           <Text style={styles.primaryBtnText}>Nueva cotización</Text>
@@ -589,6 +748,119 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         {step === 1 && renderStep1()}
         {step === 2 && renderStep2()}
       </KeyboardAvoidingView>
+
+      {/* Modal: Solicitar Cotización Formal */}
+      <Modal
+        visible={formalOpen}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={() => !formalSubmitting && setFormalOpen(false)}
+      >
+        <SafeAreaView style={styles.safe}>
+          <View style={styles.header}>
+            <TouchableOpacity
+              onPress={() => !formalSubmitting && setFormalOpen(false)}
+              disabled={formalSubmitting}
+            >
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Cotización Formal</Text>
+            <View style={{ width: 24 }} />
+          </View>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={{ flex: 1 }}
+          >
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+              <View style={styles.disclaimerBox}>
+                <MaterialCommunityIcons name="information-outline" size={18} color="#b26a00" />
+                <Text style={styles.disclaimerText}>
+                  Adjunta fotos del producto y el packing list. Tu solicitud se enviará directo a tu asesor si tienes uno asignado, o a Servicio a Cliente para que un asesor responda.
+                </Text>
+              </View>
+
+              <Text style={styles.label}>📷 Fotos del producto (1-10)</Text>
+              <TouchableOpacity
+                style={styles.attachBtn}
+                onPress={pickFormalPhotos}
+                disabled={formalSubmitting}
+              >
+                <MaterialCommunityIcons name="image-plus" size={20} color={ORANGE} />
+                <Text style={styles.attachBtnText}>Seleccionar fotos</Text>
+              </TouchableOpacity>
+              {formalPhotos.length > 0 && (
+                <View style={styles.fileChipsWrap}>
+                  {formalPhotos.map((f, idx) => (
+                    <View key={idx} style={styles.fileChip}>
+                      <Text style={styles.fileChipText} numberOfLines={1}>{f.name}</Text>
+                      <TouchableOpacity
+                        onPress={() => setFormalPhotos(prev => prev.filter((_, i) => i !== idx))}
+                        disabled={formalSubmitting}
+                      >
+                        <Ionicons name="close-circle" size={18} color="#999" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <Text style={[styles.label, { marginTop: 16 }]}>📄 Packing List (PDF o Excel)</Text>
+              <Text style={styles.helpText}>
+                Documento con la lista detallada de la mercancía: número de cajas/bultos, dimensiones, peso, descripción y valor declarado de cada uno.
+              </Text>
+              <TouchableOpacity
+                style={styles.attachBtn}
+                onPress={pickFormalPacking}
+                disabled={formalSubmitting}
+              >
+                <MaterialCommunityIcons name="file-document-outline" size={20} color={ORANGE} />
+                <Text style={styles.attachBtnText}>
+                  {formalPacking ? `✅ ${formalPacking.name}` : 'Seleccionar packing list'}
+                </Text>
+              </TouchableOpacity>
+
+              <Text style={[styles.label, { marginTop: 16 }]}>Descripción del producto</Text>
+              <TextInput
+                style={[styles.input, { minHeight: 60, textAlignVertical: 'top' }]}
+                value={formalDesc}
+                onChangeText={setFormalDesc}
+                placeholder="Ej. 50 cajas de calzado deportivo"
+                multiline
+                editable={!formalSubmitting}
+              />
+
+              <Text style={[styles.label, { marginTop: 12 }]}>Observaciones (opcional)</Text>
+              <TextInput
+                style={[styles.input, { minHeight: 60, textAlignVertical: 'top' }]}
+                value={formalNotes}
+                onChangeText={setFormalNotes}
+                placeholder="Notas adicionales para tu asesor"
+                multiline
+                editable={!formalSubmitting}
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.primaryBtn,
+                  { backgroundColor: '#2e7d32', marginTop: 24 },
+                  (formalSubmitting || formalPhotos.length === 0 || !formalPacking) && { opacity: 0.6 },
+                ]}
+                onPress={submitFormalQuote}
+                disabled={formalSubmitting || formalPhotos.length === 0 || !formalPacking}
+              >
+                {formalSubmitting ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="send" size={20} color="#fff" />
+                    <Text style={styles.primaryBtnText}>Enviar solicitud</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </ScrollView>
+          </KeyboardAvoidingView>
+        </SafeAreaView>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -681,6 +953,14 @@ const styles = StyleSheet.create({
   gexSub: { fontSize: 11, color: '#666', marginTop: 2 },
 
   errorText: { color: RED, fontSize: 13, marginBottom: 8, fontWeight: '600' },
+  disclaimerBox: { flexDirection: 'row', gap: 8, padding: 12, backgroundColor: '#fff8e1', borderWidth: 1, borderColor: '#ffe082', borderRadius: 8, marginBottom: 12, alignItems: 'flex-start' },
+  helpText: { fontSize: 11, color: '#666', marginBottom: 6 },
+  attachBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14, borderWidth: 1, borderColor: ORANGE, borderRadius: 8, borderStyle: 'dashed', backgroundColor: '#fff' },
+  attachBtnText: { color: ORANGE, fontSize: 14, fontWeight: '600', flex: 1 },
+  fileChipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8 },
+  fileChip: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16, backgroundColor: LIGHT_GRAY, maxWidth: '100%' },
+  fileChipText: { fontSize: 12, color: BLACK, maxWidth: 160 },
+  disclaimerText: { flex: 1, color: '#7a4f00', fontSize: 12, lineHeight: 16 },
 
   primaryBtn: {
     backgroundColor: BLACK,

@@ -10,7 +10,7 @@ import path from 'path';
 import fs from 'fs';
 import { uploadToS3, isS3Configured, getSignedDownloadUrl, signS3UrlIfNeeded } from './s3Service';
 import { sendPushToUsers } from './pushService';
-import { sendTicketConfirmation, sendTicketResolved } from './whatsappService';
+import { sendTicketConfirmation, sendTicketResolved, sendQuoteRequestConfirmation } from './whatsappService';
 
 // ============================================================
 // CONFIGURACIÓN DE MULTER PARA IMÁGENES DE SOPORTE
@@ -377,6 +377,8 @@ export const handleSupportMessage = async (req: Request, res: Response): Promise
       deptQuery = `SELECT id FROM support_departments WHERE name = 'Soporte Técnico' LIMIT 1`;
     } else if (category === 'accounting') {
       deptQuery = `SELECT id FROM support_departments WHERE name = 'Contabilidad' LIMIT 1`;
+    } else if (category === 'quote') {
+      deptQuery = `SELECT id FROM support_departments WHERE name = 'Cotizaciones' LIMIT 1`;
     } else {
       deptQuery = `SELECT id FROM support_departments WHERE is_default_for_clients = TRUE LIMIT 1`;
     }
@@ -1183,14 +1185,29 @@ export const ensureDepartmentsSchema = async () => {
     await pool.query(`
       INSERT INTO support_departments (name, color, icon, is_default_for_clients, sort_order)
       VALUES
-        ('Atención a Cliente', '#F05A28', 'headset', TRUE, 1),
+        ('Atención a Cliente', '#F05A28', 'headset',   TRUE,  1),
         ('Soporte Técnico',    '#2196F3', 'construct', FALSE, 2),
-        ('Contabilidad',       '#4CAF50', 'cash',      FALSE, 3),
-        ('Dirección',          '#9C27B0', 'business',  FALSE, 4),
-        ('CEDIS MTY',          '#009688', 'business',  FALSE, 5),
-        ('CEDIS CDMX',         '#FF5722', 'business',  FALSE, 6),
-        ('CEDIS USA',          '#3F51B5', 'business',  FALSE, 7)
+        ('Cotizaciones',       '#FF9800', 'calculator',FALSE, 3),
+        ('Contabilidad',       '#4CAF50', 'cash',      FALSE, 4),
+        ('Dirección',          '#9C27B0', 'business',  FALSE, 5),
+        ('CEDIS MTY',          '#009688', 'business',  FALSE, 6),
+        ('CEDIS CDMX',         '#FF5722', 'business',  FALSE, 7),
+        ('CEDIS USA',          '#3F51B5', 'business',  FALSE, 8)
       ON CONFLICT (name) DO NOTHING
+    `);
+    // Reordenar sort_order si ya existían (idempotente)
+    await pool.query(`
+      UPDATE support_departments SET sort_order = CASE name
+        WHEN 'Atención a Cliente' THEN 1
+        WHEN 'Soporte Técnico'    THEN 2
+        WHEN 'Cotizaciones'       THEN 3
+        WHEN 'Contabilidad'       THEN 4
+        WHEN 'Dirección'          THEN 5
+        WHEN 'CEDIS MTY'          THEN 6
+        WHEN 'CEDIS CDMX'         THEN 7
+        WHEN 'CEDIS USA'          THEN 8
+        ELSE sort_order END
+      WHERE name IN ('Atención a Cliente','Soporte Técnico','Cotizaciones','Contabilidad','Dirección','CEDIS MTY','CEDIS CDMX','CEDIS USA')
     `);
     // Migrate existing tickets to default department
     await pool.query(`
@@ -1438,6 +1455,227 @@ const generateClaimFolio = (): string => {
   const ts = Date.now().toString(36).toUpperCase();
   const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
   return `CLM-${ts}-${rand}`;
+};
+
+// ============================================================
+// COTIZACIÓN FORMAL — Cliente solicita cotización con fotos + packing list
+// ============================================================
+const quoteRequestMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /^image\/|^application\/pdf$|^application\/vnd\.ms-excel$|^application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet$|^text\/csv$/.test(file.mimetype);
+    cb(null, ok);
+  }
+}).fields([
+  { name: 'photos', maxCount: 10 },
+  { name: 'packing_list', maxCount: 1 }
+]);
+
+export const uploadFormalQuoteFiles = (req: Request, res: Response, next: Function) => {
+  quoteRequestMulter(req, res, (err: any) => {
+    if (err) console.warn('⚠️ Error multer quote-request:', err.message || err);
+    next();
+  });
+};
+
+/**
+ * POST /api/support/quote-formal-request
+ * Cliente solicita cotización formal: crea ticket con creator_type=client,
+ * status=escalated_human (pasa directo a esperar respuesta humana), incluye
+ * fotos y packing list. Si tiene asesor, se asigna al asesor; si no, queda
+ * sin asignar en el departamento de Atención a Cliente.
+ */
+export const createFormalQuoteRequest = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureDepartmentsSchema();
+    const userId = (req as any).user?.userId;
+    if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+    const {
+      servicio,
+      subservicio,
+      categoria,
+      largo,
+      ancho,
+      alto,
+      peso,
+      peso_cobrable,
+      cbm,
+      cantidad,
+      precio_usd,
+      precio_mxn,
+      precio_por_kg,
+      tipo_cambio,
+      tiempo_estimado,
+      descripcion_producto,
+      observaciones,
+    } = req.body || {};
+
+    if (!servicio) return res.status(400).json({ error: 'servicio es requerido' });
+
+    const filesObj = (req.files as { [field: string]: Express.Multer.File[] } | undefined) || {};
+    const photos = filesObj.photos || [];
+    const packingList = (filesObj.packing_list || [])[0] || null;
+
+    if (photos.length === 0) {
+      return res.status(400).json({ error: 'Debes adjuntar al menos una foto del producto' });
+    }
+    if (!packingList) {
+      return res.status(400).json({ error: 'Debes adjuntar el packing list (PDF o Excel)' });
+    }
+
+    // Subir archivos
+    const uploadFile = async (f: Express.Multer.File, prefix: string): Promise<string> => {
+      const ext = path.extname(f.originalname) || '';
+      const filename = `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+      if (isS3Configured()) {
+        return await uploadToS3(f.buffer, `support/${filename}`, f.mimetype);
+      }
+      const filePath = path.join(supportUploadsDir, filename);
+      fs.writeFileSync(filePath, f.buffer);
+      const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+      return `${baseUrl}/uploads/support/${filename}`;
+    };
+
+    const photoUrls: string[] = [];
+    for (const p of photos) {
+      try { photoUrls.push(await uploadFile(p, 'quote-photo')); } catch (e) { console.error('upload photo err', e); }
+    }
+    let packingListUrl: string | null = null;
+    try { packingListUrl = await uploadFile(packingList, 'quote-packing'); } catch (e) { console.error('upload packing err', e); }
+
+    // Obtener usuario + asesor
+    const userRow = await pool.query(
+      `SELECT u.id, u.full_name, u.email, u.phone, u.box_id, u.advisor_id,
+              a.id AS advisor_user_id, a.full_name AS advisor_name
+       FROM users u
+       LEFT JOIN users a ON a.id = u.advisor_id
+       WHERE u.id = $1`,
+      [userId]
+    );
+    if (userRow.rows.length === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+    const user = userRow.rows[0];
+    const advisorId: number | null = user.advisor_user_id || null;
+
+    // Departamento: Cotizaciones (fallback a default para clientes si no existe)
+    const deptRes = await pool.query(
+      `SELECT id FROM support_departments
+       WHERE name = 'Cotizaciones'
+          OR is_default_for_clients = TRUE
+       ORDER BY (name = 'Cotizaciones') DESC
+       LIMIT 1`
+    );
+    const departmentId = deptRes.rows[0]?.id || null;
+
+    // Crear ticket
+    const folio = await generateTicketFolio();
+    const subject = `Cotización formal — ${String(servicio).toUpperCase()}`;
+    const insertTicket = await pool.query(
+      `INSERT INTO support_tickets
+         (ticket_folio, user_id, category, subject, status, creator_type, department_id, assigned_to, assigned_agent_id, priority)
+       VALUES ($1, $2, 'quote', $3, 'escalated_human', 'client', $4, $5, $5, 'normal')
+       RETURNING id, ticket_folio`,
+      [folio, userId, subject, departmentId, advisorId]
+    );
+    const ticketId = insertTicket.rows[0].id;
+    const ticketFolio = insertTicket.rows[0].ticket_folio;
+
+    // Componer mensaje automático con datos de la cotización
+    const lines: string[] = [];
+    lines.push(`📝 *Solicitud de cotización formal*`);
+    lines.push('');
+    lines.push(`*Cliente:* ${user.full_name || '—'}${user.box_id ? ` (Box ${user.box_id})` : ''}`);
+    if (user.email) lines.push(`*Email:* ${user.email}`);
+    if (user.phone) lines.push(`*Teléfono:* ${user.phone}`);
+    if (advisorId) lines.push(`*Asesor asignado:* ${user.advisor_name || `#${advisorId}`}`);
+    lines.push('');
+    lines.push(`*Servicio:* ${servicio}${subservicio ? ` (${subservicio})` : ''}`);
+    if (categoria) lines.push(`*Categoría:* ${categoria}`);
+    if (largo || ancho || alto) lines.push(`*Dimensiones (cm):* ${largo || '—'} × ${ancho || '—'} × ${alto || '—'}`);
+    if (peso) lines.push(`*Peso real:* ${peso} kg`);
+    if (peso_cobrable) lines.push(`*Peso cobrable:* ${peso_cobrable} kg`);
+    if (cbm) lines.push(`*CBM:* ${cbm} m³`);
+    if (cantidad) lines.push(`*Cantidad:* ${cantidad}`);
+    if (tiempo_estimado) lines.push(`*Tiempo estimado:* ${tiempo_estimado}`);
+    if (precio_por_kg) lines.push(`*Tarifa por kg:* $${Number(precio_por_kg).toFixed(2)} USD/kg`);
+    if (precio_usd) lines.push(`*Cotización estimada:* $${Number(precio_usd).toFixed(2)} USD${precio_mxn ? ` (≈ $${Number(precio_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} MXN)` : ''}`);
+    if (tipo_cambio) lines.push(`*Tipo de cambio:* ${tipo_cambio}`);
+    if (descripcion_producto) { lines.push(''); lines.push(`*Descripción del producto:*`); lines.push(descripcion_producto); }
+    if (observaciones) { lines.push(''); lines.push(`*Observaciones del cliente:*`); lines.push(observaciones); }
+    lines.push('');
+    lines.push(`*Packing list adjunto:* ${packingList.originalname}`);
+    lines.push(`*Fotos adjuntas:* ${photoUrls.length}`);
+    lines.push('');
+    lines.push(`⏳ En espera de respuesta ${advisorId ? 'del asesor' : 'de Servicio a Cliente'}.`);
+
+    const attachments: string[] = [...photoUrls];
+    if (packingListUrl) attachments.push(packingListUrl);
+
+    await pool.query(
+      `INSERT INTO ticket_messages (ticket_id, sender_type, message, attachments)
+       VALUES ($1, 'client', $2, $3)`,
+      [ticketId, lines.join('\n'), JSON.stringify(attachments)]
+    );
+
+    // Notificaciones
+    try {
+      const { createCustomNotification } = await import('./notificationController');
+      // Al cliente
+      await createCustomNotification(
+        userId,
+        `📝 Cotización ${ticketFolio} enviada`,
+        advisorId
+          ? 'Tu solicitud fue enviada a tu asesor. Te avisaremos cuando responda.'
+          : 'Tu solicitud fue enviada a Servicio a Cliente. Te avisaremos cuando respondan.',
+        'quote_request',
+        'file-document-edit',
+        { ticket_id: String(ticketId), ticket_folio: ticketFolio },
+        `/support/ticket/${ticketId}`
+      );
+      // Al asesor
+      if (advisorId) {
+        await createCustomNotification(
+          advisorId,
+          `📝 Nueva cotización formal — ${ticketFolio}`,
+          `${user.full_name || 'Tu cliente'} solicitó una cotización formal de ${servicio}.`,
+          'quote_request',
+          'file-document-edit',
+          { ticket_id: String(ticketId), ticket_folio: ticketFolio, client_id: String(userId) },
+          `/support/ticket/${ticketId}`
+        );
+      }
+    } catch (e) {
+      console.error('Error notificación cotización formal:', e);
+    }
+
+    // WhatsApp confirmación al cliente (plantilla específica de cotización)
+    try {
+      if (user.phone) {
+        sendQuoteRequestConfirmation(
+          user.phone,
+          user.full_name || 'Cliente',
+          ticketFolio,
+          String(servicio).toUpperCase()
+        ).catch(() => {});
+      }
+    } catch (e) { /* noop */ }
+
+    return res.json({
+      ok: true,
+      ticketId,
+      ticketFolio,
+      assignedToAdvisor: !!advisorId,
+      photosUploaded: photoUrls.length,
+      packingListUploaded: !!packingListUrl,
+      message: advisorId
+        ? `Solicitud enviada al asesor ${user.advisor_name || ''}. En espera de respuesta.`
+        : 'Solicitud enviada a Servicio a Cliente. En espera de respuesta.'
+    });
+  } catch (err: any) {
+    console.error('Error createFormalQuoteRequest:', err);
+    return res.status(500).json({ error: 'Error creando solicitud de cotización formal' });
+  }
 };
 
 // 🌐 PÚBLICO: Levantar reclamación de box_id (sin auth)

@@ -397,6 +397,7 @@ export default function SupportBoardPage() {
   const DEPT_ALLOWED_ROLES: Record<string, string[]> = {
     'Dirección':         ['super_admin', 'admin', 'director'],
     'Contabilidad':      ['super_admin', 'admin', 'accountant'],
+    'Cotizaciones':      ['super_admin', 'admin', 'customer_service', 'counter_staff', 'director'],
     'Soporte Técnico':   ['super_admin', 'admin', 'customer_service', 'counter_staff', 'soporte_tecnico'],
     'Atención a Cliente':['super_admin', 'admin', 'customer_service', 'counter_staff'],
     'CEDIS MTY':         ['super_admin', 'admin', 'director', 'operaciones', 'Operaciones', 'warehouse_ops'],

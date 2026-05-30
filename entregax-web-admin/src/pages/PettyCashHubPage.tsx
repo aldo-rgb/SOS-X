@@ -23,7 +23,8 @@ import {
   ReceiptLong as MovementsIcon,
   DeleteForever as DeleteIcon,
   Edit as EditIcon,
-  LocalAtm as CajaCCIcon
+  LocalAtm as CajaCCIcon,
+  AssignmentTurnedIn as SettleIcon
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -240,6 +241,13 @@ export default function PettyCashHubPage() {
   const [editConcept, setEditConcept] = useState('');
   const [editCategory, setEditCategory] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
+
+  // Modal Cerrar Ruta / Devolución de sobrante
+  const [settleOpen, setSettleOpen] = useState(false);
+  const [settleDriver, setSettleDriver] = useState<Wallet | null>(null);
+  const [settleCashReturned, setSettleCashReturned] = useState('');
+  const [settleNotes, setSettleNotes] = useState('');
+  const [settleBusy, setSettleBusy] = useState(false);
 
   // Toasts
   const [snack, setSnack] = useState<{ severity: 'success' | 'error'; msg: string } | null>(null);
@@ -564,6 +572,46 @@ export default function PettyCashHubPage() {
     }
   };
 
+  const openSettleDialog = (w: Wallet) => {
+    setSettleDriver(w);
+    setSettleCashReturned('');
+    setSettleNotes('');
+    setSettleOpen(true);
+  };
+
+  const handleCloseRoute = async () => {
+    if (!settleDriver) return;
+    const cash = Number(settleCashReturned);
+    if (!Number.isFinite(cash) || cash < 0) {
+      setSnack({ severity: 'error', msg: 'Captura un monto válido (>= 0)' });
+      return;
+    }
+    setSettleBusy(true);
+    try {
+      const r = await fetch(`${API_URL}/api/admin/petty-cash/route-settle`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          driver_user_id: settleDriver.owner_id,
+          cash_returned_mxn: cash,
+          notes: settleNotes || null
+        })
+      });
+      const d = await r.json();
+      if (r.ok) {
+        setSnack({ severity: 'success', msg: 'Ruta cerrada y devolución registrada' });
+        setSettleOpen(false);
+        loadAll();
+      } else {
+        setSnack({ severity: 'error', msg: d.error || 'Error al cerrar ruta' });
+      }
+    } catch {
+      setSnack({ severity: 'error', msg: 'Error de red' });
+    } finally {
+      setSettleBusy(false);
+    }
+  };
+
   const handleReject = async (movId: number) => {
     if (!rejectReason || rejectReason.trim().length < 3) {
       setSnack({ severity: 'error', msg: 'Captura un motivo de rechazo' });
@@ -686,6 +734,7 @@ export default function PettyCashHubPage() {
           <Tab icon={<BranchIcon />} iconPosition="start" label={`Sucursales (${branchWallets.length})`} />
           <Tab icon={<DriverIcon />} iconPosition="start" label={`Choferes (${driverWallets.length})`} />
           <Tab icon={<ApproveIcon />} iconPosition="start" label={`Aprobaciones (${pendingExpenses.length})`} />
+          <Tab icon={<SettleIcon />} iconPosition="start" label={`Arqueos (${settlements.length})`} />
         </Tabs>
       </Paper>
 
@@ -837,10 +886,24 @@ export default function PettyCashHubPage() {
                       </IconButton>
                     </Tooltip>
                   </TableCell>
+                  <TableCell align="center">
+                    <Tooltip title="Cerrar ruta y registrar devolución de sobrante">
+                      <span>
+                        <IconButton
+                          size="small"
+                          color="success"
+                          onClick={() => openSettleDialog(w)}
+                          disabled={Number(w.balance_mxn) <= 0 && Number(w.pending_to_verify_mxn) <= 0}
+                        >
+                          <SettleIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </Tooltip>
+                  </TableCell>
                 </TableRow>
               ))}
               {driverWallets.length === 0 && !loading && (
-                <TableRow><TableCell colSpan={7} align="center">Sin choferes con wallet</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} align="center">Sin choferes con wallet</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -927,8 +990,8 @@ export default function PettyCashHubPage() {
         </TableContainer>
       )}
 
-      {/* TAB: Arqueos — DESHABILITADO. No hacemos devoluciones, sólo refileamos para sostener el fondo. */}
-      {false && tab === 3 && (
+      {/* TAB: Arqueos / Cierres de ruta */}
+      {tab === 3 && (
         <TableContainer component={Paper}>
           <Table size="small">
             <TableHead>
@@ -1528,6 +1591,55 @@ export default function PettyCashHubPage() {
             disabled={savingEdit}
           >
             {savingEdit ? 'Guardando...' : 'Guardar cambios'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog: Cerrar Ruta / Devolución de sobrante */}
+      <Dialog open={settleOpen} onClose={() => !settleBusy && setSettleOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>🧾 Cerrar Ruta / Devolución de Sobrante</DialogTitle>
+        <DialogContent>
+          <Alert severity="info" sx={{ mb: 2 }}>
+            Esta acción liquida todos los vales aceptados del chofer, suma sus gastos aprobados,
+            registra el efectivo devuelto a la sucursal y reinicia el saldo del chofer.
+          </Alert>
+          {settleDriver && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="body2"><b>Chofer:</b> {settleDriver.owner_name}</Typography>
+              <Typography variant="body2"><b>Sucursal:</b> {settleDriver.branch_name || '—'}</Typography>
+              <Typography variant="body2"><b>Saldo actual:</b> {fmtMoney(settleDriver.balance_mxn, settleDriver.currency)}</Typography>
+              <Typography variant="body2"><b>Por comprobar:</b> {fmtMoney(settleDriver.pending_to_verify_mxn, settleDriver.currency)}</Typography>
+            </Box>
+          )}
+          <TextField
+            label="Efectivo devuelto (MXN)"
+            type="number"
+            fullWidth
+            value={settleCashReturned}
+            onChange={(e) => setSettleCashReturned(e.target.value)}
+            sx={{ mb: 2 }}
+            InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+            helperText="Monto físico que el chofer entrega de regreso a caja. Si no devuelve nada, deja 0."
+          />
+          <TextField
+            label="Notas (opcional)"
+            fullWidth
+            multiline
+            rows={2}
+            value={settleNotes}
+            onChange={(e) => setSettleNotes(e.target.value)}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSettleOpen(false)} disabled={settleBusy}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="success"
+            onClick={handleCloseRoute}
+            disabled={settleBusy || settleCashReturned === ''}
+            startIcon={settleBusy ? <CircularProgress size={16} /> : <SettleIcon />}
+          >
+            {settleBusy ? 'Cerrando...' : 'Cerrar ruta'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -280,6 +280,30 @@ export const sendTicketConfirmation = async (phone: string, nombre: string, tick
 };
 
 /**
+ * Confirmación de solicitud de cotización formal recibida.
+ * Requiere plantilla "cotizacion_recibida" aprobada en Meta Business (UTILITY, es_MX).
+ * Variables: {{1}} = nombre, {{2}} = folio del ticket, {{3}} = servicio.
+ */
+export const sendQuoteRequestConfirmation = async (
+    phone: string,
+    nombre: string,
+    ticketFolio: string,
+    servicio: string
+): Promise<void> => {
+    const templateName = process.env.WHATSAPP_QUOTE_TEMPLATE || 'cotizacion_recibida';
+    try {
+        await sendTemplate({
+            to: phone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [nombre.split(' ')[0] ?? nombre, ticketFolio, servicio],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] Error enviando confirmación de cotización:', e);
+    }
+};
+
+/**
  * Notifica al cliente que su ticket fue resuelto/cerrado.
  * Requiere plantilla "ticket_resuelto" aprobada en Meta Business (UTILITY, es_MX).
  * Variables: {{1}} = nombre, {{2}} = folio del ticket.
