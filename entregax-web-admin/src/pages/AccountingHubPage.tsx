@@ -814,19 +814,6 @@ function newEmptyItem(): ManualItem {
   };
 }
 
-/**
- * Construye la serie automática a partir del RFC del emisor y la fecha actual.
- * Formato: <2 primeras letras del RFC><YY>-<MM>-
- *   Ej. RFC RCM... en jun/2026 → "RC26-06-"
- * La serie cambia automáticamente cada mes y cada año.
- */
-function buildAutoSerie(rfc?: string): string {
-  const prefix = String(rfc || '').replace(/[^A-Z]/gi, '').toUpperCase().slice(0, 2) || 'XX';
-  const now = new Date();
-  const yy = String(now.getFullYear()).slice(-2);
-  const mm = String(now.getMonth() + 1).padStart(2, '0');
-  return `${prefix}${yy}-${mm}-`;
-}
 
 // Convierte un error crudo de Facturama / backend en un objeto presentable.
 function formatInvoiceError(raw?: string | null): { headline: string; issues: { field: string; message: string }[] } {
@@ -909,7 +896,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
   const [paymentForm, setPaymentForm] = useState('03');
   const [paymentMethod, setPaymentMethod] = useState<'PUE' | 'PPD'>('PUE');
   const [currency, setCurrency] = useState('MXN');
-  const [serie, setSerie] = useState('');
+  const [, setSerie] = useState('');
   const [folio, setFolio] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
