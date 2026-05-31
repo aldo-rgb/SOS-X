@@ -1,14 +1,13 @@
 /**
  * pushClient.ts - Cliente de notificaciones push para la app móvil.
  *
- * Usa expo-notifications. Para FCM directo en Android, Expo entrega el token
- * nativo de FCM cuando la app está construida con EAS y `useFcmV1: true`.
- * En iOS, devuelve el APNs/Expo device token que firebase-admin acepta vía
- * APNs config. En desarrollo (Expo Go) sólo se obtiene el ExponentPushToken,
- * que NO es un token FCM válido para envío directo desde firebase-admin.
+ * Usa Expo Push Service (ExponentPushToken). El backend envía vía
+ * https://exp.host/--/api/v2/push/send, lo que evita configurar
+ * firebase-admin/APNs por nuestra cuenta (Expo administra credenciales).
  */
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { registerPushToken } from './chatService';
 
@@ -57,28 +56,33 @@ export async function registerForPushNotifications(authToken: string): Promise<s
       });
     }
 
-    // Intentar obtener token nativo (FCM en Android, APNs en iOS)
-    let nativeToken: string | null = null;
+    // Obtener Expo push token (ExponentPushToken[...])
+    const projectId =
+      (Constants?.expoConfig as any)?.extra?.eas?.projectId ||
+      (Constants as any)?.easConfig?.projectId;
+    let expoToken: string | null = null;
     try {
-      const tokenResp = await Notifications.getDevicePushTokenAsync();
-      nativeToken = tokenResp.data;
+      const tokenResp = await Notifications.getExpoPushTokenAsync(
+        projectId ? { projectId } : undefined as any
+      );
+      expoToken = tokenResp.data;
     } catch (e) {
-      console.warn('[Push] No se pudo obtener device token nativo:', e);
+      console.warn('[Push] No se pudo obtener Expo push token:', e);
     }
 
-    if (!nativeToken) return null;
-    if (nativeToken === registeredToken) return nativeToken;
+    if (!expoToken) return null;
+    if (expoToken === registeredToken) return expoToken;
 
     await registerPushToken(authToken, {
-      token: nativeToken,
+      token: expoToken,
       platform: Platform.OS === 'ios' ? 'ios' : 'android',
       device_name: Device.deviceName || undefined,
       app_version: '1.0.0',
     });
 
-    registeredToken = nativeToken;
-    console.log('[Push] Token registrado correctamente');
-    return nativeToken;
+    registeredToken = expoToken;
+    console.log('[Push] Expo token registrado:', expoToken.slice(0, 30) + '...');
+    return expoToken;
   } catch (e: any) {
     console.warn('[Push] Error en registro:', e?.message || e);
     return null;
