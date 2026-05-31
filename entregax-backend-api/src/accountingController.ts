@@ -721,6 +721,8 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
     }
 
     let cfdiPayloadForLog: any = null;
+    let timbradoFacturamaId: string | null = null;
+    let timbradoUuidSat: string | null = null;
     try {
         const client = await FacturamaClient.fromEmitterId(emitterId);
 
@@ -782,6 +784,8 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
         // pasamos NULL en lugar de "" para evitar colisión con UNIQUE en cadena vacía.
         const facturamaId = invoice.id ? String(invoice.id) : null;
         const uuidSat = invoice.uuid && String(invoice.uuid).trim() ? String(invoice.uuid).trim() : null;
+        timbradoFacturamaId = facturamaId;
+        timbradoUuidSat = uuidSat;
 
         // Persistir en facturas_emitidas (idempotente) + descuento de stock
         // en una sola transacción.
@@ -795,15 +799,18 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                     INSERT INTO facturas_emitidas
                         (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
                          receptor_rfc, receptor_razon_social, subtotal, total, currency,
-                         payment_form, status, pdf_url, xml_url, created_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
+                         payment_form, payment_method, status, pdf_url, xml_url, created_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'valid',$14,$15,NOW())
                     RETURNING id
                 `, [
                     linkedUserId, emitterId,
                     facturamaId, uuidSat, invoice.folio_number, invoice.series || null,
                     receptorRfc, receptorNombre,
-                    invoice.subtotal, invoice.total, invoice.currency,
-                    paymentForm, invoice.pdf_url, invoice.xml_url,
+                    invoice.subtotal, invoice.total,
+                    String(invoice.currency || 'MXN').slice(0, 10),
+                    String(paymentForm || '99').slice(0, 10),
+                    String(paymentMethod || 'PUE').slice(0, 10),
+                    invoice.pdf_url, invoice.xml_url,
                 ]);
                 insertedInvoiceId = ins.rows[0].id;
             } catch (dbErr: any) {
@@ -945,6 +952,11 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                 console.error('[createManualInvoice] facturamaDetails RAW:', JSON.stringify(facturamaDetails));
                 console.error('[createManualInvoice] cfdi enviado:', JSON.stringify(cfdiPayloadForLog));
             } catch { /* noop */ }
+        }
+        // Si el error NO es de Facturama, el CFDI ya pudo haberse timbrado.
+        // Loguear ID y UUID para recuperación manual.
+        if (!(e instanceof FacturamaError) && (timbradoFacturamaId || timbradoUuidSat)) {
+            console.error('[createManualInvoice] FACTURA FANTASMA — timbrada en Facturama pero no persistida en BD. facturamaId:', timbradoFacturamaId, 'uuid:', timbradoUuidSat);
         }
         return res.status(500).json({
             error: 'Error al emitir CFDI',
