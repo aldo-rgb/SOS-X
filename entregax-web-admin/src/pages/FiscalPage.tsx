@@ -608,7 +608,7 @@ export default function FiscalPage() {
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
       const { token } = tokenRes.data;
-      console.log('[Syncfy] Respuesta recibida, ok=', !!token);
+      console.log('[Syncfy] Respuesta recibida, ok=', !!tokenRes.data);
       if (!token) {
         setSnackbar({ open: true, message: 'No se recibió token de Syncfy', severity: 'error' });
         return;
