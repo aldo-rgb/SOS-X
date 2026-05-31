@@ -900,6 +900,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
   const [folio, setFolio] = useState('');
 
   const [submitting, setSubmitting] = useState(false);
+  const submittingRef = useRef(false);
   const [err, setErr] = useState<string | null>(null);
   const [showUsoWarning, setShowUsoWarning] = useState(false);
 
@@ -1044,6 +1045,8 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
   );
 
   const submit = async () => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setErr(null);
     setSubmitting(true);
     try {
@@ -1085,6 +1088,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
     } catch (e: any) {
       setErr(e?.response?.data?.message || e?.response?.data?.error || e.message);
     } finally {
+      submittingRef.current = false;
       setSubmitting(false);
     }
   };
