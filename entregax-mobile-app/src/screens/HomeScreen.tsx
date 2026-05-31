@@ -1888,25 +1888,25 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <Text style={styles.boxId}>🏠 {t('home.mailbox')}: {user.boxId}</Text>
           </View>
           <View style={styles.headerButtonsRow}>
-            {/* 💰 Botón X-Pay */}
-            <TouchableOpacity
-              style={[styles.supplierPaymentButton, !xpayEnabled && styles.supplierPaymentButtonDisabled]}
-              disabled={!xpayEnabled}
-              onPress={() => {
-                if (!xpayEnabled) return;
-                navigation.navigate('ExternalProviderTransition' as any, {
-                  user,
-                  token,
-                  target: 'SupplierPayment',
-                  label: 'X-Pay',
-                });
-              }}
-            >
-              <Image
-                source={xpayLogoUrl ? { uri: xpayLogoUrl } : require('../../assets/logo-completo-xpay-t.png')}
-                style={[styles.supplierPaymentLogo, !xpayEnabled && { opacity: 0.55 }]}
-              />
-            </TouchableOpacity>
+            {/* 💰 Botón X-Pay — solo visible si está habilitado */}
+            {xpayEnabled && (
+              <TouchableOpacity
+                style={styles.supplierPaymentButton}
+                onPress={() => {
+                  navigation.navigate('ExternalProviderTransition' as any, {
+                    user,
+                    token,
+                    target: 'SupplierPayment',
+                    label: 'X-Pay',
+                  });
+                }}
+              >
+                <Image
+                  source={xpayLogoUrl ? { uri: xpayLogoUrl } : require('../../assets/logo-completo-xpay-t.png')}
+                  style={styles.supplierPaymentLogo}
+                />
+              </TouchableOpacity>
+            )}
             {/* 🧮 Botón Cotizar — mismo estilo negro que "¿Cómo enviar?" */}
             <TouchableOpacity
               style={styles.requestShipmentButton}
