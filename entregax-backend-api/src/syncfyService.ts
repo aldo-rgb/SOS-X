@@ -50,21 +50,16 @@ export const SYNCFY_PATHS = {
 };
 
 // --------------- API CLIENT ---------------
-function appAuthHeader(): string {
-  // Token header de aplicación (API key emitida en el dashboard)
-  return `Token token=${SYNCFY_API_KEY}`;
-}
-
+// Syncfy/Paybook NO usa header Bearer/Token. Acepta la API key como
+// query string ?api_key=<key>. Los session tokens se mandan como ?token=<token>.
 function getAppClient(): AxiosInstance {
   if (!SYNCFY_API_KEY) {
     throw new Error('Syncfy credentials not configured. Set SYNCFY_API_KEY in env');
   }
   return axios.create({
     baseURL: SYNCFY_BASE_URL,
-    headers: {
-      Authorization: appAuthHeader(),
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
+    params: { api_key: SYNCFY_API_KEY },
     timeout: 30000,
   });
 }
@@ -72,10 +67,8 @@ function getAppClient(): AxiosInstance {
 function getSessionClient(sessionToken: string): AxiosInstance {
   return axios.create({
     baseURL: SYNCFY_BASE_URL,
-    headers: {
-      Authorization: `Token token=${sessionToken}`,
-      'Content-Type': 'application/json',
-    },
+    headers: { 'Content-Type': 'application/json' },
+    params: { token: sessionToken },
     timeout: 45000,
   });
 }
