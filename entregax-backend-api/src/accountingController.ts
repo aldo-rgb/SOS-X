@@ -189,7 +189,8 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
                    f.pdf_url, f.xml_url, f.created_at,
                    f.user_id AS cliente_id,
                    u.box_id AS cliente_box_id,
-                   u.full_name AS cliente_nombre, u.email AS cliente_email
+                   u.full_name AS cliente_nombre, u.email AS cliente_email,
+                   COALESCE(NULLIF(TRIM(u.fiscal_email), ''), NULLIF(TRIM(u.email), '')) AS billing_email
             FROM facturas_emitidas f
             LEFT JOIN users u ON u.id = f.user_id
             ${where}
@@ -364,6 +365,52 @@ export const archivePendingStamp = async (req: AuthRequest, res: Response): Prom
         return res.json({ success: true });
     } catch (e: any) {
         return res.status(500).json({ error: 'Error archivando pago', message: e.message });
+    }
+};
+
+/**
+ * POST /api/accounting/:emitterId/invoices/:invoiceId/resend-email
+ * Reenvía el CFDI por email. Body: { email: string, save_billing_email?: boolean }
+ * Si save_billing_email=true guarda email en users.fiscal_email del receptor vinculado.
+ */
+export const resendInvoiceEmail = async (req: AuthRequest, res: Response): Promise<any> => {
+    const userId = req.user?.userId || (req.user as any)?.id;
+    const role = req.user?.role;
+    const emitterId = parseInt(String(req.params.emitterId), 10);
+    const invoiceId = parseInt(String(req.params.invoiceId), 10);
+    if (!emitterId || !invoiceId) return res.status(400).json({ error: 'Parámetros inválidos' });
+
+    const access = await checkEmitterAccess(userId!, role, emitterId);
+    if (!access.ok) return res.status(403).json({ error: 'Sin acceso a esta empresa' });
+
+    const { email, save_billing_email } = req.body || {};
+    if (!email || typeof email !== 'string' || !email.includes('@')) {
+        return res.status(400).json({ error: 'Email inválido' });
+    }
+
+    try {
+        const inv = await pool.query(
+            `SELECT facturama_id, user_id FROM facturas_emitidas WHERE id=$1 AND fiscal_emitter_id=$2`,
+            [invoiceId, emitterId]
+        );
+        if (!inv.rows[0]) return res.status(404).json({ error: 'Factura no encontrada' });
+        const { facturama_id, user_id } = inv.rows[0];
+        if (!facturama_id) return res.status(400).json({ error: 'Factura sin ID de Facturama — no se puede reenviar' });
+
+        const client = await FacturamaClient.fromEmitterId(emitterId);
+        await client.invoices.sendByEmail(facturama_id, { email: email.trim() });
+
+        if (save_billing_email && user_id) {
+            await pool.query(
+                `UPDATE users SET fiscal_email=$1 WHERE id=$2`,
+                [email.trim(), user_id]
+            ).catch(e => console.warn('[resendInvoiceEmail] no se pudo guardar fiscal_email:', e?.message));
+        }
+
+        return res.json({ success: true, sent_to: email.trim() });
+    } catch (e: any) {
+        const msg = e?.details?.Message || e?.message || 'Error al reenviar';
+        return res.status(500).json({ error: msg });
     }
 };
 
@@ -582,7 +629,8 @@ export const searchFiscalClients = async (req: AuthRequest, res: Response): Prom
                    UPPER(TRIM(u.fiscal_rfc)) AS rfc,
                    COALESCE(u.fiscal_razon_social, u.full_name) AS razon_social,
                    u.fiscal_regimen_fiscal AS regimen_fiscal,
-                   u.fiscal_codigo_postal AS cp
+                   u.fiscal_codigo_postal AS cp,
+                   COALESCE(NULLIF(TRIM(u.fiscal_email), ''), NULLIF(TRIM(u.email), '')) AS billing_email
               FROM users u
              ${where}
              ORDER BY u.fiscal_razon_social ASC NULLS LAST, u.full_name ASC
@@ -922,11 +970,16 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
             }
         }
 
-        // Enviar CFDI por email al receptor si tiene correo registrado
-        if (receptor.email && facturamaId) {
+        // Enviar CFDI por email al receptor.
+        // Prioridad: fiscal_email del usuario > email del receptor del formulario.
+        const billingEmail = (linkedUserId
+            ? await pool.query(`SELECT COALESCE(NULLIF(TRIM(fiscal_email),''), NULLIF(TRIM(email),'')) AS billing_email FROM users WHERE id=$1`, [linkedUserId])
+                .then(r => r.rows[0]?.billing_email || null).catch(() => null)
+            : null) || receptor.email || null;
+        if (billingEmail && facturamaId) {
             try {
-                await client.invoices.sendByEmail(facturamaId, { email: receptor.email });
-                console.log(`✅ CFDI enviado por email a ${receptor.email} (${facturamaId})`);
+                await client.invoices.sendByEmail(facturamaId, { email: billingEmail });
+                console.log(`✅ CFDI enviado por email a ${billingEmail} (${facturamaId})`);
             } catch (e: any) {
                 console.warn('[createManualInvoice] no se pudo enviar email del CFDI:', e?.message);
             }

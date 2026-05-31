@@ -34,6 +34,8 @@ import ThumbDownIcon from '@mui/icons-material/ThumbDown';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DoNotDisturbAltIcon from '@mui/icons-material/DoNotDisturbAlt';
 import ArchiveIcon from '@mui/icons-material/Archive';
+import EmailIcon from '@mui/icons-material/Email';
+import SaveIcon from '@mui/icons-material/Save';
 import axios from 'axios';
 
 const ORANGE = '#F05A28';
@@ -354,6 +356,7 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
   const isSuperAdmin = currentRole === 'super_admin';
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; row: any | null; loading: boolean }>({ open: false, row: null, loading: false });
   const [cancelDialog, setCancelDialog] = useState<{ open: boolean; row: any | null; motive: string; folioSust: string; loading: boolean }>({ open: false, row: null, motive: '02', folioSust: '', loading: false });
+  const [resendDialog, setResendDialog] = useState<{ open: boolean; row: any | null; email: string; saveBilling: boolean; loading: boolean }>({ open: false, row: null, email: '', saveBilling: false, loading: false });
 
   const doDelete = async () => {
     if (!confirmDelete.row) return;
@@ -527,6 +530,13 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                       <RefreshIcon fontSize="small" sx={{ color: ORANGE }} />
                     </IconButton>
                   </Tooltip>
+                  {r.facturama_id && (
+                    <Tooltip title="Reenviar factura por email">
+                      <IconButton size="small" onClick={() => setResendDialog({ open: true, row: r, email: r.billing_email || r.cliente_email || '', saveBilling: false, loading: false })}>
+                        <EmailIcon fontSize="small" sx={{ color: ORANGE }} />
+                      </IconButton>
+                    </Tooltip>
+                  )}
                   {(r.status !== 'canceled' && !r.canceled_at) && (r.facturama_id || r.uuid_sat) && (
                     <Tooltip title="Cancelar CFDI ante el SAT">
                       <IconButton size="small" onClick={() => setCancelDialog({ open: true, row: r, motive: '02', folioSust: '', loading: false })}>
@@ -637,6 +647,100 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
             }}
           >
             {confirmDelete.loading ? 'Eliminando…' : 'Sí, eliminar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog de reenvío de CFDI por email */}
+      <Dialog open={resendDialog.open} onClose={() => !resendDialog.loading && setResendDialog(s => ({ ...s, open: false }))} maxWidth="xs" fullWidth>
+        <Box sx={{ px: 3, py: 2.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `4px solid ${ORANGE}` }}>
+          <Box sx={{ width: 44, height: 44, borderRadius: '50%', bgcolor: `${ORANGE}22`, color: ORANGE, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `2px solid ${ORANGE}` }}>
+            <EmailIcon />
+          </Box>
+          <Box>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', lineHeight: 1.2 }}>Reenviar factura por email</Typography>
+            {resendDialog.row && (
+              <Typography sx={{ fontSize: '0.75rem', opacity: 0.7, fontFamily: 'monospace' }}>
+                {resendDialog.row.serie || ''}{resendDialog.row.folio} · {resendDialog.row.receptor_rfc}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+        <DialogContent sx={{ px: 3, pt: 3, pb: 1 }}>
+          <TextField
+            fullWidth
+            size="small"
+            label="Correo de destino"
+            type="email"
+            value={resendDialog.email}
+            onChange={e => setResendDialog(s => ({ ...s, email: e.target.value }))}
+            disabled={resendDialog.loading}
+            autoFocus
+            helperText={
+              resendDialog.row?.billing_email && resendDialog.row.billing_email !== resendDialog.row.cliente_email
+                ? `Correo de facturación guardado: ${resendDialog.row.billing_email}`
+                : resendDialog.row?.cliente_email
+                  ? `Correo del cliente: ${resendDialog.row.cliente_email}`
+                  : undefined
+            }
+          />
+          {resendDialog.row?.cliente_id && (
+            <Box
+              onClick={() => !resendDialog.loading && setResendDialog(s => ({ ...s, saveBilling: !s.saveBilling }))}
+              sx={{
+                mt: 2, display: 'flex', alignItems: 'flex-start', gap: 1.5,
+                p: 1.5, borderRadius: 1.5, cursor: 'pointer',
+                border: `2px solid ${resendDialog.saveBilling ? ORANGE : '#E0E0E0'}`,
+                bgcolor: resendDialog.saveBilling ? `${ORANGE}0A` : 'transparent',
+                transition: 'all 0.15s',
+              }}
+            >
+              <Box sx={{
+                mt: '2px', width: 18, height: 18, borderRadius: '3px', flexShrink: 0,
+                border: `2px solid ${resendDialog.saveBilling ? ORANGE : '#BDBDBD'}`,
+                bgcolor: resendDialog.saveBilling ? ORANGE : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {resendDialog.saveBilling && <SaveIcon sx={{ fontSize: 12, color: 'white' }} />}
+              </Box>
+              <Box>
+                <Typography sx={{ fontSize: '0.85rem', fontWeight: 700, color: BLACK, lineHeight: 1.3 }}>
+                  Guardar como correo de facturación
+                </Typography>
+                <Typography sx={{ fontSize: '0.75rem', color: '#666', mt: 0.3 }}>
+                  Las próximas facturas de este cliente se enviarán a este correo.
+                  No modifica su correo de acceso.
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, pt: 1 }}>
+          <Button onClick={() => setResendDialog(s => ({ ...s, open: false }))} disabled={resendDialog.loading} sx={{ textTransform: 'none', color: '#555', fontWeight: 600 }}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            disabled={resendDialog.loading || !resendDialog.email.includes('@')}
+            startIcon={resendDialog.loading ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <EmailIcon />}
+            sx={{ textTransform: 'none', fontWeight: 700, bgcolor: ORANGE, boxShadow: 'none', '&:hover': { bgcolor: BLACK }, px: 2.5 }}
+            onClick={async () => {
+              if (!resendDialog.row) return;
+              setResendDialog(s => ({ ...s, loading: true }));
+              try {
+                await api.post(`/accounting/${emitter.id}/invoices/${resendDialog.row.id}/resend-email`, {
+                  email: resendDialog.email.trim(),
+                  save_billing_email: resendDialog.saveBilling,
+                });
+                setResendDialog({ open: false, row: null, email: '', saveBilling: false, loading: false });
+                setSnackbar({ open: true, message: `Factura enviada a ${resendDialog.email.trim()}`, severity: 'success' });
+              } catch (e: any) {
+                setResendDialog(s => ({ ...s, loading: false }));
+                setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al reenviar', severity: 'error' });
+              }
+            }}
+          >
+            {resendDialog.loading ? 'Enviando…' : 'Enviar'}
           </Button>
         </DialogActions>
       </Dialog>

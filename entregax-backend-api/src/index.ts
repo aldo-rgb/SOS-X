@@ -1190,6 +1190,7 @@ import {
   downloadEmittedInvoiceFile,
   listPendingStamp,
   archivePendingStamp,
+  resendInvoiceEmail,
   emitManualCFDI,
   searchFiscalClients,
   createManualInvoice,
@@ -4284,6 +4285,7 @@ app.post('/api/fiscal/invoice/manual', authenticateToken, emitManualCFDI);
 app.get('/api/accounting/:emitterId/fiscal-clients', authenticateToken, searchFiscalClients);
 app.post('/api/accounting/:emitterId/invoices/manual', authenticateToken, createManualInvoice);
 app.post('/api/accounting/:emitterId/invoices/:invoiceId/cancel', authenticateToken, cancelEmittedInvoice);
+app.post('/api/accounting/:emitterId/invoices/:invoiceId/resend-email', authenticateToken, resendInvoiceEmail);
 app.delete('/api/accounting/:emitterId/invoices/:invoiceId', authenticateToken, deleteEmittedInvoice);
 app.get('/api/accounting/accountants', authenticateToken, listAccountants);
 app.post('/api/accounting/accountants/:userId/permissions', authenticateToken, grantAccountantPermission);
