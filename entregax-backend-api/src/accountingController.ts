@@ -123,14 +123,21 @@ export const getEmitterSummary = async (req: AuthRequest, res: Response): Promis
              OR facturapi_id IS NOT NULL`
         ).catch(() => ({ rows: [{ total: 0, activas: 0, canceladas: 0, monto_activo: 0 }] }));
 
-        // Pendientes por timbrar: pagos marcados requiere_factura=true pero sin factura
+        // Pendientes por timbrar: pagos marcados requiere_factura=true pero sin factura ni archivar
         const pendCnt = await pool.query(`
             SELECT COUNT(*)::int AS pendientes
             FROM pobox_payments pp
             WHERE pp.requiere_factura = TRUE
-              AND pp.facturada = FALSE
+              AND COALESCE(pp.facturada, FALSE) = FALSE
+              AND COALESCE(pp.factura_archivada, FALSE) = FALSE
               AND pp.status = 'completed'
-        `).catch(() => ({ rows: [{ pendientes: 0 }] }));
+        `).catch(() => pool.query(`
+            SELECT COUNT(*)::int AS pendientes
+            FROM pobox_payments pp
+            WHERE pp.requiere_factura = TRUE
+              AND COALESCE(pp.facturada, FALSE) = FALSE
+              AND pp.status = 'completed'
+        `).catch(() => ({ rows: [{ pendientes: 0 }] })));
 
         return res.json({
             success: true,
@@ -334,7 +341,6 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
                 LEFT JOIN users u ON u.id = pp.user_id
                 WHERE pp.requiere_factura = TRUE
                   AND COALESCE(pp.facturada, FALSE) = FALSE
-                  AND COALESCE(pp.factura_archivada, FALSE) = FALSE
                   AND pp.status = 'completed'
                 ORDER BY pp.paid_at DESC
                 LIMIT 200
