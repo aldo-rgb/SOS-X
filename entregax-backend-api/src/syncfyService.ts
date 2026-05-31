@@ -31,8 +31,9 @@ const SYNCFY_WEBHOOK_SECRET = process.env.SYNCFY_WEBHOOK_SECRET || '';
 
 // Syncfy/Paybook usa el mismo host para sandbox y producción;
 // el ambiente se determina por la API key, no por el dominio.
-// Permite override por env (SYNCFY_BASE_URL) por si la cuenta usa otro host.
+// Permite override por env (SYNCFY_BASE_URL o SYNCFY_API_URL).
 const SYNCFY_BASE_URL = process.env.SYNCFY_BASE_URL
+  || process.env.SYNCFY_API_URL
   || 'https://api.syncfy.com/v1';
 
 // Permite usar endpoint dedicado del widget si Syncfy lo provee.
