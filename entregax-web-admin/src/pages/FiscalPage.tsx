@@ -602,13 +602,13 @@ export default function FiscalPage() {
     }
     try {
       console.log('[Syncfy] Solicitando widget-credencial...');
-      const tokenRes = await axios.post(
+      const widgetRes = await axios.post(
         `${API_URL}/admin/syncfy/widget-token`,
         { emitter_id: selectedEmpresaSyncfy.id },
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
-      const { token } = tokenRes.data;
-      console.log('[Syncfy] Respuesta recibida, ok=', !!tokenRes.data);
+      const { token } = widgetRes.data;
+      console.log('[Syncfy] Respuesta ok=', !!widgetRes.data);
       if (!token) {
         setSnackbar({ open: true, message: 'No se recibió token de Syncfy', severity: 'error' });
         return;
