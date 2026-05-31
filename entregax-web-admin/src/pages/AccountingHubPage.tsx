@@ -814,6 +814,20 @@ function newEmptyItem(): ManualItem {
   };
 }
 
+/**
+ * Construye la serie automática a partir del RFC del emisor y la fecha actual.
+ * Formato: <2 primeras letras del RFC><YY>-<MM>-
+ *   Ej. RFC RCM... en jun/2026 → "RC26-06-"
+ * La serie cambia automáticamente cada mes y cada año.
+ */
+function buildAutoSerie(rfc?: string): string {
+  const prefix = String(rfc || '').replace(/[^A-Z]/gi, '').toUpperCase().slice(0, 2) || 'XX';
+  const now = new Date();
+  const yy = String(now.getFullYear()).slice(-2);
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  return `${prefix}${yy}-${mm}-`;
+}
+
 // Convierte un error crudo de Facturama / backend en un objeto presentable.
 function formatInvoiceError(raw?: string | null): { headline: string; issues: { field: string; message: string }[] } {
   if (!raw) return { headline: 'Ocurrió un error al timbrar la factura.', issues: [] };
@@ -949,7 +963,10 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
       setItems([newEmptyItem()]);
     }
     setPaymentForm('03'); setPaymentMethod('PUE'); setCurrency('MXN');
-    setSerie(''); setFolio(''); setErr(null);
+    // Serie automática: <2 primeras letras del RFC del emisor><YY>-<MM>-
+    // Ej. RC26-06-  (cambia cada mes y cada año). Editable por el usuario.
+    setSerie(buildAutoSerie(emitter.rfc));
+    setFolio(''); setErr(null);
     // Cargar catálogo de productos
     (async () => {
       try {
@@ -1292,7 +1309,9 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
               </Grid>
               <Grid size={{ xs: 6, md: 2 }}>
                 <TextField fullWidth size="small" label="Serie" value={serie}
-                  onChange={(e) => setSerie(e.target.value.toUpperCase())} inputProps={{ maxLength: 10 }} />
+                  onChange={(e) => setSerie(e.target.value.toUpperCase())}
+                  inputProps={{ maxLength: 20 }}
+                  helperText="Auto: RFC + año/mes" />
               </Grid>
               <Grid size={{ xs: 6, md: 2 }}>
                 <TextField fullWidth size="small" type="number" label="Folio" value={folio}
