@@ -922,6 +922,16 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
             }
         }
 
+        // Enviar CFDI por email al receptor si tiene correo registrado
+        if (receptor.email && facturamaId) {
+            try {
+                await client.invoices.sendByEmail(facturamaId, { email: receptor.email });
+                console.log(`✅ CFDI enviado por email a ${receptor.email} (${facturamaId})`);
+            } catch (e: any) {
+                console.warn('[createManualInvoice] no se pudo enviar email del CFDI:', e?.message);
+            }
+        }
+
         // Guardar datos fiscales del receptor en users para pre-llenar futuros CFDI
         if (linkedUserId && receptorRfc && receptorNombre) {
             try {
