@@ -30,8 +30,21 @@ export async function getWidgetToken(req: Request, res: Response): Promise<any> 
       widget_base: syncfy.getSyncfyWidgetBase(),
     });
   } catch (e: any) {
-    console.error('Syncfy widget-token error:', e.response?.data || e.message);
-    res.status(500).json({ error: 'Error obteniendo token de widget', details: e.response?.data || e.message });
+    const status = e.response?.status;
+    const data = e.response?.data;
+    console.error('Syncfy widget-token error:', { status, data, message: e.message, url: e.config?.url });
+    // Pasar el status real (401/403/400) y el body para que el frontend lo muestre
+    const httpStatus = status && status >= 400 && status < 600 ? status : 500;
+    let detailMsg: string;
+    if (typeof data === 'string') detailMsg = data;
+    else if (data) detailMsg = JSON.stringify(data);
+    else detailMsg = e.message || 'unknown';
+    res.status(httpStatus).json({
+      error: `Syncfy ${status || 'error'}: ${detailMsg.slice(0, 300)}`,
+      syncfy_status: status,
+      syncfy_body: data,
+      env: syncfy.getSyncfyEnv(),
+    });
   }
 }
 
