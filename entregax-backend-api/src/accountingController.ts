@@ -807,8 +807,8 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                     facturamaId, uuidSat, invoice.folio_number, invoice.series || null,
                     receptorRfc, receptorNombre,
                     invoice.subtotal, invoice.total,
-                    String(invoice.currency || 'MXN').slice(0, 10),
-                    String(paymentForm || '99').slice(0, 10),
+                    String(currency || 'MXN').toUpperCase().slice(0, 3),
+                    String(paymentForm || '99').slice(0, 2),
                     invoice.pdf_url, invoice.xml_url,
                 ]);
                 insertedInvoiceId = ins.rows[0].id;
