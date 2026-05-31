@@ -18,10 +18,12 @@ export default defineConfig(({ mode }) => ({
     }),
   ],
   esbuild: {
-    drop: mode === 'production' ? ['console', 'debugger'] : [],
+    // Solo eliminar debugger y console.log/info/debug. Mantener warn/error
+    // para poder diagnosticar issues en producción.
+    drop: mode === 'production' ? ['debugger'] : [],
     pure:
       mode === 'production'
-        ? ['console.log', 'console.info', 'console.debug', 'console.warn']
+        ? ['console.log', 'console.info', 'console.debug']
         : [],
   },
   build: {

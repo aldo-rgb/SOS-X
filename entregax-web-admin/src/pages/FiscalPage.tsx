@@ -594,20 +594,20 @@ export default function FiscalPage() {
   };
 
   const handleConnectSyncfy = async () => {
-    console.log('[Syncfy] Conectar Banco click. emitter=', selectedEmpresaSyncfy?.id);
+    console.warn('[Syncfy] Conectar Banco click. emitter=', selectedEmpresaSyncfy?.id);
     if (!selectedEmpresaSyncfy) {
       setSnackbar({ open: true, message: 'Selecciona una empresa primero', severity: 'warning' });
       return;
     }
     try {
-      console.log('[Syncfy] Solicitando widget-credencial...');
+      console.warn('[Syncfy] Solicitando widget-credencial...');
       const widgetRes = await axios.post(
         `${API_URL}/admin/syncfy/widget-token`,
         { emitter_id: selectedEmpresaSyncfy.id },
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
       const { token } = widgetRes.data;
-      console.log('[Syncfy] Respuesta ok=', !!widgetRes.data);
+      console.warn('[Syncfy] Respuesta ok=', !!widgetRes.data);
       if (!token) {
         setSnackbar({ open: true, message: 'No se recibió token de Syncfy', severity: 'error' });
         return;
@@ -619,7 +619,7 @@ export default function FiscalPage() {
         setSyncfyWidgetInstance(null);
       }
 
-      console.log('[Syncfy] Abriendo dialog del widget...');
+      console.warn('[Syncfy] Abriendo dialog del widget...');
       // Cerrar primero el modal padre para evitar aria-hidden conflicts
       setOpenSyncfyModal(false);
       setSyncfyWidgetVisible(true);
@@ -628,7 +628,7 @@ export default function FiscalPage() {
       setTimeout(async () => {
         try {
           const container = syncfyWidgetContainerRef.current;
-          console.log('[Syncfy] Container ref:', container);
+          console.warn('[Syncfy] Container ref:', container);
           if (!container) {
             setSnackbar({ open: true, message: 'Contenedor del widget no disponible', severity: 'error' });
             setSyncfyWidgetVisible(false);
@@ -642,7 +642,7 @@ export default function FiscalPage() {
           container.appendChild(mountNode);
           container.appendChild(anchor);
 
-          console.log('[Syncfy] Instanciando widget...');
+          console.warn('[Syncfy] Instanciando widget...');
           const mod = await import('@syncfy/authentication-widget');
           const SyncfyWidget: any = (mod as any).default || mod;
           const widget: any = new SyncfyWidget({
@@ -653,11 +653,11 @@ export default function FiscalPage() {
               entrypoint: { country: 'MX' },
             },
           });
-          console.log('[Syncfy] Widget instanciado:', widget);
+          console.warn('[Syncfy] Widget instanciado:', widget);
 
           if (typeof widget.on === 'function') {
             widget.on('credential-created', async () => {
-              console.log('[Syncfy] credential-created');
+              console.warn('[Syncfy] credential-created');
               try {
                 await axios.post(
                   `${API_URL}/admin/syncfy/links`,
@@ -677,7 +677,7 @@ export default function FiscalPage() {
               setSnackbar({ open: true, message: 'Error en el widget de Syncfy', severity: 'error' });
             });
             widget.on('exit', () => {
-              console.log('[Syncfy] widget exit');
+              console.warn('[Syncfy] widget exit');
               setSyncfyWidgetVisible(false);
             });
           }
