@@ -646,12 +646,18 @@ export default function AdvisorQuotesScreen({ navigation, route }: any) {
                   <Text style={s.totalLabel}>Servicio</Text>
                   <Text style={s.totalValue}>${Number(calcResult.precio_mxn).toLocaleString('es-MX')}</Text>
                 </View>
-                {gexEnabled && Number(gexValor) > 0 && (
-                  <View style={s.totalRow}>
-                    <Text style={s.totalLabel}>GEX</Text>
-                    <Text style={s.totalValue}>${(Number(gexValor) * 0.05).toLocaleString('es-MX')}</Text>
-                  </View>
-                )}
+                {gexEnabled && Number(gexValor) > 0 && (() => {
+                  const tc = Number(calcResult?.tipo_cambio) || gexFallbackTc || 0;
+                  const raw = Number(gexValor) || 0;
+                  const valMxn = gexCurrency === 'USD' ? raw * tc : raw;
+                  const prima = valMxn > 0 ? (valMxn * 0.05) + 625 : 0;
+                  return (
+                    <View style={s.totalRow}>
+                      <Text style={s.totalLabel}>GEX (5% + $625)</Text>
+                      <Text style={s.totalValue}>${prima.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+                    </View>
+                  );
+                })()}
                 <View style={[s.totalRow, { borderTopWidth: 1, borderTopColor: '#FFB74D', paddingTop: 8, marginTop: 4 }]}>
                   <Text style={[s.totalLabel, { fontWeight: '700', fontSize: 16 }]}>TOTAL</Text>
                   <Text style={[s.totalValue, { color: ORANGE, fontWeight: '700', fontSize: 18 }]}>
