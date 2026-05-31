@@ -1086,7 +1086,8 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
         onClose();
       }
     } catch (e: any) {
-      setErr(e?.response?.data?.message || e?.response?.data?.error || e.message);
+      const msg = e?.response?.data?.message || e?.response?.data?.error || e?.message || 'Error desconocido al emitir la factura. Revisa los logs.';
+      setErr(msg);
     } finally {
       submittingRef.current = false;
       setSubmitting(false);
@@ -1105,6 +1106,36 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
           <Step><StepLabel>Receptor</StepLabel></Step>
           <Step><StepLabel>Conceptos y pago</StepLabel></Step>
         </Stepper>
+
+        {err && (() => {
+          const { headline, issues } = formatInvoiceError(err);
+          return (
+            <Box sx={{ mb: 2, borderRadius: 2, border: `1px solid ${RED}33`, bgcolor: `${RED}0A`, overflow: 'hidden' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 2, py: 1.25, borderLeft: `4px solid ${RED}`, bgcolor: `${RED}15` }}>
+                <WarningAmberIcon sx={{ color: RED }} />
+                <Box sx={{ flex: 1 }}>
+                  <Typography sx={{ fontWeight: 700, color: RED, fontSize: '0.95rem' }}>No se pudo emitir la factura</Typography>
+                  <Typography sx={{ fontSize: '0.8rem', color: '#666' }}>{headline}</Typography>
+                </Box>
+                <IconButton size="small" onClick={() => setErr(null)} aria-label="cerrar">
+                  <CancelIcon fontSize="small" sx={{ color: '#999' }} />
+                </IconButton>
+              </Box>
+              {issues.length > 0 && (
+                <Box sx={{ px: 2.5, py: 1.5 }}>
+                  <Typography sx={{ fontSize: '0.78rem', color: '#555', fontWeight: 600, mb: 0.75 }}>Revisa los siguientes campos:</Typography>
+                  <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
+                    {issues.map((it, i) => (
+                      <Box component="li" key={i} sx={{ fontSize: '0.85rem', color: '#333', mb: 0.5 }}>
+                        <strong style={{ color: BLACK }}>{it.field}:</strong> {it.message}
+                      </Box>
+                    ))}
+                  </Box>
+                </Box>
+              )}
+            </Box>
+          );
+        })()}
 
         {step === 0 && (
           <Stack spacing={2}>
@@ -1330,54 +1361,6 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
           </Stack>
         )}
 
-        {err && (() => {
-          const { headline, issues } = formatInvoiceError(err);
-          return (
-            <Box
-              sx={{
-                mt: 2,
-                borderRadius: 2,
-                border: `1px solid ${RED}33`,
-                bgcolor: `${RED}0A`,
-                overflow: 'hidden',
-              }}
-            >
-              <Box sx={{
-                display: 'flex', alignItems: 'center', gap: 1.25,
-                px: 2, py: 1.25,
-                borderLeft: `4px solid ${RED}`,
-                bgcolor: `${RED}15`,
-              }}>
-                <WarningAmberIcon sx={{ color: RED }} />
-                <Box sx={{ flex: 1 }}>
-                  <Typography sx={{ fontWeight: 700, color: RED, fontSize: '0.95rem' }}>
-                    No se pudo emitir la factura
-                  </Typography>
-                  <Typography sx={{ fontSize: '0.8rem', color: '#666' }}>
-                    {headline}
-                  </Typography>
-                </Box>
-                <IconButton size="small" onClick={() => setErr(null)} aria-label="cerrar">
-                  <CancelIcon fontSize="small" sx={{ color: '#999' }} />
-                </IconButton>
-              </Box>
-              {issues.length > 0 && (
-                <Box sx={{ px: 2.5, py: 1.5 }}>
-                  <Typography sx={{ fontSize: '0.78rem', color: '#555', fontWeight: 600, mb: 0.75 }}>
-                    Revisa los siguientes campos:
-                  </Typography>
-                  <Box component="ul" sx={{ m: 0, pl: 2.5 }}>
-                    {issues.map((it, i) => (
-                      <Box component="li" key={i} sx={{ fontSize: '0.85rem', color: '#333', mb: 0.5 }}>
-                        <strong style={{ color: BLACK }}>{it.field}:</strong> {it.message}
-                      </Box>
-                    ))}
-                  </Box>
-                </Box>
-              )}
-            </Box>
-          );
-        })()}
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose} disabled={submitting}>Cancelar</Button>
