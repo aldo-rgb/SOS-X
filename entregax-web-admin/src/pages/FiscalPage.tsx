@@ -595,14 +595,20 @@ export default function FiscalPage() {
   };
 
   const handleConnectSyncfy = async () => {
-    if (!selectedEmpresaSyncfy) return;
+    console.log('[Syncfy] Conectar Banco click. emitter=', selectedEmpresaSyncfy?.id);
+    if (!selectedEmpresaSyncfy) {
+      setSnackbar({ open: true, message: 'Selecciona una empresa primero', severity: 'warning' });
+      return;
+    }
     try {
+      console.log('[Syncfy] Solicitando widget-token...');
       const tokenRes = await axios.post(
         `${API_URL}/admin/syncfy/widget-token`,
         { emitter_id: selectedEmpresaSyncfy.id },
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
       const { token } = tokenRes.data;
+      console.log('[Syncfy] Token recibido:', token ? token.slice(0, 12) + '...' : '(vacío)');
       if (!token) {
         setSnackbar({ open: true, message: 'No se recibió token de Syncfy', severity: 'error' });
         return;
@@ -611,19 +617,22 @@ export default function FiscalPage() {
       // Destruir instancia previa si existe
       if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
         try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
+        setSyncfyWidgetInstance(null);
       }
 
+      console.log('[Syncfy] Abriendo dialog del widget...');
       setSyncfyWidgetVisible(true);
 
-      // Esperar un tick para que el contenedor exista en el DOM
+      // Esperar a que React monte el Dialog y el contenedor
       setTimeout(() => {
         try {
           const container = syncfyWidgetContainerRef.current;
+          console.log('[Syncfy] Container ref:', container);
           if (!container) {
             setSnackbar({ open: true, message: 'Contenedor del widget no disponible', severity: 'error' });
+            setSyncfyWidgetVisible(false);
             return;
           }
-          // Limpiar contenido previo y crear mount node con id único + anchor hermano
           container.innerHTML = '';
           const mountNode = document.createElement('div');
           mountNode.id = 'syncfy-widget-mount';
@@ -632,20 +641,20 @@ export default function FiscalPage() {
           container.appendChild(mountNode);
           container.appendChild(anchor);
 
+          console.log('[Syncfy] Instanciando widget...');
           const widget: any = new (SyncfyWidget as any)({
             token,
             element: '#syncfy-widget-mount',
             config: {
               locale: 'es',
-              entrypoint: {
-                country: 'MX',
-              },
+              entrypoint: { country: 'MX' },
             },
           });
+          console.log('[Syncfy] Widget instanciado:', widget);
 
-          // Eventos típicos del widget Syncfy v2
           if (typeof widget.on === 'function') {
             widget.on('credential-created', async () => {
+              console.log('[Syncfy] credential-created');
               try {
                 await axios.post(
                   `${API_URL}/admin/syncfy/links`,
@@ -661,25 +670,27 @@ export default function FiscalPage() {
               }
             });
             widget.on('error', (err: any) => {
-              console.error('Syncfy widget error:', err);
+              console.error('[Syncfy] widget error:', err);
               setSnackbar({ open: true, message: 'Error en el widget de Syncfy', severity: 'error' });
             });
             widget.on('exit', () => {
+              console.log('[Syncfy] widget exit');
               setSyncfyWidgetVisible(false);
             });
           }
 
           setSyncfyWidgetInstance(widget);
         } catch (err: any) {
-          console.error('Error montando widget Syncfy:', err);
+          console.error('[Syncfy] Error montando widget:', err);
           setSnackbar({ open: true, message: `Error montando widget: ${err.message || err}`, severity: 'error' });
           setSyncfyWidgetVisible(false);
         }
-      }, 50);
+      }, 250);
     } catch (error: any) {
+      console.error('[Syncfy] Error solicitando token:', error?.response?.status, error?.response?.data || error.message);
       setSnackbar({
         open: true,
-        message: error.response?.data?.error || 'Error iniciando widget Syncfy. Verifica que SYNCFY_API_KEY esté configurado.',
+        message: error.response?.data?.error || `Error iniciando widget Syncfy (${error.response?.status || 'sin respuesta'})`,
         severity: 'error',
       });
     }
@@ -1917,14 +1928,41 @@ export default function FiscalPage() {
                   Se abrirá una ventana segura de Syncfy para conectar tu banca empresarial.
                 </Typography>
               )}
-
-              {/* Contenedor donde se monta el widget oficial de Syncfy */}
-              <Box ref={syncfyWidgetContainerRef} id="syncfy-widget" sx={{ mt: 2, minHeight: syncfyWidgetVisible ? 500 : 0 }} />
             </>
           )}
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setOpenSyncfyModal(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog dedicado para el widget Syncfy (full-size) */}
+      <Dialog
+        open={syncfyWidgetVisible}
+        onClose={() => {
+          if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
+            try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
+          }
+          setSyncfyWidgetInstance(null);
+          setSyncfyWidgetVisible(false);
+        }}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ bgcolor: '#1e88e5', color: 'white' }}>
+          🏦 Conectar Banco — Syncfy
+        </DialogTitle>
+        <DialogContent sx={{ p: 0, minHeight: 600 }}>
+          <Box ref={syncfyWidgetContainerRef} id="syncfy-widget" sx={{ minHeight: 600, width: '100%' }} />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => {
+            if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
+              try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
+            }
+            setSyncfyWidgetInstance(null);
+            setSyncfyWidgetVisible(false);
+          }}>Cerrar</Button>
         </DialogActions>
       </Dialog>
 
