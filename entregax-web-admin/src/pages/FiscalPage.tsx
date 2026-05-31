@@ -621,6 +621,8 @@ export default function FiscalPage() {
       }
 
       console.log('[Syncfy] Abriendo dialog del widget...');
+      // Cerrar primero el modal padre para evitar aria-hidden conflicts
+      setOpenSyncfyModal(false);
       setSyncfyWidgetVisible(true);
 
       // Esperar a que React monte el Dialog y el contenedor
@@ -1952,8 +1954,20 @@ export default function FiscalPage() {
         <DialogTitle sx={{ bgcolor: '#1e88e5', color: 'white' }}>
           🏦 Conectar Banco — Syncfy
         </DialogTitle>
-        <DialogContent sx={{ p: 0, minHeight: 600 }}>
-          <Box ref={syncfyWidgetContainerRef} id="syncfy-widget" sx={{ minHeight: 600, width: '100%' }} />
+        <DialogContent sx={{ p: 0, height: '70vh', overflow: 'hidden' }}>
+          <Box
+            ref={syncfyWidgetContainerRef}
+            id="syncfy-widget"
+            sx={{
+              height: '100%',
+              width: '100%',
+              overflow: 'auto',
+              '& .pb-w-sync_container, & > div': {
+                height: '100%',
+                width: '100%',
+              },
+            }}
+          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => {
