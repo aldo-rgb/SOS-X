@@ -10712,6 +10712,13 @@ async function ensureRequiredColumns() {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS notif_pobox BOOLEAN DEFAULT TRUE`);
     // Columna code en branches (puede no existir en instancias antiguas)
     await pool.query(`ALTER TABLE branches ADD COLUMN IF NOT EXISTS code VARCHAR(50)`);
+    // Facturación CFDI
+    await pool.query(`ALTER TABLE pobox_payments ADD COLUMN IF NOT EXISTS factura_archivada BOOLEAN DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS fiscal_email VARCHAR(255)`);
+    await pool.query(`ALTER TABLE facturas_emitidas ALTER COLUMN currency TYPE VARCHAR(10)`);
+    await pool.query(`ALTER TABLE facturas_emitidas ALTER COLUMN payment_form TYPE VARCHAR(10)`);
+    await pool.query(`ALTER TABLE facturas_emitidas ALTER COLUMN serie TYPE VARCHAR(50)`);
+    await pool.query(`ALTER TABLE facturas_emitidas ADD COLUMN IF NOT EXISTS payment_method VARCHAR(10)`);
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }
