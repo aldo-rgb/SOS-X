@@ -691,6 +691,42 @@ const USO_CFDI_OPTIONS: { code: string; label: string }[] = [
   { code: 'CP01', label: 'CP01 - Pagos' },
 ];
 
+// Matriz oficial SAT: Uso CFDI permitido por régimen fiscal del receptor.
+// Fuente: catálogos SAT 2022+. Si el régimen no está en la matriz, se permite todo.
+const USO_CFDI_BY_REGIMEN: Record<string, string[]> = {
+  '601': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'CP01', 'S01'],
+  '603': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'CP01', 'S01'],
+  '605': ['CP01', 'S01', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10'],
+  '606': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'CP01', 'S01'],
+  '607': ['CP01', 'S01', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10'],
+  '608': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'CP01', 'S01'],
+  '610': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'CP01', 'S01'],
+  '611': ['CP01', 'S01', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10'],
+  '612': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'CP01', 'S01'],
+  '614': ['CP01', 'S01', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10'],
+  '615': ['CP01', 'S01'],
+  '616': ['CP01', 'S01'],
+  '621': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'CP01', 'S01'],
+  '622': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'CP01', 'S01'],
+  '625': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'CP01', 'S01'],
+  '626': ['G01', 'G02', 'G03', 'I01', 'I02', 'I03', 'I04', 'I05', 'I06', 'I07', 'I08', 'D01', 'D02', 'D03', 'D04', 'D05', 'D06', 'D07', 'D08', 'D09', 'D10', 'CP01', 'S01'],
+};
+
+function filterUsoCfdiByRegimen(regimen?: string) {
+  const allowed = regimen ? USO_CFDI_BY_REGIMEN[regimen] : undefined;
+  if (!allowed) return USO_CFDI_OPTIONS;
+  return USO_CFDI_OPTIONS.filter(o => allowed.includes(o.code));
+}
+
+function pickFallbackUsoCfdi(regimen?: string): string {
+  const allowed = regimen ? USO_CFDI_BY_REGIMEN[regimen] : undefined;
+  if (!allowed || allowed.length === 0) return 'G03';
+  if (allowed.includes('G03')) return 'G03';
+  if (allowed.includes('S01')) return 'S01';
+  if (allowed.includes('CP01')) return 'CP01';
+  return allowed[0];
+}
+
 const REGIMEN_FISCAL_OPTIONS: { code: string; label: string }[] = [
   { code: '601', label: '601 - General de Ley Personas Morales' },
   { code: '603', label: '603 - Personas Morales con Fines no Lucrativos' },
@@ -1090,7 +1126,18 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
                 <FormControl fullWidth size="small">
                   <InputLabel>Régimen fiscal *</InputLabel>
                   <Select label="Régimen fiscal *" value={receptor.regimen_fiscal}
-                    onChange={(e) => setReceptor({ ...receptor, regimen_fiscal: String(e.target.value) })}>
+                    onChange={(e) => {
+                      const newRegimen = String(e.target.value);
+                      const allowed = USO_CFDI_BY_REGIMEN[newRegimen];
+                      const currentUso = receptor.uso_cfdi;
+                      const needsFix = allowed && !allowed.includes(currentUso);
+                      setReceptor({
+                        ...receptor,
+                        regimen_fiscal: newRegimen,
+                        uso_cfdi: needsFix ? pickFallbackUsoCfdi(newRegimen) : currentUso,
+                      });
+                      if (needsFix) setShowUsoWarning(true);
+                    }}>
                     {REGIMEN_FISCAL_OPTIONS.map((o) => <MenuItem key={o.code} value={o.code}>{o.label}</MenuItem>)}
                   </Select>
                 </FormControl>
@@ -1104,7 +1151,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
                   <InputLabel>Uso CFDI *</InputLabel>
                   <Select label="Uso CFDI *" value={receptor.uso_cfdi}
                     onChange={(e) => setReceptor({ ...receptor, uso_cfdi: String(e.target.value) })}>
-                    {USO_CFDI_OPTIONS.map((o) => <MenuItem key={o.code} value={o.code}>{o.label}</MenuItem>)}
+                    {filterUsoCfdiByRegimen(receptor.regimen_fiscal).map((o) => <MenuItem key={o.code} value={o.code}>{o.label}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
