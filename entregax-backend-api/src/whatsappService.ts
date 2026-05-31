@@ -113,7 +113,7 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
         type: 'template',
         template: {
             name: opts.template,
-            language: { code: opts.languageCode || 'es_MX' },
+            language: { code: opts.languageCode || process.env.WHATSAPP_DEFAULT_LANG || 'es_MX' },
             ...(components.length > 0 ? { components } : {}),
         },
     };
@@ -133,6 +133,19 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
     } catch (err: any) {
         const meta = err?.response?.data?.error;
         const msg = meta?.message || err?.message || 'Error desconocido';
+        const code = meta?.code;
+        // Fallback automático cuando la plantilla no existe en ese idioma (#132001)
+        const triedLang = opts.languageCode || 'es_MX';
+        const fallbackLangs = ['es', 'es_LA', 'en_US', 'en'].filter((l) => l !== triedLang);
+        if (code === 132001 && fallbackLangs.length > 0 && !(opts as any)._retried) {
+            console.warn(`[WHATSAPP] template "${opts.template}" no existe en ${triedLang}, probando ${fallbackLangs[0]}...`);
+            return sendTemplate({
+                ...opts,
+                languageCode: fallbackLangs[0],
+                // marca para no reintentar infinito
+                ...({ _retried: true } as any),
+            });
+        }
         console.error(`[WHATSAPP] ❌ Falló template "${opts.template}" a ${normalized}:`, msg, meta);
         return { ok: false, error: msg };
     }
