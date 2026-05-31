@@ -799,8 +799,8 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                     INSERT INTO facturas_emitidas
                         (user_id, fiscal_emitter_id, facturama_id, uuid_sat, folio, serie,
                          receptor_rfc, receptor_razon_social, subtotal, total, currency,
-                         payment_form, payment_method, status, pdf_url, xml_url, created_at)
-                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'valid',$14,$15,NOW())
+                         payment_form, status, pdf_url, xml_url, created_at)
+                    VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'valid',$13,$14,NOW())
                     RETURNING id
                 `, [
                     linkedUserId, emitterId,
@@ -809,7 +809,6 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
                     invoice.subtotal, invoice.total,
                     String(invoice.currency || 'MXN').slice(0, 10),
                     String(paymentForm || '99').slice(0, 10),
-                    String(paymentMethod || 'PUE').slice(0, 10),
                     invoice.pdf_url, invoice.xml_url,
                 ]);
                 insertedInvoiceId = ins.rows[0].id;
