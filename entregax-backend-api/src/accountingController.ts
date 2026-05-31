@@ -316,6 +316,7 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
             LEFT JOIN users u ON u.id = pp.user_id
             WHERE pp.requiere_factura = TRUE
               AND COALESCE(pp.facturada, FALSE) = FALSE
+              AND COALESCE(pp.factura_archivada, FALSE) = FALSE
               AND pp.status = 'completed'
             ORDER BY pp.paid_at DESC
             LIMIT 200
@@ -332,6 +333,7 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
                 LEFT JOIN users u ON u.id = pp.user_id
                 WHERE pp.requiere_factura = TRUE
                   AND COALESCE(pp.facturada, FALSE) = FALSE
+                  AND COALESCE(pp.factura_archivada, FALSE) = FALSE
                   AND pp.status = 'completed'
                 ORDER BY pp.paid_at DESC
                 LIMIT 200
@@ -342,6 +344,26 @@ export const listPendingStamp = async (req: AuthRequest, res: Response): Promise
     } catch (e: any) {
         console.error('listPendingStamp:', e);
         res.status(500).json({ error: 'Error listando pendientes', message: e.message });
+    }
+};
+
+/**
+ * POST /api/accounting/:emitterId/pending-stamp/:paymentId/archive
+ * Archiva (oculta) un pago con error que no se va a facturar. Solo super_admin.
+ */
+export const archivePendingStamp = async (req: AuthRequest, res: Response): Promise<any> => {
+    const role = req.user?.role;
+    if (role !== 'super_admin') return res.status(403).json({ error: 'Solo super_admin puede archivar pendientes' });
+    const paymentId = parseInt(String(req.params.paymentId), 10);
+    if (!paymentId) return res.status(400).json({ error: 'paymentId inválido' });
+    try {
+        await pool.query(
+            `UPDATE pobox_payments SET factura_archivada = TRUE WHERE id = $1`,
+            [paymentId]
+        );
+        return res.json({ success: true });
+    } catch (e: any) {
+        return res.status(500).json({ error: 'Error archivando pago', message: e.message });
     }
 };
 

@@ -1,0 +1,2 @@
+ALTER TABLE pobox_payments
+    ADD COLUMN IF NOT EXISTS factura_archivada BOOLEAN DEFAULT FALSE;

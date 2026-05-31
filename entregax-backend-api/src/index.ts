@@ -1189,6 +1189,7 @@ import {
   listEmitterInvoices,
   downloadEmittedInvoiceFile,
   listPendingStamp,
+  archivePendingStamp,
   emitManualCFDI,
   searchFiscalClients,
   createManualInvoice,
@@ -4278,6 +4279,7 @@ app.get('/api/accounting/:emitterId/summary', authenticateToken, getEmitterSumma
 app.get('/api/accounting/:emitterId/invoices', authenticateToken, listEmitterInvoices);
 app.get('/api/accounting/:emitterId/invoices/:invoiceId/file', authenticateToken, downloadEmittedInvoiceFile);
 app.get('/api/accounting/:emitterId/pending-stamp', authenticateToken, listPendingStamp);
+app.post('/api/accounting/:emitterId/pending-stamp/:paymentId/archive', authenticateToken, archivePendingStamp);
 app.post('/api/fiscal/invoice/manual', authenticateToken, emitManualCFDI);
 app.get('/api/accounting/:emitterId/fiscal-clients', authenticateToken, searchFiscalClients);
 app.post('/api/accounting/:emitterId/invoices/manual', authenticateToken, createManualInvoice);

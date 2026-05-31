@@ -33,6 +33,7 @@ import ThumbUpIcon from '@mui/icons-material/ThumbUp';
 import ThumbDownIcon from '@mui/icons-material/ThumbDown';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import DoNotDisturbAltIcon from '@mui/icons-material/DoNotDisturbAlt';
+import ArchiveIcon from '@mui/icons-material/Archive';
 import axios from 'axios';
 
 const ORANGE = '#F05A28';
@@ -2243,6 +2244,8 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [prefill, setPrefill] = useState<any | null>(null);
+  const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
+  const isSuperAdmin = currentRole === 'super_admin';
 
   const load = async () => {
     setLoading(true);
@@ -2302,30 +2305,50 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
                   )}
                 </TableCell>
                 <TableCell align="center">
-                  <Button
-                    size="small"
-                    variant="contained"
-                    disabled={!emitter.perms.can_emit_invoice}
-                    onClick={() => {
-                      setPrefill({
-                        payment_id: r.id,
-                        reference: r.payment_reference,
-                        amount: parseFloat(r.amount),
-                        receptor: {
-                          rfc: r.rfc || '',
-                          razon_social: r.razon_social || r.full_name || '',
-                          regimen_fiscal: r.regimen_fiscal || undefined,
-                          cp: r.cp || undefined,
-                          uso_cfdi: r.uso_cfdi || undefined,
-                          email: r.email || '',
-                          user_id: r.user_id || null,
-                        },
-                      });
-                    }}
-                    sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK }, textTransform: 'none' }}
-                  >
-                    Emitir CFDI
-                  </Button>
+                  <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', alignItems: 'center' }}>
+                    <Button
+                      size="small"
+                      variant="contained"
+                      disabled={!emitter.perms.can_emit_invoice}
+                      onClick={() => {
+                        setPrefill({
+                          payment_id: r.id,
+                          reference: r.payment_reference,
+                          amount: parseFloat(r.amount),
+                          receptor: {
+                            rfc: r.rfc || '',
+                            razon_social: r.razon_social || r.full_name || '',
+                            regimen_fiscal: r.regimen_fiscal || undefined,
+                            cp: r.cp || undefined,
+                            uso_cfdi: r.uso_cfdi || undefined,
+                            email: r.email || '',
+                            user_id: r.user_id || null,
+                          },
+                        });
+                      }}
+                      sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: BLACK }, textTransform: 'none' }}
+                    >
+                      Emitir CFDI
+                    </Button>
+                    {isSuperAdmin && r.factura_error && (
+                      <Tooltip title="Archivar — ocultar este pago con error (no se facturará)">
+                        <IconButton
+                          size="small"
+                          onClick={async () => {
+                            try {
+                              await api.post(`/accounting/${emitter.id}/pending-stamp/${r.id}/archive`);
+                              setRows(prev => prev.filter(row => row.id !== r.id));
+                            } catch {
+                              /* noop — sin snackbar para no interrumpir flujo */
+                            }
+                          }}
+                          sx={{ color: '#9E9E9E', '&:hover': { color: BLACK } }}
+                        >
+                          <ArchiveIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+                  </Box>
                 </TableCell>
               </TableRow>
             ))}
