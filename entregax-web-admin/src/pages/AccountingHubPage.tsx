@@ -352,6 +352,7 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
   })();
   const isSuperAdmin = currentRole === 'super_admin';
   const [confirmDelete, setConfirmDelete] = useState<{ open: boolean; row: any | null; loading: boolean }>({ open: false, row: null, loading: false });
+  const [cancelDialog, setCancelDialog] = useState<{ open: boolean; row: any | null; motive: string; folioSust: string; loading: boolean }>({ open: false, row: null, motive: '02', folioSust: '', loading: false });
 
   const doDelete = async () => {
     if (!confirmDelete.row) return;
@@ -527,24 +528,7 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
                   </Tooltip>
                   {(r.status !== 'canceled' && !r.canceled_at) && (r.facturama_id || r.uuid_sat) && (
                     <Tooltip title="Cancelar CFDI ante el SAT">
-                      <IconButton size="small" onClick={async () => {
-                        const motive = window.prompt('Motivo SAT de cancelación:\n01 = Emitido con errores con relación\n02 = Emitido con errores sin relación (default)\n03 = No se llevó a cabo la operación\n04 = Operación nominativa relacionada en factura global', '02');
-                        if (!motive) return;
-                        if (!['01','02','03','04'].includes(motive)) { setSnackbar({ open: true, message: 'Motivo inválido (usa 01-04)', severity: 'warning' }); return; }
-                        let folioSust: string | undefined;
-                        if (motive === '01') {
-                          folioSust = window.prompt('UUID de la factura que la sustituye (requerido para motivo 01):') || undefined;
-                          if (!folioSust) { setSnackbar({ open: true, message: 'El motivo 01 requiere UUID sustituto', severity: 'warning' }); return; }
-                        }
-                        if (!window.confirm(`¿Cancelar la factura ${r.serie || ''}${r.folio || r.uuid_sat?.slice(0,8)} con motivo ${motive}? Esta acción es irreversible.`)) return;
-                        try {
-                          await api.post(`/accounting/${emitter.id}/invoices/${r.id}/cancel`, { motive, folio_sustitucion: folioSust });
-                          setSnackbar({ open: true, message: 'Factura cancelada correctamente', severity: 'success' });
-                          load();
-                        } catch (e: any) {
-                          setSnackbar({ open: true, message: e?.response?.data?.details?.Message || e?.response?.data?.error || 'Error al cancelar', severity: 'error' });
-                        }
-                      }}>
+                      <IconButton size="small" onClick={() => setCancelDialog({ open: true, row: r, motive: '02', folioSust: '', loading: false })}>
                         <CancelIcon fontSize="small" sx={{ color: RED }} />
                       </IconButton>
                     </Tooltip>
@@ -652,6 +636,100 @@ function InvoicesTab({ emitter }: { emitter: Emitter }) {
             }}
           >
             {confirmDelete.loading ? 'Eliminando…' : 'Sí, eliminar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Dialog de cancelación CFDI */}
+      <Dialog open={cancelDialog.open} onClose={() => !cancelDialog.loading && setCancelDialog(s => ({ ...s, open: false }))} maxWidth="xs" fullWidth>
+        <Box sx={{ px: 3, py: 2.5, display: 'flex', alignItems: 'center', gap: 1.5, borderBottom: `4px solid ${RED}` }}>
+          <Box sx={{ width: 44, height: 44, borderRadius: '50%', bgcolor: `${RED}22`, color: RED, display: 'flex', alignItems: 'center', justifyContent: 'center', border: `2px solid ${RED}` }}>
+            <CancelIcon />
+          </Box>
+          <Box>
+            <Typography sx={{ fontWeight: 800, fontSize: '1.05rem', lineHeight: 1.2 }}>Cancelar CFDI ante el SAT</Typography>
+            {cancelDialog.row && (
+              <Typography sx={{ fontSize: '0.75rem', opacity: 0.7, fontFamily: 'monospace' }}>
+                {cancelDialog.row.serie || ''}{cancelDialog.row.folio || cancelDialog.row.uuid_sat?.slice(0, 8)}
+              </Typography>
+            )}
+          </Box>
+        </Box>
+        <DialogContent sx={{ px: 3, pt: 3, pb: 1 }}>
+          <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, mb: 1.5 }}>Motivo de cancelación SAT</Typography>
+          <Box component="div" sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            {[
+              { code: '01', label: 'Emitido con errores con relación' },
+              { code: '02', label: 'Emitido con errores sin relación' },
+              { code: '03', label: 'No se llevó a cabo la operación' },
+              { code: '04', label: 'Operación nominativa relacionada en factura global' },
+            ].map(({ code, label }) => (
+              <Box
+                key={code}
+                onClick={() => !cancelDialog.loading && setCancelDialog(s => ({ ...s, motive: code }))}
+                sx={{
+                  display: 'flex', alignItems: 'center', gap: 1.5, p: 1.25,
+                  borderRadius: 1.5, cursor: 'pointer',
+                  border: `2px solid ${cancelDialog.motive === code ? RED : '#E0E0E0'}`,
+                  bgcolor: cancelDialog.motive === code ? `${RED}0A` : 'transparent',
+                  transition: 'all 0.15s',
+                }}
+              >
+                <Box sx={{
+                  width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                  border: `2px solid ${cancelDialog.motive === code ? RED : '#BDBDBD'}`,
+                  bgcolor: cancelDialog.motive === code ? RED : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {cancelDialog.motive === code && <Box sx={{ width: 6, height: 6, borderRadius: '50%', bgcolor: 'white' }} />}
+                </Box>
+                <Box>
+                  <Typography sx={{ fontSize: '0.78rem', fontWeight: 700, color: BLACK }}>{code}</Typography>
+                  <Typography sx={{ fontSize: '0.78rem', color: '#555' }}>{label}</Typography>
+                </Box>
+              </Box>
+            ))}
+          </Box>
+          {cancelDialog.motive === '01' && (
+            <TextField
+              fullWidth size="small" label="UUID de la factura sustituta *" sx={{ mt: 2 }}
+              value={cancelDialog.folioSust}
+              onChange={(e) => setCancelDialog(s => ({ ...s, folioSust: e.target.value }))}
+              placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+              disabled={cancelDialog.loading}
+            />
+          )}
+          <Typography sx={{ fontSize: '0.78rem', color: RED, mt: 2, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            <WarningAmberIcon sx={{ fontSize: 16 }} /> Esta acción es irreversible.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2.5, pt: 1 }}>
+          <Button onClick={() => setCancelDialog(s => ({ ...s, open: false }))} disabled={cancelDialog.loading} sx={{ textTransform: 'none', color: '#555', fontWeight: 600 }}>
+            No cancelar
+          </Button>
+          <Button
+            variant="contained"
+            disabled={cancelDialog.loading || (cancelDialog.motive === '01' && !cancelDialog.folioSust.trim())}
+            startIcon={cancelDialog.loading ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <CancelIcon />}
+            sx={{ textTransform: 'none', fontWeight: 700, bgcolor: RED, boxShadow: 'none', '&:hover': { bgcolor: BLACK }, px: 2.5 }}
+            onClick={async () => {
+              if (!cancelDialog.row) return;
+              setCancelDialog(s => ({ ...s, loading: true }));
+              try {
+                await api.post(`/accounting/${emitter.id}/invoices/${cancelDialog.row.id}/cancel`, {
+                  motive: cancelDialog.motive,
+                  folio_sustitucion: cancelDialog.motive === '01' ? cancelDialog.folioSust.trim() : undefined,
+                });
+                setCancelDialog({ open: false, row: null, motive: '02', folioSust: '', loading: false });
+                setSnackbar({ open: true, message: 'Solicitud de cancelación enviada al SAT', severity: 'success' });
+                load();
+              } catch (e: any) {
+                setCancelDialog(s => ({ ...s, loading: false }));
+                setSnackbar({ open: true, message: e?.response?.data?.details?.Message || e?.response?.data?.error || 'Error al cancelar', severity: 'error' });
+              }
+            }}
+          >
+            {cancelDialog.loading ? 'Cancelando…' : 'Sí, cancelar CFDI'}
           </Button>
         </DialogActions>
       </Dialog>
