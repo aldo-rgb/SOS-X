@@ -623,11 +623,10 @@ export default function FiscalPage() {
             setSnackbar({ open: true, message: 'Contenedor del widget no disponible', severity: 'error' });
             return;
           }
-          // Limpiar contenido previo y crear un mount node hijo (Vue lo reemplaza)
+          // Limpiar contenido previo y crear mount node con id único + anchor hermano
           container.innerHTML = '';
           const mountNode = document.createElement('div');
           mountNode.id = 'syncfy-widget-mount';
-          // Asegurar que mountNode tenga nextSibling (el widget lo requiere)
           const anchor = document.createElement('span');
           anchor.style.display = 'none';
           container.appendChild(mountNode);
@@ -635,10 +634,12 @@ export default function FiscalPage() {
 
           const widget: any = new (SyncfyWidget as any)({
             token,
-            element: mountNode,
+            element: '#syncfy-widget-mount',
             config: {
               locale: 'es',
-              entrypoint: { country: 'MX' },
+              entrypoint: {
+                country: 'MX',
+              },
             },
           });
 
