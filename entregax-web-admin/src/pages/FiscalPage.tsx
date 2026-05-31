@@ -654,6 +654,18 @@ export default function FiscalPage() {
             },
           });
           console.warn('[Syncfy] Widget instanciado:', widget);
+          // Inspeccionar qué se renderizó realmente
+          setTimeout(() => {
+            try {
+              const c = syncfyWidgetContainerRef.current;
+              console.warn('[Syncfy] Container children count:', c?.children?.length, 'innerHTML length:', c?.innerHTML?.length);
+              console.warn('[Syncfy] Container innerHTML preview:', c?.innerHTML?.slice(0, 500));
+            } catch { /* noop */ }
+          }, 1500);
+          // Algunos integraciones requieren llamar open() explícitamente
+          if (typeof widget.open === 'function') {
+            try { widget.open(); console.warn('[Syncfy] widget.open() llamado'); } catch (e) { console.error('[Syncfy] open() error:', e); }
+          }
 
           if (typeof widget.on === 'function') {
             widget.on('credential-created', async () => {
