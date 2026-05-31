@@ -2348,6 +2348,7 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [prefill, setPrefill] = useState<any | null>(null);
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'warning' }>({ open: false, message: '', severity: 'success' });
   const currentRole = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}')?.role || ''; } catch { return ''; } })();
   const isSuperAdmin = currentRole === 'super_admin';
 
@@ -2442,8 +2443,9 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
                             try {
                               await api.post(`/accounting/${emitter.id}/pending-stamp/${r.id}/archive`);
                               setRows(prev => prev.filter(row => row.id !== r.id));
-                            } catch {
-                              /* noop — sin snackbar para no interrumpir flujo */
+                              setSnackbar({ open: true, message: 'Pago archivado', severity: 'success' });
+                            } catch (e: any) {
+                              setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al archivar — aplica la migración add_factura_archivada.sql', severity: 'error' });
                             }
                           }}
                           sx={{ color: '#9E9E9E', '&:hover': { color: BLACK } }}
@@ -2468,6 +2470,9 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
         onCreated={() => { setPrefill(null); load(); }}
         prefill={prefill || undefined}
       />
+      <Snackbar open={snackbar.open} autoHideDuration={4000} onClose={() => setSnackbar(s => ({ ...s, open: false }))} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
+        <Alert onClose={() => setSnackbar(s => ({ ...s, open: false }))} severity={snackbar.severity} variant="filled" sx={{ width: '100%' }}>{snackbar.message}</Alert>
+      </Snackbar>
     </Box>
   );
 }

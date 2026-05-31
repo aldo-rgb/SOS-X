@@ -203,7 +203,20 @@ export const listEmitterInvoices = async (req: AuthRequest, res: Response): Prom
             ${where}
             ORDER BY f.created_at DESC
             LIMIT 500
-        `, params);
+        `, params).catch(() => pool.query(`
+            SELECT f.id, f.facturama_id, f.facturapi_id, f.uuid_sat, f.folio, f.serie, f.receptor_rfc, f.receptor_razon_social,
+                   f.subtotal, f.total, f.currency, f.payment_form, f.status, f.canceled_at, f.cancellation_reason,
+                   f.pdf_url, f.xml_url, f.created_at,
+                   f.user_id AS cliente_id,
+                   u.box_id AS cliente_box_id,
+                   u.full_name AS cliente_nombre, u.email AS cliente_email,
+                   u.email AS billing_email
+            FROM facturas_emitidas f
+            LEFT JOIN users u ON u.id = f.user_id
+            ${where}
+            ORDER BY f.created_at DESC
+            LIMIT 500
+        `, params));
 
         return res.json({ success: true, invoices: r.rows });
     } catch (e: any) {
@@ -641,7 +654,18 @@ export const searchFiscalClients = async (req: AuthRequest, res: Response): Prom
              ${where}
              ORDER BY u.fiscal_razon_social ASC NULLS LAST, u.full_name ASC
              LIMIT 25
-        `, params);
+        `, params).catch(() => pool.query(`
+            SELECT u.id, u.full_name, u.email, u.box_id,
+                   UPPER(TRIM(u.fiscal_rfc)) AS rfc,
+                   COALESCE(u.fiscal_razon_social, u.full_name) AS razon_social,
+                   u.fiscal_regimen_fiscal AS regimen_fiscal,
+                   u.fiscal_codigo_postal AS cp,
+                   u.email AS billing_email
+              FROM users u
+             ${where}
+             ORDER BY u.fiscal_razon_social ASC NULLS LAST, u.full_name ASC
+             LIMIT 25
+        `, params));
 
         return res.json({ success: true, clients: r.rows });
     } catch (e: any) {
