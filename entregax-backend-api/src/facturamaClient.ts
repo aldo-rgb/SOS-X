@@ -289,7 +289,7 @@ export class FacturamaClient {
             }
             if (r.status < 200 || r.status >= 300) throwFromResponse('Facturama create CFDI falló', r);
             const d = r.data;
-            const uuid = d.Complemento?.TaxStamp?.Uuid || d.Uuid || '';
+            const uuid = d.Complement?.TaxStamp?.Uuid || d.Complemento?.TaxStamp?.Uuid || d.Uuid || d.UUID || '';
             const id   = d.Id || uuid;
             // Validación defensiva: Facturama puede contestar 200 con un cuerpo
             // vacío o de stub cuando el timbre real falló del lado del PAC.
