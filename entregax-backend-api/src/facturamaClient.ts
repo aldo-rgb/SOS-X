@@ -168,11 +168,9 @@ function buildFacturamaCfdiPayload(emitter: FacturamaEmitter, p: FacturapiLikePa
         return {
             ProductCode: it.product.product_key,
             UnitCode: it.product.unit_key || 'E48',     // E48 = Unidad de servicio
-            Unit: it.product.unit_key || 'Servicio',
+            Unit: 'Servicio',
             Description: it.product.description,
-            IdentificationNumber: '',
             Quantity: it.quantity,
-            Discount: 0,
             UnitPrice: it.product.price,
             Subtotal: subtotal,
             TaxObject: taxObject,
@@ -275,6 +273,7 @@ export class FacturamaClient {
                 return rr;
             };
 
+            console.log('[Facturama] body enviado:', JSON.stringify(body));
             let r = await postWith(body);
 
             // Reintento automático: si Facturama exige que la "Serie" exista en
@@ -284,8 +283,7 @@ export class FacturamaClient {
                 const msg = (r.data?.Message || r.data?.message || JSON.stringify(r.data || '')).toLowerCase();
                 if (msg.includes("'serie'") || msg.includes('serie') && msg.includes('sucursal')) {
                     console.warn('[Facturama] Serie no registrada en sucursal — reintentando sin Serie:', body.Serie);
-                    const bodyNoSerie = { ...body };
-                    delete bodyNoSerie.Serie;
+                    const { Serie: _s, ...bodyNoSerie } = body;
                     r = await postWith(bodyNoSerie);
                 }
             }
