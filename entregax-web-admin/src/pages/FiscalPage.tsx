@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
-import SyncfyWidget from '@syncfy/authentication-widget';
 import '@syncfy/authentication-widget/dist/syncfy-authentication-widget.css';
 import { 
   Box, Typography, Table, TableBody, TableCell, TableContainer, 
@@ -626,7 +625,7 @@ export default function FiscalPage() {
       setSyncfyWidgetVisible(true);
 
       // Esperar a que React monte el Dialog y el contenedor
-      setTimeout(() => {
+      setTimeout(async () => {
         try {
           const container = syncfyWidgetContainerRef.current;
           console.log('[Syncfy] Container ref:', container);
@@ -644,7 +643,9 @@ export default function FiscalPage() {
           container.appendChild(anchor);
 
           console.log('[Syncfy] Instanciando widget...');
-          const widget: any = new (SyncfyWidget as any)({
+          const mod = await import('@syncfy/authentication-widget');
+          const SyncfyWidget: any = (mod as any).default || mod;
+          const widget: any = new SyncfyWidget({
             token,
             element: '#syncfy-widget-mount',
             config: {
