@@ -259,23 +259,35 @@ export class FacturamaClient {
         create: async (payload: FacturapiLikePayload): Promise<FacturapiLikeInvoice> => {
             const body = buildFacturamaCfdiPayload(this.emitter, payload);
             // Facturama tiene API Web (/3/cfdis) y API Multiemisor (/api-lite/X/cfdis).
-            // API Web es más simple y usa el CSD de la cuenta autenticada.
-            // API Multiemisor permite múltiples RFCs con CSDs diferentes.
-            // Intentamos API Web primero, luego caemos a Multiemisor.
             const VERSIONED_PATHS = [
                 '/3/cfdis',              // API Web (más común)
                 '/api-lite/3/cfdis',     // API Multiemisor v3
                 '/api-lite/2/cfdis',     // API Multiemisor v2
                 '/api-lite/cfdis'        // API Multiemisor sin versión
             ];
-            let r: { status: number; data: any } = { status: 0, data: null };
-            for (const path of VERSIONED_PATHS) {
-                r = await this.http.post(path, body);
-                if (r.status >= 200 && r.status < 300) break;
-                // Sólo seguimos al siguiente endpoint si la versión aparenta no
-                // estar habilitada en el plan; en otros errores (ej. validación
-                // SAT 400) no tiene sentido reintentar.
-                if (![401, 403, 404].includes(r.status)) break;
+            const postWith = async (b: any) => {
+                let rr: { status: number; data: any } = { status: 0, data: null };
+                for (const path of VERSIONED_PATHS) {
+                    rr = await this.http.post(path, b);
+                    if (rr.status >= 200 && rr.status < 300) return rr;
+                    if (![401, 403, 404].includes(rr.status)) return rr;
+                }
+                return rr;
+            };
+
+            let r = await postWith(body);
+
+            // Reintento automático: si Facturama exige que la "Serie" exista en
+            // la sucursal del emisor y nosotros la generamos dinámicamente,
+            // reintentamos sin Serie y guardamos folio sin prefijo.
+            if (r.status >= 400 && body.Serie) {
+                const msg = (r.data?.Message || r.data?.message || JSON.stringify(r.data || '')).toLowerCase();
+                if (msg.includes("'serie'") || msg.includes('serie') && msg.includes('sucursal')) {
+                    console.warn('[Facturama] Serie no registrada en sucursal — reintentando sin Serie:', body.Serie);
+                    const bodyNoSerie = { ...body };
+                    delete bodyNoSerie.Serie;
+                    r = await postWith(bodyNoSerie);
+                }
             }
             if (r.status < 200 || r.status >= 300) throwFromResponse('Facturama create CFDI falló', r);
             const d = r.data;
