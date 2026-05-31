@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
+import SyncfyWidget from '@syncfy/authentication-widget';
+import '@syncfy/authentication-widget/dist/syncfy-authentication-widget.css';
 import { 
   Box, Typography, Table, TableBody, TableCell, TableContainer, 
   TableHead, TableRow, Paper, TextField, Button,
@@ -161,6 +163,8 @@ export default function FiscalPage() {
   const [syncfyLoading, setSyncfyLoading] = useState(false);
   const [syncfyStats, setSyncfyStats] = useState<any>(null);
   const [syncingSyncfy, setSyncingSyncfy] = useState<number | null>(null);
+  const [syncfyWidgetVisible, setSyncfyWidgetVisible] = useState(false);
+  const [syncfyWidgetInstance, setSyncfyWidgetInstance] = useState<any>(null);
 
   // Modal Facturama (recepción CFDI)
   const [openFacturamaModal, setOpenFacturamaModal] = useState(false);
@@ -597,55 +601,64 @@ export default function FiscalPage() {
         { emitter_id: selectedEmpresaSyncfy.id },
         { headers: { Authorization: `Bearer ${getToken()}` } }
       );
-      const { token, id_user, widget_base } = tokenRes.data;
-
-      // Carga el Connect Widget de Syncfy.
-      // NOTA: ajustar src exacto cuando se reciba la doc oficial.
-      const widgetSrc = `${widget_base || 'https://connect.syncfy.com'}/v3/widget.js`;
-
-      const launch = () => {
-        const W: any = (window as any).SyncfyWidget || (window as any).PaybookConnect || (window as any).SyncfyConnect;
-        if (!W) {
-          setSnackbar({ open: true, message: 'No se pudo cargar el widget de Syncfy', severity: 'error' });
-          return;
-        }
-        const widget = W.create({
-          token,
-          id_user,
-          country: 'MX',
-          locale: 'es',
-          onSuccess: async () => {
-            try {
-              await axios.post(
-                `${API_URL}/admin/syncfy/links`,
-                { emitter_id: selectedEmpresaSyncfy.id },
-                { headers: { Authorization: `Bearer ${getToken()}` } }
-              );
-              setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${selectedEmpresaSyncfy.alias}`, severity: 'success' });
-              handleOpenSyncfyModal(selectedEmpresaSyncfy);
-              loadData();
-            } catch (err: any) {
-              setSnackbar({ open: true, message: err.response?.data?.error || 'Error registrando credencial', severity: 'error' });
-            }
-          },
-          onExit: () => { /* noop */ },
-          onError: (err: any) => {
-            console.error('Syncfy widget error:', err);
-            setSnackbar({ open: true, message: 'Error en el widget de Syncfy', severity: 'error' });
-          },
-        });
-        widget.open ? widget.open() : widget.build && widget.build();
-      };
-
-      if ((window as any).SyncfyWidget || (window as any).PaybookConnect) {
-        launch();
-      } else {
-        const script = document.createElement('script');
-        script.src = widgetSrc;
-        script.onload = launch;
-        script.onerror = () => setSnackbar({ open: true, message: 'No se pudo cargar el script del widget Syncfy', severity: 'error' });
-        document.body.appendChild(script);
+      const { token } = tokenRes.data;
+      if (!token) {
+        setSnackbar({ open: true, message: 'No se recibió token de Syncfy', severity: 'error' });
+        return;
       }
+
+      // Destruir instancia previa si existe
+      if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
+        try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
+      }
+
+      setSyncfyWidgetVisible(true);
+
+      // Esperar un tick para que el div #syncfy-widget exista en el DOM
+      setTimeout(() => {
+        try {
+          const widget: any = new (SyncfyWidget as any)({
+            token,
+            element: '#syncfy-widget',
+            config: {
+              locale: 'es',
+              entrypoint: { country: 'MX' },
+            },
+          });
+
+          // Eventos típicos del widget Syncfy v2
+          if (typeof widget.on === 'function') {
+            widget.on('credential-created', async () => {
+              try {
+                await axios.post(
+                  `${API_URL}/admin/syncfy/links`,
+                  { emitter_id: selectedEmpresaSyncfy.id },
+                  { headers: { Authorization: `Bearer ${getToken()}` } }
+                );
+                setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${selectedEmpresaSyncfy.alias}`, severity: 'success' });
+                setSyncfyWidgetVisible(false);
+                handleOpenSyncfyModal(selectedEmpresaSyncfy);
+                loadData();
+              } catch (err: any) {
+                setSnackbar({ open: true, message: err.response?.data?.error || 'Error registrando credencial', severity: 'error' });
+              }
+            });
+            widget.on('error', (err: any) => {
+              console.error('Syncfy widget error:', err);
+              setSnackbar({ open: true, message: 'Error en el widget de Syncfy', severity: 'error' });
+            });
+            widget.on('exit', () => {
+              setSyncfyWidgetVisible(false);
+            });
+          }
+
+          setSyncfyWidgetInstance(widget);
+        } catch (err: any) {
+          console.error('Error montando widget Syncfy:', err);
+          setSnackbar({ open: true, message: `Error montando widget: ${err.message || err}`, severity: 'error' });
+          setSyncfyWidgetVisible(false);
+        }
+      }, 50);
     } catch (error: any) {
       setSnackbar({
         open: true,
@@ -1887,6 +1900,9 @@ export default function FiscalPage() {
                   Se abrirá una ventana segura de Syncfy para conectar tu banca empresarial.
                 </Typography>
               )}
+
+              {/* Contenedor donde se monta el widget oficial de Syncfy */}
+              <Box id="syncfy-widget" sx={{ mt: 2, minHeight: syncfyWidgetVisible ? 500 : 0 }} />
             </>
           )}
         </DialogContent>

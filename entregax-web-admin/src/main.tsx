@@ -9,6 +9,11 @@ import FirmaAbandonoPage from './pages/FirmaAbandonoPage.tsx'
 import TutorialesPage from './pages/TutorialesPage.tsx'
 import CotizadorPublico from './pages/CotizadorPublico.tsx'
 
+// Shim para "global is not defined" requerido por @syncfy/authentication-widget en Vite
+if (typeof (window as any).global === 'undefined') {
+  (window as any).global = window;
+}
+
 // Inicializar Sentry antes de cualquier render (no-op si no hay DSN)
 initSentry()
 

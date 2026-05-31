@@ -17,6 +17,7 @@
     "@mui/material": "^7.3.7",
     "@react-oauth/google": "^0.13.5",
     "@sentry/react": "^10.53.1",
+    "@syncfy/authentication-widget": "^2.0.0",
     "@types/dompurify": "^3.0.5",
     "axios": "^1.13.4",
     "dompurify": "^3.4.2",
