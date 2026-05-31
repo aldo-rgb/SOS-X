@@ -963,9 +963,9 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
       setItems([newEmptyItem()]);
     }
     setPaymentForm('03'); setPaymentMethod('PUE'); setCurrency('MXN');
-    // Serie automática: <2 primeras letras del RFC del emisor><YY>-<MM>-
-    // Ej. RC26-06-  (cambia cada mes y cada año). Editable por el usuario.
-    setSerie(buildAutoSerie(emitter.rfc));
+    // Serie: Facturama exige que la serie exista registrada en la sucursal.
+    // La dejamos vacía para que Facturama use la serie/folio por defecto del emisor.
+    setSerie('');
     setFolio(''); setErr(null);
     // Cargar catálogo de productos
     (async () => {
@@ -1086,7 +1086,7 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
         payment_form: paymentForm,
         payment_method: paymentMethod,
         currency,
-        serie: serie.trim() || undefined,
+        // serie omitida: Facturama usa la serie configurada en la sucursal del emisor
         folio: folio.trim() ? Number(folio) : undefined,
         link_pobox_payment_id: prefill?.payment_id || undefined,
       };
@@ -1307,17 +1307,11 @@ function NewInvoiceDialog({ open, emitter, onClose, onCreated, prefill }: {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid size={{ xs: 6, md: 2 }}>
-                <TextField fullWidth size="small" label="Serie" value={serie}
-                  onChange={(e) => setSerie(e.target.value.toUpperCase())}
-                  inputProps={{ maxLength: 20 }}
-                  helperText="Auto: RFC + año/mes" />
-              </Grid>
-              <Grid size={{ xs: 6, md: 2 }}>
+              <Grid size={{ xs: 6, md: 4 }}>
                 <TextField fullWidth size="small" type="number" label="Folio" value={folio}
                   onChange={(e) => setFolio(e.target.value)}
                   placeholder="Auto"
-                  helperText="Vacío = siguiente consecutivo"
+                  helperText="Vacío = siguiente consecutivo de Facturama"
                   InputLabelProps={{ shrink: true }}
                 />
               </Grid>
