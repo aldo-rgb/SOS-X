@@ -1,4 +1,5 @@
 // EntregaX Backend API v2.1.0
+import './instrument'; // Sentry.init() ANTES de importar express
 import express, { NextFunction, Request, Response } from 'express';
 import http from 'http';
 import cors from 'cors';

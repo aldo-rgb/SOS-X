@@ -720,6 +720,7 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
         }
     }
 
+    let cfdiPayloadForLog: any = null;
     try {
         const client = await FacturamaClient.fromEmitterId(emitterId);
 
@@ -762,6 +763,19 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
         if (receptor.email) cfdiPayload.customer.email = receptor.email;
         if (typeof folio === 'number' && Number.isFinite(folio)) cfdiPayload.folio_number = folio;
         if (serie) cfdiPayload.series = serie;
+        cfdiPayloadForLog = cfdiPayload;
+        console.log('[createManualInvoice] payload a Facturama:', JSON.stringify({
+            emitterId,
+            customer: cfdiPayload.customer,
+            use: cfdiPayload.use,
+            payment_form: cfdiPayload.payment_form,
+            payment_method: cfdiPayload.payment_method,
+            currency: cfdiPayload.currency,
+            folio_number: cfdiPayload.folio_number,
+            series: cfdiPayload.series,
+            items_count: facturapiItems.length,
+            totals: facturapiItems.map((i: any) => ({ q: i.quantity, p: i.product.price, t: i.product.taxes })),
+        }));
         const invoice = await client.invoices.create(cfdiPayload);
 
         // Normalizamos: si Facturama no nos devolvió uuid (timbre pendiente o test),
@@ -924,6 +938,14 @@ export const createManualInvoice = async (req: AuthRequest, res: Response): Prom
               ].filter(Boolean).join(' — ')
             : e.message;
         console.error('[createManualInvoice]', errMsg, facturamaDetails || '');
+        // Dump completo cuando Facturama responde un error genérico para
+        // poder diagnosticar (a veces sólo viene "Error no clasificado").
+        if (e instanceof FacturamaError) {
+            try {
+                console.error('[createManualInvoice] facturamaDetails RAW:', JSON.stringify(facturamaDetails));
+                console.error('[createManualInvoice] cfdi enviado:', JSON.stringify(cfdiPayloadForLog));
+            } catch { /* noop */ }
+        }
         return res.status(500).json({
             error: 'Error al emitir CFDI',
             message: errMsg,
