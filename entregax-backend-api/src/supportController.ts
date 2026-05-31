@@ -1703,26 +1703,45 @@ export const createFormalQuoteRequest = async (req: Request, res: Response): Pro
 
     // WhatsApp al asesor: aviso de cotización pendiente con cliente + servicio + volumen/peso
     try {
-      if (advisorId && user.advisor_phone) {
-        // Volumen / peso a mostrar: CBM (marítimo) o peso (aéreo/dhl) o cantidad
-        const volumen = cbm
-          ? `${Number(cbm).toFixed(2)} CBM`
-          : peso
-            ? `${Number(peso).toFixed(2)} kg`
-            : cantidad
-              ? `${cantidad} pieza(s)`
-              : '—';
-        const clienteLabel = user.box_id ? String(user.box_id) : (user.full_name || 'Cliente');
-        sendAdvisorQuotePending(
-          user.advisor_phone,
-          user.advisor_name || 'Asesor',
-          clienteLabel,
-          String(servicio).toUpperCase(),
-          volumen,
-          ticketFolio,
-        ).catch(() => {});
+      if (advisorId) {
+        // Asegurar phone del asesor (puede venir null en el JOIN si advisor_id no estaba seteado al cargar user)
+        let advisorPhone: string | null = user.advisor_phone || null;
+        let advisorName: string | null = user.advisor_name || null;
+        if (!advisorPhone) {
+          const ar = await pool.query(
+            `SELECT full_name, phone FROM users WHERE id = $1`,
+            [advisorId]
+          );
+          if (ar.rows[0]) {
+            advisorPhone = ar.rows[0].phone || null;
+            advisorName = advisorName || ar.rows[0].full_name || null;
+          }
+        }
+        if (!advisorPhone) {
+          console.warn(`[QUOTE→WA] Asesor ${advisorId} sin phone. No se envía WhatsApp. Ticket=${ticketFolio}`);
+        } else {
+          const volumen = cbm
+            ? `${Number(cbm).toFixed(2)} CBM`
+            : peso
+              ? `${Number(peso).toFixed(2)} kg`
+              : cantidad
+                ? `${cantidad} pieza(s)`
+                : '—';
+          const clienteLabel = user.box_id ? String(user.box_id) : (user.full_name || 'Cliente');
+          console.log(`[QUOTE→WA] Enviando aviso asesor=${advisorId} phone=${advisorPhone} ticket=${ticketFolio}`);
+          sendAdvisorQuotePending(
+            advisorPhone,
+            advisorName || 'Asesor',
+            clienteLabel,
+            String(servicio).toUpperCase(),
+            volumen,
+            ticketFolio,
+          ).catch((e) => console.error('[QUOTE→WA] sendAdvisorQuotePending error:', e));
+        }
+      } else {
+        console.warn(`[QUOTE→WA] Sin advisorId asignado al cliente. Ticket=${ticketFolio}`);
       }
-    } catch (e) { /* noop */ }
+    } catch (e) { console.error('[QUOTE→WA] excepción:', e); }
 
     return res.json({
       ok: true,
