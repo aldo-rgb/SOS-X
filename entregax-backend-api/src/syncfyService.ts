@@ -157,6 +157,7 @@ export async function refreshCredentialsForEmitter(emitterId: number, createdBy?
         institution         = EXCLUDED.institution,
         twofa_required      = EXCLUDED.twofa_required,
         updated_at          = NOW()
+        -- is_active NO se actualiza: preserva soft-delete del usuario
     `, [emitterId, idUser, idCredential, idSite || null, institution, displayName, status, twofa, createdBy || null]);
   }
 
@@ -173,7 +174,7 @@ export async function refreshCredentialsForEmitter(emitterId: number, createdBy?
   }
 
   return (await pool.query(
-    'SELECT * FROM syncfy_credentials WHERE emitter_id=$1 ORDER BY id DESC',
+    'SELECT * FROM syncfy_credentials WHERE emitter_id=$1 AND is_active=TRUE ORDER BY id DESC',
     [emitterId]
   )).rows;
 }
@@ -190,7 +191,8 @@ export async function deleteCredential(dbCredentialId: number): Promise<boolean>
     console.warn('⚠️ Syncfy: no se pudo borrar la credencial remota:', e.message);
   }
 
-  await pool.query('DELETE FROM syncfy_credentials WHERE id=$1', [dbCredentialId]);
+  // Soft-delete: marcar como inactivo para que no reaparezca al re-sincronizar con Syncfy
+  await pool.query('UPDATE syncfy_credentials SET is_active=FALSE, updated_at=NOW() WHERE id=$1', [dbCredentialId]);
 
   // Recalcula flag de emisor
   const remaining = await pool.query(

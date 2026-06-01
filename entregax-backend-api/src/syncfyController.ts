@@ -54,13 +54,19 @@ export async function getLinks(req: Request, res: Response): Promise<any> {
   try {
     const emitterId = req.query.emitter_id ? Number(req.query.emitter_id) : null;
     if (emitterId) {
-      const rows = await syncfy.refreshCredentialsForEmitter(emitterId);
-      return res.json({ success: true, links: rows });
+      // Solo consultar DB local (no re-sincronizar con Syncfy en cada GET para evitar que
+      // credenciales soft-deleted reaparezcan si el delete en Syncfy API falló)
+      const rows = await pool.query(
+        'SELECT * FROM syncfy_credentials WHERE emitter_id=$1 AND is_active=TRUE ORDER BY id DESC',
+        [emitterId]
+      );
+      return res.json({ success: true, links: rows.rows });
     }
     const all = await pool.query(`
       SELECT sc.*, fe.alias AS emitter_alias, fe.rfc AS emitter_rfc
       FROM syncfy_credentials sc
       JOIN fiscal_emitters fe ON fe.id = sc.emitter_id
+      WHERE sc.is_active = TRUE
       ORDER BY sc.id DESC
     `);
     res.json({ success: true, links: all.rows });
