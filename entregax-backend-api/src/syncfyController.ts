@@ -19,8 +19,23 @@ export async function getWidgetToken(req: Request, res: Response): Promise<any> 
     if (!emitter_id) return res.status(400).json({ error: 'Falta emitter_id' });
     const userId = (req as any).user?.userId || (req as any).user?.id;
 
-    const { id_user } = await syncfy.ensureUserForEmitter(Number(emitter_id), userId);
-    const token = await syncfy.createSessionToken(id_user);
+    let { id_user } = await syncfy.ensureUserForEmitter(Number(emitter_id), userId);
+    let token: string;
+    try {
+      token = await syncfy.createSessionToken(id_user);
+    } catch (sessionErr: any) {
+      // 401 "Invalid user" → el id_user es de otro ambiente (ej. sandbox→producción).
+      // Borrar el registro viejo y crear un usuario nuevo en el ambiente actual.
+      if (sessionErr.response?.status === 401 || /invalid user/i.test(sessionErr.response?.data?.message || '')) {
+        console.warn(`[Syncfy] id_user ${id_user} inválido en este ambiente → recreando usuario para emitter ${emitter_id}`);
+        await syncfy.deleteLocalUserForEmitter(Number(emitter_id));
+        const refreshed = await syncfy.ensureUserForEmitter(Number(emitter_id), userId);
+        id_user = refreshed.id_user;
+        token = await syncfy.createSessionToken(id_user);
+      } else {
+        throw sessionErr;
+      }
+    }
 
     res.json({
       success: true,

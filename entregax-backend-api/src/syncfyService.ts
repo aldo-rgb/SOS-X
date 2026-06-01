@@ -107,6 +107,12 @@ export async function ensureUserForEmitter(emitterId: number, createdBy?: number
   return { id_user: idUser, created: true };
 }
 
+/** Elimina el registro local de usuario Syncfy para un emitter (para recrearlo en otro ambiente). */
+export async function deleteLocalUserForEmitter(emitterId: number): Promise<void> {
+  await pool.query('DELETE FROM syncfy_users WHERE emitter_id = $1', [emitterId]);
+  await pool.query('UPDATE fiscal_emitters SET syncfy_user_id = NULL, syncfy_connected = FALSE WHERE id = $1', [emitterId]);
+}
+
 // --------------- SESSION TOKEN (para Widget) -----------------
 /** Crea un session token efímero para abrir el Connect Widget. */
 export async function createSessionToken(idUser: string): Promise<string> {
