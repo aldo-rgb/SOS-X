@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Box,
   Typography,
@@ -187,7 +187,7 @@ export default function ReferidosAdminPage() {
       {/* Stats */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         {statCards.map(card => (
-          <Grid item xs={6} md={3} key={card.label}>
+          <Grid size={{ xs: 6, md: 3 }} key={card.label}>
             <Paper sx={{ p: 2, display: 'flex', alignItems: 'center', gap: 2, borderRadius: 2 }}>
               <Box sx={{ color: card.color, display: 'flex' }}>{card.icon}</Box>
               <Box>

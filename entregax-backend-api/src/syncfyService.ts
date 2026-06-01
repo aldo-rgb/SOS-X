@@ -438,22 +438,22 @@ export function verifyWebhookSignature(rawBody: string, signature?: string): boo
  * Si ninguno está configurado, acepta el webhook (seguridad por URL única).
  */
 export function verifyWebhookAuth(rawBody: string, signature?: string, tokenHeader?: string): boolean {
-  // Si hay token configurado, validar primero por token (más simple, lo usa Syncfy via cabeceras personalizadas)
-  if (SYNCFY_WEBHOOK_TOKEN) {
-    if (!tokenHeader) return false;
+  // Si viene token en cabecera y tenemos token configurado, validar por token
+  if (SYNCFY_WEBHOOK_TOKEN && tokenHeader) {
     try {
       const a = Buffer.from(tokenHeader);
       const b = Buffer.from(SYNCFY_WEBHOOK_TOKEN);
-      if (a.length !== b.length) return false;
-      return crypto.timingSafeEqual(a, b);
-    } catch { return false; }
+      if (a.length === b.length && crypto.timingSafeEqual(a, b)) return true;
+    } catch { /* continúa */ }
   }
-  // Si no hay token pero sí secret HMAC, validar firma
-  if (SYNCFY_WEBHOOK_SECRET) {
-    return verifyWebhookSignature(rawBody, signature);
+  // Si viene firma HMAC y tenemos secret, validar firma
+  if (SYNCFY_WEBHOOK_SECRET && signature) {
+    if (verifyWebhookSignature(rawBody, signature)) return true;
   }
-  // Sin ninguna configuración, aceptar (no recomendado)
-  return true;
+  // Si ninguna credencial está configurada, aceptar (URL única es suficiente)
+  if (!SYNCFY_WEBHOOK_TOKEN && !SYNCFY_WEBHOOK_SECRET) return true;
+  // Hay credenciales configuradas pero ninguna coincidió
+  return false;
 }
 
 export async function processWebhookEvent(payload: any): Promise<any> {

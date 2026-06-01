@@ -136,14 +136,15 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
         const code = meta?.code;
         // Fallback automático cuando la plantilla no existe en ese idioma (#132001)
         const triedLang = opts.languageCode || 'es_MX';
-        const fallbackLangs = ['es', 'es_LA', 'en_US', 'en'].filter((l) => l !== triedLang);
-        if (code === 132001 && fallbackLangs.length > 0 && !(opts as any)._retried) {
-            console.warn(`[WHATSAPP] template "${opts.template}" no existe en ${triedLang}, probando ${fallbackLangs[0]}...`);
+        const allFallbacks = ['es_MX', 'es', 'es_ES', 'es_LA', 'en_US', 'en'];
+        const triedSoFar: string[] = (opts as any)._triedLangs || [triedLang];
+        const nextLang = allFallbacks.find(l => !triedSoFar.includes(l));
+        if (code === 132001 && nextLang) {
+            console.warn(`[WHATSAPP] template "${opts.template}" no existe en ${triedLang}, probando ${nextLang}...`);
             return sendTemplate({
                 ...opts,
-                languageCode: fallbackLangs[0],
-                // marca para no reintentar infinito
-                ...({ _retried: true } as any),
+                languageCode: nextLang,
+                ...({ _triedLangs: [...triedSoFar, nextLang] } as any),
             });
         }
         console.error(`[WHATSAPP] ❌ Falló template "${opts.template}" a ${normalized}:`, msg, meta);
