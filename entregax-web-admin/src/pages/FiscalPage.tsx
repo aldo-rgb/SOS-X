@@ -165,7 +165,9 @@ export default function FiscalPage() {
   const [syncingSyncfy, setSyncingSyncfy] = useState<number | null>(null);
   const [syncfyWidgetVisible, setSyncfyWidgetVisible] = useState(false);
   const [syncfyWidgetInstance, setSyncfyWidgetInstance] = useState<any>(null);
+  const [syncfyAwaitingQR, setSyncfyAwaitingQR] = useState(false); // esperando confirmación async de BBVA QR
   const syncfyWidgetContainerRef = useRef<HTMLDivElement | null>(null);
+  const syncfyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Modal Facturama (recepción CFDI)
   const [openFacturamaModal, setOpenFacturamaModal] = useState(false);
@@ -706,38 +708,44 @@ export default function FiscalPage() {
               }
             });
             widget.on('exit', async () => {
-              console.warn('[Syncfy] widget exit — intentando refrescar credenciales (BBVA QR es asíncrono)');
-              setSyncfyWidgetVisible(false);
-              // BBVA Net Cash: el QR se procesa de forma asíncrona; intentar registrar
-              // la credencial inmediatamente y luego de 5s por si hay delay.
-              const tryRegister = async () => {
+              console.warn('[Syncfy] widget exit — BBVA QR es asíncrono, iniciando polling');
+              // No cerrar el diálogo todavía: mostrar pantalla de espera mientras
+              // BBVA procesa el QR y Syncfy crea la credencial (puede tardar 1-3 min).
+              setSyncfyAwaitingQR(true);
+
+              const emitterId = selectedEmpresaSyncfy.id;
+              const emitterAlias = selectedEmpresaSyncfy.alias;
+              let attempts = 0;
+              const maxAttempts = 18; // 18 × 10s = 3 minutos
+
+              if (syncfyPollRef.current) clearInterval(syncfyPollRef.current);
+              syncfyPollRef.current = setInterval(async () => {
+                attempts++;
                 try {
                   const r = await axios.post(
                     `${API_URL}/admin/syncfy/links`,
-                    { emitter_id: selectedEmpresaSyncfy.id },
+                    { emitter_id: emitterId },
                     { headers: { Authorization: `Bearer ${getToken()}` } }
                   );
                   if (r.data?.links?.length > 0) {
-                    setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${selectedEmpresaSyncfy.alias}`, severity: 'success' });
-                    handleOpenSyncfyModal(selectedEmpresaSyncfy);
+                    clearInterval(syncfyPollRef.current!);
+                    syncfyPollRef.current = null;
+                    setSyncfyAwaitingQR(false);
+                    setSyncfyWidgetVisible(false);
+                    setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${emitterAlias}`, severity: 'success' });
+                    handleOpenSyncfyModal({ id: emitterId, alias: emitterAlias } as any);
                     loadData();
-                    return true;
+                    return;
                   }
                 } catch { /* noop */ }
-                return false;
-              };
-              // Primer intento inmediato
-              const found = await tryRegister();
-              if (!found) {
-                // Segundo intento a los 5 segundos (BBVA puede tardar en procesar el QR)
-                setSnackbar({ open: true, message: '⏳ Si escaneaste el QR de BBVA, espera unos segundos — verificando conexión...', severity: 'info' });
-                setTimeout(async () => {
-                  const found2 = await tryRegister();
-                  if (!found2) {
-                    setSnackbar({ open: true, message: 'ℹ️ No se detectó banco conectado. Si escaneaste el QR, abre el modal Syncfy en ~1 minuto para verificar.', severity: 'warning' });
-                  }
-                }, 5000);
-              }
+                if (attempts >= maxAttempts) {
+                  clearInterval(syncfyPollRef.current!);
+                  syncfyPollRef.current = null;
+                  setSyncfyAwaitingQR(false);
+                  setSyncfyWidgetVisible(false);
+                  setSnackbar({ open: true, message: 'ℹ️ No se detectó banco conectado en 3 min. Intenta de nuevo o verifica en la app de BBVA.', severity: 'warning' });
+                }
+              }, 10000);
             });
           }
 
@@ -2030,10 +2038,14 @@ export default function FiscalPage() {
       <Dialog
         open={syncfyWidgetVisible}
         onClose={() => {
+          // No cerrar si estamos esperando confirmación de BBVA QR
+          if (syncfyAwaitingQR) return;
+          if (syncfyPollRef.current) { clearInterval(syncfyPollRef.current); syncfyPollRef.current = null; }
           if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
             try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
           }
           setSyncfyWidgetInstance(null);
+          setSyncfyAwaitingQR(false);
           setSyncfyWidgetVisible(false);
         }}
         maxWidth="md"
@@ -2042,7 +2054,7 @@ export default function FiscalPage() {
         <DialogTitle sx={{ bgcolor: '#1e88e5', color: 'white' }}>
           🏦 Conectar Banco — Syncfy
         </DialogTitle>
-        <DialogContent sx={{ p: 0, height: '70vh', overflow: 'hidden' }}>
+        <DialogContent sx={{ p: 0, height: '70vh', overflow: 'hidden', position: 'relative' }}>
           <Box
             ref={syncfyWidgetContainerRef}
             id="syncfy-widget"
@@ -2056,15 +2068,41 @@ export default function FiscalPage() {
               },
             }}
           />
+          {syncfyAwaitingQR && (
+            <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'rgba(255,255,255,0.95)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, zIndex: 10 }}>
+              <CircularProgress size={48} />
+              <Typography variant="h6" fontWeight={700}>Esperando confirmación de BBVA…</Typography>
+              <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ maxWidth: 360 }}>
+                Abre la app de <strong>BBVA Empresas</strong> en tu celular, ve a <strong>Token Digital → Intercambio QR</strong> y escanea el código que apareció.
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                Verificando automáticamente cada 10 segundos (máx. 3 min)
+              </Typography>
+              <Button
+                variant="outlined"
+                color="inherit"
+                size="small"
+                onClick={() => {
+                  if (syncfyPollRef.current) { clearInterval(syncfyPollRef.current); syncfyPollRef.current = null; }
+                  setSyncfyAwaitingQR(false);
+                  setSyncfyWidgetVisible(false);
+                }}
+              >
+                Cancelar
+              </Button>
+            </Box>
+          )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => {
-            if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
-              try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
-            }
-            setSyncfyWidgetInstance(null);
-            setSyncfyWidgetVisible(false);
-          }}>Cerrar</Button>
+          {!syncfyAwaitingQR && (
+            <Button onClick={() => {
+              if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
+                try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
+              }
+              setSyncfyWidgetInstance(null);
+              setSyncfyWidgetVisible(false);
+            }}>Cerrar</Button>
+          )}
         </DialogActions>
       </Dialog>
 
