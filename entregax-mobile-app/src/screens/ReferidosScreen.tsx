@@ -145,10 +145,11 @@ export default function ReferidosScreen({ navigation }: any) {
   const getEstadoBadge = (estado: string) => {
     switch (estado) {
       case 'validado':
-        return { bg: GREEN, text: 'Completado', icon: 'checkmark-circle' };
-      case 'registrado':
+        return { bg: GREEN, text: '✓ Primer envío', icon: 'checkmark-circle' };
       case 'primer_pago':
-        return { bg: YELLOW, text: 'Pendiente', icon: 'time' };
+        return { bg: YELLOW, text: 'En proceso', icon: 'time' };
+      case 'registrado':
+        return { bg: '#999', text: 'Sin primer envío', icon: 'time-outline' };
       case 'rechazado':
         return { bg: '#F44336', text: 'No válido', icon: 'close-circle' };
       default:

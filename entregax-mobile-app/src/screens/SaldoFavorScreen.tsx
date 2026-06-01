@@ -13,8 +13,6 @@ import {
   RefreshControl,
   ActivityIndicator,
   Alert,
-  Share,
-  FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -67,6 +65,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
   const [resumen, setResumen] = useState<WalletResumen | null>(null);
   const [transacciones, setTransacciones] = useState<Transaccion[]>([]);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
+  const [totalReferidos, setTotalReferidos] = useState(0);
 
   const fetchWalletData = useCallback(async () => {
     try {
@@ -81,23 +80,26 @@ export default function SaldoFavorScreen({ navigation }: any) {
         'Authorization': `Bearer ${token}`,
       };
 
-      // Obtener resumen de billetera
-      const resumenRes = await fetch(`${API_URL}/api/billetera/resumen`, { headers });
-      
+      const [resumenRes, txRes, referidosRes] = await Promise.all([
+        fetch(`${API_URL}/api/billetera/resumen`, { headers }),
+        fetch(`${API_URL}/api/billetera/transacciones?limit=50`, { headers }),
+        fetch(`${API_URL}/api/referidos/mis-referidos`, { headers }),
+      ]);
+
       if (resumenRes.ok) {
         const data = await resumenRes.json();
-        if (data.success) {
-          setResumen(data.data);
-        }
+        if (data.success) setResumen(data.data);
       }
 
-      // Obtener todas las transacciones
-      const txRes = await fetch(`${API_URL}/api/billetera/transacciones?limit=50`, { headers });
-      
       if (txRes.ok) {
         const txData = await txRes.json();
-        if (txData.success) {
-          setTransacciones(txData.data || []);
+        if (txData.success) setTransacciones(txData.data || []);
+      }
+
+      if (referidosRes.ok) {
+        const refData = await referidosRes.json();
+        if (refData.success) {
+          setTotalReferidos(refData.data?.estadisticas?.total_referidos || 0);
         }
       }
     } catch (error) {
@@ -118,8 +120,14 @@ export default function SaldoFavorScreen({ navigation }: any) {
   };
 
   const formatMoney = (amount: any) => {
-    const n = parseFloat(String(amount ?? 0));
-    return `$${isNaN(n) ? '0.00' : n.toFixed(2)}`;
+    try {
+      if (amount == null) return '$0.00';
+      const n = typeof amount === 'number' ? amount : parseFloat(`${amount}`);
+      if (!isFinite(n)) return '$0.00';
+      return `$${n.toFixed(2)}`;
+    } catch {
+      return '$0.00';
+    }
   };
 
   const formatDate = (dateString: string) => {
@@ -230,13 +238,15 @@ export default function SaldoFavorScreen({ navigation }: any) {
             </Text>
             <Text style={styles.infoLabel}>Usado</Text>
           </View>
-          <View style={styles.infoCard}>
-            <Ionicons name="receipt-outline" size={24} color={SEA_COLOR} />
-            <Text style={styles.infoValue}>
-              {resumen?.estadisticas.transacciones_este_mes || 0}
-            </Text>
-            <Text style={styles.infoLabel}>Este Mes</Text>
-          </View>
+          <TouchableOpacity
+            style={styles.infoCard}
+            onPress={() => navigation.navigate('Referidos')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="people" size={24} color={ORANGE} />
+            <Text style={styles.infoValue}>{totalReferidos}</Text>
+            <Text style={styles.infoLabel}>Referidos</Text>
+          </TouchableOpacity>
         </View>
 
         {/* Botón de referidos */}

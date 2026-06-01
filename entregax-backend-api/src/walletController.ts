@@ -488,6 +488,82 @@ export const getTopReferrers = async (req: AuthRequest, res: Response): Promise<
   }
 };
 
+/**
+ * GET /api/admin/referidos/todos
+ * Lista todos los referidos del sistema para el panel admin
+ */
+export const getAllReferidos = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    if ((req.user?.level || 0) < 50) {
+      return res.status(403).json({ error: 'Sin permisos' });
+    }
+
+    const { pool: db } = require('./db');
+    const result = await db.query(`
+      SELECT
+        r.id,
+        u1.full_name  AS referidor_nombre,
+        u1.email      AS referidor_email,
+        cr.codigo     AS referidor_codigo,
+        u2.full_name  AS referido_nombre,
+        u2.email      AS referido_email,
+        r.estado,
+        r.fecha_registro,
+        r.fecha_primer_pago,
+        r.monto_primer_pago,
+        r.bono_referidor,
+        r.bono_referido,
+        r.bonos_pagados
+      FROM referidos r
+      JOIN users u1 ON u1.id = r.referidor_id
+      JOIN users u2 ON u2.id = r.referido_id
+      LEFT JOIN codigos_referido cr ON cr.usuario_id = r.referidor_id
+      ORDER BY r.fecha_registro DESC
+      LIMIT 500
+    `);
+
+    res.json({ success: true, data: result.rows });
+  } catch (error) {
+    console.error('Error en getAllReferidos:', error);
+    res.status(500).json({ error: 'Error al obtener referidos' });
+  }
+};
+
+/**
+ * PUT /api/admin/referidos/configuracion
+ * Actualiza los bonos y configuración del programa de referidos
+ */
+export const updateReferralSettings = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    if ((req.user?.level || 0) < 80) {
+      return res.status(403).json({ error: 'Sin permisos' });
+    }
+
+    const { referrer_bonus, referred_bonus, minimum_order_amount, is_active } = req.body;
+
+    const current = await referralService.getReferralSettings();
+    const updated = {
+      ...current,
+      ...(referrer_bonus !== undefined && { referrer_bonus: Number(referrer_bonus) }),
+      ...(referred_bonus !== undefined && { referred_bonus: Number(referred_bonus) }),
+      ...(minimum_order_amount !== undefined && { minimum_order_amount: Number(minimum_order_amount) }),
+      ...(is_active !== undefined && { is_active: Boolean(is_active) }),
+    };
+
+    const { pool: db2 } = require('./db');
+    await db2.query(`
+      INSERT INTO system_configurations (config_key, config_value, is_active)
+      VALUES ('referral_settings', $1, TRUE)
+      ON CONFLICT (config_key) DO UPDATE SET config_value = $1, updated_at = NOW()
+    `, [JSON.stringify(updated)]);
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    console.error('Error en updateReferralSettings:', error);
+    res.status(500).json({ error: 'Error al guardar configuración' });
+  }
+};
+
 export default {
   // Wallet
   getBalance,
@@ -505,4 +581,6 @@ export default {
   adminDeposit,
   adminWithdraw,
   getTopReferrers,
+  getAllReferidos,
+  updateReferralSettings,
 };

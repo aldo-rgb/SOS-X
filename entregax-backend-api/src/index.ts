@@ -958,7 +958,9 @@ import {
   getSettings as getReferralSettings,
   adminDeposit,
   adminWithdraw,
-  getTopReferrers
+  getTopReferrers,
+  getAllReferidos,
+  updateReferralSettings
 } from './walletController';
 import {
   getUserPendingPayments,
@@ -6234,6 +6236,12 @@ app.post('/api/admin/billetera/retirar', authenticateToken, requireMinLevel(ROLE
 
 // Admin: Top referidores
 app.get('/api/admin/referidos/top', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getTopReferrers);
+
+// Admin: Todos los referidos (para panel web)
+app.get('/api/admin/referidos/todos', authenticateToken, requireMinLevel(ROLES.BRANCH_MANAGER), getAllReferidos);
+
+// Admin: Actualizar configuración de bonos de referidos
+app.put('/api/admin/referidos/configuracion', authenticateToken, requireMinLevel(ROLES.ADMIN), updateReferralSettings);
 
 // ========== PAGOS MULTI-SERVICIO (Múltiples RFCs/Empresas) ==========
 // Cliente: Ver pagos pendientes por servicio
