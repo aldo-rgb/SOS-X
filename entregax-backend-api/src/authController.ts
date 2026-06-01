@@ -593,11 +593,22 @@ export const authenticateToken = async (req: AuthRequest, res: Response, next: N
             role: string;
         };
 
-        // Bloquear tokens de cuentas eliminadas (Fase 7 — cumplimiento Account Deletion)
+        // Bloquear tokens de cuentas eliminadas, desactivadas o bloqueadas
         try {
-            const r = await pool.query('SELECT deleted_at FROM users WHERE id = $1', [decoded.userId]);
+            const r = await pool.query(
+                'SELECT deleted_at, is_active, is_blocked FROM users WHERE id = $1',
+                [decoded.userId]
+            );
             if (r.rows.length === 0 || r.rows[0].deleted_at) {
                 res.status(401).json({ error: 'Cuenta eliminada o inválida.', errorCode: 'ACCOUNT_DELETED' });
+                return;
+            }
+            if (r.rows[0].is_active === false) {
+                res.status(401).json({ error: 'Cuenta desactivada. Contacta a soporte.', errorCode: 'ACCOUNT_INACTIVE' });
+                return;
+            }
+            if (r.rows[0].is_blocked) {
+                res.status(401).json({ error: 'Cuenta bloqueada. Contacta a soporte.', errorCode: 'ACCOUNT_BLOCKED' });
                 return;
             }
         } catch {
