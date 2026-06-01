@@ -268,6 +268,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const [_loadingSavedEntries, setLoadingSavedEntries] = useState(false);
   const [_savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
   const [belvoSyncing, setBelvoSyncing] = useState(false);
+  const [syncfySyncing, setSyncfySyncing] = useState(false);
 
   // Parser BBVA
   const parseBBVA = (text: string): EstadoCuentaRow[] => {
@@ -439,6 +440,22 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       }
     }
     return Object.entries(refMap).map(([ref, entries]) => ({ ref, entries }));
+  };
+
+  const handleSyncfySync = async () => {
+    const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
+    if (!empresaFilt) return;
+    setSyncfySyncing(true);
+    try {
+      const res = await api.post('/admin/syncfy/sync', { emitter_id: empresaFilt.id, days_back: 30 });
+      const inserted = res.data.new_count ?? res.data.inserted ?? 0;
+      setSnackbar({ open: true, message: `✅ Sync completado: ${inserted} movimientos nuevos descargados`, severity: 'success' });
+      await loadSavedBankEntries();
+    } catch (err: any) {
+      setSnackbar({ open: true, message: '❌ Error en sync: ' + (err.response?.data?.error || err.message), severity: 'error' });
+    } finally {
+      setSyncfySyncing(false);
+    }
   };
 
   const loadSavedBankEntries = async () => {
@@ -1811,18 +1828,31 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
           <Box sx={{ p: 3 }}>
             {/* Status de conexión bancaria */}
             {empresaFiltrada?.syncfy_connected ? (
-              <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircle />}>
-                <strong>Conectado:</strong>{' '}
-                <Chip
-                  icon={<AccountBalance sx={{ fontSize: 14 }} />}
-                  label={empresaFiltrada.syncfy_institution || 'Banco'}
-                  size="small"
-                  color="success"
-                  sx={{ mx: 0.5, fontWeight: 'bold' }}
-                />
-                {empresaFiltrada.syncfy_last_sync && (
-                  <span> Última sync: {new Date(empresaFiltrada.syncfy_last_sync).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
-                )}
+              <Alert severity="success" sx={{ mb: 2, display: 'flex', alignItems: 'center' }} icon={<CheckCircle />}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', flex: 1 }}>
+                  <strong>Conectado:</strong>{' '}
+                  <Chip
+                    icon={<AccountBalance sx={{ fontSize: 14 }} />}
+                    label={empresaFiltrada.syncfy_institution || 'Banco'}
+                    size="small"
+                    color="success"
+                    sx={{ mx: 0.5, fontWeight: 'bold' }}
+                  />
+                  {empresaFiltrada.syncfy_last_sync && (
+                    <span>Última sync: {new Date(empresaFiltrada.syncfy_last_sync).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                  )}
+                  <Button
+                    size="small"
+                    variant="contained"
+                    color="success"
+                    onClick={handleSyncfySync}
+                    disabled={syncfySyncing}
+                    startIcon={syncfySyncing ? <CircularProgress size={14} color="inherit" /> : <Refresh />}
+                    sx={{ ml: 1 }}
+                  >
+                    {syncfySyncing ? 'Sincronizando...' : 'Sincronizar'}
+                  </Button>
+                </Box>
               </Alert>
             ) : empresaFiltrada?.belvo_connected ? (
               <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircle />}>
