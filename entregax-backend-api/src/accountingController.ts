@@ -2355,7 +2355,7 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
                 NULL::numeric AS matched_amount
             FROM bank_statement_entries bse
             WHERE ${conds.join(' AND ')}
-            ORDER BY bse.fecha DESC, bse.id DESC
+            ORDER BY bse.fecha DESC, bse.seq DESC, bse.id DESC
             LIMIT $${params.length}
         `;
         const r = await pool.query(sql, params);

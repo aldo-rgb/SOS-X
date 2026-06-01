@@ -8019,10 +8019,10 @@ app.get('/api/admin/finance/bank-entries', authenticateToken, requireMinLevel(RO
     if (!empresa_id) return res.status(400).json({ error: 'Falta empresa_id' });
 
     const result = await pool.query(`
-      SELECT id, fecha, concepto, referencia, cargo, abono, saldo, banco, uploaded_at
+      SELECT id, fecha, concepto, referencia, cargo, abono, saldo, banco, uploaded_at, seq
       FROM bank_statement_entries
       WHERE empresa_id = $1
-      ORDER BY fecha DESC, id ASC
+      ORDER BY fecha DESC, seq DESC, id DESC
     `, [empresa_id]);
 
     res.json({ success: true, entries: result.rows, count: result.rows.length });
@@ -8078,15 +8078,15 @@ app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLe
     const newEntries: any[] = [];
     const duplicateCount = { count: 0 };
 
-    for (const entry of entries) {
+    for (const [idx, entry] of entries.entries()) {
       const hashInput = `${entry.fecha}|${entry.concepto}|${entry.referencia || ''}|${entry.cargo || ''}|${entry.abono || ''}|${entry.saldo || ''}`;
       const entryHash = crypto.createHash('sha256').update(hashInput).digest('hex').substring(0, 64);
 
       try {
         const result = await pool.query(`
-          INSERT INTO bank_statement_entries (empresa_id, service_type, banco, fecha, concepto, referencia, cargo, abono, saldo, entry_hash, uploaded_by, source)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual')
-          ON CONFLICT (empresa_id, entry_hash) DO NOTHING
+          INSERT INTO bank_statement_entries (empresa_id, service_type, banco, fecha, concepto, referencia, cargo, abono, saldo, entry_hash, uploaded_by, source, seq)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual', $12)
+          ON CONFLICT (empresa_id, entry_hash) DO UPDATE SET seq = EXCLUDED.seq
           RETURNING *
         `, [
           empresa_id,
@@ -8100,6 +8100,7 @@ app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLe
           entry.saldo || null,
           entryHash,
           adminId,
+          idx,
         ]);
 
         if (result.rows.length > 0) {
@@ -10287,6 +10288,8 @@ async function ensureRequiredColumns() {
       -- Fuente de cada movimiento bancario (manual | syncfy | belvo)
       ALTER TABLE bank_statement_entries ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'manual';
       CREATE INDEX IF NOT EXISTS idx_bse_source ON bank_statement_entries(empresa_id, source);
+      -- Orden intra-día: preserva la posición del movimiento dentro del paste (0=más antiguo del batch)
+      ALTER TABLE bank_statement_entries ADD COLUMN IF NOT EXISTS seq INTEGER DEFAULT 0;
       -- Visibilidad en módulos: admin puede elegir dónde aparece cada empresa
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS show_in_cobranza BOOLEAN DEFAULT FALSE;
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS show_in_contabilidad BOOLEAN DEFAULT TRUE;

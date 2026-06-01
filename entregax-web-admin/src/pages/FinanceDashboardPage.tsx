@@ -256,6 +256,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     cargo: number | null;
     abono: number | null;
     saldo: number;
+    seq?: number;
   }
   const [estadoCuentaRows, setEstadoCuentaRows] = useState<EstadoCuentaRow[]>([]);
   const [estadoCuentaBanco] = useState('bbva');
@@ -461,6 +462,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             cargo: e.cargo ? parseFloat(e.cargo) : null,
             abono: e.abono ? parseFloat(e.abono) : null,
             saldo: e.saldo ? parseFloat(e.saldo) : 0,
+            seq: e.seq ?? 0,
           };
         });
         setEstadoCuentaRows(sortRowsDesc(mapped));
@@ -476,7 +478,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     setLoadingSavedEntries(false);
   };
 
-  // Sort rows by date descending (most recent first)
+  // Sort rows by date descending, then by seq descending (preserves intra-day bank order)
   const sortRowsDesc = (rows: EstadoCuentaRow[]): EstadoCuentaRow[] => {
     return [...rows].sort((a, b) => {
       // fecha format: DD-MM-YYYY
@@ -484,7 +486,10 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       const [db, mb, yb] = b.fecha.split('-');
       const dateA = `${ya}${ma}${da}`;
       const dateB = `${yb}${mb}${db}`;
-      return dateB.localeCompare(dateA);
+      const dateCmp = dateB.localeCompare(dateA);
+      if (dateCmp !== 0) return dateCmp;
+      // Same date: higher seq = more recent (bank pastes oldest→newest)
+      return (b.seq ?? 0) - (a.seq ?? 0);
     });
   };
 
@@ -501,7 +506,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
       const text = await csvFile.text();
       rows = parseBanregio(text);
     }
-    setEstadoCuentaRows(sortRowsDesc(rows));
+    // Assign seq = position in the paste (bank shows oldest→newest, so last row = most recent)
+    const rowsWithSeq = rows.map((r, i) => ({ ...r, seq: i }));
+    setEstadoCuentaRows(sortRowsDesc(rowsWithSeq));
     if (rows.length === 0) {
       setSnackbar({ open: true, message: '⚠️ No se pudieron extraer movimientos. Verifica el formato.', severity: 'error' });
       return;
@@ -515,7 +522,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     }
 
     // Ordenar nuevas filas para obtener la más antigua (último elemento desc = más antigua)
-    const sortedNew = sortRowsDesc(rows);
+    const sortedNew = sortRowsDesc(rowsWithSeq);
     const newOldest = sortedNew[sortedNew.length - 1]; // más antiguo del nuevo upload
 
     try {
@@ -550,7 +557,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     let duplicateCount = 0;
     try {
       const saveRes = await api.post('/admin/finance/save-bank-entries', {
-        entries: rows,
+        entries: rowsWithSeq,
         empresa_id: empresaFilt.id,
         service_type: empresaFilt.servicio_asignado,
         banco: estadoCuentaBanco,
@@ -564,7 +571,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     }
 
     if (newEntries.length === 0) {
-      setSnackbar({ open: true, message: `ℹ️ ${rows.length} movimientos extraídos, pero todos ya estaban guardados (${duplicateCount} duplicados). No hay líneas nuevas que procesar.`, severity: 'info' });
+      setSnackbar({ open: true, message: `ℹ️ ${rowsWithSeq.length} movimientos extraídos, pero todos ya estaban guardados (${duplicateCount} duplicados). No hay líneas nuevas que procesar.`, severity: 'info' });
       return;
     }
 
