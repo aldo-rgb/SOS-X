@@ -213,19 +213,19 @@ export async function deleteCredential(dbCredentialId: number): Promise<boolean>
 
 // --------------- FETCH TRANSACTIONS --------------------------
 export async function fetchTransactionsRemote(idUser: string, daysBack: number): Promise<any[]> {
-  // dt_refresh_from = cuándo Syncfy actualizó/recibió el dato del banco (parámetro oficial Syncfy).
-  // Usamos max(daysBack, 730) para que en el primer sync post-conexión traiga todo el historial
-  // disponible aunque el banco acabe de ser conectado hoy.
   const effectiveDays = Math.max(daysBack, 730);
   const sinceUnix = Math.floor((Date.now() - effectiveDays * 86400000) / 1000);
 
   const sessionToken = await createSessionToken(idUser);
   const client = getSessionClient(sessionToken);
 
-  const resp = await client.get(
-    `${SYNCFY_PATHS.transactions}?id_user=${encodeURIComponent(idUser)}&dt_refresh_from=${sinceUnix}`
-  );
-  return resp.data?.response || resp.data || [];
+  const url = `${SYNCFY_PATHS.transactions}?id_user=${encodeURIComponent(idUser)}&dt_refresh_from=${sinceUnix}`;
+  console.log(`[Syncfy] fetchTransactions url=${url} sinceUnix=${sinceUnix} (${effectiveDays}d)`);
+  const resp = await client.get(url);
+  console.log(`[Syncfy] fetchTransactions status=${resp.status} body_keys=${Object.keys(resp.data || {}).join(',')} response_length=${JSON.stringify(resp.data?.response || resp.data || []).length}`);
+  const txs = resp.data?.response || resp.data || [];
+  console.log(`[Syncfy] fetchTransactions txs count=${Array.isArray(txs) ? txs.length : 'NOT_ARRAY'} sample=${JSON.stringify(txs[0] || null).slice(0, 200)}`);
+  return txs;
 }
 
 // --------------- PROCESS & STORE -----------------------------
