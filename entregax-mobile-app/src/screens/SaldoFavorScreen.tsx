@@ -117,8 +117,8 @@ export default function SaldoFavorScreen({ navigation }: any) {
     fetchWalletData();
   };
 
-  const formatMoney = (amount: number) => {
-    return `$${(amount ?? 0).toFixed(2)}`;
+  const formatMoney = (amount: any) => {
+    return `$${(Number(amount) || 0).toFixed(2)}`;
   };
 
   const formatDate = (dateString: string) => {
