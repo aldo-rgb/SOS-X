@@ -739,8 +739,9 @@ export default function FiscalPage() {
       await axios.delete(`${API_URL}/admin/syncfy/links/${credId}`, {
         headers: { Authorization: `Bearer ${getToken()}` }
       });
+      // Actualizar estado local inmediatamente sin re-fetch (evita que Syncfy devuelva la credencial recién borrada)
+      setSyncfyLinks(prev => prev.filter(l => l.id !== credId));
       setSnackbar({ open: true, message: '✅ Banco desconectado', severity: 'success' });
-      if (selectedEmpresaSyncfy) handleOpenSyncfyModal(selectedEmpresaSyncfy);
       loadData();
     } catch (error: any) {
       setSnackbar({ open: true, message: error.response?.data?.error || 'Error desconectando', severity: 'error' });

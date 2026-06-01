@@ -135,7 +135,9 @@ export async function refreshCredentialsForEmitter(emitterId: number, createdBy?
   for (const cred of remote) {
     const idCredential: string = cred.id_credential || cred.id;
     const idSite: string       = cred.id_site || cred.site?.id_site;
-    const siteName: string     = cred.site?.name || cred.name || cred.institution || 'Desconocido';
+    const siteName: string     = cred.site?.name || cred.name || cred.institution || '';
+    // Ignorar credenciales sin institución reconocida (intentos fallidos de autenticación)
+    if (!siteName || siteName === 'Desconocido') continue;
     const institution: string  = bankCodeFromName(siteName);
     const status: string       = (cred.status || 'active').toString().toLowerCase();
     const twofa: boolean       = !!(cred.twofa || cred.is_twofa);
