@@ -339,6 +339,17 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
 
   // === SUPER ADMIN (exclusivos) ===
   {
+    id: 'admin_rrhh',
+    title: 'Recursos Humanos',
+    subtitle: 'Alta de usuarios y consulta de información del personal',
+    icon: 'briefcase-outline',
+    iconFamily: 'ionicons',
+    color: '#0891b2',
+    screen: 'RecursosHumanos',
+    roles: ['super_admin'],
+    requiresOnboarding: false,
+  },
+  {
     id: 'admin_verificaciones',
     title: 'Verificaciones',
     subtitle: 'Revisar identidades KYC pendientes de aprobación',

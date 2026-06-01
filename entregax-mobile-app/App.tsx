@@ -82,6 +82,7 @@ import UsersAdminScreen from './src/screens/UsersAdminScreen';
 import SystemSettingsScreen from './src/screens/SystemSettingsScreen';
 import PanelPermissionsScreen from './src/screens/PanelPermissionsScreen';
 import VerificacionesAdminScreen from './src/screens/VerificacionesAdminScreen';
+import RecursosHumanosScreen from './src/screens/RecursosHumanosScreen';
 import CommissionsScreen from './src/screens/CommissionsScreen';
 import CajaHubScreen from './src/screens/CajaHubScreen';
 import CajaCCScreen from './src/screens/CajaCCScreen';
@@ -197,6 +198,7 @@ export type RootStackParamList = {
   SystemSettings: { user: any; token: string };
   PanelPermissions: { user: any; token: string };
   VerificacionesAdmin: { user: any; token: string };
+  RecursosHumanos: { user: any; token: string };
   Commissions: { user: any; token: string };
   CajaHub: { user: any; token: string };
   CajaCC: { user: any; token: string };
@@ -457,6 +459,7 @@ function App() {
           <Stack.Screen name="SystemSettings" component={SystemSettingsScreen} />
           <Stack.Screen name="PanelPermissions" component={PanelPermissionsScreen} />
           <Stack.Screen name="VerificacionesAdmin" component={VerificacionesAdminScreen} />
+          <Stack.Screen name="RecursosHumanos" component={RecursosHumanosScreen} />
           <Stack.Screen name="Commissions" component={CommissionsScreen} />
           <Stack.Screen name="CajaHub" component={CajaHubScreen} />
           <Stack.Screen name="CajaCC" component={CajaCCScreen} />
