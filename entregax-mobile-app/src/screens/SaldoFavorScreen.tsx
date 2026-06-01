@@ -118,7 +118,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
   };
 
   const formatMoney = (amount: number) => {
-    return `$${amount.toFixed(2)}`;
+    return `$${(amount ?? 0).toFixed(2)}`;
   };
 
   const formatDate = (dateString: string) => {
