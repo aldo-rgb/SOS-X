@@ -6373,7 +6373,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     // EMPRESAS CON OPENPAY CONFIGURADO
     // ============================================
     const empresasRes = await pool.query(`
-      SELECT 
+      SELECT
         fe.id,
         fe.alias,
         fe.rfc,
@@ -6382,6 +6382,9 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         fe.bank_name,
         fe.belvo_connected,
         fe.belvo_institution,
+        fe.syncfy_connected,
+        fe.syncfy_institution,
+        (SELECT MAX(sc.last_sync_at) FROM syncfy_credentials sc WHERE sc.emitter_id = fe.id AND sc.is_active = TRUE) AS syncfy_last_sync,
         COALESCE(scc.service_type, 'general') as servicio_asignado,
         scc.service_name
       FROM fiscal_emitters fe

@@ -187,6 +187,11 @@ interface Empresa {
   openpay_merchant_id: string;
   openpay_production_mode: boolean;
   bank_name: string | null;
+  belvo_connected?: boolean;
+  belvo_institution?: string | null;
+  syncfy_connected?: boolean;
+  syncfy_institution?: string | null;
+  syncfy_last_sync?: string | null;
   servicio_asignado: string;
   service_name: string;
 }
@@ -1739,7 +1744,8 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
               {empresaFiltrada && (
                 <Typography variant="body2" sx={{ opacity: 0.9 }}>
                   {empresaFiltrada.alias} • {empresaFiltrada.bank_name} • RFC: {empresaFiltrada.rfc}
-                  {(empresaFiltrada as any).belvo_connected && ' • 🔗 Belvo conectado'}
+                  {empresaFiltrada.belvo_connected && ' • 🔗 Belvo conectado'}
+                  {empresaFiltrada.syncfy_connected && ` • 🔗 ${empresaFiltrada.syncfy_institution || 'Banco'} conectado`}
                 </Typography>
               )}
             </Box>
@@ -1792,11 +1798,29 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
           </Box>
 
           <Box sx={{ p: 3 }}>
-            {/* Belvo auto-sync notice */}
-            {(empresaFiltrada as any)?.belvo_connected && (
+            {/* Status de conexión bancaria */}
+            {empresaFiltrada?.syncfy_connected ? (
+              <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircle />}>
+                <strong>Conectado:</strong>{' '}
+                <Chip
+                  icon={<AccountBalance sx={{ fontSize: 14 }} />}
+                  label={empresaFiltrada.syncfy_institution || 'Banco'}
+                  size="small"
+                  color="success"
+                  sx={{ mx: 0.5, fontWeight: 'bold' }}
+                />
+                {empresaFiltrada.syncfy_last_sync && (
+                  <span> Última sync: {new Date(empresaFiltrada.syncfy_last_sync).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                )}
+              </Alert>
+            ) : empresaFiltrada?.belvo_connected ? (
               <Alert severity="success" sx={{ mb: 2 }} icon={<CheckCircle />}>
                 <strong>Extracción automática activa:</strong> Los movimientos de {empresaFiltrada?.bank_name} se descargan automáticamente vía Belvo.
                 Usa el botón "Sync Belvo" para forzar una actualización, o el método manual debajo si prefieres.
+              </Alert>
+            ) : (
+              <Alert severity="warning" sx={{ mb: 2 }}>
+                <strong>Sin conexión bancaria automática.</strong> Los movimientos se cargan manualmente pegando el estado de cuenta.
               </Alert>
             )}
             <Alert severity="info" sx={{ mb: 2 }}>
