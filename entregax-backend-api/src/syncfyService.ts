@@ -220,11 +220,18 @@ export async function fetchTransactionsRemote(idUser: string, daysBack: number):
   const client = getSessionClient(sessionToken);
 
   const url = `${SYNCFY_PATHS.transactions}?id_user=${encodeURIComponent(idUser)}&dt_refresh_from=${sinceUnix}`;
-  console.warn(`[Syncfy] fetchTransactions url=${url} sinceUnix=${sinceUnix} (${effectiveDays}d)`);
-  const resp = await client.get(url);
-  const txs = resp.data?.response || resp.data || [];
-  console.warn(`[Syncfy] fetchTransactions status=${resp.status} txs=${Array.isArray(txs) ? txs.length : 'NOT_ARRAY'} sample=${JSON.stringify(txs[0] || null).slice(0, 200)}`);
-  return txs;
+  console.warn(`[Syncfy] fetchTransactions REQUEST: ${url}`);
+  try {
+    const resp = await client.get(url);
+    const txs = resp.data?.response || resp.data || [];
+    console.warn(`[Syncfy] fetchTransactions OK: status=${resp.status} txs=${Array.isArray(txs) ? txs.length : typeof txs} sample=${JSON.stringify(txs[0] || null).slice(0, 300)}`);
+    return txs;
+  } catch (err: any) {
+    const status = err.response?.status;
+    const body = JSON.stringify(err.response?.data || err.message || '').slice(0, 300);
+    console.warn(`[Syncfy] fetchTransactions ERROR: status=${status} body=${body}`);
+    throw err;
+  }
 }
 
 // --------------- PROCESS & STORE -----------------------------
