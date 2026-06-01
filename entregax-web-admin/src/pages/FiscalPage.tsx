@@ -668,8 +668,9 @@ export default function FiscalPage() {
           }
 
           if (typeof widget.on === 'function') {
-            widget.on('credential-created', async () => {
-              console.warn('[Syncfy] credential-created');
+            // Syncfy puede disparar distintos nombres según versión del widget
+            const onCredentialSuccess = async (data?: any) => {
+              console.warn('[Syncfy] credential success event, data:', data);
               try {
                 await axios.post(
                   `${API_URL}/admin/syncfy/links`,
@@ -683,10 +684,23 @@ export default function FiscalPage() {
               } catch (err: any) {
                 setSnackbar({ open: true, message: err.response?.data?.error || 'Error registrando credencial', severity: 'error' });
               }
-            });
-            widget.on('error', (err: any) => {
-              console.error('[Syncfy] widget error:', err);
-              setSnackbar({ open: true, message: 'Error en el widget de Syncfy', severity: 'error' });
+            };
+            // Escuchar todos los nombres posibles del evento de éxito
+            widget.on('credential-created', onCredentialSuccess);
+            widget.on('credentials', onCredentialSuccess);
+            widget.on('success', onCredentialSuccess);
+            widget.on('auth_success', onCredentialSuccess);
+            widget.on('updated', onCredentialSuccess);
+            widget.on('error', async (err: any) => {
+              console.warn('[Syncfy] widget error event:', err);
+              // Syncfy dispara 'error' también cuando el job termina (con o sin credenciales válidas).
+              // Si el payload tiene id_credential es que el job completó → registrar credencial.
+              if (err?.id_credential) {
+                console.warn('[Syncfy] error con id_credential → interpretando como job completado');
+                await onCredentialSuccess(err);
+              } else {
+                setSnackbar({ open: true, message: 'Error en el widget de Syncfy', severity: 'error' });
+              }
             });
             widget.on('exit', () => {
               console.warn('[Syncfy] widget exit');
