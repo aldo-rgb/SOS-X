@@ -38,6 +38,7 @@ import {
   DialogContent,
   DialogActions,
   Snackbar,
+  Pagination,
 } from '@mui/material';
 import {
   TrendingUp,
@@ -258,6 +259,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   }
   const [estadoCuentaRows, setEstadoCuentaRows] = useState<EstadoCuentaRow[]>([]);
   const [estadoCuentaBanco] = useState('bbva');
+  const [mesFilter, setMesFilter] = useState<string>('todos');
+  const [tablePage, setTablePage] = useState(1);
+  const TABLE_PAGE_SIZE = 30;
   const [refMatchModal, setRefMatchModal] = useState<{ open: boolean; loading: boolean; matches: any[]; wrongAccount: any[]; unmatched: any[]; summary: any } | null>(null);
   const [confirmAuthorize, setConfirmAuthorize] = useState<{ open: boolean; toAuthorize: any[]; totalSurplus: number } | null>(null);
   const [_loadingSavedEntries, setLoadingSavedEntries] = useState(false);
@@ -1908,8 +1912,60 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             </Box>
 
             {/* Results */}
-            {estadoCuentaRows.length > 0 && (
+            {estadoCuentaRows.length > 0 && (() => {
+              // Meses disponibles en el estado de cuenta
+              const mesesDisponibles = Array.from(new Set(
+                estadoCuentaRows.map(r => {
+                  const parts = r.fecha.split(/[-\/]/);
+                  if (parts.length >= 2) {
+                    // DD-MM-YYYY o DD/MM/YYYY → partes[1]=mes, partes[2]=año
+                    return `${parts[2]?.length === 4 ? parts[2] : ('20' + parts[2])}-${parts[1].padStart(2, '0')}`;
+                  }
+                  return null;
+                }).filter(Boolean)
+              )).sort((a, b) => (b! > a! ? 1 : -1)) as string[];
+
+              const rowsFiltradas = mesFilter === 'todos'
+                ? estadoCuentaRows
+                : estadoCuentaRows.filter(r => {
+                    const parts = r.fecha.split(/[-\/]/);
+                    if (parts.length < 2) return false;
+                    const yearPart = parts[2]?.length === 4 ? parts[2] : ('20' + parts[2]);
+                    const key = `${yearPart}-${parts[1].padStart(2, '0')}`;
+                    return key === mesFilter;
+                  });
+
+              const totalPages = Math.ceil(rowsFiltradas.length / TABLE_PAGE_SIZE);
+              const rowsPagina = rowsFiltradas.slice((tablePage - 1) * TABLE_PAGE_SIZE, tablePage * TABLE_PAGE_SIZE);
+
+              const MONTH_NAMES: Record<string, string> = {
+                '01': 'Ene', '02': 'Feb', '03': 'Mar', '04': 'Abr', '05': 'May', '06': 'Jun',
+                '07': 'Jul', '08': 'Ago', '09': 'Sep', '10': 'Oct', '11': 'Nov', '12': 'Dic',
+              };
+
+              return (
               <>
+                {/* Filtro mes + resumen */}
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1 }}>
+                  <FormControl size="small" sx={{ minWidth: 160 }}>
+                    <InputLabel>Mes</InputLabel>
+                    <Select
+                      label="Mes"
+                      value={mesFilter}
+                      onChange={e => { setMesFilter(e.target.value); setTablePage(1); }}
+                    >
+                      <MenuItem value="todos">Todos los meses</MenuItem>
+                      {mesesDisponibles.map(m => {
+                        const [yr, mo] = m.split('-');
+                        return <MenuItem key={m} value={m}>{MONTH_NAMES[mo] || mo} {yr}</MenuItem>;
+                      })}
+                    </Select>
+                  </FormControl>
+                  <Typography variant="body2" color="text.secondary">
+                    {rowsFiltradas.length} movimientos{mesFilter !== 'todos' ? ' en el mes' : ''}
+                  </Typography>
+                </Box>
+
                 {/* Summary cards */}
                 <Grid container spacing={2} sx={{ mb: 3 }}>
                   <Grid size={{ xs: 12, sm: 4 }}>
@@ -1917,9 +1973,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                       <CardContent sx={{ py: 1.5 }}>
                         <Typography variant="caption" color="text.secondary">Total Abonos</Typography>
                         <Typography variant="h6" fontWeight="bold" color="success.main">
-                          {formatCurrency(estadoCuentaRows.reduce((s, r) => s + (r.abono || 0), 0))}
+                          {formatCurrency(rowsFiltradas.reduce((s, r) => s + (r.abono || 0), 0))}
                         </Typography>
-                        <Typography variant="caption">{estadoCuentaRows.filter(r => r.abono).length} movimientos</Typography>
+                        <Typography variant="caption">{rowsFiltradas.filter(r => r.abono).length} movimientos</Typography>
                       </CardContent>
                     </Card>
                   </Grid>
@@ -1928,9 +1984,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                       <CardContent sx={{ py: 1.5 }}>
                         <Typography variant="caption" color="text.secondary">Total Cargos</Typography>
                         <Typography variant="h6" fontWeight="bold" color="error.main">
-                          {formatCurrency(estadoCuentaRows.reduce((s, r) => s + (r.cargo || 0), 0))}
+                          {formatCurrency(rowsFiltradas.reduce((s, r) => s + (r.cargo || 0), 0))}
                         </Typography>
-                        <Typography variant="caption">{estadoCuentaRows.filter(r => r.cargo).length} movimientos</Typography>
+                        <Typography variant="caption">{rowsFiltradas.filter(r => r.cargo).length} movimientos</Typography>
                       </CardContent>
                     </Card>
                   </Grid>
@@ -1939,9 +1995,9 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                       <CardContent sx={{ py: 1.5 }}>
                         <Typography variant="caption" color="text.secondary">Saldo Final</Typography>
                         <Typography variant="h6" fontWeight="bold" color="primary">
-                          {formatCurrency(estadoCuentaRows[0]?.saldo || 0)}
+                          {formatCurrency(rowsFiltradas[0]?.saldo || 0)}
                         </Typography>
-                        <Typography variant="caption">{estadoCuentaRows.length} movimientos totales</Typography>
+                        <Typography variant="caption">{rowsFiltradas.length} movimientos totales</Typography>
                       </CardContent>
                     </Card>
                   </Grid>
@@ -1960,15 +2016,13 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {estadoCuentaRows.map((row, idx) => (
+                      {rowsPagina.map((row, idx) => (
                         <TableRow key={idx} hover sx={{ bgcolor: row.abono ? 'rgba(39,174,96,0.04)' : row.cargo ? 'rgba(231,76,60,0.04)' : 'inherit' }}>
                           <TableCell>
                             <Typography variant="body2" fontFamily="monospace">{row.fecha}</Typography>
                           </TableCell>
                           <TableCell>
-                            <Typography variant="body2" fontWeight="500">
-                              {row.concepto}
-                            </Typography>
+                            <Typography variant="body2" fontWeight="500">{row.concepto}</Typography>
                           </TableCell>
                           <TableCell>
                             <Typography variant="caption" fontFamily="monospace" color="text.secondary" sx={{ maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }}>
@@ -1990,17 +2044,28 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                             ) : '-'}
                           </TableCell>
                           <TableCell align="right">
-                            <Typography variant="body2" fontWeight="bold">
-                              {formatCurrency(row.saldo)}
-                            </Typography>
+                            <Typography variant="body2" fontWeight="bold">{formatCurrency(row.saldo)}</Typography>
                           </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
                   </Table>
                 </TableContainer>
+
+                {totalPages > 1 && (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2 }}>
+                    <Pagination
+                      count={totalPages}
+                      page={tablePage}
+                      onChange={(_, p) => setTablePage(p)}
+                      color="primary"
+                      size="small"
+                    />
+                  </Box>
+                )}
               </>
-            )}
+              );
+            })()}
 
             {estadoCuentaRows.length === 0 && !estadoCuentaRaw && !csvFile && (
               <Box sx={{ textAlign: 'center', py: 6, color: 'text.secondary' }}>
