@@ -105,6 +105,8 @@ import {
   PersonOff as ClientIssueIcon,
   MoreHoriz as OtherIcon,
   ListAlt as ListAltIcon,
+  HelpOutline as UnidentifiedIcon,
+  PersonAdd as AssignIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
@@ -338,6 +340,10 @@ export default function DashboardAdvisor() {
   const [verifyWizardOpen, setVerifyWizardOpen] = useState(false);
   const [termsDialogOpen, setTermsDialogOpen] = useState(false);
 
+  // Guías sin identificar (dashboard widget)
+  const [unidentifiedPkgs, setUnidentifiedPkgs] = useState<any[]>([]);
+  const [unidentifiedLoading, setUnidentifiedLoading] = useState(false);
+
   // Clients tab
   const [clients, setClients] = useState<AdvisorClient[]>([]);
   const [clientsTotal, setClientsTotal] = useState(0);
@@ -559,7 +565,17 @@ export default function DashboardAdvisor() {
   useEffect(() => {
     fetchDashboard();
     fetchNotifPrefs();
+    fetchUnidentified();
   }, [fetchDashboard]);
+
+  const fetchUnidentified = async () => {
+    setUnidentifiedLoading(true);
+    try {
+      const r = await api.get('/advisor/shipments?unidentified=true&limit=20');
+      setUnidentifiedPkgs(r.data.shipments || []);
+    } catch {}
+    setUnidentifiedLoading(false);
+  };
 
   const fetchNotifPrefs = async () => {
     setNotifLoading(true);
@@ -1295,6 +1311,62 @@ export default function DashboardAdvisor() {
             </Grid>
           </Grid>
           )}
+
+          {/* Guías sin identificar */}
+          <Paper sx={{ p: isMobile ? 1.5 : 2.5, borderRadius: 2, mb: isMobile ? 2 : 3 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <UnidentifiedIcon sx={{ color: '#9C27B0' }} />
+                <Typography variant={isMobile ? 'body1' : 'subtitle1'} fontWeight={600}>
+                  Sin Identificar
+                </Typography>
+                {unidentifiedPkgs.length > 0 && (
+                  <Chip label={unidentifiedPkgs.length} size="small" sx={{ bgcolor: '#9C27B0', color: '#fff', fontWeight: 700, height: 20 }} />
+                )}
+              </Box>
+              <IconButton size="small" onClick={fetchUnidentified} disabled={unidentifiedLoading}>
+                <RefreshIcon fontSize="small" />
+              </IconButton>
+            </Box>
+            {unidentifiedLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={24} /></Box>
+            ) : unidentifiedPkgs.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
+                No hay guías sin identificar
+              </Typography>
+            ) : (
+              <Box>
+                {unidentifiedPkgs.slice(0, 8).map((pkg) => (
+                  <Box
+                    key={pkg.id}
+                    sx={{
+                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                      py: 1, borderBottom: '1px solid', borderColor: 'divider',
+                      '&:last-child': { borderBottom: 'none' },
+                    }}
+                  >
+                    <Box>
+                      <Typography variant="body2" fontWeight={600}>{pkg.tracking || pkg.tracking_number || `PKG-${pkg.id}`}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {pkg.service_type || 'PO Box USA'}{pkg.description ? ` · ${pkg.description}` : ''}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      label={pkg.status || 'en_bodega'}
+                      size="small"
+                      icon={<AssignIcon sx={{ fontSize: '0.8rem !important' }} />}
+                      sx={{ bgcolor: alpha('#9C27B0', 0.1), color: '#9C27B0', fontWeight: 600, fontSize: '0.7rem' }}
+                    />
+                  </Box>
+                ))}
+                {unidentifiedPkgs.length > 8 && (
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                    +{unidentifiedPkgs.length - 8} más — ve a la pestaña Envíos para verlos todos
+                  </Typography>
+                )}
+              </Box>
+            )}
+          </Paper>
 
           {/* Monthly registrations mini chart */}
           <Paper sx={{ p: isMobile ? 1.5 : 2.5, borderRadius: 2 }}>

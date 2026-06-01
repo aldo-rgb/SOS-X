@@ -137,15 +137,13 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         AND p.status IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
     `, [advisorId]);
 
-    // Guías sin cliente: user_id IS NULL y sin coincidencia en usuarios reales ni legacy_clients
+    // Guías sin cliente: user_id IS NULL (sin importar box_id)
     const unidentifiedRes = await pool.query(`
       SELECT COUNT(*) as total FROM packages p
       WHERE p.user_id IS NULL
         AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
         AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
         AND (p.is_master = true OR p.master_id IS NULL)
-        AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.box_id IS NOT NULL AND UPPER(u2.box_id) = UPPER(COALESCE(p.box_id, '')))
-        AND NOT EXISTS (SELECT 1 FROM legacy_clients lc WHERE lc.box_id IS NOT NULL AND UPPER(lc.box_id) = UPPER(COALESCE(p.box_id, '')))
     `);
 
     // Comisiones del mes actual
@@ -435,9 +433,6 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
           AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
-          -- Excluir si el box_id coincide con un usuario real o con un legacy_client
-          AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.box_id IS NOT NULL AND UPPER(u2.box_id) = UPPER(COALESCE(p.box_id, '')))
-          AND NOT EXISTS (SELECT 1 FROM legacy_clients lc WHERE lc.box_id IS NOT NULL AND UPPER(lc.box_id) = UPPER(COALESCE(p.box_id, '')))
         ORDER BY p.created_at DESC
         LIMIT $1 OFFSET $2
       `;
@@ -447,8 +442,6 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
           AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
-          AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.box_id IS NOT NULL AND UPPER(u2.box_id) = UPPER(COALESCE(p.box_id, '')))
-          AND NOT EXISTS (SELECT 1 FROM legacy_clients lc WHERE lc.box_id IS NOT NULL AND UPPER(lc.box_id) = UPPER(COALESCE(p.box_id, '')))
       `;
       const [dataRes, countRes] = await Promise.all([
         pool.query(unidSQL, [parseInt(limit), offset]),
