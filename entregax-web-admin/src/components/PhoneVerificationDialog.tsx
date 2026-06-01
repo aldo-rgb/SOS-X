@@ -61,6 +61,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
   const [submitting, setSubmitting] = useState(false);
   const [sending, setSending] = useState(false);
   const [cooldown, setCooldown] = useState<number>(0);
+  const [isDuplicate, setIsDuplicate] = useState(false);
   const sentOnceRef = useRef(false);
 
   const authHeaders = (): Record<string, string> => {
@@ -96,10 +97,13 @@ const PhoneVerificationDialog: React.FC<Props> = ({
         setCooldown(apiErr.retryAfterSeconds);
         setError(apiErr?.error || 'Espera unos segundos antes de pedir otro código.');
       } else {
-        // 422 = WhatsApp falló; mostrar el error real de Meta + hint
         const msg = apiErr?.error || 'No se pudo enviar el código.';
         const hint = apiErr?.hint ? `\n${apiErr.hint}` : '';
         setError(msg + hint);
+        // Detectar número ya registrado en otra cuenta
+        if (err?.response?.status === 409 || (msg && msg.toLowerCase().includes('asociado'))) {
+          setIsDuplicate(true);
+        }
       }
     } finally {
       setSending(false);
@@ -125,6 +129,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
       setError('');
       setInfo('');
       setCooldown(0);
+      setIsDuplicate(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -243,7 +248,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
-        {onSkip && (
+        {onSkip && !isDuplicate && (
           <Button
             onClick={onSkip}
             disabled={submitting}
@@ -252,19 +257,21 @@ const PhoneVerificationDialog: React.FC<Props> = ({
             Verificar más tarde
           </Button>
         )}
-        <Button
-          variant="contained"
-          onClick={handleVerify}
-          disabled={submitting || code.length !== 6}
-          sx={{
-            textTransform: 'none',
-            fontWeight: 700,
-            background: 'linear-gradient(90deg, #25D366 0%, #128C7E 100%)',
-            '&:hover': { background: 'linear-gradient(90deg, #1FB956 0%, #0E6E63 100%)' },
-          }}
-        >
-          {submitting ? <CircularProgress size={20} color="inherit" /> : 'Verificar'}
-        </Button>
+        {!isDuplicate && (
+          <Button
+            variant="contained"
+            onClick={handleVerify}
+            disabled={submitting || code.length !== 6}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 700,
+              background: 'linear-gradient(90deg, #25D366 0%, #128C7E 100%)',
+              '&:hover': { background: 'linear-gradient(90deg, #1FB956 0%, #0E6E63 100%)' },
+            }}
+          >
+            {submitting ? <CircularProgress size={20} color="inherit" /> : 'Verificar'}
+          </Button>
+        )}
       </DialogActions>
     </Dialog>
   );
