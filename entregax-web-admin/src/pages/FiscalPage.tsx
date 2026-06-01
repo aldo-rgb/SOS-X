@@ -110,7 +110,8 @@ export default function FiscalPage() {
   const [openModal, setOpenModal] = useState(false);
   const [editingEmitter, setEditingEmitter] = useState<FiscalEmitter | null>(null);
   const [emitterForm, setEmitterForm] = useState({
-    alias: '', rfc: '', business_name: '', fiscal_regime: '', zip_code: '', api_key: '', is_active: true
+    alias: '', rfc: '', business_name: '', fiscal_regime: '', zip_code: '', api_key: '', is_active: true,
+    show_in_cobranza: false, show_in_contabilidad: true,
   });
   const [saving, setSaving] = useState(false);
 
@@ -252,11 +253,13 @@ export default function FiscalPage() {
         fiscal_regime: emitter.fiscal_regime || '',
         zip_code: emitter.zip_code || '',
         api_key: '',
-        is_active: emitter.is_active
+        is_active: emitter.is_active,
+        show_in_cobranza: (emitter as any).show_in_cobranza ?? false,
+        show_in_contabilidad: (emitter as any).show_in_contabilidad ?? true,
       });
     } else {
       setEditingEmitter(null);
-      setEmitterForm({ alias: '', rfc: '', business_name: '', fiscal_regime: '', zip_code: '', api_key: '', is_active: true });
+      setEmitterForm({ alias: '', rfc: '', business_name: '', fiscal_regime: '', zip_code: '', api_key: '', is_active: true, show_in_cobranza: false, show_in_contabilidad: true });
     }
     setOpenModal(true);
   };
@@ -1500,14 +1503,41 @@ export default function FiscalPage() {
             />
             <FormControlLabel
               control={
-                <Switch 
-                  checked={emitterForm.is_active} 
+                <Switch
+                  checked={emitterForm.is_active}
                   onChange={(e) => setEmitterForm({ ...emitterForm, is_active: e.target.checked })}
                   color="success"
                 />
               }
-              label={i18n.language === 'es' ? 'Empresa Activa' : 'Active Company'}
+              label="Empresa Activa"
             />
+            <Box sx={{ mt: 1, p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'grey.200' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5, fontWeight: 'bold' }}>
+                Visibilidad en módulos
+              </Typography>
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={emitterForm.show_in_cobranza}
+                    onChange={(e) => setEmitterForm({ ...emitterForm, show_in_cobranza: e.target.checked })}
+                    color="primary"
+                    size="small"
+                  />
+                }
+                label={<Typography variant="body2">Dashboard Cobranza</Typography>}
+              />
+              <FormControlLabel
+                control={
+                  <Switch
+                    checked={emitterForm.show_in_contabilidad}
+                    onChange={(e) => setEmitterForm({ ...emitterForm, show_in_contabilidad: e.target.checked })}
+                    color="primary"
+                    size="small"
+                  />
+                }
+                label={<Typography variant="body2">Portal Contable</Typography>}
+              />
+            </Box>
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>

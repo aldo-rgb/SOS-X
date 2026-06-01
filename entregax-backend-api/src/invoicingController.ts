@@ -25,16 +25,17 @@ export const getFiscalEmitters = async (req: Request, res: Response): Promise<an
 // Crear nueva empresa emisora
 export const createFiscalEmitter = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { alias, rfc, business_name, fiscal_regime, zip_code, api_key } = req.body;
+        const { alias, rfc, business_name, fiscal_regime, zip_code, api_key, show_in_cobranza, show_in_contabilidad } = req.body;
 
         if (!rfc || !business_name) {
             return res.status(400).json({ error: 'RFC y Razón Social son requeridos' });
         }
 
         const result = await pool.query(
-            `INSERT INTO fiscal_emitters (alias, rfc, business_name, fiscal_regime, zip_code, api_key)
-             VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-            [alias, rfc.toUpperCase(), business_name, fiscal_regime, zip_code, api_key]
+            `INSERT INTO fiscal_emitters (alias, rfc, business_name, fiscal_regime, zip_code, api_key, show_in_cobranza, show_in_contabilidad)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+            [alias, rfc.toUpperCase(), business_name, fiscal_regime, zip_code, api_key,
+             show_in_cobranza ?? false, show_in_contabilidad ?? true]
         );
 
         res.status(201).json({ message: 'Empresa creada exitosamente', emitter: result.rows[0] });
@@ -47,14 +48,17 @@ export const createFiscalEmitter = async (req: Request, res: Response): Promise<
 // Actualizar empresa emisora
 export const updateFiscalEmitter = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { id, alias, rfc, business_name, fiscal_regime, zip_code, api_key, is_active } = req.body;
+        const { id, alias, rfc, business_name, fiscal_regime, zip_code, api_key, is_active, show_in_cobranza, show_in_contabilidad } = req.body;
 
         const result = await pool.query(
-            `UPDATE fiscal_emitters 
-             SET alias = $1, rfc = $2, business_name = $3, fiscal_regime = $4, 
-                 zip_code = $5, api_key = COALESCE($6, api_key), is_active = $7
-             WHERE id = $8 RETURNING id, alias, rfc, business_name, fiscal_regime, zip_code, is_active`,
-            [alias, rfc?.toUpperCase(), business_name, fiscal_regime, zip_code, api_key, is_active, id]
+            `UPDATE fiscal_emitters
+             SET alias = $1, rfc = $2, business_name = $3, fiscal_regime = $4,
+                 zip_code = $5, api_key = COALESCE($6, api_key), is_active = $7,
+                 show_in_cobranza = COALESCE($8, show_in_cobranza),
+                 show_in_contabilidad = COALESCE($9, show_in_contabilidad)
+             WHERE id = $10 RETURNING id, alias, rfc, business_name, fiscal_regime, zip_code, is_active, show_in_cobranza, show_in_contabilidad`,
+            [alias, rfc?.toUpperCase(), business_name, fiscal_regime, zip_code, api_key, is_active,
+             show_in_cobranza ?? null, show_in_contabilidad ?? null, id]
         );
 
         if (result.rows.length === 0) {

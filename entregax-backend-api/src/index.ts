@@ -6389,7 +6389,7 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
         scc.service_name
       FROM fiscal_emitters fe
       LEFT JOIN service_company_config scc ON scc.emitter_id = fe.id
-      WHERE fe.is_active = TRUE AND (fe.openpay_configured = TRUE OR scc.id IS NOT NULL)
+      WHERE fe.is_active = TRUE AND fe.show_in_cobranza = TRUE
       ORDER BY fe.alias
     `);
 
@@ -10284,6 +10284,15 @@ async function ensureRequiredColumns() {
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_enabled BOOLEAN DEFAULT FALSE;
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_last_sync TIMESTAMP;
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_last_sync_count INTEGER DEFAULT 0;
+      -- Visibilidad en módulos: admin puede elegir dónde aparece cada empresa
+      ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS show_in_cobranza BOOLEAN DEFAULT FALSE;
+      ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS show_in_contabilidad BOOLEAN DEFAULT TRUE;
+      -- Marcar como visible en Cobranza las empresas que ya tenían openpay o servicio asignado
+      UPDATE fiscal_emitters SET show_in_cobranza = TRUE
+        WHERE show_in_cobranza = FALSE
+          AND (openpay_configured = TRUE OR id IN (
+            SELECT DISTINCT emitter_id FROM service_company_config WHERE emitter_id IS NOT NULL
+          ));
       ALTER TABLE accounting_received_invoices ADD COLUMN IF NOT EXISTS facturapi_id TEXT;
       CREATE INDEX IF NOT EXISTS idx_acc_recinv_facturapi ON accounting_received_invoices(facturapi_id);
       -- 📦 Vínculo estructural packages ↔ pqtx_shipments (fuente de verdad del costo de paquetería)
