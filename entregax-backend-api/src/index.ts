@@ -10316,6 +10316,8 @@ async function ensureRequiredColumns() {
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS needs_instructions BOOLEAN DEFAULT TRUE;
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS instructions_assigned_at TIMESTAMP;
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS instructions_assigned_by_id INTEGER;
+      ALTER TABLE packages ADD COLUMN IF NOT EXISTS delivery_address_id INTEGER;
+      ALTER TABLE packages ADD COLUMN IF NOT EXISTS assigned_address_id INTEGER;
 
       -- 🚛 Info de la ruta hacia destino (operador, placas, teléfono, empresa) para contenedores FCL
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_name TEXT;
