@@ -221,7 +221,7 @@ const menuItemsConfig: Array<{
       { key: 'accounting', icon: <ReceiptLongIcon /> },     // Portal Contable multi-empresa
       { key: 'panelsOperations', icon: <InventoryIcon /> }, // Herramientas de Operación
       { key: 'panelsService', icon: <HeadsetMicIcon /> },   // Servicio a Cliente
-      { key: 'tesoreriaSucursal', icon: <AccountBalanceWalletIcon /> }, // Tesorería Sucursal
+      // { key: 'tesoreriaSucursal', icon: <AccountBalanceWalletIcon /> }, // Tesorería Sucursal - OCULTO
       { key: 'referidosAdmin', icon: <PeopleOutlineIcon /> }, // Gestión de Referidos
     ]
   },
