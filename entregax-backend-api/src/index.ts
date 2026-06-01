@@ -8084,8 +8084,8 @@ app.post('/api/admin/finance/save-bank-entries', authenticateToken, requireMinLe
 
       try {
         const result = await pool.query(`
-          INSERT INTO bank_statement_entries (empresa_id, service_type, banco, fecha, concepto, referencia, cargo, abono, saldo, entry_hash, uploaded_by)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+          INSERT INTO bank_statement_entries (empresa_id, service_type, banco, fecha, concepto, referencia, cargo, abono, saldo, entry_hash, uploaded_by, source)
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual')
           ON CONFLICT (empresa_id, entry_hash) DO NOTHING
           RETURNING *
         `, [
@@ -10284,6 +10284,9 @@ async function ensureRequiredColumns() {
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_enabled BOOLEAN DEFAULT FALSE;
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_last_sync TIMESTAMP;
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS facturapi_last_sync_count INTEGER DEFAULT 0;
+      -- Fuente de cada movimiento bancario (manual | syncfy | belvo)
+      ALTER TABLE bank_statement_entries ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'manual';
+      CREATE INDEX IF NOT EXISTS idx_bse_source ON bank_statement_entries(empresa_id, source);
       -- Visibilidad en módulos: admin puede elegir dónde aparece cada empresa
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS show_in_cobranza BOOLEAN DEFAULT FALSE;
       ALTER TABLE fiscal_emitters ADD COLUMN IF NOT EXISTS show_in_contabilidad BOOLEAN DEFAULT TRUE;

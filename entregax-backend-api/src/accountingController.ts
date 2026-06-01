@@ -2327,8 +2327,47 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
         }
 
         params.push(limit);
+        // Construir condiciones de banco_statement_entries (mapeo de columnas)
+        const bseConds = conds.map(c =>
+            c.replace(/m\.emitter_id/g, 'bse.empresa_id')
+             .replace(/m\.value_date/g, 'bse.fecha')
+             .replace(/m\.type/g, "CASE WHEN bse.abono IS NOT NULL AND bse.abono > 0 THEN 'INFLOW' ELSE 'OUTFLOW' END")
+             .replace(/m\.match_status/g, "'pending'::text")
+             .replace(/m\.description/g, 'bse.concepto')
+             .replace(/m\.reference/g, 'bse.referencia')
+             .replace(/m\.merchant_name/g, 'bse.concepto')
+        );
+
         const sql = `
-            SELECT m.source, m.source_id AS id,
+            WITH combined AS (
+              -- Movimientos de Syncfy/Belvo (con conciliación completa)
+              SELECT m.source, m.source_id::text AS id,
+                     m.emitter_id,
+                     m.value_date, m.accounting_date, m.amount, m.balance, m.currency,
+                     m.description, m.reference, m.type, m.category, m.subcategory,
+                     m.merchant_name, m.status, m.match_status,
+                     m.matched_payment_id, m.matched_at, m.institution_name
+              FROM v_bank_movements_unified m
+
+              UNION ALL
+
+              -- Movimientos manuales pegados en Dashboard Cobranza (banco_statement_entries)
+              SELECT COALESCE(bse.source, 'manual') AS source, bse.id::text AS id,
+                     bse.empresa_id AS emitter_id,
+                     bse.fecha AS value_date, bse.fecha AS accounting_date,
+                     COALESCE(bse.abono, bse.cargo) AS amount,
+                     bse.saldo AS balance, 'MXN' AS currency,
+                     bse.concepto AS description, bse.referencia AS reference,
+                     CASE WHEN bse.abono IS NOT NULL AND bse.abono > 0 THEN 'INFLOW' ELSE 'OUTFLOW' END AS type,
+                     NULL::text AS category, NULL::text AS subcategory,
+                     NULL::text AS merchant_name, 'confirmed' AS status,
+                     'pending' AS match_status,
+                     NULL::int AS matched_payment_id, NULL::timestamp AS matched_at,
+                     bse.banco AS institution_name
+              FROM bank_statement_entries bse
+              WHERE COALESCE(bse.source, 'manual') = 'manual'
+            )
+            SELECT m.source, m.id,
                    m.value_date, m.accounting_date, m.amount, m.balance, m.currency,
                    m.description, m.reference, m.type, m.category, m.subcategory,
                    m.merchant_name, m.status, m.match_status, m.matched_payment_id, m.matched_at,
@@ -2336,53 +2375,87 @@ export const listBankMovements = async (req: AuthRequest, res: Response): Promis
                    u.full_name AS matched_client,
                    pp.payment_reference AS matched_reference,
                    pp.amount AS matched_amount
-            FROM v_bank_movements_unified m
+            FROM combined m
             LEFT JOIN pobox_payments pp ON pp.id = m.matched_payment_id
             LEFT JOIN users u ON u.id = pp.user_id
             WHERE ${conds.join(' AND ')}
-            ORDER BY m.value_date DESC, m.source_id DESC
+            ORDER BY m.value_date DESC, m.id DESC
             LIMIT $${params.length}
         `;
         let r;
         try {
             r = await pool.query(sql, params);
         } catch (qErr: any) {
-            // Vista no existe (migración Syncfy pendiente) → fallback a Belvo only.
+            // Vista no existe (migración Syncfy pendiente) → fallback: Belvo + bank_statement_entries manual
             if (/v_bank_movements_unified/.test(qErr.message)) {
                 const fbConds = conds.map(c => c.replace(/m\./g, 'bt.'));
+                const bseCondsF = conds.map(c =>
+                    c.replace(/m\.emitter_id/g, 'bse.empresa_id')
+                     .replace(/m\.value_date/g, 'bse.fecha')
+                     .replace(/m\.type/g, "'INFLOW'")
+                     .replace(/m\.match_status/g, "'pending'::text")
+                     .replace(/m\.description/g, 'bse.concepto')
+                     .replace(/m\.reference/g, 'bse.referencia')
+                     .replace(/m\.merchant_name/g, 'bse.concepto')
+                );
                 const fbSql = `
-                    SELECT 'belvo'::text AS source, bt.id, bt.value_date, bt.accounting_date, bt.amount, bt.balance, bt.currency,
-                           bt.description, bt.reference, bt.type, bt.category, bt.subcategory,
-                           bt.merchant_name, bt.status, bt.match_status, bt.matched_payment_id, bt.matched_at,
-                           bl.institution_name,
+                    WITH combined AS (
+                      SELECT 'belvo'::text AS source, bt.id::text, bt.emitter_id,
+                             bt.value_date, bt.accounting_date, bt.amount, bt.balance, bt.currency,
+                             bt.description, bt.reference, bt.type, bt.category, bt.subcategory,
+                             bt.merchant_name, bt.status, bt.match_status, bt.matched_payment_id, bt.matched_at,
+                             bl.institution_name
+                      FROM belvo_transactions bt
+                      JOIN belvo_links bl ON bl.id = bt.belvo_link_id
+                      UNION ALL
+                      SELECT COALESCE(bse.source,'manual'), bse.id::text, bse.empresa_id,
+                             bse.fecha, bse.fecha, COALESCE(bse.abono, bse.cargo), bse.saldo, 'MXN',
+                             bse.concepto, bse.referencia,
+                             CASE WHEN bse.abono > 0 THEN 'INFLOW' ELSE 'OUTFLOW' END,
+                             NULL,NULL,NULL,'confirmed','pending',NULL,NULL, bse.banco
+                      FROM bank_statement_entries bse WHERE COALESCE(bse.source,'manual')='manual'
+                    )
+                    SELECT m.source, m.id, m.value_date, m.accounting_date, m.amount, m.balance, m.currency,
+                           m.description, m.reference, m.type, m.category, m.subcategory,
+                           m.merchant_name, m.status, m.match_status, m.matched_payment_id, m.matched_at,
+                           m.institution_name,
                            u.full_name AS matched_client, pp.payment_reference AS matched_reference, pp.amount AS matched_amount
-                    FROM belvo_transactions bt
-                    JOIN belvo_links bl ON bl.id = bt.belvo_link_id
-                    LEFT JOIN pobox_payments pp ON pp.id = bt.matched_payment_id
+                    FROM combined m
+                    LEFT JOIN pobox_payments pp ON pp.id = m.matched_payment_id
                     LEFT JOIN users u ON u.id = pp.user_id
-                    WHERE ${fbConds.join(' AND ')}
-                    ORDER BY bt.value_date DESC, bt.id DESC
+                    WHERE ${conds.join(' AND ')}
+                    ORDER BY m.value_date DESC, m.id DESC
                     LIMIT $${params.length}
                 `;
                 r = await pool.query(fbSql, params);
             } else { throw qErr; }
         }
 
-        // Estadísticas del mismo filtro (sin LIMIT) desde la vista unificada
+        // Estadísticas del mismo filtro (sin LIMIT) desde la vista unificada + manuales
         const statsParams = params.slice(0, -1);
         let stats;
         try {
             stats = await pool.query(`
+                WITH combined_stats AS (
+                  SELECT m.type, m.amount, m.match_status
+                  FROM v_bank_movements_unified m
+                  WHERE ${conds.join(' AND ')}
+                  UNION ALL
+                  SELECT CASE WHEN bse.abono > 0 THEN 'INFLOW' ELSE 'OUTFLOW' END AS type,
+                         COALESCE(bse.abono, bse.cargo) AS amount,
+                         'pending' AS match_status
+                  FROM bank_statement_entries bse
+                  WHERE bse.empresa_id = $1 AND COALESCE(bse.source,'manual') = 'manual'
+                )
                 SELECT
-                  COUNT(*) FILTER (WHERE m.type='INFLOW')  AS in_count,
-                  COUNT(*) FILTER (WHERE m.type='OUTFLOW') AS out_count,
-                  COALESCE(SUM(m.amount) FILTER (WHERE m.type='INFLOW'),0)  AS in_total,
-                  COALESCE(SUM(m.amount) FILTER (WHERE m.type='OUTFLOW'),0) AS out_total,
-                  COUNT(*) FILTER (WHERE m.match_status='matched')   AS matched_count,
-                  COUNT(*) FILTER (WHERE m.match_status='pending')   AS pending_count,
-                  COUNT(*) FILTER (WHERE m.match_status='unmatched') AS unmatched_count
-                FROM v_bank_movements_unified m
-                WHERE ${conds.join(' AND ')}
+                  COUNT(*) FILTER (WHERE type='INFLOW')  AS in_count,
+                  COUNT(*) FILTER (WHERE type='OUTFLOW') AS out_count,
+                  COALESCE(SUM(amount) FILTER (WHERE type='INFLOW'),0)  AS in_total,
+                  COALESCE(SUM(amount) FILTER (WHERE type='OUTFLOW'),0) AS out_total,
+                  COUNT(*) FILTER (WHERE match_status='matched')   AS matched_count,
+                  COUNT(*) FILTER (WHERE match_status='pending')   AS pending_count,
+                  COUNT(*) FILTER (WHERE match_status='unmatched') AS unmatched_count
+                FROM combined_stats
             `, statsParams);
         } catch {
             stats = { rows: [{ in_count: 0, out_count: 0, in_total: 0, out_total: 0, matched_count: 0, pending_count: 0, unmatched_count: 0 }] } as any;
