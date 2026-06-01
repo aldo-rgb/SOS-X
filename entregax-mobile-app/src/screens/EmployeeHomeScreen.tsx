@@ -339,6 +339,17 @@ const EMPLOYEE_MODULES: ModuleCard[] = [
 
   // === SUPER ADMIN (exclusivos) ===
   {
+    id: 'admin_verificaciones',
+    title: 'Verificaciones',
+    subtitle: 'Revisar identidades KYC pendientes de aprobación',
+    icon: 'shield-checkmark-outline',
+    iconFamily: 'ionicons',
+    color: '#7c3aed',
+    screen: 'VerificacionesAdmin',
+    roles: ['super_admin'],
+    requiresOnboarding: false,
+  },
+  {
     id: 'admin_users',
     title: 'Usuarios',
     subtitle: 'Listar, editar y resetear contraseñas',
