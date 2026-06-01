@@ -447,7 +447,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     if (!empresaFilt) return;
     setSyncfySyncing(true);
     try {
-      const res = await api.post('/admin/syncfy/sync', { emitter_id: empresaFilt.id, days_back: 30 });
+      const res = await api.post('/admin/syncfy/sync', { emitter_id: empresaFilt.id, days_back: 90 });
       const inserted = res.data.new_count ?? res.data.inserted ?? 0;
       setSnackbar({ open: true, message: `✅ Sync completado: ${inserted} movimientos nuevos descargados`, severity: 'success' });
       await loadSavedBankEntries();

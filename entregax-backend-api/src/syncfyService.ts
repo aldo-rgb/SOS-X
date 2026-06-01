@@ -213,14 +213,17 @@ export async function deleteCredential(dbCredentialId: number): Promise<boolean>
 
 // --------------- FETCH TRANSACTIONS --------------------------
 export async function fetchTransactionsRemote(idUser: string, daysBack: number): Promise<any[]> {
-  // Syncfy acepta dt_refresh_from como unix timestamp (segundos).
+  // dt_transaction_from filtra por fecha real de la transacción bancaria.
+  // dt_refresh_from filtra por cuándo Syncfy actualizó el registro internamente —
+  // si los datos se cargaron hace >daysBack días, devolvería 0 aunque las transacciones sean recientes.
   const sinceUnix = Math.floor((Date.now() - daysBack * 86400000) / 1000);
 
-  // Para listar transacciones se requiere un session token del usuario
   const sessionToken = await createSessionToken(idUser);
   const client = getSessionClient(sessionToken);
 
-  const resp = await client.get(`${SYNCFY_PATHS.transactions}?id_user=${encodeURIComponent(idUser)}&dt_refresh_from=${sinceUnix}`);
+  const resp = await client.get(
+    `${SYNCFY_PATHS.transactions}?id_user=${encodeURIComponent(idUser)}&dt_transaction_from=${sinceUnix}`
+  );
   return resp.data?.response || resp.data || [];
 }
 
