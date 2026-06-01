@@ -248,7 +248,7 @@ const PhoneVerificationDialog: React.FC<Props> = ({
         </Stack>
       </DialogContent>
       <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
-        {onSkip && !isDuplicate && (
+        {onSkip && !isDuplicate && !sending && (
           <Button
             onClick={onSkip}
             disabled={submitting}
