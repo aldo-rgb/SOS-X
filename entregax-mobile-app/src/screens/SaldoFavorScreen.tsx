@@ -118,7 +118,8 @@ export default function SaldoFavorScreen({ navigation }: any) {
   };
 
   const formatMoney = (amount: any) => {
-    return `$${(Number(amount) || 0).toFixed(2)}`;
+    const n = parseFloat(String(amount ?? 0));
+    return `$${isNaN(n) ? '0.00' : n.toFixed(2)}`;
   };
 
   const formatDate = (dateString: string) => {
@@ -218,14 +219,14 @@ export default function SaldoFavorScreen({ navigation }: any) {
           <View style={styles.infoCard}>
             <Ionicons name="trending-up" size={24} color={GREEN} />
             <Text style={styles.infoValue}>
-              {formatMoney(resumen?.estadisticas.total_ingresos || 0)}
+              {formatMoney(resumen?.estadisticas?.total_ingresos || 0)}
             </Text>
             <Text style={styles.infoLabel}>Total Ganado</Text>
           </View>
           <View style={styles.infoCard}>
             <Ionicons name="cart-outline" size={24} color={ORANGE} />
             <Text style={styles.infoValue}>
-              {formatMoney(resumen?.estadisticas.total_egresos || 0)}
+              {formatMoney(resumen?.estadisticas?.total_egresos || 0)}
             </Text>
             <Text style={styles.infoLabel}>Usado</Text>
           </View>
