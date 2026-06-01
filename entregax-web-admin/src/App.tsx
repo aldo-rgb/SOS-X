@@ -83,7 +83,6 @@ import BuildIcon from '@mui/icons-material/Build';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import LocalAtmIcon from '@mui/icons-material/LocalAtm';
-import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
 import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
 import PettyCashHubPage from './pages/PettyCashHubPage';
@@ -91,7 +90,6 @@ import FinanceDashboardPage from './pages/FinanceDashboardPage';
 import TesoreriaSucursalPage from './pages/TesoreriaSucursalPage';
 import WarehouseHubPage from './pages/WarehouseHubPage';
 import AccountingHubPage from './pages/AccountingHubPage';
-import ReferidosAdminPage from './pages/ReferidosAdminPage';
 import SecurityIcon from '@mui/icons-material/Security';
 import NotificationsIcon from '@mui/icons-material/Notifications';
 import DescriptionIcon from '@mui/icons-material/Description';
@@ -221,7 +219,7 @@ const menuItemsConfig: Array<{
       { key: 'panelsOperations', icon: <InventoryIcon /> }, // Herramientas de Operación
       { key: 'panelsService', icon: <HeadsetMicIcon /> },   // Servicio a Cliente
       // { key: 'tesoreriaSucursal', icon: <AccountBalanceWalletIcon /> }, // Tesorería Sucursal - OCULTO
-      { key: 'referidosAdmin', icon: <PeopleOutlineIcon /> }, // Gestión de Referidos
+      // referidosAdmin movido a CustomerServiceHubPage (Centro de Soporte)
     ]
   },
   {
@@ -1559,7 +1557,6 @@ function App() {
         case 'panelsOperations': return <WarehouseHubPage users={users} />; // Operaciones (Bodegas)
         case 'panelsService': return <CustomerServiceHubPage users={users} loading={loading} onRefresh={fetchUsers} pendingView={csHubPendingView} onViewApplied={() => setCsHubPendingView(null)} />; // Servicio a Cliente
         case 'tesoreriaSucursal': return <TesoreriaSucursalPage />;
-        case 'referidosAdmin': return <ReferidosAdminPage />;
         default: return null;
       }
     }

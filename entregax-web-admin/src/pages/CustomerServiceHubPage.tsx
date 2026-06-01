@@ -18,6 +18,7 @@ import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import AssignmentIndIcon from '@mui/icons-material/AssignmentInd';
+import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
 
 // Importar las páginas individuales
 import UnifiedLeadsPage from './UnifiedLeadsPage';
@@ -26,6 +27,7 @@ import SupportBoardPage from './SupportBoardPage';
 import CarteraVencidaPage from './CarteraVencidaPage';
 import DelayedPackagesPage from './DelayedPackagesPage';
 import AssignClientPage from './AssignClientPage';
+import ReferidosAdminPage from './ReferidosAdminPage';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
@@ -55,7 +57,7 @@ interface CustomerServiceHubPageProps {
   onViewApplied?: () => void;
 }
 
-type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client';
+type ActiveView = 'hub' | 'leads' | 'clients' | 'support' | 'cartera' | 'delayed' | 'assign_client' | 'referidos';
 
 export default function CustomerServiceHubPage({ users: _users, loading: _loading, onRefresh: _onRefresh, pendingView, onViewApplied }: CustomerServiceHubPageProps) {
   const { t } = useTranslation();
@@ -261,6 +263,14 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
       color: '#FF6F00',
       bgColor: 'rgba(255, 111, 0, 0.1)',
     },
+    {
+      key: 'referidos',
+      title: 'Gestión de Referidos',
+      description: 'Programa "Trae un amigo" — ver referidos, estados y configurar bonos',
+      icon: <PeopleOutlineIcon sx={{ fontSize: 40 }} />,
+      color: '#9C27B0',
+      bgColor: 'rgba(156, 39, 176, 0.1)',
+    },
   ];
 
   // Renderizar página activa
@@ -369,6 +379,20 @@ export default function CustomerServiceHubPage({ users: _users, loading: _loadin
           </Typography>
         </Box>
         <AssignClientPage onBack={() => setActiveView('hub')} />
+      </Box>
+    );
+  }
+
+  if (activeView === 'referidos') {
+    return (
+      <Box>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+          <IconButton onClick={() => setActiveView('hub')} sx={{ bgcolor: 'rgba(0,0,0,0.05)' }}>
+            <ArrowBackIcon />
+          </IconButton>
+          <Typography variant="h5" fontWeight={700}>Gestión de Referidos</Typography>
+        </Box>
+        <ReferidosAdminPage />
       </Box>
     );
   }
