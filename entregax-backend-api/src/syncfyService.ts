@@ -162,8 +162,8 @@ export async function refreshCredentialsForEmitter(emitterId: number, createdBy?
         institution_name    = CASE WHEN EXCLUDED.institution_name != '' THEN EXCLUDED.institution_name ELSE syncfy_credentials.institution_name END,
         institution         = EXCLUDED.institution,
         twofa_required      = EXCLUDED.twofa_required,
+        is_active           = TRUE,  -- reactivar si el usuario reconecta el mismo banco
         updated_at          = NOW()
-        -- is_active NO se actualiza: preserva soft-delete del usuario
     `, [emitterId, idUser, idCredential, idSite || null, institution, displayName, status, twofa, createdBy || null]);
   }
 
