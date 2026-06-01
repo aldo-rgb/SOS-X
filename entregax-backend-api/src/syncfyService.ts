@@ -219,12 +219,31 @@ export async function fetchTransactionsRemote(idUser: string, daysBack: number):
   const sessionToken = await createSessionToken(idUser);
   const client = getSessionClient(sessionToken);
 
+  // Diagnóstico: revisar cuentas disponibles primero
+  try {
+    const acctResp = await client.get(`${SYNCFY_PATHS.accounts}?id_user=${encodeURIComponent(idUser)}`);
+    const accounts = acctResp.data?.response || acctResp.data || [];
+    console.warn(`[Syncfy] accounts: count=${Array.isArray(accounts) ? accounts.length : 'N/A'} sample=${JSON.stringify(accounts[0] || null).slice(0, 200)}`);
+  } catch (ae: any) {
+    console.warn(`[Syncfy] accounts ERROR: ${ae.response?.status} ${String(ae.message).slice(0, 100)}`);
+  }
+
+  // Intentar primero con dt_refresh_from (ventana de 730 días)
   const url = `${SYNCFY_PATHS.transactions}?id_user=${encodeURIComponent(idUser)}&dt_refresh_from=${sinceUnix}`;
   console.warn(`[Syncfy] fetchTransactions REQUEST: ${url}`);
   try {
     const resp = await client.get(url);
     const txs = resp.data?.response || resp.data || [];
-    console.warn(`[Syncfy] fetchTransactions OK: status=${resp.status} txs=${Array.isArray(txs) ? txs.length : typeof txs} sample=${JSON.stringify(txs[0] || null).slice(0, 300)}`);
+    console.warn(`[Syncfy] fetchTransactions OK: txs=${Array.isArray(txs) ? txs.length : typeof txs} sample=${JSON.stringify(txs[0] || null).slice(0, 200)}`);
+
+    // Si 0 resultados, intentar SIN filtro de fecha (trae todo lo disponible)
+    if (Array.isArray(txs) && txs.length === 0) {
+      console.warn(`[Syncfy] 0 txs con dt_refresh_from — intentando sin filtro de fecha`);
+      const resp2 = await client.get(`${SYNCFY_PATHS.transactions}?id_user=${encodeURIComponent(idUser)}`);
+      const txs2 = resp2.data?.response || resp2.data || [];
+      console.warn(`[Syncfy] sin filtro: txs=${Array.isArray(txs2) ? txs2.length : typeof txs2} sample=${JSON.stringify(txs2[0] || null).slice(0, 200)}`);
+      return txs2;
+    }
     return txs;
   } catch (err: any) {
     const status = err.response?.status;
