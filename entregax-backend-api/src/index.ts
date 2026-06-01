@@ -10312,6 +10312,10 @@ async function ensureRequiredColumns() {
       CREATE INDEX IF NOT EXISTS idx_packages_loaded_vehicle_id ON packages(loaded_vehicle_id);
       -- 🚛 Chofer asignado al paquete para entrega a domicilio
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS assigned_driver_id INTEGER;
+      -- 📋 Instrucciones de entrega (dirección asignada por el cliente)
+      ALTER TABLE packages ADD COLUMN IF NOT EXISTS needs_instructions BOOLEAN DEFAULT TRUE;
+      ALTER TABLE packages ADD COLUMN IF NOT EXISTS instructions_assigned_at TIMESTAMP;
+      ALTER TABLE packages ADD COLUMN IF NOT EXISTS instructions_assigned_by_id INTEGER;
 
       -- 🚛 Info de la ruta hacia destino (operador, placas, teléfono, empresa) para contenedores FCL
       ALTER TABLE containers ADD COLUMN IF NOT EXISTS driver_name TEXT;
