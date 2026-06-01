@@ -4247,7 +4247,7 @@ export default function DashboardClient() {
         return;
       }
     } else if (quoteService === 'dhl') {
-      // DHL requiere peso y dimensiones, máximo 40 kg
+      // DHL requiere peso y dimensiones, máximo 50 kg
       if (largo <= 0 || ancho <= 0 || alto <= 0) {
         setSnackbar({ open: true, message: 'Ingresa las dimensiones del paquete (largo, ancho, alto)', severity: 'warning' });
         return;
@@ -4256,8 +4256,8 @@ export default function DashboardClient() {
         setSnackbar({ open: true, message: 'Ingresa el peso del paquete en kg', severity: 'warning' });
         return;
       }
-      if (peso > 40) {
-        setSnackbar({ open: true, message: '⚠️ El peso excede 40 kg. Este embarque no puede enviarse por DHL. Te recomendamos usar el servicio Aéreo desde China.', severity: 'error' });
+      if (peso > 50) {
+        setSnackbar({ open: true, message: '⚠️ El peso excede 50 kg. Este embarque no puede enviarse por DHL. Te recomendamos usar el servicio Aéreo desde China.', severity: 'error' });
         return;
       }
     } else if (quoteService === 'maritimo') {
@@ -6630,11 +6630,21 @@ export default function DashboardClient() {
                       </Box>
                       
                       {quoteService === 'dhl' ? (
-                        // Para DHL: peso y dimensiones con límite de 40 kg
+                        // Para DHL: peso y dimensiones con límite de 50 kg
                         <Box>
-                          <Alert severity="info" sx={{ mb: 2 }}>
+                          <Alert severity="info" sx={{ mb: 1.5 }}>
                             <Typography variant="body2">
-                              📦 <strong>Límite DHL:</strong> Máximo 40 kg por caja. Para embarques mayores, usa Aéreo China.
+                              📦 <strong>Límite de peso:</strong> Máximo 50 kg por caja. Para embarques mayores, usa Aéreo China.
+                            </Typography>
+                          </Alert>
+                          <Alert severity="warning" sx={{ mb: 1.5 }}>
+                            <Typography variant="body2">
+                              🏛️ <strong>Impuestos de importación:</strong> La cotización no incluye aranceles ni impuestos de aduana (IVA, IGI). Estos se determinan según la clasificación arancelaria de tu mercancía y se cobran al momento de la liberación aduanal.
+                            </Typography>
+                          </Alert>
+                          <Alert severity="success" sx={{ mb: 2 }}>
+                            <Typography variant="body2">
+                              🚚 <strong>Envío a destino:</strong> <strong>Gratis</strong> en el Área Metropolitana de Monterrey. Para otras ciudades, se cotiza por separado según destino y peso.
                             </Typography>
                           </Alert>
                           <Grid container spacing={2}>
@@ -6676,8 +6686,8 @@ export default function DashboardClient() {
                                 type="number"
                                 value={cbmPeso}
                                 onChange={(e) => setCbmPeso(e.target.value)}
-                                error={parseFloat(cbmPeso) > 40}
-                                helperText={parseFloat(cbmPeso) > 40 ? '⚠️ Excede 40 kg. Usa Aéreo China.' : 'Máximo 40 kg por caja'}
+                                error={parseFloat(cbmPeso) > 50}
+                                helperText={parseFloat(cbmPeso) > 50 ? '⚠️ Excede 50 kg. Usa Aéreo China.' : 'Máximo 50 kg por caja'}
                               />
                             </Grid>
                             <Grid size={6}>
