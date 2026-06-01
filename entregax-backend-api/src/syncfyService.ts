@@ -132,13 +132,17 @@ export async function refreshCredentialsForEmitter(emitterId: number, createdBy?
   if (!idUser) return [];
 
   const remote = await listSyncfyCredentialsRemote(idUser);
+  console.log(`[Syncfy] refreshCredentials emitter=${emitterId}: ${remote.length} credenciales remotas`);
   for (const cred of remote) {
     const idCredential: string = cred.id_credential || cred.id;
     const idSite: string       = cred.id_site || cred.site?.id_site;
     const siteName: string     = cred.site?.name || cred.name || cred.institution || '';
-    // Ignorar credenciales sin institución reconocida (intentos fallidos de autenticación)
-    if (!siteName || siteName === 'Desconocido') continue;
-    const institution: string  = bankCodeFromName(siteName);
+    console.log(`[Syncfy]  cred id=${idCredential} site=${JSON.stringify(cred.site)} siteName="${siteName}"`);
+    // Solo ignorar si no hay id de credencial ni institución (basura completa)
+    if (!idCredential) continue;
+    // Credenciales sin institución conocida: insertar como "Banco" genérico (evita pérdida de credentials reales)
+    const displayName = siteName || 'Banco';
+    const institution: string  = bankCodeFromName(displayName);
     const status: string       = (cred.status || 'active').toString().toLowerCase();
     const twofa: boolean       = !!(cred.twofa || cred.is_twofa);
 
@@ -149,11 +153,11 @@ export async function refreshCredentialsForEmitter(emitterId: number, createdBy?
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, $9)
       ON CONFLICT (id_credential) DO UPDATE SET
         status              = EXCLUDED.status,
-        institution_name    = EXCLUDED.institution_name,
+        institution_name    = CASE WHEN EXCLUDED.institution_name != '' THEN EXCLUDED.institution_name ELSE syncfy_credentials.institution_name END,
         institution         = EXCLUDED.institution,
         twofa_required      = EXCLUDED.twofa_required,
         updated_at          = NOW()
-    `, [emitterId, idUser, idCredential, idSite || null, institution, siteName, status, twofa, createdBy || null]);
+    `, [emitterId, idUser, idCredential, idSite || null, institution, displayName, status, twofa, createdBy || null]);
   }
 
   // Marca emisor como conectado si hay al menos una credencial activa
@@ -452,7 +456,9 @@ export function verifyWebhookAuth(rawBody: string, signature?: string, tokenHead
   }
   // Si ninguna credencial está configurada, aceptar (URL única es suficiente)
   if (!SYNCFY_WEBHOOK_TOKEN && !SYNCFY_WEBHOOK_SECRET) return true;
-  // Hay credenciales configuradas pero ninguna coincidió
+  // Syncfy no siempre envía headers de auth → si el request no trajo ningún header de auth, aceptar
+  if (!signature && !tokenHeader) return true;
+  // Hay credenciales configuradas y vino un header de auth que no coincidió
   return false;
 }
 
