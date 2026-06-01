@@ -343,6 +343,14 @@ export default function DashboardAdvisor() {
   // Guías sin identificar (dashboard widget)
   const [unidentifiedPkgs, setUnidentifiedPkgs] = useState<any[]>([]);
   const [unidentifiedLoading, setUnidentifiedLoading] = useState(false);
+  const [unidentifiedModalOpen, setUnidentifiedModalOpen] = useState(false);
+  const [unidentifiedSearch, setUnidentifiedSearch] = useState('');
+  const [assignTarget, setAssignTarget] = useState<any | null>(null);
+  const [assignSearch, setAssignSearch] = useState('');
+  const [assignClients, setAssignClients] = useState<any[]>([]);
+  const [assignClientsLoading, setAssignClientsLoading] = useState(false);
+  const [assignSelectedClient, setAssignSelectedClient] = useState<any | null>(null);
+  const [assigning, setAssigning] = useState(false);
 
   // Clients tab
   const [clients, setClients] = useState<AdvisorClient[]>([]);
@@ -571,10 +579,35 @@ export default function DashboardAdvisor() {
   const fetchUnidentified = async () => {
     setUnidentifiedLoading(true);
     try {
-      const r = await api.get('/advisor/shipments?unidentified=true&limit=20');
+      const r = await api.get('/advisor/shipments?unidentified=true&limit=100');
       setUnidentifiedPkgs(r.data.shipments || []);
     } catch {}
     setUnidentifiedLoading(false);
+  };
+
+  const fetchAssignClients = async (search = '') => {
+    setAssignClientsLoading(true);
+    try {
+      const r = await api.get(`/advisor/clients?limit=50&search=${encodeURIComponent(search)}`);
+      setAssignClients(r.data.clients || []);
+    } catch {}
+    setAssignClientsLoading(false);
+  };
+
+  const handleAssignClient = async () => {
+    if (!assignTarget || !assignSelectedClient) return;
+    setAssigning(true);
+    try {
+      await api.put(`/advisor/packages/${assignTarget.id}/assign-client`, { clientId: assignSelectedClient.id });
+      setUnidentifiedPkgs(prev => prev.filter(p => p.id !== assignTarget.id));
+      setAssignTarget(null);
+      setAssignSelectedClient(null);
+      setAssignSearch('');
+      setSnackbar({ open: true, message: `✅ Cliente ${assignSelectedClient.full_name || assignSelectedClient.name} asignado`, severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al asignar', severity: 'error' });
+    }
+    setAssigning(false);
   };
 
   const fetchNotifPrefs = async () => {
@@ -1312,61 +1345,39 @@ export default function DashboardAdvisor() {
           </Grid>
           )}
 
-          {/* Guías sin identificar */}
-          <Paper sx={{ p: isMobile ? 1.5 : 2.5, borderRadius: 2, mb: isMobile ? 2 : 3 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <UnidentifiedIcon sx={{ color: '#9C27B0' }} />
-                <Typography variant={isMobile ? 'body1' : 'subtitle1'} fontWeight={600}>
-                  Sin Identificar
-                </Typography>
-                {unidentifiedPkgs.length > 0 && (
-                  <Chip label={unidentifiedPkgs.length} size="small" sx={{ bgcolor: '#9C27B0', color: '#fff', fontWeight: 700, height: 20 }} />
-                )}
-              </Box>
-              <IconButton size="small" onClick={fetchUnidentified} disabled={unidentifiedLoading}>
-                <RefreshIcon fontSize="small" />
-              </IconButton>
-            </Box>
-            {unidentifiedLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={24} /></Box>
-            ) : unidentifiedPkgs.length === 0 ? (
-              <Typography variant="body2" color="text.secondary" sx={{ py: 1 }}>
-                No hay guías sin identificar
-              </Typography>
-            ) : (
-              <Box>
-                {unidentifiedPkgs.slice(0, 8).map((pkg) => (
-                  <Box
-                    key={pkg.id}
-                    sx={{
-                      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                      py: 1, borderBottom: '1px solid', borderColor: 'divider',
-                      '&:last-child': { borderBottom: 'none' },
-                    }}
-                  >
-                    <Box>
-                      <Typography variant="body2" fontWeight={600}>{pkg.tracking || pkg.tracking_number || `PKG-${pkg.id}`}</Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        {pkg.service_type || 'PO Box USA'}{pkg.description ? ` · ${pkg.description}` : ''}
-                      </Typography>
+          {/* Guías sin identificar — tarjeta compacta */}
+          {isMobile ? (
+            <Card sx={{ minWidth: 140, flexShrink: 0, mb: 2 }}>
+              <CardActionArea onClick={() => { setUnidentifiedModalOpen(true); fetchAssignClients(); }} sx={{ p: 1.5 }}>
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                  <Avatar sx={{ bgcolor: alpha('#9C27B0', 0.1), color: '#9C27B0', width: 40, height: 40 }}>
+                    {unidentifiedLoading ? <CircularProgress size={18} sx={{ color: '#9C27B0' }} /> : <UnidentifiedIcon sx={{ fontSize: '1.2rem' }} />}
+                  </Avatar>
+                  <Typography variant="h6" fontWeight={700}>{unidentifiedPkgs.length}</Typography>
+                  <Typography variant="caption" color="text.secondary" textAlign="center" sx={{ lineHeight: 1.2 }}>Sin Identificar</Typography>
+                </Box>
+              </CardActionArea>
+            </Card>
+          ) : (
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+              <Grid size={{ xs: 12 }}>
+                <Card>
+                  <CardActionArea onClick={() => { setUnidentifiedModalOpen(true); fetchAssignClients(); }} sx={{ p: 2.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                      <Avatar sx={{ bgcolor: alpha('#9C27B0', 0.1), color: '#9C27B0' }}>
+                        {unidentifiedLoading ? <CircularProgress size={20} sx={{ color: '#9C27B0' }} /> : <UnidentifiedIcon />}
+                      </Avatar>
+                      <Box sx={{ flex: 1 }}>
+                        <Typography variant="h6" fontWeight={600}>{unidentifiedPkgs.length}</Typography>
+                        <Typography variant="body2" color="text.secondary">Guías sin identificar · Click para ver y asignar cliente</Typography>
+                      </Box>
+                      <AssignIcon sx={{ color: '#9C27B0', opacity: 0.6 }} />
                     </Box>
-                    <Chip
-                      label={pkg.status || 'en_bodega'}
-                      size="small"
-                      icon={<AssignIcon sx={{ fontSize: '0.8rem !important' }} />}
-                      sx={{ bgcolor: alpha('#9C27B0', 0.1), color: '#9C27B0', fontWeight: 600, fontSize: '0.7rem' }}
-                    />
-                  </Box>
-                ))}
-                {unidentifiedPkgs.length > 8 && (
-                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-                    +{unidentifiedPkgs.length - 8} más — ve a la pestaña Envíos para verlos todos
-                  </Typography>
-                )}
-              </Box>
-            )}
-          </Paper>
+                  </CardActionArea>
+                </Card>
+              </Grid>
+            </Grid>
+          )}
 
           {/* Monthly registrations mini chart */}
           <Paper sx={{ p: isMobile ? 1.5 : 2.5, borderRadius: 2 }}>
@@ -1401,6 +1412,144 @@ export default function DashboardAdvisor() {
               </Box>
             )}
           </Paper>
+
+          {/* ── Modal: Lista de guías sin identificar ── */}
+          <Dialog open={unidentifiedModalOpen} onClose={() => setUnidentifiedModalOpen(false)} maxWidth="md" fullWidth>
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <UnidentifiedIcon sx={{ color: '#9C27B0' }} />
+                <Typography fontWeight={700}>Sin Identificar</Typography>
+                <Chip label={unidentifiedPkgs.length} size="small" sx={{ bgcolor: '#9C27B0', color: '#fff', fontWeight: 700 }} />
+              </Box>
+              <IconButton size="small" onClick={fetchUnidentified}><RefreshIcon fontSize="small" /></IconButton>
+            </DialogTitle>
+            <DialogContent dividers sx={{ p: 0 }}>
+              <Box sx={{ px: 2, pt: 2, pb: 1 }}>
+                <TextField
+                  fullWidth size="small" placeholder="Buscar por tracking o descripción..."
+                  value={unidentifiedSearch}
+                  onChange={e => setUnidentifiedSearch(e.target.value)}
+                  InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} /> }}
+                />
+              </Box>
+              {unidentifiedLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+              ) : (
+                <Table size="small">
+                  <TableHead>
+                    <TableRow>
+                      <TableCell>Tracking</TableCell>
+                      <TableCell>Descripción</TableCell>
+                      <TableCell>Estado</TableCell>
+                      <TableCell align="center">Acción</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {unidentifiedPkgs
+                      .filter(p => {
+                        const q = unidentifiedSearch.toLowerCase();
+                        return !q || (p.tracking || '').toLowerCase().includes(q) || (p.description || '').toLowerCase().includes(q);
+                      })
+                      .map(pkg => (
+                        <TableRow key={pkg.id} hover>
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={600} sx={{ color: '#9C27B0' }}>
+                              {pkg.tracking || pkg.tracking_number || `PKG-${pkg.id}`}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Typography variant="caption" color="text.secondary">
+                              {pkg.service_type || 'POBOX_USA'}{pkg.description ? ` · ${pkg.description}` : ''}
+                            </Typography>
+                          </TableCell>
+                          <TableCell>
+                            <Chip label={pkg.status || 'received'} size="small" sx={{ bgcolor: alpha('#9C27B0', 0.1), color: '#9C27B0', fontSize: '0.7rem' }} />
+                          </TableCell>
+                          <TableCell align="center">
+                            <Button
+                              size="small" variant="contained" startIcon={<AssignIcon />}
+                              onClick={() => { setAssignTarget(pkg); setAssignSearch(''); setAssignSelectedClient(null); }}
+                              sx={{ bgcolor: '#9C27B0', '&:hover': { bgcolor: '#7B1FA2' }, textTransform: 'none', fontSize: '0.75rem' }}
+                            >
+                              Asignar
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    {unidentifiedPkgs.length === 0 && (
+                      <TableRow><TableCell colSpan={4} align="center" sx={{ py: 4, color: 'text.secondary' }}>No hay guías sin identificar</TableCell></TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              )}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setUnidentifiedModalOpen(false)} sx={{ color: '#666' }}>Cerrar</Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* ── Modal: Asignar cliente a un paquete ── */}
+          <Dialog open={!!assignTarget} onClose={() => { setAssignTarget(null); setAssignSelectedClient(null); setAssignSearch(''); }} maxWidth="xs" fullWidth>
+            <DialogTitle sx={{ bgcolor: '#9C27B0', color: '#fff', pb: 1 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <AssignIcon />
+                <Box>
+                  <Typography fontWeight={700} variant="body1">Asignar Cliente</Typography>
+                  <Typography variant="caption" sx={{ opacity: 0.85 }}>{assignTarget?.tracking || assignTarget?.tracking_number}</Typography>
+                </Box>
+              </Box>
+            </DialogTitle>
+            <DialogContent sx={{ pt: 2 }}>
+              <TextField
+                fullWidth size="small" placeholder="Buscar cliente..."
+                value={assignSearch}
+                onChange={e => { setAssignSearch(e.target.value); fetchAssignClients(e.target.value); }}
+                InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 1, color: 'text.secondary' }} /> }}
+                sx={{ mb: 2, mt: 1 }}
+              />
+              {assignClientsLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}><CircularProgress size={24} /></Box>
+              ) : (
+                <Box sx={{ maxHeight: 320, overflowY: 'auto' }}>
+                  {assignClients.map(c => (
+                    <Box
+                      key={c.id}
+                      onClick={() => setAssignSelectedClient(c)}
+                      sx={{
+                        display: 'flex', alignItems: 'center', gap: 1.5, p: 1.5,
+                        borderRadius: 1.5, cursor: 'pointer', mb: 0.5,
+                        border: '2px solid',
+                        borderColor: assignSelectedClient?.id === c.id ? '#9C27B0' : 'transparent',
+                        bgcolor: assignSelectedClient?.id === c.id ? alpha('#9C27B0', 0.06) : 'transparent',
+                        '&:hover': { bgcolor: alpha('#9C27B0', 0.04) },
+                      }}
+                    >
+                      <Avatar sx={{ bgcolor: '#9C27B0', width: 36, height: 36, fontSize: '0.85rem' }}>
+                        {(c.full_name || c.name || '?')[0].toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ flex: 1, minWidth: 0 }}>
+                        <Typography variant="body2" fontWeight={600} noWrap>{c.full_name || c.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">Box: {c.box_id} · {c.email}</Typography>
+                      </Box>
+                    </Box>
+                  ))}
+                  {assignClients.length === 0 && !assignClientsLoading && (
+                    <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 2 }}>No se encontraron clientes</Typography>
+                  )}
+                </Box>
+              )}
+            </DialogContent>
+            <DialogActions sx={{ px: 2, pb: 2 }}>
+              <Button onClick={() => { setAssignTarget(null); setAssignSelectedClient(null); }} sx={{ color: '#666' }}>Cancelar</Button>
+              <Button
+                variant="contained" onClick={handleAssignClient}
+                disabled={!assignSelectedClient || assigning}
+                sx={{ bgcolor: '#9C27B0', '&:hover': { bgcolor: '#7B1FA2' } }}
+              >
+                {assigning ? <CircularProgress size={18} color="inherit" /> : 'Asignar cliente'}
+              </Button>
+            </DialogActions>
+          </Dialog>
         </Box>
       </Fade>
     );
