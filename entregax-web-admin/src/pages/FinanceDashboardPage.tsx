@@ -466,7 +466,6 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const handleOpenSyncfyWidget = async () => {
     const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
     if (!empresaFilt) return;
-    const token = localStorage.getItem('token');
     try {
       const widgetRes = await api.post('/admin/syncfy/widget-token', { emitter_id: empresaFilt.id });
       const { token: widgetToken } = widgetRes.data;
