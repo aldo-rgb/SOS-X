@@ -52,7 +52,12 @@ api.interceptors.request.use((config) => {
 });
 
 const fmt = (n: number) => new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(n || 0);
-const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+const fmtDate = (d: string) => {
+  if (!d) return '—';
+  const s = String(d).substring(0, 10); // YYYY-MM-DD — avoid UTC offset shifting the day
+  const [y, mo, day] = s.split('-').map(Number);
+  return new Date(y, mo - 1, day).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 
 interface Emitter {
   id: number;
