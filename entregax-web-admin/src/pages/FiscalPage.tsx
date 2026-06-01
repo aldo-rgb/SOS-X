@@ -673,9 +673,12 @@ export default function FiscalPage() {
           }
 
           if (typeof widget.on === 'function') {
-            // Syncfy puede disparar distintos nombres según versión del widget
+            // Flag: si ya recibimos un success event, exit cierra normalmente (bancos con user/pass)
+            let credentialAlreadyReceived = false;
+
             const onCredentialSuccess = async (data?: any) => {
               console.warn('[Syncfy] credential success event, data:', data);
+              credentialAlreadyReceived = true;
               try {
                 await axios.post(
                   `${API_URL}/admin/syncfy/links`,
@@ -690,7 +693,6 @@ export default function FiscalPage() {
                 setSnackbar({ open: true, message: err.response?.data?.error || 'Error registrando credencial', severity: 'error' });
               }
             };
-            // Escuchar todos los nombres posibles del evento de éxito
             widget.on('credential-created', onCredentialSuccess);
             widget.on('credentials', onCredentialSuccess);
             widget.on('success', onCredentialSuccess);
@@ -698,8 +700,6 @@ export default function FiscalPage() {
             widget.on('updated', onCredentialSuccess);
             widget.on('error', async (err: any) => {
               console.warn('[Syncfy] widget error event:', err);
-              // Syncfy dispara 'error' también cuando el job termina (con o sin credenciales válidas).
-              // Si el payload tiene id_credential es que el job completó → registrar credencial.
               if (err?.id_credential) {
                 console.warn('[Syncfy] error con id_credential → interpretando como job completado');
                 await onCredentialSuccess(err);
@@ -708,16 +708,36 @@ export default function FiscalPage() {
               }
             });
             widget.on('exit', async () => {
-              console.warn('[Syncfy] widget exit — BBVA QR es asíncrono, iniciando polling');
-              // No cerrar el diálogo todavía: mostrar pantalla de espera mientras
-              // BBVA procesa el QR y Syncfy crea la credencial (puede tardar 1-3 min).
-              setSyncfyAwaitingQR(true);
-
+              console.warn('[Syncfy] widget exit. credentialAlreadyReceived=', credentialAlreadyReceived);
+              if (credentialAlreadyReceived) {
+                // Banco normal (user/pass): ya se procesó el success — solo cerrar
+                setSyncfyWidgetVisible(false);
+                return;
+              }
+              // Posible banco con QR asíncrono (ej. BBVA Net Cash): intentar registrar una vez.
+              // Si hay credencial disponible de inmediato → éxito silencioso.
+              // Si no → cerrar sin pantalla de espera (usuario canceló o el banco no era QR).
               const emitterId = selectedEmpresaSyncfy.id;
               const emitterAlias = selectedEmpresaSyncfy.alias;
+              try {
+                const r = await axios.post(
+                  `${API_URL}/admin/syncfy/links`,
+                  { emitter_id: emitterId },
+                  { headers: { Authorization: `Bearer ${getToken()}` } }
+                );
+                if (r.data?.links?.length > 0) {
+                  setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${emitterAlias}`, severity: 'success' });
+                  setSyncfyWidgetVisible(false);
+                  handleOpenSyncfyModal(selectedEmpresaSyncfy);
+                  loadData();
+                  return;
+                }
+              } catch { /* noop */ }
+              // No se encontró credencial: banco QR que necesita espera.
+              // Mostrar pantalla de polling solo en este caso.
+              setSyncfyAwaitingQR(true);
               let attempts = 0;
               const maxAttempts = 18; // 18 × 10s = 3 minutos
-
               if (syncfyPollRef.current) clearInterval(syncfyPollRef.current);
               syncfyPollRef.current = setInterval(async () => {
                 attempts++;
@@ -733,7 +753,7 @@ export default function FiscalPage() {
                     setSyncfyAwaitingQR(false);
                     setSyncfyWidgetVisible(false);
                     setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${emitterAlias}`, severity: 'success' });
-                    handleOpenSyncfyModal({ id: emitterId, alias: emitterAlias } as any);
+                    handleOpenSyncfyModal(selectedEmpresaSyncfy);
                     loadData();
                     return;
                   }
@@ -743,7 +763,7 @@ export default function FiscalPage() {
                   syncfyPollRef.current = null;
                   setSyncfyAwaitingQR(false);
                   setSyncfyWidgetVisible(false);
-                  setSnackbar({ open: true, message: 'ℹ️ No se detectó banco conectado en 3 min. Intenta de nuevo o verifica en la app de BBVA.', severity: 'warning' });
+                  setSnackbar({ open: true, message: 'ℹ️ No se detectó banco conectado en 3 min. Intenta de nuevo.', severity: 'warning' });
                 }
               }, 10000);
             });
