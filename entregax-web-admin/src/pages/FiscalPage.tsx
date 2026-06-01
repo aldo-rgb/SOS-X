@@ -705,9 +705,39 @@ export default function FiscalPage() {
                 setSnackbar({ open: true, message: 'Error en el widget de Syncfy', severity: 'error' });
               }
             });
-            widget.on('exit', () => {
-              console.warn('[Syncfy] widget exit');
+            widget.on('exit', async () => {
+              console.warn('[Syncfy] widget exit — intentando refrescar credenciales (BBVA QR es asíncrono)');
               setSyncfyWidgetVisible(false);
+              // BBVA Net Cash: el QR se procesa de forma asíncrona; intentar registrar
+              // la credencial inmediatamente y luego de 5s por si hay delay.
+              const tryRegister = async () => {
+                try {
+                  const r = await axios.post(
+                    `${API_URL}/admin/syncfy/links`,
+                    { emitter_id: selectedEmpresaSyncfy.id },
+                    { headers: { Authorization: `Bearer ${getToken()}` } }
+                  );
+                  if (r.data?.links?.length > 0) {
+                    setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${selectedEmpresaSyncfy.alias}`, severity: 'success' });
+                    handleOpenSyncfyModal(selectedEmpresaSyncfy);
+                    loadData();
+                    return true;
+                  }
+                } catch { /* noop */ }
+                return false;
+              };
+              // Primer intento inmediato
+              const found = await tryRegister();
+              if (!found) {
+                // Segundo intento a los 5 segundos (BBVA puede tardar en procesar el QR)
+                setSnackbar({ open: true, message: '⏳ Si escaneaste el QR de BBVA, espera unos segundos — verificando conexión...', severity: 'info' });
+                setTimeout(async () => {
+                  const found2 = await tryRegister();
+                  if (!found2) {
+                    setSnackbar({ open: true, message: 'ℹ️ No se detectó banco conectado. Si escaneaste el QR, abre el modal Syncfy en ~1 minuto para verificar.', severity: 'warning' });
+                  }
+                }, 5000);
+              }
             });
           }
 
