@@ -220,11 +220,10 @@ export async function fetchTransactionsRemote(idUser: string, daysBack: number):
   const client = getSessionClient(sessionToken);
 
   const url = `${SYNCFY_PATHS.transactions}?id_user=${encodeURIComponent(idUser)}&dt_refresh_from=${sinceUnix}`;
-  console.log(`[Syncfy] fetchTransactions url=${url} sinceUnix=${sinceUnix} (${effectiveDays}d)`);
+  console.warn(`[Syncfy] fetchTransactions url=${url} sinceUnix=${sinceUnix} (${effectiveDays}d)`);
   const resp = await client.get(url);
-  console.log(`[Syncfy] fetchTransactions status=${resp.status} body_keys=${Object.keys(resp.data || {}).join(',')} response_length=${JSON.stringify(resp.data?.response || resp.data || []).length}`);
   const txs = resp.data?.response || resp.data || [];
-  console.log(`[Syncfy] fetchTransactions txs count=${Array.isArray(txs) ? txs.length : 'NOT_ARRAY'} sample=${JSON.stringify(txs[0] || null).slice(0, 200)}`);
+  console.warn(`[Syncfy] fetchTransactions status=${resp.status} txs=${Array.isArray(txs) ? txs.length : 'NOT_ARRAY'} sample=${JSON.stringify(txs[0] || null).slice(0, 200)}`);
   return txs;
 }
 
