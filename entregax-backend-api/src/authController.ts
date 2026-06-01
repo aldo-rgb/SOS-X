@@ -206,10 +206,10 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
         if (referidoPorId) {
             try {
                 await pool.query(`
-                    INSERT INTO referidos (referidor_id, referido_id, status)
-                    VALUES ($1, $2, 'pendiente')
-                    ON CONFLICT (referidor_id, referido_id) DO NOTHING
-                `, [referidoPorId, savedUser.id]);
+                    INSERT INTO referidos (referidor_id, referido_id, codigo_usado, estado)
+                    VALUES ($1, $2, $3, 'registrado')
+                    ON CONFLICT (referido_id) DO NOTHING
+                `, [referidoPorId, savedUser.id, (referralCodeInput || '').toUpperCase()]);
                 console.log(`[REFERIDOS] Registrado: ${referrerInfo?.name} refirió a ${fullName}`);
             } catch (refError) {
                 console.error('[REFERIDOS] Error al registrar referido:', refError);
