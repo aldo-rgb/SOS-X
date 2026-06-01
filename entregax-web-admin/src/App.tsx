@@ -83,7 +83,6 @@ import BuildIcon from '@mui/icons-material/Build';
 import InventoryIcon from '@mui/icons-material/Inventory';
 import HeadsetMicIcon from '@mui/icons-material/HeadsetMic';
 import LocalAtmIcon from '@mui/icons-material/LocalAtm';
-import AccountBalanceWalletIcon from '@mui/icons-material/AccountBalanceWallet';
 import PeopleOutlineIcon from '@mui/icons-material/PeopleOutline';
 import AdminHubPage from './pages/AdminHubPage';
 import CajaChicaPage from './pages/CajaChicaPage';
