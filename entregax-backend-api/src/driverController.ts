@@ -1738,10 +1738,10 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
         let childGuides = [];
         try {
             const childRes = await pool.query(`
-                SELECT id, ${TRACKING_PUBLIC_SQL} as tracking_number
-                FROM packages
-                WHERE master_id = $1 AND id != $2
-                ORDER BY created_at
+                SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number
+                FROM packages p
+                WHERE p.master_id = $1 AND p.id != $2
+                ORDER BY p.created_at
             `, [pkg.id, pkg.id]);
             if (childRes.rows && childRes.rows.length > 0) {
                 hasChildren = true;
