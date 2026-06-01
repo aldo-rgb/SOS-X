@@ -710,15 +710,17 @@ export default function FiscalPage() {
             widget.on('exit', async () => {
               console.warn('[Syncfy] widget exit. credentialAlreadyReceived=', credentialAlreadyReceived);
               if (credentialAlreadyReceived) {
-                // Banco normal (user/pass): ya se procesó el success — solo cerrar
                 setSyncfyWidgetVisible(false);
                 return;
               }
-              // Posible banco con QR asíncrono (ej. BBVA Net Cash): intentar registrar una vez.
-              // Si hay credencial disponible de inmediato → éxito silencioso.
-              // Si no → cerrar sin pantalla de espera (usuario canceló o el banco no era QR).
+              // Para BBVA y bancos con OTP/token asíncrono:
+              // NO cerrar ni cubrir el widget — el QR puede seguir visible.
+              // Mostrar solo un banner no intrusivo abajo y hacer polling silencioso.
+              setSyncfyAwaitingQR(true);
               const emitterId = selectedEmpresaSyncfy.id;
               const emitterAlias = selectedEmpresaSyncfy.alias;
+
+              // Intento inmediato (bancos que ya completaron sync)
               try {
                 const r = await axios.post(
                   `${API_URL}/admin/syncfy/links`,
@@ -726,18 +728,19 @@ export default function FiscalPage() {
                   { headers: { Authorization: `Bearer ${getToken()}` } }
                 );
                 if (r.data?.links?.length > 0) {
-                  setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${emitterAlias}`, severity: 'success' });
+                  if (syncfyPollRef.current) { clearInterval(syncfyPollRef.current); syncfyPollRef.current = null; }
+                  setSyncfyAwaitingQR(false);
                   setSyncfyWidgetVisible(false);
+                  setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${emitterAlias}`, severity: 'success' });
                   handleOpenSyncfyModal(selectedEmpresaSyncfy);
                   loadData();
                   return;
                 }
               } catch { /* noop */ }
-              // No se encontró credencial: banco QR que necesita espera.
-              // Mostrar pantalla de polling solo en este caso.
-              setSyncfyAwaitingQR(true);
+
+              // Polling cada 10s hasta 3 min (el QR sigue visible mientras esperamos)
               let attempts = 0;
-              const maxAttempts = 18; // 18 × 10s = 3 minutos
+              const maxAttempts = 18;
               if (syncfyPollRef.current) clearInterval(syncfyPollRef.current);
               syncfyPollRef.current = setInterval(async () => {
                 attempts++;
@@ -755,7 +758,6 @@ export default function FiscalPage() {
                     setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${emitterAlias}`, severity: 'success' });
                     handleOpenSyncfyModal(selectedEmpresaSyncfy);
                     loadData();
-                    return;
                   }
                 } catch { /* noop */ }
                 if (attempts >= maxAttempts) {
@@ -2089,19 +2091,16 @@ export default function FiscalPage() {
             }}
           />
           {syncfyAwaitingQR && (
-            <Box sx={{ position: 'absolute', inset: 0, bgcolor: 'rgba(255,255,255,0.95)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2, zIndex: 10 }}>
-              <CircularProgress size={48} />
-              <Typography variant="h6" fontWeight={700}>Esperando confirmación de BBVA…</Typography>
-              <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ maxWidth: 360 }}>
-                Abre la app de <strong>BBVA Empresas</strong> en tu celular, ve a <strong>Token Digital → Intercambio QR</strong> y escanea el código que apareció.
-              </Typography>
-              <Typography variant="caption" color="text.secondary">
-                Verificando automáticamente cada 10 segundos (máx. 3 min)
+            // Banner no intrusivo en la parte inferior — NO cubre el widget ni el QR
+            <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, bgcolor: '#1e88e5', color: 'white', px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, zIndex: 10 }}>
+              <CircularProgress size={18} sx={{ color: 'white', flexShrink: 0 }} />
+              <Typography variant="body2" sx={{ flex: 1 }}>
+                Escanea el QR con tu app BBVA y espera la confirmación… (verificando automáticamente)
               </Typography>
               <Button
-                variant="outlined"
-                color="inherit"
                 size="small"
+                sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)', minWidth: 80 }}
+                variant="outlined"
                 onClick={() => {
                   if (syncfyPollRef.current) { clearInterval(syncfyPollRef.current); syncfyPollRef.current = null; }
                   setSyncfyAwaitingQR(false);
