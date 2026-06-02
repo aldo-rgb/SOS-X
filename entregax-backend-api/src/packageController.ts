@@ -2068,7 +2068,7 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
                             to: prefs.phone,
                             template: process.env.WHATSAPP_PACKAGE_DELIVERED_TEMPLATE || 'paquete_entregado',
                             languageCode: 'es_MX',
-                            parameters: [firstName, pkg.tracking_internal, svcLabel],
+                            parameters: [firstName, pkg.tracking_internal],
                         }).catch(() => {});
                     }
                 }

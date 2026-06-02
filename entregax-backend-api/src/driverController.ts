@@ -1335,7 +1335,7 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
                             to: prefs.phone,
                             template: process.env.WHATSAPP_PACKAGE_DELIVERED_TEMPLATE || 'paquete_entregado',
                             languageCode: 'es_MX',
-                            parameters: [firstName, pkg.tracking_internal, svcLabel],
+                            parameters: [firstName, pkg.tracking_internal],
                         }).catch(() => {});
                     }
                 }
@@ -1569,7 +1569,7 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
                                     to: prefs.phone,
                                     template: process.env.WHATSAPP_PACKAGE_DELIVERED_TEMPLATE || 'paquete_entregado',
                                     languageCode: 'es_MX',
-                                    parameters: [firstName, row.tracking_internal, svcLabel],
+                                    parameters: [firstName, row.tracking_internal],
                                 }).catch(() => {});
                             }
                         }
