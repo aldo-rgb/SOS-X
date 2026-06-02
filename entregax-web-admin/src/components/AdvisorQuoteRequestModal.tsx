@@ -73,7 +73,9 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
   const [maritimoTipo, setMaritimoTipo] = useState<'lcl' | 'fcl'>('lcl');
   const [pesoKg, setPesoKg] = useState('');
 
-  // Cajas
+  // Cajas / CBM
+  const [cbmDirecto, setCbmDirecto] = useState('');
+  const [showBlocks, setShowBlocks] = useState(false);
   const [blocks, setBlocks] = useState<BoxBlock[]>([emptyBlock()]);
 
   // Producto
@@ -118,8 +120,9 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
     if (c) loadAddresses(c.id);
   };
 
-  const totalCBM = blocks.reduce((s, b) => s + cbmOf(b), 0);
-  const totalPcs = blocks.reduce((s, b) => s + (parseInt(b.cantidad) || 0), 0);
+  const blocksCBM = blocks.reduce((s, b) => s + cbmOf(b), 0);
+  const totalCBM = showBlocks ? blocksCBM : (parseFloat(cbmDirecto) || 0);
+  const totalPcs = showBlocks ? blocks.reduce((s, b) => s + (parseInt(b.cantidad) || 0), 0) : 0;
 
   const addBlock = () => setBlocks(b => [...b, emptyBlock()]);
   const removeBlock = (i: number) => setBlocks(b => b.filter((_, j) => j !== i));
@@ -148,7 +151,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
     if (!destination) { setError('Indica la dirección destino'); return; }
     const needsBoxes = servicio === 'maritimo' && maritimoTipo === 'lcl';
     const needsWeight = servicio === 'aereo';
-    if (needsBoxes && totalCBM <= 0) { setError('Ingresa al menos un bloque de cajas con dimensiones'); return; }
+    if (needsBoxes && totalCBM <= 0) { setError('Ingresa los metros cúbicos o agrega bloques de cajas'); return; }
     if (needsWeight && !pesoKg.trim()) { setError('Ingresa el peso en kg'); return; }
 
     setSaving(true);
@@ -185,6 +188,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
     setError(''); setSelectedClient(null); setAddresses([]);
     setSelectedAddressId(null); setCustomDestination(''); setBlocks([emptyBlock()]);
     setServicio('maritimo'); setMaritimoTipo('lcl'); setPesoKg('');
+    setCbmDirecto(''); setShowBlocks(false);
     setProductDescription(''); setHasBrand(false); setHasBrandLetter(false);
     setOriginAddress(''); setMerchandiseValue(''); setImages([]); setDocs([]);
     onClose();
@@ -259,41 +263,67 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
         <Divider sx={{ mb: 3 }} />
 
-        {/* CAJAS — solo LCL marítimo */}
+        {/* VOLUMEN — solo LCL marítimo o aéreo */}
         {(servicio === 'maritimo' && maritimoTipo === 'lcl') && (
         <><Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ color: ORANGE }}>3. Bloques de Cajas</Typography>
-          <Chip icon={<CalculateIcon />} label={`${totalCBM.toFixed(4)} CBM · ${totalPcs} pzas`}
-            color="primary" size="small" sx={{ fontWeight: 700 }} />
+          <Typography variant="subtitle1" fontWeight={700} sx={{ color: ORANGE }}>3. Metros Cúbicos</Typography>
+          {totalCBM > 0 && (
+            <Chip icon={<CalculateIcon />} label={`${totalCBM.toFixed(4)} CBM${totalPcs > 0 ? ` · ${totalPcs} pzas` : ''}`}
+              color="primary" size="small" sx={{ fontWeight: 700 }} />
+          )}
         </Box>
-        {blocks.map((b, i) => (
-          <Paper key={i} variant="outlined" sx={{ p: 2, mb: 1.5, borderRadius: 2 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-              <Typography variant="caption" fontWeight={700} color="text.secondary">Bloque {i + 1}</Typography>
-              {blocks.length > 1 && (
-                <IconButton size="small" color="error" onClick={() => removeBlock(i)}><DeleteIcon fontSize="small" /></IconButton>
-              )}
-              <Typography variant="caption" sx={{ ml: 'auto', color: ORANGE, fontWeight: 700 }}>
-                {cbmOf(b).toFixed(4)} CBM
-              </Typography>
-            </Box>
-            <Grid container spacing={1.5}>
-              {(['largo', 'ancho', 'alto'] as const).map(field => (
-                <Grid size={{ xs: 6, sm: 3 }} key={field}>
-                  <TextField label={`${field.charAt(0).toUpperCase() + field.slice(1)} (cm)`} size="small" fullWidth
-                    type="number" value={b[field]} onChange={e => updateBlock(i, field, e.target.value)} />
-                </Grid>
-              ))}
-              <Grid size={{ xs: 6, sm: 3 }}>
-                <TextField label="Cantidad" size="small" fullWidth type="number"
-                  value={b.cantidad} onChange={e => updateBlock(i, 'cantidad', e.target.value)} />
-              </Grid>
-            </Grid>
-          </Paper>
-        ))}
-        <Button size="small" startIcon={<AddIcon />} onClick={addBlock} sx={{ mb: 3, color: ORANGE }}>
-          Agregar bloque
+
+        {/* Campo directo de CBM */}
+        <TextField
+          fullWidth size="small" label="Metros cúbicos (CBM)" type="number"
+          value={cbmDirecto}
+          onChange={e => { setCbmDirecto(e.target.value); if (e.target.value) setShowBlocks(false); }}
+          placeholder="Ej: 2.5"
+          sx={{ mb: 1.5 }}
+          helperText="Si ya sabes el volumen total, escríbelo aquí."
+          InputProps={{ endAdornment: <Typography sx={{ color: 'text.secondary', ml: 1, whiteSpace: 'nowrap' }}>m³</Typography> }}
+        />
+
+        {/* Toggle para calcular por bloques */}
+        <Button size="small" variant="text"
+          startIcon={showBlocks ? <DeleteIcon fontSize="small" /> : <CalculateIcon fontSize="small" />}
+          onClick={() => { setShowBlocks(v => !v); if (!showBlocks) setCbmDirecto(''); }}
+          sx={{ mb: 2, color: ORANGE, textTransform: 'none' }}>
+          {showBlocks ? 'Ocultar bloques' : 'Calcular por bloques de cajas'}
         </Button>
+
+        {showBlocks && (
+          <>
+            {blocks.map((b, i) => (
+              <Paper key={i} variant="outlined" sx={{ p: 2, mb: 1.5, borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                  <Typography variant="caption" fontWeight={700} color="text.secondary">Bloque {i + 1}</Typography>
+                  {blocks.length > 1 && (
+                    <IconButton size="small" color="error" onClick={() => removeBlock(i)}><DeleteIcon fontSize="small" /></IconButton>
+                  )}
+                  <Typography variant="caption" sx={{ ml: 'auto', color: ORANGE, fontWeight: 700 }}>
+                    {cbmOf(b).toFixed(4)} CBM
+                  </Typography>
+                </Box>
+                <Grid container spacing={1.5}>
+                  {(['largo', 'ancho', 'alto'] as const).map(field => (
+                    <Grid size={{ xs: 6, sm: 3 }} key={field}>
+                      <TextField label={`${field.charAt(0).toUpperCase() + field.slice(1)} (cm)`} size="small" fullWidth
+                        type="number" value={b[field]} onChange={e => updateBlock(i, field, e.target.value)} />
+                    </Grid>
+                  ))}
+                  <Grid size={{ xs: 6, sm: 3 }}>
+                    <TextField label="Cantidad" size="small" fullWidth type="number"
+                      value={b.cantidad} onChange={e => updateBlock(i, 'cantidad', e.target.value)} />
+                  </Grid>
+                </Grid>
+              </Paper>
+            ))}
+            <Button size="small" startIcon={<AddIcon />} onClick={addBlock} sx={{ mb: 2, color: ORANGE }}>
+              Agregar bloque
+            </Button>
+          </>
+        )}
         <Divider sx={{ mb: 3 }} /></>
         )}
 
