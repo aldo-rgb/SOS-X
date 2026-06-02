@@ -2186,7 +2186,7 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
     const ticketRes = await pool.query(
       `INSERT INTO support_tickets
          (ticket_folio, user_id, category, subject, status, creator_type, department_id, assigned_to, priority)
-       VALUES ($1, $2, 'quote_request', $3, 'escalated_human', 'advisor', $4, $5, 'normal')
+       VALUES ($1, $2, 'quote', $3, 'escalated_human', 'advisor', $4, $5, 'normal')
        RETURNING id, ticket_folio`,
       [folio, numClientId > 0 ? numClientId : null, `Solicitud cotización — ${client.full_name}`, departmentId, advisorId]
     );
