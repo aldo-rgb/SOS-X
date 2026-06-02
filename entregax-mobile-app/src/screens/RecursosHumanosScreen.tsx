@@ -58,7 +58,7 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.get('/users', { headers: { Authorization: `Bearer ${token}` } });
+      const res = await api.get('/api/users', { headers: { Authorization: `Bearer ${token}` } });
       setUsers(res.data.users || []);
     } catch {
       Alert.alert('Error', 'No se pudo cargar la lista de empleados');
@@ -84,7 +84,7 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
     }
     setSaving(true);
     try {
-      await api.post('/auth/register', {
+      await api.post('/api/auth/register', {
         fullName: form.full_name.trim(),
         email: form.email.trim().toLowerCase(),
         password: form.password,
