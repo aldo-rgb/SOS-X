@@ -68,6 +68,11 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
   const [selectedAddressId, setSelectedAddressId] = useState<number | null>(null);
   const [customDestination, setCustomDestination] = useState('');
 
+  // Servicio
+  const [servicio, setServicio] = useState<'maritimo' | 'aereo'>('maritimo');
+  const [maritimoTipo, setMaritimoTipo] = useState<'lcl' | 'fcl'>('lcl');
+  const [pesoKg, setPesoKg] = useState('');
+
   // Cajas
   const [blocks, setBlocks] = useState<BoxBlock[]>([emptyBlock()]);
 
@@ -141,16 +146,22 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
       ? addresses.find(a => a.id === selectedAddressId)?.full_address || ''
       : customDestination.trim();
     if (!destination) { setError('Indica la dirección destino'); return; }
-    if (totalCBM <= 0) { setError('Ingresa al menos un bloque de cajas con dimensiones'); return; }
+    const needsBoxes = servicio === 'maritimo' && maritimoTipo === 'lcl';
+    const needsWeight = servicio === 'aereo';
+    if (needsBoxes && totalCBM <= 0) { setError('Ingresa al menos un bloque de cajas con dimensiones'); return; }
+    if (needsWeight && !pesoKg.trim()) { setError('Ingresa el peso en kg'); return; }
 
     setSaving(true);
     try {
       const fd = new FormData();
       fd.append('client_id', String(selectedClient.id));
+      fd.append('servicio', servicio);
+      fd.append('maritimo_tipo', servicio === 'maritimo' ? maritimoTipo : '');
       fd.append('destination_address', destination);
-      fd.append('box_blocks', JSON.stringify(blocks));
-      fd.append('total_cbm', totalCBM.toFixed(4));
-      fd.append('total_pieces', String(totalPcs));
+      fd.append('box_blocks', needsBoxes ? JSON.stringify(blocks) : '[]');
+      fd.append('total_cbm', needsBoxes ? totalCBM.toFixed(4) : '0');
+      fd.append('total_pieces', needsBoxes ? String(totalPcs) : '0');
+      fd.append('peso_kg', needsWeight ? pesoKg : '');
       fd.append('product_description', productDescription);
       fd.append('has_brand', String(hasBrand));
       fd.append('has_brand_letter', hasBrand ? String(hasBrandLetter) : 'false');
@@ -173,6 +184,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
   const handleClose = () => {
     setError(''); setSelectedClient(null); setAddresses([]);
     setSelectedAddressId(null); setCustomDestination(''); setBlocks([emptyBlock()]);
+    setServicio('maritimo'); setMaritimoTipo('lcl'); setPesoKg('');
     setProductDescription(''); setHasBrand(false); setHasBrandLetter(false);
     setOriginAddress(''); setMerchandiseValue(''); setImages([]); setDocs([]);
     onClose();
@@ -192,9 +204,45 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
       <DialogContent dividers sx={{ p: 3 }}>
         {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
 
+        {/* TIPO DE SERVICIO */}
+        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
+          1. Tipo de Servicio
+        </Typography>
+        <Box sx={{ display: 'flex', gap: 2, mb: 2 }}>
+          {([['maritimo', '🚢 Marítimo'], ['aereo', '✈️ Aéreo']] as const).map(([val, label]) => (
+            <Box key={val} onClick={() => setServicio(val)}
+              sx={{ flex: 1, border: 2, borderColor: servicio === val ? ORANGE : '#e0e0e0', borderRadius: 2,
+                p: 2, cursor: 'pointer', bgcolor: servicio === val ? '#fff5f0' : 'white',
+                textAlign: 'center', fontWeight: 700, fontSize: 15,
+                color: servicio === val ? ORANGE : 'text.secondary', transition: 'all .15s' }}>
+              {label}
+            </Box>
+          ))}
+        </Box>
+        {servicio === 'maritimo' && (
+          <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
+            {([['lcl', '📦 LCL (carga consolidada)'], ['fcl', '🏗️ FCL (contenedor completo)']] as const).map(([val, label]) => (
+              <Box key={val} onClick={() => setMaritimoTipo(val)}
+                sx={{ flex: 1, border: 1.5, borderColor: maritimoTipo === val ? ORANGE : '#e0e0e0', borderRadius: 2,
+                  p: 1.5, cursor: 'pointer', bgcolor: maritimoTipo === val ? '#fff5f0' : 'white',
+                  textAlign: 'center', fontSize: 13, fontWeight: maritimoTipo === val ? 700 : 400,
+                  color: maritimoTipo === val ? ORANGE : 'text.secondary' }}>
+                {label}
+              </Box>
+            ))}
+          </Box>
+        )}
+        {servicio === 'aereo' && (
+          <TextField fullWidth size="small" label="Peso total (kg)" type="number"
+            value={pesoKg} onChange={e => setPesoKg(e.target.value)}
+            sx={{ mb: 3 }} InputProps={{ endAdornment: <Typography sx={{ color: 'text.secondary', ml: 1 }}>kg</Typography> }} />
+        )}
+
+        <Divider sx={{ mb: 3 }} />
+
         {/* CLIENTE */}
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
-          1. Seleccionar Cliente
+          2. Seleccionar Cliente
         </Typography>
         <Autocomplete
           options={clients}
@@ -211,9 +259,10 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
         <Divider sx={{ mb: 3 }} />
 
-        {/* CAJAS */}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-          <Typography variant="subtitle1" fontWeight={700} sx={{ color: ORANGE }}>2. Bloques de Cajas</Typography>
+        {/* CAJAS — solo LCL marítimo */}
+        {(servicio === 'maritimo' && maritimoTipo === 'lcl') && (
+        <><Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+          <Typography variant="subtitle1" fontWeight={700} sx={{ color: ORANGE }}>3. Bloques de Cajas</Typography>
           <Chip icon={<CalculateIcon />} label={`${totalCBM.toFixed(4)} CBM · ${totalPcs} pzas`}
             color="primary" size="small" sx={{ fontWeight: 700 }} />
         </Box>
@@ -245,12 +294,12 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
         <Button size="small" startIcon={<AddIcon />} onClick={addBlock} sx={{ mb: 3, color: ORANGE }}>
           Agregar bloque
         </Button>
-
-        <Divider sx={{ mb: 3 }} />
+        <Divider sx={{ mb: 3 }} /></>
+        )}
 
         {/* DIRECCIÓN DESTINO */}
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
-          3. Dirección Destino
+          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '4.' : '3.'} Dirección Destino
         </Typography>
         {addresses.length > 0 ? (
           <Box sx={{ mb: 2 }}>
@@ -287,7 +336,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
         {/* PRODUCTO */}
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
-          4. Descripción del Producto
+          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '5.' : '4.'} Descripción del Producto
         </Typography>
         <TextField fullWidth size="small" label="Descripción" multiline rows={3}
           value={productDescription} onChange={e => setProductDescription(e.target.value)}
@@ -311,7 +360,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
         {/* PROVEEDOR + VALOR */}
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
-          5. Proveedor y Valor
+          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '6.' : '5.'} Proveedor y Valor
         </Typography>
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid size={{ xs: 12, sm: 8 }}>
@@ -330,7 +379,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
         {/* ARCHIVOS */}
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
-          6. Archivos Adjuntos
+          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '7.' : '6.'} Archivos Adjuntos
         </Typography>
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, sm: 6 }}>
@@ -378,7 +427,9 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
         {/* Resumen */}
         {selectedClient && totalCBM > 0 && (
           <Alert severity="info" sx={{ mt: 3 }}>
-            <strong>{selectedClient.fullName}</strong> · {totalPcs} pzas · {totalCBM.toFixed(4)} CBM
+            <strong>{selectedClient.fullName}</strong> · {servicio === 'maritimo' ? `Marítimo ${maritimoTipo.toUpperCase()}` : 'Aéreo'}
+          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? ` · ${totalPcs} pzas · ${totalCBM.toFixed(4)} CBM` : ''}
+          {servicio === 'aereo' && pesoKg ? ` · ${pesoKg} kg` : ''}
             {merchandiseValue ? ` · $${parseFloat(merchandiseValue).toLocaleString('es-MX')} USD` : ''}
             {hasBrand ? ` · Marca registrada${hasBrandLetter ? ' + carta' : ' (sin carta)'}` : ''}
           </Alert>
