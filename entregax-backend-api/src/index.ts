@@ -10753,6 +10753,8 @@ async function ensureRequiredColumns() {
     await pool.query(`ALTER TABLE facturas_emitidas ALTER COLUMN payment_form TYPE VARCHAR(10)`);
     await pool.query(`ALTER TABLE facturas_emitidas ALTER COLUMN serie TYPE VARCHAR(50)`);
     await pool.query(`ALTER TABLE facturas_emitidas ADD COLUMN IF NOT EXISTS payment_method VARCHAR(10)`);
+    await pool.query(`ALTER TABLE syncfy_credentials ADD COLUMN IF NOT EXISTS last_sync_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE syncfy_credentials ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }

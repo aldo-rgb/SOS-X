@@ -453,10 +453,12 @@ export async function syncEmitter(emitterId: number, daysBack: number = 7): Prom
   console.log(`🏦 Syncfy: ${txs.length} tx recibidas para emitter ${emitterId} (${daysBack}d)`);
   const result = await processTransactions(emitterId, txs);
 
-  await pool.query(
-    'UPDATE syncfy_credentials SET last_sync_at=NOW() WHERE emitter_id=$1 AND is_active=TRUE',
-    [emitterId]
-  );
+  try {
+    await pool.query(
+      'UPDATE syncfy_credentials SET last_sync_at=NOW() WHERE emitter_id=$1 AND is_active=TRUE',
+      [emitterId]
+    );
+  } catch { /* columna puede no existir en instancias antiguas */ }
   return result;
 }
 
