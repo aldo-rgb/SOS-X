@@ -3618,69 +3618,61 @@ export default function DashboardAdvisor() {
                   <List disablePadding>
                     {quoteTickets.map((ticket, idx, arr) => (
                       <Box key={ticket.id}>
-                        <ListItem
-                          sx={{
-                            px: 1.5, py: 1.5, borderRadius: 2,
-                            border: '1px solid #FFE0B2', mb: 1, bgcolor: '#FFF8E1',
-                            display: 'flex', gap: 1, alignItems: 'center',
-                          }}
-                          secondaryAction={
-                            <Box sx={{ display: 'flex', gap: 0.8 }}>
-                              <Button
-                                size="small" variant="outlined"
-                                startIcon={<VisibilityIcon sx={{ fontSize: 16 }} />}
-                                sx={{ borderColor: '#FF9800', color: '#E65100', textTransform: 'none', fontWeight: 700, '&:hover': { borderColor: '#F57C00', bgcolor: '#FFF3E0' } }}
-                                onClick={() => { setSelectedAdvisorTicket(ticket); fetchTicketMessages(ticket.id); }}
-                              >
-                                Ver ticket
-                              </Button>
-                              <Button
-                                size="small" variant="contained"
-                                sx={{ bgcolor: '#FF9800', '&:hover': { bgcolor: '#F57C00' }, textTransform: 'none', fontWeight: 700 }}
-                                onClick={() => openFormalQuoteDialog(ticket)}
-                              >
-                                Cotizar
-                              </Button>
-                              <Button
-                                size="small" variant="outlined"
-                                sx={{ borderColor: '#9E9E9E', color: '#616161', textTransform: 'none', fontWeight: 700, '&:hover': { borderColor: '#616161', bgcolor: '#F5F5F5' } }}
-                                onClick={async () => {
-                                  if (!window.confirm(`¿Archivar ticket ${ticket.ticket_folio}? Se marcará como resuelto y desaparecerá de Pendientes.`)) return;
-                                  try {
-                                    await api.put(`/admin/support/ticket/${ticket.id}/resolve`);
-                                    setSnackbar({ open: true, message: 'Ticket archivado', severity: 'success' });
-                                    fetchAdvisorTickets();
-                                  } catch (e: any) {
-                                    setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo archivar', severity: 'error' });
-                                  }
-                                }}
-                              >
-                                Archivar
-                              </Button>
-                            </Box>
-                          }
-                        >
-                          <Avatar
-                            sx={{ bgcolor: alpha('#FF9800', 0.15), color: '#FF9800', mr: 1, width: 40, height: 40, cursor: 'pointer' }}
-                            onClick={() => { setSelectedAdvisorTicket(ticket); fetchTicketMessages(ticket.id); }}
-                          >
-                            <QuoteIcon fontSize="small" />
-                          </Avatar>
-                          <Box sx={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => { setSelectedAdvisorTicket(ticket); fetchTicketMessages(ticket.id); }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.3, flexWrap: 'wrap' }}>
-                              <Typography variant="subtitle2" fontWeight={700} noWrap sx={{ maxWidth: 220 }}>
-                                {ticket.subject || 'Cotización formal'}
+                        <Box sx={{
+                          px: 1.5, py: 1.5, borderRadius: 2,
+                          border: '1px solid #FFE0B2', mb: 1, bgcolor: '#FFF8E1',
+                          display: 'flex', flexDirection: 'column', gap: 1,
+                        }}>
+                          {/* Info row */}
+                          <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start', cursor: 'pointer' }}
+                            onClick={() => { setSelectedAdvisorTicket(ticket); fetchTicketMessages(ticket.id); }}>
+                            <Avatar sx={{ bgcolor: alpha('#FF9800', 0.15), color: '#FF9800', width: 36, height: 36, flexShrink: 0 }}>
+                              <QuoteIcon fontSize="small" />
+                            </Avatar>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.3 }}>
+                                <Typography variant="subtitle2" fontWeight={700} sx={{ wordBreak: 'break-word' }}>
+                                  {ticket.subject || 'Cotización formal'}
+                                </Typography>
+                                {getTicketStatusLabel(ticket.status)}
+                              </Box>
+                              <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, color: '#5D4037' }}>
+                                {ticket.client_name || 'Cliente'}{ticket.client_box_id ? ` · Box ${ticket.client_box_id}` : ''}
                               </Typography>
-                              {getTicketStatusLabel(ticket.status)}
+                              <Typography variant="caption" color="text.secondary">
+                                {ticket.ticket_folio} · {formatDate(ticket.created_at)}
+                              </Typography>
                             </Box>
-                            <Typography variant="caption" sx={{ display: 'block', fontWeight: 600, color: '#5D4037' }}>
-                              {ticket.client_name || 'Cliente'}{ticket.client_box_id ? ` · Box ${ticket.client_box_id}` : ''}
-                            </Typography>
-                            <Typography variant="caption" color="text.secondary">
-                              {ticket.ticket_folio} · {formatDate(ticket.created_at)}
-                            </Typography>
                           </Box>
-                        </ListItem>
+                          {/* Botones en fila responsiva */}
+                          <Box sx={{ display: 'flex', gap: 0.8, flexWrap: 'wrap' }}>
+                            <Button size="small" variant="outlined"
+                              startIcon={<VisibilityIcon sx={{ fontSize: 14 }} />}
+                              sx={{ borderColor: '#FF9800', color: '#E65100', textTransform: 'none', fontWeight: 700, fontSize: 12, flex: '1 1 auto', '&:hover': { bgcolor: '#FFF3E0' } }}
+                              onClick={() => { setSelectedAdvisorTicket(ticket); fetchTicketMessages(ticket.id); }}>
+                              Ver ticket
+                            </Button>
+                            <Button size="small" variant="contained"
+                              sx={{ bgcolor: '#FF9800', '&:hover': { bgcolor: '#F57C00' }, textTransform: 'none', fontWeight: 700, fontSize: 12, flex: '1 1 auto' }}
+                              onClick={() => openFormalQuoteDialog(ticket)}>
+                              Cotizar
+                            </Button>
+                            <Button size="small" variant="outlined"
+                              sx={{ borderColor: '#9E9E9E', color: '#616161', textTransform: 'none', fontWeight: 700, fontSize: 12, flex: '1 1 auto', '&:hover': { bgcolor: '#F5F5F5' } }}
+                              onClick={async () => {
+                                if (!window.confirm(`¿Archivar ticket ${ticket.ticket_folio}?`)) return;
+                                try {
+                                  await api.put(`/admin/support/ticket/${ticket.id}/resolve`);
+                                  setSnackbar({ open: true, message: 'Ticket archivado', severity: 'success' });
+                                  fetchAdvisorTickets();
+                                } catch (e: any) {
+                                  setSnackbar({ open: true, message: e?.response?.data?.error || 'No se pudo archivar', severity: 'error' });
+                                }
+                              }}>
+                              Archivar
+                            </Button>
+                          </Box>
+                        </Box>
                         {idx < arr.length - 1 && <Divider sx={{ my: 0.5 }} />}
                       </Box>
                     ))}
