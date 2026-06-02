@@ -14,6 +14,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  Linking,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -410,7 +411,7 @@ export default function SupportTicketsScreen({ navigation, route }: any) {
           {attachUrls.map((url, i) => {
             const isPdf = url.toLowerCase().includes('.pdf') || url.toLowerCase().includes('pdf');
             return isPdf ? (
-              <TouchableOpacity key={i} style={styles.attachPdf} onPress={() => Alert.alert('PDF', url)}>
+              <TouchableOpacity key={i} style={styles.attachPdf} onPress={() => Linking.openURL(url).catch(() => Alert.alert('Error', 'No se pudo abrir el archivo'))}>
                 <Ionicons name="document-outline" size={16} color="#E91E63" />
                 <Text style={styles.attachPdfText}>Ver PDF</Text>
               </TouchableOpacity>
