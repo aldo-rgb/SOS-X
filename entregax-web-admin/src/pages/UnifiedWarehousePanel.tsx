@@ -694,9 +694,14 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                     <Typography variant="overline" color="text.secondary">
                       Carrier proveedor
                     </Typography>
-                    <Typography variant="body1">
-                      {m.trackingProvider || m.trackingCourier || '—'}
+                    <Typography variant="body1" fontWeight={m.originCarrier ? 700 : 400}>
+                      {m.originCarrier || '—'}
                     </Typography>
+                    {(m.trackingProvider || m.trackingCourier) && (
+                      <Typography variant="caption" color="text.secondary" sx={{ wordBreak: 'break-all' }}>
+                        {m.trackingProvider || m.trackingCourier}
+                      </Typography>
+                    )}
                   </Box>
                 </Stack>
               </Grid>

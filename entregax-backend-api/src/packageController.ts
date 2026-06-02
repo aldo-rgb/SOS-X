@@ -1019,6 +1019,7 @@ export const getUnassignedPackages = async (_req: Request, res: Response): Promi
             LEFT JOIN legacy_clients lc
                 ON p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             WHERE p.user_id IS NULL
+                AND (p.box_id IS NULL OR p.box_id = '')
                 AND (p.is_master = true OR p.master_id IS NULL)
                 AND (
                     p.service_type = 'POBOX_USA'
@@ -1748,6 +1749,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
             success: true,
             shipment: {
                 master: { id: pkg.id, tracking: pkg.tracking_internal, trackingProvider: pkg.tracking_provider,
+                    originCarrier: pkg.origin_carrier || null,
                     trackingCourier: pkg.tracking_provider, // Para PO Box, tracking del courier está en tracking_provider
                     description: pkg.description, weight: pkg.weight ? parseFloat(pkg.weight) : null,
                     declaredValue: pkg.declared_value ? parseFloat(pkg.declared_value) : null,

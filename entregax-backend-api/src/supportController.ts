@@ -2156,13 +2156,21 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
     let blocks: any[] = [];
     try { blocks = JSON.parse(box_blocks || '[]'); } catch {}
 
+    const servicioLabel = servicio === 'aereo' ? '✈️ Aéreo' : '🚢 Marítimo';
+    const maritimoLabel = servicio === 'maritimo'
+      ? (maritimo_tipo === 'lcl' ? ' · LCL' : maritimo_tipo === 'fcl40hq' ? ' · FCL 40 HQ' : ' · FCL 40')
+      : '';
+
     const bodyLines = [
       `📦 SOLICITUD DE COTIZACIÓN — ASESOR: ${advisor?.full_name || advisorId}`,
+      `\n📡 Servicio: ${servicioLabel}${maritimoLabel}`,
+      servicio === 'aereo' && peso_kg ? `\n⚖️ Peso: ${peso_kg} kg` : '',
       `\n👤 Cliente: ${client.full_name} (${client.box_id || 'sin Box ID'})`,
-      `\n📐 CBM Total: ${parseFloat(total_cbm || 0).toFixed(4)} CBM · ${total_pieces || 0} pzas`,
+      servicio === 'maritimo' ? `\n📐 CBM Total: ${parseFloat(total_cbm || 0).toFixed(4)} CBM · ${total_pieces || 0} pzas` : '',
       blocks.length > 0 ? `\nBloques:\n${blocks.map((b: any, i: number) => `  ${i + 1}. ${b.largo}×${b.ancho}×${b.alto} cm · qty ${b.cantidad}`).join('\n')}` : '',
       `\n📍 Destino: ${destination_address || '—'}`,
       `\n🏭 Origen proveedor: ${origin_address || '—'}`,
+      con_recoleccion === 'true' ? '\n🚚 Con recolección' : '\n🚚 Sin recolección (entrega en bodega)',
       `\n🔖 Producto: ${product_description}`,
       `\n🏷️ Marca registrada: ${has_brand === 'true' ? (has_brand_letter === 'true' ? 'Sí (con carta de uso)' : 'Sí (sin carta de uso)') : 'No'}`,
       merchandise_value_usd ? `\n💵 Valor mercancía: $${parseFloat(merchandise_value_usd).toLocaleString('es-MX')} USD` : '',
@@ -2210,8 +2218,8 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
     // Primer mensaje del ticket
     try {
       await pool.query(
-        `INSERT INTO support_messages (ticket_id, sender_id, sender_type, content)
-         VALUES ($1, $2, 'advisor', $3)`,
+        `INSERT INTO ticket_messages (ticket_id, sender_id, sender_type, message)
+         VALUES ($1, $2, 'agent', $3)`,
         [ticketId, advisorId, bodyLines]
       );
     } catch (e) { console.warn('No se pudo insertar mensaje:', e); }

@@ -137,10 +137,11 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         AND p.status IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
     `, [advisorId]);
 
-    // Guías sin cliente: user_id IS NULL (sin importar box_id)
+    // Guías sin cliente: user_id IS NULL y sin casillero asignado (box_id vacío)
     const unidentifiedRes = await pool.query(`
       SELECT COUNT(*) as total FROM packages p
       WHERE p.user_id IS NULL
+        AND (p.box_id IS NULL OR p.box_id = '')
         AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
         AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
         AND (p.is_master = true OR p.master_id IS NULL)
@@ -430,6 +431,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
           COALESCE(p.carrier, '') AS carrier_name
         FROM packages p
         WHERE p.user_id IS NULL
+          AND (p.box_id IS NULL OR p.box_id = '')
           AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
           AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
@@ -439,6 +441,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       const countSQL = `
         SELECT COUNT(*) AS total FROM packages p
         WHERE p.user_id IS NULL
+          AND (p.box_id IS NULL OR p.box_id = '')
           AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
           AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
@@ -1838,6 +1841,7 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
         `SELECT p.id,
                 p.tracking_internal,
                 p.tracking_provider,
+                p.origin_carrier,
                 p.description,
                 COALESCE(p.weight, 0) AS weight,
                 COALESCE(p.pkg_length, p.long_cm, 0) AS length_cm,
@@ -1852,7 +1856,6 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
                 COALESCE(p.assigned_cost_mxn, 0) AS assigned_cost_mxn,
                 COALESCE(p.saldo_pendiente, 0) AS saldo_pendiente,
                 COALESCE(p.monto_pagado, 0) AS monto_pagado,
-                p.carrier AS origin_carrier,
                 p.created_at,
                 u.full_name AS client_name,
                 u.box_id AS client_box_id
@@ -1863,17 +1866,46 @@ export const getAdvisorShipmentDetail = async (req: Request, res: Response): Pro
       );
       if (r.rows.length === 0) return res.status(404).json({ error: 'Paquete no encontrado' });
       const p = r.rows[0];
+
+      // Heredar tracking_provider, origin_carrier e image_url del primer hijo si el master no los tiene
+      let effectiveTrackingProvider = p.tracking_provider || null;
+      let effectiveOriginCarrier = p.origin_carrier || null;
+      let effectiveImageUrl = p.image_url || null;
+      if (p.is_master && (!effectiveTrackingProvider || !effectiveOriginCarrier || !effectiveImageUrl)) {
+        try {
+          const ch = await pool.query(
+            `SELECT tracking_provider, origin_carrier, image_url
+             FROM packages
+             WHERE master_id = $1
+               AND (tracking_provider IS NOT NULL OR origin_carrier IS NOT NULL OR image_url IS NOT NULL)
+             ORDER BY box_number ASC LIMIT 1`,
+            [id]
+          );
+          if (ch.rows.length > 0) {
+            if (!effectiveTrackingProvider) effectiveTrackingProvider = ch.rows[0].tracking_provider || null;
+            if (!effectiveOriginCarrier) effectiveOriginCarrier = ch.rows[0].origin_carrier || null;
+            if (!effectiveImageUrl) effectiveImageUrl = ch.rows[0].image_url || null;
+          }
+        } catch { /* sin hijas — silencioso */ }
+      }
+      if (effectiveImageUrl) {
+        try {
+          const { signS3UrlIfNeeded } = await import('./s3Service');
+          effectiveImageUrl = await signS3UrlIfNeeded(effectiveImageUrl);
+        } catch { /* S3 no configurado */ }
+      }
+
       row = {
         uid: uidParam, id, service_type: p.service_type || 'POBOX_USA',
         tracking_internal: p.tracking_internal || null,
-        tracking_provider: p.tracking_provider || null,
-        origin_carrier: p.origin_carrier || null,
+        tracking_provider: effectiveTrackingProvider,
+        origin_carrier: effectiveOriginCarrier,
         description: p.description || null,
         weight: parseFloat(p.weight) || null,
         length_cm: parseFloat(p.length_cm) || null,
         width_cm: parseFloat(p.width_cm) || null,
         height_cm: parseFloat(p.height_cm) || null,
-        image_url: p.image_url || null,
+        image_url: effectiveImageUrl,
         status: p.status,
         warehouse_location: p.warehouse_location || null,
         is_master: p.is_master,

@@ -1527,11 +1527,11 @@ export default function DashboardAdvisor() {
                       }}
                     >
                       <Avatar sx={{ bgcolor: '#9C27B0', width: 36, height: 36, fontSize: '0.85rem' }}>
-                        {(c.full_name || c.name || '?')[0].toUpperCase()}
+                        {(c.fullName || c.full_name || c.name || '?')[0].toUpperCase()}
                       </Avatar>
                       <Box sx={{ flex: 1, minWidth: 0 }}>
-                        <Typography variant="body2" fontWeight={600} noWrap>{c.full_name || c.name}</Typography>
-                        <Typography variant="caption" color="text.secondary">Box: {c.box_id} · {c.email}</Typography>
+                        <Typography variant="body2" fontWeight={600} noWrap>{c.fullName || c.full_name || c.name}</Typography>
+                        <Typography variant="caption" color="text.secondary">Box: {c.boxId || c.box_id} · {c.email}</Typography>
                       </Box>
                     </Box>
                   ))}
