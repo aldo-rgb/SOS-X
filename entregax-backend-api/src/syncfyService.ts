@@ -222,7 +222,22 @@ export async function fetchTransactionsRemote(idUser: string, daysBack: number):
   const sessionToken = await createSessionToken(idUser);
   const client = getSessionClient(sessionToken);
 
-  // Diagnóstico: revisar cuentas disponibles primero
+  // Diagnóstico: revisar estado de credenciales (job status)
+  try {
+    const appClient = getAppClient();
+    const credResp = await appClient.get(`${SYNCFY_PATHS.credentials}?id_user=${encodeURIComponent(idUser)}`);
+    const creds = credResp.data?.response || credResp.data || [];
+    console.warn(`[Syncfy] credentials: count=${Array.isArray(creds) ? creds.length : 'N/A'}`);
+    if (Array.isArray(creds)) {
+      creds.forEach((c: any) => {
+        console.warn(`[Syncfy] credential id=${c.id_credential} site=${c.site?.name || c.id_site} status=${c.code} dt_refresh=${c.dt_refresh} next_refresh=${c.dt_next_refresh}`);
+      });
+    }
+  } catch (ce: any) {
+    console.warn(`[Syncfy] credentials check ERROR: ${ce.response?.status} ${String(ce.message).slice(0, 100)}`);
+  }
+
+  // Diagnóstico: revisar cuentas disponibles
   try {
     const acctResp = await client.get(`${SYNCFY_PATHS.accounts}?id_user=${encodeURIComponent(idUser)}`);
     const accounts = acctResp.data?.response || acctResp.data || [];
