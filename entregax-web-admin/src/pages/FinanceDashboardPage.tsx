@@ -488,16 +488,21 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         // calcular saldo acumulado de más antiguo a más reciente.
         const allSaldoZero = mapped.every((r: EstadoCuentaRow) => !r.saldo || r.saldo === 0);
         if (allSaldoZero && mapped.length > 0) {
-          const asc = [...mapped].sort((a: EstadoCuentaRow, b: EstadoCuentaRow) => {
-            const parse = (f: string) => { const [d, m, y] = f.split('-'); return `${y}${m}${d}`; };
-            const cmp = parse(a.fecha).localeCompare(parse(b.fecha));
-            return cmp !== 0 ? cmp : (a.seq ?? 0) - (b.seq ?? 0);
-          });
+          // Ordenar DESC (igual que el display: más reciente arriba)
+          const desc = sortRowsDesc([...mapped]);
+          // Calcular de abajo (más antiguo) hacia arriba (más reciente):
+          // cada fila obtiene el saldo acumulado hasta ese punto en el tiempo.
+          // La fila de arriba (más reciente) tendrá siempre el total neto.
           let running = 0;
-          asc.forEach((r: EstadoCuentaRow) => {
-            running += (r.abono || 0) - (r.cargo || 0);
-            r.saldo = running;
-          });
+          for (let i = desc.length - 1; i >= 0; i--) {
+            running += (desc[i].abono || 0) - (desc[i].cargo || 0);
+            desc[i].saldo = running;
+          }
+          setEstadoCuentaRows(desc);
+          setSavedEntriesCount(desc.length);
+          setSnackbar({ open: true, message: `📋 ${desc.length} movimientos cargados desde la base de datos`, severity: 'success' });
+          setLoadingSavedEntries(false);
+          return;
         }
 
         setEstadoCuentaRows(sortRowsDesc(mapped));
