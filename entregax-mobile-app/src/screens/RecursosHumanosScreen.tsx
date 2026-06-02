@@ -49,6 +49,7 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
   const [users, setUsers] = useState<UserHR[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<UserHR | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
 
@@ -75,13 +76,17 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
 
   useEffect(() => { loadUsers(); }, [loadUsers]);
 
-  const filtered = users.filter(u =>
-    !search ||
-    u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-    u.email?.toLowerCase().includes(search.toLowerCase()) ||
-    u.box_id?.toLowerCase().includes(search.toLowerCase()) ||
-    u.role?.toLowerCase().includes(search.toLowerCase())
-  );
+  const rolesPresentes = Array.from(new Set(users.map(u => u.role))).sort();
+
+  const filtered = users.filter(u => {
+    const matchSearch = !search ||
+      u.full_name?.toLowerCase().includes(search.toLowerCase()) ||
+      u.email?.toLowerCase().includes(search.toLowerCase()) ||
+      u.box_id?.toLowerCase().includes(search.toLowerCase()) ||
+      u.role?.toLowerCase().includes(search.toLowerCase());
+    const matchRole = !roleFilter || u.role === roleFilter;
+    return matchSearch && matchRole;
+  });
 
   const handleCreateUser = async () => {
     if (!form.full_name.trim() || !form.email.trim() || !form.password.trim()) {
@@ -174,6 +179,27 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
               </TouchableOpacity>
             ) : null}
           </View>
+
+          {/* Chips de filtro por rol */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ maxHeight: 44, paddingHorizontal: 12, marginBottom: 4 }} contentContainerStyle={{ alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity
+              onPress={() => setRoleFilter(null)}
+              style={[styles.chip, !roleFilter && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, !roleFilter && styles.chipTextActive]}>Todos</Text>
+            </TouchableOpacity>
+            {rolesPresentes.map(role => (
+              <TouchableOpacity
+                key={role}
+                onPress={() => setRoleFilter(roleFilter === role ? null : role)}
+                style={[styles.chip, roleFilter === role && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, roleFilter === role && styles.chipTextActive]}>
+                  {ROLE_LABELS[role] || role}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
 
           {loading ? (
             <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 40 }} />
@@ -399,4 +425,8 @@ const styles = StyleSheet.create({
   roleItem: { padding: 16, borderRadius: 10, marginBottom: 4, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   roleItemActive: { backgroundColor: '#fff5f0' },
   roleItemText: { fontSize: 15, color: BLACK },
+  chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: '#f0f0f0', borderWidth: 1, borderColor: '#e0e0e0' },
+  chipActive: { backgroundColor: ORANGE, borderColor: ORANGE },
+  chipText: { fontSize: 12, color: '#555', fontWeight: '500' },
+  chipTextActive: { color: 'white', fontWeight: '700' },
 });
