@@ -1960,16 +1960,6 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   >
                     {syncfySyncing ? 'Sincronizando...' : 'Sincronizar'}
                   </Button>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    color="success"
-                    onClick={handleOpenSyncfyWidget}
-                    startIcon={<AccountBalance sx={{ fontSize: 14 }} />}
-                    sx={{ ml: 1 }}
-                  >
-                    Gestionar Banco
-                  </Button>
                 </Box>
               </Alert>
             ) : empresaFiltrada?.belvo_connected ? (
