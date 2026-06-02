@@ -85,6 +85,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
   // Proveedor
   const [originAddress, setOriginAddress] = useState('');
+  const [conRecoleccion, setConRecoleccion] = useState(false);
 
   // Valor
   const [merchandiseValue, setMerchandiseValue] = useState('');
@@ -169,6 +170,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
       fd.append('has_brand', String(hasBrand));
       fd.append('has_brand_letter', hasBrand ? String(hasBrandLetter) : 'false');
       fd.append('origin_address', originAddress);
+      fd.append('con_recoleccion', String(conRecoleccion));
       fd.append('merchandise_value_usd', merchandiseValue);
 
       for (const img of images) fd.append('photos', img);
@@ -231,6 +233,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
       <h2>Proveedor y Valor</h2>
       <table>
         <tr><td>Origen proveedor</td><td>${originAddress || '—'}</td></tr>
+        <tr><td>Recolección en origen</td><td>${conRecoleccion ? '✅ Con recolección' : '❌ Sin recolección'}</td></tr>
         <tr><td>Valor mercancía</td><td>${merchandiseValue ? `$${parseFloat(merchandiseValue).toLocaleString('es-MX', { minimumFractionDigits: 2 })} USD` : '—'}</td></tr>
       </table>
 
@@ -252,7 +255,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
     setServicio('maritimo'); setMaritimoTipo('lcl'); setPesoKg('');
     setCbmDirecto(''); setShowBlocks(false);
     setProductDescription(''); setHasBrand(false); setHasBrandLetter(false);
-    setOriginAddress(''); setMerchandiseValue(''); setImages([]); setDocs([]);
+    setOriginAddress(''); setMerchandiseValue(''); setConRecoleccion(false); setImages([]); setDocs([]);
     onClose();
   };
 
@@ -517,7 +520,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
           {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '6.' : (servicio === 'aereo' ? '6.' : '5.')} Proveedor y Valor
         </Typography>
-        <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid container spacing={2} sx={{ mb: 1.5 }}>
           <Grid size={{ xs: 12, sm: 8 }}>
             <TextField fullWidth size="small" label="Dirección del proveedor (origen)"
               value={originAddress} onChange={e => setOriginAddress(e.target.value)}
@@ -529,6 +532,18 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
               InputProps={{ startAdornment: <Typography sx={{ mr: 0.5, color: 'text.secondary' }}>$</Typography> }} />
           </Grid>
         </Grid>
+        <FormControlLabel
+          control={<Switch checked={conRecoleccion} onChange={e => setConRecoleccion(e.target.checked)} />}
+          label={
+            <Box>
+              <Typography variant="body2" fontWeight={600}>Con recolección en origen</Typography>
+              <Typography variant="caption" color="text.secondary">
+                {conRecoleccion ? 'El proveedor necesita que vayamos a recoger la mercancía.' : 'El proveedor lleva la mercancía al almacén/consolidado.'}
+              </Typography>
+            </Box>
+          }
+          sx={{ mb: 3, alignItems: 'flex-start', mt: 0.5 }}
+        />
 
         <Divider sx={{ mb: 3 }} />
 
