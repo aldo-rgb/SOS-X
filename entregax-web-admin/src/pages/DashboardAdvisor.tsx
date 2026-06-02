@@ -5461,7 +5461,6 @@ export default function DashboardAdvisor() {
           setSnackbar({ open: true, message: '✅ Solicitud enviada. El equipo la revisará pronto.', severity: 'success' });
           fetchAdvisorTickets();
         }}
-        advisorToken={localStorage.getItem('token') || ''}
       />
     </Box>
   );

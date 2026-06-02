@@ -3,7 +3,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, TextField, Typography, Box, Grid, IconButton,
   Divider, CircularProgress, Autocomplete, Chip,
-  FormControlLabel, Switch, Alert, Tooltip, Select,
+  FormControlLabel, Switch, Alert, Select,
   MenuItem, FormControl, InputLabel, Paper
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
@@ -41,7 +41,6 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onSuccess: () => void;
-  advisorToken: string;
 }
 
 const emptyBlock = (): BoxBlock => ({ largo: '', ancho: '', alto: '', cantidad: '1' });
@@ -54,8 +53,7 @@ const cbmOf = (b: BoxBlock) => {
   return (l * a * h) / 1_000_000 * q;
 };
 
-export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess, advisorToken }: Props) {
-  const [step, setStep] = useState(0);
+export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
