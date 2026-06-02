@@ -372,14 +372,14 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
               </View>
 
               {/* Tabs */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: 'white', maxHeight: 46 }} contentContainerStyle={{ paddingHorizontal: 12 }}>
+              <View style={{ backgroundColor: 'white', flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: '#eee' }}>
                 {['Expediente', 'Nómina', 'Préstamos', 'Asistencias'].map((t, i) => (
                   <TouchableOpacity key={t} onPress={() => setDetailTab(i)}
-                    style={[styles.detailTabBtn, detailTab === i && styles.detailTabBtnActive]}>
-                    <Text style={[styles.detailTabText, detailTab === i && styles.detailTabTextActive]}>{t}</Text>
+                    style={[styles.detailTabBtn, { flex: 1 }, detailTab === i && styles.detailTabBtnActive]}>
+                    <Text style={[styles.detailTabText, detailTab === i && styles.detailTabTextActive]} numberOfLines={1}>{t}</Text>
                   </TouchableOpacity>
                 ))}
-              </ScrollView>
+              </View>
 
               <ScrollView contentContainerStyle={{ padding: 16 }}>
                 {/* ── EXPEDIENTE DIGITAL ── */}
@@ -400,36 +400,25 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
                       </View>
                     ))}
 
-                    <Text style={styles.sectionSubtitle}>Documentos</Text>
-                    {[
-                      { type: 'ine_front', label: 'INE — Anverso' },
-                      { type: 'ine_back', label: 'INE — Reverso' },
-                      { type: 'contract', label: 'Contrato Laboral' },
-                      { type: 'comprobante_domicilio', label: 'Comprobante Domicilio' },
-                      { type: 'rfc', label: 'RFC / Constancia Fiscal' },
-                      { type: 'curp', label: 'CURP' },
-                      { type: 'nss_constancia', label: 'Constancia NSS' },
-                      { type: 'aviso_alta_imss', label: 'Aviso Alta IMSS' },
-                    ].map(doc => {
-                      const found = profile?.documents?.find((d: any) => d.doc_type === doc.type);
-                      return (
-                        <View key={doc.type} style={styles.docRow}>
-                          <Ionicons name={found ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={found ? '#16a34a' : '#d1d5db'} />
-                          <Text style={[styles.docLabel, { color: found ? BLACK : '#9ca3af' }]}>{doc.label}</Text>
-                          {found && <Text style={styles.docDate}>{fmtDate(found.uploaded_at)}</Text>}
-                          {!found && <Text style={[styles.docDate, { color: '#ef4444' }]}>Sin archivo</Text>}
+                    <Text style={styles.sectionSubtitle}>Finanzas</Text>
+                    {(() => {
+                      const salario = profile?.payroll?.salario_bruto
+                        ? `$${parseFloat(profile.payroll.salario_bruto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                        : '—';
+                      const prestamo = profile?.loans?.find((l: any) => l.status === 'activo');
+                      const prestamoVal = prestamo
+                        ? `$${parseFloat(prestamo.monto_total).toLocaleString('es-MX', { minimumFractionDigits: 2 })} (rem: $${parseFloat(prestamo.remanente || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })})`
+                        : 'Sin préstamo activo';
+                      return [
+                        { label: 'Salario Mensual', value: salario },
+                        { label: 'Préstamo', value: prestamoVal },
+                      ].map(({ label, value }) => (
+                        <View key={label} style={styles.detailRow}>
+                          <Text style={styles.detailLabel}>{label}</Text>
+                          <Text style={styles.detailValue}>{value}</Text>
                         </View>
-                      );
-                    })}
-
-                    {profile?.expediente_faltantes?.length > 0 && (
-                      <View style={styles.alertBox}>
-                        <Text style={styles.alertTitle}>Faltantes:</Text>
-                        {profile.expediente_faltantes.map((f: string) => (
-                          <Text key={f} style={styles.alertItem}>• {f}</Text>
-                        ))}
-                      </View>
-                    )}
+                      ));
+                    })()}
                   </View>
                 )}
 
