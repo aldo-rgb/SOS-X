@@ -519,13 +519,19 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
         </View>
       </Modal>
 
-      {/* ─── Modal: Nueva Dirección ─── */}
-      <Modal visible={showNewAddrForm} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowNewAddrForm(false)}>
+      {/* ─── Formulario Nueva Dirección (inline en addrModal para evitar modales anidados) ─── */}
+      {addrModal && showNewAddrForm && (
+        <Modal visible={true} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowNewAddrForm(false)}>
         <View style={styles.modalContainer}>
           <View style={[styles.modalHeader, { backgroundColor: PURPLE }]}>
-            <View>
-              <Text style={styles.modalTitle}>📍 Nueva dirección</Text>
-              <Text style={styles.modalSubtitle}>{addrClient?.full_name}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TouchableOpacity onPress={() => setShowNewAddrForm(false)} style={{ padding: 4 }}>
+                <Ionicons name="arrow-back" size={22} color="#fff" />
+              </TouchableOpacity>
+              <View>
+                <Text style={styles.modalTitle}>📍 Nueva dirección</Text>
+                <Text style={styles.modalSubtitle}>{addrClient?.full_name}</Text>
+              </View>
             </View>
             <TouchableOpacity onPress={() => setShowNewAddrForm(false)} style={styles.modalClose}>
               <Ionicons name="close" size={24} color="#fff" />
@@ -682,7 +688,8 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
             </View>
           </ScrollView>
         </View>
-      </Modal>
+        </Modal>
+      )}
     </View>
   );
 }
