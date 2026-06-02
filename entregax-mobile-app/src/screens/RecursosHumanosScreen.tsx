@@ -15,13 +15,17 @@ const ROLES = [
   { value: 'warehouse_ops', label: 'Bodega' },
   { value: 'repartidor', label: 'Repartidor' },
   { value: 'customer_service', label: 'Servicio al Cliente' },
-  { value: 'branch_manager', label: 'Gerente de Sucursal' },
+  { value: 'branch_manager', label: 'Operaciones' },
   { value: 'operaciones', label: 'Operaciones' },
   { value: 'accountant', label: 'Contabilidad' },
   { value: 'director', label: 'Director' },
   { value: 'admin', label: 'Administrador' },
   { value: 'advisor', label: 'Asesor' },
   { value: 'monitoreo', label: 'Monitoreo' },
+  { value: 'soporte_tecnico', label: 'Soporte Técnico' },
+  { value: 'finanzas', label: 'Finanzas' },
+  { value: 'abogado', label: 'Abogado' },
+  { value: 'super_admin', label: 'Super Admin' },
 ];
 
 const ROLE_LABELS: Record<string, string> = Object.fromEntries(ROLES.map(r => [r.value, r.label]));
