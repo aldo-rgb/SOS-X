@@ -171,7 +171,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
   };
 
   const handleClose = () => {
-    setStep(0); setError(''); setSelectedClient(null); setAddresses([]);
+    setError(''); setSelectedClient(null); setAddresses([]);
     setSelectedAddressId(null); setCustomDestination(''); setBlocks([emptyBlock()]);
     setProductDescription(''); setHasBrand(false); setHasBrandLetter(false);
     setOriginAddress(''); setMerchandiseValue(''); setImages([]); setDocs([]);
