@@ -77,6 +77,7 @@ interface ShipmentMaster {
   tracking: string;
   trackingProvider?: string | null;
   trackingCourier?: string | null;
+  originCarrier?: string | null;
   description?: string | null;
   weight?: number | null;
   declaredValue?: number | null;
