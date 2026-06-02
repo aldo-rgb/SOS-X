@@ -3387,7 +3387,15 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                     )}
                   </Box>
                 );
-              })() : (
+              })() : !requiereFactura ? (
+                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(240,90,40,0.45)', borderRadius: 1.5 }}>
+                  <Typography sx={{ color: '#f97316', fontSize: '0.78rem', fontWeight: 700, mb: 0.8, letterSpacing: 0.4 }}>🏦 CUENTA BANCARIA DESTINO</Typography>
+                  <Typography sx={{ color: '#fff', fontSize: '0.82rem', fontWeight: 600, mb: 0.5 }}>ANDINA PROYECTOS ARQUITECTÓNICOS</Typography>
+                  <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem' }}>Banco: <strong>AFIRME</strong> (MXN)</Typography>
+                  <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Titular: ANDINA PROYECTOS ARQUITECTÓNICOS</Typography>
+                  <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>CLABE: 062580120610037607</Typography>
+                </Box>
+              ) : (
                 <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
                   <Typography sx={{ color: '#93c5fd', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>ℹ️ CUENTA BANCARIA DESTINO</Typography>
                   <Typography sx={{ color: '#bfdbfe', fontSize: '0.82rem', lineHeight: 1.4 }}>
