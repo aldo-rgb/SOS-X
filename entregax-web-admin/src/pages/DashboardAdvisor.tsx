@@ -346,6 +346,8 @@ export default function DashboardAdvisor() {
   const [unidentifiedLoading, setUnidentifiedLoading] = useState(false);
   const [unidentifiedModalOpen, setUnidentifiedModalOpen] = useState(false);
   const [unidentifiedSearch, setUnidentifiedSearch] = useState('');
+  const [pkgDetail, setPkgDetail] = useState<any | null>(null);
+  const [pkgDetailLoading, setPkgDetailLoading] = useState(false);
   const [assignTarget, setAssignTarget] = useState<any | null>(null);
   const [assignSearch, setAssignSearch] = useState('');
   const [assignClients, setAssignClients] = useState<any[]>([]);
@@ -585,6 +587,16 @@ export default function DashboardAdvisor() {
       setUnidentifiedPkgs(r.data.shipments || []);
     } catch {}
     setUnidentifiedLoading(false);
+  };
+
+  const fetchPkgDetail = async (uid: string) => {
+    setPkgDetailLoading(true);
+    setPkgDetail(null);
+    try {
+      const r = await api.get(`/advisor/shipment/${encodeURIComponent(uid)}`);
+      setPkgDetail(r.data);
+    } catch {}
+    setPkgDetailLoading(false);
   };
 
   const fetchAssignClients = async (search = '') => {
@@ -1455,7 +1467,11 @@ export default function DashboardAdvisor() {
                       .map(pkg => (
                         <TableRow key={pkg.id} hover>
                           <TableCell>
-                            <Typography variant="body2" fontWeight={600} sx={{ color: '#9C27B0' }}>
+                            <Typography
+                              variant="body2" fontWeight={600}
+                              sx={{ color: '#9C27B0', cursor: 'pointer', textDecoration: 'underline', '&:hover': { color: '#7B1FA2' } }}
+                              onClick={() => fetchPkgDetail(pkg.uid || `PKG-${pkg.id}`)}
+                            >
                               {pkg.tracking || pkg.tracking_number || `PKG-${pkg.id}`}
                             </Typography>
                           </TableCell>
@@ -1550,6 +1566,80 @@ export default function DashboardAdvisor() {
               >
                 {assigning ? <CircularProgress size={18} color="inherit" /> : 'Asignar cliente'}
               </Button>
+            </DialogActions>
+          </Dialog>
+
+          {/* ── Modal: Detalle de paquete sin identificar ── */}
+          <Dialog open={!!pkgDetail || pkgDetailLoading} onClose={() => { setPkgDetail(null); }} maxWidth="sm" fullWidth>
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Typography fontWeight={700}>{pkgDetail?.tracking_internal || 'Detalle del paquete'}</Typography>
+              <IconButton size="small" onClick={() => setPkgDetail(null)}><CloseIcon fontSize="small" /></IconButton>
+            </DialogTitle>
+            <DialogContent dividers>
+              {pkgDetailLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+              ) : pkgDetail ? (
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                  {/* Foto */}
+                  {pkgDetail.image_url ? (
+                    <Box component="img" src={pkgDetail.image_url} alt="Foto de recepción"
+                      sx={{ width: '100%', maxHeight: 300, objectFit: 'cover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }} />
+                  ) : (
+                    <Box sx={{ bgcolor: 'grey.100', borderRadius: 2, p: 3, textAlign: 'center', color: 'text.secondary' }}>
+                      <Typography variant="body2">Sin foto de recepción</Typography>
+                    </Box>
+                  )}
+
+                  {/* Guías */}
+                  <Box>
+                    <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>Guías</Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mt: 0.5 }}>
+                      <Box><Typography variant="caption" color="text.secondary">Guía Interna</Typography>
+                        <Typography variant="body2" fontWeight={600} fontFamily="monospace">{pkgDetail.tracking_internal || '—'}</Typography></Box>
+                      <Box><Typography variant="caption" color="text.secondary">Guía Proveedor/Origen</Typography>
+                        <Typography variant="body2" fontWeight={600} fontFamily="monospace">{pkgDetail.tracking_provider || '—'}</Typography></Box>
+                      {pkgDetail.origin_carrier && (
+                        <Box><Typography variant="caption" color="text.secondary">Transportista</Typography>
+                          <Typography variant="body2" fontWeight={600}>{pkgDetail.origin_carrier}</Typography></Box>
+                      )}
+                    </Box>
+                  </Box>
+
+                  {/* Detalles */}
+                  <Box>
+                    <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 700 }}>Detalles del paquete</Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1, mt: 0.5 }}>
+                      {pkgDetail.weight && <Box><Typography variant="caption" color="text.secondary">Peso</Typography>
+                        <Typography variant="body2" fontWeight={600}>{pkgDetail.weight} kg</Typography></Box>}
+                      {pkgDetail.length_cm && pkgDetail.width_cm && pkgDetail.height_cm && (
+                        <Box><Typography variant="caption" color="text.secondary">Dimensiones</Typography>
+                          <Typography variant="body2" fontWeight={600}>{pkgDetail.length_cm} × {pkgDetail.width_cm} × {pkgDetail.height_cm} cm</Typography></Box>
+                      )}
+                      {pkgDetail.warehouse_location && <Box><Typography variant="caption" color="text.secondary">Ubicación en bodega</Typography>
+                        <Typography variant="body2" fontWeight={600}>{pkgDetail.warehouse_location}</Typography></Box>}
+                      {pkgDetail.description && <Box sx={{ gridColumn: '1 / -1' }}><Typography variant="caption" color="text.secondary">Descripción</Typography>
+                        <Typography variant="body2">{pkgDetail.description}</Typography></Box>}
+                    </Box>
+                  </Box>
+                </Box>
+              ) : null}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => { setPkgDetail(null); }} sx={{ color: '#666' }}>Cerrar</Button>
+              {pkgDetail && (
+                <Button
+                  variant="contained" startIcon={<AssignIcon />}
+                  onClick={() => {
+                    const uid = pkgDetail.uid;
+                    const matchPkg = unidentifiedPkgs.find(p => (p.uid || `PKG-${p.id}`) === uid);
+                    if (matchPkg) { setAssignTarget(matchPkg); setAssignSearch(''); setAssignSelectedClient(null); }
+                    setPkgDetail(null);
+                  }}
+                  sx={{ bgcolor: '#9C27B0', '&:hover': { bgcolor: '#7B1FA2' } }}
+                >
+                  Asignar cliente
+                </Button>
+              )}
             </DialogActions>
           </Dialog>
         </Box>
