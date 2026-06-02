@@ -70,7 +70,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
   // Servicio
   const [servicio, setServicio] = useState<'maritimo' | 'aereo'>('maritimo');
-  const [maritimoTipo, setMaritimoTipo] = useState<'lcl' | 'fcl20' | 'fcl40' | 'fcl40hq'>('lcl');
+  const [maritimoTipo, setMaritimoTipo] = useState<'lcl' | 'fcl40' | 'fcl40hq'>('lcl');
   const [pesoKg, setPesoKg] = useState('');
 
   // Cajas / CBM
@@ -144,7 +144,6 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
   const handleSubmit = async () => {
     setError('');
-    if (!selectedClient) { setError('Selecciona un cliente'); return; }
     if (!productDescription.trim()) { setError('Describe el producto'); return; }
     const destination = selectedAddressId
       ? addresses.find(a => a.id === selectedAddressId)?.full_address || ''
@@ -158,7 +157,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
     setSaving(true);
     try {
       const fd = new FormData();
-      fd.append('client_id', String(selectedClient.id));
+      fd.append('client_id', selectedClient ? String(selectedClient.id) : '0');
       fd.append('servicio', servicio);
       fd.append('maritimo_tipo', servicio === 'maritimo' ? maritimoTipo : '');
       fd.append('destination_address', destination);
@@ -209,13 +208,13 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
       <p style="color:#666;font-size:13px">Fecha: ${new Date().toLocaleDateString('es-MX', { day:'2-digit', month:'long', year:'numeric' })}</p>
 
       <h2>Servicio</h2>
-      <table><tr><td>Tipo</td><td>${servicio === 'maritimo' ? `Marítimo ${maritimoTipo === 'lcl' ? 'LCL' : maritimoTipo === 'fcl20' ? "FCL 20'" : maritimoTipo === 'fcl40' ? "FCL 40'" : "FCL 40' HQ"}` : 'Aéreo'}</td></tr>
+      <table><tr><td>Tipo</td><td>${servicio === 'maritimo' ? `Marítimo ${maritimoTipo === 'lcl' ? 'LCL' : maritimoTipo === 'fcl40' ? "FCL 40'" : "FCL 40' HQ"}` : 'Aéreo'}</td></tr>
       ${servicio === 'aereo' && pesoKg ? `<tr><td>Peso</td><td>${pesoKg} kg</td></tr>` : ''}
       ${totalCBM > 0 ? `<tr><td>CBM Total</td><td>${totalCBM.toFixed(4)} m³${totalPcs > 0 ? ` · ${totalPcs} pzas` : ''}</td></tr>` : ''}
       </table>
 
       <h2>Cliente</h2>
-      <table><tr><td>Nombre</td><td>${selectedClient?.fullName || '—'}</td></tr>
+      <table><tr><td>Nombre</td><td>${selectedClient?.fullName || 'Cliente Nuevo'}</td></tr>
       <tr><td>Box ID</td><td>${selectedClient?.boxId || '—'}</td></tr>
       <tr><td>Email</td><td>${selectedClient?.email || '—'}</td></tr></table>
 
@@ -292,7 +291,6 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
           <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
             {([
               ['lcl',     '📦 LCL (carga consolidada)'],
-              ['fcl20',   '🏗️ FCL 20\''],
               ['fcl40',   '🏗️ FCL 40\''],
               ['fcl40hq', '🏗️ FCL 40\' HQ'],
             ] as const).map(([val, label]) => (

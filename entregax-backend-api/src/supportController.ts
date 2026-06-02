@@ -2108,19 +2108,20 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
     if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
 
     const {
-      client_id, destination_address, box_blocks, total_cbm, total_pieces,
-      product_description, has_brand, has_brand_letter, origin_address, merchandise_value_usd,
+      client_id, servicio, maritimo_tipo, destination_address, box_blocks, total_cbm, total_pieces,
+      peso_kg, product_description, has_brand, has_brand_letter, con_recoleccion,
+      origin_address, merchandise_value_usd,
     } = req.body || {};
 
-    if (!client_id) return res.status(400).json({ error: 'client_id requerido' });
     if (!product_description) return res.status(400).json({ error: 'product_description requerido' });
 
-    const clientRow = await pool.query(
-      'SELECT id, full_name, box_id FROM users WHERE id=$1',
-      [client_id]
-    );
-    if (clientRow.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
-    const client = clientRow.rows[0];
+    const numClientId = parseInt(client_id) || 0;
+    let client = { id: null as any, full_name: 'Cliente Nuevo', box_id: null };
+    if (numClientId > 0) {
+      const clientRow = await pool.query('SELECT id, full_name, box_id FROM users WHERE id=$1', [numClientId]);
+      if (clientRow.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+      client = clientRow.rows[0];
+    }
 
     const advisorRow = await pool.query('SELECT full_name, phone FROM users WHERE id=$1', [advisorId]);
     const advisor = advisorRow.rows[0];
@@ -2187,7 +2188,7 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
          (ticket_folio, user_id, category, subject, status, creator_type, department_id, assigned_to, priority)
        VALUES ($1, $2, 'quote_request', $3, 'escalated_human', 'advisor', $4, $5, 'normal')
        RETURNING id, ticket_folio`,
-      [folio, client_id, `Solicitud cotización — ${client.full_name}`, departmentId, advisorId]
+      [folio, numClientId > 0 ? numClientId : null, `Solicitud cotización — ${client.full_name}`, departmentId, advisorId]
     );
     const ticketId = ticketRes.rows[0].id;
     const ticketFolio = ticketRes.rows[0].ticket_folio;
