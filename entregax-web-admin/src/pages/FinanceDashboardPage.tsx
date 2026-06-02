@@ -269,11 +269,6 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const [_savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
   const [belvoSyncing, setBelvoSyncing] = useState(false);
   const [syncfySyncing, setSyncfySyncing] = useState(false);
-  const [syncfyWidgetVisible, setSyncfyWidgetVisible] = useState(false);
-  const [syncfyWidgetInstance, setSyncfyWidgetInstance] = useState<any>(null);
-  const [syncfyAwaitingQR, setSyncfyAwaitingQR] = useState(false);
-  const syncfyWidgetContainerRef = useRef<HTMLDivElement | null>(null);
-  const syncfyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Parser BBVA
   const parseBBVA = (text: string): EstadoCuentaRow[] => {
@@ -463,91 +458,6 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     }
   };
 
-  const handleOpenSyncfyWidget = async () => {
-    const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
-    if (!empresaFilt) return;
-    try {
-      const widgetRes = await api.post('/admin/syncfy/widget-token', { emitter_id: empresaFilt.id });
-      const { token: widgetToken } = widgetRes.data;
-      if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
-        try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
-      }
-      setSyncfyWidgetVisible(true);
-      setSyncfyAwaitingQR(false);
-      setTimeout(async () => {
-        try {
-          const container = syncfyWidgetContainerRef.current;
-          if (!container) return;
-          container.innerHTML = '';
-          const mountNode = document.createElement('div');
-          mountNode.id = 'syncfy-widget-dash-mount';
-          container.appendChild(mountNode);
-          const mod = await import('@syncfy/authentication-widget');
-          const SyncfyWidget = (mod as any).default || (mod as any).SyncfyWidget || mod;
-          const widget: any = new SyncfyWidget({
-            token: widgetToken,
-            element: '#syncfy-widget-dash-mount',
-            config: {
-              locale: 'es',
-              entrypoint: {
-                country: 'MX',
-                siteOrganizationType: '56cf4f5b784806cf028b4568',
-              },
-              navigation: { displayStatusInToast: true },
-            },
-          });
-          if (typeof widget.open === 'function') widget.open();
-          let credentialAlreadyReceived = false;
-          if (typeof widget.on === 'function') {
-            const onSuccess = async () => {
-              credentialAlreadyReceived = true;
-              await api.post('/admin/syncfy/links', { emitter_id: empresaFilt.id });
-              setSnackbar({ open: true, message: `✅ Banco conectado`, severity: 'success' });
-              setSyncfyWidgetVisible(false);
-              fetchDashboard();
-            };
-            widget.on('credential-created', onSuccess);
-            widget.on('credentials', onSuccess);
-            widget.on('success', onSuccess);
-            widget.on('auth_success', onSuccess);
-            widget.on('updated', onSuccess);
-            widget.on('error', async (err: any) => {
-              if (err?.id_credential) await onSuccess();
-            });
-            widget.on('exit', async () => {
-              if (credentialAlreadyReceived) { setSyncfyWidgetVisible(false); return; }
-              setSyncfyAwaitingQR(true);
-              // Polling silencioso
-              let attempts = 0;
-              if (syncfyPollRef.current) clearInterval(syncfyPollRef.current);
-              syncfyPollRef.current = setInterval(async () => {
-                attempts++;
-                try {
-                  const r = await api.post('/admin/syncfy/links', { emitter_id: empresaFilt.id });
-                  if (r.data?.links?.length > 0) {
-                    clearInterval(syncfyPollRef.current!); syncfyPollRef.current = null;
-                    setSyncfyAwaitingQR(false); setSyncfyWidgetVisible(false);
-                    setSnackbar({ open: true, message: `✅ Banco conectado`, severity: 'success' });
-                    fetchDashboard();
-                  }
-                } catch { /* noop */ }
-                if (attempts >= 18) {
-                  clearInterval(syncfyPollRef.current!); syncfyPollRef.current = null;
-                  setSyncfyAwaitingQR(false); setSyncfyWidgetVisible(false);
-                }
-              }, 10000);
-            });
-          }
-          setSyncfyWidgetInstance(widget);
-        } catch (err: any) {
-          setSnackbar({ open: true, message: `Error abriendo widget: ${err.message}`, severity: 'error' });
-          setSyncfyWidgetVisible(false);
-        }
-      }, 250);
-    } catch (err: any) {
-      setSnackbar({ open: true, message: err.response?.data?.error || 'Error iniciando widget Syncfy', severity: 'error' });
-    }
-  };
 
   const loadSavedBankEntries = async () => {
     const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
@@ -2654,58 +2564,6 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
         </Alert>
       </Snackbar>
 
-      {/* Dialog widget Syncfy desde Dashboard Cobranza */}
-      <Dialog
-        open={syncfyWidgetVisible}
-        onClose={() => {
-          if (syncfyAwaitingQR) return;
-          if (syncfyPollRef.current) { clearInterval(syncfyPollRef.current); syncfyPollRef.current = null; }
-          if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
-            try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
-          }
-          setSyncfyWidgetInstance(null);
-          setSyncfyAwaitingQR(false);
-          setSyncfyWidgetVisible(false);
-        }}
-        maxWidth="md"
-        fullWidth
-      >
-        <DialogTitle sx={{ bgcolor: '#1e88e5', color: 'white' }}>
-          🏦 Gestionar Banco — Syncfy
-        </DialogTitle>
-        <DialogContent sx={{ p: 0, height: '70vh', overflow: 'hidden', position: 'relative' }}>
-          <Box
-            ref={syncfyWidgetContainerRef}
-            id="syncfy-widget-dashboard"
-            sx={{ height: '100%', width: '100%', overflow: 'auto',
-              '& .pb-w-sync_container, & > div': { height: '100%', width: '100%' } }}
-          />
-          {syncfyAwaitingQR && (
-            <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, bgcolor: '#1e88e5', color: 'white',
-              px: 2, py: 1.5, display: 'flex', alignItems: 'center', gap: 1.5, zIndex: 10 }}>
-              <CircularProgress size={18} sx={{ color: 'white', flexShrink: 0 }} />
-              <Typography variant="body2" sx={{ flex: 1 }}>
-                Escanea el QR con tu app BBVA y espera la confirmación automática…
-              </Typography>
-              <Button size="small" variant="outlined" sx={{ color: 'white', borderColor: 'rgba(255,255,255,0.5)' }}
-                onClick={() => {
-                  if (syncfyPollRef.current) { clearInterval(syncfyPollRef.current); syncfyPollRef.current = null; }
-                  setSyncfyAwaitingQR(false); setSyncfyWidgetVisible(false);
-                }}>Cancelar</Button>
-            </Box>
-          )}
-        </DialogContent>
-        {!syncfyAwaitingQR && (
-          <DialogActions>
-            <Button onClick={() => {
-              if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
-                try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
-              }
-              setSyncfyWidgetInstance(null); setSyncfyWidgetVisible(false);
-            }}>Cerrar</Button>
-          </DialogActions>
-        )}
-      </Dialog>
     </Box>
   );
 }
