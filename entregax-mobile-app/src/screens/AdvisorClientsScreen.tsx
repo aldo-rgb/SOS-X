@@ -392,22 +392,31 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
       )}
 
       {/* ─── Modal: Gestión de Direcciones ─── */}
-      <Modal visible={addrModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setAddrModal(false)}>
+      <Modal visible={addrModal} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { if (showNewAddrForm) { setShowNewAddrForm(false); } else { setAddrModal(false); } }}>
         <View style={styles.modalContainer}>
-          <View style={styles.modalHeader}>
-            <View>
-              <Text style={styles.modalTitle}>📍 Direcciones</Text>
-              <Text style={styles.modalSubtitle}>{addrClient?.full_name}</Text>
+          <View style={[styles.modalHeader, showNewAddrForm ? { backgroundColor: PURPLE } : {}]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              {showNewAddrForm && (
+                <TouchableOpacity onPress={() => setShowNewAddrForm(false)} style={{ padding: 4, marginRight: 4 }}>
+                  <Ionicons name="arrow-back" size={22} color="#fff" />
+                </TouchableOpacity>
+              )}
+              <View>
+                <Text style={styles.modalTitle}>{showNewAddrForm ? '📍 Nueva dirección' : '📍 Direcciones'}</Text>
+                <Text style={styles.modalSubtitle}>{addrClient?.full_name}</Text>
+              </View>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TouchableOpacity
-                style={{ backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}
-                onPress={() => { setShowNewAddrForm(true); setNewAddr(emptyNewAddr); setColonyOptions([]); }}
-              >
-                <Ionicons name="add" size={18} color="#fff" />
-                <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Agregar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => setAddrModal(false)} style={styles.modalClose}>
+              {!showNewAddrForm && (
+                <TouchableOpacity
+                  style={{ backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                  onPress={() => { setShowNewAddrForm(true); setNewAddr(emptyNewAddr); setColonyOptions([]); }}
+                >
+                  <Ionicons name="add" size={18} color="#fff" />
+                  <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Agregar</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={() => { setShowNewAddrForm(false); setAddrModal(false); }} style={styles.modalClose}>
                 <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
             </View>
@@ -516,28 +525,8 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               })}
             </ScrollView>
           )}
-        </View>
-      </Modal>
-
-      {/* ─── Formulario Nueva Dirección (inline en addrModal para evitar modales anidados) ─── */}
-      {addrModal && showNewAddrForm && (
-        <Modal visible={true} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setShowNewAddrForm(false)}>
-        <View style={styles.modalContainer}>
-          <View style={[styles.modalHeader, { backgroundColor: PURPLE }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <TouchableOpacity onPress={() => setShowNewAddrForm(false)} style={{ padding: 4 }}>
-                <Ionicons name="arrow-back" size={22} color="#fff" />
-              </TouchableOpacity>
-              <View>
-                <Text style={styles.modalTitle}>📍 Nueva dirección</Text>
-                <Text style={styles.modalSubtitle}>{addrClient?.full_name}</Text>
-              </View>
-            </View>
-            <TouchableOpacity onPress={() => setShowNewAddrForm(false)} style={styles.modalClose}>
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-
+          {/* ─── Formulario Nueva Dirección (inline, mismo modal) ─── */}
+          {showNewAddrForm && (
           <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
 
             {/* Alias */}
@@ -687,9 +676,9 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               </TouchableOpacity>
             </View>
           </ScrollView>
+          )}
         </View>
-        </Modal>
-      )}
+      </Modal>
     </View>
   );
 }

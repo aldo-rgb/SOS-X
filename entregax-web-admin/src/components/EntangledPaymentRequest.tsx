@@ -536,7 +536,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   useEffect(() => {
     if (wizardStep !== 4 || requiereFactura || !quote || !form.monto) return;
     if (asignacion?.cuenta_bancaria) return; // ya tenemos cuenta
-    setAsignacion({ loading: true, empresa: null, cuenta_bancaria: null, facturacion: null });
+    setAsignacion({ loading: true, empresa: undefined, cuenta_bancaria: undefined, facturacion: undefined });
     const token = localStorage.getItem('token');
     axios.post(`${API_URL}/api/entangled/asignacion`, {
       servicio: 'pago_sin_factura',
@@ -551,7 +551,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         const empresa = d.empresa || d.empresas_asignadas?.[0];
         const cb = empresa?.cuenta_bancaria || d.cuenta_bancaria;
         if (cb) {
-          setAsignacion({ loading: false, empresa: empresa || null, cuenta_bancaria: cb, facturacion: null });
+          setAsignacion({ loading: false, empresa: empresa || undefined, cuenta_bancaria: cb, facturacion: undefined });
         } else {
           setAsignacion(null);
         }
@@ -3416,12 +3416,11 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
                   </Box>
                 );
               })() : !requiereFactura ? (
-                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(240,90,40,0.45)', borderRadius: 1.5 }}>
-                  <Typography sx={{ color: '#f97316', fontSize: '0.78rem', fontWeight: 700, mb: 0.8, letterSpacing: 0.4 }}>🏦 CUENTA BANCARIA DESTINO</Typography>
-                  <Typography sx={{ color: '#fff', fontSize: '0.82rem', fontWeight: 600, mb: 0.5 }}>ANDINA PROYECTOS ARQUITECTÓNICOS</Typography>
-                  <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem' }}>Banco: <strong>AFIRME</strong> (MXN)</Typography>
-                  <Typography sx={{ color: '#9ca3af', fontSize: '0.78rem' }}>Titular: ANDINA PROYECTOS ARQUITECTÓNICOS</Typography>
-                  <Typography sx={{ color: '#d1d5db', fontSize: '0.82rem', fontFamily: 'monospace' }}>CLABE: 062580120610037607</Typography>
+                <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(239,68,68,0.5)', borderRadius: 1.5 }}>
+                  <Typography sx={{ color: '#ef4444', fontSize: '0.78rem', fontWeight: 700, mb: 0.4, letterSpacing: 0.4 }}>⚠️ SIN CUENTA BANCARIA</Typography>
+                  <Typography sx={{ color: '#fca5a5', fontSize: '0.82rem', lineHeight: 1.4 }}>
+                    ENTANGLED no devolvió una cuenta bancaria de destino. No se puede enviar la solicitud.
+                  </Typography>
                 </Box>
               ) : (
                 <Box sx={{ mt: 0.5, p: 1.2, bgcolor: '#0a0a0a', border: '1px solid rgba(59,130,246,0.45)', borderRadius: 1.5 }}>
@@ -3472,7 +3471,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           ) : (            <Button
               variant="contained"
               onClick={handleSubmit}
-              disabled={submitting || !quote}
+              disabled={submitting || !quote || (!requiereFactura && wizardStep === 4 && !asignacion?.cuenta_bancaria)}
               sx={{ bgcolor: ORANGE, color: '#000000', fontWeight: 700, minWidth: 90, flex: '0 0 auto', '&:hover': { bgcolor: '#E54A1F' }, '&:disabled': { bgcolor: '#663333', color: '#333333' } }}
             >
               {submitting ? t('entangled.actions.sending') : t('entangled.actions.submit')}
