@@ -725,7 +725,6 @@ export default function FiscalPage() {
                 } catch { return false; }
               };
 
-              const emitterId = selectedEmpresaSyncfy.id;
               const emitterAlias = selectedEmpresaSyncfy.alias;
 
               // Mostrar banner y hacer polling via GET (sin re-activar credenciales)
