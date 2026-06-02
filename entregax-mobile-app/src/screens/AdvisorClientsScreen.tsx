@@ -85,6 +85,17 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   const [zipLoading, setZipLoading] = useState(false);
   const [colonyOptions, setColonyOptions] = useState<string[]>([]);
   const [showColonyPicker, setShowColonyPicker] = useState(false);
+  const [showLadaPicker, setShowLadaPicker] = useState(false);
+  const LADAS = [
+    { code: '+52', flag: '🇲🇽', label: '+52 México' },
+    { code: '+1',  flag: '🇺🇸', label: '+1 EE.UU.' },
+    { code: '+86', flag: '🇨🇳', label: '+86 China' },
+    { code: '+57', flag: '🇨🇴', label: '+57 Colombia' },
+    { code: '+34', flag: '🇪🇸', label: '+34 España' },
+    { code: '+44', flag: '🇬🇧', label: '+44 Reino Unido' },
+    { code: '+49', flag: '🇩🇪', label: '+49 Alemania' },
+    { code: '+33', flag: '🇫🇷', label: '+33 Francia' },
+  ];
 
   const fetchZipData = async (cp: string) => {
     if (cp.length !== 5) return;
@@ -541,25 +552,35 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
               <TextInput style={nf.input} placeholder="Nombre completo" value={newAddr.recipientName} onChangeText={v => setNewAddr(p => ({ ...p, recipientName: v }))} />
             </View>
 
-            {/* Teléfono con lada */}
+            {/* Teléfono con lada desplegable */}
             <View style={nf.field}>
               <Text style={nf.label}>Teléfono</Text>
               <View style={{ flexDirection: 'row', gap: 8 }}>
-                <View style={[nf.input, { width: 90, justifyContent: 'center', paddingHorizontal: 0 }]}>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 0 }}>
-                    {['+52 🇲🇽', '+1 🇺🇸', '+86 🇨🇳', '+57 🇨🇴', '+34 🇪🇸'].map(opt => {
-                      const code = opt.split(' ')[0];
-                      return (
-                        <TouchableOpacity key={code} onPress={() => setNewAddr(p => ({ ...p, countryCode: code }))}
-                          style={{ paddingHorizontal: 10, paddingVertical: 8, backgroundColor: newAddr.countryCode === code ? PURPLE : 'transparent', borderRadius: 6 }}>
-                          <Text style={{ color: newAddr.countryCode === code ? '#fff' : '#333', fontSize: 13, fontWeight: '600' }}>{opt}</Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </ScrollView>
-                </View>
+                <TouchableOpacity
+                  style={[nf.input, { width: 110, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 10 }]}
+                  onPress={() => setShowLadaPicker(p => !p)}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#111' }}>
+                    {LADAS.find(l => l.code === newAddr.countryCode)?.flag ?? '🌎'} {newAddr.countryCode}
+                  </Text>
+                  <Ionicons name="chevron-down" size={14} color="#666" />
+                </TouchableOpacity>
                 <TextInput style={[nf.input, { flex: 1 }]} placeholder="10 dígitos" keyboardType="numeric" maxLength={10} value={newAddr.phone} onChangeText={v => setNewAddr(p => ({ ...p, phone: v.replace(/\D/g, '') }))} />
               </View>
+              {showLadaPicker && (
+                <View style={{ borderWidth: 1, borderColor: '#ddd', borderRadius: 8, marginTop: 4, backgroundColor: '#fff', overflow: 'hidden' }}>
+                  {LADAS.map(l => (
+                    <TouchableOpacity
+                      key={l.code}
+                      style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: newAddr.countryCode === l.code ? PURPLE + '15' : '#fff' }}
+                      onPress={() => { setNewAddr(p => ({ ...p, countryCode: l.code })); setShowLadaPicker(false); }}
+                    >
+                      <Text style={{ fontSize: 20 }}>{l.flag}</Text>
+                      <Text style={{ fontSize: 14, color: newAddr.countryCode === l.code ? PURPLE : '#333', fontWeight: newAddr.countryCode === l.code ? '700' : '400' }}>{l.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
 
             <View style={nf.divider}><Text style={nf.dividerText}>📍 Dirección</Text></View>
