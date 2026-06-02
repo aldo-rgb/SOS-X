@@ -72,6 +72,24 @@ export const updateFiscalEmitter = async (req: Request, res: Response): Promise<
     }
 };
 
+// Eliminar empresa emisora (solo super_admin)
+export const deleteFiscalEmitter = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { id } = req.params;
+        const result = await pool.query('DELETE FROM fiscal_emitters WHERE id = $1 RETURNING id, rfc', [id]);
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Empresa no encontrada' });
+        }
+        res.json({ message: 'Empresa eliminada', id: result.rows[0].id });
+    } catch (error: any) {
+        if (error.code === '23503') {
+            return res.status(409).json({ error: 'No se puede eliminar: la empresa tiene datos relacionados (facturas, configuraciones, etc.)' });
+        }
+        console.error('Error deleting fiscal emitter:', error);
+        res.status(500).json({ error: 'Error al eliminar empresa' });
+    }
+};
+
 // Asignar emisor a tipo de servicio
 export const assignEmitterToService = async (req: Request, res: Response): Promise<any> => {
     try {

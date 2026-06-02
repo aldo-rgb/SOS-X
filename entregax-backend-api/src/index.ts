@@ -199,6 +199,7 @@ import {
   getFiscalEmitters,
   createFiscalEmitter,
   updateFiscalEmitter,
+  deleteFiscalEmitter,
   assignEmitterToService,
   getUserFiscalProfiles,
   createFiscalProfile,
@@ -4517,6 +4518,7 @@ app.post('/api/admin/verifications/:userId/reanalyze', authenticateToken, canVer
 app.get('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getFiscalEmitters);
 app.post('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createFiscalEmitter);
 app.put('/api/admin/fiscal/emitters', authenticateToken, requireMinLevel(ROLES.DIRECTOR), updateFiscalEmitter);
+app.delete('/api/admin/fiscal/emitters/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteFiscalEmitter);
 app.post('/api/admin/fiscal/assign-service', authenticateToken, requireMinLevel(ROLES.DIRECTOR), assignEmitterToService);
 app.get('/api/admin/invoices', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getAllInvoices);
 app.post('/api/admin/invoices/cancel', authenticateToken, requireMinLevel(ROLES.DIRECTOR), cancelInvoice);

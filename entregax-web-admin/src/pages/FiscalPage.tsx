@@ -96,6 +96,10 @@ const BANCOS_MEXICO = [
 
 export default function FiscalPage() {
   const { i18n } = useTranslation();
+  const savedUser = localStorage.getItem('user');
+  const currentUser = savedUser ? JSON.parse(savedUser) : null;
+  const isSuperAdmin = currentUser?.role === 'super_admin';
+
   const [emitters, setEmitters] = useState<FiscalEmitter[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -114,6 +118,8 @@ export default function FiscalPage() {
     show_in_cobranza: false, show_in_contabilidad: true,
   });
   const [saving, setSaving] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<FiscalEmitter | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Modal Openpay
   const [openOpenpayModal, setOpenOpenpayModal] = useState(false);
@@ -319,6 +325,23 @@ export default function FiscalPage() {
       });
     }
     setOpenOpenpayModal(true);
+  };
+
+  const handleDeleteEmitter = async () => {
+    if (!deleteConfirm) return;
+    setDeleting(true);
+    try {
+      await axios.delete(`${API_URL}/admin/fiscal/emitters/${deleteConfirm.id}`, {
+        headers: { Authorization: `Bearer ${getToken()}` }
+      });
+      setEmitters(prev => prev.filter(e => e.id !== deleteConfirm.id));
+      setDeleteConfirm(null);
+      setSnackbar({ open: true, message: 'Empresa eliminada correctamente', severity: 'success' });
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err.response?.data?.error || 'Error al eliminar empresa', severity: 'error' });
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSaveOpenpay = async () => {
@@ -1360,6 +1383,11 @@ export default function FiscalPage() {
                       <IconButton onClick={() => handleOpenModal(emitter)} size="small">
                         <EditIcon />
                       </IconButton>
+                      {isSuperAdmin && (
+                        <IconButton onClick={() => setDeleteConfirm(emitter)} size="small" color="error">
+                          <DeleteIcon />
+                        </IconButton>
+                      )}
                     </TableCell>
                   </TableRow>
                 )) : (
@@ -2391,6 +2419,25 @@ export default function FiscalPage() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      {/* Confirmar eliminación de empresa */}
+      <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} maxWidth="xs" fullWidth>
+        <DialogTitle sx={{ color: 'error.main', fontWeight: 'bold' }}>Eliminar Empresa</DialogTitle>
+        <DialogContent>
+          <Typography>
+            ¿Estás seguro de que deseas eliminar <strong>{deleteConfirm?.alias || deleteConfirm?.business_name}</strong> ({deleteConfirm?.rfc})?
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+            Esta acción no se puede deshacer. Si la empresa tiene facturas u otros datos relacionados, la eliminación será rechazada.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteConfirm(null)} disabled={deleting}>Cancelar</Button>
+          <Button onClick={handleDeleteEmitter} color="error" variant="contained" disabled={deleting}>
+            {deleting ? 'Eliminando...' : 'Eliminar'}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
