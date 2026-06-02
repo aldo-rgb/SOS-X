@@ -1555,7 +1555,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                           {/* Saldo Bancario */}
                           {saldoBanco ? (
                             <Box sx={{ mt: 1.5, p: 1, bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 1 }}>
-                              <Typography variant="caption" sx={{ opacity: 0.8 }}>💰 Saldo Bancario</Typography>
+                              <Typography variant="caption" sx={{ opacity: 0.8 }}>💰 Saldo Final</Typography>
                               <Typography variant="h5" fontWeight="bold">
                                 {formatCurrency(saldoBanco.saldo)}
                               </Typography>

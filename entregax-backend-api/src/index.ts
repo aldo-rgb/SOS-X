@@ -6594,24 +6594,28 @@ app.get('/api/admin/finance/dashboard', authenticateToken, requireMinLevel(ROLES
     const comisionesMes = (speiMesTotal - speiNetoMesTotal) + (paypalMes - paypalNetoMes);
     const totalMes = efectivoMes + speiMesTotal + paypalMes;
 
-    // Saldo final por empresa: el saldo cuya fila no es el "saldo inicial"
-    // de ninguna otra fila del mismo día. Funciona sin importar si el banco
-    // entrega el estado de cuenta en orden ascendente o descendente.
+    // Saldo final por empresa:
+    // - Si tiene saldo almacenado (estado de cuenta manual): usa el último saldo real.
+    // - Si solo tiene transacciones Syncfy (saldo NULL): calcula neto abonos - cargos.
     const saldosPorEmpresaRes = await pool.query(`
-      SELECT DISTINCT ON (empresa_id) empresa_id, saldo, fecha
+      SELECT
+        empresa_id,
+        CASE
+          WHEN SUM(CASE WHEN saldo IS NOT NULL AND CAST(saldo AS numeric) != 0 THEN 1 ELSE 0 END) > 0
+          THEN (
+            SELECT CAST(b2.saldo AS numeric)
+            FROM bank_statement_entries b2
+            WHERE b2.empresa_id = b1.empresa_id
+              AND b2.saldo IS NOT NULL
+              AND CAST(b2.saldo AS numeric) != 0
+            ORDER BY b2.fecha DESC, b2.id DESC
+            LIMIT 1
+          )
+          ELSE SUM(COALESCE(CAST(abono AS numeric), 0)) - SUM(COALESCE(CAST(cargo AS numeric), 0))
+        END AS saldo,
+        MAX(fecha) AS fecha
       FROM bank_statement_entries b1
-      WHERE NOT EXISTS (
-        SELECT 1 FROM bank_statement_entries b2
-        WHERE b2.empresa_id = b1.empresa_id
-          AND b2.fecha = b1.fecha
-          AND b2.id != b1.id
-          AND ROUND(
-            CAST(b2.saldo AS numeric)
-            - COALESCE(CAST(b2.abono AS numeric), 0)
-            + COALESCE(CAST(b2.cargo AS numeric), 0),
-          2) = ROUND(CAST(b1.saldo AS numeric), 2)
-      )
-      ORDER BY empresa_id, fecha DESC
+      GROUP BY empresa_id
     `);
 
     res.json({
