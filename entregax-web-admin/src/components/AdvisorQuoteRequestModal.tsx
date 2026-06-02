@@ -25,9 +25,9 @@ interface BoxBlock {
 
 interface Client {
   id: number;
-  full_name: string;
+  fullName: string;
   email: string;
-  box_id: string;
+  boxId: string;
 }
 
 interface Address {
@@ -199,7 +199,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
         <Autocomplete
           options={clients}
           loading={clientsLoading}
-          getOptionLabel={c => `${c.full_name} — ${c.box_id || c.email}`}
+          getOptionLabel={c => `${c.fullName} — ${c.boxId || c.email}`}
           value={selectedClient}
           onChange={(_, v) => handleClientChange(v)}
           renderInput={params => (
@@ -378,7 +378,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
         {/* Resumen */}
         {selectedClient && totalCBM > 0 && (
           <Alert severity="info" sx={{ mt: 3 }}>
-            <strong>{selectedClient.full_name}</strong> · {totalPcs} pzas · {totalCBM.toFixed(4)} CBM
+            <strong>{selectedClient.fullName}</strong> · {totalPcs} pzas · {totalCBM.toFixed(4)} CBM
             {merchandiseValue ? ` · $${parseFloat(merchandiseValue).toLocaleString('es-MX')} USD` : ''}
             {hasBrand ? ` · Marca registrada${hasBrandLetter ? ' + carta' : ' (sin carta)'}` : ''}
           </Alert>
