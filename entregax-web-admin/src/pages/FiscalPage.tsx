@@ -655,7 +655,13 @@ export default function FiscalPage() {
             element: '#syncfy-widget-mount',
             config: {
               locale: 'es',
-              entrypoint: { country: 'MX' },
+              entrypoint: {
+                country: 'MX',
+                siteOrganizationType: '56cf4f5b784806cf028b4568',
+              },
+              navigation: {
+                displayStatusInToast: true,
+              },
             },
           });
           console.warn('[Syncfy] Widget instanciado:', widget);

@@ -484,7 +484,18 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
           container.appendChild(mountNode);
           const mod = await import('@syncfy/authentication-widget');
           const SyncfyWidget = (mod as any).default || (mod as any).SyncfyWidget || mod;
-          const widget: any = new SyncfyWidget({ token: widgetToken, element: '#syncfy-widget-dash-mount' });
+          const widget: any = new SyncfyWidget({
+            token: widgetToken,
+            element: '#syncfy-widget-dash-mount',
+            config: {
+              locale: 'es',
+              entrypoint: {
+                country: 'MX',
+                siteOrganizationType: '56cf4f5b784806cf028b4568',
+              },
+              navigation: { displayStatusInToast: true },
+            },
+          });
           if (typeof widget.open === 'function') widget.open();
           let credentialAlreadyReceived = false;
           if (typeof widget.on === 'function') {
