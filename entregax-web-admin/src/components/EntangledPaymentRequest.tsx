@@ -532,6 +532,34 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.rfc, requiereFactura]);
 
+  // Para pago_sin_factura: consultar cuenta bancaria a Entangled al entrar al resumen
+  useEffect(() => {
+    if (wizardStep !== 4 || requiereFactura || !quote || !form.monto) return;
+    if (asignacion?.cuenta_bancaria) return; // ya tenemos cuenta
+    setAsignacion({ loading: true, empresa: null, cuenta_bancaria: null, facturacion: null });
+    const token = localStorage.getItem('token');
+    axios.post(`${API_URL}/api/entangled/asignacion`, {
+      servicio: 'pago_sin_factura',
+      cliente_final: { razon_social: supplierForm.nombre_beneficiario || 'Beneficiario' },
+      monto_destino: Number(form.monto),
+      divisa_destino: form.divisa_destino,
+      tc_cliente_final: quote.tipo_cambio,
+      comision_cliente_final_porcentaje: quote.porcentaje_compra,
+    }, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        const d = r.data;
+        const empresa = d.empresa || d.empresas_asignadas?.[0];
+        const cb = empresa?.cuenta_bancaria || d.cuenta_bancaria;
+        if (cb) {
+          setAsignacion({ loading: false, empresa: empresa || null, cuenta_bancaria: cb, facturacion: null });
+        } else {
+          setAsignacion(null);
+        }
+      })
+      .catch(() => setAsignacion(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizardStep, requiereFactura]);
+
   // El token activo de búsqueda es el contenido del input
   const activeToken = conceptoSearchInput.trim();
 
