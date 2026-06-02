@@ -2073,3 +2073,125 @@ export const signSupportImage = async (req: Request, res: Response): Promise<any
     res.status(500).json({ error: 'Error generando URL' });
   }
 };
+
+// ──────────────────────────────────────────────────────────
+// Multer para solicitudes de cotización del asesor
+// ──────────────────────────────────────────────────────────
+const advisorQuoteMulter = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 25 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /^image\/|^application\/pdf$|^application\/vnd\.ms-excel$|^application\/vnd\.openxmlformats-officedocument\.spreadsheetml\.sheet$|^text\/csv$/.test(file.mimetype);
+    cb(null, ok);
+  }
+}).fields([
+  { name: 'photos', maxCount: 10 },
+  { name: 'documents', maxCount: 5 },
+]);
+
+export const uploadAdvisorQuoteFiles = (req: Request, res: Response, next: Function) => {
+  advisorQuoteMulter(req, res, (err: any) => {
+    if (err) console.warn('⚠️ Error multer advisor-quote:', err.message || err);
+    next();
+  });
+};
+
+/**
+ * POST /api/advisor/quote-requests
+ * Asesor solicita cotización especializada para un cliente.
+ * Crea un ticket con categoría quote_request y sube los archivos adjuntos.
+ */
+export const createAdvisorQuoteRequest = async (req: Request, res: Response): Promise<any> => {
+  try {
+    await ensureDepartmentsSchema();
+    const advisorId = (req as any).user?.userId;
+    if (!advisorId) return res.status(401).json({ error: 'No autenticado' });
+
+    const {
+      client_id, destination_address, box_blocks, total_cbm, total_pieces,
+      product_description, has_brand, has_brand_letter, origin_address, merchandise_value_usd,
+    } = req.body || {};
+
+    if (!client_id) return res.status(400).json({ error: 'client_id requerido' });
+    if (!product_description) return res.status(400).json({ error: 'product_description requerido' });
+
+    const clientRow = await pool.query(
+      'SELECT id, full_name, box_id FROM users WHERE id=$1',
+      [client_id]
+    );
+    if (clientRow.rows.length === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+    const client = clientRow.rows[0];
+
+    const advisorRow = await pool.query('SELECT full_name, phone FROM users WHERE id=$1', [advisorId]);
+    const advisor = advisorRow.rows[0];
+
+    // Subir archivos
+    const filesObj = (req.files as { [field: string]: Express.Multer.File[] } | undefined) || {};
+    const photos = filesObj.photos || [];
+    const documents = filesObj.documents || [];
+
+    const uploadFile = async (f: Express.Multer.File, prefix: string): Promise<string> => {
+      const ext = path.extname(f.originalname) || '';
+      const filename = `${prefix}-${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+      if (isS3Configured()) {
+        return await uploadToS3(f.buffer, `support/${filename}`, f.mimetype);
+      }
+      const filePath = path.join(supportUploadsDir, filename);
+      fs.writeFileSync(filePath, f.buffer);
+      const baseUrl = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+      return `${baseUrl}/uploads/support/${filename}`;
+    };
+
+    const photoUrls: string[] = [];
+    for (const p of photos) {
+      try { photoUrls.push(await uploadFile(p, 'aqr-photo')); } catch {}
+    }
+    const docUrls: string[] = [];
+    for (const d of documents) {
+      try { docUrls.push(await uploadFile(d, 'aqr-doc')); } catch {}
+    }
+
+    // Construir cuerpo del ticket
+    let blocks: any[] = [];
+    try { blocks = JSON.parse(box_blocks || '[]'); } catch {}
+
+    const bodyLines = [
+      `📦 SOLICITUD DE COTIZACIÓN — ASESOR: ${advisor?.full_name || advisorId}`,
+      `\n👤 Cliente: ${client.full_name} (${client.box_id || 'sin Box ID'})`,
+      `\n📐 CBM Total: ${parseFloat(total_cbm || 0).toFixed(4)} CBM · ${total_pieces || 0} pzas`,
+      blocks.length > 0 ? `\nBloques:\n${blocks.map((b: any, i: number) => `  ${i + 1}. ${b.largo}×${b.ancho}×${b.alto} cm · qty ${b.cantidad}`).join('\n')}` : '',
+      `\n📍 Destino: ${destination_address || '—'}`,
+      `\n🏭 Origen proveedor: ${origin_address || '—'}`,
+      `\n🔖 Producto: ${product_description}`,
+      `\n🏷️ Marca registrada: ${has_brand === 'true' ? (has_brand_letter === 'true' ? 'Sí (con carta de uso)' : 'Sí (sin carta de uso)') : 'No'}`,
+      merchandise_value_usd ? `\n💵 Valor mercancía: $${parseFloat(merchandise_value_usd).toLocaleString('es-MX')} USD` : '',
+      photoUrls.length > 0 ? `\n📷 Fotos:\n${photoUrls.map(u => `  - ${u}`).join('\n')}` : '',
+      docUrls.length > 0 ? `\n📎 Documentos:\n${docUrls.map(u => `  - ${u}`).join('\n')}` : '',
+    ].filter(Boolean).join('');
+
+    // Crear ticket en nombre del asesor hacia el equipo de cotizaciones
+    const ticketRes = await pool.query(
+      `INSERT INTO support_tickets (user_id, subject, body, category, status, department, creator_type, creator_id, assigned_to, metadata)
+       VALUES ($1, $2, $3, 'quote_request', 'escalated_human', 'Cotizaciones', 'advisor', $4, $4, $5)
+       RETURNING id, ticket_number`,
+      [
+        client_id,
+        `Solicitud de cotización — ${client.full_name}`,
+        bodyLines,
+        advisorId,
+        JSON.stringify({
+          box_blocks: blocks, total_cbm, total_pieces, destination_address,
+          origin_address, product_description, has_brand, has_brand_letter,
+          merchandise_value_usd, photo_urls: photoUrls, doc_urls: docUrls,
+          requested_by_advisor_id: advisorId,
+        }),
+      ]
+    );
+
+    const ticket = ticketRes.rows[0];
+    res.json({ success: true, ticket_id: ticket.id, ticket_number: ticket.ticket_number });
+  } catch (err: any) {
+    console.error('Error createAdvisorQuoteRequest:', err);
+    res.status(500).json({ error: 'Error al crear solicitud de cotización', details: err.message });
+  }
+};

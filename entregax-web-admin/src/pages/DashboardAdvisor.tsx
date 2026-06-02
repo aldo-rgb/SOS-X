@@ -112,6 +112,7 @@ import api from '../services/api';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
 import AdvisorTermsSignatureDialog from '../components/AdvisorTermsSignatureDialog';
+import AdvisorQuoteRequestModal from '../components/AdvisorQuoteRequestModal';
 
 // ─── Types ───
 
@@ -455,6 +456,7 @@ export default function DashboardAdvisor() {
   // ── Cotizaciones formales (asesor) ──
   const [formalQuotesList, setFormalQuotesList] = useState<any[]>([]);
   const [formalQuoteDialogOpen, setFormalQuoteDialogOpen] = useState(false);
+  const [quoteRequestOpen, setQuoteRequestOpen] = useState(false);
   const [formalQuoteClient, setFormalQuoteClient] = useState<any | null>(null);
   const [formalQuoteClients, setFormalQuoteClients] = useState<any[]>([]);
   const [formalQuoteServicio, setFormalQuoteServicio] = useState<'maritimo' | 'aereo' | 'pobox' | 'dhl'>('maritimo');
@@ -3704,6 +3706,14 @@ export default function DashboardAdvisor() {
                 >
                   Nueva Cotización Formal
                 </Button>
+                <Button
+                  fullWidth variant="outlined"
+                  sx={{ mt: 1.5, color: 'white', borderColor: 'rgba(255,255,255,0.6)', fontWeight: 700, textTransform: 'none', '&:hover': { bgcolor: 'rgba(255,255,255,0.15)', borderColor: 'white' } }}
+                  startIcon={<span>📋</span>}
+                  onClick={() => setQuoteRequestOpen(true)}
+                >
+                  Solicitar Cotización Especializada
+                </Button>
               </Paper>
 
               <Paper sx={{ p: 3, borderRadius: 2 }}>
@@ -5442,6 +5452,17 @@ export default function DashboardAdvisor() {
           {snackbar.message}
         </Alert>
       </Snackbar>
+
+      <AdvisorQuoteRequestModal
+        open={quoteRequestOpen}
+        onClose={() => setQuoteRequestOpen(false)}
+        onSuccess={() => {
+          setQuoteRequestOpen(false);
+          setSnackbar({ open: true, message: '✅ Solicitud enviada. El equipo la revisará pronto.', severity: 'success' });
+          fetchAdvisorTickets();
+        }}
+        advisorToken={localStorage.getItem('token') || ''}
+      />
     </Box>
   );
 }
