@@ -1454,6 +1454,7 @@ export default function DashboardAdvisor() {
                     <TableRow>
                       <TableCell>Tracking</TableCell>
                       <TableCell>Descripción</TableCell>
+                      <TableCell>Guía Origen</TableCell>
                       <TableCell>Estado</TableCell>
                       <TableCell align="center">Acción</TableCell>
                     </TableRow>
@@ -1479,6 +1480,20 @@ export default function DashboardAdvisor() {
                             <Typography variant="caption" color="text.secondary">
                               {pkg.service_type || 'POBOX_USA'}{pkg.description ? ` · ${pkg.description}` : ''}
                             </Typography>
+                          </TableCell>
+                          <TableCell>
+                            {(pkg.carrier_tracking || pkg.carrier_name) ? (
+                              <Box>
+                                {pkg.carrier_tracking && (
+                                  <Typography variant="caption" fontFamily="monospace" display="block">{pkg.carrier_tracking}</Typography>
+                                )}
+                                {pkg.carrier_name && (
+                                  <Typography variant="caption" color="text.secondary">{pkg.carrier_name}</Typography>
+                                )}
+                              </Box>
+                            ) : (
+                              <Typography variant="caption" color="text.disabled">—</Typography>
+                            )}
                           </TableCell>
                           <TableCell>
                             <Chip label={pkg.status || 'received'} size="small" sx={{ bgcolor: alpha('#9C27B0', 0.1), color: '#9C27B0', fontSize: '0.7rem' }} />

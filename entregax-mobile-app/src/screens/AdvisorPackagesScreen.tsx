@@ -51,6 +51,8 @@ interface Shipment {
   children_count: number;
   is_master: boolean;
   is_unidentified?: boolean;
+  carrier_tracking?: string | null;
+  carrier_name?: string | null;
 }
 
 interface AdvisorClient {
@@ -542,7 +544,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
             </View>
             {item.goods_name ? <Text style={styles.goodsName}>{item.goods_name}</Text> : null}
             <View style={styles.cardFooter}>
-              <Text style={styles.clientName} numberOfLines={1}>{item.client_name} · {item.client_box_id}</Text>
+              <Text style={styles.clientName} numberOfLines={1}>
+                {item.client_name} · {item.client_box_id}
+                {item.is_unidentified && item.carrier_tracking ? ` · ${item.carrier_tracking}` : ''}
+              </Text>
               <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                 {item.saldo_pendiente > 0 && (
                   <Text style={styles.saldo}>${item.saldo_pendiente.toFixed(2)}</Text>
