@@ -99,6 +99,7 @@ export default function FiscalPage() {
   const savedUser = localStorage.getItem('user');
   const currentUser = savedUser ? JSON.parse(savedUser) : null;
   const isSuperAdmin = currentUser?.role === 'super_admin';
+  const isDirector = currentUser?.role === 'director';
 
   const [emitters, setEmitters] = useState<FiscalEmitter[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -1084,14 +1085,16 @@ export default function FiscalPage() {
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 2 }}>
-          <Button 
-            variant="contained" 
-            startIcon={<AddBusinessIcon />}
-            onClick={() => handleOpenModal()}
-            sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
-          >
-            {i18n.language === 'es' ? 'Nueva Empresa' : 'New Company'}
-          </Button>
+          {!isDirector && (
+            <Button
+              variant="contained"
+              startIcon={<AddBusinessIcon />}
+              onClick={() => handleOpenModal()}
+              sx={{ background: `linear-gradient(135deg, ${ORANGE} 0%, #ff7849 100%)` }}
+            >
+              {i18n.language === 'es' ? 'Nueva Empresa' : 'New Company'}
+            </Button>
+          )}
           <Tooltip title={i18n.language === 'es' ? 'Actualizar' : 'Refresh'}>
             <IconButton onClick={loadData} sx={{ bgcolor: 'grey.100' }}>
               <RefreshIcon />
@@ -1161,7 +1164,7 @@ export default function FiscalPage() {
       <Paper sx={{ mb: 3, borderRadius: 2 }}>
         <Tabs value={tabValue} onChange={(_, v) => setTabValue(v)} sx={{ borderBottom: 1, borderColor: 'divider' }}>
           <Tab icon={<BusinessIcon />} label={i18n.language === 'es' ? 'Mis Empresas' : 'My Companies'} />
-          <Tab icon={<SettingsIcon />} label="Servicios" />
+          {!isDirector && <Tab icon={<SettingsIcon />} label="Servicios" />}
         </Tabs>
       </Paper>
 
@@ -1186,16 +1189,16 @@ export default function FiscalPage() {
                 <TableRow sx={{ bgcolor: 'grey.100' }}>
                   <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Empresa' : 'Company'}</TableCell>
                   <TableCell sx={{ fontWeight: 'bold' }}>RFC</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Régimen' : 'Regime'}</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold' }}>C.P.</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Openpay</TableCell>
+                  {!isDirector && <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Régimen' : 'Regime'}</TableCell>}
+                  {!isDirector && <TableCell sx={{ fontWeight: 'bold' }}>C.P.</TableCell>}
+                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Openpay</TableCell>}
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Banco</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>PayPal</TableCell>
+                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>PayPal</TableCell>}
                   <TableCell align="center" sx={{ fontWeight: 'bold' }}>Syncfy</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturama</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturapi</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>
-                  <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>
+                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturama</TableCell>}
+                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>Facturapi</TableCell>}
+                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Estado' : 'Status'}</TableCell>}
+                  {!isDirector && <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Acciones' : 'Actions'}</TableCell>}
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -1215,11 +1218,11 @@ export default function FiscalPage() {
                     <TableCell>
                       <Chip label={emitter.rfc} size="small" sx={{ fontFamily: 'monospace', fontWeight: 'bold' }} />
                     </TableCell>
-                    <TableCell>
+                    {!isDirector && <TableCell>
                       {FISCAL_REGIMES.find(r => r.code === emitter.fiscal_regime)?.code || emitter.fiscal_regime || '-'}
-                    </TableCell>
-                    <TableCell>{emitter.zip_code || '-'}</TableCell>
-                    <TableCell align="center">
+                    </TableCell>}
+                    {!isDirector && <TableCell>{emitter.zip_code || '-'}</TableCell>}
+                    {!isDirector && <TableCell align="center">
                       {emitter.openpay_configured ? (
                         <Tooltip title={`${emitter.clientes_con_clabe || 0} clientes con CLABE - ${emitter.openpay_production_mode ? 'Producción' : 'Sandbox'}`}>
                           <Chip 
@@ -1243,7 +1246,7 @@ export default function FiscalPage() {
                           />
                         </Tooltip>
                       )}
-                    </TableCell>
+                    </TableCell>}
                     {/* Banco */}
                     <TableCell align="center">
                       {(emitter as any).bank_clabe ? (
@@ -1271,10 +1274,10 @@ export default function FiscalPage() {
                       )}
                     </TableCell>
                     {/* PayPal */}
-                    <TableCell align="center">
+                    {!isDirector && <TableCell align="center">
                       {(emitter as any).paypal_configured ? (
                         <Tooltip title={`PayPal configurado (${(emitter as any).paypal_sandbox ? 'Sandbox' : 'Producción'})`}>
-                          <Chip 
+                          <Chip
                             label={(emitter as any).paypal_sandbox ? 'Sand' : 'Prod'}
                             color={(emitter as any).paypal_sandbox ? 'warning' : 'success'}
                             size="small"
@@ -1284,7 +1287,7 @@ export default function FiscalPage() {
                         </Tooltip>
                       ) : (
                         <Tooltip title="Configurar PayPal para pagos">
-                          <Chip 
+                          <Chip
                             label="Configurar"
                             color="default"
                             size="small"
@@ -1293,7 +1296,7 @@ export default function FiscalPage() {
                           />
                         </Tooltip>
                       )}
-                    </TableCell>
+                    </TableCell>}
                     {/* Syncfy (reemplazo de Belvo) */}
                     <TableCell align="center">
                       {(emitter as any).syncfy_connected ? (
@@ -1321,7 +1324,7 @@ export default function FiscalPage() {
                       )}
                     </TableCell>
                     {/* Facturama */}
-                    <TableCell align="center">
+                    {!isDirector && <TableCell align="center">
                       {(emitter as any).facturama_configured ? (
                         <Tooltip title={`Facturama (${(emitter as any).facturama_environment || 'sandbox'}) - Recepción ${(emitter as any).facturama_reception_enabled ? 'ON' : 'OFF'}`}>
                           <Chip
@@ -1345,9 +1348,9 @@ export default function FiscalPage() {
                           />
                         </Tooltip>
                       )}
-                    </TableCell>
+                    </TableCell>}
                     {/* Facturapi */}
-                    <TableCell align="center">
+                    {!isDirector && <TableCell align="center">
                       {(emitter as any).facturapi_configured ? (
                         <Tooltip title={`Facturapi (${(emitter as any).facturapi_environment || 'live'}) - Descarga de CFDIs recibidos`}>
                           <Chip
@@ -1371,15 +1374,15 @@ export default function FiscalPage() {
                           />
                         </Tooltip>
                       )}
-                    </TableCell>
-                    <TableCell align="center">
-                      <Chip 
+                    </TableCell>}
+                    {!isDirector && <TableCell align="center">
+                      <Chip
                         label={emitter.is_active ? (i18n.language === 'es' ? 'Activa' : 'Active') : (i18n.language === 'es' ? 'Inactiva' : 'Inactive')}
                         color={emitter.is_active ? 'success' : 'default'}
                         size="small"
                       />
-                    </TableCell>
-                    <TableCell align="center">
+                    </TableCell>}
+                    {!isDirector && <TableCell align="center">
                       <IconButton onClick={() => handleOpenModal(emitter)} size="small">
                         <EditIcon />
                       </IconButton>
@@ -1388,11 +1391,11 @@ export default function FiscalPage() {
                           <DeleteIcon />
                         </IconButton>
                       )}
-                    </TableCell>
+                    </TableCell>}
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
+                    <TableCell colSpan={isDirector ? 4 : 11} align="center" sx={{ py: 4 }}>
                       <BusinessIcon sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                       <Typography color="text.secondary">
                         {i18n.language === 'es' ? 'No hay empresas registradas. Agrega tu primera empresa emisora.' : 'No companies registered. Add your first issuing company.'}
