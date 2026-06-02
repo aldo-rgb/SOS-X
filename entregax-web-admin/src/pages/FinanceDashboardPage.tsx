@@ -573,6 +573,23 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
             seq: e.seq ?? 0,
           };
         });
+
+        // Si todos los saldos son 0 (transacciones Syncfy sin saldo almacenado),
+        // calcular saldo acumulado de más antiguo a más reciente.
+        const allSaldoZero = mapped.every((r: EstadoCuentaRow) => !r.saldo || r.saldo === 0);
+        if (allSaldoZero && mapped.length > 0) {
+          const asc = [...mapped].sort((a: EstadoCuentaRow, b: EstadoCuentaRow) => {
+            const parse = (f: string) => { const [d, m, y] = f.split('-'); return `${y}${m}${d}`; };
+            const cmp = parse(a.fecha).localeCompare(parse(b.fecha));
+            return cmp !== 0 ? cmp : (a.seq ?? 0) - (b.seq ?? 0);
+          });
+          let running = 0;
+          asc.forEach((r: EstadoCuentaRow) => {
+            running += (r.abono || 0) - (r.cargo || 0);
+            r.saldo = running;
+          });
+        }
+
         setEstadoCuentaRows(sortRowsDesc(mapped));
         setSavedEntriesCount(mapped.length);
         setSnackbar({ open: true, message: `📋 ${mapped.length} movimientos cargados desde la base de datos`, severity: 'success' });
