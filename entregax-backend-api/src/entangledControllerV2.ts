@@ -434,12 +434,16 @@ export const createPaymentRequestV2 = async (
   // Estado tras fase 1: ya tenemos cuenta(s) — esperando comprobante del cliente.
   const estatusTrasFase1 = hasFile ? 'en_proceso' : 'esperando_comprobante';
 
-  // ENTANGLED no devuelve cuenta para "pago_sin_factura", así que forzamos
-  // la cuenta fija de TREBOL en ese caso.
+  // Usar empresas_asignadas del API. Para pago_sin_factura, si el API
+  // no devuelve cuenta (campo vacío o null), usar la cuenta fija de TREBOL.
+  const apiEmpresas = remote.empresas_asignadas || [];
   const empresasFinales =
-    servicio === 'pago_sin_factura'
+    servicio === 'pago_sin_factura' && apiEmpresas.length === 0
       ? [TREBOL_EMPRESA_SIN_FACTURA]
-      : (remote.empresas_asignadas || []);
+      : apiEmpresas;
+  if (servicio === 'pago_sin_factura') {
+    console.log(`[ENTANGLED] pago_sin_factura empresas del API: ${apiEmpresas.length} → usando ${apiEmpresas.length > 0 ? 'API' : 'fallback hardcoded'}`);
+  }
 
   let updated = (await pool.query(
     `UPDATE entangled_payment_requests
