@@ -52,6 +52,10 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
   const [roleFilter, setRoleFilter] = useState<string | null>(null);
   const [selectedUser, setSelectedUser] = useState<UserHR | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
+  const [profile, setProfile] = useState<any>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [detailTab, setDetailTab] = useState(0);
+  const [attendance, setAttendance] = useState<any[]>([]);
 
   // Alta form
   const [form, setForm] = useState({
@@ -111,6 +115,27 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
       Alert.alert('Error', msg);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const openProfile = async (user: UserHR) => {
+    setSelectedUser(user);
+    setDetailVisible(true);
+    setDetailTab(0);
+    setProfile(null);
+    setAttendance([]);
+    setProfileLoading(true);
+    try {
+      const [profRes, attRes] = await Promise.all([
+        api.get(`/api/admin/hr/employees/${user.id}/full-profile`, { headers: { Authorization: `Bearer ${token}` } }),
+        api.get(`/api/admin/hr/attendance?user_id=${user.id}&limit=30`, { headers: { Authorization: `Bearer ${token}` } }).catch(() => ({ data: { records: [] } })),
+      ]);
+      setProfile(profRes.data);
+      setAttendance(attRes.data.records || attRes.data.attendance || []);
+    } catch {
+      Alert.alert('Error', 'No se pudo cargar el perfil');
+    } finally {
+      setProfileLoading(false);
     }
   };
 
@@ -211,7 +236,7 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.userCard}
-                  onPress={() => { setSelectedUser(item); setDetailVisible(true); }}
+                  onPress={() => openProfile(item)}
                 >
                   <View style={[styles.avatar, { backgroundColor: roleColor(item.role) }]}>
                     <Text style={styles.avatarText}>
@@ -309,9 +334,9 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
         </ScrollView>
       )}
 
-      {/* Modal detalle usuario */}
+      {/* Modal detalle usuario con 4 tabs */}
       <Modal visible={detailVisible} animationType="slide" presentationStyle="pageSheet">
-        <SafeAreaView style={{ flex: 1, backgroundColor: 'white' }}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#f5f5f5' }}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setDetailVisible(false)}>
               <Ionicons name="close" size={26} color={BLACK} />
@@ -319,36 +344,191 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
             <Text style={styles.modalTitle}>Perfil de Empleado</Text>
             <View style={{ width: 26 }} />
           </View>
-          {selectedUser && (
-            <ScrollView contentContainerStyle={{ padding: 20 }}>
-              <View style={[styles.detailAvatar, { backgroundColor: roleColor(selectedUser.role) }]}>
-                <Text style={styles.detailAvatarText}>
-                  {(selectedUser.full_name || '?').substring(0, 2).toUpperCase()}
-                </Text>
-              </View>
-              <Text style={styles.detailName}>{selectedUser.full_name}</Text>
-              <View style={[styles.tag, { alignSelf: 'center', marginBottom: 20, backgroundColor: roleColor(selectedUser.role) + '22' }]}>
-                <Text style={[styles.tagText, { color: roleColor(selectedUser.role) }]}>
-                  {ROLE_LABELS[selectedUser.role] || selectedUser.role}
-                </Text>
+
+          {profileLoading ? (
+            <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 60 }} />
+          ) : selectedUser ? (
+            <>
+              {/* Cabecera del empleado */}
+              <View style={styles.profileHeader}>
+                <View style={[styles.detailAvatar, { backgroundColor: roleColor(selectedUser.role) }]}>
+                  <Text style={styles.detailAvatarText}>{(selectedUser.full_name || '?').substring(0, 2).toUpperCase()}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.detailName}>{selectedUser.full_name}</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 4, flexWrap: 'wrap' }}>
+                    <View style={[styles.tag, { backgroundColor: roleColor(selectedUser.role) + '22' }]}>
+                      <Text style={[styles.tagText, { color: roleColor(selectedUser.role) }]}>{ROLE_LABELS[selectedUser.role] || selectedUser.role}</Text>
+                    </View>
+                    {profile && (
+                      <View style={[styles.tag, { backgroundColor: profile.expediente_completo ? '#dcfce7' : '#fef3c7' }]}>
+                        <Text style={[styles.tagText, { color: profile.expediente_completo ? '#166534' : '#92400e' }]}>
+                          {profile.expediente_completo ? '✅ Completo' : `⚠️ Incompleto (${profile.expediente_faltantes?.length || '?'})`}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
               </View>
 
-              {[
-                { label: 'Email', value: selectedUser.email },
-                { label: 'Box ID', value: selectedUser.box_id || '—' },
-                { label: 'Teléfono', value: selectedUser.phone || '—' },
-                { label: 'Fecha de Alta', value: fmtDate(selectedUser.created_at) },
-                { label: 'Sucursal', value: selectedUser.branch_name || '—' },
-                { label: 'Asesor', value: selectedUser.advisor_name || '—' },
-                { label: 'Estado', value: selectedUser.is_active === false ? '🔴 Inactivo' : '🟢 Activo' },
-              ].map(({ label, value }) => (
-                <View key={label} style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>{label}</Text>
-                  <Text style={styles.detailValue}>{value}</Text>
-                </View>
-              ))}
-            </ScrollView>
-          )}
+              {/* Tabs */}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ backgroundColor: 'white', maxHeight: 46 }} contentContainerStyle={{ paddingHorizontal: 12 }}>
+                {['Expediente', 'Nómina', 'Préstamos', 'Asistencias'].map((t, i) => (
+                  <TouchableOpacity key={t} onPress={() => setDetailTab(i)}
+                    style={[styles.detailTabBtn, detailTab === i && styles.detailTabBtnActive]}>
+                    <Text style={[styles.detailTabText, detailTab === i && styles.detailTabTextActive]}>{t}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              <ScrollView contentContainerStyle={{ padding: 16 }}>
+                {/* ── EXPEDIENTE DIGITAL ── */}
+                {detailTab === 0 && (
+                  <View>
+                    {[
+                      { label: 'Email', value: selectedUser.email },
+                      { label: 'Box ID', value: selectedUser.box_id || '—' },
+                      { label: 'Teléfono', value: profile?.user?.phone || selectedUser.phone || '—' },
+                      { label: 'Fecha de Alta', value: fmtDate(profile?.user?.hire_date || selectedUser.created_at) },
+                      { label: 'Contacto Emergencia', value: profile?.user?.emergency_contact || '—' },
+                      { label: 'Antigüedad', value: profile?.antiguedad ? `${profile.antiguedad.years}a ${profile.antiguedad.months}m` : '—' },
+                      { label: 'Estado', value: selectedUser.is_active === false ? '🔴 Inactivo' : '🟢 Activo' },
+                    ].map(({ label, value }) => (
+                      <View key={label} style={styles.detailRow}>
+                        <Text style={styles.detailLabel}>{label}</Text>
+                        <Text style={styles.detailValue}>{value}</Text>
+                      </View>
+                    ))}
+
+                    <Text style={styles.sectionSubtitle}>Documentos</Text>
+                    {[
+                      { type: 'ine_front', label: 'INE — Anverso' },
+                      { type: 'ine_back', label: 'INE — Reverso' },
+                      { type: 'contract', label: 'Contrato Laboral' },
+                      { type: 'comprobante_domicilio', label: 'Comprobante Domicilio' },
+                      { type: 'rfc', label: 'RFC / Constancia Fiscal' },
+                      { type: 'curp', label: 'CURP' },
+                      { type: 'nss_constancia', label: 'Constancia NSS' },
+                      { type: 'aviso_alta_imss', label: 'Aviso Alta IMSS' },
+                    ].map(doc => {
+                      const found = profile?.documents?.find((d: any) => d.doc_type === doc.type);
+                      return (
+                        <View key={doc.type} style={styles.docRow}>
+                          <Ionicons name={found ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={found ? '#16a34a' : '#d1d5db'} />
+                          <Text style={[styles.docLabel, { color: found ? BLACK : '#9ca3af' }]}>{doc.label}</Text>
+                          {found && <Text style={styles.docDate}>{fmtDate(found.uploaded_at)}</Text>}
+                          {!found && <Text style={[styles.docDate, { color: '#ef4444' }]}>Sin archivo</Text>}
+                        </View>
+                      );
+                    })}
+
+                    {profile?.expediente_faltantes?.length > 0 && (
+                      <View style={styles.alertBox}>
+                        <Text style={styles.alertTitle}>Faltantes:</Text>
+                        {profile.expediente_faltantes.map((f: string) => (
+                          <Text key={f} style={styles.alertItem}>• {f}</Text>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )}
+
+                {/* ── NÓMINA Y SEGURO ── */}
+                {detailTab === 1 && (
+                  <View>
+                    {profile?.payroll ? (
+                      <>
+                        {[
+                          { label: 'Salario Bruto', value: profile.payroll.salario_bruto ? `$${parseFloat(profile.payroll.salario_bruto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—' },
+                          { label: 'Salario Neto', value: profile.payroll.salario_neto ? `$${parseFloat(profile.payroll.salario_neto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—' },
+                          { label: 'SDI', value: profile.payroll.sdi ? `$${parseFloat(profile.payroll.sdi).toFixed(2)}` : '—' },
+                          { label: 'Tipo Contrato', value: profile.payroll.contract_type || '—' },
+                          { label: 'Periodo de Pago', value: profile.payroll.payment_period || '—' },
+                          { label: 'Banco', value: profile.payroll.bank_name || '—' },
+                          { label: 'CLABE', value: profile.payroll.bank_clabe || '—' },
+                        ].map(({ label, value }) => (
+                          <View key={label} style={styles.detailRow}>
+                            <Text style={styles.detailLabel}>{label}</Text>
+                            <Text style={styles.detailValue}>{value}</Text>
+                          </View>
+                        ))}
+                        <Text style={styles.sectionSubtitle}>IMSS</Text>
+                        {[
+                          { label: 'NSS', value: profile.payroll.nss || '—' },
+                          { label: 'Estado IMSS', value: profile.payroll.imss_status || '—' },
+                          { label: 'Fecha Alta IMSS', value: fmtDate(profile.payroll.imss_alta_date) },
+                          { label: 'Días Vacaciones', value: `${profile.payroll.vacation_days_available || 0} disponibles / ${profile.payroll.vacation_days_taken || 0} tomados` },
+                        ].map(({ label, value }) => (
+                          <View key={label} style={styles.detailRow}>
+                            <Text style={styles.detailLabel}>{label}</Text>
+                            <Text style={styles.detailValue}>{value}</Text>
+                          </View>
+                        ))}
+                        {profile.payroll.notes ? (
+                          <View style={[styles.alertBox, { backgroundColor: '#f0f9ff', borderColor: '#bae6fd' }]}>
+                            <Text style={{ color: '#0369a1', fontSize: 13 }}>{profile.payroll.notes}</Text>
+                          </View>
+                        ) : null}
+                      </>
+                    ) : (
+                      <Text style={styles.empty}>Sin información de nómina registrada</Text>
+                    )}
+                  </View>
+                )}
+
+                {/* ── PRÉSTAMOS ── */}
+                {detailTab === 2 && (
+                  <View>
+                    {profile?.loans?.length > 0 ? profile.loans.map((loan: any) => (
+                      <View key={loan.id} style={styles.loanCard}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <Text style={{ fontWeight: '700', fontSize: 15, color: BLACK }}>
+                            ${parseFloat(loan.monto_total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                          </Text>
+                          <View style={[styles.tag, { backgroundColor: loan.status === 'activo' ? '#dcfce7' : loan.status === 'pagado' ? '#dbeafe' : '#fef3c7' }]}>
+                            <Text style={[styles.tagText, { color: loan.status === 'activo' ? '#166534' : loan.status === 'pagado' ? '#1e40af' : '#92400e' }]}>
+                              {loan.status}
+                            </Text>
+                          </View>
+                        </View>
+                        {loan.motivo ? <Text style={{ color: '#6b7280', fontSize: 13, marginBottom: 4 }}>{loan.motivo}</Text> : null}
+                        <View style={{ flexDirection: 'row', gap: 16 }}>
+                          <Text style={{ fontSize: 12, color: '#6b7280' }}>{loan.parcialidades} parcialidades • {loan.periodo}</Text>
+                          <Text style={{ fontSize: 12, color: '#6b7280' }}>${parseFloat(loan.monto_por_parcialidad || 0).toFixed(2)}/pago</Text>
+                        </View>
+                        <View style={{ marginTop: 8, flexDirection: 'row', justifyContent: 'space-between' }}>
+                          <Text style={{ fontSize: 12, color: '#16a34a' }}>Pagado: ${parseFloat(loan.pagado || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Text>
+                          <Text style={{ fontSize: 12, color: '#dc2626' }}>Remanente: ${parseFloat(loan.remanente || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Text>
+                        </View>
+                      </View>
+                    )) : (
+                      <Text style={styles.empty}>Sin préstamos registrados</Text>
+                    )}
+                  </View>
+                )}
+
+                {/* ── ASISTENCIAS ── */}
+                {detailTab === 3 && (
+                  <View>
+                    {attendance.length > 0 ? attendance.map((a: any, i: number) => (
+                      <View key={i} style={styles.attRow}>
+                        <Text style={styles.attDate}>{fmtDate(a.date || a.created_at)}</Text>
+                        <View style={{ flex: 1 }}>
+                          {a.check_in && <Text style={styles.attTime}>Entrada: {String(a.check_in).substring(11, 16)}</Text>}
+                          {a.check_out && <Text style={styles.attTime}>Salida: {String(a.check_out).substring(11, 16)}</Text>}
+                        </View>
+                        <View style={[styles.tag, { backgroundColor: a.status === 'presente' ? '#dcfce7' : '#fee2e2' }]}>
+                          <Text style={[styles.tagText, { color: a.status === 'presente' ? '#166534' : '#991b1b' }]}>{a.status || 'Sin estado'}</Text>
+                        </View>
+                      </View>
+                    )) : (
+                      <Text style={styles.empty}>Sin registros de asistencia</Text>
+                    )}
+                  </View>
+                )}
+              </ScrollView>
+            </>
+          ) : null}
         </SafeAreaView>
       </Modal>
 
@@ -429,4 +609,20 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: ORANGE, borderColor: ORANGE },
   chipText: { fontSize: 12, color: '#555', fontWeight: '500' },
   chipTextActive: { color: 'white', fontWeight: '700' },
+  profileHeader: { backgroundColor: 'white', flexDirection: 'row', alignItems: 'center', gap: 14, padding: 16, borderBottomWidth: 1, borderBottomColor: '#eee' },
+  detailTabBtn: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  detailTabBtnActive: { borderBottomColor: ORANGE },
+  detailTabText: { fontSize: 13, color: '#666', fontWeight: '500' },
+  detailTabTextActive: { color: ORANGE, fontWeight: '700' },
+  sectionSubtitle: { fontSize: 13, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
+  docRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  docLabel: { flex: 1, fontSize: 14 },
+  docDate: { fontSize: 12, color: '#6b7280' },
+  alertBox: { backgroundColor: '#fef3c7', borderWidth: 1, borderColor: '#fcd34d', borderRadius: 8, padding: 12, marginTop: 12 },
+  alertTitle: { fontWeight: '700', color: '#92400e', marginBottom: 4 },
+  alertItem: { color: '#92400e', fontSize: 13 },
+  loanCard: { backgroundColor: 'white', borderRadius: 12, padding: 14, marginBottom: 10, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 },
+  attRow: { backgroundColor: 'white', borderRadius: 10, padding: 12, marginBottom: 8, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  attDate: { fontSize: 13, fontWeight: '600', color: BLACK, width: 80 },
+  attTime: { fontSize: 12, color: '#6b7280' },
 });
