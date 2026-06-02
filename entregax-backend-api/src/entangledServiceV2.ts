@@ -600,12 +600,18 @@ export const callAsignacion = async (
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
       });
       const d = res.data || {};
-      console.log(`[ENTANGLED] /asignacion ok empresa=${d?.empresa?.rfc || '—'}`);
+      console.log(`[ENTANGLED] /asignacion ok raw=${JSON.stringify(d).slice(0, 600)}`);
+      // cuenta_bancaria puede estar en distintos niveles según el tipo de servicio
+      const cuentaBancaria = d.cuenta_bancaria
+        || d.empresa?.cuenta_bancaria
+        || d.empresas_asignadas?.[0]?.cuenta_bancaria
+        || d.asignacion?.cuenta_bancaria
+        || null;
       return {
         ok: true,
         asignacion: d.asignacion,
-        empresa: d.empresa,
-        cuenta_bancaria: d.cuenta_bancaria,
+        empresa: d.empresa || d.empresas_asignadas?.[0]?.empresa || d.empresas_asignadas?.[0] || null,
+        cuenta_bancaria: cuentaBancaria,
         facturacion: d.facturacion,
         raw: d,
       };

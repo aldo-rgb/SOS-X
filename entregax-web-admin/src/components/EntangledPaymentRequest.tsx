@@ -548,8 +548,14 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     }, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => {
         const d = r.data;
-        const empresa = d.empresa || d.empresas_asignadas?.[0];
-        const cb = empresa?.cuenta_bancaria || d.cuenta_bancaria;
+        console.log('[ENTANGLED asignacion sin_factura]', JSON.stringify(d).slice(0, 500));
+        const empresa = d.empresa || d.empresas_asignadas?.[0]?.empresa || d.empresas_asignadas?.[0];
+        const cb = d.cuenta_bancaria
+          || empresa?.cuenta_bancaria
+          || d.asignacion?.cuenta_bancaria
+          || d.raw?.cuenta_bancaria
+          || d.raw?.empresa?.cuenta_bancaria
+          || d.raw?.empresas_asignadas?.[0]?.cuenta_bancaria;
         if (cb) {
           setAsignacion({ loading: false, empresa: empresa || undefined, cuenta_bancaria: cb, facturacion: undefined });
         } else {
