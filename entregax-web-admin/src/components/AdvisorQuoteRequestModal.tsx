@@ -236,12 +236,6 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
             ))}
           </Box>
         )}
-        {servicio === 'aereo' && (
-          <TextField fullWidth size="small" label="Peso total (kg)" type="number"
-            value={pesoKg} onChange={e => setPesoKg(e.target.value)}
-            sx={{ mb: 3 }} InputProps={{ endAdornment: <Typography sx={{ color: 'text.secondary', ml: 1 }}>kg</Typography> }} />
-        )}
-
         <Divider sx={{ mb: 3 }} />
 
         {/* CLIENTE */}
@@ -327,9 +321,78 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
         <Divider sx={{ mb: 3 }} /></>
         )}
 
+        {/* PESO + BLOQUES — solo Aéreo */}
+        {servicio === 'aereo' && (
+        <>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+            <Typography variant="subtitle1" fontWeight={700} sx={{ color: ORANGE }}>3. Peso y Volumen</Typography>
+            {totalCBM > 0 && (
+              <Chip icon={<CalculateIcon />} label={`${totalCBM.toFixed(4)} CBM${totalPcs > 0 ? ` · ${totalPcs} pzas` : ''}`}
+                color="primary" size="small" sx={{ fontWeight: 700 }} />
+            )}
+          </Box>
+
+          <TextField fullWidth size="small" label="Peso total (kg)" type="number"
+            value={pesoKg} onChange={e => setPesoKg(e.target.value)}
+            sx={{ mb: 1.5 }}
+            InputProps={{ endAdornment: <Typography sx={{ color: 'text.secondary', ml: 1 }}>kg</Typography> }} />
+
+          <TextField
+            fullWidth size="small" label="Metros cúbicos (CBM) — opcional" type="number"
+            value={cbmDirecto}
+            onChange={e => { setCbmDirecto(e.target.value); if (e.target.value) setShowBlocks(false); }}
+            placeholder="Ej: 2.5"
+            sx={{ mb: 1.5 }}
+            helperText="Si ya sabes el volumen, escríbelo aquí."
+            InputProps={{ endAdornment: <Typography sx={{ color: 'text.secondary', ml: 1, whiteSpace: 'nowrap' }}>m³</Typography> }}
+          />
+
+          <Button size="small" variant="text"
+            startIcon={showBlocks ? <DeleteIcon fontSize="small" /> : <CalculateIcon fontSize="small" />}
+            onClick={() => { setShowBlocks(v => !v); if (!showBlocks) setCbmDirecto(''); }}
+            sx={{ mb: 2, color: ORANGE, textTransform: 'none' }}>
+            {showBlocks ? 'Ocultar bloques' : 'Calcular CBM por bloques de cajas'}
+          </Button>
+
+          {showBlocks && (
+            <>
+              {blocks.map((b, i) => (
+                <Paper key={i} variant="outlined" sx={{ p: 2, mb: 1.5, borderRadius: 2 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                    <Typography variant="caption" fontWeight={700} color="text.secondary">Bloque {i + 1}</Typography>
+                    {blocks.length > 1 && (
+                      <IconButton size="small" color="error" onClick={() => removeBlock(i)}><DeleteIcon fontSize="small" /></IconButton>
+                    )}
+                    <Typography variant="caption" sx={{ ml: 'auto', color: ORANGE, fontWeight: 700 }}>
+                      {cbmOf(b).toFixed(4)} CBM
+                    </Typography>
+                  </Box>
+                  <Grid container spacing={1.5}>
+                    {(['largo', 'ancho', 'alto'] as const).map(field => (
+                      <Grid size={{ xs: 6, sm: 3 }} key={field}>
+                        <TextField label={`${field.charAt(0).toUpperCase() + field.slice(1)} (cm)`} size="small" fullWidth
+                          type="number" value={b[field]} onChange={e => updateBlock(i, field, e.target.value)} />
+                      </Grid>
+                    ))}
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <TextField label="Cantidad" size="small" fullWidth type="number"
+                        value={b.cantidad} onChange={e => updateBlock(i, 'cantidad', e.target.value)} />
+                    </Grid>
+                  </Grid>
+                </Paper>
+              ))}
+              <Button size="small" startIcon={<AddIcon />} onClick={addBlock} sx={{ mb: 2, color: ORANGE }}>
+                Agregar bloque
+              </Button>
+            </>
+          )}
+          <Divider sx={{ mb: 3 }} />
+        </>
+        )}
+
         {/* DIRECCIÓN DESTINO */}
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
-          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '4.' : '3.'} Dirección Destino
+          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '4.' : (servicio === 'aereo' ? '4.' : '3.')} Dirección Destino
         </Typography>
         {addresses.length > 0 ? (
           <Box sx={{ mb: 2 }}>
@@ -366,7 +429,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
         {/* PRODUCTO */}
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
-          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '5.' : '4.'} Descripción del Producto
+          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '5.' : (servicio === 'aereo' ? '5.' : '4.')} Descripción del Producto
         </Typography>
         <TextField fullWidth size="small" label="Descripción" multiline rows={3}
           value={productDescription} onChange={e => setProductDescription(e.target.value)}
@@ -390,7 +453,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
         {/* PROVEEDOR + VALOR */}
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
-          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '6.' : '5.'} Proveedor y Valor
+          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '6.' : (servicio === 'aereo' ? '6.' : '5.')} Proveedor y Valor
         </Typography>
         <Grid container spacing={2} sx={{ mb: 3 }}>
           <Grid size={{ xs: 12, sm: 8 }}>
@@ -409,7 +472,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
         {/* ARCHIVOS */}
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
-          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '7.' : '6.'} Archivos Adjuntos
+          {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '7.' : (servicio === 'aereo' ? '7.' : '6.')} Archivos Adjuntos
         </Typography>
         <Grid container spacing={2}>
           <Grid size={{ xs: 12, sm: 6 }}>
