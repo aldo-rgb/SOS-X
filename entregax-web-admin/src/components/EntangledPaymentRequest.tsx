@@ -538,13 +538,15 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     if (asignacion?.cuenta_bancaria) return; // ya tenemos cuenta
     setAsignacion({ loading: true, empresa: undefined, cuenta_bancaria: undefined, facturacion: undefined });
     const token = localStorage.getItem('token');
+    // Para pago_sin_factura, Entangled usa VARCHAR(13) para razon_social (igual que RFC).
+    // Enviamos un código corto fijo para evitar el error "value too long".
     axios.post(`${API_URL}/api/entangled/asignacion`, {
       servicio: 'pago_sin_factura',
-      cliente_final: { razon_social: supplierForm.nombre_beneficiario || 'Beneficiario' },
+      cliente_final: { razon_social: 'SIN_FACTURA' },
       monto_destino: Number(form.monto),
       divisa_destino: form.divisa_destino,
-      tc_cliente_final: quote.tipo_cambio,
-      comision_cliente_final_porcentaje: quote.porcentaje_compra,
+      tc_cliente_final: Math.round(quote.tipo_cambio * 10000) / 10000,
+      comision_cliente_final_porcentaje: Math.round(quote.porcentaje_compra * 100) / 100,
     }, { headers: { Authorization: `Bearer ${token}` } })
       .then(r => {
         const d = r.data;
