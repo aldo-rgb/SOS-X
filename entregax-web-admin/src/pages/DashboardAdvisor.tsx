@@ -423,7 +423,8 @@ export default function DashboardAdvisor() {
   // New address form (advisor adding address for client)
   const [newAddrOpen, setNewAddrOpen] = useState(false);
   const [newAddrSaving, setNewAddrSaving] = useState(false);
-  const EMPTY_ADDR = { alias: '', recipientName: '', street: '', exteriorNumber: '', interiorNumber: '', neighborhood: '', city: '', state: '', zipCode: '' };
+  const [newAddrZipLoading, setNewAddrZipLoading] = useState(false);
+  const EMPTY_ADDR = { alias: '', recipientName: '', street: '', exteriorNumber: '', interiorNumber: '', neighborhood: '', city: '', state: '', zipCode: '', phone: '', reference: '', receptionHours: '' };
   const [newAddrForm, setNewAddrForm] = useState(EMPTY_ADDR);
 
   // Team tab
@@ -597,6 +598,26 @@ export default function DashboardAdvisor() {
       setPkgDetail(r.data);
     } catch {}
     setPkgDetailLoading(false);
+  };
+
+  const handleZipCodeChange = async (zip: string) => {
+    setNewAddrForm(p => ({ ...p, zipCode: zip }));
+    if (zip.length === 5) {
+      setNewAddrZipLoading(true);
+      try {
+        const r = await api.get(`/zipcode/${zip}`);
+        const d = r.data;
+        if (d?.city || d?.state) {
+          setNewAddrForm(p => ({
+            ...p,
+            city: d.city || p.city,
+            state: d.state || p.state,
+            neighborhood: p.neighborhood || (d.neighborhoods?.[0] || ''),
+          }));
+        }
+      } catch {}
+      setNewAddrZipLoading(false);
+    }
   };
 
   const fetchAssignClients = async (search = '') => {
@@ -5114,10 +5135,18 @@ export default function DashboardAdvisor() {
             <TextField label="Calle *" size="small" value={newAddrForm.street} onChange={e => setNewAddrForm(p => ({ ...p, street: e.target.value }))} sx={{ gridColumn: '1 / -1' }} />
             <TextField label="No. Exterior *" size="small" value={newAddrForm.exteriorNumber} onChange={e => setNewAddrForm(p => ({ ...p, exteriorNumber: e.target.value }))} />
             <TextField label="No. Interior" size="small" value={newAddrForm.interiorNumber} onChange={e => setNewAddrForm(p => ({ ...p, interiorNumber: e.target.value }))} />
-            <TextField label="Colonia" size="small" value={newAddrForm.neighborhood} onChange={e => setNewAddrForm(p => ({ ...p, neighborhood: e.target.value }))} sx={{ gridColumn: '1 / -1' }} />
+            <TextField
+              label="C.P. *" size="small" value={newAddrForm.zipCode}
+              onChange={e => handleZipCodeChange(e.target.value)}
+              inputProps={{ maxLength: 5 }}
+              InputProps={{ endAdornment: newAddrZipLoading ? <CircularProgress size={16} /> : null }}
+            />
+            <TextField label="Colonia" size="small" value={newAddrForm.neighborhood} onChange={e => setNewAddrForm(p => ({ ...p, neighborhood: e.target.value }))} />
             <TextField label="Ciudad *" size="small" value={newAddrForm.city} onChange={e => setNewAddrForm(p => ({ ...p, city: e.target.value }))} />
             <TextField label="Estado *" size="small" value={newAddrForm.state} onChange={e => setNewAddrForm(p => ({ ...p, state: e.target.value }))} />
-            <TextField label="C.P. *" size="small" value={newAddrForm.zipCode} onChange={e => setNewAddrForm(p => ({ ...p, zipCode: e.target.value }))} />
+            <TextField label="Teléfono de contacto" size="small" value={newAddrForm.phone} onChange={e => setNewAddrForm(p => ({ ...p, phone: e.target.value }))} />
+            <TextField label="Referencias" size="small" value={newAddrForm.reference} onChange={e => setNewAddrForm(p => ({ ...p, reference: e.target.value }))} />
+            <TextField label="Horario de entrega" size="small" placeholder="Ej. Lun-Vie 9am-6pm" value={newAddrForm.receptionHours} onChange={e => setNewAddrForm(p => ({ ...p, receptionHours: e.target.value }))} sx={{ gridColumn: '1 / -1' }} />
           </Box>
         </DialogContent>
         <DialogActions sx={{ p: 1.5 }}>
