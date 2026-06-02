@@ -184,6 +184,68 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
     }
   };
 
+  const handleDownloadPDF = () => {
+    const destination = selectedAddressId
+      ? addresses.find(a => a.id === selectedAddressId)?.full_address || customDestination
+      : customDestination;
+    const html = `
+      <!DOCTYPE html><html><head><meta charset="utf-8">
+      <title>Solicitud de Cotización</title>
+      <style>
+        body { font-family: Arial, sans-serif; padding: 32px; color: #222; max-width: 800px; margin: 0 auto; }
+        h1 { color: #F05A28; font-size: 22px; border-bottom: 2px solid #F05A28; padding-bottom: 8px; }
+        h2 { color: #F05A28; font-size: 15px; margin-top: 20px; margin-bottom: 6px; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; }
+        td { padding: 6px 10px; border-bottom: 1px solid #eee; font-size: 13px; }
+        td:first-child { color: #666; width: 180px; }
+        td:last-child { font-weight: 600; }
+        .block-row { background: #fff8f5; border: 1px solid #fdd; border-radius: 4px; padding: 6px 10px; margin: 4px 0; font-size: 13px; }
+        .footer { margin-top: 40px; font-size: 11px; color: #999; border-top: 1px solid #eee; padding-top: 12px; }
+        @media print { body { padding: 16px; } }
+      </style></head><body>
+      <h1>📋 Solicitud de Cotización Especializada</h1>
+      <p style="color:#666;font-size:13px">Fecha: ${new Date().toLocaleDateString('es-MX', { day:'2-digit', month:'long', year:'numeric' })}</p>
+
+      <h2>Servicio</h2>
+      <table><tr><td>Tipo</td><td>${servicio === 'maritimo' ? `Marítimo ${maritimoTipo.toUpperCase()}` : 'Aéreo'}</td></tr>
+      ${servicio === 'aereo' && pesoKg ? `<tr><td>Peso</td><td>${pesoKg} kg</td></tr>` : ''}
+      ${totalCBM > 0 ? `<tr><td>CBM Total</td><td>${totalCBM.toFixed(4)} m³${totalPcs > 0 ? ` · ${totalPcs} pzas` : ''}</td></tr>` : ''}
+      </table>
+
+      <h2>Cliente</h2>
+      <table><tr><td>Nombre</td><td>${selectedClient?.fullName || '—'}</td></tr>
+      <tr><td>Box ID</td><td>${selectedClient?.boxId || '—'}</td></tr>
+      <tr><td>Email</td><td>${selectedClient?.email || '—'}</td></tr></table>
+
+      ${showBlocks && blocks.some(b => b.largo) ? `<h2>Bloques de Cajas</h2>${blocks.map((b, i) => b.largo ? `<div class="block-row">Bloque ${i+1}: ${b.largo}×${b.ancho}×${b.alto} cm · ${b.cantidad} pza(s) · ${cbmOf(b).toFixed(4)} CBM</div>` : '').join('')}` : ''}
+
+      <h2>Dirección Destino</h2>
+      <table><tr><td>Destino</td><td>${destination || '—'}</td></tr></table>
+
+      <h2>Producto</h2>
+      <table>
+        <tr><td>Descripción</td><td>${productDescription || '—'}</td></tr>
+        <tr><td>Marca registrada</td><td>${hasBrand ? (hasBrandLetter ? 'Sí — con carta de uso de marca' : 'Sí — sin carta de uso') : 'No'}</td></tr>
+      </table>
+
+      <h2>Proveedor y Valor</h2>
+      <table>
+        <tr><td>Origen proveedor</td><td>${originAddress || '—'}</td></tr>
+        <tr><td>Valor mercancía</td><td>${merchandiseValue ? `$${parseFloat(merchandiseValue).toLocaleString('es-MX', { minimumFractionDigits: 2 })} USD` : '—'}</td></tr>
+      </table>
+
+      <h2>Archivos Adjuntos</h2>
+      <table>
+        <tr><td>Fotos</td><td>${images.length > 0 ? images.map(f => f.name).join(', ') : 'Ninguna'}</td></tr>
+        <tr><td>Documentos</td><td>${docs.length > 0 ? docs.map(f => f.name).join(', ') : 'Ninguno'}</td></tr>
+      </table>
+
+      <div class="footer">Generado por EntregaX · ${new Date().toLocaleString('es-MX')}</div>
+      </body></html>`;
+    const win = window.open('', '_blank');
+    if (win) { win.document.write(html); win.document.close(); win.print(); }
+  };
+
   const handleClose = () => {
     setError(''); setSelectedClient(null); setAddresses([]);
     setSelectedAddressId(null); setCustomDestination(''); setBlocks([emptyBlock()]);
@@ -529,8 +591,12 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
         )}
       </DialogContent>
 
-      <DialogActions sx={{ px: 3, py: 2 }}>
+      <DialogActions sx={{ px: 3, py: 2, gap: 1 }}>
         <Button onClick={handleClose} disabled={saving}>Cancelar</Button>
+        <Button variant="outlined" onClick={handleDownloadPDF} disabled={saving}
+          sx={{ borderColor: ORANGE, color: ORANGE, minWidth: 160 }}>
+          📄 Descargar PDF
+        </Button>
         <Button variant="contained" onClick={handleSubmit} disabled={saving}
           sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d44d20' }, minWidth: 160 }}>
           {saving ? <CircularProgress size={20} sx={{ color: 'white' }} /> : '📤 Enviar Solicitud'}

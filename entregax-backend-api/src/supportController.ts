@@ -2169,27 +2169,53 @@ export const createAdvisorQuoteRequest = async (req: Request, res: Response): Pr
       docUrls.length > 0 ? `\n📎 Documentos:\n${docUrls.map(u => `  - ${u}`).join('\n')}` : '',
     ].filter(Boolean).join('');
 
-    // Crear ticket en nombre del asesor hacia el equipo de cotizaciones
-    const ticketRes = await pool.query(
-      `INSERT INTO support_tickets (user_id, subject, body, category, status, department, creator_type, creator_id, assigned_to, metadata)
-       VALUES ($1, $2, $3, 'quote_request', 'escalated_human', 'Cotizaciones', 'advisor', $4, $4, $5)
-       RETURNING id, ticket_number`,
-      [
-        client_id,
-        `Solicitud de cotización — ${client.full_name}`,
-        bodyLines,
-        advisorId,
-        JSON.stringify({
-          box_blocks: blocks, total_cbm, total_pieces, destination_address,
-          origin_address, product_description, has_brand, has_brand_letter,
-          merchandise_value_usd, photo_urls: photoUrls, doc_urls: docUrls,
-          requested_by_advisor_id: advisorId,
-        }),
-      ]
-    );
+    // Obtener department_id de Cotizaciones
+    const deptRes = await pool.query(`SELECT id FROM support_departments WHERE name = 'Cotizaciones' LIMIT 1`);
+    const departmentId = deptRes.rows[0]?.id || null;
 
-    const ticket = ticketRes.rows[0];
-    res.json({ success: true, ticket_id: ticket.id, ticket_number: ticket.ticket_number });
+    // Generar folio único
+    const folioTs = Date.now().toString(36).toUpperCase();
+    const folioRand = Math.random().toString(36).substring(2, 5).toUpperCase();
+    const folio = `TKT-ACQ-${folioTs}-${folioRand}`;
+
+    // Asegurar columna metadata
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS metadata JSONB`);
+    await pool.query(`ALTER TABLE support_tickets ADD COLUMN IF NOT EXISTS body TEXT`);
+
+    const ticketRes = await pool.query(
+      `INSERT INTO support_tickets
+         (ticket_folio, user_id, category, subject, status, creator_type, department_id, assigned_to, priority)
+       VALUES ($1, $2, 'quote_request', $3, 'escalated_human', 'advisor', $4, $5, 'normal')
+       RETURNING id, ticket_folio`,
+      [folio, client_id, `Solicitud cotización — ${client.full_name}`, departmentId, advisorId]
+    );
+    const ticketId = ticketRes.rows[0].id;
+    const ticketFolio = ticketRes.rows[0].ticket_folio;
+
+    // Guardar body y metadata por separado (columnas opcionales)
+    try {
+      await pool.query(`UPDATE support_tickets SET body = $1, metadata = $2 WHERE id = $3`, [
+        bodyLines,
+        JSON.stringify({
+          servicio, maritimo_tipo, box_blocks: blocks, total_cbm, total_pieces, peso_kg,
+          destination_address, origin_address, product_description,
+          has_brand, has_brand_letter, merchandise_value_usd,
+          photo_urls: photoUrls, doc_urls: docUrls, requested_by_advisor_id: advisorId,
+        }),
+        ticketId,
+      ]);
+    } catch (e) { console.warn('No se pudo guardar body/metadata:', e); }
+
+    // Primer mensaje del ticket
+    try {
+      await pool.query(
+        `INSERT INTO support_messages (ticket_id, sender_id, sender_type, content)
+         VALUES ($1, $2, 'advisor', $3)`,
+        [ticketId, advisorId, bodyLines]
+      );
+    } catch (e) { console.warn('No se pudo insertar mensaje:', e); }
+
+    res.json({ success: true, ticket_id: ticketId, ticket_folio: ticketFolio });
   } catch (err: any) {
     console.error('Error createAdvisorQuoteRequest:', err);
     res.status(500).json({ error: 'Error al crear solicitud de cotización', details: err.message });
