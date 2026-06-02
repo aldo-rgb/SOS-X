@@ -11467,11 +11467,11 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   ensureDepartmentsSchema();
 
   // Columnas opcionales de addresses (idempotente)
-  pool.query(`
-    ALTER TABLE addresses ADD COLUMN IF NOT EXISTS reception_hours TEXT;
-    ALTER TABLE addresses ADD COLUMN IF NOT EXISTS default_for_service TEXT;
-    ALTER TABLE addresses ADD COLUMN IF NOT EXISTS carrier_config JSONB;
-  `).catch(() => {});
+  Promise.all([
+    pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS reception_hours TEXT`),
+    pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS default_for_service TEXT`),
+    pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS carrier_config JSONB`),
+  ]).catch(() => {});
 
   // One-shot: resetear cuenta de pruebas jesuscampos@entregax.com.mx
   // (idempotente — guarda marcador en system_configurations).
