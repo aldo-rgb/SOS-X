@@ -713,59 +713,39 @@ export default function FiscalPage() {
                 setSyncfyWidgetVisible(false);
                 return;
               }
-              // Para BBVA y bancos con OTP/token asíncrono:
-              // NO cerrar ni cubrir el widget — el QR puede seguir visible.
-              // Mostrar solo un banner no intrusivo abajo y hacer polling silencioso.
-              setSyncfyAwaitingQR(true);
+              // Usar GET (solo lee DB) en lugar de POST (que llama refreshCredentials
+              // y re-activa credenciales soft-deleted desde Syncfy API).
+              const checkDB = async () => {
+                try {
+                  const r = await axios.get(
+                    `${API_URL}/admin/syncfy/links?emitter_id=${selectedEmpresaSyncfy.id}`,
+                    { headers: { Authorization: `Bearer ${getToken()}` } }
+                  );
+                  return (r.data?.links || []).length > 0;
+                } catch { return false; }
+              };
+
               const emitterId = selectedEmpresaSyncfy.id;
               const emitterAlias = selectedEmpresaSyncfy.alias;
 
-              // Intento inmediato (bancos que ya completaron sync)
-              try {
-                const r = await axios.post(
-                  `${API_URL}/admin/syncfy/links`,
-                  { emitter_id: emitterId },
-                  { headers: { Authorization: `Bearer ${getToken()}` } }
-                );
-                if (r.data?.links?.length > 0) {
-                  if (syncfyPollRef.current) { clearInterval(syncfyPollRef.current); syncfyPollRef.current = null; }
-                  setSyncfyAwaitingQR(false);
-                  setSyncfyWidgetVisible(false);
-                  setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${emitterAlias}`, severity: 'success' });
-                  handleOpenSyncfyModal(selectedEmpresaSyncfy);
-                  loadData();
-                  return;
-                }
-              } catch { /* noop */ }
-
-              // Polling cada 10s hasta 3 min (el QR sigue visible mientras esperamos)
+              // Mostrar banner y hacer polling via GET (sin re-activar credenciales)
+              setSyncfyAwaitingQR(true);
               let attempts = 0;
               const maxAttempts = 18;
               if (syncfyPollRef.current) clearInterval(syncfyPollRef.current);
               syncfyPollRef.current = setInterval(async () => {
                 attempts++;
-                try {
-                  const r = await axios.post(
-                    `${API_URL}/admin/syncfy/links`,
-                    { emitter_id: emitterId },
-                    { headers: { Authorization: `Bearer ${getToken()}` } }
-                  );
-                  if (r.data?.links?.length > 0) {
-                    clearInterval(syncfyPollRef.current!);
-                    syncfyPollRef.current = null;
-                    setSyncfyAwaitingQR(false);
-                    setSyncfyWidgetVisible(false);
-                    setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${emitterAlias}`, severity: 'success' });
-                    handleOpenSyncfyModal(selectedEmpresaSyncfy);
-                    loadData();
-                  }
-                } catch { /* noop */ }
-                if (attempts >= maxAttempts) {
-                  clearInterval(syncfyPollRef.current!);
-                  syncfyPollRef.current = null;
-                  setSyncfyAwaitingQR(false);
-                  setSyncfyWidgetVisible(false);
-                  setSnackbar({ open: true, message: 'ℹ️ No se detectó banco conectado en 3 min. Intenta de nuevo.', severity: 'warning' });
+                const found = await checkDB();
+                if (found) {
+                  clearInterval(syncfyPollRef.current!); syncfyPollRef.current = null;
+                  setSyncfyAwaitingQR(false); setSyncfyWidgetVisible(false);
+                  setSnackbar({ open: true, message: `✅ Banco conectado vía Syncfy para ${emitterAlias}`, severity: 'success' });
+                  handleOpenSyncfyModal(selectedEmpresaSyncfy);
+                  loadData();
+                } else if (attempts >= maxAttempts) {
+                  clearInterval(syncfyPollRef.current!); syncfyPollRef.current = null;
+                  setSyncfyAwaitingQR(false); setSyncfyWidgetVisible(false);
+                  setSnackbar({ open: true, message: 'ℹ️ No se detectó banco conectado. Intenta de nuevo.', severity: 'warning' });
                 }
               }, 10000);
             });

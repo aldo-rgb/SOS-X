@@ -192,9 +192,12 @@ export async function deleteCredential(dbCredentialId: number): Promise<boolean>
 
   try {
     const client = getAppClient();
-    await client.delete(`${SYNCFY_PATHS.credentials}/${encodeURIComponent(cred.id_credential)}`);
+    const delUrl = `${SYNCFY_PATHS.credentials}/${encodeURIComponent(cred.id_credential)}`;
+    console.warn(`[Syncfy] deleteCredential remote: DELETE ${delUrl}`);
+    const delResp = await client.delete(delUrl);
+    console.warn(`[Syncfy] deleteCredential remote OK: status=${delResp.status}`);
   } catch (e: any) {
-    console.warn('⚠️ Syncfy: no se pudo borrar la credencial remota:', e.message);
+    console.warn(`[Syncfy] deleteCredential remote FAILED: ${e.response?.status} ${JSON.stringify(e.response?.data || e.message).slice(0, 200)}`);
   }
 
   // Soft-delete: marcar como inactivo para que no reaparezca al re-sincronizar con Syncfy
