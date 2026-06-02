@@ -59,7 +59,9 @@ export default function RecursosHumanosScreen({ navigation, route }: any) {
     setLoading(true);
     try {
       const res = await api.get('/api/users', { headers: { Authorization: `Bearer ${token}` } });
-      setUsers(res.data.users || []);
+      const clientRoles = ['client', 'cliente', 'Client', 'Cliente'];
+      const employees = (res.data.users || []).filter((u: UserHR) => !clientRoles.includes(u.role));
+      setUsers(employees);
     } catch {
       Alert.alert('Error', 'No se pudo cargar la lista de empleados');
     } finally {
