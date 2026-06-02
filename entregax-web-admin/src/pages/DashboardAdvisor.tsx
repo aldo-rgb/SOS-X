@@ -3706,10 +3706,19 @@ export default function DashboardAdvisor() {
                 >
                   Nueva Cotización Formal
                 </Button>
+              </Paper>
+
+              <Paper sx={{ p: 3, borderRadius: 2, mb: 2, border: '2px solid #F05A28' }}>
+                <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 0.5 }}>
+                  📋 Solicitud de Cotización Especializada
+                </Typography>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5 }}>
+                  Para casos con detalles específicos: marca, dimensiones, proveedor, adjuntos.
+                </Typography>
                 <Button
-                  fullWidth variant="outlined"
-                  sx={{ mt: 1.5, color: 'white', borderColor: 'rgba(255,255,255,0.6)', fontWeight: 700, textTransform: 'none', '&:hover': { bgcolor: 'rgba(255,255,255,0.15)', borderColor: 'white' } }}
-                  startIcon={<span>📋</span>}
+                  fullWidth variant="contained"
+                  sx={{ bgcolor: '#F05A28', color: '#fff', fontWeight: 700, textTransform: 'none', '&:hover': { bgcolor: '#d44d20' } }}
+                  startIcon={<span>📤</span>}
                   onClick={() => setQuoteRequestOpen(true)}
                 >
                   Solicitar Cotización Especializada
