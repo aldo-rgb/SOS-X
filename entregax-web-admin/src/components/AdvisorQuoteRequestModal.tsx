@@ -70,7 +70,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
 
   // Servicio
   const [servicio, setServicio] = useState<'maritimo' | 'aereo'>('maritimo');
-  const [maritimoTipo, setMaritimoTipo] = useState<'lcl' | 'fcl'>('lcl');
+  const [maritimoTipo, setMaritimoTipo] = useState<'lcl' | 'fcl20' | 'fcl40' | 'fcl40hq'>('lcl');
   const [pesoKg, setPesoKg] = useState('');
 
   // Cajas / CBM
@@ -209,7 +209,7 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
       <p style="color:#666;font-size:13px">Fecha: ${new Date().toLocaleDateString('es-MX', { day:'2-digit', month:'long', year:'numeric' })}</p>
 
       <h2>Servicio</h2>
-      <table><tr><td>Tipo</td><td>${servicio === 'maritimo' ? `Marítimo ${maritimoTipo.toUpperCase()}` : 'Aéreo'}</td></tr>
+      <table><tr><td>Tipo</td><td>${servicio === 'maritimo' ? `Marítimo ${maritimoTipo === 'lcl' ? 'LCL' : maritimoTipo === 'fcl20' ? "FCL 20'" : maritimoTipo === 'fcl40' ? "FCL 40'" : "FCL 40' HQ"}` : 'Aéreo'}</td></tr>
       ${servicio === 'aereo' && pesoKg ? `<tr><td>Peso</td><td>${pesoKg} kg</td></tr>` : ''}
       ${totalCBM > 0 ? `<tr><td>CBM Total</td><td>${totalCBM.toFixed(4)} m³${totalPcs > 0 ? ` · ${totalPcs} pzas` : ''}</td></tr>` : ''}
       </table>
@@ -289,10 +289,15 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
           ))}
         </Box>
         {servicio === 'maritimo' && (
-          <Box sx={{ display: 'flex', gap: 2, mb: 3 }}>
-            {([['lcl', '📦 LCL (carga consolidada)'], ['fcl', '🏗️ FCL (contenedor completo)']] as const).map(([val, label]) => (
+          <Box sx={{ display: 'flex', gap: 1.5, mb: 3, flexWrap: 'wrap' }}>
+            {([
+              ['lcl',     '📦 LCL (carga consolidada)'],
+              ['fcl20',   '🏗️ FCL 20\''],
+              ['fcl40',   '🏗️ FCL 40\''],
+              ['fcl40hq', '🏗️ FCL 40\' HQ'],
+            ] as const).map(([val, label]) => (
               <Box key={val} onClick={() => setMaritimoTipo(val)}
-                sx={{ flex: 1, border: 1.5, borderColor: maritimoTipo === val ? ORANGE : '#e0e0e0', borderRadius: 2,
+                sx={{ flex: '1 1 40%', border: 1.5, borderColor: maritimoTipo === val ? ORANGE : '#e0e0e0', borderRadius: 2,
                   p: 1.5, cursor: 'pointer', bgcolor: maritimoTipo === val ? '#fff5f0' : 'white',
                   textAlign: 'center', fontSize: 13, fontWeight: maritimoTipo === val ? 700 : 400,
                   color: maritimoTipo === val ? ORANGE : 'text.secondary' }}>
@@ -496,9 +501,9 @@ export default function AdvisorQuoteRequestModal({ open, onClose, onSuccess }: P
         <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, color: ORANGE }}>
           {servicio === 'maritimo' && maritimoTipo === 'lcl' ? '5.' : (servicio === 'aereo' ? '5.' : '4.')} Descripción del Producto
         </Typography>
-        <TextField fullWidth size="small" label="Descripción" multiline rows={3}
+        <TextField fullWidth size="small" label="Descripción del Producto / Notas" multiline rows={3}
           value={productDescription} onChange={e => setProductDescription(e.target.value)}
-          placeholder="Describe el producto con detalles (material, uso, características)" sx={{ mb: 2 }} />
+          placeholder="Describe el producto con detalles (material, uso, características, notas adicionales)" sx={{ mb: 2 }} />
 
         <Box sx={{ display: 'flex', gap: 3, mb: 1 }}>
           <FormControlLabel
