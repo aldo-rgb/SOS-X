@@ -1015,14 +1015,20 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
   if (!Number.isFinite(comisionNum) || comisionNum < 0) {
     return res.status(400).json({ error: 'comision_cliente_final_porcentaje es requerida (porcentaje XPAY → cliente final)' });
   }
+  // Sanitizar cliente_final para pago_sin_factura:
+  // Entangled tiene VARCHAR(13) para razon_social en este servicio.
+  const clienteFinalSanitizado = servicio === 'pago_sin_factura'
+    ? { ...cliente_final, razon_social: 'SIN_FACTURA' }
+    : { ...cliente_final, razon_social: String(cliente_final?.razon_social || '').slice(0, 13) };
+
   const result = await callAsignacion({
     servicio,
     concepto,
-    cliente_final,
+    cliente_final: clienteFinalSanitizado,
     monto_destino: montoNum,
     divisa_destino,
-    tc_cliente_final: tcNum,
-    comision_cliente_final_porcentaje: comisionNum,
+    tc_cliente_final: Math.round(tcNum * 10000) / 10000,
+    comision_cliente_final_porcentaje: Math.round(comisionNum * 100) / 100,
   });
   if (!result.ok) {
     // Si ENTANGLED devolvió un 4xx (validación / clave no encontrada), reenviar como 4xx
