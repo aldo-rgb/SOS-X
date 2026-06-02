@@ -385,7 +385,6 @@ export async function processTransactions(
     }
   }
 
-  await pool.query('UPDATE fiscal_emitters SET syncfy_last_sync = NOW() WHERE id = $1', [emitterId]);
   return { new_count: newCount, duplicate_count: dupCount, matched_count: matchedCount };
 }
 
