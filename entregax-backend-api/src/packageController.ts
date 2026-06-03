@@ -5044,7 +5044,7 @@ const deliveryUpload = multer({
 }).fields([
   { name: 'factura', maxCount: 1 },
   { name: 'constancia', maxCount: 1 },
-  { name: 'guiaExterna', maxCount: 15 },
+  { name: 'guiaExterna', maxCount: 1 },
 ]);
 
 export const uploadDeliveryDocs = (req: Request, res: Response, next: Function) => {

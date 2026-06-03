@@ -1703,19 +1703,23 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
          WHERE id = $6`,
         [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId]
       );
-      if (files?.factura?.[0]) {
-        const facturaUrl = `${baseUrl}/uploads/delivery/${files.factura[0].filename}`;
-        await pool.query(
-          `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'factura_embarque', $3, $4)`,
-          [shipmentId, advisorId, facturaUrl, files.factura[0].originalname]
-        );
-      }
-      for (const gf of (files?.guiaExterna || [])) {
-        const guiaUrl = `${baseUrl}/uploads/delivery/${gf.filename}`;
-        await pool.query(
-          `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'guia_externa', $3, $4)`,
-          [shipmentId, advisorId, guiaUrl, gf.originalname]
-        );
+      try {
+        if (files?.factura?.[0]) {
+          const facturaUrl = `${baseUrl}/uploads/delivery/${files.factura[0].filename}`;
+          await pool.query(
+            `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'factura_embarque', $3, $4)`,
+            [shipmentId, advisorId, facturaUrl, files.factura[0].originalname]
+          );
+        }
+        if (files?.guiaExterna?.[0]) {
+          const guiaUrl = `${baseUrl}/uploads/delivery/${files.guiaExterna[0].filename}`;
+          await pool.query(
+            `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'guia_externa', $3, $4)`,
+            [shipmentId, advisorId, guiaUrl, files.guiaExterna[0].originalname]
+          );
+        }
+      } catch (docErr) {
+        console.warn('[assignAdvisorShipmentInstructions] No se pudo guardar documento adjunto:', docErr);
       }
     } else if (type === 'MAR') {
       const marCheck = await pool.query(`
