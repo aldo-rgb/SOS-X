@@ -240,6 +240,7 @@ export default function PettyCashHubPage() {
   const [editAmount, setEditAmount] = useState('');
   const [editConcept, setEditConcept] = useState('');
   const [editCategory, setEditCategory] = useState('');
+  const [editDate, setEditDate] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Modal Cerrar Ruta / Devolución de sobrante
@@ -507,6 +508,10 @@ export default function PettyCashHubPage() {
     setEditAmount(String(mov.amount_mxn));
     setEditConcept(mov.concept || '');
     setEditCategory(mov.category || '');
+    // Formato datetime-local: "YYYY-MM-DDTHH:mm"
+    const d = new Date(mov.created_at);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    setEditDate(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
     setEditDialogOpen(true);
   };
 
@@ -526,6 +531,7 @@ export default function PettyCashHubPage() {
           amount_mxn: amount,
           concept: editConcept.trim() || null,
           category: editCategory.trim() || null,
+          created_at: editDate ? new Date(editDate).toISOString() : undefined,
         }),
       });
       const d = await r.json();
@@ -1578,6 +1584,15 @@ export default function PettyCashHubPage() {
               onChange={(e) => setEditCategory(e.target.value)}
               fullWidth
               helperText="Ej: gasolina, mensajería, propina, etc."
+            />
+            <TextField
+              label="Fecha y hora"
+              type="datetime-local"
+              value={editDate}
+              onChange={(e) => setEditDate(e.target.value)}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+              helperText="Solo super admin puede modificar la fecha"
             />
           </Box>
         </DialogContent>

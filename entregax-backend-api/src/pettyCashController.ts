@@ -1602,7 +1602,7 @@ export const updateMovement = async (req: Request, res: Response): Promise<any> 
   const movId = parseInt(id, 10);
   if (!movId) return res.status(400).json({ error: 'ID inválido' });
 
-  const { amount_mxn, concept, category } = req.body;
+  const { amount_mxn, concept, category, created_at } = req.body;
   const newAmount = parseFloat(amount_mxn);
   if (isNaN(newAmount) || newAmount <= 0) {
     return res.status(400).json({ error: 'Monto inválido' });
@@ -1645,13 +1645,23 @@ export const updateMovement = async (req: Request, res: Response): Promise<any> 
       }
     }
 
-    // Actualizar el movimiento
-    await client.query(
-      `UPDATE petty_cash_movements
-       SET amount_mxn = $1, concept = $2, category = $3
-       WHERE id = $4`,
-      [newAmount, concept || null, category || null, movId]
-    );
+    // Actualizar el movimiento (created_at solo si se provee una fecha válida)
+    const newDate = created_at ? new Date(created_at) : null;
+    if (newDate && !isNaN(newDate.getTime())) {
+      await client.query(
+        `UPDATE petty_cash_movements
+         SET amount_mxn = $1, concept = $2, category = $3, created_at = $5
+         WHERE id = $4`,
+        [newAmount, concept || null, category || null, movId, newDate.toISOString()]
+      );
+    } else {
+      await client.query(
+        `UPDATE petty_cash_movements
+         SET amount_mxn = $1, concept = $2, category = $3
+         WHERE id = $4`,
+        [newAmount, concept || null, category || null, movId]
+      );
+    }
 
     await client.query('COMMIT');
     return res.json({
