@@ -532,23 +532,36 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.rfc, requiereFactura]);
 
-  // Para pago_sin_factura: usar bank_accounts del proveedor (Entangled /asignacion no lo soporta)
+  // Para pago_sin_factura: consultar cuenta bancaria a Entangled al entrar al resumen
   useEffect(() => {
-    if (wizardStep !== 4 || requiereFactura) return;
+    if (wizardStep !== 4 || requiereFactura || !quote || !form.monto) return;
     if (asignacion?.cuenta_bancaria) return;
-    const prov = providers.find(p => p.id === selectedProviderId) as any;
-    const accounts: any[] = Array.isArray(prov?.bank_accounts) ? prov.bank_accounts : [];
-    const mxnAcc = accounts.find((a: any) => !a.currency || String(a.currency).toUpperCase() === 'MXN') || accounts[0];
-    if (mxnAcc) {
-      setAsignacion({
-        loading: false,
-        empresa: { rfc: '', razon_social: prov?.name || '' },
-        cuenta_bancaria: { banco: mxnAcc.bank, titular: mxnAcc.holder, clabe: mxnAcc.clabe, cuenta: mxnAcc.account, moneda: 'MXN' },
-        facturacion: undefined,
-      });
-    } else {
-      setAsignacion(null);
-    }
+    setAsignacion({ loading: true, empresa: undefined, cuenta_bancaria: undefined, facturacion: undefined });
+    const token = localStorage.getItem('token');
+    axios.post(`${API_URL}/api/entangled/asignacion`, {
+      servicio: 'pago_sin_factura',
+      cliente_final: { razon_social: 'SIN' },
+      monto_destino: Number(form.monto),
+      divisa_destino: form.divisa_destino,
+      tc_cliente_final: Math.round(quote.tipo_cambio * 10000) / 10000,
+      comision_cliente_final_porcentaje: Math.round(quote.porcentaje_compra * 100) / 100,
+    }, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => {
+        const d = r.data;
+        const empresa = d.empresa || d.empresas_asignadas?.[0]?.empresa || d.empresas_asignadas?.[0];
+        const cb = d.cuenta_bancaria
+          || empresa?.cuenta_bancaria
+          || d.asignacion?.cuenta_bancaria
+          || d.raw?.cuenta_bancaria
+          || d.raw?.empresa?.cuenta_bancaria
+          || d.raw?.empresas_asignadas?.[0]?.cuenta_bancaria;
+        if (cb) {
+          setAsignacion({ loading: false, empresa: empresa || undefined, cuenta_bancaria: cb, facturacion: undefined });
+        } else {
+          setAsignacion(null);
+        }
+      })
+      .catch(() => setAsignacion(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wizardStep, requiereFactura, selectedProviderId]);
 
