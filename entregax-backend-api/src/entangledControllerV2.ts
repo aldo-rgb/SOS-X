@@ -1034,7 +1034,7 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
     tc_cliente_final: tcFixed,
     comision_cliente_final_porcentaje: comisionFixed,
   };
-  console.log(`[ENTANGLED asignacion proxy] servicio=${servicio} payload=${JSON.stringify(payloadAsignacion)}`);
+  console.warn(`[ENTANGLED asignacion proxy] servicio=${servicio} payload=${JSON.stringify(payloadAsignacion)}`);
   const result = await callAsignacion(payloadAsignacion as any);
   if (!result.ok) {
     // Si ENTANGLED devolvió un 4xx (validación / clave no encontrada), reenviar como 4xx

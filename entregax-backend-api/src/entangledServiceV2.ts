@@ -594,7 +594,7 @@ export const callAsignacion = async (
   let lastError: { error: string; raw?: any; status?: number | undefined } | null = null;
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
-      console.log(`[ENTANGLED] POST ${url} attempt=${attempt + 1} FULL_PAYLOAD=${JSON.stringify(upstreamBody)}`);
+      console.warn(`[ENTANGLED] POST ${url} attempt=${attempt + 1} FULL_PAYLOAD=${JSON.stringify(upstreamBody)}`);
       const res = await axios.post(url, upstreamBody, {
         timeout: ENTANGLED_TIMEOUT_MS,
         headers: { ...authHeaders(), 'Content-Type': 'application/json' },
