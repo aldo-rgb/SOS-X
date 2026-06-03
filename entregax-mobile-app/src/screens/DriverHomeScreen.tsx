@@ -34,6 +34,7 @@ interface DayStats {
   totalAssigned: number;
   loadedToday: number;
   deliveredToday: number;
+  paqueteriaCount: number;
   pendingToLoad: number;
   pendingDelivery: number;
   returnedToday: number;
@@ -77,6 +78,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     totalAssigned: 0,
     loadedToday: 0,
     deliveredToday: 0,
+    paqueteriaCount: 0,
     pendingToLoad: 0,
     pendingDelivery: 0,
     returnedToday: 0,
@@ -167,9 +169,10 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           totalAssigned: totalAssignedFromApi > 0 ? totalAssignedFromApi : totalAssignedComputed,
           loadedToday: Number(route.loadedToday) || 0,
           deliveredToday,
+          paqueteriaCount: Number(route.paqueteriaCount) || 0,
           pendingToLoad: Number(route.pendingToLoad) || pendingPackages.length,
           pendingDelivery: loadedPackages.length,
-          returnedToday: 0, // TODO: Agregar al backend
+          returnedToday: 0,
         });
       } catch (routeError) {
         console.error('Error cargando ruta del repartidor:', routeError);
@@ -534,9 +537,9 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           
           <View style={styles.statsRow}>
             <View style={styles.statCard}>
-              <MaterialIcons name="check-circle" size={28} color="#4CAF50" />
-              <Text style={[styles.statNumber, { color: '#4CAF50' }]}>{stats.deliveredToday}</Text>
-              <Text style={styles.statLabel}>Entregados</Text>
+              <MaterialIcons name="local-post-office" size={28} color="#9C27B0" />
+              <Text style={[styles.statNumber, { color: '#9C27B0' }]}>{stats.paqueteriaCount}</Text>
+              <Text style={styles.statLabel}>Envío Paquetería</Text>
             </View>
             <TouchableOpacity
               style={styles.statCard}

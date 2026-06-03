@@ -883,6 +883,17 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 const loadedToday = loadedRes.rows.length;
                 const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
 
+                // Contar paquetes con instrucciones de paquetería externa (excluye local EntregaX CDMX/MTY)
+                const isLocalCarrier = (carrier: string) => {
+                    const c = String(carrier || '').toLowerCase();
+                    return !c || c.includes('local') || c.includes('entregax') || c.includes('pickup') || c.includes('pick up');
+                };
+                const allPkgs = [...pendingRes.rows, ...loadedRes.rows];
+                const paqueteriaCount = allPkgs.filter(p => {
+                    const carrier = p.national_carrier || '';
+                    return carrier && !isLocalCarrier(carrier);
+                }).length;
+
         return res.json({
             success: true,
             route: {
@@ -890,6 +901,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                                 loadedToday,
                                 deliveredToday,
                                 pendingToLoad,
+                                paqueteriaCount,
                 pendingPackages: pendingRes.rows,
                 loadedPackages: loadedRes.rows
             }
