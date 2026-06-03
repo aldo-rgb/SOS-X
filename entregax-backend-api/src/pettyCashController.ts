@@ -1676,3 +1676,53 @@ export const updateMovement = async (req: Request, res: Response): Promise<any> 
     client.release();
   }
 };
+
+// Admin: historial completo de bloques de ruta (todos los usuarios, con filtros)
+export const listAllRouteBlocks = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { status, user_id, limit = '100', offset = '0' } = req.query as any;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (status) { conditions.push(`b.status = $${idx++}`); params.push(status); }
+    if (user_id) { conditions.push(`b.user_id = $${idx++}`); params.push(parseInt(user_id)); }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const result = await pool.query(`
+      SELECT b.id, b.status, b.notes, b.created_at, b.finalized_at, b.total_allocated_mxn,
+        b.user_id,
+        u.full_name AS monitorista_name,
+        COALESCE(cont.containers, '[]') AS containers,
+        COALESCE(exp.total_expenses, 0) AS total_expenses,
+        COALESCE(exp.expense_count, 0) AS expense_count,
+        COALESCE(exp.pending_expense_count, 0) AS pending_expense_count
+      FROM petty_cash_route_blocks b
+      LEFT JOIN users u ON u.id = b.user_id
+      LEFT JOIN LATERAL (
+        SELECT json_agg(
+          json_build_object('id', sub.id, 'container_number', sub.container_number, 'bl_number', sub.bl_number, 'status', sub.status)
+          ORDER BY sub.container_number
+        ) AS containers
+        FROM (
+          SELECT DISTINCT ON (c.id) c.id, c.container_number, c.bl_number, c.status
+          FROM petty_cash_route_block_containers bc
+          JOIN containers c ON c.id = bc.container_id
+          WHERE bc.block_id = b.id
+        ) sub
+      ) cont ON true
+      LEFT JOIN LATERAL (
+        SELECT
+          COALESCE(SUM(amount_mxn), 0) AS total_expenses,
+          COUNT(*) AS expense_count,
+          COUNT(*) FILTER (WHERE status = 'pending') AS pending_expense_count
+        FROM petty_cash_movements
+        WHERE route_block_id = b.id AND movement_type = 'expense'
+      ) exp ON true
+      ${where}
+      ORDER BY b.created_at DESC
+      LIMIT $${idx} OFFSET $${idx+1}
+    `, [...params, parseInt(limit), parseInt(offset)]);
+    return res.json({ blocks: result.rows });
+  } catch (err: any) {
+    return res.status(500).json({ error: 'Error listando bloques', details: err.message });
+  }
+};

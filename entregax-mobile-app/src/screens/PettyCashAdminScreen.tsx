@@ -150,7 +150,10 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [tab, setTab] = useState<'approvals' | 'drivers' | 'movements'>('approvals');
+  const [tab, setTab] = useState<'approvals' | 'drivers' | 'movements' | 'blocks'>('approvals');
+  const [allBlocks, setAllBlocks] = useState<any[]>([]);
+  const [blocksLoading, setBlocksLoading] = useState(false);
+  const [expandedBlockId, setExpandedBlockId] = useState<number | null>(null);
 
   const [branchWallet, setBranchWallet] = useState<Wallet | null>(null);
   const [driverWallets, setDriverWallets] = useState<Wallet[]>([]);
@@ -226,6 +229,19 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
       loadData();
     }, [loadData])
   );
+
+  // Cargar bloques al seleccionar la pestaña
+  const loadBlocks = useCallback(async () => {
+    setBlocksLoading(true);
+    try {
+      const r = await fetch(`${API_URL}/api/admin/petty-cash/route-blocks`, { headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      setAllBlocks(d.blocks || []);
+    } catch { /* silencioso */ } finally { setBlocksLoading(false); }
+  }, [token]);
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  React.useEffect(() => { if (tab === 'blocks') loadBlocks(); }, [tab]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -552,6 +568,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
             ['approvals', `Aprobaciones (${pending.length})`],
             ['drivers', `Choferes (${driverWallets.length})`],
             ['movements', 'Movimientos'],
+            ['blocks', 'Bloques'],
           ] as const).map(([key, label]) => (
             <TouchableOpacity
               key={key}
@@ -733,6 +750,88 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                 );
               })
             )}
+          </View>
+        )}
+
+        {/* TAB: Bloques de Ruta */}
+        {tab === 'blocks' && (
+          <View style={styles.section}>
+            {blocksLoading ? (
+              <ActivityIndicator size="large" color={ORANGE} style={{ marginTop: 32 }} />
+            ) : allBlocks.length === 0 ? (
+              <View style={styles.emptyBox}>
+                <MaterialIcons name="local-shipping" size={32} color="#bbb" />
+                <Text style={styles.emptyText}>Sin bloques de ruta registrados</Text>
+              </View>
+            ) : allBlocks.map(b => {
+              const containers: any[] = Array.isArray(b.containers) ? b.containers : [];
+              const isExpanded = expandedBlockId === b.id;
+              const isOpen = b.status !== 'finalized';
+              return (
+                <TouchableOpacity
+                  key={b.id}
+                  style={[styles.clientCard, { borderLeftWidth: 4, borderLeftColor: isOpen ? '#FF9800' : GREEN, marginBottom: 10 }]}
+                  onPress={() => setExpandedBlockId(isExpanded ? null : b.id)}
+                  activeOpacity={0.85}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontWeight: '700', fontSize: 15, color: '#111' }}>Bloque #{b.id}</Text>
+                      <Text style={{ fontSize: 13, color: '#666', marginTop: 2 }}>{b.monitorista_name || '—'}</Text>
+                      <Text style={{ fontSize: 12, color: '#999', marginTop: 1 }}>
+                        {new Date(b.created_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                      <View style={[styles.chip, { backgroundColor: isOpen ? '#FFF3E0' : '#E8F5E9' }]}>
+                        <Text style={[styles.chipText, { color: isOpen ? '#E65100' : '#2E7D32' }]}>{isOpen ? 'Abierto' : 'Finalizado'}</Text>
+                      </View>
+                      <Text style={{ fontSize: 14, fontWeight: '700', color: '#E53935' }}>
+                        ${parseFloat(b.total_expenses || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                      </Text>
+                      <MaterialIcons name={isExpanded ? 'expand-less' : 'expand-more'} size={20} color="#999" />
+                    </View>
+                  </View>
+
+                  {isExpanded && (
+                    <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f0f0f0' }}>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                        <View style={{ flex: 1, minWidth: 140 }}>
+                          <Text style={styles.detailLabel}>Gastos registrados</Text>
+                          <Text style={styles.detailValue}>{b.expense_count}</Text>
+                        </View>
+                        <View style={{ flex: 1, minWidth: 140 }}>
+                          <Text style={styles.detailLabel}>Pendientes aprobar</Text>
+                          <Text style={[styles.detailValue, b.pending_expense_count > 0 && { color: '#E53935' }]}>{b.pending_expense_count}</Text>
+                        </View>
+                        <View style={{ flex: 1, minWidth: 140 }}>
+                          <Text style={styles.detailLabel}>Total asignado</Text>
+                          <Text style={[styles.detailValue, { color: GREEN }]}>${parseFloat(b.total_allocated_mxn || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Text>
+                        </View>
+                        {b.finalized_at && (
+                          <View style={{ flex: 1, minWidth: 140 }}>
+                            <Text style={styles.detailLabel}>Cierre</Text>
+                            <Text style={styles.detailValue}>{new Date(b.finalized_at).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
+                          </View>
+                        )}
+                      </View>
+                      {containers.length > 0 && (
+                        <>
+                          <Text style={styles.detailLabel}>Contenedores</Text>
+                          <Text style={{ fontSize: 13, color: '#333', marginTop: 2 }}>{containers.map((c: any) => c.container_number).join(' · ')}</Text>
+                        </>
+                      )}
+                      {b.notes ? (
+                        <View style={{ marginTop: 8, padding: 8, backgroundColor: '#f9f9f9', borderRadius: 6 }}>
+                          <Text style={styles.detailLabel}>Notas</Text>
+                          <Text style={{ fontSize: 13, color: '#555' }}>{b.notes}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
           </View>
         )}
       </ScrollView>

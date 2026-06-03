@@ -24,7 +24,8 @@ import {
   DeleteForever as DeleteIcon,
   Edit as EditIcon,
   LocalAtm as CajaCCIcon,
-  AssignmentTurnedIn as SettleIcon
+  AssignmentTurnedIn as SettleIcon,
+  Route as RouteBlockIcon
 } from '@mui/icons-material';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
@@ -179,6 +180,8 @@ export default function PettyCashHubPage() {
   const [driverWallets, setDriverWallets] = useState<Wallet[]>([]);
   const [pendingExpenses, setPendingExpenses] = useState<Movement[]>([]);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
+  const [routeBlocks, setRouteBlocks] = useState<any[]>([]);
+  const [selectedBlock, setSelectedBlock] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
 
   // Modal Fondear Sucursal
@@ -256,19 +259,21 @@ export default function PettyCashHubPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, bw, dw, pe, st, cc] = await Promise.all([
+      const [s, bw, dw, pe, st, cc, rb] = await Promise.all([
         fetch(`${API_URL}/api/admin/petty-cash/stats`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/api/admin/petty-cash/wallets?owner_type=branch`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/api/admin/petty-cash/wallets?owner_type=driver`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/api/admin/petty-cash/pending`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/api/admin/petty-cash/settlements`, { headers }).then(r => r.json()),
         fetch(`${API_URL}/api/caja-chica/stats`, { headers }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${API_URL}/api/admin/petty-cash/route-blocks`, { headers }).then(r => r.ok ? r.json() : { blocks: [] }).catch(() => ({ blocks: [] })),
       ]);
       setStats(s);
       setBranchWallets(bw.wallets || []);
       setDriverWallets(dw.wallets || []);
       setPendingExpenses(pe.movements || []);
       setSettlements(st.settlements || []);
+      setRouteBlocks(rb.blocks || []);
       if (cc) setCajaMxnBalance(parseFloat(cc.saldo_mxn ?? cc.saldo_actual ?? 0));
     } catch (err) {
       console.error(err);
@@ -741,6 +746,7 @@ export default function PettyCashHubPage() {
           <Tab icon={<DriverIcon />} iconPosition="start" label={`Choferes (${driverWallets.length})`} />
           <Tab icon={<ApproveIcon />} iconPosition="start" label={`Aprobaciones (${pendingExpenses.length})`} />
           <Tab icon={<SettleIcon />} iconPosition="start" label={`Arqueos (${settlements.length})`} />
+          <Tab icon={<RouteBlockIcon />} iconPosition="start" label={`Bloques de Ruta (${routeBlocks.length})`} />
         </Tabs>
       </Paper>
 
@@ -1037,6 +1043,100 @@ export default function PettyCashHubPage() {
             </TableBody>
           </Table>
         </TableContainer>
+      )}
+
+      {/* TAB: Bloques de Ruta */}
+      {tab === 4 && (
+        <>
+          <TableContainer component={Paper}>
+            <Table size="small">
+              <TableHead>
+                <TableRow sx={{ bgcolor: '#111' }}>
+                  {['ID', 'Monitorista', 'Estado', 'Contenedores', 'Total Gastos', 'Asignado/Cont.', 'Apertura', 'Cierre', 'Detalle'].map(h => (
+                    <TableCell key={h} sx={{ color: '#fff', fontWeight: 700 }}>{h}</TableCell>
+                  ))}
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {routeBlocks.map(b => {
+                  const containers = Array.isArray(b.containers) ? b.containers : [];
+                  const perCont = containers.length > 0 && b.total_allocated_mxn > 0
+                    ? `$${(parseFloat(b.total_allocated_mxn) / containers.length).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`
+                    : '—';
+                  return (
+                    <TableRow key={b.id} hover>
+                      <TableCell>#{b.id}</TableCell>
+                      <TableCell>{b.monitorista_name || '—'}</TableCell>
+                      <TableCell>
+                        <Chip size="small" label={b.status === 'finalized' ? 'Finalizado' : 'Abierto'}
+                          color={b.status === 'finalized' ? 'success' : 'warning'} />
+                        {b.pending_expense_count > 0 && (
+                          <Chip size="small" label={`${b.pending_expense_count} pendientes`} color="error" sx={{ ml: 0.5 }} />
+                        )}
+                      </TableCell>
+                      <TableCell>{containers.map((c: any) => c.container_number).join(', ') || '—'}</TableCell>
+                      <TableCell>${parseFloat(b.total_expenses || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</TableCell>
+                      <TableCell>{perCont}</TableCell>
+                      <TableCell>{new Date(b.created_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' })}</TableCell>
+                      <TableCell>{b.finalized_at ? new Date(b.finalized_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—'}</TableCell>
+                      <TableCell>
+                        <Button size="small" variant="outlined" onClick={() => setSelectedBlock(b)}>Ver</Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+                {routeBlocks.length === 0 && !loading && (
+                  <TableRow><TableCell colSpan={9} align="center">Sin bloques de ruta</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TableContainer>
+
+          {/* Dialog detalle bloque */}
+          <Dialog open={!!selectedBlock} onClose={() => setSelectedBlock(null)} maxWidth="md" fullWidth>
+            {selectedBlock && (
+              <>
+                <DialogTitle sx={{ bgcolor: '#111', color: '#fff', display: 'flex', justifyContent: 'space-between' }}>
+                  <span>🚛 Bloque #{selectedBlock.id} — {selectedBlock.monitorista_name || '—'}</span>
+                  <Chip size="small" label={selectedBlock.status === 'finalized' ? 'Finalizado' : 'Abierto'}
+                    color={selectedBlock.status === 'finalized' ? 'success' : 'warning'} />
+                </DialogTitle>
+                <DialogContent dividers>
+                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2, mb: 2 }}>
+                    <Box><Typography variant="caption" color="text.secondary">Apertura</Typography>
+                      <Typography fontWeight={600}>{new Date(selectedBlock.created_at).toLocaleString('es-MX')}</Typography></Box>
+                    <Box><Typography variant="caption" color="text.secondary">Cierre</Typography>
+                      <Typography fontWeight={600}>{selectedBlock.finalized_at ? new Date(selectedBlock.finalized_at).toLocaleString('es-MX') : '—'}</Typography></Box>
+                    <Box><Typography variant="caption" color="text.secondary">Total gastos</Typography>
+                      <Typography fontWeight={700} color="error.main">${parseFloat(selectedBlock.total_expenses || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</Typography></Box>
+                    <Box><Typography variant="caption" color="text.secondary">Total asignado</Typography>
+                      <Typography fontWeight={700} color="success.main">${parseFloat(selectedBlock.total_allocated_mxn || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN</Typography></Box>
+                    <Box><Typography variant="caption" color="text.secondary">Gastos registrados</Typography>
+                      <Typography fontWeight={600}>{selectedBlock.expense_count}</Typography></Box>
+                    <Box><Typography variant="caption" color="text.secondary">Pendientes de aprobar</Typography>
+                      <Typography fontWeight={600} color={selectedBlock.pending_expense_count > 0 ? 'error.main' : 'text.primary'}>{selectedBlock.pending_expense_count}</Typography></Box>
+                  </Box>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>Contenedores ({(selectedBlock.containers || []).length})</Typography>
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, mb: 2 }}>
+                    {(selectedBlock.containers || []).map((c: any) => (
+                      <Chip key={c.id} label={`${c.container_number}${c.bl_number ? ` · BL: ${c.bl_number}` : ''}`} size="small" variant="outlined" />
+                    ))}
+                    {(selectedBlock.containers || []).length === 0 && <Typography variant="body2" color="text.secondary">Sin contenedores</Typography>}
+                  </Box>
+                  {selectedBlock.notes && (
+                    <Box sx={{ p: 1.5, bgcolor: 'grey.50', borderRadius: 1, border: '1px solid', borderColor: 'divider' }}>
+                      <Typography variant="caption" color="text.secondary">Notas</Typography>
+                      <Typography variant="body2">{selectedBlock.notes}</Typography>
+                    </Box>
+                  )}
+                </DialogContent>
+                <DialogActions>
+                  <Button onClick={() => setSelectedBlock(null)}>Cerrar</Button>
+                </DialogActions>
+              </>
+            )}
+          </Dialog>
+        </>
       )}
 
       {/* Dialog: Fondear Sucursal */}

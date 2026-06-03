@@ -932,6 +932,7 @@ import {
   listRouteBlocks as pcListRouteBlocks,
   createRouteBlock as pcCreateRouteBlock,
   finalizeRouteBlock as pcFinalizeRouteBlock,
+  listAllRouteBlocks as pcListAllRouteBlocks,
   deleteMovement as pcDeleteMovement,
   updateMovement as pcUpdateMovement,
 } from './pettyCashController';
@@ -2474,6 +2475,7 @@ app.post('/api/petty-cash/branch-expenses', authenticateToken, requireRole(...PC
 app.get('/api/petty-cash/route-blocks', authenticateToken, pcListRouteBlocks);
 app.post('/api/petty-cash/route-blocks', authenticateToken, pcCreateRouteBlock);
 app.post('/api/petty-cash/route-blocks/:id/finalize', authenticateToken, pcFinalizeRouteBlock);
+app.get('/api/admin/petty-cash/route-blocks', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), pcListAllRouteBlocks);
 
 
 // --- RUTAS DE ASESORES ---
