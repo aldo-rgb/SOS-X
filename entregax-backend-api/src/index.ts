@@ -11473,6 +11473,9 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS carrier_config JSONB`),
   ]).catch(() => {});
 
+  // Columna fuente en exchange_rate_config (idempotente)
+  pool.query(`ALTER TABLE exchange_rate_config ADD COLUMN IF NOT EXISTS fuente TEXT`).catch(() => {});
+
   // One-shot: resetear cuenta de pruebas jesuscampos@entregax.com.mx
   // (idempotente — guarda marcador en system_configurations).
   runOneShotResetJesusCampos();
