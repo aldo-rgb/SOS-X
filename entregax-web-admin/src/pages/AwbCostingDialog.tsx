@@ -31,6 +31,7 @@ import {
     IconButton,
     InputAdornment,
     LinearProgress,
+    Snackbar,
 } from '@mui/material';
 import {
     Flight as FlightIcon,
@@ -175,6 +176,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
     const [loading, setLoading] = useState(false);
     const [saving, setSaving] = useState(false);
     const [message, setMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+    const [savedSnackbar, setSavedSnackbar] = useState(false);
 
     // Data
     const [cost, setCost] = useState<AwbCostData | null>(null);
@@ -382,7 +384,8 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
             });
             const data = await res.json();
             if (data.success) {
-                setMessage({ type: 'success', text: data.message || '✅ Costos guardados correctamente' });
+                setSavedSnackbar(true);
+                setMessage(null);
                 setCost(data.cost);
                 onSaved?.();
             } else {
@@ -1576,5 +1579,22 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                 </Box>
             </DialogActions>
         </Dialog>
+
+        <Snackbar
+            open={savedSnackbar}
+            autoHideDuration={3000}
+            onClose={() => setSavedSnackbar(false)}
+            anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+        >
+            <Alert
+                onClose={() => setSavedSnackbar(false)}
+                severity="success"
+                variant="filled"
+                icon={<CheckIcon />}
+                sx={{ minWidth: 320, boxShadow: 6, fontSize: '1rem' }}
+            >
+                ✅ Costos guardados correctamente
+            </Alert>
+        </Snackbar>
     );
 }
