@@ -11518,6 +11518,26 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   // Columna fuente en exchange_rate_config (idempotente)
   pool.query(`ALTER TABLE exchange_rate_config ADD COLUMN IF NOT EXISTS fuente TEXT`).catch(() => {});
 
+  // Columnas de instrucciones de entrega en packages (idempotente)
+  Promise.all([
+    pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS is_collect BOOLEAN DEFAULT FALSE`),
+    pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS collect_carrier TEXT`),
+    pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS wants_factura_paqueteria BOOLEAN DEFAULT FALSE`),
+  ]).catch(() => {});
+
+  // Tabla package_documents para documentos subidos por asesores
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS package_documents (
+      id SERIAL PRIMARY KEY,
+      package_id INTEGER,
+      uploaded_by INTEGER,
+      doc_type TEXT,
+      file_url TEXT NOT NULL,
+      original_filename TEXT,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {});
+
   // One-shot: resetear cuenta de pruebas jesuscampos@entregax.com.mx
   // (idempotente — guarda marcador en system_configurations).
   runOneShotResetJesusCampos();
