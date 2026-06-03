@@ -1021,22 +1021,19 @@ export const asignacionProxy = async (req: Request, res: Response): Promise<any>
     ? { razon_social: 'SIN' }
     : { ...cliente_final, razon_social: String(cliente_final?.razon_social || '').slice(0, 13) };
 
-  const payloadAsignacion = servicio === 'pago_sin_factura'
-    ? {
-        servicio,
-        cliente_final: clienteFinalSanitizado,
-        monto_destino: montoNum,
-        divisa_destino,
-      }
-    : {
-        servicio,
-        ...(concepto ? { concepto } : {}),
-        cliente_final: clienteFinalSanitizado,
-        monto_destino: montoNum,
-        divisa_destino,
-        tc_cliente_final: Math.round(tcNum * 10000) / 10000,
-        comision_cliente_final_porcentaje: Math.round(comisionNum * 100) / 100,
-      };
+  // Valores numéricos con precisión fija para evitar floats largos (VARCHAR overflow en Entangled)
+  const tcFixed = parseFloat(tcNum.toFixed(4));
+  const comisionFixed = parseFloat(comisionNum.toFixed(2));
+
+  const payloadAsignacion = {
+    servicio,
+    ...(concepto ? { concepto } : {}),
+    cliente_final: clienteFinalSanitizado,
+    monto_destino: montoNum,
+    divisa_destino,
+    tc_cliente_final: tcFixed,
+    comision_cliente_final_porcentaje: comisionFixed,
+  };
   console.log(`[ENTANGLED asignacion proxy] servicio=${servicio} payload=${JSON.stringify(payloadAsignacion)}`);
   const result = await callAsignacion(payloadAsignacion as any);
   if (!result.ok) {
