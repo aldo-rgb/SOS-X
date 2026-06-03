@@ -1231,7 +1231,13 @@ export async function generateOnePqtxGuide(params: {
   if (respBody?.success !== true || !respBody?.data) {
     return {
       ok: false,
-      error: respBody?.messages || response.data?.header?.desTrans || 'Error al generar guía',
+      error: (() => {
+        const m = respBody?.messages;
+        if (!m) return response.data?.header?.desTrans || 'Error al generar guía';
+        if (typeof m === 'string') return m;
+        if (Array.isArray(m)) return m.map((x: any) => (typeof x === 'string' ? x : x?.description || x?.message || JSON.stringify(x))).join(' | ');
+        return String(m);
+      })(),
       raw: response.data,
     };
   }

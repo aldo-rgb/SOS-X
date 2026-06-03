@@ -647,10 +647,12 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
                 // Refrescar shipment para que aparezca el tracking nacional
                 await handleSearch();
             } else {
-                setError(res.data?.error || 'No se pudo generar la guía');
+                const rawErr = res.data?.error;
+                setError(typeof rawErr === 'string' ? rawErr : Array.isArray(rawErr) ? rawErr.map((x: any) => (typeof x === 'string' ? x : x?.description || JSON.stringify(x))).join(' | ') : rawErr ? JSON.stringify(rawErr) : 'No se pudo generar la guía');
             }
         } catch (e: any) {
-            setError(e.response?.data?.error || e.message || 'Error generando guía Paquete Express');
+            const rawErr = e.response?.data?.error;
+            setError(typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : (e.message || 'Error generando guía Paquete Express'));
         } finally {
             setGeneratingPqtx(false);
         }
