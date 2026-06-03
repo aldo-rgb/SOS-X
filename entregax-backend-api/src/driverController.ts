@@ -1663,12 +1663,25 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
     try {
         const packageBranchSql = await getPackageBranchSql('p');
 
-        // Log de búsqueda
-        console.log(`🔍 Buscando paquete: "${barcode}" por conductor ID: ${driverId}`);
+        const barcodeUpper = String(barcode).toUpperCase().trim();
+        const barcodeNoHyphens = barcodeUpper.replace(/-/g, '');
+
+        // Búsqueda rápida por columnas indexadas (evita to_jsonb table scan)
+        const fastRes = await pool.query(`
+            SELECT id FROM packages
+            WHERE UPPER(tracking_internal) = $1
+               OR UPPER(tracking_number) = $1
+               OR UPPER(national_tracking) = $1
+               OR REPLACE(UPPER(tracking_internal), '-', '') = $2
+               OR REPLACE(UPPER(tracking_number), '-', '') = $2
+            LIMIT 1
+        `, [barcodeUpper, barcodeNoHyphens]);
+
+        const fastId = fastRes.rows[0]?.id ?? null;
 
         const pkgRes = await pool.query(`
-            SELECT 
-                p.id, 
+            SELECT
+                p.id,
                 ${TRACKING_PUBLIC_SQL} as tracking_number,
                 ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
                 ${DELIVERY_STATUS_SQL} as delivery_status,
@@ -1681,8 +1694,8 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
                 ${NATIONAL_TRACKING_SQL} as national_tracking,
                 ${NATIONAL_CARRIER_SQL} as national_carrier
             FROM packages p
-            WHERE (${TRACKING_MATCH_SQL})
-        `, [barcode]);
+            WHERE ${fastId ? 'p.id = $2' : `(${TRACKING_MATCH_SQL})`}
+        `, fastId ? [barcode, fastId] : [barcode]);
 
         if (pkgRes.rows.length === 0) {
             console.warn(`⚠️ Paquete NO encontrado: "${barcode}"`);
