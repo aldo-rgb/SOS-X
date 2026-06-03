@@ -74,6 +74,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
   const [showLoadedModal, setShowLoadedModal] = useState(false);
+  const [showPaqueteriaModal, setShowPaqueteriaModal] = useState(false);
+  const [paqueteriaGroups, setPaqueteriaGroups] = useState<{ carrier: string; count: number }[]>([]);
   const [stats, setStats] = useState<DayStats>({
     totalAssigned: 0,
     loadedToday: 0,
@@ -138,8 +140,9 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             totalAssigned: totalRoute > 0 ? totalRoute : liberados,
             loadedToday: cargados,
             deliveredToday: entregados,
-            pendingToLoad: liberados, // solo los que aún no inician monitoreo
-            pendingDelivery: cargados, // los que están en monitoreo (pendientes de entrega)
+            paqueteriaCount: 0,
+            pendingToLoad: liberados,
+            pendingDelivery: cargados,
             returnedToday: 0,
           });
           setLoadedPackages([]);
@@ -165,6 +168,24 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         const totalAssignedComputed = pendingPackages.length + loadedPackages.length + deliveredToday;
 
         setLoadedPackages(loadedPackages);
+
+        // Agrupar paquetes pendientes por carrier (excluye local/entregax/pickup)
+        const isLocalCarrier = (c: string) => {
+          const s = String(c || '').toLowerCase();
+          return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up');
+        };
+        const carrierMap: Record<string, number> = {};
+        [...pendingPackages, ...loadedPackages].forEach((p: any) => {
+          const c = p.national_carrier || '';
+          if (c && !isLocalCarrier(c)) {
+            carrierMap[c] = (carrierMap[c] || 0) + 1;
+          }
+        });
+        const groups = Object.entries(carrierMap)
+          .map(([carrier, count]) => ({ carrier, count }))
+          .sort((a, b) => b.count - a.count);
+        setPaqueteriaGroups(groups);
+
         setStats({
           totalAssigned: totalAssignedFromApi > 0 ? totalAssignedFromApi : totalAssignedComputed,
           loadedToday: Number(route.loadedToday) || 0,
@@ -536,11 +557,15 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           </View>
           
           <View style={styles.statsRow}>
-            <View style={styles.statCard}>
+            <TouchableOpacity
+              style={styles.statCard}
+              activeOpacity={0.85}
+              onPress={() => paqueteriaGroups.length > 0 && setShowPaqueteriaModal(true)}
+            >
               <MaterialIcons name="local-post-office" size={28} color="#9C27B0" />
               <Text style={[styles.statNumber, { color: '#9C27B0' }]}>{stats.paqueteriaCount}</Text>
               <Text style={styles.statLabel}>Envío Paquetería</Text>
-            </View>
+            </TouchableOpacity>
             <TouchableOpacity
               style={styles.statCard}
               activeOpacity={0.85}
@@ -795,6 +820,51 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           </View>
         </View>
       </Modal>
+      {/* Modal: Paqueterías con envíos pendientes */}
+      <Modal visible={showPaqueteriaModal} animationType="slide" transparent onRequestClose={() => setShowPaqueteriaModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '70%' }}>
+            {/* Header */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <MaterialIcons name="local-post-office" size={24} color="#9C27B0" />
+                <Text style={{ fontSize: 17, fontWeight: '800', color: '#111' }}>Envío Paquetería</Text>
+                <View style={{ backgroundColor: '#9C27B0', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 }}>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{stats.paqueteriaCount}</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowPaqueteriaModal(false)}>
+                <MaterialIcons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Lista por carrier */}
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
+              {paqueteriaGroups.map((g) => (
+                <View key={g.carrier} style={{
+                  backgroundColor: '#F8F4FC', borderRadius: 14, padding: 16,
+                  marginBottom: 12, borderLeftWidth: 4, borderLeftColor: '#9C27B0',
+                  flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                    <MaterialIcons name="local-post-office" size={22} color="#9C27B0" />
+                    <Text style={{ fontSize: 16, fontWeight: '700', color: '#333', textTransform: 'capitalize' }}>
+                      {g.carrier}
+                    </Text>
+                  </View>
+                  <View style={{ backgroundColor: '#9C27B0', borderRadius: 20, minWidth: 36, paddingHorizontal: 10, paddingVertical: 5, alignItems: 'center' }}>
+                    <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>{g.count}</Text>
+                  </View>
+                </View>
+              ))}
+              {paqueteriaGroups.length === 0 && (
+                <Text style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Sin paquetes de paquetería pendientes</Text>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
