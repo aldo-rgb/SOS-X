@@ -65,6 +65,7 @@ interface InventoryPackage {
         width: number | null;
         height: number | null;
     };
+    hasInstructions?: boolean;
     driverName?: string | null;
     vehicleNumber?: string | null;
     vehiclePlates?: string | null;
@@ -251,6 +252,7 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Estado</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Consolidación</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Recibido</TableCell>
+                                    <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Instrucciones</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Chofer</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Unidad</TableCell>
                                 </TableRow>
@@ -258,7 +260,7 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                             <TableBody>
                                 {paged.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={10} sx={{ textAlign: 'center', py: 4 }}>
+                                        <TableCell colSpan={11} sx={{ textAlign: 'center', py: 4 }}>
                                             <Typography color="text.secondary">Sin resultados</Typography>
                                         </TableCell>
                                     </TableRow>
@@ -328,6 +330,19 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                                         </Box>
                                                     );
                                                 })()}
+                                            </TableCell>
+                                            <TableCell>
+                                                <Chip
+                                                    label={p.hasInstructions ? 'Con instrucciones' : 'Sin instrucciones'}
+                                                    size="small"
+                                                    sx={{
+                                                        bgcolor: p.hasInstructions ? '#E8F5E9' : '#FFF3E0',
+                                                        color: p.hasInstructions ? '#2E7D32' : '#E65100',
+                                                        fontWeight: 700,
+                                                        fontSize: '0.7rem',
+                                                        border: `1px solid ${p.hasInstructions ? '#A5D6A7' : '#FFCC80'}`,
+                                                    }}
+                                                />
                                             </TableCell>
                                             <TableCell>
                                                 {p.driverName

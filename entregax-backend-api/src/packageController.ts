@@ -975,6 +975,7 @@ export const getPackages = async (req: Request, res: Response): Promise<void> =>
             statusDate: pkg.status_date || pkg.received_at || pkg.created_at,
             consolidationId: pkg.consolidation_id,
             supplierId: pkg.supplier_id,
+            hasInstructions: !!pkg.assigned_address_id,
             driverName: pkg.driver_full_name || null,
             vehicleNumber: pkg.vehicle_economic_number || null,
             vehiclePlates: pkg.vehicle_license_plates || null,
