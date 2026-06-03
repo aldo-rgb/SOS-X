@@ -2479,27 +2479,31 @@ app.get('/api/admin/petty-cash/route-blocks', authenticateToken, requireMinLevel
 
 // Usuario: editar/borrar propio gasto PENDIENTE
 app.patch('/api/petty-cash/my-expenses/:id', authenticateToken, pcExpenseUpload, handlePettyCashExpenseUpload, async (req: any, res: any) => {
-  const userId = (req as any).user?.userId;
-  const movId = parseInt(req.params.id, 10);
-  if (!userId || !movId) return res.status(400).json({ error: 'Parámetros inválidos' });
-  const { category, amount_mxn, concept } = req.body || {};
-  const mov = await pool.query(`SELECT id, status, created_by FROM petty_cash_movements WHERE id=$1`, [movId]);
-  if (!mov.rows.length) return res.status(404).json({ error: 'Gasto no encontrado' });
-  if (Number(mov.rows[0].created_by) !== userId) return res.status(403).json({ error: 'No autorizado' });
-  if (mov.rows[0].status !== 'pending') return res.status(400).json({ error: 'Solo se pueden editar gastos pendientes' });
-  const uploaded = req.uploadedFiles || {};
-  const updates: string[] = [];
-  const params: any[] = [];
-  let idx = 1;
-  if (category) { updates.push(`category=$${idx++}`); params.push(category); }
-  if (amount_mxn) { updates.push(`amount_mxn=$${idx++}`); params.push(parseFloat(amount_mxn)); }
-  if (concept !== undefined) { updates.push(`concept=$${idx++}`); params.push(concept || null); }
-  if (uploaded.evidence_url) { updates.push(`evidence_url=$${idx++}`); params.push(uploaded.evidence_url); }
-  if (!updates.length) return res.status(400).json({ error: 'Sin cambios' });
-  updates.push('updated_at=NOW()');
-  params.push(movId);
-  await pool.query(`UPDATE petty_cash_movements SET ${updates.join(',')} WHERE id=$${idx}`, params);
-  return res.json({ success: true });
+  try {
+    const userId = (req as any).user?.userId;
+    const movId = parseInt(req.params.id, 10);
+    if (!userId || !movId) return res.status(400).json({ error: 'Parámetros inválidos' });
+    const { category, amount_mxn, concept } = req.body || {};
+    const mov = await pool.query(`SELECT id, status, created_by FROM petty_cash_movements WHERE id=$1`, [movId]);
+    if (!mov.rows.length) return res.status(404).json({ error: 'Gasto no encontrado' });
+    if (Number(mov.rows[0].created_by) !== userId) return res.status(403).json({ error: 'No autorizado' });
+    if (mov.rows[0].status !== 'pending') return res.status(400).json({ error: 'Solo se pueden editar gastos pendientes' });
+    const uploaded = req.uploadedFiles || {};
+    const updates: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (category) { updates.push(`category=$${idx++}`); params.push(category); }
+    if (amount_mxn) { const n = parseFloat(amount_mxn); if (n > 0) { updates.push(`amount_mxn=$${idx++}`); params.push(n); } }
+    if (concept !== undefined) { updates.push(`concept=$${idx++}`); params.push(concept || null); }
+    if (uploaded.evidence_url) { updates.push(`evidence_url=$${idx++}`); params.push(uploaded.evidence_url); }
+    if (!updates.length) return res.status(400).json({ error: 'Sin cambios' });
+    params.push(movId);
+    await pool.query(`UPDATE petty_cash_movements SET ${updates.join(',')} WHERE id=$${idx}`, params);
+    return res.json({ success: true });
+  } catch (err: any) {
+    console.error('[PATCH my-expenses]', err);
+    return res.status(500).json({ error: err?.message || 'Error al actualizar gasto' });
+  }
 });
 app.delete('/api/petty-cash/my-expenses/:id', authenticateToken, async (req: any, res: any) => {
   const userId = (req as any).user?.userId;
