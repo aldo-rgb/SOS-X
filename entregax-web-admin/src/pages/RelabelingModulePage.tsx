@@ -274,6 +274,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
     const autoPrintPendingRef = useRef(false);
     const [generatingPqtx, setGeneratingPqtx] = useState(false);
     const [pqtxMsg, setPqtxMsg] = useState<string | null>(null);
+    const [pqtxError, setPqtxError] = useState<string | null>(null);
     const [selectedPqtx, setSelectedPqtx] = useState<Set<string>>(new Set());
     // Reimpresión por rango de cajas (LOG marítimo y multi-caja)
     const [reprintOpen, setReprintOpen] = useState(false);
@@ -617,6 +618,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         setGeneratingPqtx(true);
         setError(null);
         setPqtxMsg(null);
+        setPqtxError(null);
         try {
             const res = await api.post('/admin/paquete-express/generate-for-package', {
                 packageId: shipment.master.id,
@@ -633,8 +635,6 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
                     setPqtxMsg(`✅ Guía generada: ${trackings[0]?.tracking}`);
                 }
 
-                // Abrir todos los PDFs en pestañas (con un pequeño delay entre cada uno
-                // para que el navegador no bloquee los pop-ups)
                 trackings.forEach((t, idx) => {
                     const url = `${baseUrl}/admin/paquete-express/label/pdf/${t.tracking}`;
                     setTimeout(() => window.open(url, '_blank'), idx * 250);
@@ -644,15 +644,16 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
                     setError(`Algunas cajas fallaron: ${res.data.errors.map((e: any) => `Caja ${e.boxNumber || '?'}: ${e.error}`).join(' | ')}`);
                 }
 
-                // Refrescar shipment para que aparezca el tracking nacional
                 await handleSearch();
             } else {
                 const rawErr = res.data?.error;
-                setError(typeof rawErr === 'string' ? rawErr : Array.isArray(rawErr) ? rawErr.map((x: any) => (typeof x === 'string' ? x : x?.description || JSON.stringify(x))).join(' | ') : rawErr ? JSON.stringify(rawErr) : 'No se pudo generar la guía');
+                const msg = typeof rawErr === 'string' ? rawErr : Array.isArray(rawErr) ? rawErr.map((x: any) => (typeof x === 'string' ? x : x?.description || JSON.stringify(x))).join(' | ') : rawErr ? JSON.stringify(rawErr) : 'No se pudo generar la guía';
+                setPqtxError(msg);
             }
         } catch (e: any) {
             const rawErr = e.response?.data?.error;
-            setError(typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : (e.message || 'Error generando guía Paquete Express'));
+            const msg = typeof rawErr === 'string' ? rawErr : rawErr ? JSON.stringify(rawErr) : (e.message || 'Error generando guía Paquete Express');
+            setPqtxError(msg);
         } finally {
             setGeneratingPqtx(false);
         }
@@ -1687,6 +1688,11 @@ ${body}
                                                     ? `Aún no generada. Se creará 1 guía multipieza para ${shipment.master.totalBoxes} cajas con la API de Paquete Express usando la dirección de entrega asignada.`
                                                     : 'Aún no generada. Se creará en línea con la API de Paquete Express usando la dirección de entrega asignada.'}
                                             </Typography>
+                                            {pqtxError && (
+                                                <Alert severity="error" onClose={() => setPqtxError(null)} sx={{ mb: 1, fontSize: 12 }}>
+                                                    {pqtxError}
+                                                </Alert>
+                                            )}
                                             <Box sx={{ flex: 1 }} />
                                             <Button
                                                 fullWidth

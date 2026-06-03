@@ -1349,6 +1349,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     const pkg = pkgRes.rows[0];
 
     if (!pkg.assigned_address_id || !pkg.zip_code) {
+      console.warn(`[PQTX-GEN] Sin dirección/CP: packageId=${packageId}, assigned_address_id=${pkg.assigned_address_id}, zip_code=${pkg.zip_code}`);
       res.status(400).json({ success: false, error: 'El paquete no tiene dirección de entrega asignada con código postal' });
       return;
     }
@@ -1460,6 +1461,7 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     });
 
     if (!result.ok) {
+      console.warn(`[PQTX-GEN] Error API: pkg=${packageId}, error="${result.error}", raw=${JSON.stringify(result.raw)}`);
       res.status(400).json({ success: false, error: result.error, raw: result.raw });
       return;
     }
