@@ -170,9 +170,19 @@ export default function PettyCashHubPage() {
       return raw ? (JSON.parse(raw)?.role || '') : '';
     } catch { return ''; }
   })();
+  const currentUserBranch = (() => {
+    try {
+      const raw = localStorage.getItem('user');
+      const u = raw ? JSON.parse(raw) : null;
+      return (u?.branch_name || u?.branch || '').toLowerCase();
+    } catch { return ''; }
+  })();
   const canFundBranch = ['super_admin', 'admin', 'director'].includes(currentUserRole);
   const isSuperAdmin = currentUserRole === 'super_admin';
   const isDirector = currentUserRole === 'director';
+  // Bloques de Ruta: solo super_admin, admin y operaciones de CEDIS GDL
+  const canSeeRouteBlocks = ['super_admin', 'admin'].includes(currentUserRole)
+    || (currentUserRole === 'operaciones' && currentUserBranch.includes('gdl'));
 
   const [tab, setTab] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
@@ -746,7 +756,7 @@ export default function PettyCashHubPage() {
           <Tab icon={<DriverIcon />} iconPosition="start" label={`Choferes (${driverWallets.length})`} />
           <Tab icon={<ApproveIcon />} iconPosition="start" label={`Aprobaciones (${pendingExpenses.length})`} />
           <Tab icon={<SettleIcon />} iconPosition="start" label={`Arqueos (${settlements.length})`} />
-          <Tab icon={<RouteBlockIcon />} iconPosition="start" label={`Bloques de Ruta (${routeBlocks.length})`} />
+          {canSeeRouteBlocks && <Tab icon={<RouteBlockIcon />} iconPosition="start" label={`Bloques de Ruta (${routeBlocks.length})`} />}
         </Tabs>
       </Paper>
 
@@ -1046,7 +1056,7 @@ export default function PettyCashHubPage() {
       )}
 
       {/* TAB: Bloques de Ruta */}
-      {tab === 4 && (
+      {tab === 4 && canSeeRouteBlocks && (
         <>
           <TableContainer component={Paper}>
             <Table size="small">
