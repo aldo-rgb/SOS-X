@@ -26,6 +26,7 @@ import {
     DialogContent,
     DialogActions,
     Stack,
+    Snackbar,
 } from '@mui/material';
 import {
     Search as SearchIcon,
@@ -2205,6 +2206,23 @@ ${body}
                     </Button>
                 </DialogActions>
             </Dialog>
+
+            {/* Snackbar de error PQTX — siempre visible al fondo sin importar el scroll */}
+            <Snackbar
+                open={!!pqtxError}
+                autoHideDuration={null}
+                anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+                sx={{ maxWidth: 480 }}
+            >
+                <Alert
+                    severity="error"
+                    variant="filled"
+                    onClose={() => setPqtxError(null)}
+                    sx={{ width: '100%', fontWeight: 600 }}
+                >
+                    {pqtxError}
+                </Alert>
+            </Snackbar>
         </Box>
     );
 }
