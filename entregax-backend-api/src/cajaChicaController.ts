@@ -1633,16 +1633,21 @@ export const deleteTransaccion = async (req: AuthRequest, res: Response): Promis
 export const updateTransaccion = async (req: AuthRequest, res: Response): Promise<void> => {
   const txId = parseInt(req.params['id'] as string, 10);
   if (!txId) { res.status(400).json({ error: 'ID inválido' }); return; }
-  const { monto } = req.body || {};
+  const { monto, fecha } = req.body || {};
   const n = Number(monto);
   if (!Number.isFinite(n) || n <= 0) {
     res.status(400).json({ error: 'Monto inválido (debe ser un número mayor a 0)' });
     return;
   }
+  const newDate = fecha ? new Date(fecha) : null;
   try {
     const r = await pool.query(
-      `UPDATE caja_chica_transacciones SET monto = $1 WHERE id = $2 RETURNING id, monto, tipo`,
-      [n.toFixed(2), txId]
+      newDate && !isNaN(newDate.getTime())
+        ? `UPDATE caja_chica_transacciones SET monto = $1, fecha = $3 WHERE id = $2 RETURNING id, monto, tipo, fecha`
+        : `UPDATE caja_chica_transacciones SET monto = $1 WHERE id = $2 RETURNING id, monto, tipo`,
+      newDate && !isNaN(newDate.getTime())
+        ? [n.toFixed(2), txId, newDate.toISOString()]
+        : [n.toFixed(2), txId]
     );
     if (r.rowCount === 0) {
       res.status(404).json({ error: 'Transacción no encontrada' });

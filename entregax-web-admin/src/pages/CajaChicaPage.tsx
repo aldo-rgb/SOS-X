@@ -323,7 +323,7 @@ const CajaChicaPage: React.FC = () => {
     catch { return false; }
   })();
   const [deletingTxId, setDeletingTxId] = useState<number | null>(null);
-  const [editTxDialog, setEditTxDialog] = useState<{ open: boolean; tx: any | null; monto: string; saving: boolean; error: string | null }>({ open: false, tx: null, monto: '', saving: false, error: null });
+  const [editTxDialog, setEditTxDialog] = useState<{ open: boolean; tx: any | null; monto: string; fecha: string; saving: boolean; error: string | null }>({ open: false, tx: null, monto: '', fecha: '', saving: false, error: null });
 
   const categoriasEgreso = [
     { value: 'gastos_operativos', label: 'Gastos Operativos' },
@@ -355,7 +355,10 @@ const CajaChicaPage: React.FC = () => {
   };
 
   const openEditTx = (tx: any) => {
-    setEditTxDialog({ open: true, tx, monto: String(tx.monto ?? ''), saving: false, error: null });
+    const d = new Date(tx.fecha || tx.created_at);
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const fechaLocal = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    setEditTxDialog({ open: true, tx, monto: String(tx.monto ?? ''), fecha: fechaLocal, saving: false, error: null });
   };
 
   const handleSaveEditTx = async () => {
@@ -368,10 +371,11 @@ const CajaChicaPage: React.FC = () => {
     }
     setEditTxDialog(p => ({ ...p, saving: true, error: null }));
     try {
-      await api.patch(`/caja-chica/transacciones/${tx.id}`, { monto: n });
+      const fecha = editTxDialog.fecha ? new Date(editTxDialog.fecha).toISOString() : undefined;
+      await api.patch(`/caja-chica/transacciones/${tx.id}`, { monto: n, fecha });
       setTransacciones(prev => prev.map(t => t.id === tx.id ? { ...t, monto: n } : t));
       setSnackbar({ open: true, message: 'Transacción actualizada', severity: 'success' });
-      setEditTxDialog({ open: false, tx: null, monto: '', saving: false, error: null });
+      setEditTxDialog({ open: false, tx: null, monto: '', fecha: '', saving: false, error: null });
       fetchStats();
     } catch (e: any) {
       setEditTxDialog(p => ({ ...p, saving: false, error: e?.response?.data?.error || 'Error al actualizar' }));
@@ -2523,7 +2527,7 @@ const CajaChicaPage: React.FC = () => {
       </Snackbar>
 
       {/* Dialog editar transacción (solo super admin, edita monto) */}
-      <Dialog open={editTxDialog.open} onClose={() => !editTxDialog.saving && setEditTxDialog({ open: false, tx: null, monto: '', saving: false, error: null })} maxWidth="xs" fullWidth>
+      <Dialog open={editTxDialog.open} onClose={() => !editTxDialog.saving && setEditTxDialog({ open: false, tx: null, monto: '', fecha: '', saving: false, error: null })} maxWidth="xs" fullWidth>
         <DialogTitle>Editar transacción #{editTxDialog.tx?.id}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
@@ -2539,12 +2543,22 @@ const CajaChicaPage: React.FC = () => {
             onChange={(e) => setEditTxDialog(p => ({ ...p, monto: e.target.value }))}
             disabled={editTxDialog.saving}
           />
+          <TextField
+            label="Fecha y hora"
+            type="datetime-local"
+            fullWidth
+            value={editTxDialog.fecha}
+            onChange={(e) => setEditTxDialog(p => ({ ...p, fecha: e.target.value }))}
+            disabled={editTxDialog.saving}
+            InputLabelProps={{ shrink: true }}
+            sx={{ mt: 2 }}
+          />
           {editTxDialog.error && (
             <Alert severity="error" sx={{ mt: 2 }}>{editTxDialog.error}</Alert>
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditTxDialog({ open: false, tx: null, monto: '', saving: false, error: null })} disabled={editTxDialog.saving}>Cancelar</Button>
+          <Button onClick={() => setEditTxDialog({ open: false, tx: null, monto: '', fecha: '', saving: false, error: null })} disabled={editTxDialog.saving}>Cancelar</Button>
           <Button variant="contained" onClick={handleSaveEditTx} disabled={editTxDialog.saving}>
             {editTxDialog.saving ? 'Guardando...' : 'Guardar'}
           </Button>
