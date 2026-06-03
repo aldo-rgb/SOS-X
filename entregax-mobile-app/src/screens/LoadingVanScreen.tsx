@@ -36,6 +36,7 @@ interface RouteData {
   loadedToday: number;
   deliveredToday: number;
   pendingToLoad: number;
+  requireLabelToLoad?: boolean;
   pendingPackages: PackageItem[];
   loadedPackages: PackageItem[];
 }
@@ -48,6 +49,8 @@ interface PackageItem {
   delivery_zip: string;
   recipient_name: string;
   recipient_phone: string;
+  national_carrier?: string | null;
+  assigned_address_id?: number | null;
   loaded_at?: string;
   client_number?: string;
   reference_hint?: string;
@@ -846,7 +849,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
           <MaterialIcons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
         <View style={styles.headerTitle}>
-          <Text style={styles.title}>Carga de Unidad 🚚</Text>
+          <Text style={styles.title}>Entrega Local 🏠</Text>
           <Text style={styles.subtitle}>Escanea cada paquete antes de salir</Text>
         </View>
         <View style={styles.headerActions}>
@@ -1019,7 +1022,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
           <View style={styles.successIcon}>
             <MaterialIcons name="check-circle" size={100} color="#4CAF50" />
           </View>
-          <Text style={styles.successTitle}>¡Carga Completa! 🎉</Text>
+          <Text style={styles.successTitle}>¡Entrega Local Lista! 🎉</Text>
           <Text style={styles.successSubtitle}>
             Todos los paquetes han sido verificados y cargados en tu unidad.
           </Text>
@@ -1273,11 +1276,21 @@ export default function LoadingVanScreen({ navigation, route }: any) {
           {/* Lista agrupada por embarque master (LOG/AIR). DHL/PO Box
               que no tienen master se muestran como grupos de 1. */}
           {(() => {
+            const requireLabel = routeData?.requireLabelToLoad ?? true;
+            const isLocalCarrier = (c?: string | null) => {
+              const s = String(c || '').toLowerCase();
+              return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up');
+            };
+            const allPending = routeData?.pendingPackages || [];
+            // Cuando toggle ON: solo mostrar paquetes con instrucciones locales asignadas
+            const visiblePending = requireLabel
+              ? allPending.filter(p => p.assigned_address_id && isLocalCarrier(p.national_carrier))
+              : allPending;
             const groups = groupPackagesByMaster(
-              routeData?.pendingPackages || [],
+              visiblePending,
               routeData?.loadedPackages || [],
             );
-            const totalPending = routeData?.pendingPackages.length || 0;
+            const totalPending = visiblePending.length || 0;
             const totalLoaded = routeData?.loadedPackages.length || 0;
             return (
               <>

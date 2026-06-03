@@ -767,6 +767,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_NAME_SQL} as recipient_name,
                     ${RECIPIENT_PHONE_SQL} as recipient_phone,
                     COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                    COALESCE(p.assigned_address_id, m.assigned_address_id) as assigned_address_id,
                     ${CLIENT_NUMBER_SQL} as client_number,
                     ${REFERENCE_HINT_SQL} as reference_hint,
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
@@ -792,6 +793,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_NAME_SQL} as recipient_name,
                     ${RECIPIENT_PHONE_SQL} as recipient_phone,
                     COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                    COALESCE(p.assigned_address_id, m.assigned_address_id) as assigned_address_id,
                     ${CLIENT_NUMBER_SQL} as client_number,
                     ${REFERENCE_HINT_SQL} as reference_hint,
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
@@ -904,6 +906,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                                 deliveredToday,
                                 pendingToLoad,
                                 paqueteriaCount,
+                                requireLabelToLoad: reqLabel,
                 pendingPackages: pendingRes.rows,
                 loadedPackages: loadedRes.rows
             }

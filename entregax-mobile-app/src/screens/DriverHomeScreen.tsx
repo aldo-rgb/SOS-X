@@ -255,7 +255,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       return { text: 'Pendiente inspección', color: '#FF9800', icon: 'warning' };
     }
     if (stats.pendingToLoad > 0) {
-      return { text: 'Carga pendiente', color: '#2196F3', icon: 'local-shipping' };
+      return { text: 'Entrega Local pendiente', color: '#2196F3', icon: 'local-shipping' };
     }
     if (stats.pendingDelivery > 0) {
       return { text: 'En ruta', color: '#4CAF50', icon: 'directions-car' };
@@ -364,7 +364,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     },
     {
       id: 'load',
-      title: isMonitoreo ? 'Iniciar Monitoreo' : 'Cargar Unidad',
+      title: isMonitoreo ? 'Iniciar Monitoreo' : 'Entrega Local',
       subtitle: isMonitoreo
         ? `${stats.pendingToLoad} contenedores en ruta`
         : `${stats.pendingToLoad} paquetes pendientes`,
