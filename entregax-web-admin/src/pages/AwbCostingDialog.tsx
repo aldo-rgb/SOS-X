@@ -783,9 +783,20 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                                     <Typography variant="h6" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                         <GavelIcon color="secondary" /> Gastos de Liberación
                                     </Typography>
-                                    <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                                        Costos aduanales y de liberación en destino
-                                    </Typography>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                                        <Typography variant="body2" color="text.secondary">
+                                            Costos aduanales y de liberación en destino
+                                        </Typography>
+                                        {releaseCalc && (
+                                            <Chip
+                                                label={`${(releaseCalc.peso_s + releaseCalc.peso_cajo).toFixed(2)} kg total`}
+                                                size="small"
+                                                color="secondary"
+                                                variant="outlined"
+                                                icon={<span style={{ fontSize: 14, marginLeft: 6 }}>⚖️</span>}
+                                            />
+                                        )}
+                                    </Box>
 
                                     {/* Despacho Aduanal - Cálculo Automático */}
                                     <Card variant="outlined" sx={{ mb: 3, p: 2 }}>
