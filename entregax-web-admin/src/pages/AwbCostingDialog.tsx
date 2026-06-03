@@ -406,6 +406,7 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
     if (!open) return null;
 
     return (
+        <>
         <Dialog
             open={open}
             onClose={onClose}
@@ -1596,5 +1597,6 @@ export default function AwbCostingDialog({ open, onClose, awbCostId, onSaved }: 
                 ✅ Costos guardados correctamente
             </Alert>
         </Snackbar>
+        </>
     );
 }
