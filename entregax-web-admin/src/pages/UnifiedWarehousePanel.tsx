@@ -643,6 +643,13 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                         />
                       );
                     })()}
+                    <Chip
+                      label={m.assignedAddress ? '✅ Con instrucciones' : '⚠️ Sin instrucciones'}
+                      size="small"
+                      color={m.assignedAddress ? 'success' : 'warning'}
+                      variant="outlined"
+                      sx={{ fontWeight: 700 }}
+                    />
                     {m.isMaster && (
                       <Chip
                         label={`Multipieza · ${m.totalBoxes || 1} cajas`}
