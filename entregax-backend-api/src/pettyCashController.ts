@@ -862,7 +862,8 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
     gps_lat,
     gps_lng,
     gps_accuracy_m,
-    vehicle_id
+    vehicle_id,
+    route_block_id,
   } = req.body || {};
 
   const amount = Number(amount_mxn);
@@ -898,14 +899,24 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
+    // Validar que el bloque esté abierto si se proporciona
+    const blockId = route_block_id ? Number(route_block_id) : null;
+    if (blockId) {
+      const bl = await client.query(`SELECT id FROM petty_cash_route_blocks WHERE id=$1 AND status='open'`, [blockId]);
+      if (bl.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: 'El bloque de ruta no existe o ya fue finalizado' });
+      }
+    }
+
     const m = await client.query(`
       INSERT INTO petty_cash_movements (
         wallet_id, movement_type, category, amount_mxn, status, concept,
         evidence_url, xml_url,
         gps_lat, gps_lng, gps_accuracy_m, vehicle_id,
         branch_id, created_by,
-        reviewed_by, reviewed_at
-      ) VALUES ($1, 'expense', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+        reviewed_by, reviewed_at, route_block_id
+      ) VALUES ($1, 'expense', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
       RETURNING id, created_at
     `, [
       walletId, category, amount, autoApprove ? 'approved' : 'pending', concept || null,
@@ -916,7 +927,8 @@ export const registerBranchExpense = async (req: Request, res: Response): Promis
       vehicle_id ? Number(vehicle_id) : null,
       branchId, userId,
       autoApprove ? userId : null,
-      autoApprove ? new Date() : null
+      autoApprove ? new Date() : null,
+      blockId,
     ]);
 
     if (autoApprove) {

@@ -177,6 +177,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
 
   // Modal: registrar gasto de sucursal (igual que la app del chofer)
   const [gastoOpen, setGastoOpen] = useState(false);
+  const [gastoBlockId, setGastoBlockId] = useState<number | null>(null);
   const [gastoCategory, setGastoCategory] = useState<string>('combustible');
   const [gastoAmount, setGastoAmount] = useState('');
   const [gastoConcept, setGastoConcept] = useState('');
@@ -375,6 +376,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
       form.append('category', gastoCategory);
       form.append('amount_mxn', String(amount));
       if (gastoConcept) form.append('concept', gastoConcept);
+      if (gastoBlockId) form.append('route_block_id', String(gastoBlockId));
       // @ts-ignore: RN FormData file
       form.append('evidence', {
         uri: gastoPhoto.uri,
@@ -391,9 +393,11 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
       if (!res.ok) {
         throw new Error(data?.error || 'No se pudo registrar el gasto');
       }
-      Alert.alert('✅ Gasto registrado', 'El gasto fue registrado y aprobado.');
+      Alert.alert('✅ Gasto registrado', gastoBlockId ? `Gasto asignado al Bloque #${gastoBlockId}` : 'El gasto fue registrado.');
       setGastoOpen(false);
+      setGastoBlockId(null);
       loadData();
+      if (gastoBlockId) loadBlocks();
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'No se pudo registrar el gasto');
     } finally {
@@ -826,6 +830,15 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
                           <Text style={{ fontSize: 13, color: '#555' }}>{b.notes}</Text>
                         </View>
                       ) : null}
+                      {isOpen && (
+                        <TouchableOpacity
+                          style={{ marginTop: 12, backgroundColor: ORANGE, borderRadius: 8, paddingVertical: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+                          onPress={() => { setGastoBlockId(b.id); setGastoOpen(true); }}
+                        >
+                          <MaterialIcons name="add-circle-outline" size={18} color="#fff" />
+                          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Agregar gasto al bloque</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
                 </TouchableOpacity>
@@ -924,16 +937,16 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
       </Modal>
 
       {/* Modal: Registrar gasto de sucursal */}
-      <Modal visible={gastoOpen} animationType="slide" onRequestClose={() => !gastoBusy && setGastoOpen(false)}>
+      <Modal visible={gastoOpen} animationType="slide" onRequestClose={() => { if (!gastoBusy) { setGastoOpen(false); setGastoBlockId(null); } }}>
         <KeyboardAvoidingView
           style={styles.container}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         >
           <View style={[styles.header, { paddingTop: modalTopInset + 12 }]}>
-            <TouchableOpacity onPress={() => setGastoOpen(false)} disabled={gastoBusy}>
+            <TouchableOpacity onPress={() => { setGastoOpen(false); setGastoBlockId(null); }} disabled={gastoBusy}>
               <MaterialIcons name="close" size={28} color="#333" />
             </TouchableOpacity>
-            <Text style={[styles.headerTitle, { marginLeft: 12 }]}>Registrar Gasto</Text>
+            <Text style={[styles.headerTitle, { marginLeft: 12 }]}>{gastoBlockId ? `Gasto → Bloque #${gastoBlockId}` : 'Registrar Gasto'}</Text>
           </View>
           <ScrollView
             contentContainerStyle={{ padding: 16, paddingBottom: 40 }}
