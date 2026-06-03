@@ -139,6 +139,17 @@ export default function PettyCashScreen({ navigation, route }: any) {
   const [movements, setMovements] = useState<Movement[]>([]);
   const [openBlocks, setOpenBlocks] = useState<RouteBlock[]>([]);
 
+  // Visor de foto de ticket
+  const [photoViewerUrl, setPhotoViewerUrl] = useState<string | null>(null);
+
+  // Editar gasto propio pendiente
+  const [editingMov, setEditingMov] = useState<Movement | null>(null);
+  const [editCategory, setEditCategory] = useState('');
+  const [editAmount, setEditAmount] = useState('');
+  const [editConcept, setEditConcept] = useState('');
+  const [editPhoto, setEditPhoto] = useState<{ uri: string; name: string; type: string } | null>(null);
+  const [editSaving, setEditSaving] = useState(false);
+
   // Hub modal (bloques abiertos)
   const [hubOpen, setHubOpen] = useState(false);
 
@@ -195,6 +206,74 @@ export default function PettyCashScreen({ navigation, route }: any) {
   // ── Hub ───────────────────────────────────────────────────────────────────
 
   const openHub = () => setHubOpen(true);
+
+  // ── Editar / borrar gasto propio ─────────────────────────────────────────
+
+  const openEditMov = (m: Movement) => {
+    setEditingMov(m);
+    setEditCategory(m.category || '');
+    setEditAmount(String(m.amount_mxn));
+    setEditConcept(m.concept || '');
+    setEditPhoto(null);
+  };
+
+  const pickEditPhoto = async (useCamera: boolean) => {
+    const perm = useCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    const result = useCamera
+      ? await ImagePicker.launchCameraAsync({ quality: 0.7 })
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.7, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+    if (!result.canceled && result.assets?.[0]) {
+      const a = result.assets[0];
+      const ext = (a.uri.split('.').pop() || 'jpg').toLowerCase();
+      setEditPhoto({ uri: a.uri, name: `ticket_edit.${ext}`, type: a.mimeType || 'image/jpeg' });
+    }
+  };
+
+  const saveEditMov = async () => {
+    if (!editingMov) return;
+    const amount = parseMontoEs(editAmount);
+    if (!Number.isFinite(amount) || amount <= 0) { Alert.alert('Error', 'Monto inválido'); return; }
+    setEditSaving(true);
+    try {
+      const form = new FormData();
+      form.append('category', editCategory);
+      form.append('amount_mxn', String(amount));
+      if (editConcept) form.append('concept', editConcept);
+      if (editPhoto) {
+        // @ts-ignore
+        form.append('evidence', { uri: editPhoto.uri, name: editPhoto.name, type: editPhoto.type });
+      }
+      const res = await fetch(`${API_URL}/api/petty-cash/my-expenses/${editingMov.id}`, {
+        method: 'PATCH',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: form as any,
+      });
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Error'); }
+      setEditingMov(null);
+      loadData();
+    } catch (e: any) {
+      Alert.alert('Error', e.message || 'No se pudo actualizar');
+    } finally { setEditSaving(false); }
+  };
+
+  const confirmDeleteMov = (m: Movement) => {
+    Alert.alert('Eliminar gasto', `¿Eliminar "${CATEGORIES.find(c => c.key === m.category)?.label || m.category}" por ${fmtMoney(m.amount_mxn)}?`, [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Eliminar', style: 'destructive', onPress: async () => {
+        try {
+          const res = await fetch(`${API_URL}/api/petty-cash/my-expenses/${m.id}`, {
+            method: 'DELETE',
+            headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          });
+          if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Error'); }
+          loadData();
+        } catch (e: any) { Alert.alert('Error', e.message); }
+      }},
+    ]);
+  };
 
   // ── Wizard: crear nuevo bloque ────────────────────────────────────────────
 
@@ -531,8 +610,14 @@ export default function PettyCashScreen({ navigation, route }: any) {
             movements.map((m) => {
               const cat = CATEGORIES.find((c) => c.key === m.category);
               const isExpense = m.movement_type === 'expense';
+              const isPending = m.status === 'pending';
               return (
-                <View key={m.id} style={styles.movCard}>
+                <TouchableOpacity
+                  key={m.id}
+                  style={styles.movCard}
+                  activeOpacity={isExpense && m.evidence_url ? 0.75 : 1}
+                  onPress={() => isExpense && m.evidence_url ? setPhotoViewerUrl(m.evidence_url) : null}
+                >
                   <View style={styles.movIcon}>
                     <Text style={{ fontSize: 22 }}>
                       {isExpense ? cat?.icon || '🧾' : m.movement_type === 'fund' || m.movement_type === 'advance' ? '💵' : '🔁'}
@@ -545,18 +630,88 @@ export default function PettyCashScreen({ navigation, route }: any) {
                     {m.concept ? <Text style={styles.movConcept} numberOfLines={1}>{m.concept}</Text> : null}
                     <Text style={styles.movDate}>{fmtDate(m.created_at)}</Text>
                   </View>
-                  <View style={{ alignItems: 'flex-end' }}>
+                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
                     <Text style={[styles.movAmount, { color: isExpense ? '#E53935' : '#00B894' }]}>
                       {isExpense ? '-' : '+'}{fmtMoney(m.amount_mxn)}
                     </Text>
                     {statusChip(m.status)}
+                    {isExpense && isPending && (
+                      <View style={{ flexDirection: 'row', gap: 6, marginTop: 2 }}>
+                        <TouchableOpacity onPress={() => openEditMov(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <MaterialIcons name="edit" size={18} color="#2196F3" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => confirmDeleteMov(m)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <MaterialIcons name="delete-outline" size={18} color="#E53935" />
+                        </TouchableOpacity>
+                      </View>
+                    )}
                   </View>
-                </View>
+                </TouchableOpacity>
               );
             })
           )}
         </View>
       </ScrollView>
+
+      {/* Visor foto ticket */}
+      <Modal visible={!!photoViewerUrl} transparent animationType="fade" onRequestClose={() => setPhotoViewerUrl(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }}>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 }} onPress={() => setPhotoViewerUrl(null)}>
+            <MaterialIcons name="close" size={32} color="#fff" />
+          </TouchableOpacity>
+          {photoViewerUrl && <Image source={{ uri: photoViewerUrl }} style={{ width: '100%', height: '85%' }} resizeMode="contain" />}
+        </View>
+      </Modal>
+
+      {/* Modal: Editar gasto pendiente */}
+      <Modal visible={!!editingMov} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => !editSaving && setEditingMov(null)}>
+        <View style={styles.container}>
+          <View style={[styles.header, { paddingTop: 16 }]}>
+            <TouchableOpacity onPress={() => setEditingMov(null)} disabled={editSaving}>
+              <MaterialIcons name="close" size={28} color="#333" />
+            </TouchableOpacity>
+            <Text style={[styles.headerTitle, { marginLeft: 12 }]}>Editar gasto</Text>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 14 }} keyboardShouldPersistTaps="handled">
+            <Text style={styles.label}>Categoría</Text>
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              {CATEGORIES.map(c => (
+                <TouchableOpacity key={c.key} onPress={() => setEditCategory(c.key)}
+                  style={{ paddingHorizontal: 14, paddingVertical: 8, borderRadius: 20, borderWidth: 2,
+                    borderColor: editCategory === c.key ? '#F05A28' : '#ddd',
+                    backgroundColor: editCategory === c.key ? '#FFF0E9' : '#fff' }}>
+                  <Text style={{ fontSize: 13, color: editCategory === c.key ? '#F05A28' : '#555', fontWeight: editCategory === c.key ? '700' : '400' }}>{c.icon} {c.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.label}>Monto</Text>
+            <TextInput style={styles.input} value={editAmount} onChangeText={setEditAmount} keyboardType="decimal-pad" placeholder="0.00" />
+            <Text style={styles.label}>Concepto (opcional)</Text>
+            <TextInput style={styles.input} value={editConcept} onChangeText={setEditConcept} placeholder="Descripción del gasto" />
+            <Text style={styles.label}>Foto del ticket</Text>
+            {editPhoto ? (
+              <Image source={{ uri: editPhoto.uri }} style={{ width: '100%', height: 180, borderRadius: 10 }} resizeMode="cover" />
+            ) : (
+              <Text style={{ color: '#999', fontSize: 13 }}>Sin nueva foto (se mantiene la actual)</Text>
+            )}
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity style={[styles.actionBtn, { flex: 1, backgroundColor: '#F05A28' }]} onPress={() => pickEditPhoto(true)} disabled={editSaving}>
+                <MaterialIcons name="photo-camera" size={18} color="#fff" />
+                <Text style={styles.actionBtnText}>Cámara</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, { flex: 1, backgroundColor: '#555' }]} onPress={() => pickEditPhoto(false)} disabled={editSaving}>
+                <MaterialIcons name="photo-library" size={18} color="#fff" />
+                <Text style={styles.actionBtnText}>Galería</Text>
+              </TouchableOpacity>
+            </View>
+            <TouchableOpacity style={[styles.actionBtn, { backgroundColor: editSaving ? '#ccc' : '#4CAF50', marginTop: 8 }]} onPress={saveEditMov} disabled={editSaving}>
+              {editSaving
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <><MaterialIcons name="check-circle" size={20} color="#fff" /><Text style={styles.actionBtnText}>Guardar cambios</Text></>}
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+      </Modal>
 
       {/* ═══════════════════════════════════════════════════════════════════════
           MODAL: HUB DE BLOQUES
