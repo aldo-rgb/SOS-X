@@ -1710,11 +1710,11 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
           [shipmentId, advisorId, facturaUrl, files.factura[0].originalname]
         );
       }
-      if (files?.guiaExterna?.[0]) {
-        const guiaUrl = `${baseUrl}/uploads/delivery/${files.guiaExterna[0].filename}`;
+      for (const gf of (files?.guiaExterna || [])) {
+        const guiaUrl = `${baseUrl}/uploads/delivery/${gf.filename}`;
         await pool.query(
           `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'guia_externa', $3, $4)`,
-          [shipmentId, advisorId, guiaUrl, files.guiaExterna[0].originalname]
+          [shipmentId, advisorId, guiaUrl, gf.originalname]
         );
       }
     } else if (type === 'MAR') {

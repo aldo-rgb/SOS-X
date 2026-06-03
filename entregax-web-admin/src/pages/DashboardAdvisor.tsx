@@ -394,7 +394,7 @@ export default function DashboardAdvisor() {
   const [instrPriceLoading, setInstrPriceLoading] = useState(false);
   const [instrIsCollect, setInstrIsCollect] = useState(false);
   const [instrFacturaFile, setInstrFacturaFile] = useState<File | null>(null);
-  const [instrGuiaFile, setInstrGuiaFile] = useState<File | null>(null);
+  const [instrGuiaFiles, setInstrGuiaFiles] = useState<File[]>([]);
   const [instrWantsFactura, setInstrWantsFactura] = useState(false);
   const [selectedShipment, setSelectedShipment] = useState<AdvisorShipment | null>(null);
   const [repackChildren, setRepackChildren] = useState<any[]>([]);
@@ -945,7 +945,7 @@ export default function DashboardAdvisor() {
     setInstrCarriers([]);
     setInstrIsCollect(false);
     setInstrFacturaFile(null);
-    setInstrGuiaFile(null);
+    setInstrGuiaFiles([]);
     setInstrWantsFactura(false);
     setInstrPriceEstimate(null);
     setInstrDialogOpen(true);
@@ -1023,7 +1023,7 @@ export default function DashboardAdvisor() {
       if (uids.length === 0) return;
       const serviceKey = instrShipment ? SHIPMENT_TYPE_TO_CARRIER_SERVICE[instrShipment.serviceType] : undefined;
 
-      const hasFiles = instrFacturaFile || instrGuiaFile;
+      const hasFiles = instrFacturaFile || instrGuiaFiles.length > 0;
       if (hasFiles || instrIsCollect) {
         await Promise.all(uids.map(uid => {
           const formData = new FormData();
@@ -1035,7 +1035,7 @@ export default function DashboardAdvisor() {
           formData.append('isCollect', String(instrIsCollect));
           formData.append('wantsFacturaPaqueteria', String(instrWantsFactura));
           if (instrFacturaFile) formData.append('factura', instrFacturaFile);
-          if (instrGuiaFile) formData.append('guiaExterna', instrGuiaFile);
+          instrGuiaFiles.forEach(f => formData.append('guiaExterna', f));
           return api.put(`/advisor/shipments/${uid}/instructions`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
         }));
       } else {
@@ -1050,7 +1050,7 @@ export default function DashboardAdvisor() {
       setSelectedUids(new Set());
       setInstrIsCollect(false);
       setInstrFacturaFile(null);
-      setInstrGuiaFile(null);
+      setInstrGuiaFiles([]);
       setInstrWantsFactura(false);
       setInstrPriceEstimate(null);
       fetchShipments();
@@ -4909,11 +4909,19 @@ export default function DashboardAdvisor() {
                     size="small"
                     fullWidth
                     startIcon={<AttachFileIcon />}
-                    sx={{ justifyContent: 'flex-start', textTransform: 'none', borderColor: instrGuiaFile ? '#4CAF50' : '#ccc', color: instrGuiaFile ? '#2E7D32' : 'text.secondary' }}
+                    sx={{ justifyContent: 'flex-start', textTransform: 'none', borderColor: instrGuiaFiles.length > 0 ? '#4CAF50' : '#ccc', color: instrGuiaFiles.length > 0 ? '#2E7D32' : 'text.secondary' }}
                   >
-                    {instrGuiaFile ? `✓ ${instrGuiaFile.name}` : 'Subir guía (PDF o imagen)'}
-                    <input type="file" hidden accept=".pdf,image/*" onChange={(e) => setInstrGuiaFile(e.target.files?.[0] || null)} />
+                    {instrGuiaFiles.length > 0 ? `✓ ${instrGuiaFiles.length} archivo(s) seleccionado(s)` : 'Subir guías (hasta 15 PDF o imagen)'}
+                    <input type="file" hidden accept=".pdf,image/*" multiple onChange={(e) => setInstrGuiaFiles(Array.from(e.target.files || []).slice(0, 15))} />
                   </Button>
+                  {instrGuiaFiles.length > 0 && (
+                    <Box sx={{ mt: 0.5, display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                      {instrGuiaFiles.map((f, i) => (
+                        <Chip key={i} label={f.name} size="small" color="success" variant="outlined"
+                          onDelete={() => setInstrGuiaFiles(prev => prev.filter((_, idx) => idx !== i))} />
+                      ))}
+                    </Box>
+                  )}
                 </Box>
               </Collapse>
             </Box>

@@ -5044,7 +5044,7 @@ const deliveryUpload = multer({
 }).fields([
   { name: 'factura', maxCount: 1 },
   { name: 'constancia', maxCount: 1 },
-  { name: 'guiaExterna', maxCount: 1 },
+  { name: 'guiaExterna', maxCount: 15 },
 ]);
 
 export const uploadDeliveryDocs = (req: Request, res: Response, next: Function) => {
@@ -5099,7 +5099,12 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
     // Build document URLs
     const facturaUrl = files?.factura?.[0] ? `${baseUrl}/uploads/delivery/${files.factura[0].filename}` : null;
     const constanciaUrl = files?.constancia?.[0] ? `${baseUrl}/uploads/delivery/${files.constancia[0].filename}` : null;
-    const guiaExternaUrl = files?.guiaExterna?.[0] ? `${baseUrl}/uploads/delivery/${files.guiaExterna[0].filename}` : null;
+    // Puede haber hasta 15 guías externas
+    const guiasExternas: { url: string; name: string }[] = (files?.guiaExterna || []).map(f => ({
+      url: `${baseUrl}/uploads/delivery/${f.filename}`,
+      name: f.originalname || 'guia',
+    }));
+    const guiaExternaUrl = guiasExternas[0]?.url || null;
 
     const client = await pool.connect();
     try {
@@ -5277,11 +5282,11 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
               VALUES ($1, $2, 'constancia_fiscal', $3, $4)
             `, [pkgId, userId, constanciaUrl, files?.constancia?.[0]?.originalname || 'constancia']);
           }
-          if (guiaExternaUrl) {
+          for (const g of guiasExternas) {
             await client.query(`
               INSERT INTO delivery_documents (package_id, user_id, document_type, file_url, original_filename)
               VALUES ($1, $2, 'guia_externa', $3, $4)
-            `, [pkgId, userId, guiaExternaUrl, files?.guiaExterna?.[0]?.originalname || 'guia']);
+            `, [pkgId, userId, g.url, g.name]);
           }
         }
       }
