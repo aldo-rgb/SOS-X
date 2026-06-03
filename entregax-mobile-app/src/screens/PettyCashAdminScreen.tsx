@@ -150,7 +150,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [tab, setTab] = useState<'approvals' | 'drivers' | 'movements' | 'blocks'>('approvals');
+  const [tab, setTab] = useState<'approvals' | 'drivers' | 'blocks'>('approvals');
   const [allBlocks, setAllBlocks] = useState<any[]>([]);
   const [blocksLoading, setBlocksLoading] = useState(false);
   const [expandedBlockId, setExpandedBlockId] = useState<number | null>(null);
@@ -567,7 +567,6 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
           {([
             ['approvals', `Aprobaciones (${pending.length})`],
             ['drivers', `Choferes (${driverWallets.length})`],
-            ['movements', 'Movimientos'],
             ['blocks', 'Bloques'],
           ] as const).map(([key, label]) => (
             <TouchableOpacity
