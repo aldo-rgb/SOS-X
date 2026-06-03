@@ -1643,7 +1643,7 @@ export const updateTransaccion = async (req: AuthRequest, res: Response): Promis
   try {
     const r = await pool.query(
       newDate && !isNaN(newDate.getTime())
-        ? `UPDATE caja_chica_transacciones SET monto = $1, fecha = $3 WHERE id = $2 RETURNING id, monto, tipo, fecha`
+        ? `UPDATE caja_chica_transacciones SET monto = $1, created_at = $3 WHERE id = $2 RETURNING id, monto, tipo, created_at`
         : `UPDATE caja_chica_transacciones SET monto = $1 WHERE id = $2 RETURNING id, monto, tipo`,
       newDate && !isNaN(newDate.getTime())
         ? [n.toFixed(2), txId, newDate.toISOString()]
