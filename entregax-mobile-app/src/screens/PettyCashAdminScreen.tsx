@@ -170,6 +170,7 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
   const [reviewMov, setReviewMov] = useState<Movement | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [reviewBusy, setReviewBusy] = useState(false);
+  const [photoViewerUrl, setPhotoViewerUrl] = useState<string | null>(null);
 
   // Modal: registrar gasto de sucursal (igual que la app del chofer)
   const [gastoOpen, setGastoOpen] = useState(false);
@@ -978,7 +979,12 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
           {reviewMov && (
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }}>
               {reviewMov.evidence_url ? (
-                <Image source={{ uri: reviewMov.evidence_url }} style={styles.ticketPhoto} />
+                <TouchableOpacity activeOpacity={0.9} onPress={() => setPhotoViewerUrl(reviewMov.evidence_url!)}>
+                  <Image source={{ uri: reviewMov.evidence_url }} style={styles.ticketPhoto} />
+                  <View style={{ position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4 }}>
+                    <Text style={{ color: '#fff', fontSize: 12 }}>🔍 Toca para ampliar</Text>
+                  </View>
+                </TouchableOpacity>
               ) : (
                 <View style={[styles.infoBox, { backgroundColor: '#FFF3CD' }]}>
                   <Text style={[styles.infoText, { color: '#856404' }]}>Sin foto del ticket</Text>
@@ -987,7 +993,12 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
               {reviewMov.odometer_photo_url ? (
                 <>
                   <Text style={styles.label}>Odómetro</Text>
-                  <Image source={{ uri: reviewMov.odometer_photo_url }} style={styles.ticketPhoto} />
+                  <TouchableOpacity activeOpacity={0.9} onPress={() => setPhotoViewerUrl(reviewMov.odometer_photo_url!)}>
+                    <Image source={{ uri: reviewMov.odometer_photo_url }} style={styles.ticketPhoto} />
+                    <View style={{ position: 'absolute', bottom: 8, right: 8, backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4 }}>
+                      <Text style={{ color: '#fff', fontSize: 12 }}>🔍 Toca para ampliar</Text>
+                    </View>
+                  </TouchableOpacity>
                 </>
               ) : null}
 
@@ -1128,6 +1139,22 @@ export default function PettyCashAdminScreen({ navigation, route }: any) {
             </TouchableOpacity>
           </ScrollView>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Visor de foto a pantalla completa */}
+      <Modal visible={!!photoViewerUrl} transparent animationType="fade" onRequestClose={() => setPhotoViewerUrl(null)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.95)', justifyContent: 'center', alignItems: 'center' }}>
+          <TouchableOpacity style={{ position: 'absolute', top: 50, right: 20, zIndex: 10, padding: 10 }} onPress={() => setPhotoViewerUrl(null)}>
+            <MaterialIcons name="close" size={32} color="#fff" />
+          </TouchableOpacity>
+          {photoViewerUrl && (
+            <Image
+              source={{ uri: photoViewerUrl }}
+              style={{ width: '100%', height: '85%' }}
+              resizeMode="contain"
+            />
+          )}
+        </View>
       </Modal>
     </SafeAreaView>
   );
