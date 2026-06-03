@@ -671,26 +671,98 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         const street = `${a.street || ''} ${a.exterior || ''}${a.interior ? ` Int. ${a.interior}` : ''}`.trim();
         const cityLine = `${a.city || ''}${a.state ? ', ' + a.state : ''}`.trim();
         const colZip = `${a.neighborhood ? 'Col. ' + a.neighborhood + ' · ' : ''}C.P. ${a.zip || '—'}`;
-        const tn = shipment.master.tracking;
-        // Versión "compacta" sin guiones/comillas para barcode y QR — evita que el lector
-        // convierta '-' en otros caracteres por layout de teclado.
-        const tnCompact = String(tn || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
-        const trackingQr = `https://app.entregax.com/track/${tnCompact}`;
+        const masterTn = shipment.master.tracking;
+        const masterTnCompact = String(masterTn || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
         const today = new Date().toLocaleDateString('es-MX');
-        const svc = getServiceInfo(tn);
+        const svc = getServiceInfo(masterTn);
+        const totalBoxes = shipment.master.totalBoxes || 1;
+
+        // Generar una página por caja
+        const boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }> = [];
+        if (totalBoxes > 1 && shipment.children && shipment.children.length > 0) {
+            const sorted = [...shipment.children].sort((a, b) => (a.boxNumber || 0) - (b.boxNumber || 0));
+            sorted.forEach(c => boxes.push({
+                boxNum: c.boxNumber,
+                tn: c.tracking || masterTn,
+                tnCompact: String(c.tracking || masterTn).replace(/[^A-Za-z0-9]/g, '').toUpperCase(),
+                weight: c.weight || null,
+            }));
+        } else {
+            boxes.push({ boxNum: 1, tn: masterTn, tnCompact: masterTnCompact, weight: shipment.master.weight });
+        }
+
+        // Renderizar todas las cajas como páginas separadas
+        const labelsHtml = boxes.map((box, idx) => {
+            const trackingQr = `https://app.entregax.com/track/${masterTnCompact}`;
+            const isLast = idx === boxes.length - 1;
+            return `
+  <div class="label-page${isLast ? '' : ' page-break'}">
+    <div class="brand">
+      <div class="logo">Entrega<span>X</span></div>
+      <div class="brand-right">
+        <div class="badge">📍 ENTREGA LOCAL</div>
+        ${totalBoxes > 1 ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="tracking-row">
+      <div class="tn">${box.tnCompact}</div>
+      <div class="date">${today}</div>
+    </div>
+
+    <div class="barcode-box"><svg id="barcode_${idx}"></svg></div>
+
+    <div class="dest">
+      <div class="lbl">ENTREGAR A</div>
+      <div class="name">${recipient}</div>
+      <div class="line">${street || '—'}</div>
+      <div class="line">${colZip}</div>
+      <div class="city">${cityLine}</div>
+      ${a.phone ? `<div class="phone">📞 ${a.phone}</div>` : ''}
+      ${a.reference ? `<div class="ref-box">Ref: ${a.reference}</div>` : ''}
+    </div>
+
+    <div class="dest-code">
+      <div class="lbl">DESTINO</div>
+      <div class="code">${shipment.master.destinationCode || '—'}</div>
+    </div>
+
+    <div class="pkg-info">
+      <div class="cell"><div class="lbl">CLIENTE</div><div class="val">${shipment.client.boxId}</div></div>
+      <div class="cell"><div class="lbl">PESO</div><div class="val">${box.weight ? Number(box.weight).toFixed(1) + ' kg' : '—'}</div></div>
+      <div class="cell"><div class="lbl">CAJA</div><div class="val">${totalBoxes > 1 ? `${box.boxNum}/${totalBoxes}` : '1/1'}</div></div>
+    </div>
+
+    <div class="footer">
+      <div class="qr-box">
+        <div id="qrcode_${idx}"></div>
+        <div class="qr-label">Tracking</div>
+      </div>
+      <div class="service-box">
+        <div class="lbl">SERVICIO</div>
+        <div class="val">${svc.emoji} ${svc.label.toUpperCase()}</div>
+        <div class="sub">${shipment.master.statusLabel || ''}</div>
+      </div>
+    </div>
+  </div>`;
+        }).join('\n');
 
         const html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"/><title>Entrega Local ${tn}</title>
+<html><head><meta charset="utf-8"/><title>Entrega Local ${masterTn}</title>
 <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
 <style>
   @page { size: 4in 6in; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: Arial, sans-serif; font-size: 11px; padding: 0.18in; width: 4in; height: 6in; display: flex; flex-direction: column; }
+  body { font-family: Arial, sans-serif; font-size: 11px; }
+  .label-page { padding: 0.18in; width: 4in; height: 6in; display: flex; flex-direction: column; }
+  .page-break { page-break-after: always; }
   .brand { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #F05A28; padding-bottom: 6px; margin-bottom: 6px; }
   .brand .logo { font-size: 22px; font-weight: 900; color: #F05A28; letter-spacing: 1px; font-family: 'Arial Black', sans-serif; }
   .brand .logo span { color: #111; }
-  .brand .badge { background: #F05A28; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
+  .brand-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .badge { background: #F05A28; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
+  .box-badge { background: #111; color: #fff; padding: 3px 8px; font-size: 12px; font-weight: 900; border-radius: 4px; letter-spacing: 1px; }
   .tracking-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0; }
   .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 16px; font-weight: 900; }
   .tracking-row .date { font-size: 10px; color: #555; }
@@ -714,69 +786,20 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
   .footer .qr-box { text-align: center; }
   .footer .qr-box img { width: 90px !important; height: 90px !important; }
   .footer .qr-box .qr-label { font-size: 8px; color: #666; }
-  .footer .signature { flex: 1; padding-left: 8px; }
   .footer .service-box { flex: 1; padding-left: 10px; text-align: center; }
   .footer .service-box .lbl { font-size: 9px; color: #666; font-weight: 800; letter-spacing: 1px; margin-bottom: 4px; }
   .footer .service-box .val { font-family: 'Arial Black', sans-serif; font-size: 22px; font-weight: 900; color: #F05A28; letter-spacing: 2px; line-height: 1.1; }
   .footer .service-box .sub { font-size: 9px; color: #444; margin-top: 2px; }
-  .footer .signature .line { border-bottom: 1px solid #000; height: 30px; }
-  .footer .signature .lbl { font-size: 8px; color: #666; margin-top: 2px; text-align: center; }
 </style></head><body>
-  <div class="brand">
-    <div class="logo">Entrega<span>X</span></div>
-    <div class="badge">📍 ENTREGA LOCAL</div>
-  </div>
-
-  <div class="tracking-row">
-    <div class="tn">${tnCompact}</div>
-    <div class="date">${today}</div>
-  </div>
-
-  <div class="barcode-box"><svg id="barcode"></svg></div>
-
-  <div class="dest">
-    <div class="lbl">ENTREGAR A</div>
-    <div class="name">${recipient}</div>
-    <div class="line">${street || '—'}</div>
-    <div class="line">${colZip}</div>
-    <div class="city">${cityLine}</div>
-    ${a.phone ? `<div class="phone">📞 ${a.phone}</div>` : ''}
-    ${a.reference ? `<div class="ref-box">Ref: ${a.reference}</div>` : ''}
-  </div>
-
-  <div class="dest-code">
-    <div class="lbl">DESTINO</div>
-    <div class="code">${shipment.master.destinationCode || '—'}</div>
-  </div>
-
-  <div class="pkg-info">
-    <div class="cell"><div class="lbl">CLIENTE</div><div class="val">${shipment.client.boxId}</div></div>
-    <div class="cell"><div class="lbl">PESO</div><div class="val">${shipment.master.weight ? Number(shipment.master.weight).toFixed(1) + ' kg' : '—'}</div></div>
-    <div class="cell"><div class="lbl">CAJAS</div><div class="val">${shipment.master.totalBoxes || 1}</div></div>
-  </div>
-
-  <div class="footer">
-    <div class="qr-box">
-      <div id="qrcode"></div>
-      <div class="qr-label">Tracking</div>
-    </div>
-    <div class="service-box">
-      <div class="lbl">SERVICIO</div>
-      <div class="val">${svc.emoji} ${svc.label.toUpperCase()}</div>
-      <div class="sub">${shipment.master.statusLabel || ''}</div>
-    </div>
-  </div>
-
+${labelsHtml}
 <script>
+  var boxes = ${JSON.stringify(boxes.map(b => ({ idx: boxes.indexOf(b), tnCompact: b.tnCompact, qr: `https://app.entregax.com/track/${masterTnCompact}` })))};
   window.addEventListener('load', function() {
-    try {
-      JsBarcode('#barcode', ${JSON.stringify(tnCompact)}, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 });
-    } catch(e) {}
-    try {
-      var qr = qrcode(0, 'M'); qr.addData(${JSON.stringify(trackingQr)}); qr.make();
-      document.getElementById('qrcode').innerHTML = qr.createImgTag(3);
-    } catch(e) {}
-    setTimeout(function() { window.print(); }, 400);
+    boxes.forEach(function(b) {
+      try { JsBarcode('#barcode_' + b.idx, b.tnCompact, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}
+      try { var qr = qrcode(0, 'M'); qr.addData(b.qr); qr.make(); document.getElementById('qrcode_' + b.idx).innerHTML = qr.createImgTag(3); } catch(e) {}
+    });
+    setTimeout(function() { window.print(); }, 500);
   });
 </script>
 </body></html>`;
