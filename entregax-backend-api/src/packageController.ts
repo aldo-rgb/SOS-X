@@ -5025,19 +5025,10 @@ try {
   console.warn('⚠️ No se pudo crear directorio de uploads delivery:', e);
 }
 
-const deliveryStorage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, deliveryUploadsDir);
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, `delivery-${uniqueSuffix}${path.extname(file.originalname)}`);
-  }
-});
-
+// Usar memoryStorage para subir a S3 (persistente entre redeploys)
 const deliveryUpload = multer({
-  storage: deliveryStorage,
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     const allowedTypes = /jpeg|jpg|png|gif|webp|pdf/;
     const extOk = allowedTypes.test(path.extname(file.originalname).toLowerCase());
@@ -5051,9 +5042,37 @@ const deliveryUpload = multer({
 ]);
 
 export const uploadDeliveryDocs = (req: Request, res: Response, next: Function) => {
-  deliveryUpload(req, res, (err: any) => {
+  deliveryUpload(req, res, async (err: any) => {
     if (err) {
       console.warn('⚠️ Error multer delivery (continuando sin archivos):', err.message || err);
+      return next();
+    }
+    // Subir cada archivo a S3 y guardar la URL en file.location
+    const files = req.files as Record<string, Express.Multer.File[]> | undefined;
+    if (files) {
+      const { uploadToS3 } = await import('./s3Service');
+      const baseUrl = process.env.BASE_URL || 'https://api.entregax.app';
+      for (const [_field, fileArr] of Object.entries(files)) {
+        for (const file of fileArr as any[]) {
+          try {
+            const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+            const filename = `delivery-${uniqueSuffix}${path.extname(file.originalname)}`;
+            const s3Key = `uploads/delivery/${filename}`;
+            const s3Url = await uploadToS3(file.buffer, s3Key, file.mimetype);
+            file.location = s3Url;   // URL S3 permanente
+            file.filename = filename; // conservar por compatibilidad
+          } catch (s3Err: any) {
+            // Fallback: guardar en disco si S3 falla
+            console.warn('⚠️ S3 upload falló, usando disco como fallback:', s3Err?.message);
+            const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
+            const filename = `delivery-${uniqueSuffix}${path.extname(file.originalname)}`;
+            const filePath = path.join(deliveryUploadsDir, filename);
+            fs.writeFileSync(filePath, file.buffer);
+            file.location = `${baseUrl}/uploads/delivery/${filename}`;
+            file.filename = filename;
+          }
+        }
+      }
     }
     next();
   });
@@ -5099,12 +5118,13 @@ export const bulkAssignDelivery = async (req: Request, res: Response): Promise<a
     const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
     const baseUrl = `${req.protocol}://${req.get('host')}`;
 
-    // Build document URLs
-    const facturaUrl = files?.factura?.[0] ? `${baseUrl}/uploads/delivery/${files.factura[0].filename}` : null;
-    const constanciaUrl = files?.constancia?.[0] ? `${baseUrl}/uploads/delivery/${files.constancia[0].filename}` : null;
+    // Build document URLs — usar S3 URL (file.location) si disponible, sino construir desde filename
+    const fileUrl = (f: any) => (f as any).location || `${baseUrl}/uploads/delivery/${f.filename}`;
+    const facturaUrl = files?.factura?.[0] ? fileUrl(files.factura[0]) : null;
+    const constanciaUrl = files?.constancia?.[0] ? fileUrl(files.constancia[0]) : null;
     // Puede haber hasta 15 guías externas
     const guiasExternas: { url: string; name: string }[] = (files?.guiaExterna || []).map(f => ({
-      url: `${baseUrl}/uploads/delivery/${f.filename}`,
+      url: fileUrl(f),
       name: f.originalname || 'guia',
     }));
     const guiaExternaUrl = guiasExternas[0]?.url || null;

@@ -1704,18 +1704,17 @@ export const assignAdvisorShipmentInstructions = async (req: Request, res: Respo
         [addressId, carrierKey || null, isCollectBool, isCollectBool ? (carrierKey || null) : null, wantsFacturaBool, shipmentId, advisorId]
       );
       try {
+        const fileUrl = (f: any) => (f as any).location || `${baseUrl}/uploads/delivery/${f.filename}`;
         if (files?.factura?.[0]) {
-          const facturaUrl = `${baseUrl}/uploads/delivery/${files.factura[0].filename}`;
           await pool.query(
             `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'factura_embarque', $3, $4)`,
-            [shipmentId, advisorId, facturaUrl, files.factura[0].originalname]
+            [shipmentId, advisorId, fileUrl(files.factura[0]), files.factura[0].originalname]
           );
         }
         if (files?.guiaExterna?.[0]) {
-          const guiaUrl = `${baseUrl}/uploads/delivery/${files.guiaExterna[0].filename}`;
           await pool.query(
             `INSERT INTO package_documents (package_id, uploaded_by, doc_type, file_url, original_filename) VALUES ($1, $2, 'guia_externa', $3, $4)`,
-            [shipmentId, advisorId, guiaUrl, files.guiaExterna[0].originalname]
+            [shipmentId, advisorId, fileUrl(files.guiaExterna[0]), files.guiaExterna[0].originalname]
           );
         }
       } catch (docErr) {
