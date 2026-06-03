@@ -1576,8 +1576,10 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         const docsPackageId = pkg.master_id || pkg.id;
         const docsResult = await pool.query(
             `SELECT document_type, file_url, original_filename, created_at
-             FROM delivery_documents
-             WHERE package_id = $1
+             FROM delivery_documents WHERE package_id = $1
+             UNION ALL
+             SELECT doc_type AS document_type, file_url, original_filename, created_at
+             FROM package_documents WHERE package_id = $1
              ORDER BY created_at DESC`,
             [docsPackageId]
         );
