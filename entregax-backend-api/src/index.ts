@@ -5588,7 +5588,7 @@ app.get('/api/support/tickets', authenticateToken, getMyTickets);
 
 // Cliente: Ver mensajes de un ticket
 app.get('/api/support/ticket/:id/messages', authenticateToken, getTicketMessages);
-app.get('/api/admin/support/ticket/:id/messages', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminTicketMessages);
+app.get('/api/admin/support/ticket/:id/messages', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), getAdminTicketMessages);
 
 // Cliente: Responder a su ticket
 app.post('/api/support/ticket/:id/message', authenticateToken, uploadSupportImages, clientReplyTicket);
@@ -5597,13 +5597,13 @@ app.post('/api/support/ticket/:id/message', authenticateToken, uploadSupportImag
 app.post('/api/support/quote-formal-request', authenticateToken, uploadFormalQuoteFiles, createFormalQuoteRequest);
 
 // Admin: Ver todos los tickets (tablero Kanban)
-app.get('/api/admin/support/tickets', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAdminTickets);
+app.get('/api/admin/support/tickets', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), getAdminTickets);
 
 // Admin: Estadísticas de soporte
-app.get('/api/admin/support/stats', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSupportStats);
+app.get('/api/admin/support/stats', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), getSupportStats);
 
 // Admin: Responder como agente (con adjuntos opcionales)
-app.post('/api/admin/support/ticket/:id/reply', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), uploadAdminReplyFiles, adminReplyTicket);
+app.post('/api/admin/support/ticket/:id/reply', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), uploadAdminReplyFiles, adminReplyTicket);
 
 // Admin: Mejorar mensaje con IA
 app.post('/api/support/ai-enhance', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), aiEnhanceMessage);
@@ -5612,33 +5612,33 @@ app.post('/api/support/ai-enhance', authenticateToken, requireMinLevel(ROLES.COU
 app.post('/api/support/ai-translate', authenticateToken, aiTranslateMessage);
 
 // Admin: Resolver ticket
-app.put('/api/admin/support/ticket/:id/resolve', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resolveTicket);
+app.put('/api/admin/support/ticket/:id/resolve', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), resolveTicket);
 
 // Admin: Reactivar ticket resuelto
-app.put('/api/admin/support/ticket/:id/reactivate', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), reactivateTicket);
+app.put('/api/admin/support/ticket/:id/reactivate', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), reactivateTicket);
 
 // Admin: Asignar ticket a agente
-app.put('/api/admin/support/ticket/:id/assign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), assignTicket);
-app.patch('/api/admin/support/ticket/:id/archive', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), archiveTicket);
+app.put('/api/admin/support/ticket/:id/assign', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), assignTicket);
+app.patch('/api/admin/support/ticket/:id/archive', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), archiveTicket);
 
 // Departamentos: listar (autenticado, cualquier rol)
 app.get('/api/support/departments', authenticateToken, getDepartments);
 
 // Signed URL para imágenes privadas de soporte en S3
-app.get('/api/admin/support/image-sign', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), signSupportImage);
+app.get('/api/admin/support/image-sign', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), signSupportImage);
 
 // Admin: agentes disponibles para asignar
-app.get('/api/admin/support/agents', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getSupportAgents);
+app.get('/api/admin/support/agents', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), getSupportAgents);
 
 // Admin: transferir ticket a departamento/agente
-app.post('/api/admin/support/ticket/:id/transfer', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), transferTicket);
+app.post('/api/admin/support/ticket/:id/transfer', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), transferTicket);
 
 // 🆘 Público: Reclamación de número de cliente (sin auth)
 app.post('/api/support/public/claim-box-id', uploadBoxIdClaimFiles, submitBoxIdClaim);
 
 // Admin: Listar / resolver reclamaciones de box_id
-app.get('/api/admin/support/box-id-claims', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getBoxIdClaims);
-app.put('/api/admin/support/box-id-claims/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), resolveBoxIdClaim);
+app.get('/api/admin/support/box-id-claims', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), getBoxIdClaims);
+app.put('/api/admin/support/box-id-claims/:id', authenticateToken, requireMinLevel(ROLES.ACCOUNTANT), resolveBoxIdClaim);
 
 // ========== NOTIFICACIONES ==========
 
