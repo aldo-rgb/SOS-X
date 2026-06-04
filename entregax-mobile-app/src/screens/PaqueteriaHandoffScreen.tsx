@@ -129,6 +129,31 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     setTimeout(() => inputRef.current?.focus(), 200);
   };
 
+  // Buscar en lista local por código truncado o compacto
+  // Evita ir al backend cuando el scanner corta el código
+  const findLocalMatch = (code: string): HandoffPackage | null => {
+    const normalUpper = code.toUpperCase();
+    // 1. Match exacto
+    let m = filteredInitial.find(p =>
+      p.tracking_number.replace(/-/g, '').toUpperCase() === normalUpper ||
+      p.tracking_number.toUpperCase() === normalUpper
+    );
+    if (m) return m;
+    // 2. El código escaneado es prefijo del tracking (truncado al final)
+    m = filteredInitial.find(p => {
+      const t = p.tracking_number.toUpperCase();
+      const tCompact = t.replace(/-/g, '');
+      return tCompact.startsWith(normalUpper) || t.startsWith(normalUpper);
+    });
+    if (m) return m;
+    // 3. El tracking es prefijo del código escaneado (código tiene extra)
+    m = filteredInitial.find(p => {
+      const t = p.tracking_number.replace(/-/g, '').toUpperCase();
+      return normalUpper.startsWith(t) || normalUpper.startsWith(p.tracking_number.toUpperCase().replace(/-/g,''));
+    });
+    return m || null;
+  };
+
   const processCode = useCallback(async (rawCode: string) => {
     const code = normalizeBarcode(rawCode);
     if (!code.trim() || loading) return;
@@ -137,8 +162,12 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     setManualCode('');
     try {
       if (scanPhase === 'internal' || mode === 'cargar_unidad') {
+        // Intentar match local primero para evitar error con scanner truncado
+        const localMatch = findLocalMatch(code.replace(/-/g, ''));
+        const effectiveBarcode = localMatch ? localMatch.tracking_number : code.trim();
+
         const res = await api.post('/api/driver/paqueteria-handoff/scan', {
-          barcode: code.trim(),
+          barcode: effectiveBarcode,
           carrier,
           mode,
           phase: 'internal',
