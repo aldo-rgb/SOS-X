@@ -19,6 +19,34 @@ import { MaterialIcons } from '@expo/vector-icons';
 
 import api from '../services/api';
 
+// Normaliza códigos escaneados con layout de teclado ES (scanner HID)
+// Ñ→:  '→-  ¿→/  ¡→!  y extrae tracking de URL si es QR
+const normalizeBarcode = (raw: string): string => {
+  let v = raw.trim()
+    .replace(/Ñ/g, ':')
+    .replace(/ñ/g, ':')
+    .replace(/'/g, '-')
+    .replace(/¿/g, '/')
+    .replace(/¡/g, '!');
+
+  // Reparar URLs rotas por layout (httpsÑ--... → https://...)
+  if (/^https?:-+/i.test(v)) {
+    v = v.replace(/^(https?):-+/i, '$1://');
+    v = v.replace(/([a-z]{2,}\.[a-z]{2,})-/gi, '$1/');
+    v = v.replace(/track-/gi, 'track/');
+  }
+
+  // Extraer tracking de URL .../track/CODIGO o .../t/CODIGO
+  const urlMatch = v.match(/(?:track|t)[/-]([A-Z0-9'_-]+)/i);
+  if (urlMatch) v = urlMatch[1].replace(/'/g, '-');
+
+  // Auto-insertar guion si viene pegado (US2722344044 → US-2722344044)
+  const prefixMatch = v.toUpperCase().match(/^(US|AIR|LOG|TRK)(\d+)$/);
+  if (prefixMatch) return `${prefixMatch[1]}-${prefixMatch[2]}`;
+
+  return v.toUpperCase().trim();
+};
+
 type Mode = 'mostrador' | 'recoleccion' | 'cargar_unidad';
 type ScanPhase = 'internal' | 'external';
 
@@ -87,7 +115,8 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     setTimeout(() => inputRef.current?.focus(), 200);
   };
 
-  const processCode = useCallback(async (code: string) => {
+  const processCode = useCallback(async (rawCode: string) => {
+    const code = normalizeBarcode(rawCode);
     if (!code.trim() || loading) return;
     setLoading(true);
     Keyboard.dismiss();

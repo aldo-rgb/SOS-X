@@ -793,7 +793,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
 </style></head><body>
 ${labelsHtml}
 <script>
-  var boxes = ${JSON.stringify(boxes.map(b => ({ idx: boxes.indexOf(b), tnCompact: b.tnCompact, qr: `https://app.entregax.com/track/${masterTnCompact}` })))};
+  var boxes = ${JSON.stringify(boxes.map(b => ({ idx: boxes.indexOf(b), tnCompact: b.tnCompact, qr: b.tnCompact })))};
   window.addEventListener('load', function() {
     boxes.forEach(function(b) {
       try { JsBarcode('#barcode_' + b.idx, b.tnCompact, { format: 'CODE128', width: 2, height: 50, displayValue: false, margin: 0 }); } catch(e) {}
@@ -848,7 +848,9 @@ ${labelsHtml}
         const weightStr = label.weight ? `${Number(label.weight).toFixed(2)} kg` : '—';
         const dimsStr = label.dimensions || '—';
         const recvDate = label.receivedAt ? new Date(label.receivedAt).toLocaleDateString() : '';
-        const trackingQr = `https://app.entregax.com/track/${label.tracking}`;
+        // QR contiene solo el número de tracking (sin URL) para que
+        // pistolas con layout ES no distorsionen el código.
+        const trackingQr = String(label.tracking || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
         const safeId = `bc_${label.boxNumber}_${Math.random().toString(36).slice(2, 8)}`;
         const qrId = `qr_${label.boxNumber}_${Math.random().toString(36).slice(2, 8)}`;
 
