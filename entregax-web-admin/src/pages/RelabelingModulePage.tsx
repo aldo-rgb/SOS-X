@@ -694,7 +694,6 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
 
         // Renderizar todas las cajas como páginas separadas
         const labelsHtml = boxes.map((box, idx) => {
-            const trackingQr = `https://app.entregax.com/track/${masterTnCompact}`;
             const isLast = idx === boxes.length - 1;
             return `
   <div class="label-page${isLast ? '' : ' page-break'}">
