@@ -684,9 +684,18 @@ export default function LoadingVanScreen({ navigation, route }: any) {
     }, 250);
   };
 
-  const totalPackages = routeData 
-    ? routeData.pendingToLoad + routeData.loadedToday 
-    : 0;
+  // Filtrar pendingPackages según toggle requireLabelToLoad
+  const isLocalCarrierFn = (c?: string | null) => {
+    const s = String(c || '').toLowerCase();
+    return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up');
+  };
+  const requireLabelFlag = routeData?.requireLabelToLoad ?? true;
+  const filteredPending = routeData
+    ? requireLabelFlag
+      ? routeData.pendingPackages.filter(p => p.assigned_address_id && isLocalCarrierFn(p.national_carrier))
+      : routeData.pendingPackages
+    : [];
+  const totalPackages = filteredPending.length + (routeData?.loadedToday || 0);
 
   const normalizePositiveInt = (value: any, fallback: number): number => {
     const parsed = Number(value);
@@ -779,15 +788,15 @@ export default function LoadingVanScreen({ navigation, route }: any) {
     };
   };
     
-  const isLoadComplete = routeData 
-    ? routeData.pendingToLoad === 0 && routeData.loadedToday > 0
+  const isLoadComplete = routeData
+    ? filteredPending.length === 0 && routeData.loadedToday > 0
     : false;
 
   const handleGoToRoute = () => {
-    if (!isLoadComplete && routeData && routeData.pendingToLoad > 0) {
+    if (!isLoadComplete && filteredPending.length > 0) {
       Alert.alert(
         '⚠️ Carga Incompleta',
-        `Aún faltan ${routeData.pendingToLoad} paquetes por cargar. ¿Deseas continuar de todas formas?`,
+        `Aún faltan ${filteredPending.length} paquetes por cargar. ¿Deseas continuar de todas formas?`,
         [
           { text: 'Seguir Escaneando', style: 'cancel' },
           { 
@@ -887,9 +896,9 @@ export default function LoadingVanScreen({ navigation, route }: any) {
           />
         </View>
         
-        {routeData && routeData.pendingToLoad > 0 && (
+        {filteredPending.length > 0 && (
           <Text style={styles.pendingText}>
-            📦 {routeData.pendingToLoad} paquetes pendientes de cargar
+            📦 {filteredPending.length} paquetes pendientes de cargar
           </Text>
         )}
       </View>
@@ -1253,7 +1262,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
             onPress={handleGoToRoute}
           >
             <MaterialIcons name="warning" size={20} color="#F05A28" />
-            <Text style={styles.continueButtonText}>Salir con {routeData?.pendingToLoad} Faltantes</Text>
+            <Text style={styles.continueButtonText}>Salir con {filteredPending.length} Faltantes</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -1276,21 +1285,11 @@ export default function LoadingVanScreen({ navigation, route }: any) {
           {/* Lista agrupada por embarque master (LOG/AIR). DHL/PO Box
               que no tienen master se muestran como grupos de 1. */}
           {(() => {
-            const requireLabel = routeData?.requireLabelToLoad ?? true;
-            const isLocalCarrier = (c?: string | null) => {
-              const s = String(c || '').toLowerCase();
-              return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up');
-            };
-            const allPending = routeData?.pendingPackages || [];
-            // Cuando toggle ON: solo mostrar paquetes con instrucciones locales asignadas
-            const visiblePending = requireLabel
-              ? allPending.filter(p => p.assigned_address_id && isLocalCarrier(p.national_carrier))
-              : allPending;
             const groups = groupPackagesByMaster(
-              visiblePending,
+              filteredPending,
               routeData?.loadedPackages || [],
             );
-            const totalPending = visiblePending.length || 0;
+            const totalPending = filteredPending.length;
             const totalLoaded = routeData?.loadedPackages.length || 0;
             return (
               <>

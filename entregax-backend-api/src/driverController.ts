@@ -779,7 +779,6 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                   AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
                   AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
                   ${paymentWhereClause}
-                  ${labelWhereClause}
                 ORDER BY p.updated_at ASC NULLS LAST, p.created_at ASC
             `, [driverBranchId])
             : await pool.query(`
