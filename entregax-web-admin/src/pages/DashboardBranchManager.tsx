@@ -334,16 +334,22 @@ export default function DashboardBranchManager() {
   const sucursalCodigo = (stats?.sucursal?.codigo || '').toUpperCase();
   const isCedis = sucursalCodigo === 'MTY' || sucursalCodigo === 'CDMX' || sucursalCodigo.includes('CEDIS');
   const isHidalgo = sucursalCodigo.includes('HID') || (stats?.sucursal?.nombre || '').toUpperCase().includes('HIDALGO');
-  
-  // Para Hidalgo: no mostrar widgets de aéreo/marítimo en operaciones, pero mostrar en alertas
-  const showAirWidgetOps = !isHidalgo && (hasService('AIR_CHN_MX') || isCedis);
-  const showSeaWidgetOps = !isHidalgo && (hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX') || isCedis);
-  
-  const showAirWidget = hasService('AIR_CHN_MX') || isCedis;
-  const showSeaWidget = hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX') || isCedis;
+  // MTY tiene un layout dedicado: sólo PoBox + Transfer CDMX en operaciones
+  // y sólo Retraso PoBox en alertas. Ocultamos el resto.
+  const isMty = sucursalCodigo === 'MTY' || (stats?.sucursal?.nombre || '').toUpperCase().includes('MONTERREY');
+
+  // Para Hidalgo y MTY: no mostrar widgets de aéreo/marítimo en operaciones
+  const showAirWidgetOps = !isHidalgo && !isMty && (hasService('AIR_CHN_MX') || isCedis);
+  const showSeaWidgetOps = !isHidalgo && !isMty && (hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX') || isCedis);
+
+  // En alertas: para MTY sólo PoBox; resto de sucursales según servicios
+  const showAirWidget = !isMty && (hasService('AIR_CHN_MX') || isCedis);
+  const showSeaWidget = !isMty && (hasService('SEA_CHN_MX') || hasService('FCL_CHN_MX') || isCedis);
   // POBox sólo aplica a sucursales con servicio POBOX_USA (ej. CEDIS MTY).
   // CEDIS CDMX NO opera POBox, no debe ver el widget.
-  const showPoboxWidget = hasService('POBOX_USA');
+  const showPoboxWidget = isMty || hasService('POBOX_USA');
+  // Abandono: ocultar en MTY (sólo PoBox en alertas)
+  const showAbandono = !isMty;
 
   const loadData = async () => {
     setLoading(true);
@@ -968,20 +974,22 @@ export default function DashboardBranchManager() {
             )}
 
             {/* Abandonos firmados listos para proceso */}
-            <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
-              <KpiCard
-                icon={<GavelIcon sx={{ fontSize: 22 }} />}
-                label="Abandono"
-                value={abandonoCount}
-                sub={abandonoCount === 0 ? 'sin pendientes' : abandonoCount === 1 ? 'guía lista para proceso' : 'guías listas para proceso'}
-                tone={abandonoCount > 0 ? 'danger' : 'neutral'}
-                category="alert"
-                badge={abandonoCount > 0 ? abandonoCount : undefined}
-                onClick={() => setAbandonoOpen(true)}
-              />
-            </Grid>
+            {showAbandono && (
+              <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+                <KpiCard
+                  icon={<GavelIcon sx={{ fontSize: 22 }} />}
+                  label="Abandono"
+                  value={abandonoCount}
+                  sub={abandonoCount === 0 ? 'sin pendientes' : abandonoCount === 1 ? 'guía lista para proceso' : 'guías listas para proceso'}
+                  tone={abandonoCount > 0 ? 'danger' : 'neutral'}
+                  category="alert"
+                  badge={abandonoCount > 0 ? abandonoCount : undefined}
+                  onClick={() => setAbandonoOpen(true)}
+                />
+              </Grid>
+            )}
 
-            {canSeePartialReceptions && partialReceptions.total > 0 && (
+            {canSeePartialReceptions && !isMty && partialReceptions.total > 0 && (
               <Grid size={{ xs: 12, sm: 6, md: 3, lg: 4 }}>
                 <Paper
                   onClick={() => setPartialOpen(true)}

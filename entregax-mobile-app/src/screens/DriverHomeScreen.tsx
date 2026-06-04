@@ -62,6 +62,7 @@ interface LoadedPackage {
   recipient_name?: string;
   national_tracking?: string;
   national_carrier?: string;
+  client_number?: string;
 }
 
 export default function DriverHomeScreen({ navigation, route }: any) {
@@ -805,7 +806,14 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                     <Text style={{ fontSize: 13, fontWeight: '800', color: '#2196F3' }}>{pkg.tracking_number}</Text>
-                    <Text style={{ fontSize: 11, color: '#999' }}>#{i + 1}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {pkg.client_number ? (
+                        <View style={{ backgroundColor: '#E3F2FD', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                          <Text style={{ fontSize: 11, fontWeight: '700', color: '#1976d2' }}>{pkg.client_number}</Text>
+                        </View>
+                      ) : null}
+                      <Text style={{ fontSize: 11, color: '#999' }}>#{i + 1}</Text>
+                    </View>
                   </View>
                   {pkg.recipient_name ? (
                     <Text style={{ fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 4 }}>{pkg.recipient_name}</Text>

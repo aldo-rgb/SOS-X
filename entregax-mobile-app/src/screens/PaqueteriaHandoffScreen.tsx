@@ -59,6 +59,7 @@ interface HandoffPackage {
   delivery_city?: string;
   recipient_name?: string;
   has_label?: boolean;
+  client_number?: string | null;
 }
 
 interface CompletedPkg {

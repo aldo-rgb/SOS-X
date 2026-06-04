@@ -11576,6 +11576,18 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   // (idempotente — guarda marcador en system_configurations).
   runOneShotResetJesusCampos();
 
+  // Asignar paquetes out_for_delivery sin driver al repartidor repartidor@entregax.com
+  pool.query(`
+    UPDATE packages p
+    SET assigned_driver_id = (SELECT id FROM users WHERE email = 'repartidor@entregax.com' LIMIT 1)
+    WHERE COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') = 'out_for_delivery'
+      AND to_jsonb(p)->>'assigned_driver_id' IS NULL
+      AND p.updated_at >= NOW() - INTERVAL '7 days'
+  `).then(r => {
+    if (r.rowCount && r.rowCount > 0)
+      console.log(`[startup] Asignados ${r.rowCount} paquetes out_for_delivery sin driver a repartidor@entregax.com`);
+  }).catch(() => {});
+
   // Iniciar tareas programadas
   initCronJobs();
 });
