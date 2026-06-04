@@ -20,6 +20,7 @@ import {
 } from 'react-native-paper';
 import { WebView } from 'react-native-webview';
 import { isAllowedUrl } from '../utils/webviewSafety';
+import { buildPaypalErrorDisplay } from '../utils/paypalErrorMessages';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { API_URL } from '../services/api';
@@ -180,7 +181,16 @@ export default function PaymentScreen({ route, navigation }: PaymentScreenProps)
           [{ text: 'OK', onPress: () => navigation.goBack() }]
         );
       } else {
-        Alert.alert('Error', data.error || 'Hubo un problema verificando el pago');
+        const display = buildPaypalErrorDisplay(data);
+        if (display.alreadyPaid) {
+          Alert.alert(
+            '¡Pago Exitoso! 🎉',
+            'Tu paquete será liberado.',
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+        } else {
+          Alert.alert(display.title, display.message);
+        }
       }
     } catch (error) {
       console.error('Error verifying payment:', error);

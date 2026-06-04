@@ -4279,7 +4279,7 @@ app.get('/api/payments/status/:consolidationId', authenticateToken, getPaymentSt
 
 // --- RUTAS DE PAGOS NUEVAS - GATEWAY INTEGRATIONS ---
 app.post('/api/payments/openpay/card', authenticateToken, processOpenPayCard);
-app.post('/api/payments/paypal/create', authenticateToken, createPayPalPayment);
+app.post('/api/payments/paypal/create', authenticateToken, paymentLimiter, createPayPalPayment);
 app.post('/api/payments/branch/reference', authenticateToken, createBranchPayment);
 
 // --- OPENPAY: TARJETAS GUARDADAS (Opción A) ---
@@ -4311,9 +4311,9 @@ app.put('/api/fiscal/data', authenticateToken, updateFiscalData);
 app.get('/api/fiscal/invoices', authenticateToken, getFacturasUsuario);
 
 // --- RUTAS DE PAGOS PO BOX (Múltiples métodos) - MULTISUCURSAL ---
-app.post('/api/pobox/payment/create', authenticateToken, createPoboxPaypalPayment);      // PayPal
-app.post('/api/pobox/payment/capture', authenticateToken, capturePoboxPaypalPayment);    // Captura PayPal
-app.post('/api/pobox/payment/openpay/create', authenticateToken, createPoboxOpenpayPayment);  // OpenPay tarjeta
+app.post('/api/pobox/payment/create', authenticateToken, paymentLimiter, createPoboxPaypalPayment);      // PayPal
+app.post('/api/pobox/payment/capture', authenticateToken, paymentLimiter, capturePoboxPaypalPayment);    // Captura PayPal
+app.post('/api/pobox/payment/openpay/create', authenticateToken, paymentLimiter, createPoboxOpenpayPayment);  // OpenPay tarjeta
 app.post('/api/pobox/payment/cash/create', authenticateToken, createPoboxCashPayment);   // Efectivo/Transferencia
 app.delete('/api/pobox/payment/order/:id', authenticateToken, cancelPoboxPaymentOrder); // Cancelar orden de pago
 app.post('/api/pobox/payment/order/:id/pay-internal', authenticateToken, paymentLimiter, validateBody(payPoboxInternalSchema), payPoboxOrderInternal); // Pago con saldo/crédito

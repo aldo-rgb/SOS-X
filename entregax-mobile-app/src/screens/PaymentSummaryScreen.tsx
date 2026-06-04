@@ -36,6 +36,7 @@ import {
 } from 'react-native-paper';
 import { WebView } from 'react-native-webview';
 import { isAllowedUrl } from '../utils/webviewSafety';
+import { buildPaypalErrorDisplay } from '../utils/paypalErrorMessages';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { API_URL, Package } from '../services/api';
@@ -395,7 +396,14 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
       if (data.success) {
         handlePaymentSuccess(data.transactionId);
       } else {
-        Alert.alert('Error', data.error || 'No se pudo verificar el pago');
+        // Mensaje accionable usando code/errorKey/action que devuelve el backend.
+        const display = buildPaypalErrorDisplay(data);
+        if (display.alreadyPaid) {
+          // ORDER_ALREADY_CAPTURED → tratamos como éxito idempotente.
+          handlePaymentSuccess(data.transactionId);
+          return;
+        }
+        Alert.alert(display.title, display.message);
       }
     } catch (error) {
       console.error('Error capturing payment:', error);

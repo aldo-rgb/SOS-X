@@ -1518,11 +1518,45 @@ export default function DashboardClient() {
       setTimeout(() => { loadData(); }, 1000);
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (paymentError === 'true') {
-      setSnackbar({ 
-        open: true, 
-        message: '❌ Hubo un error al procesar tu pago. Intenta de nuevo o contacta soporte.', 
-        severity: 'error' 
-      });
+      // El backend nos manda code= y action= cuando el cobro falla en PayPal/OpenPay.
+      // Traducimos con la clave i18n específica si la conocemos.
+      const code = (urlParams.get('code') || '').toUpperCase();
+      const action = urlParams.get('action') || 'contact_support';
+      // Mapeo code → clave i18n (mismas que paypalErrors.ts en backend)
+      const CODE_TO_KEY: Record<string, string> = {
+        INSTRUMENT_DECLINED: 'pp.declined',
+        PAYER_ACTION_REQUIRED: 'pp.action_required',
+        PAYER_CANNOT_PAY: 'pp.cannot_pay',
+        COMPLIANCE_VIOLATION: 'pp.compliance',
+        TRANSACTION_REFUSED: 'pp.refused',
+        CARD_TYPE_NOT_SUPPORTED: 'pp.card_type',
+        ORDER_ALREADY_CAPTURED: 'pp.already_paid',
+        ORDER_NOT_APPROVED: 'pp.not_approved',
+        PAYEE_BLOCKED_TRANSACTION: 'pp.payee_blocked',
+        AGREEMENT_ALREADY_CANCELLED: 'pp.agreement_cancel',
+        CURRENCY_NOT_SUPPORTED: 'pp.currency_not_supported',
+        MAX_NUMBER_OF_PAYMENT_ATTEMPTS_EXCEEDED: 'pp.max_attempts',
+        REDIRECT_PAYER_FOR_ALTERNATE_FUNDING: 'pp.alt_funding',
+        INSUFFICIENT_FUNDS: 'pp.insufficient_funds',
+        EXPIRED_CARD: 'pp.expired_card',
+        SUSPECTED_FRAUD: 'pp.suspected_fraud',
+        LOST_OR_STOLEN: 'pp.lost_stolen',
+        INVALID_ACCOUNT: 'pp.invalid_account',
+        INVALID_OR_RESTRICTED_CARD: 'pp.invalid_card',
+        DO_NOT_HONOR: 'pp.do_not_honor',
+        GENERIC_DECLINE: 'pp.generic_decline',
+        CVV2_FAILURE_POSSIBLE_RETRY_WITH_CVV: 'pp.cvv_retry',
+        CARD_CLOSED: 'pp.card_closed',
+        PAYMENT_AUTHORIZATION_EXPIRED: 'pp.auth_expired',
+        PENDING_REVIEW: 'pp.pending_review',
+        PAYER_ACCOUNT_RESTRICTED: 'pp.payer_restricted',
+        PENDING: 'pp.pending',
+        PAYPAL_ERROR: 'pp.unknown',
+      };
+      const key = CODE_TO_KEY[code] || 'pp.unknown';
+      const actionLabel = t(`pp.action.${action}`, { defaultValue: '' });
+      const message = `❌ ${t(key, { defaultValue: t('pp.unknown') })}${actionLabel ? ` — ${actionLabel}` : ''}`;
+      setSnackbar({ open: true, message, severity: 'error' });
       window.history.replaceState({}, document.title, window.location.pathname);
     } else if (paymentStatus && paymentId) {
       handlePaymentCallback(paymentStatus, paymentId, paymentMethod);
@@ -2403,7 +2437,15 @@ export default function DashboardClient() {
         throw new Error(res.data?.error || 'Error creando pago PayPal');
       }
     } catch (e: any) {
-      const msg = e?.response?.data?.message || e?.response?.data?.error || e.message;
+      const data = e?.response?.data;
+      // Si el backend mandó errorKey/action (helper paypalErrors), traducimos.
+      let msg: string;
+      if (data?.errorKey) {
+        const actionLabel = data.action ? t(`pp.action.${data.action}`, { defaultValue: '' }) : '';
+        msg = `${t(data.errorKey, { defaultValue: data.errorKey })}${actionLabel ? ` — ${actionLabel}` : ''}`;
+      } else {
+        msg = data?.message || data?.error || e.message;
+      }
       setSnackbar({ open: true, message: `❌ ${msg}`, severity: 'error' });
       if (creditAppliedInThisAttempt) {
         try { await revertAppliedCredit(); } catch (_e) { /* noop */ }

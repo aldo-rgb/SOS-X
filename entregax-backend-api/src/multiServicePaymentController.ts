@@ -15,6 +15,15 @@ import {
   getAllServices,
   getServiceFromReferenceType 
 } from './services/openpayConfig';
+import {
+  getPaypalCredentials,
+  getPaypalApiUrl,
+  PayPalCredentials,
+} from './services/paypalConfig';
+import {
+  evaluatePaypalCapture,
+  buildPaypalErrorResponse,
+} from './services/paypalErrors';
 import { createInvoice } from './fiscalController';
 import { generateCommissionsForPackages } from './commissionService';
 
@@ -31,46 +40,14 @@ const generatePaymentReference = (prefix: string = 'GW'): string => {
   return `${prefix}-${timestamp}${random}`;
 };
 
-// Obtener credenciales de PayPal desde la BD
-interface PayPalCredentials {
-  clientId: string;
-  secret: string;
-  isSandbox: boolean;
-  empresaName: string;
-}
-
-const getPaypalCredentials = async (): Promise<PayPalCredentials> => {
-  const query = await pool.query(`
-    SELECT id, alias, paypal_client_id, paypal_secret, paypal_sandbox
-    FROM fiscal_emitters
-    WHERE paypal_configured = true
-    AND paypal_client_id IS NOT NULL 
-    AND paypal_client_id != ''
-    LIMIT 1
-  `);
-
-  if (query.rows.length > 0) {
-    const row = query.rows[0];
-    console.log(`🔑 PayPal credentials from DB -> ${row.alias}`);
-    return {
-      clientId: row.paypal_client_id,
-      secret: row.paypal_secret,
-      isSandbox: row.paypal_sandbox !== false,
-      empresaName: row.alias
-    };
-  }
-
-  throw new Error('No hay credenciales de PayPal configuradas en ninguna empresa');
-};
-
-// Obtener Token de PayPal
+// Obtener Token de PayPal (usa el helper multi-empresa)
 const getPayPalToken = async (credentials: PayPalCredentials): Promise<string> => {
-  const apiUrl = credentials.isSandbox ? PAYPAL_SANDBOX_URL : PAYPAL_PROD_URL;
+  const apiUrl = getPaypalApiUrl(credentials);
   const auth = Buffer.from(`${credentials.clientId}:${credentials.secret}`).toString('base64');
-  
+
   const response = await axios.post(
-    `${apiUrl}/v1/oauth2/token`, 
-    'grant_type=client_credentials', 
+    `${apiUrl}/v1/oauth2/token`,
+    'grant_type=client_credentials',
     {
       headers: {
         'Authorization': `Basic ${auth}`,
@@ -78,7 +55,7 @@ const getPayPalToken = async (credentials: PayPalCredentials): Promise<string> =
       }
     }
   );
-  
+
   return response.data.access_token;
 };
 
@@ -918,7 +895,9 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
     // Obtener credenciales de PayPal desde la BD
     let credentials: PayPalCredentials;
     try {
-      credentials = await getPaypalCredentials();
+      // Resolver empresa por servicio de los paquetes (multi-empresa)
+      const svcType = await getServiceTypeFromPackages(packageIds);
+      credentials = await getPaypalCredentials(svcType);
     } catch (credError: any) {
       console.error('❌ Error obteniendo credenciales PayPal:', credError.message);
       const paymentId = `paypal_pending_${Date.now()}`;
@@ -950,7 +929,7 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
 
     // Obtener token de PayPal
     const token = await getPayPalToken(credentials);
-    const paypalApiUrl = credentials.isSandbox ? PAYPAL_SANDBOX_URL : PAYPAL_PROD_URL;
+    const paypalApiUrl = getPaypalApiUrl(credentials);
 
     const callbackBaseUrl = process.env.API_URL || 'https://api.entregax.app';
 
@@ -1676,39 +1655,67 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
       return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/payment/error`));
     }
 
-    // Capturar el pago en PayPal
+    // Idempotencia: si ya marcamos paquetes con esta orden, redirigir éxito.
+    try {
+      const existing = await pool.query(
+        `SELECT 1 FROM packages
+          WHERE payment_reference = $1 AND payment_status = 'paid'
+          LIMIT 1`,
+        [paymentRef || paypalOrderId]
+      );
+      if (existing.rows.length) {
+        console.log(`ℹ️ PayPal callback ${paypalOrderId} ya procesado, idempotente.`);
+        return res.redirect(normalizeRedirect(successRedirect, fallbackSuccess));
+      }
+    } catch { /* noop */ }
+
+    // Capturar el pago en PayPal — usa empresa asignada al servicio de los paquetes
     let credentials: PayPalCredentials;
     try {
-      credentials = await getPaypalCredentials();
+      const pkgIdsForCreds = (packageIds as string || '').split(',').map(Number).filter(n => !isNaN(n));
+      const svcType = pkgIdsForCreds.length ? await getServiceTypeFromPackages(pkgIdsForCreds) : undefined;
+      credentials = await getPaypalCredentials(svcType);
     } catch (credError: any) {
       console.error('❌ Error obteniendo credenciales PayPal para captura:', credError.message);
       return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/payment/error`));
     }
 
     const paypalToken = await getPayPalToken(credentials);
-    const paypalApiUrl = credentials.isSandbox ? PAYPAL_SANDBOX_URL : PAYPAL_PROD_URL;
+    const paypalApiUrl = getPaypalApiUrl(credentials);
 
-    const capture = await axios.post(
-      `${paypalApiUrl}/v2/checkout/orders/${paypalOrderId}/capture`,
-      {},
-      {
-        headers: { 
-          'Authorization': `Bearer ${paypalToken}`,
-          'Content-Type': 'application/json'
+    let capture: any;
+    try {
+      capture = await axios.post(
+        `${paypalApiUrl}/v2/checkout/orders/${paypalOrderId}/capture`,
+        {},
+        {
+          headers: {
+            'Authorization': `Bearer ${paypalToken}`,
+            'Content-Type': 'application/json'
+          }
         }
+      );
+    } catch (httpErr: any) {
+      const check = evaluatePaypalCapture(undefined, httpErr);
+      console.error(`❌ PayPal capture HTTP error [${check.rawCode}]: ${check.rawDescription || httpErr.message}`);
+      if (check.mapped?.action === 'already_paid') {
+        return res.redirect(normalizeRedirect(successRedirect, fallbackSuccess));
       }
-    );
+      const reasonParam = encodeURIComponent(String(check.rawCode || 'PAYPAL_ERROR'));
+      return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/?paymentError=true&code=${reasonParam}&action=${check.mapped?.action || 'contact_support'}`));
+    }
 
-    console.log(`💰 PayPal captura: ${capture.data.status}`);
+    const check = evaluatePaypalCapture(capture.data);
+    console.log(`💰 PayPal captura: ${check.orderStatus}/${check.captureStatus || 'n/a'}`);
 
-    if (capture.data.status === 'COMPLETED') {
+    if (check.ok) {
       const captureDetails = capture.data.purchase_units[0]?.payments?.captures[0];
       const pkgIds = packageIds ? (packageIds as string).split(',').map(Number).filter(n => !isNaN(n)) : [];
       const parsedAmount = parseFloat(amount as string) || parseFloat(captureDetails?.amount?.value || '0');
       const parsedUserId = parseInt(userId as string) || 0;
 
       if (pkgIds.length > 0 && parsedUserId > 0) {
-        // Marcar paquetes como pagados
+        // Marcar paquetes como pagados (idempotente: solo afecta paquetes que aún no estaban paid)
         await pool.query(`
           UPDATE packages SET 
             payment_status = 'paid',
@@ -1719,6 +1726,7 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
             costing_paid_at = CURRENT_TIMESTAMP,
             payment_reference = $2
           WHERE id = ANY($3) AND user_id = $4
+            AND COALESCE(payment_status, '') <> 'paid'
         `, [parsedAmount, paymentRef || paypalOrderId, pkgIds, parsedUserId]);
 
         // Registrar en logs de cobranza
@@ -1860,8 +1868,15 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
 
       return res.redirect(normalizeRedirect(successRedirect, fallbackSuccess));
     } else {
-      console.error('❌ PayPal captura no completada:', capture.data.status);
-      return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/?paymentError=true&status=${capture.data.status}`));
+      const reasonParam = encodeURIComponent(String(check.rawCode || check.orderStatus || 'PAYPAL_ERROR'));
+      const actionParam = encodeURIComponent(String(check.mapped?.action || 'contact_support'));
+      console.error(`❌ PayPal captura no completada [${reasonParam}]`);
+      return res.redirect(
+        normalizeRedirect(
+          cancelRedirect,
+          `${frontendUrl}/?paymentError=true&code=${reasonParam}&action=${actionParam}`
+        )
+      );
     }
 
   } catch (error: any) {

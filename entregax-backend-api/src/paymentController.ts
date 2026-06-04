@@ -1,23 +1,31 @@
 import { Request, Response } from 'express';
 import { pool } from './db';
 import axios from 'axios';
+import {
+  getPaypalCredentials,
+  getPaypalApiUrl,
+  PayPalCredentials,
+} from './services/paypalConfig';
+import {
+  evaluatePaypalCapture,
+  buildPaypalErrorResponse,
+} from './services/paypalErrors';
 
 // ============ CONFIGURACIÓN DE PAYPAL ============
-// En producción, usar variables de entorno (.env)
-const PAYPAL_CLIENT = process.env.PAYPAL_CLIENT_ID || 'TU_CLIENT_ID_DE_SANDBOX';
-const PAYPAL_SECRET = process.env.PAYPAL_SECRET || 'TU_SECRET_KEY_DE_SANDBOX';
-const PAYPAL_API = process.env.PAYPAL_API_URL || 'https://api-m.sandbox.paypal.com'; // Sandbox para pruebas
+// Las credenciales viven en fiscal_emitters (multi-empresa). Solo usamos
+// COST_PER_KG desde env para consolidaciones aéreas legacy.
 
 // Tarifa por Kilo (configurable)
 const COST_PER_KG = parseFloat(process.env.COST_PER_KG || '15.00');
 
 // ============ FUNCIÓN AUXILIAR: Obtener Token de PayPal ============
-const getPayPalToken = async (): Promise<string> => {
-    const auth = Buffer.from(`${PAYPAL_CLIENT}:${PAYPAL_SECRET}`).toString('base64');
-    
+const getPayPalToken = async (credentials: PayPalCredentials): Promise<string> => {
+    const apiUrl = getPaypalApiUrl(credentials);
+    const auth = Buffer.from(`${credentials.clientId}:${credentials.secret}`).toString('base64');
+
     const response = await axios.post(
-        `${PAYPAL_API}/v1/oauth2/token`, 
-        'grant_type=client_credentials', 
+        `${apiUrl}/v1/oauth2/token`,
+        'grant_type=client_credentials',
         {
             headers: {
                 'Authorization': `Basic ${auth}`,
@@ -25,7 +33,7 @@ const getPayPalToken = async (): Promise<string> => {
             }
         }
     );
-    
+
     return response.data.access_token;
 };
 
@@ -74,8 +82,17 @@ export const createPaymentOrder = async (req: Request, res: Response): Promise<a
         const weight = parseFloat(consolidation.total_weight) || 0;
         const totalAmount = calculateShippingCost(weight).toFixed(2);
 
-        // C. Obtener token de PayPal
-        const token = await getPayPalToken();
+        // C. Obtener credenciales (consolidaciones aéreas → servicio 'aereo')
+        let credentials: PayPalCredentials;
+        try {
+            credentials = await getPaypalCredentials('aereo');
+        } catch (credErr: any) {
+            console.error('❌ PayPal no configurado:', credErr.message);
+            return res.status(500).json({ error: 'PayPal no configurado para consolidaciones aéreas' });
+        }
+
+        const token = await getPayPalToken(credentials);
+        const PAYPAL_API = getPaypalApiUrl(credentials);
 
         // D. Crear orden en PayPal
         const order = await axios.post(
@@ -94,8 +111,8 @@ export const createPaymentOrder = async (req: Request, res: Response): Promise<a
                     brand_name: 'EntregaX',
                     landing_page: 'LOGIN',
                     user_action: 'PAY_NOW',
-                    return_url: 'https://entregax.com/payment/success',
-                    cancel_url: 'https://entregax.com/payment/cancel'
+                    return_url: `${process.env.FRONTEND_URL || 'https://entregax.app'}/payment/success`,
+                    cancel_url: `${process.env.FRONTEND_URL || 'https://entregax.app'}/payment/cancel`
                 }
             },
             {
@@ -161,28 +178,65 @@ export const capturePaymentOrder = async (req: Request, res: Response): Promise<
             }
         }
 
-        // A. Obtener token de PayPal
-        const token = await getPayPalToken();
-
-        // B. Capturar el pago en PayPal
-        const capture = await axios.post(
-            `${PAYPAL_API}/v2/checkout/orders/${paypalOrderId}/capture`,
-            {},
-            {
-                headers: { 
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            }
+        // Idempotencia: si la consolidación ya está paid, no recapturar
+        const stCheck = await pool.query(
+            "SELECT payment_status FROM consolidations WHERE id = $1",
+            [consolidationId]
         );
+        if (stCheck.rows[0]?.payment_status === 'paid') {
+            return res.json({
+                success: true,
+                idempotent: true,
+                status: 'success',
+                message: 'Esta orden ya estaba pagada',
+            });
+        }
 
-        console.log(`💰 Captura de pago: ${capture.data.status}`);
+        // A. Obtener credenciales + token de PayPal
+        let credentials: PayPalCredentials;
+        try {
+            credentials = await getPaypalCredentials('aereo');
+        } catch (credErr: any) {
+            return res.status(500).json({ error: 'PayPal no configurado para consolidaciones aéreas' });
+        }
+        const token = await getPayPalToken(credentials);
+        const PAYPAL_API = getPaypalApiUrl(credentials);
+
+        // B. Capturar el pago en PayPal — tolerando 422 para mapear el error
+        let capture: any;
+        try {
+            capture = await axios.post(
+                `${PAYPAL_API}/v2/checkout/orders/${paypalOrderId}/capture`,
+                {},
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
+                }
+            );
+        } catch (httpErr: any) {
+            const check = evaluatePaypalCapture(undefined, httpErr);
+            console.error(`❌ PayPal capture HTTP error [${check.rawCode}]: ${check.rawDescription || httpErr.message}`);
+            if (check.mapped?.action === 'already_paid') {
+                await pool.query(
+                    "UPDATE consolidations SET payment_status = 'paid', updated_at = NOW() WHERE id = $1 AND payment_status <> 'paid'",
+                    [consolidationId]
+                );
+                return res.json({ success: true, idempotent: true, status: 'success' });
+            }
+            const resp = buildPaypalErrorResponse(check);
+            return res.status(resp.status).json(resp.body);
+        }
+
+        const check = evaluatePaypalCapture(capture.data);
+        console.log(`💰 Captura de pago: ${check.orderStatus}/${check.captureStatus || 'n/a'}`);
 
         // C. Verificar si el pago fue exitoso
-        if (capture.data.status === 'COMPLETED') {
-            // D. Actualizar BD a PAGADO
+        if (check.ok) {
+            // D. Actualizar BD a PAGADO (idempotente)
             await pool.query(
-                "UPDATE consolidations SET payment_status = 'paid', updated_at = NOW() WHERE id = $1",
+                "UPDATE consolidations SET payment_status = 'paid', updated_at = NOW() WHERE id = $1 AND payment_status <> 'paid'",
                 [consolidationId]
             );
 
@@ -199,24 +253,12 @@ export const capturePaymentOrder = async (req: Request, res: Response): Promise<
             });
 
         } else {
-            res.status(400).json({ 
-                success: false,
-                error: 'El pago no se completó',
-                status: capture.data.status 
-            });
+            const resp = buildPaypalErrorResponse(check);
+            res.status(resp.status).json(resp.body);
         }
 
     } catch (error: any) {
-        console.error('Error al capturar pago:', error.response?.data || error.message);
-        
-        // Manejar error específico de PayPal
-        if (error.response?.data?.details) {
-            return res.status(400).json({ 
-                error: 'Error de PayPal',
-                details: error.response.data.details 
-            });
-        }
-        
+        console.error('Error al capturar pago:', error.message);
         res.status(500).json({ error: 'Error al capturar el pago' });
     }
 };

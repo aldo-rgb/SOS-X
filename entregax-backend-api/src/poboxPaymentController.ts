@@ -3,6 +3,15 @@ import { pool } from './db';
 import axios from 'axios';
 import crypto from 'crypto';
 import { getOpenpayCredentials, ServiceType } from './services/openpayConfig';
+import {
+  getPaypalCredentials,
+  getPaypalApiUrl,
+  PayPalCredentials,
+} from './services/paypalConfig';
+import {
+  evaluatePaypalCapture,
+  buildPaypalErrorResponse,
+} from './services/paypalErrors';
 import { createInvoice } from './fiscalController';
 import { generateCommissionsForPackages } from './commissionService';
 
@@ -63,51 +72,17 @@ interface AuthRequest extends Request {
 const OPENPAY_SANDBOX_URL = 'https://sandbox-api.openpay.mx/v1';
 const OPENPAY_PROD_URL = 'https://api.openpay.mx/v1';
 
-// ============ CONFIGURACIÓN DE PAYPAL DESDE BD ============
-interface PayPalCredentials {
-    clientId: string;
-    secret: string;
-    isSandbox: boolean;
-    empresaName: string;
-}
-
-// Obtener credenciales de PayPal desde la BD
-const getPaypalCredentials = async (): Promise<PayPalCredentials> => {
-    // Buscar cualquier empresa con PayPal configurado
-    const query = await pool.query(`
-        SELECT id, alias, paypal_client_id, paypal_secret, paypal_sandbox
-        FROM fiscal_emitters
-        WHERE paypal_configured = true
-        AND paypal_client_id IS NOT NULL 
-        AND paypal_client_id != ''
-        LIMIT 1
-    `);
-
-    if (query.rows.length > 0) {
-        const row = query.rows[0];
-        console.log(`🔑 PayPal credentials from DB -> ${row.alias}`);
-        return {
-            clientId: row.paypal_client_id,
-            secret: row.paypal_secret,
-            isSandbox: row.paypal_sandbox !== false,
-            empresaName: row.alias
-        };
-    }
-
-    throw new Error('No hay credenciales de PayPal configuradas en ninguna empresa');
-};
-
-// Obtener Token de PayPal usando credenciales de la BD
+// ============ TOKEN PAYPAL (usa credenciales multi-empresa) ============
+// `getPaypalCredentials(serviceType)` resuelve el emisor correcto a partir
+// de service_company_config.emitter_id. Si serviceType es undefined hace
+// fallback al primer emisor con PayPal configurado (legacy).
 const getPayPalToken = async (credentials: PayPalCredentials): Promise<string> => {
-    const apiUrl = credentials.isSandbox 
-        ? 'https://api-m.sandbox.paypal.com'
-        : 'https://api-m.paypal.com';
-    
+    const apiUrl = getPaypalApiUrl(credentials);
     const auth = Buffer.from(`${credentials.clientId}:${credentials.secret}`).toString('base64');
-    
+
     const response = await axios.post(
-        `${apiUrl}/v1/oauth2/token`, 
-        'grant_type=client_credentials', 
+        `${apiUrl}/v1/oauth2/token`,
+        'grant_type=client_credentials',
         {
             headers: {
                 'Authorization': `Basic ${auth}`,
@@ -115,7 +90,7 @@ const getPayPalToken = async (credentials: PayPalCredentials): Promise<string> =
             }
         }
     );
-    
+
     return response.data.access_token;
 };
 
@@ -252,7 +227,7 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
         // Obtener credenciales de PayPal desde la BD
         let credentials: PayPalCredentials;
         try {
-            credentials = await getPaypalCredentials();
+            credentials = await getPaypalCredentials('po_box');
         } catch (credError: any) {
             console.error('Error obteniendo credenciales PayPal:', credError.message);
             return res.status(500).json({ 
@@ -263,11 +238,9 @@ export const createPoboxPaypalPayment = async (req: Request, res: Response): Pro
 
         // Obtener token de PayPal
         const token = await getPayPalToken(credentials);
-        
+
         // URL de API según ambiente
-        const paypalApiUrl = credentials.isSandbox 
-            ? 'https://api-m.sandbox.paypal.com'
-            : 'https://api-m.paypal.com';
+        const paypalApiUrl = getPaypalApiUrl(credentials);
 
         // Crear orden en PayPal
         const order = await axios.post(
@@ -340,83 +313,125 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
             return res.status(400).json({ error: 'paypalOrderId es requerido' });
         }
 
-        // Obtener credenciales de PayPal desde la BD
+        // Idempotencia: si ya capturamos antes esta orden, devolvemos éxito.
+        try {
+            const already = await pool.query(
+                `SELECT id, status, external_transaction_id
+                   FROM pobox_payments
+                  WHERE external_order_id = $1
+                    AND status = 'completed'
+                  LIMIT 1`,
+                [paypalOrderId]
+            );
+            if (already.rows.length) {
+                console.log(`ℹ️ PO Box PayPal ${paypalOrderId} ya estaba capturada, idempotente.`);
+                return res.json({
+                    success: true,
+                    idempotent: true,
+                    transactionId: already.rows[0].external_transaction_id,
+                });
+            }
+        } catch { /* la tabla siempre existe; ignorar */ }
+
+        // Obtener credenciales de PayPal desde la BD (empresa asignada a PO Box)
         let credentials: PayPalCredentials;
         try {
-            credentials = await getPaypalCredentials();
+            credentials = await getPaypalCredentials('po_box');
         } catch (credError: any) {
             console.error('Error obteniendo credenciales PayPal:', credError.message);
-            return res.status(500).json({ 
+            return res.status(500).json({
                 error: 'PayPal no configurado',
-                details: credError.message 
+                details: credError.message
             });
         }
 
         // Obtener token de PayPal
         const token = await getPayPalToken(credentials);
-        
-        // URL de API según ambiente
-        const paypalApiUrl = credentials.isSandbox 
-            ? 'https://api-m.sandbox.paypal.com'
-            : 'https://api-m.paypal.com';
+        const paypalApiUrl = getPaypalApiUrl(credentials);
 
-        // Capturar el pago en PayPal
-        const capture = await axios.post(
-            `${paypalApiUrl}/v2/checkout/orders/${paypalOrderId}/capture`,
-            {},
-            {
-                headers: { 
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
+        // Capturar el pago en PayPal — tolerando 422 para inspeccionar el issue
+        let capture: any;
+        try {
+            capture = await axios.post(
+                `${paypalApiUrl}/v2/checkout/orders/${paypalOrderId}/capture`,
+                {},
+                {
+                    headers: {
+                        'Authorization': `Bearer ${token}`,
+                        'Content-Type': 'application/json'
+                    }
                 }
+            );
+        } catch (httpErr: any) {
+            const check = evaluatePaypalCapture(undefined, httpErr);
+            console.error(
+                `❌ PO Box PayPal captura HTTP error [${check.rawCode}]: ${check.rawDescription || httpErr.message}`
+            );
+            // ORDER_ALREADY_CAPTURED → trátalo como éxito idempotente
+            if (check.mapped?.action === 'already_paid') {
+                return res.json({ success: true, idempotent: true });
             }
+            const resp = buildPaypalErrorResponse(check);
+            return res.status(resp.status).json(resp.body);
+        }
+
+        const check = evaluatePaypalCapture(capture.data);
+        console.log(`💰 PO Box PayPal captura: ${check.orderStatus}/${check.captureStatus || 'n/a'}`);
+
+        if (!check.ok) {
+            console.error(`❌ PO Box PayPal captura fallida [${check.rawCode}]`);
+            const resp = buildPaypalErrorResponse(check);
+            return res.status(resp.status).json(resp.body);
+        }
+
+        const captureDetails = capture.data.purchase_units[0]?.payments?.captures[0];
+
+        // Obtener el pago de la BD incluyendo requiere_factura
+        const paymentResult = await pool.query(
+            'SELECT id, user_id, package_ids, amount, requiere_factura FROM pobox_payments WHERE external_order_id = $1',
+            [paypalOrderId]
         );
 
-        console.log(`💰 PO Box PayPal captura: ${capture.data.status}`);
+        if (paymentResult.rows.length > 0) {
+            const payment = paymentResult.rows[0];
 
-        if (capture.data.status === 'COMPLETED') {
-            const captureDetails = capture.data.purchase_units[0]?.payments?.captures[0];
+            // Actualizar estado del pago — guard idempotencia: solo si no estaba completed
+            const updPay = await pool.query(`
+                UPDATE pobox_payments SET
+                    status = 'completed',
+                    external_transaction_id = $1,
+                    paid_at = CURRENT_TIMESTAMP
+                WHERE id = $2 AND status <> 'completed'
+                RETURNING id
+            `, [captureDetails?.id, payment.id]);
 
-            // Obtener el pago de la BD incluyendo requiere_factura
-            const paymentResult = await pool.query(
-                'SELECT id, user_id, package_ids, amount, requiere_factura FROM pobox_payments WHERE external_order_id = $1',
-                [paypalOrderId]
-            );
+            const alreadyCompleted = updPay.rowCount === 0;
 
-            if (paymentResult.rows.length > 0) {
-                const payment = paymentResult.rows[0];
-                
-                // Actualizar estado del pago
+            // Actualizar estado de los paquetes
+            const packageIds = typeof payment.package_ids === 'string'
+                ? JSON.parse(payment.package_ids)
+                : payment.package_ids;
+
+            if (!alreadyCompleted) {
                 await pool.query(`
-                    UPDATE pobox_payments SET 
-                        status = 'completed',
-                        external_transaction_id = $1,
-                        paid_at = CURRENT_TIMESTAMP
-                    WHERE id = $2
-                `, [captureDetails?.id, payment.id]);
-
-                // Actualizar estado de los paquetes
-                const packageIds = typeof payment.package_ids === 'string' 
-                    ? JSON.parse(payment.package_ids) 
-                    : payment.package_ids;
-
-                await pool.query(`
-                    UPDATE packages SET 
+                    UPDATE packages SET
                         payment_status = 'paid',
                         monto_pagado = COALESCE(monto_pagado, 0) + $1,
                         saldo_pendiente = 0,
                         costing_paid = TRUE,
                         client_paid = TRUE,
                         costing_paid_at = CURRENT_TIMESTAMP
-                    WHERE id = ANY($2) OR master_id = ANY($2)
+                    WHERE (id = ANY($2) OR master_id = ANY($2))
+                      AND COALESCE(payment_status, '') <> 'paid'
                 `, [payment.amount, packageIds]);
 
-                // Registrar en openpay_webhook_logs para el dashboard de cobranza
+                // Registrar en openpay_webhook_logs (idempotente por transaction_id)
                 await pool.query(`
                     INSERT INTO openpay_webhook_logs (
                         transaction_id, monto_recibido, monto_neto, concepto,
-                        fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type
-                    ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'POBOX_USA')
+                        fecha_pago, estatus_procesamiento, user_id, tipo_pago, service_type, payment_method
+                    ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'POBOX_USA', 'paypal')
+                    ON CONFLICT (transaction_id) DO NOTHING
                 `, [
                     captureDetails?.id,
                     payment.amount,
@@ -448,7 +463,6 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                         });
 
                         if (invoiceResult.success) {
-                            // Actualizar el registro de pago con datos de factura
                             await pool.query(`
                                 UPDATE pobox_payments SET
                                     facturada = TRUE,
@@ -456,14 +470,11 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                                     factura_created_at = CURRENT_TIMESTAMP
                                 WHERE id = $2
                             `, [invoiceResult.uuid, payment.id]);
-                            
                             console.log(`✅ Factura generada: ${invoiceResult.uuid}`);
                         } else {
-                            // Guardar error para reintento posterior
                             await pool.query(`
                                 UPDATE pobox_payments SET factura_error = $1 WHERE id = $2
                             `, [invoiceResult.error, payment.id]);
-                            
                             console.error(`❌ Error generando factura: ${invoiceResult.error}`);
                         }
                     } catch (invoiceError: any) {
@@ -473,36 +484,23 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                         `, [invoiceError.message, payment.id]);
                     }
                 }
+            } else {
+                console.log(`ℹ️ PO Box PayPal ${paypalOrderId} fue captured pero el pago ya estaba completed (idempotencia DB).`);
             }
-
-            res.json({ 
-                success: true,
-                status: 'success', 
-                message: 'Pago completado exitosamente',
-                transactionId: captureDetails?.id,
-                amount: captureDetails?.amount?.value,
-                currency: captureDetails?.amount?.currency_code
-            });
-
-        } else {
-            res.status(400).json({ 
-                success: false,
-                error: 'El pago no se completó',
-                status: capture.data.status 
-            });
         }
+
+        return res.json({
+            success: true,
+            status: 'success',
+            message: 'Pago completado exitosamente',
+            transactionId: captureDetails?.id,
+            amount: captureDetails?.amount?.value,
+            currency: captureDetails?.amount?.currency_code
+        });
 
     } catch (error: any) {
-        console.error('Error capturando pago PayPal:', error.response?.data || error.message);
-        
-        if (error.response?.data?.details) {
-            return res.status(400).json({ 
-                error: 'Error de PayPal',
-                details: error.response.data.details 
-            });
-        }
-        
-        res.status(500).json({ error: 'Error al capturar el pago' });
+        console.error('Error capturando pago PayPal:', error.message);
+        return res.status(500).json({ error: 'Error al capturar el pago' });
     }
 };
 

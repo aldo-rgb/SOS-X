@@ -21,6 +21,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { API_URL } from '../services/api';
+import { buildPaypalErrorDisplay } from '../utils/paypalErrorMessages';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { 
   getPendingPaymentsApi, 
@@ -971,7 +972,9 @@ const MyPaymentsScreen = () => {
           closeOnlinePay();
         }
       } else {
-        throw new Error(data?.error || 'Error creando pago PayPal');
+        // Backend (paypalErrors) puede mandar errorKey/code/action.
+        const display = buildPaypalErrorDisplay(data);
+        throw new Error(display.message);
       }
     } catch (e: any) {
       Alert.alert('Error', e.message);
