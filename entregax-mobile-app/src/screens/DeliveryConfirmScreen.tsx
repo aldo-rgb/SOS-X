@@ -246,16 +246,17 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                        ((packageInfo as any).total_pieces && (packageInfo as any).total_pieces > 1);
     
     const carrierRaw = ((packageInfo as any).national_carrier || '').toString().toLowerCase();
-    // EntregaX / local / pickup NO requieren doble escaneo (es entrega propia)
-    const isOwnDelivery = /entregax|local|pick ?up|propio/.test(carrierRaw);
+    // EntregaX / local / pickup / bodega (placeholder) NO requieren doble escaneo
+    const isOwnDelivery = /entregax|local|pick ?up|propio|bodega/.test(carrierRaw);
 
-    // Paquetes con carrier externo (Estafeta, FedEx, Paquete Express, etc.) se entregan
+    // Paquetes con carrier externo real (Estafeta, FedEx, Paquete Express, etc.) se entregan
     // desde "Envío Paquetería" → no deben procesarse aquí
     const hasExternalCarrier = !isOwnDelivery && carrierRaw !== '' &&
         ((packageInfo as any).national_carrier !== null && (packageInfo as any).national_carrier !== '');
     if (hasExternalCarrier) {
       const carrierName = ((packageInfo as any).national_carrier || 'paquetería').toString();
       setPackageInfo(null);
+      setCurrentStep('scan');
       showFeedback({
         type: 'error',
         message: `Este paquete se entrega vía ${carrierName}. Usa "Envío Paquetería" → Mostrador o Recolección.`,
