@@ -26,6 +26,7 @@ import {
   Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { setStringAsync as copyToClipboard } from 'expo-clipboard';
 import { MaterialIcons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { Audio } from 'expo-av';
@@ -252,6 +253,7 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const triggerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [lastScannedCode, setLastScannedCode] = useState<string>('');
   const [showPackageList, setShowPackageList] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   // Masters (AIR/LOG) que el chofer expandió para ver sus 62/40 hijas.
   // Por defecto colapsados — solo se muestra una línea por embarque.
   const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
@@ -1321,7 +1323,23 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                             <MaterialIcons name={allLoaded ? 'check-circle' : svcIcon.name} size={24} color={allLoaded ? '#4CAF50' : svcIcon.color} />
                           </View>
                           <View style={styles.packageInfo}>
-                            <Text style={styles.packageTracking}>{group.masterKey}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={styles.packageTracking}>{group.masterKey}</Text>
+                              <TouchableOpacity
+                                onPress={async () => {
+                                  await copyToClipboard(group.masterKey);
+                                  setCopiedKey(group.masterKey);
+                                  setTimeout(() => setCopiedKey(null), 1500);
+                                }}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                              >
+                                <MaterialIcons
+                                  name={copiedKey === group.masterKey ? 'check' : 'content-copy'}
+                                  size={14}
+                                  color={copiedKey === group.masterKey ? '#4CAF50' : '#aaa'}
+                                />
+                              </TouchableOpacity>
+                            </View>
                             <Text style={styles.packageRecipient}>
                               🧾 Cliente: {headerInfo.clientNumber} · 🔢 Ref: {headerInfo.referenceDigits}
                               {group.isVirtualMaster ? ` · 📦 ${group.loaded.length}/${total} cajas` : ''}
