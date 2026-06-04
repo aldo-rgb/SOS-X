@@ -86,7 +86,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
     in_transit: { label: 'En tránsito a MTY', color: ORANGE },
     received_mty: { label: 'Recibido CEDIS MTY', color: '#2E7D32' },
     ready_pickup: { label: 'En Ruta', color: '#0097A7' },
-    shipped: { label: 'Enviado', color: '#7B1FA2' },
+    shipped: { label: 'Enviado a destino', color: '#7B1FA2' },
     delivered: { label: 'Entregado', color: '#424242' },
 };
 
@@ -103,7 +103,7 @@ const EDITABLE_STATUSES: { value: string; label: string }[] = [
     { value: 'received_mty', label: 'Recibido CEDIS MTY' },
     { value: 'ready_pickup', label: 'En Ruta' },
     { value: 'out_for_delivery', label: 'En reparto' },
-    { value: 'shipped', label: 'Enviado (Shipped)' },
+    { value: 'shipped', label: 'Enviado a destino' },
     { value: 'returned_to_warehouse', label: 'Regresado a almacén' },
     { value: 'delivered', label: 'Entregado' },
 ];

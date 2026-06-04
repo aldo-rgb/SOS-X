@@ -958,9 +958,11 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                         <Chip
                           icon={<CheckIcon />}
                           label={
-                            m.currentBranch?.name
-                              ? `${m.statusLabel || m.status || 'Sin estado'} · ${m.currentBranch.name}`
-                              : (m.statusLabel || m.status || 'Sin estado')
+                            m.status === 'shipped'
+                              ? '📮 Enviado a destino'
+                              : m.currentBranch?.name
+                                ? `${m.statusLabel || m.status || 'Sin estado'} · ${m.currentBranch.name}`
+                                : (m.statusLabel || m.status || 'Sin estado')
                           }
                           color={statusColor(m.status)}
                           sx={{ fontWeight: 'bold', fontSize: '0.95rem', py: 2 }}

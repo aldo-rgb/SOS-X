@@ -88,7 +88,7 @@ const getStatusLabel = (status: string): string => {
         out_for_delivery: '🛣️ En Ruta',
         returned_to_warehouse: '↩️ Devuelto a Bodega',
         delivered: '🎉 Entregado',
-        shipped: '📮 Enviado',
+        shipped: '📮 Enviado a destino',
         reempacado: '📦 Reempacado',
         processing: '📋 Procesando'
     };
