@@ -15,6 +15,7 @@ import {
   FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { setStringAsync as copyToClipboard } from 'expo-clipboard';
 import { MaterialIcons } from '@expo/vector-icons';
 
 import api from '../services/api';
@@ -88,6 +89,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err' | 'warn'; msg: string } | null>(null);
   const [showList, setShowList] = useState(false);
+  const [copiedGuideId, setCopiedGuideId] = useState<number | null>(null);
 
   const inputRef = useRef<TextInput | null>(null);
   const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -452,6 +454,20 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
                         <Text style={[styles.listItemTracking, done && { color: '#999' }]}>
                           {item.tracking_number}
                         </Text>
+                        <TouchableOpacity
+                          onPress={async () => {
+                            await copyToClipboard(item.tracking_number);
+                            setCopiedGuideId(item.id);
+                            setTimeout(() => setCopiedGuideId(null), 1500);
+                          }}
+                          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                        >
+                          <MaterialIcons
+                            name={copiedGuideId === item.id ? 'check' : 'content-copy'}
+                            size={14}
+                            color={copiedGuideId === item.id ? '#4CAF50' : '#ccc'}
+                          />
+                        </TouchableOpacity>
                         {item.client_number ? (
                           <View style={{ backgroundColor: '#FFF5F2', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
                             <Text style={{ fontSize: 10, fontWeight: '700', color: ORANGE }}>{item.client_number}</Text>

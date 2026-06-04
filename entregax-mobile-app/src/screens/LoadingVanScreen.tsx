@@ -697,13 +697,15 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   // Filtrar pendingPackages según toggle requireLabelToLoad
   const isLocalCarrierFn = (c?: string | null) => {
     const s = String(c || '').toLowerCase();
-    return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up');
+    return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
   };
   const requireLabelFlag = routeData?.requireLabelToLoad ?? true;
   const filteredPending = routeData
     ? requireLabelFlag
+      // Toggle ON: solo locales con instrucciones asignadas
       ? routeData.pendingPackages.filter(p => p.assigned_address_id && isLocalCarrierFn(p.national_carrier))
-      : routeData.pendingPackages
+      // Toggle OFF: excluir carriers externos (van por Envío Paquetería, no por Entrega Local)
+      : routeData.pendingPackages.filter(p => isLocalCarrierFn(p.national_carrier))
     : [];
   const totalPackages = filteredPending.length + (routeData?.loadedToday || 0);
 
