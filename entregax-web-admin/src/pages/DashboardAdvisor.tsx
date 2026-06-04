@@ -2164,10 +2164,12 @@ export default function DashboardAdvisor() {
                 <TableCell align="center">{t('advisor.status')}</TableCell>
                 <TableCell>{t('advisor.service')}</TableCell>
                 <TableCell align="right">{t('advisor.amount')}</TableCell>
-                <TableCell align="center">{t('advisor.paid')}</TableCell>
-                <TableCell align="center">Instrucciones</TableCell>
+                <TableCell align="center">
+                  <Tooltip title="Pago / Instrucciones / GEX">
+                    <span>P · I · G</span>
+                  </Tooltip>
+                </TableCell>
                 <TableCell align="center">Paquetería</TableCell>
-                <TableCell align="center">GEX</TableCell>
                 <TableCell>{t('advisor.date')}</TableCell>
                 <TableCell align="center">Acciones</TableCell>
               </TableRow>
@@ -2175,7 +2177,7 @@ export default function DashboardAdvisor() {
             <TableBody>
               {shipments.length === 0 && !shipmentsLoading && (
                 <TableRow>
-                  <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={11} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noShipments')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -2213,8 +2215,7 @@ export default function DashboardAdvisor() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2">{s.clientName}</Typography>
-                    <Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography>
+                    <Typography variant="body2" fontWeight={600} fontFamily="monospace">{s.clientBoxId || s.clientName}</Typography>
                   </TableCell>
                   <TableCell align="center">
                     {getStatusLabel(s.status)}
@@ -2246,43 +2247,41 @@ export default function DashboardAdvisor() {
                       {s.amount > 0 ? formatMXN(s.amount) : '—'}
                     </Typography>
                   </TableCell>
+                  {/* Columna combinada: Pago · Instrucciones · GEX */}
                   <TableCell align="center">
-                    {s.clientPaid ? (
-                      <Tooltip title="Pagado">
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#E8F5E9', color: '#2E7D32', borderRadius: 2, px: 1, py: 0.3 }}>
-                          <GppGoodIcon sx={{ fontSize: 18 }} />
-                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>Pagado</Typography>
+                    <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 1 }}>
+                      {/* Pago */}
+                      <Tooltip title={s.clientPaid ? 'Pagado' : s.amount > 0 ? 'Pago pendiente' : 'Sin cargo'}>
+                        <Box sx={{ cursor: 'default', display: 'flex' }}>
+                          {s.clientPaid ? (
+                            <GppGoodIcon sx={{ fontSize: 20, color: '#2E7D32' }} />
+                          ) : s.amount > 0 ? (
+                            <GppBadIcon sx={{ fontSize: 20, color: '#C62828' }} />
+                          ) : (
+                            <GppGoodIcon sx={{ fontSize: 20, color: '#bbb' }} />
+                          )}
                         </Box>
                       </Tooltip>
-                    ) : (
-                      s.amount > 0 ? (
-                        <Tooltip title="Pendiente de pago">
-                          <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#FFEBEE', color: '#C62828', borderRadius: 2, px: 1, py: 0.3 }}>
-                            <GppBadIcon sx={{ fontSize: 18 }} />
-                            <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>Pendiente</Typography>
-                          </Box>
-                        </Tooltip>
-                      ) : (
-                        <Typography variant="caption" color="text.secondary">—</Typography>
-                      )
-                    )}
-                  </TableCell>
-                  <TableCell align="center">
-                    {s.hasInstructions ? (
-                      <Tooltip title="Instrucciones configuradas">
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#E8F5E9', color: '#2E7D32', borderRadius: 2, px: 1, py: 0.3 }}>
-                          <CheckCircleIcon sx={{ fontSize: 18 }} />
-                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>Sí</Typography>
+                      {/* Instrucciones */}
+                      <Tooltip title={s.hasInstructions ? 'Instrucciones de entrega configuradas' : 'Sin instrucciones de entrega'}>
+                        <Box sx={{ cursor: 'default', display: 'flex' }}>
+                          {s.hasInstructions ? (
+                            <CheckCircleIcon sx={{ fontSize: 20, color: '#2E7D32' }} />
+                          ) : (
+                            <WarningIcon sx={{ fontSize: 20, color: '#E65100' }} />
+                          )}
                         </Box>
                       </Tooltip>
-                    ) : (
-                      <Tooltip title="Sin instrucciones de entrega">
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#FFF3E0', color: '#E65100', borderRadius: 2, px: 1, py: 0.3 }}>
-                          <WarningIcon sx={{ fontSize: 18 }} />
-                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>No</Typography>
+                      {/* GEX */}
+                      <Tooltip title={s.hasGex ? 'Garantía Extendida (GEX) activa' : 'Sin Garantía Extendida'}>
+                        <Box sx={{ cursor: 'default', display: 'flex', position: 'relative' }}>
+                          <SecurityIcon sx={{ fontSize: 20, color: s.hasGex ? '#2E7D32' : '#bbb' }} />
+                          {!s.hasGex && (
+                            <Box sx={{ position: 'absolute', top: '50%', left: 0, right: 0, height: 2, bgcolor: '#bbb', transform: 'rotate(-45deg)', borderRadius: 1 }} />
+                          )}
                         </Box>
                       </Tooltip>
-                    )}
+                    </Box>
                   </TableCell>
                   <TableCell align="center">
                     {s.deliveryCarrierName ? (
@@ -2296,26 +2295,6 @@ export default function DashboardAdvisor() {
                       </Box>
                     ) : (
                       <Typography variant="caption" color="text.secondary">—</Typography>
-                    )}
-                  </TableCell>
-                  <TableCell align="center">
-                    {s.hasGex ? (
-                      <Tooltip title="Garantía Extendida activa">
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#E8F5E9', color: '#2E7D32', borderRadius: 2, px: 1, py: 0.3 }}>
-                          <SecurityIcon sx={{ fontSize: 18 }} />
-                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>GEX</Typography>
-                        </Box>
-                      </Tooltip>
-                    ) : (
-                      <Tooltip title="Sin Garantía Extendida">
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, bgcolor: '#FFEBEE', color: '#C62828', borderRadius: 2, px: 1, py: 0.3 }}>
-                          <Box sx={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <SecurityIcon sx={{ fontSize: 18 }} />
-                            <Box sx={{ position: 'absolute', width: '140%', height: 2, bgcolor: '#C62828', transform: 'rotate(-45deg)', borderRadius: 1 }} />
-                          </Box>
-                          <Typography variant="caption" fontWeight={700} sx={{ fontSize: '0.7rem' }}>No</Typography>
-                        </Box>
-                      </Tooltip>
                     )}
                   </TableCell>
                   <TableCell>
