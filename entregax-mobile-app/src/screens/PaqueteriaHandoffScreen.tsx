@@ -120,6 +120,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     if (!code.trim() || loading) return;
     setLoading(true);
     Keyboard.dismiss();
+    setManualCode('');
     try {
       if (scanPhase === 'internal' || mode === 'cargar_unidad') {
         const res = await api.post('/api/driver/paqueteria-handoff/scan', {
@@ -130,6 +131,12 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
         }, { headers: token ? { Authorization: `Bearer ${token}` } : undefined });
 
         if (mode === 'cargar_unidad') {
+          // Verificar duplicado
+          if (completed.find(c => c.packageId === res.data.packageId)) {
+            showFeedback('warn', `⚠️ ${res.data.tracking} ya fue escaneado antes`);
+            setTimeout(() => inputRef.current?.focus(), 200);
+            return;
+          }
           // Single scan complete
           setCompleted(prev => [...prev, {
             packageId: res.data.packageId,
@@ -167,8 +174,8 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
       }
     } catch (e: any) {
       const msg = e.response?.data?.error || e.message || 'Error';
-      showFeedback('err', msg);
-      setManualCode('');
+      const isWarn = msg.includes('⚠️');
+      showFeedback(isWarn ? 'warn' : 'err', msg);
       setTimeout(() => inputRef.current?.focus(), 200);
     } finally {
       setLoading(false);

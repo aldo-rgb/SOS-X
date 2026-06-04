@@ -1983,6 +1983,17 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                 return res.status(404).json({ error: `❌ Guía ${code} no encontrada en el sistema` });
             }
             const pkg = result.rows[0];
+
+            // Rechazar si es un MASTER con cajas hijas — escanear cada caja individual
+            const childCount = await pool.query(
+                `SELECT COUNT(*) as cnt FROM packages WHERE master_id = $1`, [pkg.id]
+            );
+            if (parseInt(childCount.rows[0]?.cnt) > 0) {
+                return res.status(400).json({
+                    error: `⚠️ ${pkg.tracking_number} es un embarque con ${childCount.rows[0].cnt} cajas. Escanea cada caja individual (${pkg.tracking_number}-0001, -0002, etc.)`
+                });
+            }
+
             const pkgCarrier = String(pkg.national_carrier || '').toLowerCase();
             const reqCarrier = String(carrier || '').toLowerCase();
             if (reqCarrier && !pkgCarrier.includes(reqCarrier) && !reqCarrier.includes(pkgCarrier)) {
