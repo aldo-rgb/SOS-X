@@ -497,7 +497,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     const pkgSelect = `
       SELECT 
         'PKG-' || p.id::text as uid,
-        p.id, p.tracking_internal as tracking, p.international_tracking, p.child_no,
+        p.id, p.tracking_internal as tracking, COALESCE(p.tracking_provider, p.international_tracking) as international_tracking, p.child_no,
         p.status::text as status, p.service_type,
         COALESCE(p.assigned_cost_mxn, p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) as monto,
         CASE WHEN COALESCE(p.saldo_pendiente, p.air_sale_price, p.pobox_venta_usd, 0) = 0 AND COALESCE(p.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
