@@ -1607,12 +1607,21 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
         if (pkg.master_id) {
             try {
                 const masterRes = await pool.query(
-                    `SELECT tracking_internal, status, payment_status, client_paid, client_paid_at, monto_pagado,
-                            saldo_pendiente, assigned_cost_mxn, received_at, delivered_at,
-                            warehouse_location, current_branch_id,
-                            pobox_service_cost, pobox_cost_usd, pobox_venta_usd, gex_total_cost,
-                            national_shipping_cost, national_carrier, national_tracking, national_label_url
-                     FROM packages WHERE id = $1`,
+                    `SELECT m.tracking_internal, m.status, m.payment_status, m.client_paid, m.client_paid_at, m.monto_pagado,
+                            m.saldo_pendiente, m.assigned_cost_mxn, m.received_at, m.delivered_at,
+                            m.warehouse_location, m.current_branch_id,
+                            m.pobox_service_cost, m.pobox_cost_usd, m.pobox_venta_usd, m.gex_total_cost,
+                            m.national_shipping_cost, m.national_carrier, m.national_tracking, m.national_label_url,
+                            m.assigned_address_id,
+                            a.alias as addr_alias, a.recipient_name as addr_recipient, a.street as addr_street,
+                            a.exterior_number as addr_ext, a.interior_number as addr_int,
+                            a.neighborhood as addr_neighborhood, a.city as addr_city,
+                            a.state as addr_state, a.zip_code as addr_zip,
+                            a.phone as addr_phone, a.reference as addr_reference,
+                            a.carrier_config as addr_carrier_config
+                     FROM packages m
+                     LEFT JOIN addresses a ON m.assigned_address_id = a.id
+                     WHERE m.id = $1`,
                     [pkg.master_id]
                 );
                 if (masterRes.rows.length > 0) {
@@ -1635,6 +1644,23 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     pkg.national_carrier = pkg.national_carrier ?? m.national_carrier;
                     pkg.national_tracking = pkg.national_tracking ?? m.national_tracking;
                     pkg.national_label_url = pkg.national_label_url ?? m.national_label_url;
+                    // 🏠 Instrucciones de entrega: si la hija no tiene assigned_address_id propio,
+                    //   heredar del master (caso real: master con instrucciones, hijas con NULL).
+                    if (!pkg.assigned_address_id && m.assigned_address_id) {
+                        pkg.assigned_address_id = m.assigned_address_id;
+                        pkg.addr_alias = m.addr_alias;
+                        pkg.addr_recipient = m.addr_recipient;
+                        pkg.addr_street = m.addr_street;
+                        pkg.addr_ext = m.addr_ext;
+                        pkg.addr_int = m.addr_int;
+                        pkg.addr_neighborhood = m.addr_neighborhood;
+                        pkg.addr_city = m.addr_city;
+                        pkg.addr_state = m.addr_state;
+                        pkg.addr_zip = m.addr_zip;
+                        pkg.addr_phone = m.addr_phone;
+                        pkg.addr_reference = m.addr_reference;
+                        pkg.addr_carrier_config = m.addr_carrier_config;
+                    }
                     // Status: el más avanzado entre child y master
                     const order = ['received', 'in_transit', 'received_mty', 'received_partial',
                                    'out_for_delivery', 'ready_pickup', 'delivered'];
@@ -3917,6 +3943,22 @@ export const assignDeliveryInstructions = async (req: Request, res: Response) =>
                             RETURNING id, tracking_internal
                         `, [deliveryAddressId, deliveryInstructions, packageId, carrierName || carrier || 'EntregaX Local', shippingCostMxn, newTotalMxn, nuevoSaldo]);
                     }
+                }
+                // 🧒 Propagar dirección + carrier a TODAS las hijas del master
+                //    (multipieza PO Box: la dirección vive en el master pero los
+                //    paneles consultan la hija escaneada).
+                try {
+                    await pool.query(
+                        `UPDATE packages
+                            SET assigned_address_id = COALESCE(assigned_address_id, $1),
+                                national_carrier = COALESCE(national_carrier, $2),
+                                needs_instructions = FALSE,
+                                updated_at = CURRENT_TIMESTAMP
+                          WHERE master_id = $3`,
+                        [deliveryAddressId, carrierName || carrier || null, packageId]
+                    );
+                } catch (propErr) {
+                    console.warn('[bulkAssignDelivery] No se pudo propagar dirección a hijas:', propErr);
                 }
                 break;
 

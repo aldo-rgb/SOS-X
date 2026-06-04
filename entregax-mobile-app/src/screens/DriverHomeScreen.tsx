@@ -21,6 +21,7 @@ import {
   Image,
   Modal,
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBrandAsset } from '../hooks/useBrandAssets';
 import { MaterialIcons } from '@expo/vector-icons';
