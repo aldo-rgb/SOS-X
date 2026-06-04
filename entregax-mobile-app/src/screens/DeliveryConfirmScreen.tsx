@@ -249,11 +249,25 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     // EntregaX / local / pickup NO requieren doble escaneo (es entrega propia)
     const isOwnDelivery = /entregax|local|pick ?up|propio/.test(carrierRaw);
 
+    // Paquetes con carrier externo (Estafeta, FedEx, Paquete Express, etc.) se entregan
+    // desde "Envío Paquetería" → no deben procesarse aquí
+    const hasExternalCarrier = !isOwnDelivery && carrierRaw !== '' &&
+        ((packageInfo as any).national_carrier !== null && (packageInfo as any).national_carrier !== '');
+    if (hasExternalCarrier) {
+      const carrierName = ((packageInfo as any).national_carrier || 'paquetería').toString();
+      setPackageInfo(null);
+      showFeedback({
+        type: 'error',
+        message: `Este paquete se entrega vía ${carrierName}. Usa "Envío Paquetería" → Mostrador o Recolección.`,
+      });
+      return;
+    }
+
     const isCarrierService = !isOwnDelivery && (
       (packageInfo as any).requires_carrier_scan === true ||
       ((packageInfo as any).national_carrier !== null && (packageInfo as any).national_carrier !== '')
     );
-    
+
     // Si detectamos que es multi-caja o tiene carrier nacional EXTERNO, cambiar a bulk
     if (hasChildren || isCarrierService) {
       const scannedGuide = packageInfo.tracking_number || '';

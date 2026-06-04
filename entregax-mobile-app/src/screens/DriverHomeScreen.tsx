@@ -183,8 +183,10 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         [...pendingPackages, ...loadedPackages].forEach((p: any) => {
           const c = p.national_carrier || '';
           if (!c || isLocalCarrier(c)) return;
-          // Cuando toggle ON: solo contar los que tienen etiqueta impresa
-          if (requireLabel && !p.has_label) return;
+          // Paquetes ya cargados en camioneta: siempre aparecen (aún necesitan Mostrador/Recolección)
+          const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') ||
+                           String(p.delivery_status || '').includes('in_transit');
+          if (!isLoaded && requireLabel && !p.has_label) return;
           if (!carrierMap[c]) carrierMap[c] = [];
           carrierMap[c].push(p);
         });
@@ -199,7 +201,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           deliveredToday,
           paqueteriaCount: Number(route.paqueteriaCount) || 0,
           pendingToLoad: Number(route.pendingToLoad) ?? 0,
-          pendingDelivery: loadedPackages.length,
+          // Solo paquetes de entrega local (excluir carrier externo que van por Envío Paquetería)
+          pendingDelivery: loadedPackages.filter((p: any) => isLocalCarrier(String(p.national_carrier || ''))).length,
           returnedToday: 0,
         });
       } catch (routeError) {
@@ -567,7 +570,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             <TouchableOpacity
               style={styles.statCard}
               activeOpacity={0.85}
-              onPress={() => paqueteriaGroups.length > 0 && setShowPaqueteriaModal(true)}
+              onPress={() => setShowPaqueteriaModal(true)}
             >
               <MaterialIcons name="local-post-office" size={28} color="#F05A28" />
               <Text style={[styles.statNumber, { color: '#F05A28' }]}>{stats.paqueteriaCount}</Text>
