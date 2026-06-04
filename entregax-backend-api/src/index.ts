@@ -10775,6 +10775,16 @@ async function ensureRequiredColumns() {
         icon = EXCLUDED.icon,
         category = EXCLUDED.category
     `);
+    // Sembrar panel de Consolidaciones PO Box
+    await pool.query(`
+      INSERT INTO admin_panels (panel_key, panel_name, category, icon, description, is_active, sort_order)
+      VALUES ('pobox_consolidaciones', 'Consolidaciones PO Box', 'admin', 'Inventory', 'Gestión de pagos a proveedores PO Box: órdenes de pago y pagos referenciados', TRUE, 23)
+      ON CONFLICT (panel_key) DO UPDATE SET
+        panel_name = EXCLUDED.panel_name,
+        description = EXCLUDED.description,
+        icon = EXCLUDED.icon,
+        category = EXCLUDED.category
+    `);
     // Tabla de permisos de contadores por empresa fiscal
     await pool.query(`
       CREATE TABLE IF NOT EXISTS accountant_emitter_permissions (
