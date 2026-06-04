@@ -134,7 +134,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       JOIN users u ON p.user_id = u.id
       WHERE u.role = 'client'
         AND (u.advisor_id = $1 OR u.referred_by_id = $1)
-        AND p.status IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
+        AND p.status::text IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
     `, [advisorId]);
 
     // Guías sin cliente: user_id IS NULL y sin casillero asignado (box_id vacío)
@@ -143,7 +143,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       WHERE p.user_id IS NULL
         AND (p.box_id IS NULL OR p.box_id = '')
         AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
-        AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
+        AND p.status::text NOT IN ('delivered', 'lost', 'returned_to_warehouse')
         AND (p.is_master = true OR p.master_id IS NULL)
     `);
 
@@ -290,7 +290,7 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
         ) as total_packages,
         -- En tránsito (las 3 tablas)
         (
-          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.status IN ('in_transit', 'received_china', 'received', 'customs')) +
+          (SELECT COUNT(*) FROM packages p WHERE p.user_id = u.id AND p.status::text IN ('in_transit', 'received_china', 'received', 'customs')) +
           (SELECT COUNT(*) FROM maritime_orders mo WHERE mo.user_id = u.id AND mo.status IN ('in_transit', 'received_china', 'received', 'customs', 'consolidated', 'at_port')) +
           (SELECT COUNT(*) FROM dhl_shipments ds WHERE ds.user_id = u.id AND ds.status IN ('in_transit', 'received_mty', 'inspected', 'dispatched'))
         ) as in_transit_count,
@@ -433,7 +433,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         WHERE p.user_id IS NULL
           AND (p.box_id IS NULL OR p.box_id = '')
           AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
-          AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
+          AND p.status::text NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
         ORDER BY p.created_at DESC
         LIMIT $1 OFFSET $2
@@ -443,7 +443,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         WHERE p.user_id IS NULL
           AND (p.box_id IS NULL OR p.box_id = '')
           AND (p.service_type = 'POBOX_USA' OR p.tracking_internal LIKE 'US-%')
-          AND p.status NOT IN ('delivered', 'lost', 'returned_to_warehouse')
+          AND p.status::text NOT IN ('delivered', 'lost', 'returned_to_warehouse')
           AND (p.is_master = true OR p.master_id IS NULL)
       `;
       const [dataRes, countRes] = await Promise.all([
@@ -1635,7 +1635,7 @@ export const getAdvisorPackages = async (req: Request, res: Response): Promise<a
         JOIN users u ON p.user_id = u.id
        WHERE u.role = 'client'
          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
-         AND p.status IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
+         AND p.status::text IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
          ${whereExtra}
        ORDER BY p.updated_at DESC
        LIMIT 200
