@@ -480,10 +480,16 @@ export default function DriverHomeScreen({ navigation, route }: any) {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#F05A28" />
-          <Text style={styles.loadingText}>Cargando tu jornada...</Text>
+      <SafeAreaView style={[styles.container, { backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' }]}>
+        <View style={{ alignItems: 'center', gap: 24 }}>
+          <Image
+            source={logoUrl ? { uri: logoUrl } : require('../../assets/logo-negro.png')}
+            style={{ width: 180, height: 60, resizeMode: 'contain' }}
+          />
+          <View style={{ alignItems: 'center', gap: 10 }}>
+            <ActivityIndicator size="large" color="#F05A28" />
+            <Text style={{ color: '#888', fontSize: 14 }}>Cargando tu jornada...</Text>
+          </View>
         </View>
       </SafeAreaView>
     );

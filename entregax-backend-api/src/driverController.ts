@@ -764,8 +764,8 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                      OR to_jsonb(m)->>'skydropx_label_id' IS NOT NULL
                      OR to_jsonb(m)->>'dhl_awb' IS NOT NULL
                   )` : '';
-        const pendingRes = driverBranchId
-            ? await pool.query(`
+        const pendingPromise = driverBranchId
+            ? pool.query(`
                 SELECT
                     p.id,
                     ${TRACKING_PUBLIC_SQL} as tracking_number,
@@ -797,7 +797,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                   ${paymentWhereClause}
                 ORDER BY p.updated_at ASC NULLS LAST, p.created_at ASC
             `, [driverBranchId])
-            : await pool.query(`
+            : pool.query(`
                 SELECT
                     p.id,
                     ${TRACKING_PUBLIC_SQL} as tracking_number,
@@ -830,8 +830,8 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
             `, [driverId]);
 
         // Obtener lista de paquetes ya cargados (out for delivery)
-        const loadedRes = hasAssignedDriverColumn
-            ? await pool.query(`
+        const loadedPromise = hasAssignedDriverColumn
+            ? pool.query(`
                 SELECT 
                     p.id,
                     ${TRACKING_PUBLIC_SQL} as tracking_number,
@@ -861,7 +861,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 ORDER BY p.updated_at ASC, p.created_at ASC
             `, [driverId])
             : driverBranchId
-                ? await pool.query(`
+                ? pool.query(`
                     SELECT
                         p.id,
                         ${TRACKING_PUBLIC_SQL} as tracking_number,
@@ -886,47 +886,50 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                       AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                     ORDER BY p.updated_at ASC, p.created_at ASC
                 `, [driverBranchId])
-                : { rows: [] as any[] };
+                : Promise.resolve({ rows: [] as any[] });
 
-                // CLIENT_NUMBER_SQL usa alias 'u' (users JOIN) — no disponible aquí, usar fallback sin 'u'
-                const CLIENT_NUMBER_NO_USER_SQL = `COALESCE(
-                    NULLIF(TRIM(to_jsonb(p)->>'client_code'), ''),
-                    NULLIF(TRIM(to_jsonb(p)->>'client_box_id'), ''),
-                    NULLIF(TRIM(to_jsonb(p)->>'box_id'), ''),
-                    NULLIF(TRIM(to_jsonb(p)->>'mailbox_number'), ''),
-                    NULLIF(TRIM(to_jsonb(p)->>'mailbox'), '')
-                )`;
-                const DELIVERED_SELECT = `
-                    SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
-                        ${DELIVERY_STATUS_SQL} as delivery_status,
-                        ${DELIVERY_ADDRESS_SQL} as delivery_address,
-                        ${DELIVERY_CITY_SQL} as delivery_city,
-                        ${RECIPIENT_NAME_SQL} as recipient_name,
-                        COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
-                        ${CLIENT_NUMBER_NO_USER_SQL} as client_number,
-                        p.updated_at
-                    FROM packages p
-                    LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
-                `;
-                const deliveredTodayRes = hasAssignedDriverColumn
-                    ? await pool.query(`${DELIVERED_SELECT}
-                        WHERE to_jsonb(p)->>'assigned_driver_id' = $1::text
-                            AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
-                            AND DATE(p.updated_at) = CURRENT_DATE
-                            AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
-                        ORDER BY p.updated_at DESC
-                    `, [driverId])
-                    : driverBranchId
-                        ? await pool.query(`${DELIVERED_SELECT}
-                            WHERE ${packageBranchSql} = $1
-                                AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
-                                AND DATE(p.updated_at) = CURRENT_DATE
-                                AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
-                            ORDER BY p.updated_at DESC
-                        `, [driverBranchId])
-                        : { rows: [] as any[] };
+        // CLIENT_NUMBER_SQL usa alias 'u' — no disponible aquí, usar fallback sin 'u'
+        const CLIENT_NUMBER_NO_USER_SQL = `COALESCE(
+            NULLIF(TRIM(to_jsonb(p)->>'client_code'), ''),
+            NULLIF(TRIM(to_jsonb(p)->>'client_box_id'), ''),
+            NULLIF(TRIM(to_jsonb(p)->>'box_id'), ''),
+            NULLIF(TRIM(to_jsonb(p)->>'mailbox_number'), ''),
+            NULLIF(TRIM(to_jsonb(p)->>'mailbox'), '')
+        )`;
+        const DELIVERED_SELECT = `
+            SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
+                ${DELIVERY_STATUS_SQL} as delivery_status,
+                ${DELIVERY_ADDRESS_SQL} as delivery_address,
+                ${DELIVERY_CITY_SQL} as delivery_city,
+                ${RECIPIENT_NAME_SQL} as recipient_name,
+                COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                ${CLIENT_NUMBER_NO_USER_SQL} as client_number,
+                p.updated_at
+            FROM packages p
+            LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+        `;
+        const deliveredPromise = hasAssignedDriverColumn
+            ? pool.query(`${DELIVERED_SELECT}
+                WHERE to_jsonb(p)->>'assigned_driver_id' = $1::text
+                    AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
+                    AND DATE(p.updated_at) = CURRENT_DATE
+                    AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                ORDER BY p.updated_at DESC
+            `, [driverId])
+            : driverBranchId
+                ? pool.query(`${DELIVERED_SELECT}
+                    WHERE ${packageBranchSql} = $1
+                        AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
+                        AND DATE(p.updated_at) = CURRENT_DATE
+                        AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                    ORDER BY p.updated_at DESC
+                `, [driverBranchId])
+                : Promise.resolve({ rows: [] as any[] });
 
-                const deliveredToday = deliveredTodayRes.rows.length;
+        // Ejecutar las 3 queries en paralelo
+        const [pendingRes, loadedRes, deliveredTodayRes] = await Promise.all([pendingPromise, loadedPromise, deliveredPromise]);
+
+        const deliveredToday = deliveredTodayRes.rows.length;
 
                 const isLocalCarrier = (carrier: string) => {
                     const c = String(carrier || '').toLowerCase();
