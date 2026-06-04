@@ -60,6 +60,7 @@ interface HandoffPackage {
   recipient_name?: string;
   has_label?: boolean;
   client_number?: string | null;
+  delivery_status?: string | null;
 }
 
 interface CompletedPkg {
@@ -93,7 +94,19 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   const lastInputTimeRef = useRef<number>(0);
   const recentDelaysRef = useRef<number[]>([]);
 
-  const pendingPackages = initialPackages.filter(
+  // Filtrar por modo:
+  // recoleccion → solo paquetes en bodega (NO cargados en camioneta)
+  // cargar_unidad → solo paquetes en bodega (pendientes)
+  // mostrador → todos (bodega + cargados en camioneta)
+  const isLoaded = (p: HandoffPackage) => {
+    const s = String(p.delivery_status || '').toLowerCase();
+    return s.includes('out_for_delivery') || s.includes('in_transit');
+  };
+  const filteredInitial = mode === 'mostrador'
+    ? initialPackages
+    : initialPackages.filter(p => !isLoaded(p));
+
+  const pendingPackages = filteredInitial.filter(
     p => !completed.find(c => c.packageId === p.id)
   );
 
@@ -237,7 +250,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>{carrierLabel(carrier)}</Text>
-          <Text style={styles.subtitle}>{modeLabel} · {completed.length}/{initialPackages.length} listas</Text>
+          <Text style={styles.subtitle}>{modeLabel} · {completed.length}/{filteredInitial.length} listas</Text>
         </View>
         <TouchableOpacity onPress={() => setShowList(true)} style={styles.listBtn}>
           <MaterialIcons name="list" size={26} color={ORANGE} />
@@ -247,14 +260,14 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
       {/* Counter */}
       <View style={styles.counterSection}>
         <Text style={[styles.counterText, { color: statusColor }]}>
-          {completed.length} / {initialPackages.length}
+          {completed.length} / {filteredInitial.length}
         </Text>
         <Text style={styles.counterLabel}>
           {mode === 'cargar_unidad' ? 'Cargados' : 'Enviados'}
         </Text>
         <View style={styles.progressBar}>
           <View style={[styles.progressFill, {
-            width: `${initialPackages.length > 0 ? (completed.length / initialPackages.length) * 100 : 0}%`,
+            width: `${filteredInitial.length > 0 ? (completed.length / filteredInitial.length) * 100 : 0}%`,
             backgroundColor: statusColor,
           }]} />
         </View>
@@ -394,7 +407,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
               </TouchableOpacity>
             </View>
             <FlatList
-              data={initialPackages}
+              data={filteredInitial}
               keyExtractor={item => String(item.id)}
               renderItem={({ item }) => {
                 const done = !!completed.find(c => c.packageId === item.id);
