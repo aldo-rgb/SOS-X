@@ -221,6 +221,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
 
   return (
     <SafeAreaView style={styles.container}>
+      <ScrollView contentContainerStyle={{ paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
@@ -319,6 +320,36 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
         </TouchableOpacity>
       </View>
 
+      {/* Lista inline de ya cargados */}
+      {completed.length > 0 && (
+        <View style={{ marginHorizontal: 12, marginTop: 8, marginBottom: 80 }}>
+          <Text style={{ fontSize: 12, fontWeight: '700', color: '#666', marginBottom: 6 }}>
+            ✅ YA PROCESADOS ({completed.length})
+          </Text>
+          <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+            {[...completed].reverse().map((c, i) => (
+              <View key={c.packageId} style={{
+                flexDirection: 'row', alignItems: 'center', gap: 8,
+                backgroundColor: '#E8F5E9', borderRadius: 8, padding: 10, marginBottom: 4,
+              }}>
+                <MaterialIcons name="check-circle" size={16} color="#4CAF50" />
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#2E7D32', fontFamily: 'monospace' }}>
+                    {c.tracking}
+                  </Text>
+                  {c.externalTracking ? (
+                    <Text style={{ fontSize: 11, color: '#666', fontFamily: 'monospace' }}>
+                      → {c.externalTracking}
+                    </Text>
+                  ) : null}
+                </View>
+                <Text style={{ fontSize: 11, color: '#999' }}>#{completed.length - i}</Text>
+              </View>
+            ))}
+          </ScrollView>
+        </View>
+      )}
+
       {/* Feedback */}
       {feedback && (
         <View style={[styles.feedbackBox, {
@@ -336,7 +367,9 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
         </View>
       )}
 
-      {/* Finalizar — siempre visible */}
+      </ScrollView>
+
+      {/* Finalizar — siempre visible (fuera del ScrollView) */}
       <TouchableOpacity style={styles.finalizeBtn} onPress={handleFinalize}>
         <MaterialIcons name="check" size={22} color="#fff" />
         <Text style={styles.finalizeBtnText}>Finalizar ({completed.length})</Text>
