@@ -1901,6 +1901,26 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                  WHERE UPPER(p.tracking_internal) = $1 OR UPPER(p.tracking_provider) = $1`,
                 [code]
             );
+            // Fuzzy: si el código está truncado (scanner cortó el último char), buscar con LIKE
+            if (result.rows.length === 0 && code.length >= 6) {
+                const fuzzyRes = await pool.query(
+                    `SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
+                            COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                            COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
+                            p.national_tracking
+                     FROM packages p
+                     LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                     WHERE UPPER(p.tracking_internal) LIKE $1 OR UPPER(p.tracking_provider) LIKE $1
+                     LIMIT 2`,
+                    [`${code}%`]
+                );
+                if (fuzzyRes.rows.length === 1) {
+                    result.rows = fuzzyRes.rows;
+                    console.log(`[paqHandoff] Fuzzy match: ${code} → ${fuzzyRes.rows[0].tracking_number}`);
+                } else if (fuzzyRes.rows.length > 1) {
+                    return res.status(400).json({ error: `⚠️ Código truncado: múltiples guías empiezan con ${code}` });
+                }
+            }
             if (result.rows.length === 0) {
                 return res.status(404).json({ error: `❌ Guía ${code} no encontrada en el sistema` });
             }
