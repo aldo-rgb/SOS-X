@@ -63,6 +63,8 @@ interface BranchStats {
     en_bodega: number;
     en_transito: number;
     en_espera_cajas?: number;
+    en_transito_pobox?: number;
+    en_transito_transfer_cdmx?: number;
     en_espera_maritimo?: number;
     en_espera_aereo?: number;
     entregados_hoy: number;
@@ -357,7 +359,7 @@ export default function DashboardBranchManager() {
       // Evitar datos ficticios en dashboard
       setStats({
         sucursal: { nombre: 'CEDIS MTY', codigo: 'MTY', allowed_services: [] },
-        paquetes: { en_bodega: 0, en_transito: 0, en_espera_cajas: 0, en_espera_maritimo: 0, en_espera_aereo: 0, entregados_hoy: 0, pendientes_cobro: 0 },
+        paquetes: { en_bodega: 0, en_transito: 0, en_espera_cajas: 0, en_transito_pobox: 0, en_transito_transfer_cdmx: 0, en_espera_maritimo: 0, en_espera_aereo: 0, entregados_hoy: 0, pendientes_cobro: 0 },
         financiero: { ingresos_hoy: 0, ingresos_mes: 0, saldo_caja: 0, cuentas_por_cobrar: 0 },
         operaciones: { recepciones_hoy: 0, despachos_hoy: 0, consolidaciones_pendientes: 0 },
         equipo: { empleados_activos: 0, en_turno: 0 },
@@ -826,9 +828,9 @@ export default function DashboardBranchManager() {
         <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
           <KpiCard
             icon={<InventoryIcon sx={{ fontSize: 22 }} />}
-            label="En Bodega"
+            label={`En Bodega · ${stats?.sucursal.nombre || 'Mi sucursal'}`}
             value={stats?.paquetes.en_bodega ?? 0}
-            sub="paquetes"
+            sub="paquetes asignados a tu sucursal"
             tone="info"
           />
         </Grid>
@@ -838,7 +840,7 @@ export default function DashboardBranchManager() {
             icon={<CheckCircleIcon sx={{ fontSize: 22 }} />}
             label="Entregas Hoy"
             value={stats?.paquetes.entregados_hoy ?? 0}
-            sub="completadas"
+            sub={`completadas · ${stats?.sucursal.nombre || ''}`}
             tone="success"
           />
         </Grid>
@@ -847,9 +849,21 @@ export default function DashboardBranchManager() {
           <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
             <KpiCard
               icon={<LocalShippingIcon sx={{ fontSize: 22 }} />}
-              label="En tránsito a MTY"
-              value={stats?.paquetes.en_espera_cajas ?? stats?.paquetes.en_transito ?? 0}
-              sub="cajas en camino"
+              label="En tránsito a MTY · PoBox"
+              value={stats?.paquetes.en_transito_pobox ?? 0}
+              sub="cruce USA → MTY"
+              tone="info"
+            />
+          </Grid>
+        )}
+
+        {stats?.sucursal.codigo === 'MTY' && (
+          <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
+            <KpiCard
+              icon={<LocalShippingIcon sx={{ fontSize: 22 }} />}
+              label="En tránsito a MTY · Transfer CEDIS CDMX"
+              value={stats?.paquetes.en_transito_transfer_cdmx ?? 0}
+              sub="marítimo / aéreo desde CDMX"
               tone="info"
             />
           </Grid>
@@ -872,9 +886,9 @@ export default function DashboardBranchManager() {
           <Grid size={{ xs: 12, sm: 6, md: 3, lg: 2 }}>
             <KpiCard
               icon={<FlightTakeoffIcon sx={{ fontSize: 22 }} />}
-              label="En espera Aéreo"
+              label="Aéreo en tránsito"
               value={stats?.paquetes.en_espera_aereo ?? 0}
-              sub="cajas aéreas"
+              sub="guías AIR en camino"
               tone="info"
               accentBar="#7C3AED"
             />

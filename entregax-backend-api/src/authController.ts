@@ -941,15 +941,39 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             [targetBranchId]
         );
 
-        // En espera: cajas en tránsito a MTY NL
-        const waitingBoxesResult = await pool.query(
+        // En espera: cajas en tránsito a MTY NL, separadas por origen
+        //   - POBox USA (cruce desde Laredo)
+        //   - Transferencias CEDIS CDMX (marítimo / aéreo China que ya salió de aduana MX)
+        const waitingBoxesPoboxResult = await pool.query(
             `
                 SELECT COALESCE(SUM(CASE WHEN COALESCE(p.total_boxes, 0) > 0 THEN p.total_boxes ELSE 1 END), 0)::int as total
                 FROM packages p
                 WHERE (p.is_master = TRUE OR p.master_id IS NULL)
                   AND p.status::text IN ('in_transit', 'in_transit_mty')
+                  AND (
+                    UPPER(COALESCE(p.service_type, '')) IN ('POBOX_USA', 'USA')
+                    OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%')
+                  )
             `
         );
+
+        const waitingBoxesTransferResult = await pool.query(
+            `
+                SELECT COALESCE(SUM(CASE WHEN COALESCE(p.total_boxes, 0) > 0 THEN p.total_boxes ELSE 1 END), 0)::int as total
+                FROM packages p
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                  AND p.status::text IN ('in_transit', 'in_transit_mty')
+                  AND UPPER(COALESCE(p.service_type, '')) NOT IN ('POBOX_USA', 'USA')
+                  AND NOT (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%')
+            `
+        );
+
+        const waitingBoxesResult = {
+            rows: [{
+                total: (waitingBoxesPoboxResult.rows[0]?.total || 0)
+                     + (waitingBoxesTransferResult.rows[0]?.total || 0),
+            }],
+        };
 
         // En espera marítimo: solo cajas de contenedores LCL multi-cliente (WEEK)
         // que ya están en Despacho Aduanal en México. Excluye contenedores de un
@@ -969,16 +993,22 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
             `
         );
 
-        // En espera aéreo: cajas aéreas en tránsito
+        // En espera aéreo: guías AIR (AIR_CHN_MX / TDI Express) en tránsito
         const waitingAirBoxesResult = await pool.query(
             `
                 SELECT COUNT(*)::int as total
-                FROM china_receipts cr
-                WHERE cr.status::text = 'in_customs_gz'
+                FROM packages p
+                WHERE (p.is_master = TRUE OR p.master_id IS NULL)
+                  AND p.status::text IN ('in_transit', 'in_transit_mty')
+                  AND (
+                    UPPER(COALESCE(p.service_type, '')) = 'AIR_CHN_MX'
+                    OR LOWER(COALESCE(p.service_type, '')) = 'tdi_express'
+                    OR p.air_source = 'tdi_express'
+                  )
             `
         );
 
-        // Entregas hoy: paquetes entregados hoy
+        // Entregas hoy: paquetes entregados hoy en ESTA sucursal
         const deliveredTodayResult = await pool.query(
             `
                 SELECT COUNT(*)::int as total
@@ -986,10 +1016,12 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 WHERE (p.is_master = TRUE OR p.master_id IS NULL)
                   AND p.status::text = 'delivered'
                   AND DATE(p.delivered_at) = CURRENT_DATE
-            `
+                  AND ($1::int IS NULL OR p.current_branch_id = $1)
+            `,
+            [targetBranchId]
         );
 
-        // Pendientes de cobro (alerta): en bodega MTY con saldo pendiente
+        // Pendientes de cobro (alerta): en bodega de ESTA sucursal con saldo pendiente
         const pendingChargeResult = await pool.query(
             `
                 SELECT COUNT(*)::int as total
@@ -1001,7 +1033,9 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                       )
                   AND COALESCE(p.client_paid, FALSE) = FALSE
                   AND COALESCE(p.saldo_pendiente, p.assigned_cost_mxn, 0) > 0
-            `
+                  AND ($1::int IS NULL OR p.current_branch_id = $1)
+            `,
+            [targetBranchId]
         );
 
         // Financiero real (si existen tablas de tesorería)
@@ -1132,6 +1166,8 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 en_bodega: parseInt(inWarehouseResult.rows[0]?.total || 0) || 0,
                 en_transito: parseInt(waitingBoxesResult.rows[0]?.total || 0) || 0,
                 en_espera_cajas: parseInt(waitingBoxesResult.rows[0]?.total || 0) || 0,
+                en_transito_pobox: parseInt(waitingBoxesPoboxResult.rows[0]?.total || 0) || 0,
+                en_transito_transfer_cdmx: parseInt(waitingBoxesTransferResult.rows[0]?.total || 0) || 0,
                 en_espera_maritimo: parseInt(waitingMaritimeBoxesResult.rows[0]?.total || 0) || 0,
                 en_espera_aereo: parseInt(waitingAirBoxesResult.rows[0]?.total || 0) || 0,
                 entregados_hoy: parseInt(deliveredTodayResult.rows[0]?.total || 0) || 0,
@@ -1173,6 +1209,8 @@ export const getBranchManagerDashboard = async (req: AuthRequest, res: Response)
                 en_bodega: 0,
                 en_transito: 0,
                 en_espera_cajas: 0,
+                en_transito_pobox: 0,
+                en_transito_transfer_cdmx: 0,
                 en_espera_maritimo: 0,
                 en_espera_aereo: 0,
                 entregados_hoy: 0,
