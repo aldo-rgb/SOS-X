@@ -77,8 +77,8 @@ const generateTracking = (): string => {
 };
 
 // ============ HELPERS ============
-const getStatusLabel = (status: PackageStatus): string => {
-    const labels: Record<PackageStatus, string> = {
+const getStatusLabel = (status: string): string => {
+    const labels: Record<string, string> = {
         received: '📦 En Bodega',
         received_mty: '📦 Recibido en CEDIS MTY',
         in_transit: '🚚 En Tránsito',
@@ -87,6 +87,7 @@ const getStatusLabel = (status: PackageStatus): string => {
         out_for_delivery: '🛣️ En Ruta',
         returned_to_warehouse: '↩️ Devuelto a Bodega',
         delivered: '🎉 Entregado',
+        shipped: '📮 Enviado',
         reempacado: '📦 Reempacado',
         processing: '📋 Procesando'
     };
