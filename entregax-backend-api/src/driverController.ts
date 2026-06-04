@@ -1765,8 +1765,15 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
         console.log(`✅ Paquete encontrado: ID=${pkg.id}, Tracking=${pkg.tracking_number}, Status=${pkg.delivery_status}, Driver=${pkg.assigned_driver_id}`);
 
         if (pkg.assigned_driver_id && Number(pkg.assigned_driver_id) !== driverId) {
-            return res.status(403).json({ 
-                error: '⛔ Este paquete no está asignado a ti.',
+            // Obtener nombre del chofer asignado
+            const driverRes = await pool.query(
+                `SELECT full_name FROM users WHERE id = $1`,
+                [Number(pkg.assigned_driver_id)]
+            );
+            const assignedName = driverRes.rows[0]?.full_name || `Chofer #${pkg.assigned_driver_id}`;
+            return res.status(403).json({
+                error: `⛔ Este paquete está asignado a ${assignedName}. Devuélvelo a bodega.`,
+                assignedTo: assignedName,
                 barcode
             });
         }
