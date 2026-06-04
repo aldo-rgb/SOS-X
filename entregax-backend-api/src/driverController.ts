@@ -76,6 +76,7 @@ const HAS_LABEL_SQL = `(
     OR to_jsonb(p)->>'national_tracking' IS NOT NULL
     OR to_jsonb(p)->>'skydropx_label_id' IS NOT NULL
     OR to_jsonb(p)->>'dhl_awb' IS NOT NULL
+    OR EXISTS (SELECT 1 FROM package_documents pd WHERE pd.package_id = p.id AND pd.doc_type = 'guia_externa')
 )`;
 
 let packageStatusColumnCache: 'delivery_status' | 'status' | null = null;
@@ -768,10 +769,13 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_PHONE_SQL} as recipient_phone,
                     COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
                     COALESCE(p.assigned_address_id, m.assigned_address_id) as assigned_address_id,
-                    (${HAS_LABEL_SQL} OR (m.id IS NOT NULL AND (
-                        to_jsonb(m)->>'national_label_url' IS NOT NULL
-                        OR to_jsonb(m)->>'national_tracking' IS NOT NULL
-                    ))) as has_label,
+                    (${HAS_LABEL_SQL}
+                     OR (m.id IS NOT NULL AND (
+                         to_jsonb(m)->>'national_label_url' IS NOT NULL
+                         OR to_jsonb(m)->>'national_tracking' IS NOT NULL
+                         OR EXISTS (SELECT 1 FROM package_documents pd WHERE pd.package_id = m.id AND pd.doc_type = 'guia_externa')
+                     ))
+                    ) as has_label,
                     ${CLIENT_NUMBER_SQL} as client_number,
                     ${REFERENCE_HINT_SQL} as reference_hint,
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
@@ -797,10 +801,13 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_PHONE_SQL} as recipient_phone,
                     COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
                     COALESCE(p.assigned_address_id, m.assigned_address_id) as assigned_address_id,
-                    (${HAS_LABEL_SQL} OR (m.id IS NOT NULL AND (
-                        to_jsonb(m)->>'national_label_url' IS NOT NULL
-                        OR to_jsonb(m)->>'national_tracking' IS NOT NULL
-                    ))) as has_label,
+                    (${HAS_LABEL_SQL}
+                     OR (m.id IS NOT NULL AND (
+                         to_jsonb(m)->>'national_label_url' IS NOT NULL
+                         OR to_jsonb(m)->>'national_tracking' IS NOT NULL
+                         OR EXISTS (SELECT 1 FROM package_documents pd WHERE pd.package_id = m.id AND pd.doc_type = 'guia_externa')
+                     ))
+                    ) as has_label,
                     ${CLIENT_NUMBER_SQL} as client_number,
                     ${REFERENCE_HINT_SQL} as reference_hint,
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,

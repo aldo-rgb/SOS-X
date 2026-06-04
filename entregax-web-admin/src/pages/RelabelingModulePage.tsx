@@ -1743,7 +1743,14 @@ ${body}
                                                     fullWidth
                                                     variant="contained"
                                                     startIcon={<PrintIcon />}
-                                                    onClick={() => window.open(getUploadedExternalGuideUrl() as string, '_blank')}
+                                                    onClick={async () => {
+                                                        window.open(getUploadedExternalGuideUrl() as string, '_blank');
+                                                        // Marcar como etiqueta impresa al descargar
+                                                        try {
+                                                            await api.patch(`/admin/packages/${shipment.master.id}/mark-label-printed`);
+                                                            await handleSearch();
+                                                        } catch { /* no crítico */ }
+                                                    }}
                                                     sx={{ bgcolor: '#1976d2', '&:hover': { bgcolor: '#0d47a1' } }}
                                                 >
                                                     Descargar guía subida por cliente

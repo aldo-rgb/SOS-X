@@ -5027,6 +5027,23 @@ app.post('/api/admin/paquete-express/unlink-packages', authenticateToken, requir
 
 // Maritime relabeling: capture per-box dimensions and generate PQTX guide
 app.get('/api/admin/relabeling/maritime/:orderId/boxes', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getMaritimeOrderBoxes);
+// Marcar guía externa como etiqueta impresa (al descargar guia_externa en módulo de etiquetado)
+app.patch('/api/admin/packages/:id/mark-label-printed', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: AuthRequest, res: Response) => {
+  try {
+    const pkgId = parseInt(req.params.id as string);
+    if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
+    // Marcar master y todas sus hijas
+    await pool.query(
+      `UPDATE packages SET national_label_url = COALESCE(national_label_url, 'manual-printed'), updated_at = NOW()
+       WHERE id = $1 OR master_id = $1`,
+      [pkgId]
+    );
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.post('/api/admin/relabeling/maritime/:orderId/box', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), upsertMaritimeOrderBox);
 app.post('/api/admin/relabeling/maritime/:orderId/generate-pqtx', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), generatePqtxForMaritimeOrder);
 
@@ -9496,6 +9513,21 @@ app.get('/api/driver/route-today', authenticateToken, requireMinLevel(ROLES.REPA
 
 // Scan-to-Load: Carga de paquetes a la unidad
 app.post('/api/driver/scan-load', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), scanPackageToLoad);
+
+// Marcar etiqueta como impresa manualmente (paquetería externa sin API)
+app.patch('/api/driver/packages/:id/mark-label-printed', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), async (req: AuthRequest, res: Response) => {
+  try {
+    const pkgId = parseInt(req.params.id as string);
+    if (!pkgId) return res.status(400).json({ error: 'ID inválido' });
+    await pool.query(
+      `UPDATE packages SET national_label_url = COALESCE(national_label_url, 'manual-printed'), updated_at = NOW() WHERE id = $1`,
+      [pkgId]
+    );
+    res.json({ success: true });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+});
 
 // Retorno a bodega: Paquetes no entregados
 app.get('/api/driver/packages-to-return', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getPackagesToReturn);
