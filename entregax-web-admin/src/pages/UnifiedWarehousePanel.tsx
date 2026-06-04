@@ -651,6 +651,23 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                       sx={{ fontWeight: 700 }}
                     />
                     {(() => {
+                      const carrierNorm = String(m.nationalCarrier || '').toLowerCase();
+                      const isLocal = !carrierNorm || carrierNorm.includes('local') || carrierNorm.includes('entregax') || carrierNorm.includes('pickup');
+                      if (isLocal) {
+                        // Entrega local: la "etiqueta" es el PDF impreso desde el navegador.
+                        // No hay flag en BD → si tiene instrucciones asignadas = lista para imprimir.
+                        if (!m.assignedAddress) return null;
+                        return (
+                          <Chip
+                            label="🏠 Etiqueta Local"
+                            size="small"
+                            color="info"
+                            variant="outlined"
+                            sx={{ fontWeight: 700 }}
+                          />
+                        );
+                      }
+                      // Paquetería externa: verificar si ya se generó guía nacional
                       const hasLabel = !!(m.nationalLabelUrl || m.nationalTracking);
                       return (
                         <Chip
