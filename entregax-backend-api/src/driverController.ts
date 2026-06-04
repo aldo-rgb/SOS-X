@@ -1916,10 +1916,11 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             // Para cargar_unidad: marcar out_for_delivery en esta misma fase
             if (mode === 'cargar_unidad') {
                 const outStatus = await getOutForDeliveryWriteStatus();
+                const hasLoadedAt = await hasPackageColumn('loaded_at');
+                const setParts = [`${outStatus === 'out_for_delivery' ? 'delivery_status' : 'status'} = $1`, 'updated_at = NOW()'];
+                if (hasLoadedAt) setParts.push('loaded_at = COALESCE(loaded_at, NOW())');
                 await pool.query(
-                    `UPDATE packages SET ${outStatus === 'out_for_delivery' ? 'delivery_status' : 'status'} = $1,
-                     loaded_at = COALESCE(loaded_at, NOW()), updated_at = NOW()
-                     WHERE id = $2`,
+                    `UPDATE packages SET ${setParts.join(', ')} WHERE id = $2`,
                     [outStatus, pkg.id]
                 );
                 return res.json({
