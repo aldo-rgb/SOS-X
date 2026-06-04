@@ -126,14 +126,9 @@ const SocialAuthButtons: React.FC<Props> = ({ onSuccess, onError, onNotRegistere
         return; // usuario canceló
       }
       const data = err.response?.data;
-      if (data?.errorCode === 'SOCIAL_USER_NOT_REGISTERED' && data?.prefill && onNotRegistered) {
-        onNotRegistered({
-          email: data.prefill.email || '',
-          fullName: data.prefill.fullName || '',
-          provider: 'apple',
-        });
-        return;
-      }
+      // Cumplimiento Apple Guideline 4: NO redirigimos al registro tras Sign in
+      // with Apple (el backend ahora auto-crea la cuenta con los datos de
+      // AuthenticationServices). Sólo mostramos el error.
       onError(data?.error || err?.message || 'No se pudo iniciar sesión con Apple');
     } finally {
       setAppleLoading(false);

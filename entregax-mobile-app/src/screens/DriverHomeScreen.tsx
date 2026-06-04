@@ -914,7 +914,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   <MaterialIcons name="storefront" size={28} color="#F05A28" />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: '800', color: '#F05A28' }}>Mostrador</Text>
-                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Vas a la sucursal de la paquetería y entregas en ventanilla</Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Estas en la sucursal de la paquetería entregando en ventanilla</Text>
                   </View>
                   <MaterialIcons name="chevron-right" size={22} color="#F05A28" />
                 </TouchableOpacity>
@@ -930,7 +930,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   <MaterialIcons name="local-shipping" size={28} color="#1976d2" />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: '800', color: '#1976d2' }}>Recolección</Text>
-                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>La paquetería pasa a recoger los paquetes a tu ubicación</Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>La paquetería pasa a recoger los paquetes a CEDIS</Text>
                   </View>
                   <MaterialIcons name="chevron-right" size={22} color="#1976d2" />
                 </TouchableOpacity>
@@ -946,7 +946,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   <MaterialIcons name="add-box" size={28} color="#2E7D32" />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: '800', color: '#2E7D32' }}>Cargar Unidad</Text>
-                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Carga los paquetes a tu camioneta para llevarlos después</Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Carga los paquetes a tu camioneta para llevarlos a la paquetería</Text>
                   </View>
                   <MaterialIcons name="chevron-right" size={22} color="#2E7D32" />
                 </TouchableOpacity>

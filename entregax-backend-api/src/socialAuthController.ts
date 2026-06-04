@@ -367,24 +367,25 @@ export const appleAuth = async (req: Request, res: Response): Promise<void> => {
 
         await ensureSocialColumns();
 
+        // Cumplimiento Apple Guideline 4: tras Sign in with Apple NO podemos
+        // pedirle al usuario que vuelva a escribir su nombre/correo. Si la
+        // cuenta no existe, la creamos automáticamente con los datos que
+        // AuthenticationServices provee (sub + email + fullName). Otros
+        // campos (teléfono/WhatsApp) se solicitarán dentro de la app sólo
+        // cuando sean necesarios (p.ej. al hacer un envío).
         const { user, created } = await upsertSocialUser({
             provider: 'apple',
             sub,
             email: effectiveEmail,
             fullName: fullName || '',
             emailVerified: payload.email_verified === true || payload.email_verified === 'true',
-            allowCreate: false,
+            allowCreate: true,
         });
 
         if (!user) {
-            res.status(404).json({
-                error: 'No encontramos una cuenta con este correo. Regístrate primero para crear tu Número Cliente.',
-                errorCode: 'SOCIAL_USER_NOT_REGISTERED',
-                prefill: {
-                    email: effectiveEmail,
-                    fullName: fullName || '',
-                    provider: 'apple',
-                },
+            res.status(500).json({
+                error: 'No se pudo crear la cuenta con Apple. Intenta de nuevo o usa otro método.',
+                errorCode: 'APPLE_CREATE_FAILED',
             });
             return;
         }
