@@ -79,6 +79,12 @@ const HAS_LABEL_SQL = `(
     OR EXISTS (SELECT 1 FROM package_documents pd WHERE pd.package_id = p.id AND pd.doc_type = 'guia_externa')
 )`;
 
+// Incluir: paquetes no-master, O masters sin hijos (standalone como US-1379808951 con PQTX)
+const NOT_MASTER_WITH_CHILDREN_SQL = `(
+    COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+    OR NOT EXISTS (SELECT 1 FROM packages c WHERE c.master_id = p.id LIMIT 1)
+)`;
+
 let packageStatusColumnCache: 'delivery_status' | 'status' | null = null;
 let packageBranchSqlCache: string | null = null;
 const packageColumnsCache = new Set<string>();
@@ -784,7 +790,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${packageBranchSql} = $1
-                  AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                  AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                   AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
                   ${paymentWhereClause}
                 ORDER BY p.updated_at ASC NULLS LAST, p.created_at ASC
@@ -816,7 +822,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
                                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
-                  AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                  AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                   AND ${DELIVERY_STATUS_SQL} IN ('received', 'in_cedis', 'ready_for_pickup', 'ready_pickup', 'assigned', 'received_mty', 'received_cdmx', 'received_cdx', 'received_partial', 'inspected', 'pending_inspection', 'returned_to_warehouse')
                 ORDER BY p.created_at ASC
             `, [driverId]);
@@ -845,7 +851,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                 WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                   AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
-                  AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                  AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                 ORDER BY p.updated_at ASC, p.created_at ASC
             `, [driverId])
             : driverBranchId
@@ -871,7 +877,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                                         LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
                     WHERE ${packageBranchSql} = $1
                       AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
-                      AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                      AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                     ORDER BY p.updated_at ASC, p.created_at ASC
                 `, [driverBranchId])
                 : { rows: [] as any[] };
