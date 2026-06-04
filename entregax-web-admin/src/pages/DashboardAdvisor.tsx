@@ -2159,6 +2159,7 @@ export default function DashboardAdvisor() {
                   </Tooltip>
                 </TableCell>
                 <TableCell>{t('advisor.tracking')}</TableCell>
+                <TableCell>Guía Origen</TableCell>
                 <TableCell>{t('advisor.client')}</TableCell>
                 <TableCell align="center">{t('advisor.status')}</TableCell>
                 <TableCell>{t('advisor.service')}</TableCell>
@@ -2174,7 +2175,7 @@ export default function DashboardAdvisor() {
             <TableBody>
               {shipments.length === 0 && !shipmentsLoading && (
                 <TableRow>
-                  <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">{t('advisor.noShipments')}</Typography>
                   </TableCell>
                 </TableRow>
@@ -2201,6 +2202,15 @@ export default function DashboardAdvisor() {
                       )}
                     </Box>
                     {s.childNo && <Typography variant="caption" color="text.secondary">{s.childNo}</Typography>}
+                  </TableCell>
+                  <TableCell>
+                    {s.internationalTracking ? (
+                      <Typography variant="body2" fontFamily="monospace" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
+                        {s.internationalTracking}
+                      </Typography>
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">—</Typography>
+                    )}
                   </TableCell>
                   <TableCell>
                     <Typography variant="body2">{s.clientName}</Typography>
