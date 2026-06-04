@@ -274,7 +274,7 @@ const isEntregaXLocal = (carrier?: string | null): boolean => {
 const lastMileLabel = (carrier?: string | null): string => {
   if (!carrier) return 'No asignada';
   const s = carrier.toLowerCase();
-  if (isEntregaXLocal(carrier)) return '🚐 EntregaXa Local';
+  if (isEntregaXLocal(carrier)) return '🚐 EntregaX Local';
   if (s.includes('paquete') || s.includes('pqtx') || s.includes('express')) return '📦 Paquete Express';
   if (s.includes('estafeta')) return '📦 Estafeta';
   if (s.includes('fedex')) return '📦 FedEx';
@@ -650,6 +650,18 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                       variant="outlined"
                       sx={{ fontWeight: 700 }}
                     />
+                    {(() => {
+                      const hasLabel = !!(m.nationalLabelUrl || m.nationalTracking);
+                      return (
+                        <Chip
+                          label={hasLabel ? '🏷️ Con etiqueta' : '📋 Sin etiqueta'}
+                          size="small"
+                          color={hasLabel ? 'success' : 'default'}
+                          variant="outlined"
+                          sx={{ fontWeight: 700 }}
+                        />
+                      );
+                    })()}
                     {m.isMaster && (
                       <Chip
                         label={`Multipieza · ${m.totalBoxes || 1} cajas`}
