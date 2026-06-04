@@ -936,11 +936,12 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     return !c || c.includes('local') || c.includes('entregax') || c.includes('pickup') || c.includes('pick up');
                 };
 
-                // pendingToLoad = paquetes visibles en la pantalla "Entrega Local"
-                // Toggle ON → solo locales con instrucciones; Toggle OFF → todos
+                // pendingToLoad = paquetes visibles en "Entrega Local"
+                // Siempre excluir carriers externos (van por Envío Paquetería)
+                // Toggle ON además requiere instrucciones (assigned_address_id)
                 const pendingToLoad = reqLabel
                     ? pendingRes.rows.filter(p => p.assigned_address_id && isLocalCarrier(String(p.national_carrier || ''))).length
-                    : pendingRes.rows.length;
+                    : pendingRes.rows.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
                 const loadedToday = loadedRes.rows.length;
                 const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
                 const outStatus = await getOutForDeliveryWriteStatus();
