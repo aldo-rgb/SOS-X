@@ -26,11 +26,20 @@ import {
     IconButton,
     CircularProgress,
     Alert,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogActions,
+    Button,
+    Divider,
 } from '@mui/material';
 import {
     ArrowBack as ArrowBackIcon,
     Refresh as RefreshIcon,
     Inventory2 as InventoryIcon,
+    SwapHoriz as SwapHorizIcon,
+    Warning as WarningIcon,
+    Inventory as InventoryStackIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -104,6 +113,11 @@ export default function POBoxInventoryPage({ onBack }: Props) {
     const [error, setError] = useState<string | null>(null);
     const [packages, setPackages] = useState<InventoryPackage[]>([]);
     const [savingId, setSavingId] = useState<number | null>(null);
+    // Confirmación con diseño (reemplaza window.confirm nativo)
+    const [pendingChange, setPendingChange] = useState<
+        | { pkg: InventoryPackage; newStatus: string; newLabel: string; currentLabel: string }
+        | null
+    >(null);
 
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
@@ -126,14 +140,15 @@ export default function POBoxInventoryPage({ onBack }: Props) {
 
     const handleChangeStatus = async (pkg: InventoryPackage, newStatus: string) => {
         if (!isSuperAdmin || newStatus === pkg.status) return;
-        const label = EDITABLE_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
-        if (!window.confirm(
-            `¿Cambiar el estado de ${pkg.tracking} a "${label}"?\n\n` +
-            (pkg.isMaster && (pkg.totalBoxes || 0) > 1
-                ? `Esto también actualizará las ${pkg.totalBoxes} cajas hijas.\n\n`
-                : '') +
-            `Esta acción queda registrada en el historial.`
-        )) return;
+        const newLabel = EDITABLE_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
+        const currentLabel = STATUS_LABELS[pkg.status]?.label || pkg.statusLabel || pkg.status;
+        setPendingChange({ pkg, newStatus, newLabel, currentLabel });
+    };
+
+    const confirmChangeStatus = async () => {
+        if (!pendingChange) return;
+        const { pkg, newStatus } = pendingChange;
+        setPendingChange(null);
         setSavingId(pkg.id);
         try {
             const token = localStorage.getItem('token') || '';
@@ -142,13 +157,11 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                 { status: newStatus, notes: 'Cambio manual desde Inventario PO Box (super admin)' },
                 { headers: { Authorization: `Bearer ${token}` } }
             );
-            // Actualizar localmente sin recargar todo
             setPackages(prev => prev.map(p =>
                 p.id === pkg.id || (pkg.isMaster && p.consolidationId === pkg.consolidationId && pkg.id === p.id)
                     ? { ...p, status: newStatus }
                     : p
             ));
-            // Recargar para traer statusDate/labels actualizados
             load();
         } catch (e) {
             const err = e as { response?: { data?: { error?: string } }; message?: string };
@@ -474,6 +487,185 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                     labelRowsPerPage="Filas por página"
                 />
             </Paper>
+
+            {/* Diálogo de confirmación al cambiar estado (super_admin) */}
+            <Dialog
+                open={!!pendingChange}
+                onClose={() => setPendingChange(null)}
+                maxWidth="xs"
+                fullWidth
+                PaperProps={{
+                    sx: {
+                        borderRadius: 3,
+                        overflow: 'hidden',
+                        boxShadow: '0 16px 48px rgba(0,0,0,0.25)',
+                    },
+                }}
+            >
+                {/* Header con gradiente naranja → rojo */}
+                <Box
+                    sx={{
+                        background: 'linear-gradient(135deg, #F05A28 0%, #C1272D 100%)',
+                        color: '#FFF',
+                        px: 3,
+                        py: 2.5,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 2,
+                    }}
+                >
+                    <Box
+                        sx={{
+                            width: 44,
+                            height: 44,
+                            borderRadius: '50%',
+                            bgcolor: 'rgba(255,255,255,0.2)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                        }}
+                    >
+                        <SwapHorizIcon sx={{ fontSize: 26 }} />
+                    </Box>
+                    <Box flex={1} minWidth={0}>
+                        <Typography variant="overline" sx={{ opacity: 0.85, lineHeight: 1, fontWeight: 700 }}>
+                            Cambio manual de estado
+                        </Typography>
+                        <DialogTitle
+                            sx={{
+                                p: 0,
+                                color: '#FFF',
+                                fontSize: '1.15rem',
+                                fontWeight: 800,
+                                lineHeight: 1.2,
+                                mt: 0.5,
+                                wordBreak: 'break-all',
+                            }}
+                        >
+                            {pendingChange?.pkg.tracking}
+                        </DialogTitle>
+                    </Box>
+                </Box>
+
+                <DialogContent sx={{ p: 3 }}>
+                    {/* Transición visual de estado */}
+                    <Stack
+                        direction="row"
+                        spacing={1}
+                        alignItems="center"
+                        justifyContent="center"
+                        sx={{ mb: 2.5, flexWrap: 'wrap' }}
+                    >
+                        <Chip
+                            label={pendingChange?.currentLabel}
+                            size="small"
+                            sx={{
+                                bgcolor: '#EEE',
+                                color: '#555',
+                                fontWeight: 700,
+                                fontSize: '0.78rem',
+                                textDecoration: 'line-through',
+                            }}
+                        />
+                        <SwapHorizIcon sx={{ color: ORANGE, fontSize: 22 }} />
+                        <Chip
+                            label={pendingChange?.newLabel}
+                            size="small"
+                            sx={{
+                                bgcolor: ORANGE,
+                                color: '#FFF',
+                                fontWeight: 800,
+                                fontSize: '0.78rem',
+                            }}
+                        />
+                    </Stack>
+
+                    {/* Resumen del paquete */}
+                    <Paper
+                        variant="outlined"
+                        sx={{
+                            p: 1.5,
+                            mb: 2,
+                            borderColor: '#FFD9C7',
+                            bgcolor: '#FFF8F0',
+                            borderRadius: 2,
+                        }}
+                    >
+                        <Stack spacing={0.5}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                                Cliente
+                            </Typography>
+                            <Typography variant="body2" sx={{ fontWeight: 700, color: BLACK }}>
+                                {pendingChange?.pkg.client?.name || '—'}
+                                {pendingChange?.pkg.client?.boxId ? ` · ${pendingChange.pkg.client.boxId}` : ''}
+                            </Typography>
+                        </Stack>
+                    </Paper>
+
+                    {/* Aviso multipieza */}
+                    {pendingChange?.pkg.isMaster && (pendingChange?.pkg.totalBoxes || 0) > 1 && (
+                        <Alert
+                            severity="warning"
+                            icon={<InventoryStackIcon />}
+                            sx={{
+                                mb: 2,
+                                borderRadius: 2,
+                                '& .MuiAlert-icon': { color: '#E65100' },
+                            }}
+                        >
+                            <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                                Master multipieza
+                            </Typography>
+                            <Typography variant="caption">
+                                También se actualizarán las <strong>{pendingChange.pkg.totalBoxes} cajas hijas</strong>.
+                            </Typography>
+                        </Alert>
+                    )}
+
+                    <Divider sx={{ my: 1.5 }} />
+
+                    <Stack direction="row" spacing={1} alignItems="center">
+                        <WarningIcon sx={{ color: '#C1272D', fontSize: 18 }} />
+                        <Typography variant="caption" sx={{ color: '#555' }}>
+                            Esta acción queda registrada en el historial del paquete como
+                            <strong> "Cambio manual desde Inventario PO Box"</strong>.
+                        </Typography>
+                    </Stack>
+                </DialogContent>
+
+                <DialogActions sx={{ px: 3, pb: 2.5, pt: 0 }}>
+                    <Button
+                        onClick={() => setPendingChange(null)}
+                        variant="outlined"
+                        sx={{
+                            borderColor: '#CCC',
+                            color: '#555',
+                            fontWeight: 700,
+                            '&:hover': { borderColor: '#999', bgcolor: '#F5F5F5' },
+                        }}
+                    >
+                        Cancelar
+                    </Button>
+                    <Button
+                        onClick={confirmChangeStatus}
+                        variant="contained"
+                        startIcon={<SwapHorizIcon />}
+                        sx={{
+                            background: 'linear-gradient(135deg, #F05A28 0%, #C1272D 100%)',
+                            color: '#FFF',
+                            fontWeight: 800,
+                            px: 2.5,
+                            boxShadow: '0 4px 12px rgba(240,90,40,0.35)',
+                            '&:hover': {
+                                background: 'linear-gradient(135deg, #d44a1f 0%, #a31f24 100%)',
+                            },
+                        }}
+                    >
+                        Confirmar cambio
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Box>
     );
 }
