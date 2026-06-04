@@ -24,7 +24,10 @@ import {
   CheckCircle as CheckCircleIcon,
   Person as PersonIcon,
   ArrowBack as ArrowBackIcon,
+  Assignment as AssignmentIcon,
+  Receipt as ReceiptIcon,
 } from '@mui/icons-material';
+import Divider from '@mui/material/Divider';
 import api from '../services/api';
 
 interface ConsolidacionPendiente {
@@ -97,18 +100,14 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const [soloFaltantes, setSoloFaltantes] = useState<Set<number>>(new Set());
   const [soloNoLlegados, setSoloNoLlegados] = useState<Set<number>>(new Set());
 
-  // Pago individual
-  const [consolidacionAPagar, setConsolidacionAPagar] = useState<ConsolidacionPendiente | null>(null);
-  const [pagoDialogOpen, setPagoDialogOpen] = useState(false);
-  const [pagoRef, setPagoRef] = useState('');
-  const [pagoNotas, setPagoNotas] = useState('');
-  const [procesandoPago, setProcesandoPago] = useState(false);
+  // (Generar Orden de Pago abre PDF directo — sin estado de diálogo)
 
-  // Pago múltiple
-  const [pagoMultipleDialogOpen, setPagoMultipleDialogOpen] = useState(false);
-  const [pagoMultipleRef, setPagoMultipleRef] = useState('');
-  const [pagoMultipleNotas, setPagoMultipleNotas] = useState('');
-  const [procesandoMultiple, setProcesandoMultiple] = useState(false);
+  // Realizar Pago Referenciado (múltiple) — 2 pasos: referencia → confirmación
+  const [pagoRefDialogOpen, setPagoRefDialogOpen] = useState(false);
+  const [pagoRefStep, setPagoRefStep] = useState<'referencia' | 'confirmacion'>('referencia');
+  const [pagoRefInput, setPagoRefInput] = useState('');
+  const [pagoRefNotas, setPagoRefNotas] = useState('');
+  const [procesandoPagoRef, setProcesandoPagoRef] = useState(false);
 
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
@@ -252,42 +251,42 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // ── Pago individual ─────────────────────────────────────────────────
-  const handlePagarIndividual = async () => {
-    if (!consolidacionAPagar) return;
-    setProcesandoPago(true);
-    try {
-      const r = await api.post('/caja-chica/pagar-consolidacion', {
-        consolidation_id: consolidacionAPagar.id,
-        monto: Number(consolidacionAPagar.total_cost_mxn),
-        referencia: pagoRef || null,
-        notas: pagoNotas || null,
-      });
-      setSnackbar({ open: true, message: `✅ Pago de ${formatCurrency(Number(consolidacionAPagar.total_cost_mxn))} registrado · ${r.data.packages_updated} paquetes`, severity: 'success' });
-      setPagoDialogOpen(false); setConsolidacionAPagar(null);
-      fetchConsolidaciones(filtroDesde || undefined, filtroHasta || undefined, proveedorSel?.id);
-    } catch (e: any) {
-      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al procesar pago', severity: 'error' });
-    } finally { setProcesandoPago(false); }
+  // ── Generar Orden de Pago (individual) ─────────────────────────────
+  const handleGenerarOrdenPago = (c: ConsolidacionPendiente) => {
+    const fecha = new Date().toLocaleString('es-MX');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Orden de Pago #${c.id}</title>
+<style>@page{size:letter;margin:20mm}body{font-family:Arial,sans-serif;font-size:12px;color:#222}h1{font-size:20px;color:#C1272D;margin:0 0 4px}h2{font-size:14px;color:#333;margin:0 0 16px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:2px solid #C1272D;padding-bottom:12px}.info{margin-bottom:16px}.info dt{font-weight:700;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:.5px}.info dd{font-size:14px;margin:0 0 8px}.totals{border:2px solid #C1272D;padding:12px 16px;margin:20px 0;display:flex;justify-content:space-between}.totals .big{font-size:20px;font-weight:900;color:#C1272D}.ref-box{border:1px dashed #999;padding:10px;margin-top:20px;font-size:11px}.sig{margin-top:40px;display:flex;justify-content:space-between}.sig div{text-align:center;width:45%}.sig hr{border:none;border-top:1px solid #333;margin-bottom:4px}</style></head><body>
+<div class="header"><div><h1>EntregaX · Orden de Pago</h1><h2>PO Box USA — Proveedor ${c.supplier_name}</h2></div><div style="text-align:right;font-size:11px;color:#666">Generada: ${fecha}<br/>Consolidación: <strong>#${c.id}</strong></div></div>
+<dl class="info"><dt>Proveedor</dt><dd>${c.supplier_name}</dd><dt>Consolidación</dt><dd>#${c.id} · ${new Date(c.created_at).toLocaleDateString('es-MX')}</dd><dt>Paquetes</dt><dd>${c.package_count}</dd></dl>
+<div class="totals"><div>Total USD: <span class="big">$${Number(c.total_cost_usd || 0).toFixed(2)}</span></div><div>Total MXN: <span class="big">$${Number(c.total_cost_mxn || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div></div>
+<div class="ref-box">Referencia de pago (folio / SPEI / cheque): ___________________________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Fecha de pago: _____________</div>
+<div class="sig"><div><hr>Elaborado por</div><div><hr>Autorizado por</div></div>
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});</script>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) { setSnackbar({ open: true, message: 'Permite ventanas emergentes para generar la orden', severity: 'error' }); return; }
+    w.document.write(html); w.document.close();
   };
 
-  // ── Pago múltiple ───────────────────────────────────────────────────
-  const handlePagarMultiple = async () => {
+  // ── Realizar Pago Referenciado ──────────────────────────────────────
+  const handleConfirmarPagoReferenciado = async () => {
     const pagables = consolidaciones.filter(c => selected.has(c.id) && Number(c.total_cost_mxn || 0) > 0 && !c.has_missing);
-    if (pagables.length === 0) { setSnackbar({ open: true, message: 'No hay consolidaciones pagables seleccionadas (sin faltantes y con monto > 0)', severity: 'info' }); return; }
-    setProcesandoMultiple(true);
+    if (pagables.length === 0) { setSnackbar({ open: true, message: 'No hay consolidaciones pagables seleccionadas', severity: 'info' }); return; }
+    if (!pagoRefInput.trim()) { setSnackbar({ open: true, message: 'La referencia es requerida', severity: 'info' }); return; }
+    setProcesandoPagoRef(true);
     try {
       const r = await api.post('/caja-chica/pagar-consolidaciones-multiple', {
         consolidation_ids: pagables.map(c => c.id),
-        referencia: pagoMultipleRef || null,
-        notas: pagoMultipleNotas || null,
+        referencia: pagoRefInput.trim(),
+        notas: pagoRefNotas || null,
       });
       setSnackbar({ open: true, message: `✅ ${r.data.consolidations?.length || pagables.length} consolidaciones pagadas · ${r.data.packages_updated || 0} paquetes · ${formatCurrency(Number(r.data.total_monto || 0))}`, severity: 'success' });
-      setPagoMultipleDialogOpen(false); setSelected(new Set());
+      setPagoRefDialogOpen(false); setPagoRefStep('referencia'); setPagoRefInput(''); setPagoRefNotas('');
+      setSelected(new Set());
       fetchConsolidaciones(filtroDesde || undefined, filtroHasta || undefined, proveedorSel?.id);
     } catch (e: any) {
-      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al procesar pago múltiple', severity: 'error' });
-    } finally { setProcesandoMultiple(false); }
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al procesar pago', severity: 'error' });
+    } finally { setProcesandoPagoRef(false); }
   };
 
   // ═══════════════════════════════════════════════════════════════════
@@ -498,14 +497,17 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                           {c.has_missing && Number(c.pending_cost_mxn || 0) > 0 && <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>⚠ {formatCurrency(Number(c.pending_cost_mxn))} faltante</Typography>}
                         </TableCell>
                         <TableCell align="center">
-                          <Button variant="contained" size="small" color="warning" startIcon={<PaymentIcon />}
-                            disabled={Number(c.total_cost_mxn || 0) <= 0}
-                            onClick={(e) => { e.stopPropagation(); setConsolidacionAPagar(c); setPagoRef(''); setPagoNotas(''); setPagoDialogOpen(true); }}
-                          >
-                            {Number(c.total_cost_mxn || 0) <= 0
-                              ? (Number(c.paid_cost_mxn || 0) > 0 ? 'Ya pagada' : 'Esperando llegada')
-                              : c.has_missing ? 'Pagar parcial' : 'Pagar'}
-                          </Button>
+                          {Number(c.total_cost_mxn || 0) <= 0 ? (
+                            <Typography variant="caption" color="text.secondary">
+                              {Number(c.paid_cost_mxn || 0) > 0 ? 'Ya pagada' : 'Esperando llegada'}
+                            </Typography>
+                          ) : (
+                            <Button variant="outlined" size="small" color="primary" startIcon={<AssignmentIcon />}
+                              onClick={(e) => { e.stopPropagation(); handleGenerarOrdenPago(c); }}
+                            >
+                              Generar Orden de Pago
+                            </Button>
+                          )}
                         </TableCell>
                       </TableRow>
 
@@ -615,8 +617,13 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
               </Tooltip>
               <Tooltip title={selected.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
                 <span>
-                  <Button variant="contained" color="warning" startIcon={<PaymentIcon />} onClick={() => { setPagoMultipleRef(''); setPagoMultipleNotas(''); setPagoMultipleDialogOpen(true); }} disabled={selected.size === 0}>
-                    Pagar ({selected.size})
+                  <Button
+                    variant="contained" color="warning"
+                    startIcon={<ReceiptIcon />}
+                    onClick={() => { setPagoRefInput(''); setPagoRefNotas(''); setPagoRefStep('referencia'); setPagoRefDialogOpen(true); }}
+                    disabled={selected.size === 0}
+                  >
+                    Realizar Pago Referenciado ({selected.size})
                   </Button>
                 </span>
               </Tooltip>
@@ -625,66 +632,100 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
         </Box>
       )}
 
-      {/* Dialog: Pago individual */}
-      <Dialog open={pagoDialogOpen} onClose={() => !procesandoPago && setPagoDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>💳 Confirmar Pago — #{consolidacionAPagar?.id}</DialogTitle>
-        <DialogContent>
-          <Typography variant="body1" gutterBottom>
-            Proveedor: <strong>{consolidacionAPagar?.supplier_name}</strong>
-          </Typography>
-          <Typography variant="body1" gutterBottom>
-            Monto a pagar: <strong>{formatCurrency(Number(consolidacionAPagar?.total_cost_mxn || 0))}</strong>
-            {' '}(${Number(consolidacionAPagar?.total_cost_usd || 0).toFixed(2)} USD)
-          </Typography>
-          <TextField label="Referencia de pago" fullWidth size="small" value={pagoRef} onChange={(e) => setPagoRef(e.target.value)} sx={{ mt: 2 }} />
-          <TextField label="Notas (opcional)" fullWidth size="small" multiline rows={2} value={pagoNotas} onChange={(e) => setPagoNotas(e.target.value)} sx={{ mt: 2 }} />
-          <Alert severity="warning" sx={{ mt: 2 }}>
-            Se registrará un <strong>egreso</strong> en caja chica y se marcarán los paquetes como <strong>pagados al proveedor</strong>.
-          </Alert>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPagoDialogOpen(false)} disabled={procesandoPago}>Cancelar</Button>
-          <Button variant="contained" color="warning" onClick={handlePagarIndividual} disabled={procesandoPago} startIcon={procesandoPago ? <CircularProgress size={16} /> : <PaymentIcon />}>
-            {procesandoPago ? 'Procesando...' : 'Confirmar Pago'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Dialog: Pago múltiple */}
-      <Dialog open={pagoMultipleDialogOpen} onClose={() => !procesandoMultiple && setPagoMultipleDialogOpen(false)} maxWidth="sm" fullWidth>
-        <DialogTitle>💳 Pago Múltiple — {selected.size} consolidación(es)</DialogTitle>
-        <DialogContent>
-          {(() => {
-            const pagables = consolidaciones.filter(c => selected.has(c.id) && Number(c.total_cost_mxn || 0) > 0 && !c.has_missing);
-            const conFaltantes = consolidaciones.filter(c => selected.has(c.id) && c.has_missing);
-            const totalMxn = pagables.reduce((s, c) => s + Number(c.total_cost_mxn || 0), 0);
-            const totalUsd = pagables.reduce((s, c) => s + Number(c.total_cost_usd || 0), 0);
-            return (
-              <>
-                <Typography variant="body1" gutterBottom>
-                  {pagables.length} consolidación(es) a pagar:&nbsp;
-                  <strong>{formatCurrency(totalMxn)}</strong> / ${totalUsd.toFixed(2)} USD
-                </Typography>
-                {conFaltantes.length > 0 && (
-                  <Alert severity="warning" sx={{ mb: 2 }}>
-                    {conFaltantes.length} consolidación(es) con faltantes se excluirán del pago múltiple. Págalas individualmente.
-                  </Alert>
-                )}
-                <TextField label="Referencia de pago" fullWidth size="small" value={pagoMultipleRef} onChange={(e) => setPagoMultipleRef(e.target.value)} sx={{ mt: 2 }} />
-                <TextField label="Notas (opcional)" fullWidth size="small" multiline rows={2} value={pagoMultipleNotas} onChange={(e) => setPagoMultipleNotas(e.target.value)} sx={{ mt: 2 }} />
-                <Alert severity="warning" sx={{ mt: 2 }}>
-                  Se registrará <strong>un solo egreso</strong> en caja chica por el total de las consolidaciones pagables.
-                </Alert>
-              </>
-            );
-          })()}
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPagoMultipleDialogOpen(false)} disabled={procesandoMultiple}>Cancelar</Button>
-          <Button variant="contained" color="warning" onClick={handlePagarMultiple} disabled={procesandoMultiple} startIcon={procesandoMultiple ? <CircularProgress size={16} /> : <PaymentIcon />}>
-            {procesandoMultiple ? 'Procesando...' : 'Confirmar Pago'}
-          </Button>
-        </DialogActions>
+      {/* Dialog: Realizar Pago Referenciado (2 pasos) */}
+      <Dialog open={pagoRefDialogOpen} onClose={() => !procesandoPagoRef && (setPagoRefDialogOpen(false), setPagoRefStep('referencia'))} maxWidth="sm" fullWidth>
+        {pagoRefStep === 'referencia' ? (
+          <>
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <ReceiptIcon color="warning" /> Realizar Pago Referenciado
+            </DialogTitle>
+            <DialogContent>
+              <Typography variant="body2" color="text.secondary" gutterBottom>
+                Ingresa la referencia del pago realizado al proveedor (folio, SPEI, cheque, etc.)
+              </Typography>
+              <TextField
+                label="Referencia de pago"
+                placeholder="Ej: SPEI-2024060401 / CHK-00123"
+                fullWidth autoFocus
+                value={pagoRefInput}
+                onChange={(e) => setPagoRefInput(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && pagoRefInput.trim()) setPagoRefStep('confirmacion'); }}
+                sx={{ mt: 2 }}
+              />
+              <TextField
+                label="Notas (opcional)"
+                fullWidth multiline rows={2}
+                value={pagoRefNotas}
+                onChange={(e) => setPagoRefNotas(e.target.value)}
+                sx={{ mt: 2 }}
+              />
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setPagoRefDialogOpen(false)}>Cancelar</Button>
+              <Button variant="contained" color="primary" disabled={!pagoRefInput.trim()} onClick={() => setPagoRefStep('confirmacion')}>
+                Continuar →
+              </Button>
+            </DialogActions>
+          </>
+        ) : (
+          <>
+            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <PaymentIcon color="warning" /> Confirmar Pago Referenciado
+            </DialogTitle>
+            <DialogContent>
+              <Box sx={{ bgcolor: 'grey.50', borderRadius: 1, p: 2, mb: 2 }}>
+                <Typography variant="body2" color="text.secondary">Referencia</Typography>
+                <Typography variant="h6" fontWeight="bold" fontFamily="monospace">{pagoRefInput}</Typography>
+                {pagoRefNotas && <Typography variant="caption" color="text.secondary">{pagoRefNotas}</Typography>}
+              </Box>
+              <Divider sx={{ my: 2 }} />
+              {(() => {
+                const pagables = consolidaciones.filter(c => selected.has(c.id) && Number(c.total_cost_mxn || 0) > 0 && !c.has_missing);
+                const conFaltantes = consolidaciones.filter(c => selected.has(c.id) && c.has_missing);
+                const totalMxn = pagables.reduce((s, c) => s + Number(c.total_cost_mxn || 0), 0);
+                const totalUsd = pagables.reduce((s, c) => s + Number(c.total_cost_usd || 0), 0);
+                return (
+                  <>
+                    {pagables.map(c => (
+                      <Box key={c.id} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
+                        <Typography variant="body2">Consolidación #{c.id} · {c.supplier_name}</Typography>
+                        <Typography variant="body2" fontWeight="bold">{formatCurrency(Number(c.total_cost_mxn || 0))}</Typography>
+                      </Box>
+                    ))}
+                    <Divider sx={{ my: 1 }} />
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                      <Typography fontWeight="bold">Total</Typography>
+                      <Box textAlign="right">
+                        <Typography fontWeight="bold" color="warning.dark">{formatCurrency(totalMxn)}</Typography>
+                        <Typography variant="caption" color="text.secondary">${totalUsd.toFixed(2)} USD</Typography>
+                      </Box>
+                    </Box>
+                    {conFaltantes.length > 0 && (
+                      <Alert severity="warning" sx={{ mt: 2 }}>
+                        {conFaltantes.length} consolidación(es) con faltantes fueron excluidas. Págalas por separado.
+                      </Alert>
+                    )}
+                    <Alert severity="warning" sx={{ mt: 2 }}>
+                      Se registrará un <strong>egreso</strong> en Caja CC y los paquetes quedarán marcados como <strong>pagados al proveedor</strong>.
+                    </Alert>
+                  </>
+                );
+              })()}
+            </DialogContent>
+            <DialogActions>
+              <Button onClick={() => setPagoRefStep('referencia')} disabled={procesandoPagoRef}>← Cambiar referencia</Button>
+              <Button onClick={() => setPagoRefDialogOpen(false)} disabled={procesandoPagoRef}>Cancelar</Button>
+              <Button
+                variant="contained" color="warning"
+                onClick={handleConfirmarPagoReferenciado}
+                disabled={procesandoPagoRef}
+                startIcon={procesandoPagoRef ? <CircularProgress size={16} /> : <PaymentIcon />}
+              >
+                {procesandoPagoRef ? 'Procesando...' : `Pagar (${consolidaciones.filter(c => selected.has(c.id) && Number(c.total_cost_mxn || 0) > 0 && !c.has_missing).length})`}
+              </Button>
+            </DialogActions>
+          </>
+        )}
       </Dialog>
 
       {/* Snackbar */}
