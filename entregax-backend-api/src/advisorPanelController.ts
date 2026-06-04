@@ -518,6 +518,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
             WHEN 'AIR_CHN_MX' THEN addr.carrier_config->>'china_air'
             WHEN 'POBOX_USA'   THEN addr.carrier_config->>'usa_pobox'
             WHEN 'TDI_EXPRESS' THEN addr.carrier_config->>'tdi_express'
+            WHEN 'AA_DHL'      THEN addr.carrier_config->>'aa_dhl'
             ELSE NULL END
          WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_carrier_name,
         (SELECT cso.icon FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key =
@@ -525,6 +526,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
             WHEN 'AIR_CHN_MX' THEN addr.carrier_config->>'china_air'
             WHEN 'POBOX_USA'   THEN addr.carrier_config->>'usa_pobox'
             WHEN 'TDI_EXPRESS' THEN addr.carrier_config->>'tdi_express'
+            WHEN 'AA_DHL'      THEN addr.carrier_config->>'aa_dhl'
             ELSE NULL END
          WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_carrier_icon,
         (SELECT addr.alias FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_name,
