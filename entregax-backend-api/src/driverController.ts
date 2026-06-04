@@ -2060,6 +2060,35 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
                  WHERE id = $3`,
                 [sentStatus, extTracking, confirmedId]
             );
+            // Si el paquete tiene master_id, verificar si todos los hermanos ya están
+            // en sentStatus para actualizar también el master
+            try {
+                const pkgRow = await pool.query(
+                    `SELECT to_jsonb(p)->>'master_id' as master_id FROM packages p WHERE id = $1`, [confirmedId]
+                );
+                const masterId = pkgRow.rows[0]?.master_id;
+                if (masterId) {
+                    // Contar hermanos que ya tienen el sentStatus
+                    const sibRes = await pool.query(
+                        `SELECT COUNT(*) as total,
+                                COUNT(CASE WHEN COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') = $1 THEN 1 END) as done
+                         FROM packages p WHERE master_id = $2`,
+                        [sentStatus, masterId]
+                    );
+                    const { total, done } = sibRes.rows[0] || {};
+                    // Si todos (o al menos 1) hijos ya están enviados, actualizar master
+                    if (parseInt(done) > 0) {
+                        const statusCol = await getPackageStatusColumn();
+                        await pool.query(
+                            `UPDATE packages SET ${statusCol} = $1, updated_at = NOW() WHERE id = $2`,
+                            [sentStatus, masterId]
+                        );
+                        console.log(`[paqHandoff] Master ${masterId} actualizado a '${sentStatus}' (${done}/${total} hijos procesados)`);
+                    }
+                }
+            } catch (masterErr: any) {
+                console.warn('[paqHandoff] No se pudo actualizar master:', masterErr?.message);
+            }
             // Historial
             try {
                 await pool.query(
