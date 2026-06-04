@@ -854,6 +854,90 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           </View>
         </View>
       </Modal>
+      {/* Modal: Asignados Hoy - historial completo */}
+      <Modal visible={showAssignedModal} animationType="slide" transparent onRequestClose={() => setShowAssignedModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '85%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <MaterialIcons name="inventory-2" size={24} color="#F05A28" />
+                <Text style={{ fontSize: 17, fontWeight: '800', color: '#111' }}>Asignados Hoy</Text>
+                <View style={{ backgroundColor: '#F05A28', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 }}>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{stats.totalAssigned}</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowAssignedModal(false)}>
+                <MaterialIcons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
+              {/* ENTREGADOS */}
+              {deliveredPackages.length > 0 && (
+                <View style={{ marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#4CAF50' }}>Entregados hoy ({deliveredPackages.length})</Text>
+                  </View>
+                  {deliveredPackages.map((pkg: any, i: number) => (
+                    <View key={`delivered-${pkg.id}-${i}`} style={{ backgroundColor: '#F1F8E9', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#4CAF50' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#2E7D32', flexShrink: 1 }}>{pkg.tracking_number}</Text>
+                        {pkg.client_number ? <View style={{ backgroundColor: '#C8E6C9', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}><Text style={{ fontSize: 11, fontWeight: '700', color: '#1B5E20' }}>{pkg.client_number}</Text></View> : null}
+                      </View>
+                      {pkg.recipient_name ? <Text style={{ fontSize: 12, color: '#388E3C' }}>{pkg.recipient_name}</Text> : null}
+                      {pkg.delivery_address ? <Text style={{ fontSize: 11, color: '#666' }} numberOfLines={1}>{pkg.delivery_address}{pkg.delivery_city ? `, ${pkg.delivery_city}` : ''}</Text> : null}
+                    </View>
+                  ))}
+                </View>
+              )}
+              {/* CARGADOS EN CAMIONETA */}
+              {loadedPackages.length > 0 && (
+                <View style={{ marginBottom: 16 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <MaterialIcons name="local-shipping" size={18} color="#2196F3" />
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#2196F3' }}>En camioneta ({loadedPackages.length})</Text>
+                  </View>
+                  {loadedPackages.map((pkg: any, i: number) => (
+                    <View key={`loaded-${pkg.id}-${i}`} style={{ backgroundColor: '#E3F2FD', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#2196F3' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#1565C0', flexShrink: 1 }}>{pkg.tracking_number}</Text>
+                        {pkg.client_number ? <View style={{ backgroundColor: '#BBDEFB', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}><Text style={{ fontSize: 11, fontWeight: '700', color: '#0D47A1' }}>{pkg.client_number}</Text></View> : null}
+                      </View>
+                      {pkg.recipient_name ? <Text style={{ fontSize: 12, color: '#1976D2' }}>{pkg.recipient_name}</Text> : null}
+                      {pkg.delivery_address ? <Text style={{ fontSize: 11, color: '#666' }} numberOfLines={1}>{pkg.delivery_address}{pkg.delivery_city ? `, ${pkg.delivery_city}` : ''}</Text> : null}
+                    </View>
+                  ))}
+                </View>
+              )}
+              {/* PENDIENTES POR CARGAR */}
+              {pendingPackagesList.length > 0 && (
+                <View style={{ marginBottom: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <MaterialIcons name="pending" size={18} color="#FF9800" />
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#FF9800' }}>Pendientes por cargar ({pendingPackagesList.length})</Text>
+                  </View>
+                  {pendingPackagesList.map((pkg: any, i: number) => (
+                    <View key={`pending-${pkg.id}-${i}`} style={{ backgroundColor: '#FFF8E1', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#FF9800' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', flexShrink: 1 }}>{pkg.tracking_number}</Text>
+                        {pkg.client_number ? <View style={{ backgroundColor: '#FFE0B2', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}><Text style={{ fontSize: 11, fontWeight: '700', color: '#BF360C' }}>{pkg.client_number}</Text></View> : null}
+                      </View>
+                      {pkg.recipient_name ? <Text style={{ fontSize: 12, color: '#E65100' }}>{pkg.recipient_name}</Text> : null}
+                      {pkg.delivery_address ? <Text style={{ fontSize: 11, color: '#666' }} numberOfLines={1}>{pkg.delivery_address}{pkg.delivery_city ? `, ${pkg.delivery_city}` : ''}</Text> : null}
+                    </View>
+                  ))}
+                </View>
+              )}
+              {deliveredPackages.length === 0 && loadedPackages.length === 0 && pendingPackagesList.length === 0 && (
+                <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                  <MaterialIcons name="inbox" size={48} color="#ccc" />
+                  <Text style={{ color: '#999', marginTop: 8 }}>Sin paquetes asignados hoy</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
       {/* Modal: Paqueterías con envíos pendientes */}
       <Modal visible={showPaqueteriaModal} animationType="slide" transparent onRequestClose={() => { setShowPaqueteriaModal(false); setSelectedCarrierGroup(null); setPaqueteriaView('carrier_list'); setPendingCarrier(null); }}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
