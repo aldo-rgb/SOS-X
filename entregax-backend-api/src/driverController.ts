@@ -1888,9 +1888,31 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
     if (!driverId) return res.status(401).json({ error: 'Sesión no válida' });
 
     try {
+        // Normalizar código — layout teclado ES: ' → -, Ñ → :, y extraer tracking de URL
+        const normalizeCode = (raw: string): string => {
+            let v = String(raw || '').trim()
+                .replace(/Ñ/gi, ':')
+                .replace(/['’ʼ]/g, '-')  // apostrofe regular, curvo y modificador
+                .replace(/¿/g, '/')
+                .toUpperCase();
+            // Reparar URL si viene completa (scanner distorsionó https://...)
+            if (/^HTTPS?:-+/i.test(v)) {
+                v = v.replace(/^(HTTPS?):-+/i, '$1://');
+                v = v.replace(/([A-Z]{2,}\.[A-Z]{2,})-/gi, '$1/');
+                v = v.replace(/TRACK-/gi, 'TRACK/');
+            }
+            // Extraer tracking de URL
+            const urlMatch = v.match(/(?:TRACK|T)[/-]([A-Z0-9-]+)/i);
+            if (urlMatch) return urlMatch[1] as string;
+            // Auto-insertar guion si viene pegado (US1379808951 → US-1379808951)
+            const prefixMatch = v.match(/^(US|AIR|LOG|TRK)(\d+)$/);
+            if (prefixMatch) return `${prefixMatch[1] as string}-${prefixMatch[2] as string}`;
+            return v;
+        };
+
         // ── FASE 1: validar guía interna ──────────────────────────────────────────
         if (phase === 'internal' || mode === 'cargar_unidad') {
-            const code = String(barcode || '').trim().toUpperCase();
+            const code = normalizeCode(barcode || '');
             const result = await pool.query(
                 `SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
                         COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
@@ -1903,22 +1925,58 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             );
             // Fuzzy: si el código está truncado (scanner cortó el último char), buscar con LIKE
             if (result.rows.length === 0 && code.length >= 6) {
-                const fuzzyRes = await pool.query(
-                    `SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
-                            COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
-                            COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
-                            p.national_tracking
-                     FROM packages p
-                     LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
-                     WHERE UPPER(p.tracking_internal) LIKE $1 OR UPPER(p.tracking_provider) LIKE $1
-                     LIMIT 2`,
-                    [`${code}%`]
-                );
-                if (fuzzyRes.rows.length === 1) {
-                    result.rows = fuzzyRes.rows;
-                    console.log(`[paqHandoff] Fuzzy match: ${code} → ${fuzzyRes.rows[0].tracking_number}`);
-                } else if (fuzzyRes.rows.length > 1) {
-                    return res.status(400).json({ error: `⚠️ Código truncado: múltiples guías empiezan con ${code}` });
+                // Intentar reconstruir child tracking cuando el scanner trunca ceros del sufijo.
+                // Ej: US-4917481320-0001 compacto = US49174813200001 → scanner lee US491748132001
+                //     Después de normalizeCode → US-491748132001 (prefijo US + 12 dígitos)
+                // Estrategia: separar últimos 1-3 dígitos como sufijo, pad a 4, insertar guion
+                const compactChildMatch = code.match(/^(US|AIR|LOG|TRK)-(\d{10,})$/i);
+                if (compactChildMatch) {
+                    const prefix = (compactChildMatch[1] || 'US').toUpperCase();
+                    const digits = compactChildMatch[2] || '';
+                    // Probar splits: master=primeros 8-10 dígitos, sufijo=resto
+                    for (let masterLen = 10; masterLen >= 8; masterLen--) {
+                        if (digits.length > masterLen) {
+                            const masterDigits = digits.slice(0, masterLen);
+                            const suffixDigits = digits.slice(masterLen);
+                            const candidate = `${prefix}-${masterDigits}-${suffixDigits.padStart(4, '0')}`;
+                            const retry = await pool.query(
+                                `SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
+                                        COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                                        COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
+                                        p.national_tracking
+                                 FROM packages p
+                                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                                 WHERE UPPER(p.tracking_internal) = $1 LIMIT 1`,
+                                [candidate.toUpperCase()]
+                            );
+                            if (retry.rows.length === 1) {
+                                result.rows = retry.rows;
+                                console.log(`[paqHandoff] Compact-child match: ${code} → ${retry.rows[0].tracking_number}`);
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // Si aún no encontrado, LIKE fuzzy (para truncación al final)
+                if (result.rows.length === 0) {
+                    const fuzzyRes = await pool.query(
+                        `SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
+                                COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                                COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
+                                p.national_tracking
+                         FROM packages p
+                         LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                         WHERE UPPER(p.tracking_internal) LIKE $1 OR UPPER(p.tracking_provider) LIKE $1
+                         LIMIT 2`,
+                        [`${code}%`]
+                    );
+                    if (fuzzyRes.rows.length === 1) {
+                        result.rows = fuzzyRes.rows;
+                        console.log(`[paqHandoff] Fuzzy match: ${code} → ${fuzzyRes.rows[0].tracking_number}`);
+                    } else if (fuzzyRes.rows.length > 1) {
+                        return res.status(400).json({ error: `⚠️ Código truncado: múltiples guías empiezan con ${code}` });
+                    }
                 }
             }
             if (result.rows.length === 0) {
@@ -1935,13 +1993,16 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
 
             // Para cargar_unidad: marcar out_for_delivery en esta misma fase
             if (mode === 'cargar_unidad') {
+                const statusColumn = await getPackageStatusColumn();
                 const outStatus = await getOutForDeliveryWriteStatus();
                 const hasLoadedAt = await hasPackageColumn('loaded_at');
-                const setParts = [`${outStatus === 'out_for_delivery' ? 'delivery_status' : 'status'} = $1`, 'updated_at = NOW()'];
+                const hasAssignedDriver = await hasPackageColumn('assigned_driver_id');
+                const setParts = [`${statusColumn} = $1`, 'updated_at = NOW()'];
                 if (hasLoadedAt) setParts.push('loaded_at = COALESCE(loaded_at, NOW())');
+                if (hasAssignedDriver) setParts.push(`assigned_driver_id = $3`);
                 await pool.query(
                     `UPDATE packages SET ${setParts.join(', ')} WHERE id = $2`,
-                    [outStatus, pkg.id]
+                    hasAssignedDriver ? [outStatus, pkg.id, String(driverId)] : [outStatus, pkg.id]
                 );
                 return res.json({
                     success: true, phase: 'complete', mode, packageId: pkg.id,
@@ -1959,11 +2020,12 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
 
         // ── FASE 2: guía del carrier externo → marcar como enviado ───────────────
         if (phase === 'external' && confirmedId) {
+            const statusColumn = await getPackageStatusColumn();
             const sentStatus = await getSentWriteStatus();
             const extTracking = externalTracking || barcode || '';
             await pool.query(
                 `UPDATE packages SET
-                    ${sentStatus === 'sent' ? 'delivery_status' : 'status'} = $1,
+                    ${statusColumn} = $1,
                     national_tracking = COALESCE(NULLIF($2,''), national_tracking),
                     updated_at = NOW()
                  WHERE id = $3`,
