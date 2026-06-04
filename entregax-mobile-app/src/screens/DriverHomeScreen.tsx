@@ -171,6 +171,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         setLoadedPackages(loadedPackages);
 
         // Agrupar paquetes pendientes por carrier (solo national_carrier explícito, excluye local/entregax/pickup)
+        const requireLabel = route.requireLabelToLoad ?? true;
         const isLocalCarrier = (c: string) => {
           const s = String(c || '').toLowerCase();
           return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up');
@@ -178,10 +179,11 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         const carrierMap: Record<string, any[]> = {};
         [...pendingPackages, ...loadedPackages].forEach((p: any) => {
           const c = p.national_carrier || '';
-          if (c && !isLocalCarrier(c)) {
-            if (!carrierMap[c]) carrierMap[c] = [];
-            carrierMap[c].push(p);
-          }
+          if (!c || isLocalCarrier(c)) return;
+          // Cuando toggle ON: solo contar los que tienen etiqueta impresa
+          if (requireLabel && !p.has_label) return;
+          if (!carrierMap[c]) carrierMap[c] = [];
+          carrierMap[c].push(p);
         });
         const groups = Object.entries(carrierMap)
           .map(([carrier, pkgs]) => ({ carrier, count: pkgs.length, packages: pkgs }))

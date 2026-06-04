@@ -768,6 +768,10 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_PHONE_SQL} as recipient_phone,
                     COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
                     COALESCE(p.assigned_address_id, m.assigned_address_id) as assigned_address_id,
+                    (${HAS_LABEL_SQL} OR (m.id IS NOT NULL AND (
+                        to_jsonb(m)->>'national_label_url' IS NOT NULL
+                        OR to_jsonb(m)->>'national_tracking' IS NOT NULL
+                    ))) as has_label,
                     ${CLIENT_NUMBER_SQL} as client_number,
                     ${REFERENCE_HINT_SQL} as reference_hint,
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
@@ -793,6 +797,10 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_PHONE_SQL} as recipient_phone,
                     COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
                     COALESCE(p.assigned_address_id, m.assigned_address_id) as assigned_address_id,
+                    (${HAS_LABEL_SQL} OR (m.id IS NOT NULL AND (
+                        to_jsonb(m)->>'national_label_url' IS NOT NULL
+                        OR to_jsonb(m)->>'national_tracking' IS NOT NULL
+                    ))) as has_label,
                     ${CLIENT_NUMBER_SQL} as client_number,
                     ${REFERENCE_HINT_SQL} as reference_hint,
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
@@ -898,7 +906,10 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 const allPkgs = [...pendingRes.rows, ...loadedRes.rows];
                 const paqueteriaCount = allPkgs.filter(p => {
                     const carrier = p.national_carrier || '';
-                    return carrier && !isLocalCarrier(carrier);
+                    if (!carrier || isLocalCarrier(carrier)) return false;
+                    // Cuando toggle está ON, solo contar los que ya tienen etiqueta impresa
+                    if (reqLabel && !p.has_label) return false;
+                    return true;
                 }).length;
 
         return res.json({
