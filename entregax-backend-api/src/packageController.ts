@@ -2011,7 +2011,11 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
         await client.query('BEGIN');
 
         const pkgResult = await client.query('SELECT * FROM packages WHERE id = $1', [id]);
-        if (pkgResult.rows.length === 0) { res.status(404).json({ error: 'No encontrado' }); return; }
+        if (pkgResult.rows.length === 0) {
+            await client.query('ROLLBACK');
+            res.status(404).json({ error: 'No encontrado' });
+            return;
+        }
 
         const pkg = pkgResult.rows[0];
 
@@ -2108,10 +2112,22 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
             }).catch((e: any) => console.warn('[notif] delivered notify failed:', e?.message));
         }
 
-    } catch (error) {
-        await client.query('ROLLBACK');
-        console.error('Error:', error);
-        res.status(500).json({ error: 'Error al actualizar' });
+    } catch (error: any) {
+        try { await client.query('ROLLBACK'); } catch { /* noop */ }
+        console.error('[updateShipmentStatus] Error:', {
+            message: error?.message,
+            code: error?.code,
+            detail: error?.detail,
+            constraint: error?.constraint,
+            column: error?.column,
+            table: error?.table,
+            stack: error?.stack,
+        });
+        res.status(500).json({
+            error: 'Error al actualizar',
+            detail: error?.message || String(error),
+            code: error?.code,
+        });
     } finally {
         client.release();
     }

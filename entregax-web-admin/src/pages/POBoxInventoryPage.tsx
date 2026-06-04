@@ -164,8 +164,11 @@ export default function POBoxInventoryPage({ onBack }: Props) {
             ));
             load();
         } catch (e) {
-            const err = e as { response?: { data?: { error?: string } }; message?: string };
-            setError(err.response?.data?.error || err.message || 'No se pudo actualizar el estado');
+            const err = e as { response?: { data?: { error?: string; detail?: string; code?: string } }; message?: string };
+            const base = err.response?.data?.error || err.message || 'No se pudo actualizar el estado';
+            const detail = err.response?.data?.detail;
+            const code = err.response?.data?.code;
+            setError(detail ? `${base} — ${detail}${code ? ` [${code}]` : ''}` : base);
         } finally {
             setSavingId(null);
         }
