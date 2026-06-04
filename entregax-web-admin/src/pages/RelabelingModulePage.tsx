@@ -125,21 +125,40 @@ const extractTracking = (raw: string): string => {
     const t = raw.trim();
     if (!t) return '';
 
+    // Normaliza un candidato US/AIR/LOG/TRK al formato canónico EntregaX:
+    //  - US491748132005       (QR sin guiones)  -> US-4917481320-0005
+    //  - US'4917481320'05     (barcode, comillas, sufijo corto) -> US-4917481320-0005
+    //  - US-4917481320-04     (guiones, sufijo corto)           -> US-4917481320-0004
+    //  - US2722344044         (master sin guion)                -> US-2722344044
+    const canonicalize = (val: string): string => {
+        let v = val.replace(/[_']/g, '-').toUpperCase();
+        // Hija PO Box sin guiones: prefijo + 10 dígitos base + 1-4 dígitos sufijo
+        const usJoined = v.match(/^US(\d{10})(\d{1,4})$/);
+        if (usJoined) return `US-${usJoined[1]}-${usJoined[2].padStart(4, '0')}`;
+        // Hija PO Box con guiones pero sufijo corto
+        const usDashedShort = v.match(/^US-(\d{10})-(\d{1,3})$/);
+        if (usDashedShort) return `US-${usDashedShort[1]}-${usDashedShort[2].padStart(4, '0')}`;
+        // Master sin guion (US, AIR, LOG, TRK)
+        const prefixMatch = v.match(/^(US|AIR|LOG|TRK)(\d+)$/);
+        if (prefixMatch) return `${prefixMatch[1]}-${prefixMatch[2]}`;
+        return v;
+    };
+
     // Si parece guía directa (sin URL/espacios), conservar completa
     // Ejemplos: AIR2618261VyFJV-012, US-7358716247, MX123ABC-01
     const directToken = /^[A-Za-z0-9][A-Za-z0-9\-_']{5,}$/;
     if (directToken.test(t) && !t.includes('/') && !t.includes('http')) {
-        return t.replace(/[_']/g, '-').toUpperCase();
+        return canonicalize(t);
     }
 
     // Si ya parece un tracking válido (XX-YYY[-ZZZ...]), devolverlo tal cual
     const cleanPattern = /^[A-Z]{2,}[-_'][A-Z0-9]{2,}(?:[-_'][A-Z0-9]{2,})*$/i;
     if (cleanPattern.test(t)) {
-        return t.replace(/[_']/g, '-').toUpperCase();
+        return canonicalize(t);
     }
     // Después de "track" en URL
     const afterTrack = t.match(/track[^A-Za-z0-9]+([A-Za-z]{2,})[^A-Za-z0-9]?([A-Za-z0-9]{4,})/i);
-    if (afterTrack) return `${afterTrack[1]}-${afterTrack[2]}`.toUpperCase();
+    if (afterTrack) return canonicalize(`${afterTrack[1]}-${afterTrack[2]}`);
     // Patrón XX-XXXX(-XXXX)* en texto (soporta múltiples guiones)
     const allMatches = t.match(/[A-Z]{2,}[-_'][A-Z0-9]{2,}(?:[-_'][A-Z0-9]{2,})*/gi) || [];
     let candidate = allMatches.find((m) => !/TREGAX/i.test(m));
@@ -151,7 +170,7 @@ const extractTracking = (raw: string): string => {
     if (candidate) {
         let c = candidate.replace(/[_']/g, '-').toUpperCase();
         if (!c.includes('-') && c.length > 3) c = c.slice(0, 2) + '-' + c.slice(2);
-        return c;
+        return canonicalize(c);
     }
     return t.toUpperCase();
 };
