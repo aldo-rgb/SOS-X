@@ -2052,12 +2052,20 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             const statusColumn = await getPackageStatusColumn();
             const sentStatus = await getSentWriteStatus();
             const extTracking = externalTracking || barcode || '';
+            // Actualizar AMBAS columnas: statusColumn (puede ser delivery_status TEXT)
+            // Y también 'status' ENUM (que es lo que lee el track endpoint).
+            // Si la columna es la misma ('status'), el segundo SET es redundante pero inofensivo.
+            const setParts = [
+                `${statusColumn} = $1`,
+                'national_tracking = COALESCE(NULLIF($2,\'\'), national_tracking)',
+                'updated_at = NOW()',
+            ];
+            if (statusColumn !== 'status') {
+                // delivery_status TEXT fue escrito arriba; también actualizar ENUM status
+                setParts.push(`status = $1`);
+            }
             await pool.query(
-                `UPDATE packages SET
-                    ${statusColumn} = $1,
-                    national_tracking = COALESCE(NULLIF($2,''), national_tracking),
-                    updated_at = NOW()
-                 WHERE id = $3`,
+                `UPDATE packages SET ${setParts.join(', ')} WHERE id = $3`,
                 [sentStatus, extTracking, confirmedId]
             );
             // Si el paquete tiene master_id, verificar si todos los hermanos ya están
