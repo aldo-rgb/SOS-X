@@ -818,14 +818,21 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   {pkg.recipient_name ? (
                     <Text style={{ fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 4 }}>{pkg.recipient_name}</Text>
                   ) : null}
-                  {(pkg.delivery_address || pkg.delivery_city) ? (
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                      <MaterialIcons name="location-on" size={14} color="#888" />
-                      <Text style={{ fontSize: 12, color: '#666', flex: 1 }} numberOfLines={2}>
-                        {[pkg.delivery_address, pkg.delivery_city, pkg.delivery_zip].filter(Boolean).join(', ')}
-                      </Text>
-                    </View>
-                  ) : null}
+                  {(() => {
+                    const PLACEHOLDERS = ['pendiente de asignar', 'en bodega', 'sin dirección', 'sin direccion'];
+                    const addr = [pkg.delivery_address, pkg.delivery_city, pkg.delivery_zip].filter(v => {
+                      if (!v) return false;
+                      const low = String(v).toLowerCase().trim();
+                      return !PLACEHOLDERS.some(p => low.includes(p));
+                    }).join(', ');
+                    if (!addr) return null;
+                    return (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <MaterialIcons name="location-on" size={14} color="#888" />
+                        <Text style={{ fontSize: 12, color: '#666', flex: 1 }} numberOfLines={2}>{addr}</Text>
+                      </View>
+                    );
+                  })()}
                   {pkg.national_carrier ? (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 }}>
                       <MaterialIcons name="local-post-office" size={14} color="#888" />
@@ -957,7 +964,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   <MaterialIcons name="add-box" size={28} color="#2E7D32" />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: '800', color: '#2E7D32' }}>Cargar Unidad</Text>
-                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Carga los paquetes a tu camioneta para llevarlos a la paquetería</Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Carga los paquetes a tu camioneta para llevarlos a la paqueteríaes</Text>
                   </View>
                   <MaterialIcons name="chevron-right" size={22} color="#2E7D32" />
                 </TouchableOpacity>

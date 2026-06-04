@@ -225,7 +225,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   };
 
   const modeLabel = mode === 'mostrador' ? 'Mostrador' : mode === 'recoleccion' ? 'Recolección' : 'Cargar Unidad';
-  const statusColor = mode === 'cargar_unidad' ? '#2196F3' : '#4CAF50';
+  const statusColor = '#F05A28';
 
   return (
     <SafeAreaView style={styles.container}>
