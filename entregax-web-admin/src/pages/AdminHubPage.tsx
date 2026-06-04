@@ -75,6 +75,7 @@ import DhlCostingPage from './DhlCostingPage';
 import DhlImportTaxPage from './DhlImportTaxPage';
 import POBoxRatesPage from './POBoxRatesPage';
 import POBoxCostingPage from './POBoxCostingPage';
+import POBoxConsolidacionesPage from './POBoxConsolidacionesPage';
 import ExchangeRateConfigPage from './ExchangeRateConfigPage';
 import BranchManagementPage from './BranchManagementPage';
 import CarouselSlidesPage from './CarouselSlidesPage';
@@ -195,6 +196,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
     usa_pobox: [
         { key: 'pobox_rates', status: 'active' },
         { key: 'suppliers', status: 'active' },
+        { key: 'pobox_consolidaciones', status: 'active' },
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
         { key: 'carrier_options', status: 'active' },
@@ -1106,6 +1108,29 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         />
                     </Box>
                     <SuppliersPage />
+                </Box>
+            );
+        }
+
+        // Panel de Consolidaciones PO Box USA (pobox_consolidaciones)
+        if (selectedModule === 'pobox_consolidaciones' && selectedService === 'usa_pobox') {
+            return (
+                <Box>
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip
+                            label={t('panels.backToAdmin')}
+                            onClick={() => { setSelectedService(null); setSelectedModule(null); }}
+                            sx={{ cursor: 'pointer' }}
+                        />
+                        <Chip
+                            label={`← ${t(`panels.services.${selectedService}.title`)}`}
+                            onClick={() => setSelectedModule(null)}
+                            sx={{ cursor: 'pointer' }}
+                            color="primary"
+                            variant="outlined"
+                        />
+                    </Box>
+                    <POBoxConsolidacionesPage />
                 </Box>
             );
         }

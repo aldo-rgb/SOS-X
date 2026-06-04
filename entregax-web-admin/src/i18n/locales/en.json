@@ -739,7 +739,8 @@
       "transporte_control": "Transport Control",
       "demora_control": "Demurrage Control",
       "pobox_rates": "PO Box Rates",
-      "carrier_options": "Carrier Options"
+      "carrier_options": "Carrier Options",
+      "pobox_consolidaciones": "Consolidations"
     },
     "moduleFeatures": {
       "clients": {
