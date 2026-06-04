@@ -882,15 +882,19 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                         : { rows: [{ delivered_today: '0' }] };
 
                 const deliveredToday = parseInt(deliveredTodayRes.rows[0]?.delivered_today) || 0;
-                const pendingToLoad = pendingRes.rows.length;
-                const loadedToday = loadedRes.rows.length;
-                const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
 
-                // Contar paquetes con instrucciones de paquetería externa (excluye local EntregaX CDMX/MTY)
                 const isLocalCarrier = (carrier: string) => {
                     const c = String(carrier || '').toLowerCase();
                     return !c || c.includes('local') || c.includes('entregax') || c.includes('pickup') || c.includes('pick up');
                 };
+
+                // pendingToLoad = paquetes visibles en la pantalla "Entrega Local"
+                // Toggle ON → solo locales con instrucciones; Toggle OFF → todos
+                const pendingToLoad = reqLabel
+                    ? pendingRes.rows.filter(p => p.assigned_address_id && isLocalCarrier(String(p.national_carrier || ''))).length
+                    : pendingRes.rows.length;
+                const loadedToday = loadedRes.rows.length;
+                const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
                 const allPkgs = [...pendingRes.rows, ...loadedRes.rows];
                 const paqueteriaCount = allPkgs.filter(p => {
                     const carrier = p.national_carrier || '';

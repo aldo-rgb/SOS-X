@@ -193,7 +193,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           loadedToday: Number(route.loadedToday) || 0,
           deliveredToday,
           paqueteriaCount: Number(route.paqueteriaCount) || 0,
-          pendingToLoad: Number(route.pendingToLoad) || pendingPackages.length,
+          pendingToLoad: Number(route.pendingToLoad) ?? 0,
           pendingDelivery: loadedPackages.length,
           returnedToday: 0,
         });
