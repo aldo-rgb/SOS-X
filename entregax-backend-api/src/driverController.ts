@@ -849,14 +849,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 FROM packages p
                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
                                 LEFT JOIN users u ON u.id::text = COALESCE(NULLIF(to_jsonb(p)->>'user_id', ''), NULLIF(to_jsonb(m)->>'user_id', ''))
-                WHERE (
-                    ${ASSIGNED_DRIVER_SQL} = $1::text
-                    -- Fallback: paquetes cargados recientemente sin driver asignado
-                    -- pero con carrier externo (out_for_delivery desde paqueteriaHandoffScan)
-                    OR (${ASSIGNED_DRIVER_SQL} IS NULL AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
-                        AND p.updated_at >= NOW() - INTERVAL '7 days'
-                        AND NULLIF(COALESCE(p.national_carrier, to_jsonb(p)->>'carrier'), '') IS NOT NULL)
-                )
+                WHERE ${ASSIGNED_DRIVER_SQL} = $1::text
                   AND ${DELIVERY_STATUS_SQL} = 'out_for_delivery'
                   AND ${NOT_MASTER_WITH_CHILDREN_SQL}
                 ORDER BY p.updated_at ASC, p.created_at ASC
