@@ -1719,6 +1719,20 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
     try {
         const packageBranchSql = await getPackageBranchSql('p');
 
+        const barcodeUpper = String(barcode).toUpperCase().trim();
+        const barcodeNoHyphens = barcodeUpper.replace(/-/g, '');
+
+        // Fast path usando columnas indexadas directas (tracking_internal, tracking_provider)
+        const fastRes = await pool.query(`
+            SELECT id FROM packages
+            WHERE UPPER(tracking_internal) = $1
+               OR UPPER(tracking_provider) = $1
+               OR REPLACE(UPPER(tracking_internal), '-', '') = $2
+               OR REPLACE(UPPER(tracking_provider), '-', '') = $2
+            LIMIT 1
+        `, [barcodeUpper, barcodeNoHyphens]);
+        const fastId = fastRes.rows[0]?.id ?? null;
+
         const pkgRes = await pool.query(`
             SELECT
                 p.id,
@@ -1734,8 +1748,8 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
                 ${NATIONAL_TRACKING_SQL} as national_tracking,
                 ${NATIONAL_CARRIER_SQL} as national_carrier
             FROM packages p
-            WHERE (${TRACKING_MATCH_SQL})
-        `, [barcode]);
+            WHERE ${fastId ? 'p.id = $2' : `(${TRACKING_MATCH_SQL})`}
+        `, fastId ? [barcode, fastId] : [barcode]);
 
         if (pkgRes.rows.length === 0) {
             console.warn(`⚠️ Paquete NO encontrado: "${barcode}"`);
