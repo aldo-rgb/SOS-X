@@ -835,7 +835,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ${RECIPIENT_PHONE_SQL} as recipient_phone,
                     ${LOADED_AT_SQL} as loaded_at,
                     ${NATIONAL_TRACKING_SQL} as national_tracking,
-                    ${NATIONAL_CARRIER_SQL} as national_carrier,
+                    COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
                     ${CLIENT_NUMBER_SQL} as client_number,
                     ${REFERENCE_HINT_SQL} as reference_hint,
                     ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
@@ -850,7 +850,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
             `, [driverId])
             : driverBranchId
                 ? await pool.query(`
-                    SELECT 
+                    SELECT
                         p.id,
                         ${TRACKING_PUBLIC_SQL} as tracking_number,
                         ${DELIVERY_STATUS_SQL} as delivery_status,
@@ -861,7 +861,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                         ${RECIPIENT_PHONE_SQL} as recipient_phone,
                         ${LOADED_AT_SQL} as loaded_at,
                         ${NATIONAL_TRACKING_SQL} as national_tracking,
-                        ${NATIONAL_CARRIER_SQL} as national_carrier,
+                        COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
                         ${CLIENT_NUMBER_SQL} as client_number,
                         ${REFERENCE_HINT_SQL} as reference_hint,
                         ROW_NUMBER() OVER (PARTITION BY ${PACKAGE_GROUP_KEY_SQL} ORDER BY p.created_at ASC, p.id ASC) as box_number,
