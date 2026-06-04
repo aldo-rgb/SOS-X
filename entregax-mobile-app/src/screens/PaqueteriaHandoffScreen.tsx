@@ -308,6 +308,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           autoCapitalize="characters"
           returnKeyType="done"
           editable={!loading}
+          blurOnSubmit={false}
         />
         <TouchableOpacity style={styles.validateBtn} onPress={handleManualSubmit} disabled={loading}>
           {loading
