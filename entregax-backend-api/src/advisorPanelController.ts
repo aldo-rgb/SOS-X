@@ -223,9 +223,10 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       monthlyRegistrations: monthlyRes.rows,
       subAdvisors: parseInt(subAdvisorsRes.rows[0]?.sub_advisors) || 0,
     });
-  } catch (error) {
-    console.error('Error fetching advisor dashboard:', error);
-    res.status(500).json({ error: 'Error al obtener dashboard del asesor' });
+  } catch (error: any) {
+    const msg = error?.message || String(error);
+    console.error('Error fetching advisor dashboard:', msg);
+    res.status(500).json({ error: `Error dashboard: ${msg}` });
   }
 };
 
