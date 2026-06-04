@@ -223,12 +223,14 @@ export const getBankConfig = async (req: Request, res: Response): Promise<any> =
 // ============================================
 // CONFIGURACIÓN DE PAYPAL POR EMPRESA
 // ============================================
+import { encrypt as encryptSecret } from './services/cryptoVault';
+
 const PAYPAL_API_SANDBOX = 'https://api-m.sandbox.paypal.com';
 const PAYPAL_API_PRODUCTION = 'https://api-m.paypal.com';
 
 export const savePaypalConfig = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { empresa_id, paypal_client_id, paypal_secret, paypal_sandbox } = req.body;
+        const { empresa_id, paypal_client_id, paypal_secret, paypal_sandbox, paypal_webhook_id } = req.body;
 
         if (!empresa_id || !paypal_client_id || !paypal_secret) {
             return res.status(400).json({ error: 'empresa_id, paypal_client_id y paypal_secret son requeridos' });
@@ -263,20 +265,33 @@ export const savePaypalConfig = async (req: Request, res: Response): Promise<any
             });
         }
 
-        // Guardar configuración
+        // Cifrar secret antes de persistir (AES-256-GCM via cryptoVault)
+        let encryptedSecret: string;
+        try {
+            encryptedSecret = encryptSecret(String(paypal_secret));
+        } catch (encErr: any) {
+            console.error('❌ No se pudo cifrar el paypal_secret:', encErr.message);
+            return res.status(500).json({
+                error: 'No se pudo cifrar el secret. Configura ENCRYPTION_KEY en el servidor.',
+            });
+        }
+
+        // Guardar configuración (secret cifrado, webhook_id opcional)
         await pool.query(`
             UPDATE fiscal_emitters SET
                 paypal_client_id = $1,
                 paypal_secret = $2,
                 paypal_sandbox = $3,
-                paypal_configured = TRUE
-            WHERE id = $4
-        `, [paypal_client_id, paypal_secret, paypal_sandbox !== false, empresa_id]);
+                paypal_configured = TRUE,
+                paypal_webhook_id = COALESCE($4, paypal_webhook_id)
+            WHERE id = $5
+        `, [paypal_client_id, encryptedSecret, paypal_sandbox !== false, paypal_webhook_id || null, empresa_id]);
 
         res.json({ 
             success: true, 
             message: `PayPal configurado para ${empresa.rows[0].alias}`,
-            mode: paypal_sandbox !== false ? 'sandbox' : 'production'
+            mode: paypal_sandbox !== false ? 'sandbox' : 'production',
+            webhookConfigured: !!paypal_webhook_id,
         });
     } catch (error) {
         console.error('Error guardando config PayPal:', error);
@@ -295,6 +310,7 @@ export const getPaypalConfig = async (req: Request, res: Response): Promise<any>
                 paypal_client_id,
                 paypal_sandbox,
                 paypal_configured,
+                paypal_webhook_id,
                 CASE WHEN paypal_secret IS NOT NULL THEN '********' ELSE NULL END as has_secret
             FROM fiscal_emitters 
             WHERE id = $1

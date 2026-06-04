@@ -933,7 +933,9 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
 
     const callbackBaseUrl = process.env.API_URL || 'https://api.entregax.app';
 
-    // Crear orden en PayPal
+    // Crear orden en PayPal — el callback URL solo lleva el paypalOrderId
+    // (PayPal lo añade como `?token=`). El resto se lee server-side desde
+    // `paypal_payment_intents` para evitar manipulación del query string.
     const order = await axios.post(
       `${paypalApiUrl}/v2/checkout/orders`,
       {
@@ -950,7 +952,7 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
           brand_name: 'EntregaX',
           landing_page: 'LOGIN',
           user_action: 'PAY_NOW',
-          return_url: `${callbackBaseUrl}/api/payments/paypal/callback?paymentRef=${paymentRef}&userId=${userId}&packageIds=${packageIds.join(',')}&amount=${total}&invoiceRequired=${invoiceRequired || false}&paymentOrderId=${paymentOrderId || ''}&paymentReference=${encodeURIComponent(String(paymentReference || ''))}&successRedirect=${encodeURIComponent(String(returnUrl || ''))}&cancelRedirect=${encodeURIComponent(String(cancelUrl || ''))}`,
+          return_url: `${callbackBaseUrl}/api/payments/paypal/callback?ref=${encodeURIComponent(paymentRef)}`,
           cancel_url: String(cancelUrl || `${process.env.FRONTEND_URL || 'https://entregax.app'}/payment/cancel`)
         }
       },
@@ -971,6 +973,41 @@ export const createPayPalPayment = async (req: AuthRequest, res: Response): Prom
         success: false,
         error: 'PayPal no devolvió URL de aprobación'
       });
+    }
+
+    // 🔐 Persistir el intent: fuente de verdad del monto y paquetes para el callback.
+    try {
+      const svcType = await getServiceTypeFromPackages(packageIds);
+      await pool.query(
+        `INSERT INTO paypal_payment_intents (
+            paypal_order_id, payment_ref, user_id, package_ids, amount, currency,
+            service_type, emitter_id, requires_invoice, invoice_data,
+            payment_order_id, payment_reference, success_redirect, cancel_redirect, status
+         ) VALUES (
+            $1, $2, $3, $4::jsonb, $5, $6, $7, $8, $9, $10::jsonb, $11, $12, $13, $14, 'pending'
+         )
+         ON CONFLICT (paypal_order_id) DO NOTHING`,
+        [
+          order.data.id,
+          paymentRef,
+          userId,
+          JSON.stringify(packageIds),
+          total,
+          currency || 'MXN',
+          svcType,
+          credentials.emitterId,
+          !!invoiceRequired,
+          invoiceData ? JSON.stringify(invoiceData) : null,
+          paymentOrderId ? Number(paymentOrderId) : null,
+          paymentReference ? String(paymentReference) : null,
+          returnUrl ? String(returnUrl) : null,
+          cancelUrl ? String(cancelUrl) : null,
+        ]
+      );
+    } catch (intentErr: any) {
+      // No abortamos el flujo: el cliente puede continuar y el callback caerá
+      // a la lógica legacy. Solo registramos para auditoría.
+      console.error('⚠️ No se pudo persistir paypal_payment_intent:', intentErr.message);
     }
 
     console.log(`✅ PayPal orden creada: ${order.data.id} - $${total} ${currency || 'MXN'}`);
@@ -1632,14 +1669,23 @@ export const handleOpenpayPaymentWebhook = async (req: Request, res: Response): 
 // ============================================
 // PAYPAL CALLBACK - Redirige y captura el pago después de aprobación
 // ============================================
+//
+// Seguridad: el cliente puede manipular el query string del return_url, así
+// que ESTE handler ignora todos los parámetros excepto:
+//   - `token`  → paypalOrderId (lo añade PayPal automáticamente)
+//   - `ref`    → paymentRef (informativo, sirve para idempotencia rápida)
+// Todo lo demás (amount, packageIds, userId, invoiceRequired, paymentOrderId,
+// returnUrl, cancelUrl) se rehidrata desde la tabla `paypal_payment_intents`
+// que el backend escribió cuando creó la orden.
+//
 export const handlePayPalPaymentCallback = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { paymentRef, userId, packageIds, amount, invoiceRequired, paymentOrderId, paymentReference, successRedirect, cancelRedirect, token: paypalOrderId, PayerID } = req.query;
+    const paypalOrderId = String(req.query.token || '').trim();
+    const queryRef = String(req.query.ref || '').trim();
 
-    console.log(`📱 Callback PayPal General - paymentRef: ${paymentRef}, orderId: ${paypalOrderId}`);
+    console.log(`📱 Callback PayPal General - orderId: ${paypalOrderId}`);
 
     const frontendUrl = process.env.FRONTEND_URL || 'https://entregax.app';
-    const fallbackSuccess = `${frontendUrl}/?paymentSuccess=true&ref=${paymentRef || paypalOrderId}`;
     const fallbackError = `${frontendUrl}/?paymentError=true`;
     const normalizeRedirect = (value: any, fallback: string): string => {
       const candidate = String(value || '').trim();
@@ -1652,29 +1698,56 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
 
     if (!paypalOrderId) {
       console.error('❌ PayPal callback sin orderId');
-      return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/payment/error`));
+      return res.redirect(`${frontendUrl}/payment/error`);
     }
 
-    // Idempotencia: si ya marcamos paquetes con esta orden, redirigir éxito.
-    try {
-      const existing = await pool.query(
-        `SELECT 1 FROM packages
-          WHERE payment_reference = $1 AND payment_status = 'paid'
-          LIMIT 1`,
-        [paymentRef || paypalOrderId]
-      );
-      if (existing.rows.length) {
-        console.log(`ℹ️ PayPal callback ${paypalOrderId} ya procesado, idempotente.`);
-        return res.redirect(normalizeRedirect(successRedirect, fallbackSuccess));
-      }
-    } catch { /* noop */ }
+    // 1) Cargar el intent persistido al crear la orden — fuente de verdad.
+    const intentRes = await pool.query(
+      `SELECT id, paypal_order_id, payment_ref, user_id, package_ids, amount, currency,
+              service_type, requires_invoice, invoice_data, payment_order_id, payment_reference,
+              success_redirect, cancel_redirect, status
+         FROM paypal_payment_intents
+        WHERE paypal_order_id = $1
+        LIMIT 1`,
+      [paypalOrderId]
+    );
 
-    // Capturar el pago en PayPal — usa empresa asignada al servicio de los paquetes
+    if (!intentRes.rows.length) {
+      // Sin intent: rechazar — no podemos confiar en los parámetros del query.
+      console.error(`❌ PayPal callback sin intent server-side para orden ${paypalOrderId}. Posible manipulación.`);
+      return res.redirect(`${frontendUrl}/?paymentError=true&code=NO_INTENT&action=contact_support`);
+    }
+
+    const intent = intentRes.rows[0];
+    const paymentRef = intent.payment_ref;
+    const parsedUserId = Number(intent.user_id);
+    const pkgIds: number[] = Array.isArray(intent.package_ids)
+      ? intent.package_ids.map((n: any) => Number(n))
+      : (typeof intent.package_ids === 'string' ? JSON.parse(intent.package_ids).map((n: any) => Number(n)) : []);
+    const intentAmount = parseFloat(intent.amount);
+    const intentCurrency = intent.currency || 'MXN';
+    const requiresInvoiceFlag = !!intent.requires_invoice;
+    const intentInvoiceData = intent.invoice_data || null;
+    const successRedirect = intent.success_redirect || '';
+    const cancelRedirect = intent.cancel_redirect || '';
+    const fallbackSuccess = `${frontendUrl}/?paymentSuccess=true&ref=${paymentRef}`;
+
+    // 2) Idempotencia: si ya capturamos antes esta orden, redirigir éxito.
+    if (intent.status === 'captured') {
+      console.log(`ℹ️ PayPal callback ${paypalOrderId} ya estaba captured (intent), idempotente.`);
+      return res.redirect(normalizeRedirect(successRedirect, fallbackSuccess));
+    }
+
+    // Sanity: si queryRef vino y no coincide con el intent, lo registramos pero
+    // seguimos confiando en el intent server-side.
+    if (queryRef && queryRef !== paymentRef) {
+      console.warn(`⚠️ PayPal callback con ref desincronizado (query=${queryRef} intent=${paymentRef})`);
+    }
+
+    // 3) Capturar el pago en PayPal — usa empresa asignada al servicio del intent.
     let credentials: PayPalCredentials;
     try {
-      const pkgIdsForCreds = (packageIds as string || '').split(',').map(Number).filter(n => !isNaN(n));
-      const svcType = pkgIdsForCreds.length ? await getServiceTypeFromPackages(pkgIdsForCreds) : undefined;
-      credentials = await getPaypalCredentials(svcType);
+      credentials = await getPaypalCredentials(intent.service_type || undefined);
     } catch (credError: any) {
       console.error('❌ Error obteniendo credenciales PayPal para captura:', credError.message);
       return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/payment/error`));
@@ -1698,6 +1771,13 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
     } catch (httpErr: any) {
       const check = evaluatePaypalCapture(undefined, httpErr);
       console.error(`❌ PayPal capture HTTP error [${check.rawCode}]: ${check.rawDescription || httpErr.message}`);
+      // Marcar intent como fallido para auditoría.
+      await pool.query(
+        `UPDATE paypal_payment_intents
+            SET status = 'failed', failure_code = $1, failure_detail = $2, updated_at = NOW()
+          WHERE id = $3`,
+        [check.rawCode || 'PAYPAL_ERROR', check.rawDescription || null, intent.id]
+      ).catch(() => {});
       if (check.mapped?.action === 'already_paid') {
         return res.redirect(normalizeRedirect(successRedirect, fallbackSuccess));
       }
@@ -1710,9 +1790,38 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
 
     if (check.ok) {
       const captureDetails = capture.data.purchase_units[0]?.payments?.captures[0];
-      const pkgIds = packageIds ? (packageIds as string).split(',').map(Number).filter(n => !isNaN(n)) : [];
-      const parsedAmount = parseFloat(amount as string) || parseFloat(captureDetails?.amount?.value || '0');
-      const parsedUserId = parseInt(userId as string) || 0;
+      const captureAmount = parseFloat(captureDetails?.amount?.value || '0');
+
+      // Verificación crítica: PayPal debe devolver el mismo monto que pedimos
+      // al crear la orden (intent.amount). Si difiere, NO marcamos paquetes
+      // como pagados — abrimos investigación manual.
+      if (Math.abs(captureAmount - intentAmount) > 0.01) {
+        console.error(
+          `🚨 PayPal capture amount mismatch (intent=${intentAmount} captured=${captureAmount}) order=${paypalOrderId}`
+        );
+        await pool.query(
+          `UPDATE paypal_payment_intents
+              SET status = 'failed', failure_code = 'AMOUNT_MISMATCH',
+                  failure_detail = $1, updated_at = NOW()
+            WHERE id = $2`,
+          [`expected ${intentAmount}, got ${captureAmount}`, intent.id]
+        ).catch(() => {});
+        return res.redirect(normalizeRedirect(cancelRedirect, `${frontendUrl}/?paymentError=true&code=AMOUNT_MISMATCH&action=contact_support`));
+      }
+
+      // 4) Marcar intent como capturado (transición atómica).
+      const updIntent = await pool.query(
+        `UPDATE paypal_payment_intents
+            SET status = 'captured', capture_id = $1, captured_at = NOW(), updated_at = NOW()
+          WHERE id = $2 AND status <> 'captured'
+        RETURNING id`,
+        [captureDetails?.id || null, intent.id]
+      );
+      if (updIntent.rowCount === 0) {
+        // Otra ejecución del callback ya lo marcó: respetar idempotencia y salir.
+        console.log(`ℹ️ Intent ${intent.id} ya estaba captured (race), idempotente.`);
+        return res.redirect(normalizeRedirect(successRedirect, fallbackSuccess));
+      }
 
       if (pkgIds.length > 0 && parsedUserId > 0) {
         // Marcar paquetes como pagados (idempotente: solo afecta paquetes que aún no estaban paid)
@@ -1727,49 +1836,36 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
             payment_reference = $2
           WHERE id = ANY($3) AND user_id = $4
             AND COALESCE(payment_status, '') <> 'paid'
-        `, [parsedAmount, paymentRef || paypalOrderId, pkgIds, parsedUserId]);
+        `, [intentAmount, paymentRef, pkgIds, parsedUserId]);
 
-        // Registrar en logs de cobranza
+        // Registrar en logs de cobranza (idempotente vía índice único en transaction_id)
         try {
-          const refForLog = String(paymentReference || paymentRef || '');
-          const upd = refForLog
-            ? await pool.query(
-                `UPDATE openpay_webhook_logs
-                   SET estatus_procesamiento = 'procesado',
-                       payment_method = 'paypal',
-                       tipo_pago = 'paypal',
-                       monto_recibido = $1,
-                       monto_neto = $1,
-                       concepto = $2,
-                       fecha_pago = CURRENT_TIMESTAMP
-                 WHERE transaction_id = $3
-                   AND estatus_procesamiento = 'pending_payment'
-                 RETURNING id`,
-                [parsedAmount, `Pago PayPal - ${pkgIds.length} paquete(s)`, refForLog]
-              )
-            : { rowCount: 0 } as any;
-
-          if (!upd.rowCount) {
-            await pool.query(`
-              INSERT INTO openpay_webhook_logs (
-                transaction_id, monto_recibido, monto_neto, concepto,
-                fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
-              ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'paypal')
-            `, [
-              captureDetails?.id || paypalOrderId,
-              parsedAmount,
-              `Pago PayPal - ${pkgIds.length} paquete(s)`,
-              parsedUserId
-            ]);
-          }
+          const refForLog = String(intent.payment_reference || paymentRef);
+          await pool.query(`
+            INSERT INTO openpay_webhook_logs (
+              transaction_id, monto_recibido, monto_neto, concepto,
+              fecha_pago, estatus_procesamiento, user_id, tipo_pago, payment_method
+            ) VALUES ($1, $2, $2, $3, CURRENT_TIMESTAMP, 'procesado', $4, 'paypal', 'paypal')
+            ON CONFLICT (transaction_id) DO UPDATE SET
+              estatus_procesamiento = 'procesado',
+              payment_method = 'paypal',
+              tipo_pago = 'paypal',
+              monto_recibido = EXCLUDED.monto_recibido,
+              monto_neto = EXCLUDED.monto_neto,
+              fecha_pago = EXCLUDED.fecha_pago
+          `, [
+            captureDetails?.id || paypalOrderId,
+            intentAmount,
+            `Pago PayPal - ${pkgIds.length} paquete(s)`,
+            parsedUserId,
+          ]);
         } catch (logErr: any) {
           console.log('Note: webhook_logs insert:', logErr.message);
         }
 
         // Si este pago viene de una orden PO Box, marcarla como pagada
         try {
-          const requiresInvoice = String(invoiceRequired) === 'true';
-          if (paymentOrderId) {
+          if (intent.payment_order_id) {
             await pool.query(
               `UPDATE pobox_payments
                SET status = 'completed',
@@ -1777,9 +1873,9 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
                    payment_method = 'paypal',
                    requiere_factura = $1
                WHERE id = $2 AND user_id = $3`,
-              [requiresInvoice, Number(paymentOrderId), parsedUserId]
+              [requiresInvoiceFlag, Number(intent.payment_order_id), parsedUserId]
             );
-          } else if (paymentReference) {
+          } else if (intent.payment_reference) {
             await pool.query(
               `UPDATE pobox_payments
                SET status = 'completed',
@@ -1787,7 +1883,7 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
                    payment_method = 'paypal',
                    requiere_factura = $1
                WHERE payment_reference = $2 AND user_id = $3`,
-              [requiresInvoice, String(paymentReference), parsedUserId]
+              [requiresInvoiceFlag, String(intent.payment_reference), parsedUserId]
             );
           }
         } catch (ordErr: any) {
@@ -1802,29 +1898,30 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
         console.log(`✅ PayPal callback: ${pkgIds.length} paquetes marcados como pagados`);
 
         // 🧾 Facturación automática si el cliente la solicitó
-        if (String(invoiceRequired) === 'true') {
+        if (requiresInvoiceFlag) {
           try {
-            const payId = String(paymentRef || paypalOrderId);
+            const payId = String(paymentRef);
             const existing = await pool.query(
               `SELECT uuid_sat FROM facturas_emitidas WHERE payment_id = $1 LIMIT 1`,
               [payId]
             );
             if (existing.rows.length === 0) {
-              const svcType = await getServiceTypeFromPackages(pkgIds);
+              const svcType = intent.service_type || (await getServiceTypeFromPackages(pkgIds));
               const invoiceResult = await createInvoice({
                 paymentId: payId,
                 paymentType: 'paypal',
                 userId: parsedUserId,
-                amount: parsedAmount,
-                currency: captureDetails?.amount?.currency_code || 'USD',
+                amount: intentAmount,
+                currency: captureDetails?.amount?.currency_code || intentCurrency,
                 paymentMethod: 'paypal',
                 description: `Servicio de Logística - ${pkgIds.length} paquete(s)`,
                 packageIds: pkgIds,
                 serviceType: svcType,
-              });
+                ...(intentInvoiceData ? { fiscalData: intentInvoiceData } : {}),
+              } as any);
               if (invoiceResult.success) {
                 console.log(`🧾 Factura PayPal emitida: ${invoiceResult.uuid}`);
-                if (paymentOrderId) {
+                if (intent.payment_order_id) {
                   await pool.query(
                     `UPDATE pobox_payments
                      SET facturada = TRUE,
@@ -1832,9 +1929,9 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
                          factura_created_at = CURRENT_TIMESTAMP,
                          factura_error = NULL
                      WHERE id = $2 AND user_id = $3`,
-                    [invoiceResult.uuid, Number(paymentOrderId), parsedUserId]
+                    [invoiceResult.uuid, Number(intent.payment_order_id), parsedUserId]
                   );
-                } else if (paymentReference) {
+                } else if (intent.payment_reference) {
                   await pool.query(
                     `UPDATE pobox_payments
                      SET facturada = TRUE,
@@ -1842,20 +1939,20 @@ export const handlePayPalPaymentCallback = async (req: Request, res: Response): 
                          factura_created_at = CURRENT_TIMESTAMP,
                          factura_error = NULL
                      WHERE payment_reference = $2 AND user_id = $3`,
-                    [invoiceResult.uuid, String(paymentReference), parsedUserId]
+                    [invoiceResult.uuid, String(intent.payment_reference), parsedUserId]
                   );
                 }
               } else {
                 console.error(`⚠️ No se pudo emitir factura PayPal: ${invoiceResult.error}`);
-                if (paymentOrderId) {
+                if (intent.payment_order_id) {
                   await pool.query(
                     `UPDATE pobox_payments SET factura_error = $1 WHERE id = $2 AND user_id = $3`,
-                    [invoiceResult.error || 'unknown', Number(paymentOrderId), parsedUserId]
+                    [invoiceResult.error || 'unknown', Number(intent.payment_order_id), parsedUserId]
                   );
-                } else if (paymentReference) {
+                } else if (intent.payment_reference) {
                   await pool.query(
                     `UPDATE pobox_payments SET factura_error = $1 WHERE payment_reference = $2 AND user_id = $3`,
-                    [invoiceResult.error || 'unknown', String(paymentReference), parsedUserId]
+                    [invoiceResult.error || 'unknown', String(intent.payment_reference), parsedUserId]
                   );
                 }
               }

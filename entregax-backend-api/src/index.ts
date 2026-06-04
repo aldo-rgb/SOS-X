@@ -4301,6 +4301,13 @@ app.get('/api/payments/openpay/callback', handleOpenpayPaymentCallback);
 app.post('/api/payments/openpay/verify', authenticateToken, verifyOpenpayCharge);
 app.post('/api/payments/openpay/webhook', handleOpenpayPaymentWebhook);
 app.get('/api/payments/paypal/callback', handlePayPalPaymentCallback);
+// PayPal webhook (firma verificada via /v1/notifications/verify-webhook-signature)
+import { handlePayPalWebhook } from './paypalWebhookController';
+app.post('/api/payments/paypal/webhook', handlePayPalWebhook);
+// PayPal refunds (director+)
+import { refundPayPalCapture, listPayPalRefunds } from './paypalRefundController';
+app.post('/api/payments/paypal/refund', authenticateToken, requireMinLevel(ROLES.DIRECTOR), paymentLimiter, refundPayPalCapture);
+app.get('/api/payments/paypal/refunds', authenticateToken, requireMinLevel(ROLES.DIRECTOR), listPayPalRefunds);
 
 // --- RUTA DE PRUEBA PARA CONFIRMAR PAGOS ---
 app.post('/api/payments/test/confirm', authenticateToken, testConfirmPayment);

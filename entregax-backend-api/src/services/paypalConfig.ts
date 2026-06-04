@@ -14,6 +14,7 @@
 
 import { pool } from '../db';
 import { ServiceType } from './openpayConfig';
+import { decryptIfEncrypted } from './cryptoVault';
 
 export interface PayPalCredentials {
   clientId: string;
@@ -21,6 +22,8 @@ export interface PayPalCredentials {
   isSandbox: boolean;
   emitterId: number;
   empresaName: string;
+  /** ID de webhook configurado en el dashboard de PayPal (para verificación de firma). */
+  webhookId?: string | null;
 }
 
 const PAYPAL_API_SANDBOX = 'https://api-m.sandbox.paypal.com';
@@ -45,7 +48,8 @@ export const getPaypalCredentials = async (
   if (serviceType) {
     const mapped = SERVICE_TYPE_MAP[serviceType as string] || String(serviceType).toUpperCase();
     const r = await pool.query(
-      `SELECT fe.id, fe.alias, fe.paypal_client_id, fe.paypal_secret, fe.paypal_sandbox
+      `SELECT fe.id, fe.alias, fe.paypal_client_id, fe.paypal_secret, fe.paypal_sandbox,
+              fe.paypal_webhook_id
          FROM service_company_config scc
          JOIN fiscal_emitters fe ON scc.emitter_id = fe.id
         WHERE scc.service_type = $1
@@ -62,10 +66,11 @@ export const getPaypalCredentials = async (
       console.log(`🔑 PayPal credentials (service ${serviceType}) -> ${row.alias}`);
       return {
         clientId: row.paypal_client_id,
-        secret: row.paypal_secret,
+        secret: decryptIfEncrypted(row.paypal_secret),
         isSandbox: row.paypal_sandbox !== false,
         emitterId: row.id,
         empresaName: row.alias,
+        webhookId: row.paypal_webhook_id || null,
       };
     }
     console.warn(`⚠️ PayPal: servicio ${serviceType} sin emisor con PayPal. Usando fallback.`);
@@ -73,7 +78,7 @@ export const getPaypalCredentials = async (
 
   // Fallback legacy: primer emisor con PayPal configurado.
   const r = await pool.query(
-    `SELECT id, alias, paypal_client_id, paypal_secret, paypal_sandbox
+    `SELECT id, alias, paypal_client_id, paypal_secret, paypal_sandbox, paypal_webhook_id
        FROM fiscal_emitters
       WHERE paypal_configured = TRUE
         AND paypal_client_id IS NOT NULL
@@ -90,10 +95,11 @@ export const getPaypalCredentials = async (
   console.log(`🔑 PayPal credentials (fallback) -> ${row.alias}`);
   return {
     clientId: row.paypal_client_id,
-    secret: row.paypal_secret,
+    secret: decryptIfEncrypted(row.paypal_secret),
     isSandbox: row.paypal_sandbox !== false,
     emitterId: row.id,
     empresaName: row.alias,
+    webhookId: row.paypal_webhook_id || null,
   };
 };
 

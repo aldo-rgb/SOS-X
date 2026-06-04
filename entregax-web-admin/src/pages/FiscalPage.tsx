@@ -151,7 +151,8 @@ export default function FiscalPage() {
   const [paypalForm, setPaypalForm] = useState({
     paypal_client_id: '',
     paypal_secret: '',
-    paypal_sandbox: true
+    paypal_sandbox: true,
+    paypal_webhook_id: ''
   });
   const [savingPaypal, setSavingPaypal] = useState(false);
 
@@ -441,11 +442,12 @@ export default function FiscalPage() {
         setPaypalForm({
           paypal_client_id: res.data.paypal_client_id || '',
           paypal_secret: '',
-          paypal_sandbox: res.data.paypal_sandbox !== false
+          paypal_sandbox: res.data.paypal_sandbox !== false,
+          paypal_webhook_id: res.data.paypal_webhook_id || ''
         });
       }
     } catch (e) {
-      setPaypalForm({ paypal_client_id: '', paypal_secret: '', paypal_sandbox: true });
+      setPaypalForm({ paypal_client_id: '', paypal_secret: '', paypal_sandbox: true, paypal_webhook_id: '' });
     }
     setOpenPaypalModal(true);
   };
@@ -462,7 +464,8 @@ export default function FiscalPage() {
         empresa_id: selectedEmpresaPaypal.id,
         paypal_client_id: paypalForm.paypal_client_id,
         paypal_secret: paypalForm.paypal_secret,
-        paypal_sandbox: paypalForm.paypal_sandbox
+        paypal_sandbox: paypalForm.paypal_sandbox,
+        paypal_webhook_id: paypalForm.paypal_webhook_id || null
       }, { headers: { Authorization: `Bearer ${getToken()}` } });
       
       setSnackbar({ open: true, message: `✅ PayPal configurado para ${selectedEmpresaPaypal.alias}`, severity: 'success' });
@@ -1837,9 +1840,18 @@ export default function FiscalPage() {
               type="password"
               fullWidth
               required
-              helperText="Clave secreta de la aplicación PayPal"
+              helperText="Clave secreta de la aplicación PayPal (se cifra antes de guardar)"
             />
-            
+
+            <TextField
+              label="Webhook ID (opcional)"
+              value={paypalForm.paypal_webhook_id}
+              onChange={(e) => setPaypalForm({ ...paypalForm, paypal_webhook_id: e.target.value })}
+              placeholder="1AB23456CD789012E"
+              fullWidth
+              helperText="ID del webhook de PayPal Developer Dashboard. Habilita verificación de firma para chargebacks/reembolsos."
+            />
+
             <Divider sx={{ my: 1 }} />
             
             <FormControlLabel
