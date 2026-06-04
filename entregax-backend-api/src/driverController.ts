@@ -1748,8 +1748,8 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
                 ${NATIONAL_TRACKING_SQL} as national_tracking,
                 ${NATIONAL_CARRIER_SQL} as national_carrier
             FROM packages p
-            WHERE ${fastId ? 'p.id = $2' : `(${TRACKING_MATCH_SQL})`}
-        `, fastId ? [barcode, fastId] : [barcode]);
+            WHERE ${fastId ? 'p.id = $1' : `(${TRACKING_MATCH_SQL})`}
+        `, fastId ? [fastId] : [barcode]);
 
         if (pkgRes.rows.length === 0) {
             console.warn(`⚠️ Paquete NO encontrado: "${barcode}"`);
