@@ -172,6 +172,14 @@ const normalizeScanCode = (rawCode: string): string => {
     return code;
   }
 
+  // US compact: "US" + 10 dígitos (master) o "US" + 14 dígitos (master+child)
+  // Ej: "US89984554340001" → "US-8998455434-0001"
+  if (/^US\d{10,14}$/.test(code)) {
+    const digits = code.slice(2);
+    if (digits.length >= 14) return `US-${digits.slice(0, 10)}-${digits.slice(10, 14)}`;
+    if (digits.length >= 10) return `US-${digits.slice(0, 10)}`;
+  }
+
   // Fallback histórico para PO Box / CN: prefijo de 2 letras + resto.
   const compactTracking = code.match(/[A-Z]{2,}[A-Z0-9]{4,}/);
   if (compactTracking?.[0]) {
@@ -1341,14 +1349,17 @@ export default function LoadingVanScreen({ navigation, route }: any) {
                               </TouchableOpacity>
                             </View>
                             <Text style={styles.packageRecipient}>
-                              🧾 Cliente: {headerInfo.clientNumber} · 🔢 Ref: {headerInfo.referenceDigits}
+                              🧾 Cliente: {headerInfo.clientNumber}
                               {group.isVirtualMaster ? ` · 📦 ${group.loaded.length}/${total} cajas` : ''}
                             </Text>
-                            {!!group.representative.delivery_address && (
-                              <Text style={styles.packageAddress} numberOfLines={1}>
-                                {group.representative.delivery_address}
-                              </Text>
-                            )}
+                            {(() => {
+                              const SKIP = ['pendiente de asignar', 'en bodega', 'sin dirección', 'sin direccion'];
+                              const addr = group.representative.delivery_address;
+                              if (!addr) return null;
+                              const low = String(addr).toLowerCase().trim();
+                              if (SKIP.some(s => low.includes(s))) return null;
+                              return <Text style={styles.packageAddress} numberOfLines={1}>{addr}</Text>;
+                            })()}
                             {!!group.representative.recipient_name && (
                               <Text style={styles.packageRecipient}>👤 {group.representative.recipient_name}</Text>
                             )}
