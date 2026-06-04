@@ -11559,6 +11559,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS wants_factura_paqueteria BOOLEAN DEFAULT FALSE`),
   ]).catch(() => {});
 
+
   // Tabla package_documents para documentos subidos por asesores
   pool.query(`
     CREATE TABLE IF NOT EXISTS package_documents (

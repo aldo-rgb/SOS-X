@@ -4859,16 +4859,23 @@ export const createOutboundConsolidation = async (req: Request, res: Response): 
         const random = Math.random().toString(36).substring(2, 6).toUpperCase();
         const consolidationNumber = `OUT-${timestamp}-${random}`;
         
-        // Crear la consolidación con referencia al proveedor
+        // Crear la consolidación con referencia al proveedor.
+        // La consolidación nace YA despachada (las cajas salieron físicamente
+        // en este escaneo), por eso dispatched_at = NOW(). Sin este valor el
+        // historial queda con la guía como "en tránsito" desde la creación y
+        // la recepción en MTY aparece "1 minuto" después de inventarla, lo
+        // cual confunde a operaciones.
         const consolidationResult = await pool.query(`
             INSERT INTO consolidations (
                 status,
                 total_weight,
+                dispatched_at,
                 created_at,
                 updated_at
             ) VALUES (
                 'in_transit',
                 $1,
+                NOW(),
                 NOW(),
                 NOW()
             )

@@ -251,25 +251,27 @@ const getInCedisWriteStatus = async (): Promise<'in_cedis' | 'received_mty'> => 
         return inCedisWriteStatusCache;
 };
 
-    const getSentWriteStatus = async (): Promise<'sent' | 'delivered'> => {
+    const getSentWriteStatus = async (): Promise<'shipped' | 'sent' | 'delivered'> => {
         const statusColumn = await getPackageStatusColumn();
-        if (statusColumn === 'delivery_status') return 'sent';
+        if (statusColumn === 'delivery_status') return 'shipped';
 
-        if (sentWriteStatusCache) return sentWriteStatusCache;
+        if (sentWriteStatusCache) return sentWriteStatusCache as any;
 
+        // Preferir 'shipped' (Enviado) sobre 'sent' o 'delivered'
         const result = await pool.query(
             `
-                SELECT 1
+                SELECT e.enumlabel
                 FROM pg_type t
                 JOIN pg_enum e ON e.enumtypid = t.oid
                 WHERE t.typname = 'package_status'
-                AND e.enumlabel = 'sent'
+                AND e.enumlabel IN ('shipped', 'sent', 'delivered')
+                ORDER BY CASE e.enumlabel WHEN 'shipped' THEN 1 WHEN 'sent' THEN 2 ELSE 3 END
                 LIMIT 1
             `
         );
 
-        sentWriteStatusCache = result.rows.length > 0 ? 'sent' : 'delivered';
-        return sentWriteStatusCache;
+        sentWriteStatusCache = result.rows[0]?.enumlabel || 'delivered';
+        return sentWriteStatusCache as any;
     };
 
     const getPackageBranchSql = async (alias: string = 'p'): Promise<string> => {
