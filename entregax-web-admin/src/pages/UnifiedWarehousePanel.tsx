@@ -180,6 +180,47 @@ interface ShipmentResponse {
   };
 }
 
+// Contenedor marítimo (subset que mostramos en el scanner multi-sucursal)
+interface MaritimeContainer {
+  id: number;
+  container_number?: string | null;
+  bl_number?: string | null;
+  so_number?: string | null;
+  reference_code?: string | null;
+  status?: string | null;
+  type?: string | null;
+  eta?: string | null;
+  vessel_name?: string | null;
+  voyage_number?: string | null;
+  port_of_loading?: string | null;
+  port_of_discharge?: string | null;
+  place_of_delivery?: string | null;
+  consignee?: string | null;
+  shipper?: string | null;
+  carrier?: string | null;
+  carrier_name?: string | null;
+  total_weight_kg?: number | string | null;
+  total_cbm?: number | string | null;
+  total_packages?: number | null;
+  final_cost_mxn?: number | string | null;
+  shipment_count?: number | string | null;
+  route_code?: string | null;
+  route_name?: string | null;
+  client_box_id?: string | null;
+  client_name?: string | null;
+  monitor_name?: string | null;
+  received_at?: string | null;
+  actual_arrival?: string | null;
+  actual_departure?: string | null;
+  planned_departure?: string | null;
+  laden_on_board?: string | null;
+  last_tracking_event?: string | null;
+  last_tracking_date?: string | null;
+  last_tracking_location?: string | null;
+  mj_container_id?: number | string | null;
+  week_number?: string | null;
+}
+
 interface MovementEvent {
   id?: number | string;
   status?: string;
@@ -233,7 +274,22 @@ const normalizeBarcode = (raw: string): string => {
     return v.slice(-12);
   }
 
-  // Auto-insertar guion si viene pegado (US2722344044 -> US-2722344044)
+  // Hijas PO Box: formato canónico US-{10 dígitos}-{4 dígitos}.
+  // El QR a veces llega sin guiones y SIN los ceros del sufijo
+  // ("US491748132005" -> US-4917481320-0005). El código de barras
+  // mete comillas en lugar de guiones y deja el sufijo sin padding
+  // ("US'4917481320'04" -> US-4917481320-04 -> US-4917481320-0004).
+  // Reconstruimos el formato canónico:
+  const usJoined = v.match(/^US(\d{10})(\d{1,4})$/); // sin guiones, hija
+  if (usJoined) {
+    return `US-${usJoined[1]}-${usJoined[2].padStart(4, '0')}`;
+  }
+  const usDashedShort = v.match(/^US-(\d{10})-(\d{1,3})$/); // guiones, sufijo corto
+  if (usDashedShort) {
+    return `US-${usDashedShort[1]}-${usDashedShort[2].padStart(4, '0')}`;
+  }
+
+  // Auto-insertar guion si viene pegado (US2722344044 -> US-2722344044, master)
   const prefixMatch = v.match(/^(US|AIR|LOG|TRK)(\d+)$/);
   if (prefixMatch) v = `${prefixMatch[1]}-${prefixMatch[2]}`;
 
@@ -317,6 +373,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
   const [data, setData] = useState<ShipmentResponse['shipment'] | null>(null);
   const [movements, setMovements] = useState<MovementEvent[]>([]);
   const [loadingMovements, setLoadingMovements] = useState(false);
+  const [containers, setContainers] = useState<MaritimeContainer[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Roles autorizados a ver costos (paquetería + servicio)
@@ -363,6 +420,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
     setError(null);
     setData(null);
     setMovements([]);
+    setContainers([]);
 
     try {
       const res = await api.get(`/packages/track/${encodeURIComponent(tracking)}`);
@@ -371,12 +429,18 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
         // Cargar movimientos en paralelo (no bloqueante)
         loadMovements(tracking);
       } else {
-        setError('No se encontró información para esta guía');
+        // Sin match como paquete → intentar como contenedor marítimo (JS / BL / nº contenedor)
+        const found = await tryContainerSearch(tracking);
+        if (!found) setError('No se encontró información para esta guía');
       }
     } catch (err) {
       const e = err as { response?: { status?: number; data?: { error?: string } } };
       if (e.response?.status === 404) {
-        setError(`Guía "${tracking}" no encontrada en el sistema`);
+        // Fallback: buscar como contenedor marítimo antes de declarar 404
+        const found = await tryContainerSearch(tracking);
+        if (!found) {
+          setError(`Guía "${tracking}" no encontrada en el sistema`);
+        }
       } else {
         setError(e.response?.data?.error || 'Error al consultar la guía');
       }
@@ -387,6 +451,22 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
         inputRef.current?.focus();
         inputRef.current?.select();
       }, 100);
+    }
+  };
+
+  // Intenta resolver el código como contenedor marítimo (JS, BL, container_number, ordersn, etc.)
+  // Devuelve true si encontró al menos un contenedor.
+  const tryContainerSearch = async (q: string): Promise<boolean> => {
+    try {
+      const res = await api.get('/maritime/containers', { params: { search: q } });
+      const list: MaritimeContainer[] = Array.isArray(res.data) ? res.data : [];
+      if (list.length > 0) {
+        setContainers(list);
+        return true;
+      }
+      return false;
+    } catch {
+      return false;
     }
   };
 
@@ -414,6 +494,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
     setData(null);
     setError(null);
     setMovements([]);
+    setContainers([]);
     setTimeout(() => inputRef.current?.focus(), 100);
   };
 
@@ -470,7 +551,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
             inputRef={inputRef}
             fullWidth
             variant="outlined"
-            placeholder="Escanea o escribe la guía (DHL, AIR-XXXX, LOG-XXXX, US-XXXX, ordersn marítimo...)"
+            placeholder="Escanea o escribe la guía (DHL, AIR, LOG, US, contenedor / BL / JS, ordersn marítimo…)"
             value={barcode}
             onChange={(e) => setBarcode(e.target.value)}
             onKeyDown={(e) => {
@@ -519,13 +600,256 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
       )}
 
       {/* Sin resultado todavía */}
-      {!data && !error && !searching && (
+      {!data && !error && !searching && containers.length === 0 && (
         <Alert severity="info" icon={<ScannerIcon />}>
           <Typography variant="body2">
             <strong>Tip:</strong> coloca el cursor en el cuadro de búsqueda y dispara el escáner.
             El sistema detectará automáticamente el tipo de guía y mostrará toda la información.
+            También puedes rastrear contenedores marítimos por <strong>JS</strong>, <strong>BL</strong> o
+            <strong> número de contenedor</strong>.
           </Typography>
         </Alert>
+      )}
+
+      {/* Resultado: contenedor(es) marítimo(s) */}
+      {!data && containers.length > 0 && (
+        <Stack spacing={2}>
+          <Alert severity="success" icon={<ShippingIcon />}>
+            <Typography variant="body2">
+              Se encontró <strong>{containers.length}</strong>{' '}
+              {containers.length === 1 ? 'contenedor marítimo' : 'contenedores marítimos'} para
+              "<strong>{lastSearched}</strong>". Haz clic en "Ver detalle" para abrir el costeo
+              marítimo del contenedor.
+            </Typography>
+          </Alert>
+          {containers.map((c) => {
+            const num = (n?: number | string | null) =>
+              n == null || n === '' ? '—' : Number(n).toLocaleString('es-MX');
+            return (
+              <Paper
+                key={c.id}
+                elevation={3}
+                sx={{ p: 3, borderLeft: 6, borderColor: 'info.main' }}
+              >
+                <Grid container spacing={2}>
+                  <Grid size={12}>
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      spacing={2}
+                      flexWrap="wrap"
+                    >
+                      <ShippingIcon sx={{ fontSize: 36, color: 'info.main' }} />
+                      <Box flex={1} minWidth={0}>
+                        <Typography variant="overline" color="text.secondary">
+                          Contenedor marítimo
+                        </Typography>
+                        <Typography
+                          variant="h5"
+                          fontWeight="bold"
+                          fontFamily="monospace"
+                          sx={{ wordBreak: 'break-all' }}
+                        >
+                          {c.container_number || c.bl_number || `#${c.id}`}
+                        </Typography>
+                        {c.reference_code && (
+                          <Typography variant="caption" color="text.secondary">
+                            Ref: {c.reference_code}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Stack alignItems="flex-end" spacing={1}>
+                        <Chip
+                          label={c.status || 'Sin estado'}
+                          color={statusColor(c.status || '')}
+                          sx={{ fontWeight: 'bold' }}
+                        />
+                        {c.type && (
+                          <Chip
+                            label={c.type}
+                            size="small"
+                            variant="outlined"
+                            sx={{ fontWeight: 700 }}
+                          />
+                        )}
+                        {c.week_number && (
+                          <Chip
+                            label={`Semana ${c.week_number}`}
+                            size="small"
+                            color="primary"
+                            variant="outlined"
+                          />
+                        )}
+                      </Stack>
+                    </Stack>
+                  </Grid>
+
+                  <Grid size={12}>
+                    <Divider />
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      Container #
+                    </Typography>
+                    <Typography fontWeight={700} fontFamily="monospace">
+                      {c.container_number || '—'}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      BL
+                    </Typography>
+                    <Typography fontWeight={700} fontFamily="monospace">
+                      {c.bl_number || '—'}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      SO / JS
+                    </Typography>
+                    <Typography fontWeight={700} fontFamily="monospace">
+                      {c.so_number || c.mj_container_id || '—'}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      Ruta
+                    </Typography>
+                    <Typography fontWeight={700}>
+                      {c.route_code || c.route_name || '—'}
+                    </Typography>
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      <ShippingIcon fontSize="inherit" /> Vessel
+                    </Typography>
+                    <Typography fontWeight={700}>
+                      {c.vessel_name || '—'}
+                      {c.voyage_number ? ` · V/${c.voyage_number}` : ''}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      <PlaceIcon fontSize="inherit" /> POL → POD
+                    </Typography>
+                    <Typography fontWeight={700}>
+                      {(c.port_of_loading || '—') + ' → ' + (c.port_of_discharge || '—')}
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      <ClockIcon fontSize="inherit" /> ETA
+                    </Typography>
+                    <Typography fontWeight={700}>{fmtDate(c.eta)}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      <ClockIcon fontSize="inherit" /> Llegada real
+                    </Typography>
+                    <Typography fontWeight={700}>
+                      {fmtDate(c.actual_arrival || c.received_at)}
+                    </Typography>
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      <ScaleIcon fontSize="inherit" /> Peso total
+                    </Typography>
+                    <Typography fontWeight={700}>
+                      {num(c.total_weight_kg)} kg
+                    </Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      <RulerIcon fontSize="inherit" /> CBM
+                    </Typography>
+                    <Typography fontWeight={700}>{num(c.total_cbm)}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 12, sm: 4 }}>
+                    <Typography variant="overline" color="text.secondary">
+                      <PackageIcon fontSize="inherit" /> Envíos / paquetes
+                    </Typography>
+                    <Typography fontWeight={700}>
+                      {num(c.shipment_count)}
+                      {c.total_packages ? ` · ${num(c.total_packages)} pkts` : ''}
+                    </Typography>
+                  </Grid>
+
+                  {(c.consignee || c.shipper || c.client_name) && (
+                    <Grid size={12}>
+                      <Divider sx={{ my: 1 }} />
+                      <Grid container spacing={2}>
+                        {c.shipper && (
+                          <Grid size={{ xs: 12, sm: 4 }}>
+                            <Typography variant="overline" color="text.secondary">
+                              Shipper
+                            </Typography>
+                            <Typography fontWeight={700}>{c.shipper}</Typography>
+                          </Grid>
+                        )}
+                        {c.consignee && (
+                          <Grid size={{ xs: 12, sm: 4 }}>
+                            <Typography variant="overline" color="text.secondary">
+                              Consignee
+                            </Typography>
+                            <Typography fontWeight={700}>{c.consignee}</Typography>
+                          </Grid>
+                        )}
+                        {c.client_name && (
+                          <Grid size={{ xs: 12, sm: 4 }}>
+                            <Typography variant="overline" color="text.secondary">
+                              <PersonIcon fontSize="inherit" /> Cliente
+                            </Typography>
+                            <Typography fontWeight={700}>
+                              {c.client_name}
+                              {c.client_box_id ? ` · ${c.client_box_id}` : ''}
+                            </Typography>
+                          </Grid>
+                        )}
+                      </Grid>
+                    </Grid>
+                  )}
+
+                  {c.last_tracking_event && (
+                    <Grid size={12}>
+                      <Divider sx={{ my: 1 }} />
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <HistoryIcon fontSize="small" color="info" />
+                        <Box>
+                          <Typography variant="overline" color="text.secondary">
+                            Último evento de tracking
+                          </Typography>
+                          <Typography fontWeight={700}>
+                            {c.last_tracking_event}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {fmtDate(c.last_tracking_date)}
+                            {c.last_tracking_location ? ` · ${c.last_tracking_location}` : ''}
+                          </Typography>
+                        </Box>
+                      </Stack>
+                    </Grid>
+                  )}
+
+                  <Grid size={12}>
+                    <Divider sx={{ my: 1 }} />
+                    <Stack direction="row" spacing={2}>
+                      <Button
+                        variant="outlined"
+                        startIcon={<CopyIcon />}
+                        onClick={() => copy(c.container_number || c.bl_number || '')}
+                      >
+                        Copiar #
+                      </Button>
+                    </Stack>
+                  </Grid>
+                </Grid>
+              </Paper>
+            );
+          })}
+        </Stack>
       )}
 
       {/* Resultado */}

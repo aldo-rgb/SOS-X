@@ -46,7 +46,23 @@ export const getContainers = async (req: AuthRequest, res: Response): Promise<an
     }
 
     if (search) {
-      query += ` AND (c.container_number ILIKE $${paramIndex} OR c.bl_number ILIKE $${paramIndex} OR c.consignee ILIKE $${paramIndex} OR c.reference_code ILIKE $${paramIndex} OR mr.code ILIKE $${paramIndex})`;
+      // Buscar por container_number, BL, consignee, reference, ruta,
+      // SO/JS, vessel, MJ id, y también por ordersn/ship_number en maritime_orders.
+      query += ` AND (
+        c.container_number ILIKE $${paramIndex}
+        OR c.bl_number ILIKE $${paramIndex}
+        OR c.consignee ILIKE $${paramIndex}
+        OR c.reference_code ILIKE $${paramIndex}
+        OR c.so_number ILIKE $${paramIndex}
+        OR c.vessel_name ILIKE $${paramIndex}
+        OR COALESCE(c.mj_container_id::text, '') ILIKE $${paramIndex}
+        OR mr.code ILIKE $${paramIndex}
+        OR EXISTS (
+          SELECT 1 FROM maritime_orders mo
+           WHERE mo.container_id = c.id
+             AND (mo.ordersn ILIKE $${paramIndex} OR mo.ship_number ILIKE $${paramIndex} OR mo.bl_number ILIKE $${paramIndex})
+        )
+      )`;
       params.push(`%${search}%`);
       paramIndex++;
     }

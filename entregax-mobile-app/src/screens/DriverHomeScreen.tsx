@@ -964,7 +964,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   <MaterialIcons name="add-box" size={28} color="#2E7D32" />
                   <View style={{ flex: 1 }}>
                     <Text style={{ fontSize: 16, fontWeight: '800', color: '#2E7D32' }}>Cargar Unidad</Text>
-                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Carga los paquetes a tu camioneta para llevarlos a la paqueteríaes</Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Carga los paquetes a tu camioneta para llevarlos a la paqueterías</Text>
                   </View>
                   <MaterialIcons name="chevron-right" size={22} color="#2E7D32" />
                 </TouchableOpacity>
