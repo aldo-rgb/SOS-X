@@ -902,14 +902,33 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                     {pkg.recipient_name ? (
                       <Text style={{ fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 2 }}>{pkg.recipient_name}</Text>
                     ) : null}
-                    {(pkg.delivery_address || pkg.delivery_city) ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                        <MaterialIcons name="location-on" size={13} color="#888" />
-                        <Text style={{ fontSize: 12, color: '#666', flex: 1 }} numberOfLines={2}>
-                          {[pkg.delivery_address, pkg.delivery_city].filter(Boolean).join(', ')}
-                        </Text>
-                      </View>
-                    ) : null}
+                    {(() => {
+                      // Filtrar placeholders del sistema
+                      const PLACEHOLDERS = ['pendiente de asignar', 'en bodega', 'sin dirección', 'sin direccion'];
+                      const addr = [pkg.delivery_address, pkg.delivery_city].filter(v => {
+                        if (!v) return false;
+                        const lower = String(v).toLowerCase().trim();
+                        return !PLACEHOLDERS.some(p => lower.includes(p));
+                      }).join(', ');
+                      if (!addr) {
+                        // Mostrar estado en lugar de dirección placeholder
+                        const statusLabel = pkg.delivery_status ? String(pkg.delivery_status).replace(/_/g, ' ') : 'En bodega';
+                        return (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                            <MaterialIcons name="info-outline" size={13} color="#F05A28" />
+                            <Text style={{ fontSize: 12, color: '#F05A28', flex: 1 }}>
+                              {statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}
+                            </Text>
+                          </View>
+                        );
+                      }
+                      return (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                          <MaterialIcons name="location-on" size={13} color="#888" />
+                          <Text style={{ fontSize: 12, color: '#666', flex: 1 }} numberOfLines={2}>{addr}</Text>
+                        </View>
+                      );
+                    })()}
                   </View>
                 ))}
               </ScrollView>
