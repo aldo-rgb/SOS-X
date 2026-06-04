@@ -378,7 +378,7 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           </Text>
           <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
             {[...completed].reverse().map((c, i) => (
-              <View key={c.packageId} style={{
+              <View key={`${c.packageId}-${i}`} style={{
                 flexDirection: 'row', alignItems: 'center', gap: 8,
                 backgroundColor: '#E8F5E9', borderRadius: 8, padding: 10, marginBottom: 4,
               }}>
