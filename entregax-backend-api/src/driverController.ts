@@ -888,27 +888,37 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 `, [driverBranchId])
                 : { rows: [] as any[] };
 
+                const DELIVERED_SELECT = `
+                    SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
+                        ${DELIVERY_STATUS_SQL} as delivery_status,
+                        ${DELIVERY_ADDRESS_SQL} as delivery_address,
+                        ${DELIVERY_CITY_SQL} as delivery_city,
+                        ${RECIPIENT_NAME_SQL} as recipient_name,
+                        COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                        ${CLIENT_NUMBER_SQL} as client_number,
+                        p.updated_at
+                    FROM packages p
+                    LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                `;
                 const deliveredTodayRes = hasAssignedDriverColumn
-                    ? await pool.query(`
-                            SELECT COUNT(*) as delivered_today
-                            FROM packages p
-                            WHERE to_jsonb(p)->>'assigned_driver_id' = $1::text
-                                AND COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') IN ('delivered', 'sent')
-                                AND DATE(p.updated_at) = CURRENT_DATE
-                                AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                    ? await pool.query(`${DELIVERED_SELECT}
+                        WHERE to_jsonb(p)->>'assigned_driver_id' = $1::text
+                            AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
+                            AND DATE(p.updated_at) = CURRENT_DATE
+                            AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                        ORDER BY p.updated_at DESC
                     `, [driverId])
                     : driverBranchId
-                        ? await pool.query(`
-                                SELECT COUNT(*) as delivered_today
-                                FROM packages p
-                                WHERE ${packageBranchSql} = $1
-                                    AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent')
-                                    AND DATE(p.updated_at) = CURRENT_DATE
-                                    AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                        ? await pool.query(`${DELIVERED_SELECT}
+                            WHERE ${packageBranchSql} = $1
+                                AND ${DELIVERY_STATUS_SQL} IN ('delivered', 'sent', 'shipped')
+                                AND DATE(p.updated_at) = CURRENT_DATE
+                                AND COALESCE((to_jsonb(p)->>'is_master')::boolean, false) = false
+                            ORDER BY p.updated_at DESC
                         `, [driverBranchId])
-                        : { rows: [{ delivered_today: '0' }] };
+                        : { rows: [] as any[] };
 
-                const deliveredToday = parseInt(deliveredTodayRes.rows[0]?.delivered_today) || 0;
+                const deliveredToday = deliveredTodayRes.rows.length;
 
                 const isLocalCarrier = (carrier: string) => {
                     const c = String(carrier || '').toLowerCase();
@@ -947,7 +957,8 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                                 paqueteriaCount,
                                 requireLabelToLoad: reqLabel,
                 pendingPackages: pendingRes.rows,
-                loadedPackages: loadedRes.rows
+                loadedPackages: loadedRes.rows,
+                deliveredPackages: deliveredTodayRes.rows
             }
         });
 
@@ -1268,6 +1279,10 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
             ? await getSentWriteStatus()
             : 'delivered';
         const statusColumn = await getPackageStatusColumn();
+        // Si ambas columnas existen (esquema actual: enum `status` + legacy `delivery_status`),
+        // actualizamos las dos. El enum `status` es la fuente de verdad que lee el frontend
+        // y demás módulos; `delivery_status` se conserva por compatibilidad con código legacy.
+        const hasEnumStatusColumn = statusColumn !== 'status' ? await hasPackageColumn('status') : false;
         const hasDeliveredAtColumn = await hasPackageColumn('delivered_at');
         const hasDeliverySignatureColumn = await hasPackageColumn('delivery_signature');
         const hasDeliveryPhotoColumn = await hasPackageColumn('delivery_photo');
@@ -1275,6 +1290,9 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
         const hasDeliveryNotesColumn = await hasPackageColumn('delivery_notes');
 
         const setParts: string[] = [`${statusColumn} = '${finalStatus}'`, 'updated_at = NOW()'];
+        if (hasEnumStatusColumn) {
+            setParts.push(`status = '${finalStatus}'`);
+        }
         const values: any[] = [pkg.id];
 
         if (hasDeliveredAtColumn) {
@@ -1334,8 +1352,11 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
                 // Regla: master se marca entregado en cuanto AL MENOS 1 hija esté entregada.
                 // Los detalles individuales conservan su propio status.
                 if (total > 0 && done >= 1) {
+                    const masterSet = hasEnumStatusColumn
+                        ? `${statusColumn} = '${finalStatus}', status = '${finalStatus}'`
+                        : `${statusColumn} = '${finalStatus}'`;
                     await pool.query(
-                        `UPDATE packages SET ${statusColumn} = '${finalStatus}', updated_at = NOW() WHERE id = $1`,
+                        `UPDATE packages SET ${masterSet}, updated_at = NOW() WHERE id = $1`,
                         [masterId]
                     );
                 }
@@ -1437,6 +1458,9 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
         const errors = [];
         const statusColumn = await getPackageStatusColumn();
         const sentStatus = await getSentWriteStatus();
+        // Si ambas columnas existen (esquema actual: enum `status` + legacy `delivery_status`),
+        // actualizamos las dos. El enum `status` es la fuente de verdad que lee el frontend.
+        const hasEnumStatusColumnBulk = statusColumn !== 'status' ? await hasPackageColumn('status') : false;
         const hasDeliveredAtColumn = await hasPackageColumn('delivered_at');
         const hasDeliveryPhotoColumn = await hasPackageColumn('delivery_photo');
         const hasDeliverySignatureColumn = await hasPackageColumn('delivery_signature');
@@ -1497,6 +1521,9 @@ export const confirmDeliveryBulk = async (req: Request, res: Response): Promise<
 
                 // Construir UPDATE dinámicamente
                 const setParts: string[] = [`${statusColumn} = '${finalStatus}'`, 'updated_at = NOW()'];
+                if (hasEnumStatusColumnBulk) {
+                    setParts.push(`status = '${finalStatus}'`);
+                }
                 const values: any[] = [packageId];
 
                 // Si el repartidor seleccionó una paquetería y el paquete no tenía una asignada, guardarla

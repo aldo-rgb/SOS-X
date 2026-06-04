@@ -1787,6 +1787,11 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     isMaster: pkg.is_master, totalBoxes: pkg.total_boxes || 1,
                     status: pkg.status, statusLabel: getStatusLabel(pkg.status),
                     receivedAt: pkg.received_at, deliveredAt: pkg.delivered_at,
+                    // 📋 Evidencia de entrega (capturada por el repartidor al confirmar)
+                    deliveryRecipientName: pkg.delivery_recipient_name || null,
+                    deliverySignature: pkg.delivery_signature || null,
+                    deliveryPhoto: pkg.delivery_photo || null,
+                    deliveryNotes: pkg.delivery_notes || null,
                     destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
                     nationalCarrier: pkg.national_carrier || null,
                     nationalTracking: pkg.national_tracking || null,

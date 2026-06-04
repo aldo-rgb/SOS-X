@@ -75,7 +75,10 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
+  const [deliveredPackages, setDeliveredPackages] = useState<any[]>([]);
+  const [pendingPackagesList, setPendingPackagesList] = useState<any[]>([]);
   const [showLoadedModal, setShowLoadedModal] = useState(false);
+  const [showAssignedModal, setShowAssignedModal] = useState(false);
   const [copiedTrackingId, setCopiedTrackingId] = useState<number | null>(null);
   const [showPaqueteriaModal, setShowPaqueteriaModal] = useState(false);
   const [paqueteriaGroups, setPaqueteriaGroups] = useState<{ carrier: string; count: number; packages: any[] }[]>([]);
@@ -169,12 +172,15 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         const route = routeRes.data?.route || routeRes.data?.data?.route || routeRes.data?.data || {};
         const pendingPackages = Array.isArray(route.pendingPackages) ? route.pendingPackages : [];
         const loadedPackages = Array.isArray(route.loadedPackages) ? route.loadedPackages : [];
+        const deliveredPackagesArr = Array.isArray(route.deliveredPackages) ? route.deliveredPackages : [];
 
-        const deliveredToday = Number(route.deliveredToday) || 0;
+        const deliveredToday = deliveredPackagesArr.length || Number(route.deliveredToday) || 0;
         const totalAssignedFromApi = Number(route.totalAssigned) || 0;
         const totalAssignedComputed = pendingPackages.length + loadedPackages.length + deliveredToday;
 
         setLoadedPackages(loadedPackages);
+        setDeliveredPackages(deliveredPackagesArr);
+        setPendingPackagesList(pendingPackages);
 
         // Agrupar paquetes pendientes por carrier (solo national_carrier explícito, excluye local/entregax/pickup)
         const requireLabel = route.requireLabelToLoad ?? true;
@@ -455,25 +461,10 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       navigation.navigate('MonitorContainers', { user, token });
       return;
     }
-
-    if (!inspectionDone) {
-      Alert.alert(
-        'Inspección requerida',
-        'Primero debes realizar la inspección de tu vehículo para poder cargar tu unidad.'
-      );
-      return;
-    }
-
-    const loadAction = quickActions.find((action) => action.id === 'load');
-    if (!loadAction) return;
-
-    if (!loadAction.enabled) {
-      Alert.alert('Sin paquetes pendientes', 'No tienes paquetes pendientes por cargar en este momento.');
-      return;
-    }
-
-    void handleQuickActionPress(loadAction);
+    // Siempre abrir el modal de resumen de hoy (incluso si hay 0 pendientes)
+    setShowAssignedModal(true);
   };
+
 
   const handleScanModalChoice = async (mode: 'scanner' | 'camera') => {
     if (!scanModal.action) return;

@@ -35,6 +35,10 @@ import {
   TableRow,
   Tooltip,
   Stack,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  IconButton,
 } from '@mui/material';
 import {
   QrCodeScanner as ScannerIcon,
@@ -54,6 +58,8 @@ import {
   Store as StoreIcon,
   DirectionsCar as DeliveryIcon,
   ArrowBack as ArrowBackIcon,
+  Draw as SignatureIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -87,6 +93,10 @@ interface ShipmentMaster {
   statusLabel?: string;
   receivedAt?: string | null;
   deliveredAt?: string | null;
+  deliveryRecipientName?: string | null;
+  deliverySignature?: string | null;
+  deliveryPhoto?: string | null;
+  deliveryNotes?: string | null;
   destinationCity?: string | null;
   destinationCountry?: string | null;
   destinationCode?: string | null;
@@ -374,6 +384,7 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
   const [movements, setMovements] = useState<MovementEvent[]>([]);
   const [loadingMovements, setLoadingMovements] = useState(false);
   const [containers, setContainers] = useState<MaritimeContainer[]>([]);
+  const [signaturePreview, setSignaturePreview] = useState<{ url: string; title: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // Roles autorizados a ver costos (paquetería + servicio)
@@ -969,6 +980,128 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                         />
                       );
                     })()}
+                    {/* 📋 Evidencia de entrega: solo cuando el envío está entregado */}
+                    {m.status === 'delivered' && (m.deliveryRecipientName || m.deliverySignature || m.deliveryPhoto || m.deliveredAt) && (
+                      <Paper
+                        elevation={0}
+                        sx={{
+                          p: 1.5,
+                          mt: 0.5,
+                          width: '100%',
+                          maxWidth: 320,
+                          border: '1px solid',
+                          borderColor: 'success.light',
+                          borderRadius: 2,
+                          bgcolor: 'success.50',
+                        }}
+                      >
+                        <Stack spacing={1}>
+                          <Typography variant="caption" fontWeight={700} color="success.dark" sx={{ letterSpacing: 0.5 }}>
+                            ✅ EVIDENCIA DE ENTREGA
+                          </Typography>
+                          {m.deliveredAt && (
+                            <Typography variant="caption" color="text.secondary">
+                              <ClockIcon sx={{ fontSize: 12, verticalAlign: 'middle', mr: 0.5 }} />
+                              {new Date(m.deliveredAt).toLocaleString('es-MX', { dateStyle: 'medium', timeStyle: 'short' })}
+                            </Typography>
+                          )}
+                          {m.deliveryRecipientName && (
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                              <PersonIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                              <Box>
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ lineHeight: 1 }}>
+                                  Recibido por
+                                </Typography>
+                                <Typography variant="body2" fontWeight={700}>
+                                  {m.deliveryRecipientName}
+                                </Typography>
+                              </Box>
+                            </Stack>
+                          )}
+                          <Stack direction="row" spacing={1} sx={{ flexWrap: 'wrap', gap: 1 }}>
+                            {m.deliverySignature && (
+                              <Tooltip title="Ver firma" arrow>
+                                <Box
+                                  onClick={() =>
+                                    setSignaturePreview({
+                                      url: m.deliverySignature as string,
+                                      title: `Firma de ${m.deliveryRecipientName || 'receptor'}`,
+                                    })
+                                  }
+                                  sx={{
+                                    width: 80,
+                                    height: 50,
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    borderRadius: 1,
+                                    bgcolor: 'background.paper',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    overflow: 'hidden',
+                                    p: 0.25,
+                                    transition: 'transform 0.15s ease',
+                                    '&:hover': { transform: 'scale(1.05)', boxShadow: 2 },
+                                  }}
+                                >
+                                  <Box
+                                    component="img"
+                                    src={m.deliverySignature}
+                                    alt="firma"
+                                    sx={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }}
+                                  />
+                                </Box>
+                              </Tooltip>
+                            )}
+                            {m.deliveryPhoto && (
+                              <Tooltip title="Ver foto de entrega" arrow>
+                                <Box
+                                  onClick={() =>
+                                    setSignaturePreview({
+                                      url: m.deliveryPhoto as string,
+                                      title: 'Foto de entrega',
+                                    })
+                                  }
+                                  sx={{
+                                    width: 50,
+                                    height: 50,
+                                    border: '1px solid',
+                                    borderColor: 'divider',
+                                    borderRadius: 1,
+                                    bgcolor: 'background.paper',
+                                    cursor: 'pointer',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    overflow: 'hidden',
+                                    transition: 'transform 0.15s ease',
+                                    '&:hover': { transform: 'scale(1.05)', boxShadow: 2 },
+                                  }}
+                                >
+                                  <Box
+                                    component="img"
+                                    src={m.deliveryPhoto}
+                                    alt="foto"
+                                    sx={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'cover' }}
+                                  />
+                                </Box>
+                              </Tooltip>
+                            )}
+                            {!m.deliverySignature && !m.deliveryPhoto && (
+                              <Typography variant="caption" color="text.disabled" fontStyle="italic">
+                                Sin firma ni foto registrada
+                              </Typography>
+                            )}
+                          </Stack>
+                          {m.deliveryNotes && (
+                            <Typography variant="caption" color="text.secondary" sx={{ fontStyle: 'italic' }}>
+                              "{m.deliveryNotes}"
+                            </Typography>
+                          )}
+                        </Stack>
+                      </Paper>
+                    )}
                     <Chip
                       label={m.assignedAddress ? '✅ Con instrucciones' : '⚠️ Sin instrucciones'}
                       size="small"
@@ -1711,6 +1844,47 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
           </Paper>
         </Stack>
       )}
+
+      {/* 🖋️ Modal de preview de firma/foto de entrega */}
+      <Dialog
+        open={!!signaturePreview}
+        onClose={() => setSignaturePreview(null)}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pr: 6 }}>
+          <SignatureIcon color="success" />
+          {signaturePreview?.title || 'Evidencia de entrega'}
+          <IconButton
+            onClick={() => setSignaturePreview(null)}
+            sx={{ position: 'absolute', right: 8, top: 8 }}
+          >
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {signaturePreview && (
+            <Box
+              sx={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                bgcolor: 'grey.50',
+                borderRadius: 1,
+                p: 2,
+                minHeight: 200,
+              }}
+            >
+              <Box
+                component="img"
+                src={signaturePreview.url}
+                alt="evidencia"
+                sx={{ maxWidth: '100%', maxHeight: '60vh', objectFit: 'contain' }}
+              />
+            </Box>
+          )}
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 };
