@@ -85,16 +85,77 @@ interface Props {
     onBack: () => void;
 }
 
+// Estados editables manualmente desde el inventario (solo super_admin).
+// Coinciden con los aceptados por PATCH /api/packages/:id/status.
+const EDITABLE_STATUSES: { value: string; label: string }[] = [
+    { value: 'received', label: 'Recibido CEDIS HIDALGO TX' },
+    { value: 'processing', label: 'Procesando' },
+    { value: 'in_transit', label: 'En tránsito a MTY' },
+    { value: 'received_mty', label: 'Recibido CEDIS MTY' },
+    { value: 'ready_pickup', label: 'En Ruta' },
+    { value: 'out_for_delivery', label: 'En reparto' },
+    { value: 'returned_to_warehouse', label: 'Regresado a almacén' },
+    { value: 'delivered', label: 'Entregado' },
+];
+
 export default function POBoxInventoryPage({ onBack }: Props) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [packages, setPackages] = useState<InventoryPackage[]>([]);
+    const [savingId, setSavingId] = useState<number | null>(null);
 
     const [search, setSearch] = useState('');
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [dateFilter, setDateFilter] = useState<string>(''); // YYYY-MM-DD
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
+
+    // Solo super_admin puede cambiar el estado desde aquí.
+    const isSuperAdmin = useMemo(() => {
+        try {
+            const userStr = localStorage.getItem('user');
+            if (!userStr) return false;
+            const u = JSON.parse(userStr);
+            const role = String(u.role || '').toLowerCase().replace(/\s+/g, '_');
+            return role === 'super_admin';
+        } catch {
+            return false;
+        }
+    }, []);
+
+    const handleChangeStatus = async (pkg: InventoryPackage, newStatus: string) => {
+        if (!isSuperAdmin || newStatus === pkg.status) return;
+        const label = EDITABLE_STATUSES.find(s => s.value === newStatus)?.label || newStatus;
+        if (!window.confirm(
+            `¿Cambiar el estado de ${pkg.tracking} a "${label}"?\n\n` +
+            (pkg.isMaster && (pkg.totalBoxes || 0) > 1
+                ? `Esto también actualizará las ${pkg.totalBoxes} cajas hijas.\n\n`
+                : '') +
+            `Esta acción queda registrada en el historial.`
+        )) return;
+        setSavingId(pkg.id);
+        try {
+            const token = localStorage.getItem('token') || '';
+            await axios.patch(
+                `${API_URL}/api/packages/${pkg.id}/status`,
+                { status: newStatus, notes: 'Cambio manual desde Inventario PO Box (super admin)' },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            // Actualizar localmente sin recargar todo
+            setPackages(prev => prev.map(p =>
+                p.id === pkg.id || (pkg.isMaster && p.consolidationId === pkg.consolidationId && pkg.id === p.id)
+                    ? { ...p, status: newStatus }
+                    : p
+            ));
+            // Recargar para traer statusDate/labels actualizados
+            load();
+        } catch (e) {
+            const err = e as { response?: { data?: { error?: string } }; message?: string };
+            setError(err.response?.data?.error || err.message || 'No se pudo actualizar el estado');
+        } finally {
+            setSavingId(null);
+        }
+    };
 
     const load = useCallback(async () => {
         setLoading(true); setError(null);
@@ -255,12 +316,15 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Instrucciones</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Chofer</TableCell>
                                     <TableCell sx={{ fontWeight: 700, bgcolor: BLACK, color: '#FFF' }}>Unidad</TableCell>
+                                    {isSuperAdmin && (
+                                        <TableCell sx={{ fontWeight: 700, bgcolor: '#C1272D', color: '#FFF' }}>Cambiar estado</TableCell>
+                                    )}
                                 </TableRow>
                             </TableHead>
                             <TableBody>
                                 {paged.length === 0 ? (
                                     <TableRow>
-                                        <TableCell colSpan={11} sx={{ textAlign: 'center', py: 4 }}>
+                                        <TableCell colSpan={isSuperAdmin ? 12 : 11} sx={{ textAlign: 'center', py: 4 }}>
                                             <Typography color="text.secondary">Sin resultados</Typography>
                                         </TableCell>
                                     </TableRow>
@@ -357,6 +421,40 @@ export default function POBoxInventoryPage({ onBack }: Props) {
                                                       </Box>
                                                     : <Typography variant="caption" color="text.secondary">—</Typography>}
                                             </TableCell>
+                                            {isSuperAdmin && (
+                                                <TableCell sx={{ minWidth: 200 }}>
+                                                    <FormControl size="small" fullWidth disabled={savingId === p.id}>
+                                                        <Select
+                                                            value={EDITABLE_STATUSES.some(s => s.value === p.status) ? p.status : ''}
+                                                            displayEmpty
+                                                            onChange={(e) => handleChangeStatus(p, String(e.target.value))}
+                                                            sx={{
+                                                                fontSize: '0.8rem',
+                                                                bgcolor: '#FFF8F0',
+                                                                '& .MuiSelect-select': { py: 0.6 },
+                                                            }}
+                                                        >
+                                                            <MenuItem value="" disabled>
+                                                                <em>Seleccionar…</em>
+                                                            </MenuItem>
+                                                            {EDITABLE_STATUSES.map(s => (
+                                                                <MenuItem
+                                                                    key={s.value}
+                                                                    value={s.value}
+                                                                    disabled={s.value === p.status}
+                                                                >
+                                                                    {s.label}
+                                                                </MenuItem>
+                                                            ))}
+                                                        </Select>
+                                                        {savingId === p.id && (
+                                                            <Typography variant="caption" sx={{ color: ORANGE, mt: 0.3 }}>
+                                                                Guardando…
+                                                            </Typography>
+                                                        )}
+                                                    </FormControl>
+                                                </TableCell>
+                                            )}
                                         </TableRow>
                                     );
                                 })}
