@@ -94,6 +94,7 @@ const EDITABLE_STATUSES: { value: string; label: string }[] = [
     { value: 'received_mty', label: 'Recibido CEDIS MTY' },
     { value: 'ready_pickup', label: 'En Ruta' },
     { value: 'out_for_delivery', label: 'En reparto' },
+    { value: 'shipped', label: 'Enviado (Shipped)' },
     { value: 'returned_to_warehouse', label: 'Regresado a almacén' },
     { value: 'delivered', label: 'Entregado' },
 ];

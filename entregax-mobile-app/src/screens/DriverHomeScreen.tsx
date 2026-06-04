@@ -21,7 +21,7 @@ import {
   Image,
   Modal,
 } from 'react-native';
-import * as Clipboard from 'expo-clipboard';
+import { setStringAsync as copyToClipboard } from 'expo-clipboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useBrandAsset } from '../hooks/useBrandAssets';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -76,6 +76,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const [refreshing, setRefreshing] = useState(false);
   const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
   const [showLoadedModal, setShowLoadedModal] = useState(false);
+  const [copiedTrackingId, setCopiedTrackingId] = useState<number | null>(null);
   const [showPaqueteriaModal, setShowPaqueteriaModal] = useState(false);
   const [paqueteriaGroups, setPaqueteriaGroups] = useState<{ carrier: string; count: number; packages: any[] }[]>([]);
   const [selectedCarrierGroup, setSelectedCarrierGroup] = useState<{ carrier: string; packages: any[] } | null>(null);
@@ -806,7 +807,23 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   marginBottom: 10, borderLeftWidth: 4, borderLeftColor: '#2196F3',
                 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#2196F3' }}>{pkg.tracking_number}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#2196F3', flexShrink: 1 }}>{pkg.tracking_number}</Text>
+                      <TouchableOpacity
+                        onPress={async () => {
+                          await copyToClipboard(pkg.tracking_number);
+                          setCopiedTrackingId(pkg.id);
+                          setTimeout(() => setCopiedTrackingId(null), 1500);
+                        }}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <MaterialIcons
+                          name={copiedTrackingId === pkg.id ? 'check' : 'content-copy'}
+                          size={15}
+                          color={copiedTrackingId === pkg.id ? '#4CAF50' : '#90CAF9'}
+                        />
+                      </TouchableOpacity>
+                    </View>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                       {pkg.client_number ? (
                         <View style={{ backgroundColor: '#E3F2FD', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>

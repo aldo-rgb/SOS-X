@@ -14,6 +14,7 @@ type PackageStatus =
     | 'customs'
     | 'ready_pickup'
     | 'out_for_delivery'
+    | 'shipped'
     | 'returned_to_warehouse'
     | 'delivered'
     | 'reempacado'
@@ -2000,7 +2001,7 @@ export const updateShipmentStatus = async (req: Request, res: Response): Promise
     try {
         const { id } = req.params;
         const { status, notes } = req.body;
-        const validStatuses: PackageStatus[] = ['received', 'received_mty', 'in_transit', 'customs', 'ready_pickup', 'out_for_delivery', 'returned_to_warehouse', 'delivered', 'reempacado', 'processing'];
+        const validStatuses: PackageStatus[] = ['received', 'received_mty', 'in_transit', 'customs', 'ready_pickup', 'out_for_delivery', 'shipped', 'returned_to_warehouse', 'delivered', 'reempacado', 'processing'];
         
         if (!validStatuses.includes(status)) {
             res.status(400).json({ error: 'Estado inválido', validStatuses });
