@@ -47,6 +47,7 @@ import FleetVehicleDetailScreen from './src/screens/FleetVehicleDetailScreen';
 import StartMonitoringScreen from './src/screens/StartMonitoringScreen';
 import ConfirmDeliveryScreen from './src/screens/ConfirmDeliveryScreen';
 import LoadingVanScreen from './src/screens/LoadingVanScreen';
+import PaqueteriaHandoffScreen from './src/screens/PaqueteriaHandoffScreen';
 import ReturnScanScreen from './src/screens/ReturnScanScreen';
 import DeliveryConfirmScreen from './src/screens/DeliveryConfirmScreen';
 import EmployeeHomeScreen from './src/screens/EmployeeHomeScreen';
@@ -157,6 +158,7 @@ export type RootStackParamList = {
   StartMonitoring: { user: any; token: string; container: any };
   ConfirmDelivery: { user: any; token: string; container: any };
   LoadingVan: { user: any; token: string };
+  PaqueteriaHandoff: { carrier: string; mode: 'mostrador' | 'recoleccion' | 'cargar_unidad'; packages: any[]; token: string };
   ReturnScan: { user: any; token: string };
   DeliveryConfirm: { user: any; token: string; package?: any };
   // Pantalla de Asistencia
@@ -369,9 +371,14 @@ function App() {
           <Stack.Screen name="FleetVehicleDetail" component={FleetVehicleDetailScreen} />
           <Stack.Screen name="StartMonitoring" component={StartMonitoringScreen} />
           <Stack.Screen name="ConfirmDelivery" component={ConfirmDeliveryScreen} />
-          <Stack.Screen 
-            name="LoadingVan" 
+          <Stack.Screen
+            name="LoadingVan"
             component={LoadingVanScreen}
+          />
+          <Stack.Screen
+            name="PaqueteriaHandoff"
+            component={PaqueteriaHandoffScreen}
+            options={{ headerShown: false }}
           />
           <Stack.Screen 
             name="ReturnScan" 

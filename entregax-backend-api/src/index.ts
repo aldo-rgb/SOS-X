@@ -455,7 +455,8 @@ import {
   confirmDeliveryBulk,
   getDeliveriesToday,
   verifyPackageForDelivery,
-  checkCarrierGuideAvailable
+  checkCarrierGuideAvailable,
+  paqueteriaHandoffScan
 } from './driverController';
 import {
   // PO Box USA Rates
@@ -9536,6 +9537,7 @@ app.post('/api/driver/scan-return', authenticateToken, requireMinLevel(ROLES.REP
 // Confirmación de entrega
 app.post('/api/driver/confirm-delivery', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), confirmDelivery);
 app.post('/api/driver/confirm-delivery-bulk', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), confirmDeliveryBulk);
+app.post('/api/driver/paqueteria-handoff/scan', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), paqueteriaHandoffScan);
 app.get('/api/driver/deliveries-today', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), getDeliveriesToday);
 
 // Verificar paquete antes de entregar

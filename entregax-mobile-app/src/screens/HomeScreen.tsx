@@ -71,6 +71,7 @@ type RootStackParamList = {
   // Pantallas del Repartidor
   DriverHome: { user: any; token: string };
   LoadingVan: { user: any; token: string };
+  PaqueteriaHandoff: { carrier: string; mode: 'mostrador' | 'recoleccion' | 'cargar_unidad'; packages: any[]; token: string };
   ReturnScan: { user: any; token: string };
   DeliveryConfirm: { user: any; token: string };
   VehicleInspection: { user: any; token: string };

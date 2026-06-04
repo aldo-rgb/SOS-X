@@ -1875,3 +1875,99 @@ export const checkCarrierGuideAvailable = async (req: Request, res: Response): P
         return res.status(500).json({ error: 'Error al validar guía' });
     }
 };
+/**
+ * Entrega Paquetería — Escaneo en dos fases (internal + carrier) o una (cargar_unidad)
+ * POST /api/driver/paqueteria-handoff/scan
+ * mode: 'mostrador' | 'recoleccion' | 'cargar_unidad'
+ * phase: 'internal' | 'external'
+ */
+export const paqueteriaHandoffScan = async (req: Request, res: Response): Promise<any> => {
+    const { barcode, carrier, mode, phase, packageId: confirmedId, externalTracking } = req.body;
+    const driverId = getAuthUserId(req);
+    if (!barcode && !confirmedId) return res.status(400).json({ error: 'barcode o packageId requerido' });
+    if (!driverId) return res.status(401).json({ error: 'Sesión no válida' });
+
+    try {
+        // ── FASE 1: validar guía interna ──────────────────────────────────────────
+        if (phase === 'internal' || mode === 'cargar_unidad') {
+            const code = String(barcode || '').trim().toUpperCase();
+            const result = await pool.query(
+                `SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
+                        COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
+                        COALESCE(to_jsonb(p)->>'delivery_status', to_jsonb(p)->>'status') as delivery_status,
+                        p.national_tracking
+                 FROM packages p
+                 LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
+                 WHERE UPPER(p.tracking_internal) = $1 OR UPPER(p.tracking_provider) = $1`,
+                [code]
+            );
+            if (result.rows.length === 0) {
+                return res.status(404).json({ error: `❌ Guía ${code} no encontrada en el sistema` });
+            }
+            const pkg = result.rows[0];
+            const pkgCarrier = String(pkg.national_carrier || '').toLowerCase();
+            const reqCarrier = String(carrier || '').toLowerCase();
+            if (reqCarrier && !pkgCarrier.includes(reqCarrier) && !reqCarrier.includes(pkgCarrier)) {
+                return res.status(400).json({
+                    error: `⚠️ Esta guía es de ${pkg.national_carrier || 'otra paquetería'}, no de ${carrier}`
+                });
+            }
+
+            // Para cargar_unidad: marcar out_for_delivery en esta misma fase
+            if (mode === 'cargar_unidad') {
+                const outStatus = await getOutForDeliveryWriteStatus();
+                await pool.query(
+                    `UPDATE packages SET ${outStatus === 'out_for_delivery' ? 'delivery_status' : 'status'} = $1,
+                     loaded_at = COALESCE(loaded_at, NOW()), updated_at = NOW()
+                     WHERE id = $2`,
+                    [outStatus, pkg.id]
+                );
+                return res.json({
+                    success: true, phase: 'complete', mode, packageId: pkg.id,
+                    tracking: pkg.tracking_number, newStatus: outStatus,
+                    message: '✅ Cargado a unidad'
+                });
+            }
+
+            return res.json({
+                success: true, phase: 'internal', packageId: pkg.id,
+                tracking: pkg.tracking_number, nationalTracking: pkg.national_tracking || null,
+                message: `✅ Guía interna OK. Ahora escanea la guía de ${carrier}`
+            });
+        }
+
+        // ── FASE 2: guía del carrier externo → marcar como enviado ───────────────
+        if (phase === 'external' && confirmedId) {
+            const sentStatus = await getSentWriteStatus();
+            const extTracking = externalTracking || barcode || '';
+            await pool.query(
+                `UPDATE packages SET
+                    ${sentStatus === 'sent' ? 'delivery_status' : 'status'} = $1,
+                    national_tracking = COALESCE(NULLIF($2,''), national_tracking),
+                    updated_at = NOW()
+                 WHERE id = $3`,
+                [sentStatus, extTracking, confirmedId]
+            );
+            // Historial
+            try {
+                await pool.query(
+                    `INSERT INTO package_history (package_id, status, description, created_by, created_at)
+                     VALUES ($1, $2, $3, $4, NOW())`,
+                    [confirmedId, sentStatus,
+                     `Enviado vía ${carrier} (${mode === 'mostrador' ? 'Mostrador' : 'Recolección'}) — guía: ${extTracking}`,
+                     driverId]
+                );
+            } catch { /* no crítico */ }
+            return res.json({
+                success: true, phase: 'complete', mode, packageId: confirmedId,
+                newStatus: sentStatus, externalTracking: extTracking,
+                message: '✅ Enviado correctamente'
+            });
+        }
+
+        return res.status(400).json({ error: 'phase inválido' });
+    } catch (error: any) {
+        console.error('Error paqueteriaHandoffScan:', error);
+        res.status(500).json({ error: error.message });
+    }
+};

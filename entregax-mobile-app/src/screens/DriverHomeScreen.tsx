@@ -77,6 +77,9 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const [showPaqueteriaModal, setShowPaqueteriaModal] = useState(false);
   const [paqueteriaGroups, setPaqueteriaGroups] = useState<{ carrier: string; count: number; packages: any[] }[]>([]);
   const [selectedCarrierGroup, setSelectedCarrierGroup] = useState<{ carrier: string; packages: any[] } | null>(null);
+  // null = carrier list, 'mode_select' = choosing mode, 'package_list' = showing packages
+  const [paqueteriaView, setPaqueteriaView] = useState<'carrier_list' | 'mode_select' | 'package_list'>('carrier_list');
+  const [pendingCarrier, setPendingCarrier] = useState<{ carrier: string; packages: any[] } | null>(null);
   const [stats, setStats] = useState<DayStats>({
     totalAssigned: 0,
     loadedToday: 0,
@@ -825,47 +828,49 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         </View>
       </Modal>
       {/* Modal: Paqueterías con envíos pendientes */}
-      <Modal visible={showPaqueteriaModal} animationType="slide" transparent onRequestClose={() => { setShowPaqueteriaModal(false); setSelectedCarrierGroup(null); }}>
+      <Modal visible={showPaqueteriaModal} animationType="slide" transparent onRequestClose={() => { setShowPaqueteriaModal(false); setSelectedCarrierGroup(null); setPaqueteriaView('carrier_list'); setPendingCarrier(null); }}>
         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
           <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%' }}>
             {/* Header */}
             <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                {selectedCarrierGroup && (
-                  <TouchableOpacity onPress={() => setSelectedCarrierGroup(null)} style={{ marginRight: 4 }}>
+                {paqueteriaView !== 'carrier_list' && (
+                  <TouchableOpacity onPress={() => { setPaqueteriaView('carrier_list'); setPendingCarrier(null); setSelectedCarrierGroup(null); }} style={{ marginRight: 4 }}>
                     <MaterialIcons name="arrow-back" size={22} color="#F05A28" />
                   </TouchableOpacity>
                 )}
                 <MaterialIcons name="local-post-office" size={24} color="#F05A28" />
                 <Text style={{ fontSize: 17, fontWeight: '800', color: '#111' }}>
-                  {selectedCarrierGroup
-                    ? selectedCarrierGroup.carrier.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
-                    : 'Envío Paquetería'}
+                  {paqueteriaView === 'mode_select' && pendingCarrier
+                    ? pendingCarrier.carrier.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
+                    : paqueteriaView === 'package_list' && selectedCarrierGroup
+                      ? selectedCarrierGroup.carrier.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
+                      : 'Envío Paquetería'}
                 </Text>
                 <View style={{ backgroundColor: '#F05A28', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 }}>
                   <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
-                    {selectedCarrierGroup ? selectedCarrierGroup.packages.length : stats.paqueteriaCount}
+                    {paqueteriaView === 'package_list' && selectedCarrierGroup
+                      ? selectedCarrierGroup.packages.length
+                      : paqueteriaView === 'mode_select' && pendingCarrier
+                        ? pendingCarrier.packages.length
+                        : stats.paqueteriaCount}
                   </Text>
                 </View>
               </View>
-              <TouchableOpacity onPress={() => { setShowPaqueteriaModal(false); setSelectedCarrierGroup(null); }}>
+              <TouchableOpacity onPress={() => { setShowPaqueteriaModal(false); setSelectedCarrierGroup(null); setPaqueteriaView('carrier_list'); setPendingCarrier(null); }}>
                 <MaterialIcons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
 
-            {/* Lista por carrier */}
-            {!selectedCarrierGroup ? (
+            {/* Vista: lista de carriers */}
+            {paqueteriaView === 'carrier_list' && (
               <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
                 {paqueteriaGroups.map((g) => (
                   <TouchableOpacity
                     key={g.carrier}
                     activeOpacity={0.7}
-                    onPress={() => setSelectedCarrierGroup({ carrier: g.carrier, packages: g.packages })}
-                    style={{
-                      backgroundColor: '#FFF5F2', borderRadius: 14, padding: 16,
-                      marginBottom: 12, borderLeftWidth: 4, borderLeftColor: '#F05A28',
-                      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-                    }}
+                    onPress={() => { setPendingCarrier({ carrier: g.carrier, packages: g.packages }); setPaqueteriaView('mode_select'); }}
+                    style={{ backgroundColor: '#FFF5F2', borderRadius: 14, padding: 16, marginBottom: 12, borderLeftWidth: 4, borderLeftColor: '#F05A28', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                       <MaterialIcons name="local-post-office" size={22} color="#F05A28" />
@@ -885,53 +890,67 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   <Text style={{ textAlign: 'center', color: '#999', marginTop: 20 }}>Sin paquetes de paquetería pendientes</Text>
                 )}
               </ScrollView>
-            ) : (
-              /* Sub-lista: guías de la paquetería seleccionada */
-              <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
-                {selectedCarrierGroup.packages.map((pkg: any, i: number) => (
-                  <View key={pkg.id ?? i} style={{
-                    backgroundColor: '#F8F9FA', borderRadius: 12, padding: 14,
-                    marginBottom: 10, borderLeftWidth: 4, borderLeftColor: '#F05A28',
-                  }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#F05A28', fontFamily: 'monospace' }}>
-                        {pkg.tracking_number || '—'}
-                      </Text>
-                      <Text style={{ fontSize: 11, color: '#999' }}>#{i + 1}</Text>
-                    </View>
-                    {pkg.recipient_name ? (
-                      <Text style={{ fontSize: 13, fontWeight: '600', color: '#333', marginBottom: 2 }}>{pkg.recipient_name}</Text>
-                    ) : null}
-                    {(() => {
-                      // Filtrar placeholders del sistema
-                      const PLACEHOLDERS = ['pendiente de asignar', 'en bodega', 'sin dirección', 'sin direccion'];
-                      const addr = [pkg.delivery_address, pkg.delivery_city].filter(v => {
-                        if (!v) return false;
-                        const lower = String(v).toLowerCase().trim();
-                        return !PLACEHOLDERS.some(p => lower.includes(p));
-                      }).join(', ');
-                      if (!addr) {
-                        // Mostrar estado en lugar de dirección placeholder
-                        const statusLabel = pkg.delivery_status ? String(pkg.delivery_status).replace(/_/g, ' ') : 'En bodega';
-                        return (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                            <MaterialIcons name="info-outline" size={13} color="#F05A28" />
-                            <Text style={{ fontSize: 12, color: '#F05A28', flex: 1 }}>
-                              {statusLabel.charAt(0).toUpperCase() + statusLabel.slice(1)}
-                            </Text>
-                          </View>
-                        );
-                      }
-                      return (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                          <MaterialIcons name="location-on" size={13} color="#888" />
-                          <Text style={{ fontSize: 12, color: '#666', flex: 1 }} numberOfLines={2}>{addr}</Text>
-                        </View>
-                      );
-                    })()}
+            )}
+
+            {/* Vista: selección de modo */}
+            {paqueteriaView === 'mode_select' && pendingCarrier && (
+              <View style={{ padding: 20, paddingBottom: 32 }}>
+                <Text style={{ fontSize: 14, color: '#666', marginBottom: 20, textAlign: 'center' }}>
+                  ¿Cómo vas a entregar las {pendingCarrier.packages.length} guías de{' '}
+                  <Text style={{ fontWeight: '800', color: '#F05A28' }}>
+                    {pendingCarrier.carrier.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())}
+                  </Text>
+                  ?
+                </Text>
+                {/* Mostrador */}
+                <TouchableOpacity
+                  style={{ backgroundColor: '#FFF5F2', borderRadius: 14, padding: 18, marginBottom: 12, borderWidth: 2, borderColor: '#F05A28', flexDirection: 'row', alignItems: 'center', gap: 14 }}
+                  onPress={() => {
+                    setShowPaqueteriaModal(false);
+                    setPaqueteriaView('carrier_list');
+                    navigation.navigate('PaqueteriaHandoff', { carrier: pendingCarrier.carrier, mode: 'mostrador', packages: pendingCarrier.packages, token });
+                  }}
+                >
+                  <MaterialIcons name="storefront" size={28} color="#F05A28" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#F05A28' }}>Mostrador</Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Vas a la sucursal de la paquetería y entregas en ventanilla</Text>
                   </View>
-                ))}
-              </ScrollView>
+                  <MaterialIcons name="chevron-right" size={22} color="#F05A28" />
+                </TouchableOpacity>
+                {/* Recolección */}
+                <TouchableOpacity
+                  style={{ backgroundColor: '#F3F8FF', borderRadius: 14, padding: 18, marginBottom: 12, borderWidth: 2, borderColor: '#1976d2', flexDirection: 'row', alignItems: 'center', gap: 14 }}
+                  onPress={() => {
+                    setShowPaqueteriaModal(false);
+                    setPaqueteriaView('carrier_list');
+                    navigation.navigate('PaqueteriaHandoff', { carrier: pendingCarrier.carrier, mode: 'recoleccion', packages: pendingCarrier.packages, token });
+                  }}
+                >
+                  <MaterialIcons name="local-shipping" size={28} color="#1976d2" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#1976d2' }}>Recolección</Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>La paquetería pasa a recoger los paquetes a tu ubicación</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={22} color="#1976d2" />
+                </TouchableOpacity>
+                {/* Cargar Unidad */}
+                <TouchableOpacity
+                  style={{ backgroundColor: '#F3FFF4', borderRadius: 14, padding: 18, borderWidth: 2, borderColor: '#2E7D32', flexDirection: 'row', alignItems: 'center', gap: 14 }}
+                  onPress={() => {
+                    setShowPaqueteriaModal(false);
+                    setPaqueteriaView('carrier_list');
+                    navigation.navigate('PaqueteriaHandoff', { carrier: pendingCarrier.carrier, mode: 'cargar_unidad', packages: pendingCarrier.packages, token });
+                  }}
+                >
+                  <MaterialIcons name="add-box" size={28} color="#2E7D32" />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '800', color: '#2E7D32' }}>Cargar Unidad</Text>
+                    <Text style={{ fontSize: 12, color: '#666', marginTop: 2 }}>Carga los paquetes a tu camioneta para llevarlos después</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={22} color="#2E7D32" />
+                </TouchableOpacity>
+              </View>
             )}
           </View>
         </View>
