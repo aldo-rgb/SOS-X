@@ -548,11 +548,11 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             setBatchPackages(prev => [...prev, newPkg]);
             showFeedback({
               type: 'success',
-              message: `✅ Caja ${newPkg.tracking_number} agregada al lote.`,
+              message: `✅ Caja ${newPkg.tracking_number} agregada. Escanea la siguiente o presiona Listo.`,
             });
             setManualCode('');
-            // Volver a la firma para continuar el flujo
-            setCurrentStep('signature');
+            // Quedarse en scan para permitir escaneo en serie
+            // El usuario presiona "Listo" cuando termina
           }
         } else {
           // Marcar paquete como cargado (out_for_delivery) en el backend
@@ -1007,6 +1007,18 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                 </>
               )}
             </TouchableOpacity>
+            {/* Botón "Listo" en modo escaneo en serie */}
+            {packageInfo && !isBulkDelivery && batchPackages.length > 0 && (
+              <TouchableOpacity
+                style={{ marginTop: 12, backgroundColor: '#4CAF50', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                onPress={() => setCurrentStep('signature')}
+              >
+                <MaterialIcons name="check" size={20} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>
+                  Listo · {1 + batchPackages.length} cajas · Continuar →
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
       </View>

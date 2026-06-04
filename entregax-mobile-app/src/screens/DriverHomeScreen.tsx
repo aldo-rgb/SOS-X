@@ -77,6 +77,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
   const [deliveredPackages, setDeliveredPackages] = useState<any[]>([]);
   const [pendingPackagesList, setPendingPackagesList] = useState<any[]>([]);
+  const [requireLabelToLoad, setRequireLabelToLoad] = useState(true);
   const [showLoadedModal, setShowLoadedModal] = useState(false);
   const [showAssignedModal, setShowAssignedModal] = useState(false);
   const [copiedTrackingId, setCopiedTrackingId] = useState<number | null>(null);
@@ -184,6 +185,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
 
         // Agrupar paquetes pendientes por carrier (solo national_carrier explícito, excluye local/entregax/pickup)
         const requireLabel = route.requireLabelToLoad ?? true;
+        setRequireLabelToLoad(requireLabel);
         const isLocalCarrier = (c: string) => {
           const s = String(c || '').toLowerCase();
           return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up');
@@ -486,6 +488,14 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       </SafeAreaView>
     );
   }
+
+  const isLocalCarrierModal = (c?: string) => {
+    const s = String(c || '').toLowerCase();
+    return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
+  };
+  const filteredPending = requireLabelToLoad
+    ? pendingPackagesList.filter((p: any) => p.assigned_address_id && isLocalCarrierModal(p.national_carrier))
+    : pendingPackagesList;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -909,14 +919,14 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   ))}
                 </View>
               )}
-              {/* PENDIENTES POR CARGAR */}
-              {pendingPackagesList.length > 0 && (
+              {/* PENDIENTES POR CARGAR (filtrados por toggles igual que Entrega Local) */}
+              {filteredPending.length > 0 && (
                 <View style={{ marginBottom: 8 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                     <MaterialIcons name="pending" size={18} color="#FF9800" />
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#FF9800' }}>Pendientes por cargar ({pendingPackagesList.length})</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#FF9800' }}>Pendientes por cargar ({filteredPending.length})</Text>
                   </View>
-                  {pendingPackagesList.map((pkg: any, i: number) => (
+                  {filteredPending.map((pkg: any, i: number) => (
                     <View key={`pending-${pkg.id}-${i}`} style={{ backgroundColor: '#FFF8E1', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#FF9800' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                         <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', flexShrink: 1 }}>{pkg.tracking_number}</Text>
@@ -928,7 +938,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   ))}
                 </View>
               )}
-              {deliveredPackages.length === 0 && loadedPackages.length === 0 && pendingPackagesList.length === 0 && (
+              {deliveredPackages.length === 0 && loadedPackages.length === 0 && filteredPending.length === 0 && (
                 <View style={{ alignItems: 'center', paddingVertical: 40 }}>
                   <MaterialIcons name="inbox" size={48} color="#ccc" />
                   <Text style={{ color: '#999', marginTop: 8 }}>Sin paquetes asignados hoy</Text>
