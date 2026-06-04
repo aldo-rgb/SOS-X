@@ -406,9 +406,16 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
                       color={done ? '#4CAF50' : '#ccc'}
                     />
                     <View style={{ flex: 1, marginLeft: 10 }}>
-                      <Text style={[styles.listItemTracking, done && { color: '#999' }]}>
-                        {item.tracking_number}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <Text style={[styles.listItemTracking, done && { color: '#999' }]}>
+                          {item.tracking_number}
+                        </Text>
+                        {item.client_number ? (
+                          <View style={{ backgroundColor: '#FFF5F2', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: ORANGE }}>{item.client_number}</Text>
+                          </View>
+                        ) : null}
+                      </View>
                       {done && completed.find(c => c.packageId === item.id)?.externalTracking && (
                         <Text style={styles.listItemExt}>
                           → {completed.find(c => c.packageId === item.id)?.externalTracking}
