@@ -45,6 +45,7 @@ interface Wallet {
   status: string;
   pending_expenses_count: string | number;
   total_spent_mxn?: string | number;
+  week_spent_mxn?: string | number;
   updated_at: string;
   ops_user_name?: string | null;
 }
@@ -815,12 +816,23 @@ export default function PettyCashHubPage() {
                   <Typography variant="h4" fontWeight="bold" color={Number(w.balance_mxn) > 0 ? 'success.main' : 'text.disabled'}>
                     {fmtMoney(w.balance_mxn, w.currency)}
                   </Typography>
-                  <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mt: 0.5 }}>
-                    <Typography variant="caption" color="text.secondary">Total gastado:</Typography>
-                    <Typography variant="body2" fontWeight={700} color="text.primary">
-                      {fmtMoney(w.total_spent_mxn, w.currency)}
-                    </Typography>
-                  </Box>
+                  <Tooltip
+                    title="Suma de gastos aprobados desde el sábado más reciente (hora CDMX). Se reinicia automáticamente cada sábado a las 00:00."
+                    arrow
+                    placement="top"
+                  >
+                    <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, mt: 0.5, cursor: 'help' }}>
+                      <Typography variant="caption" color="text.secondary">
+                        Gastado esta semana:
+                      </Typography>
+                      <Typography variant="body2" fontWeight={700} color="text.primary">
+                        {fmtMoney(w.week_spent_mxn ?? 0, w.currency)}
+                      </Typography>
+                      <Typography variant="caption" color="text.disabled" sx={{ fontSize: 10, ml: 'auto' }}>
+                        reinicia sáb.
+                      </Typography>
+                    </Box>
+                  </Tooltip>
                   <Box sx={{ display: 'flex', gap: 1, mt: 1.5, flexWrap: 'wrap' }}>
                     <Button size="small" variant="contained" startIcon={<SendIcon />} onClick={() => {
                       setAdvBranchId(w.branch_id || '');

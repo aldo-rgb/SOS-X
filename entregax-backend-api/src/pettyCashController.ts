@@ -224,6 +224,19 @@ export const listWallets = async (req: Request, res: Response): Promise<any> => 
           SELECT COALESCE(SUM(m.amount_mxn), 0) FROM petty_cash_movements m
           WHERE m.wallet_id = w.id AND m.status = 'approved' AND m.movement_type = 'expense'
         ) AS total_spent_mxn,
+        -- Gastado esta semana (lunes-sábado-domingo). La "semana" inicia cada sábado 00:00 hora MX,
+        -- por lo que cada sábado este monto se reinicia a 0 para que el operador vea
+        -- cuánto lleva gastado en la semana en curso.
+        (
+          SELECT COALESCE(SUM(m.amount_mxn), 0) FROM petty_cash_movements m
+          WHERE m.wallet_id = w.id
+            AND m.status = 'approved'
+            AND m.movement_type = 'expense'
+            AND (m.created_at AT TIME ZONE 'America/Mexico_City') >= (
+              ((NOW() AT TIME ZONE 'America/Mexico_City')::date
+                - ((EXTRACT(DOW FROM (NOW() AT TIME ZONE 'America/Mexico_City'))::int - 6 + 7) % 7))::timestamp
+            )
+        ) AS week_spent_mxn,
         (
           SELECT u2.full_name FROM users u2
           WHERE u2.branch_id = w.branch_id
