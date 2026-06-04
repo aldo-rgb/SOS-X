@@ -888,6 +888,14 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 `, [driverBranchId])
                 : { rows: [] as any[] };
 
+                // CLIENT_NUMBER_SQL usa alias 'u' (users JOIN) — no disponible aquí, usar fallback sin 'u'
+                const CLIENT_NUMBER_NO_USER_SQL = `COALESCE(
+                    NULLIF(TRIM(to_jsonb(p)->>'client_code'), ''),
+                    NULLIF(TRIM(to_jsonb(p)->>'client_box_id'), ''),
+                    NULLIF(TRIM(to_jsonb(p)->>'box_id'), ''),
+                    NULLIF(TRIM(to_jsonb(p)->>'mailbox_number'), ''),
+                    NULLIF(TRIM(to_jsonb(p)->>'mailbox'), '')
+                )`;
                 const DELIVERED_SELECT = `
                     SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number,
                         ${DELIVERY_STATUS_SQL} as delivery_status,
@@ -895,7 +903,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                         ${DELIVERY_CITY_SQL} as delivery_city,
                         ${RECIPIENT_NAME_SQL} as recipient_name,
                         COALESCE(p.national_carrier, m.national_carrier) as national_carrier,
-                        ${CLIENT_NUMBER_SQL} as client_number,
+                        ${CLIENT_NUMBER_NO_USER_SQL} as client_number,
                         p.updated_at
                     FROM packages p
                     LEFT JOIN packages m ON m.id = (to_jsonb(p)->>'master_id')::int
