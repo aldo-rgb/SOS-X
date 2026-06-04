@@ -388,7 +388,9 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
 /**
  * GET /api/admin/customer-service/delayed-packages?service=pobox|air|sea
  * Lista paquetes con retraso según el servicio:
- *  - pobox (default): paquetes faltantes / consolidaciones 5+ días en tránsito
+ *  - pobox (default): la consolidación llegó a bodega (received_partial) pero
+ *    este paquete NO arribó (recibida con faltantes), o el paquete fue
+ *    reportado como faltante (missing_on_arrival = TRUE).
  *  - air: paquetes AIR_CHN_MX cuyo AWB tiene flight_date 5+ días y no llega; o faltantes
  *  - sea: maritime_orders cuyo contenedor tiene ETA/laden 5+ días y no llega; o faltantes
  */
@@ -575,16 +577,11 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
              THEN EXTRACT(EPOCH FROM (NOW() - p.missing_reported_at)) / 86400
            WHEN c.status = 'received_partial'
              THEN EXTRACT(EPOCH FROM (NOW() - COALESCE(c.updated_at, c.dispatched_at, c.created_at))) / 86400
-           WHEN c.status = 'in_transit'
-             THEN EXTRACT(EPOCH FROM (NOW() - COALESCE(c.dispatched_at, c.created_at))) / 86400
            ELSE NULL
          END AS days_delayed,
          CASE
            WHEN p.missing_on_arrival = TRUE THEN 'faltante'
            WHEN c.status = 'received_partial' THEN 'consolidacion_parcial'
-           WHEN c.status = 'in_transit'
-                AND EXTRACT(EPOCH FROM (NOW() - COALESCE(c.dispatched_at, c.created_at))) / 86400 >= 5
-             THEN 'consolidacion_atrasada'
            ELSE 'otro'
          END AS delay_reason
        FROM packages p
@@ -594,19 +591,14 @@ export const getDelayedPackages = async (req: AuthRequest, res: Response): Promi
          AND COALESCE(p.is_lost, FALSE) = FALSE
          AND p.status NOT IN ('delivered', 'ready_pickup')
          AND (
-           -- Caso 1: paquete faltante reportado
+           -- Caso 1: paquete reportado como faltante en la recepción de la consolidación
            p.missing_on_arrival = TRUE
            OR
-           -- Caso 2a: consolidación parcial confirmada (sin importar días)
+           -- Caso 2: la consolidación llegó a bodega de forma PARCIAL
+           -- (recibida con faltantes), y este paquete no se escaneó en MTY
            (c.status = 'received_partial'
             AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
             AND p.status NOT IN ('received_mty'))
-           OR
-           -- Caso 2b: consolidación en tránsito con 5+ días (semáforo rojo)
-           (c.status = 'in_transit'
-            AND COALESCE(p.missing_on_arrival, FALSE) = FALSE
-            AND p.status NOT IN ('received_mty')
-            AND EXTRACT(EPOCH FROM (NOW() - COALESCE(c.dispatched_at, c.created_at))) / 86400 >= 5)
          )
        ORDER BY days_delayed DESC NULLS LAST`
     );
