@@ -514,7 +514,15 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
                 (to_jsonb(p)->>'master_id')::int as master_id,
                 (SELECT COUNT(*) FROM packages c WHERE (to_jsonb(c)->>'master_id')::int = p.id) as children_count,
                 ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
-                ${DELIVERY_STATUS_SQL} as delivery_status,
+                -- Para carga: si delivery_status TEXT dice 'delivered' pero el ENUM status
+                -- dice un estado cargable (received_mty, etc.), el ENUM es más reciente.
+                -- Usamos el ENUM cuando delivery_status dice 'delivered' para evitar falsos bloqueos.
+                CASE
+                    WHEN COALESCE(to_jsonb(p)->>'delivery_status','') = 'delivered'
+                     AND to_jsonb(p)->>'status' NOT IN ('', 'delivered', 'sent', 'shipped')
+                    THEN to_jsonb(p)->>'status'
+                    ELSE ${DELIVERY_STATUS_SQL}
+                END as delivery_status,
                 ${LOADED_AT_SQL} as loaded_at,
                 -- Si el MASTER está pagado, las hijas heredan 'paid' (aunque su propio
                 -- payment_status haya quedado en 'pending' por desincronización).
@@ -1765,96 +1773,104 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
     const { barcode } = req.params;
     const driverId = getAuthUserId(req);
 
-    if (!barcode) {
-        return res.status(400).json({ error: '❌ Código de barras requerido.' });
-    }
-
-    if (!driverId) {
-        return res.status(401).json({ error: '❌ Sesión no válida.' });
-    }
+    if (!barcode) return res.status(400).json({ error: '❌ Código de barras requerido.' });
+    if (!driverId) return res.status(401).json({ error: '❌ Sesión no válida.' });
 
     try {
-        const packageBranchSql = await getPackageBranchSql('p');
-
+        // Preparar variantes del código — normalizadas en JS (rápido) antes de ir a la DB
         const barcodeUpper = String(barcode).toUpperCase().trim();
         const barcodeNoHyphens = barcodeUpper.replace(/-/g, '');
+        const barcodeNormalized = barcodeUpper.replace(/(-)(0*\d{1,3})$/, (_m, d, n) => d + n.padStart(4, '0'));
+        const barcodeCompact = /^US\d{11,14}$/.test(barcodeUpper)
+            ? `US-${barcodeUpper.slice(2, 12)}-${barcodeUpper.slice(12).padStart(4, '0')}`
+            : barcodeNormalized;
 
-        // Fast path usando columnas indexadas directas (tracking_internal, tracking_provider)
-        const fastRes = await pool.query(`
-            SELECT id FROM packages
-            WHERE UPPER(tracking_internal) = $1
-               OR UPPER(tracking_provider) = $1
-               OR REPLACE(UPPER(tracking_internal), '-', '') = $2
-               OR REPLACE(UPPER(tracking_provider), '-', '') = $2
-            LIMIT 1
-        `, [barcodeUpper, barcodeNoHyphens]);
-        const fastId = fastRes.rows[0]?.id ?? null;
+        // ── UNA SOLA QUERY: buscar + todos los campos + hijos + driver name ──────────
+        // Prioridad: exact match en tracking_internal/tracking_provider (usa índices).
+        // Fallback REPLACE solo si no hay match exacto — PostgreSQL evalúa con LIMIT 1
+        // y puede short-circuit en cuanto encuentra el primer match.
+        const [packageBranchSql] = await Promise.all([getPackageBranchSql('p')]);
 
-        const pkgRes = await pool.query(`
+        const result = await pool.query(`
             SELECT
                 p.id,
-                ${TRACKING_PUBLIC_SQL} as tracking_number,
-                ${ASSIGNED_DRIVER_SQL} as assigned_driver_id,
-                ${DELIVERY_STATUS_SQL} as delivery_status,
-                ${packageBranchSql} as package_branch_id,
-                ${DELIVERY_ADDRESS_SQL} as delivery_address,
-                ${DELIVERY_CITY_SQL} as delivery_city,
-                ${DELIVERY_ZIP_SQL} as delivery_zip,
-                ${RECIPIENT_NAME_SQL} as recipient_name,
-                ${RECIPIENT_PHONE_SQL} as recipient_phone,
-                ${NATIONAL_TRACKING_SQL} as national_tracking,
-                ${NATIONAL_CARRIER_SQL} as national_carrier
+                ${TRACKING_PUBLIC_SQL}                                        AS tracking_number,
+                ${ASSIGNED_DRIVER_SQL}                                        AS assigned_driver_id,
+                ${DELIVERY_STATUS_SQL}                                        AS delivery_status,
+                ${packageBranchSql}                                           AS package_branch_id,
+                ${DELIVERY_ADDRESS_SQL}                                       AS delivery_address,
+                ${DELIVERY_CITY_SQL}                                          AS delivery_city,
+                ${DELIVERY_ZIP_SQL}                                           AS delivery_zip,
+                ${RECIPIENT_NAME_SQL}                                         AS recipient_name,
+                ${RECIPIENT_PHONE_SQL}                                        AS recipient_phone,
+                ${NATIONAL_TRACKING_SQL}                                      AS national_tracking,
+                ${NATIONAL_CARRIER_SQL}                                       AS national_carrier,
+                u.full_name                                                   AS assigned_driver_name,
+                (SELECT COUNT(*)::int FROM packages c WHERE c.master_id = p.id) AS children_count,
+                COALESCE(
+                    (SELECT ARRAY_AGG(
+                        COALESCE(to_jsonb(c)->>'tracking_internal', to_jsonb(c)->>'tracking_provider')
+                        ORDER BY c.created_at
+                    ) FROM packages c WHERE c.master_id = p.id),
+                    '{}'::text[]
+                )                                                             AS child_guides
             FROM packages p
-            WHERE ${fastId ? 'p.id = $1' : `(${TRACKING_MATCH_SQL})`}
-        `, fastId ? [fastId] : [barcode]);
+            LEFT JOIN users u ON u.id = (${ASSIGNED_DRIVER_SQL})::int AND (${ASSIGNED_DRIVER_SQL})::int != $5
+            WHERE
+                tracking_internal  = $1 OR tracking_provider  = $1 OR
+                tracking_internal  = $2 OR tracking_provider  = $2 OR
+                tracking_internal  = $3 OR tracking_provider  = $3 OR
+                tracking_internal  = $4 OR tracking_provider  = $4 OR
+                REPLACE(UPPER(tracking_internal),  '-', '') = $4 OR
+                REPLACE(UPPER(tracking_provider),  '-', '') = $4
+            ORDER BY
+                CASE
+                    WHEN tracking_internal = $1 OR tracking_provider = $1 THEN 1
+                    WHEN tracking_internal = $2 OR tracking_provider = $2 THEN 2
+                    WHEN tracking_internal = $3 OR tracking_provider = $3 THEN 3
+                    ELSE 4
+                END
+            LIMIT 1
+        `, [barcodeUpper, barcodeNormalized, barcodeCompact, barcodeNoHyphens, driverId]);
 
-        if (pkgRes.rows.length === 0) {
+        if (result.rows.length === 0) {
             console.warn(`⚠️ Paquete NO encontrado: "${barcode}"`);
-            return res.status(404).json({ 
-                error: '❌ Paquete no encontrado o no está asignado a ti.',
-                barcode 
-            });
+            return res.status(404).json({ error: '❌ Paquete no encontrado o no está asignado a ti.', barcode });
         }
 
-        const pkg = pkgRes.rows[0];
-        console.log(`✅ Paquete encontrado: ID=${pkg.id}, Tracking=${pkg.tracking_number}, Status=${pkg.delivery_status}, Driver=${pkg.assigned_driver_id}`);
+        const pkg = result.rows[0];
 
+        // Verificar asignación
         if (pkg.assigned_driver_id && Number(pkg.assigned_driver_id) !== driverId) {
-            let assignedName = `Chofer #${pkg.assigned_driver_id}`;
-            try {
-                const driverRes = await pool.query(
-                    `SELECT full_name FROM users WHERE id = $1`,
-                    [Number(pkg.assigned_driver_id)]
-                );
-                if (driverRes.rows[0]?.full_name) assignedName = driverRes.rows[0].full_name;
-            } catch { /* si falla, usar fallback */ }
+            const assignedName = pkg.assigned_driver_name || `Chofer #${pkg.assigned_driver_id}`;
             return res.status(403).json({
                 error: `⛔ Este paquete está asignado a ${assignedName}. Devuélvelo a bodega.`,
-                assignedTo: assignedName,
-                barcode
+                assignedTo: assignedName, barcode,
             });
         }
 
         if (!pkg.assigned_driver_id) {
             const driverBranchId = await getDriverBranchId(driverId);
             if (!driverBranchId || Number(pkg.package_branch_id) !== driverBranchId) {
-                return res.status(403).json({
-                    error: '⛔ Este paquete no pertenece a tu sucursal asignada.',
-                    barcode
-                });
+                return res.status(403).json({ error: '⛔ Este paquete no pertenece a tu sucursal asignada.', barcode });
             }
         }
 
-        // Verificar que esté en estado para entregar
-        // Permitir estados: out_for_delivery, received_mty, received_usa, received_china, ready_for_delivery, awaiting_delivery
-        // NOTA: 'in_transit' se excluye intencionalmente — representa paquetes en tránsito entre sucursales
-        // (consolidaciones HIDALGO→MTY, etc.) que aún no están listos para entrega final.
         const deliverableStates = ['out_for_delivery', 'received_mty', 'received_usa', 'received_china', 'ready_for_delivery', 'awaiting_delivery'];
         if (!deliverableStates.includes(pkg.delivery_status)) {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: `⚠️ Este paquete no está listo para entregar. Estado: ${pkg.delivery_status}`,
-                currentStatus: pkg.delivery_status,
-                barcode
+                currentStatus: pkg.delivery_status, barcode,
+            });
+        }
+
+        // Bloquear masters con hijos
+        if (pkg.children_count > 0) {
+            const childGuides: string[] = pkg.child_guides || [];
+            return res.status(400).json({
+                error: `⚠️ ${pkg.tracking_number} tiene ${pkg.children_count} cajas. Escanea cada caja: ${childGuides.slice(0, 3).join(', ')}${childGuides.length > 3 ? '…' : ''}`,
+                has_children: true,
+                child_guides: childGuides,
             });
         }
 
@@ -1865,24 +1881,6 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
         const carrierServiceRequestCode = isPaqueteExpress
             ? await getPaqueteExpressServiceRequestCode(pkg.national_tracking)
             : null;
-
-        // Verificar si este paquete tiene guías hijo (múltiples cajas)
-        let hasChildren = false;
-        let childGuides = [];
-        try {
-            const childRes = await pool.query(`
-                SELECT p.id, ${TRACKING_PUBLIC_SQL} as tracking_number
-                FROM packages p
-                WHERE p.master_id = $1 AND p.id != $2
-                ORDER BY p.created_at
-            `, [pkg.id, pkg.id]);
-            if (childRes.rows && childRes.rows.length > 0) {
-                hasChildren = true;
-                childGuides = childRes.rows.map((row: any) => row.tracking_number);
-            }
-        } catch (childError) {
-            console.warn('No se pudo verificar guías hijo:', childError);
-        }
 
         return res.json({
             success: true,
@@ -1899,8 +1897,8 @@ export const verifyPackageForDelivery = async (req: Request, res: Response): Pro
                 national_carrier: pkg.national_carrier,
                 carrier_service_request_code: carrierServiceRequestCode,
                 requires_carrier_scan: requiresCarrierGuideScan,
-                has_children: hasChildren,
-                child_guides: childGuides
+                has_children: false,
+                child_guides: [],
             }
         });
 
@@ -2119,18 +2117,23 @@ export const paqueteriaHandoffScan = async (req: Request, res: Response): Promis
             // Actualizar AMBAS columnas: statusColumn (puede ser delivery_status TEXT)
             // Y también 'status' ENUM (que es lo que lee el track endpoint).
             // Si la columna es la misma ('status'), el segundo SET es redundante pero inofensivo.
+            // $1=sentStatus (TEXT), $2=extTracking, $3=confirmedId
+            // Si statusColumn !== 'status', necesitamos actualizar TAMBIÉN el ENUM status.
+            // Usamos $4 separado para evitar "inconsistent types deduced for parameter $1"
+            // cuando $1 se usa en contexto TEXT y ENUM en la misma query.
             const setParts = [
                 `${statusColumn} = $1`,
                 'national_tracking = COALESCE(NULLIF($2,\'\'), national_tracking)',
                 'updated_at = NOW()',
             ];
+            const queryParams: any[] = [sentStatus, extTracking, confirmedId];
             if (statusColumn !== 'status') {
-                // delivery_status TEXT fue escrito arriba; también actualizar ENUM status
-                setParts.push(`status = $1`);
+                setParts.push(`status = $4`);
+                queryParams.push(sentStatus);
             }
             await pool.query(
                 `UPDATE packages SET ${setParts.join(', ')} WHERE id = $3`,
-                [sentStatus, extTracking, confirmedId]
+                queryParams
             );
             // Si el paquete tiene master_id, verificar si todos los hermanos ya están
             // en sentStatus para actualizar también el master

@@ -116,7 +116,7 @@ export default function BootstrapScreen({ navigation }: Props) {
 
   const routeByRole = (user: any, token: string) => {
     if (user.role === 'repartidor' || user.role === 'monitoreo') {
-      navigation.replace('DriverHome', { user, token });
+      navigation.replace('EmployeeHome', { user, token });
       return;
     }
     if (ADVISOR_ROLES.includes(user.role)) {

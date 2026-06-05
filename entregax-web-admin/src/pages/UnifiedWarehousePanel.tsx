@@ -46,6 +46,7 @@ import {
   Person as PersonIcon,
   Inventory2 as PackageIcon,
   LocalShipping as ShippingIcon,
+  LocalShipping as LocalShippingIcon,
   Place as PlaceIcon,
   Payments as PaymentsIcon,
   Scale as ScaleIcon,
@@ -97,6 +98,9 @@ interface ShipmentMaster {
   deliverySignature?: string | null;
   deliveryPhoto?: string | null;
   deliveryNotes?: string | null;
+  driverName?: string | null;
+  vehicleNumber?: string | null;
+  vehiclePlates?: string | null;
   destinationCity?: string | null;
   destinationCountry?: string | null;
   destinationCode?: string | null;
@@ -1014,6 +1018,24 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                                 </Typography>
                                 <Typography variant="body2" fontWeight={700}>
                                   {m.deliveryRecipientName}
+                                </Typography>
+                              </Box>
+                            </Stack>
+                          )}
+                          {m.driverName && (
+                            <Stack direction="row" spacing={0.75} alignItems="center">
+                              <LocalShippingIcon sx={{ fontSize: 16, color: 'success.main' }} />
+                              <Box>
+                                <Typography variant="caption" color="text.secondary" display="block" sx={{ lineHeight: 1 }}>
+                                  Repartidor
+                                </Typography>
+                                <Typography variant="body2" fontWeight={700}>
+                                  {m.driverName}
+                                  {m.vehicleNumber && (
+                                    <Typography component="span" variant="caption" color="text.secondary" sx={{ ml: 0.5 }}>
+                                      · {m.vehicleNumber}{m.vehiclePlates ? ` (${m.vehiclePlates})` : ''}
+                                    </Typography>
+                                  )}
                                 </Typography>
                               </Box>
                             </Stack>

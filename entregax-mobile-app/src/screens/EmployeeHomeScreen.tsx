@@ -782,8 +782,10 @@ export default function EmployeeHomeScreen({ navigation, route }: any) {
       return;
     }
     
-    // Navegar al módulo
-    navigation.navigate(module.screen, { user, token });
+    // Navegar al módulo — para Mi Ruta del Día pasamos los stats ya cargados
+    // para que DriverHomeScreen no tenga que hacer la llamada de nuevo.
+    const extraParams = module.id === 'driver_home' && stats ? { preloadedRoute: stats } : {};
+    navigation.navigate(module.screen, { user, token, ...extraParams });
   };
 
   const getGreeting = () => {

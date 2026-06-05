@@ -173,7 +173,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         });
       } else {
         if (userData.role === 'repartidor' || userData.role === 'monitoreo') {
-          navigation.replace('DriverHome', {
+          navigation.replace('EmployeeHome', {
             user: userData,
             token,
           });
@@ -249,7 +249,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     } catch { /* ignore */ }
 
     if (userData.role === 'repartidor' || userData.role === 'monitoreo') {
-      navigation.replace('DriverHome', { user: userData, token });
+      navigation.replace('EmployeeHome', { user: userData, token });
       return;
     }
     const ADVISOR_ROLES_2 = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'];

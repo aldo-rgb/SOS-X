@@ -692,7 +692,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
         const cityLine = `${a.city || ''}${a.state ? ', ' + a.state : ''}`.trim();
         const colZip = `${a.neighborhood ? 'Col. ' + a.neighborhood + ' · ' : ''}C.P. ${a.zip || '—'}`;
         const masterTn = shipment.master.tracking;
-        const masterTnCompact = String(masterTn || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const masterTnCompact = String(masterTn || '').toUpperCase();
         const today = new Date().toLocaleDateString('es-MX');
         const svc = getServiceInfo(masterTn);
         const totalBoxes = shipment.master.totalBoxes || 1;
@@ -704,7 +704,7 @@ export default function RelabelingModulePage({ onBack }: { onBack?: () => void }
             sorted.forEach(c => boxes.push({
                 boxNum: c.boxNumber,
                 tn: c.tracking || masterTn,
-                tnCompact: String(c.tracking || masterTn).replace(/[^A-Za-z0-9]/g, '').toUpperCase(),
+                tnCompact: String(c.tracking || masterTn).toUpperCase(),
                 weight: c.weight || null,
             }));
         } else {
@@ -869,7 +869,7 @@ ${labelsHtml}
         const recvDate = label.receivedAt ? new Date(label.receivedAt).toLocaleDateString() : '';
         // QR contiene solo el número de tracking (sin URL) para que
         // pistolas con layout ES no distorsionen el código.
-        const trackingQr = String(label.tracking || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+        const trackingQr = String(label.tracking || '').toUpperCase();
         const safeId = `bc_${label.boxNumber}_${Math.random().toString(36).slice(2, 8)}`;
         const qrId = `qr_${label.boxNumber}_${Math.random().toString(36).slice(2, 8)}`;
 

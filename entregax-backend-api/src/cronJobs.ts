@@ -435,8 +435,8 @@ export const startDriverLicenseCheckCron = () => {
  * Se ejecuta cada hora para actualizar tipo de cambio y verificar alertas
  */
 export const startExchangeRateCheckCron = () => {
-  // Ejecutar cada hora en el minuto 30
-  cron.schedule('30 * * * *', async () => {
+  // Ejecutar 3 veces al día: 8:00, 14:00 y 20:00
+  cron.schedule('0 8,14,20 * * *', async () => {
     console.log('💱 [CRON] Verificando estado de tipo de cambio...');
     
     try {
@@ -509,10 +509,11 @@ export const startExchangeRateCheckCron = () => {
           if (config.sobreprecio_porcentaje) tcFinal += result.rate * (parseFloat(config.sobreprecio_porcentaje) / 100);
 
           await pool.query(`
-            UPDATE exchange_rate_config 
-            SET tipo_cambio_final = $1, 
+            UPDATE exchange_rate_config
+            SET tipo_cambio_final = $1,
                 ultimo_tc_api = $2,
                 ultima_conexion_api = CURRENT_TIMESTAMP,
+                ultima_actualizacion = CURRENT_TIMESTAMP,
                 api_activa = TRUE,
                 horas_sin_api = 0
             WHERE id = $3
@@ -527,7 +528,7 @@ export const startExchangeRateCheckCron = () => {
     }
   });
 
-  console.log('📅 [CRON] Job de tipo de cambio programado cada hora (:30)');
+  console.log('📅 [CRON] Job de tipo de cambio programado 3x/día: 08:00, 14:00, 20:00');
 };
 
 /**

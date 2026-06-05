@@ -1169,12 +1169,17 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                         WHERE mp.id = p.master_id
                           AND COALESCE(mp.is_lost, FALSE) = TRUE
                    )) AS is_lost_eff
+            ,du.full_name AS driver_full_name,
+             v.economic_number AS vehicle_economic_number,
+             v.license_plates AS vehicle_license_plates
             FROM packages p
             LEFT JOIN users u ON p.user_id = u.id
             LEFT JOIN users adv ON u.referred_by_id = adv.id
             LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND UPPER(p.box_id) = UPPER(lc.box_id)
             LEFT JOIN addresses a ON p.assigned_address_id = a.id
             LEFT JOIN branches br ON p.current_branch_id = br.id
+            LEFT JOIN users du ON p.assigned_driver_id = du.id
+            LEFT JOIN vehicles v ON p.loaded_vehicle_id = v.id
             WHERE UPPER(COALESCE(p.tracking_internal, '')) = $1
                OR UPPER(COALESCE(p.tracking_provider, '')) = $1
                OR UPPER(COALESCE(p.child_no, '')) = $1
@@ -1792,6 +1797,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     deliverySignature: pkg.delivery_signature || null,
                     deliveryPhoto: pkg.delivery_photo || null,
                     deliveryNotes: pkg.delivery_notes || null,
+                    driverName: pkg.driver_full_name || null,
+                    vehicleNumber: pkg.vehicle_economic_number || null,
+                    vehiclePlates: pkg.vehicle_license_plates || null,
                     destinationCity: destCityFull, destinationCountry: destCountry, destinationCode,
                     nationalCarrier: pkg.national_carrier || null,
                     nationalTracking: pkg.national_tracking || null,

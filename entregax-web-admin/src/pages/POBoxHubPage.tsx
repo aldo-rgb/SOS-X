@@ -1097,12 +1097,12 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"><\/script>
         </head><body>${labelsHTML}
         <script>
-            ${labels.map((label: any, i: number) => `try { JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.2, height: 70, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
+            ${labels.map((label: any, i: number) => `try { JsBarcode("#barcode-${i}", "${label.tracking}", { format: "CODE128", width: 2.2, height: 70, displayValue: false, margin: 0 }); } catch(e) {}`).join('\n')}
             ${!hideQR ? labels.map((label: any, i: number) => `
                 (function() {
                     try {
                         var qr = qrcode(0, 'M');
-                        qr.addData('https://app.entregax.com/track/${label.tracking}');
+                        qr.addData('${label.tracking}');
                         qr.make();
                         document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 3, margin: 0 });
                     } catch(e) {}

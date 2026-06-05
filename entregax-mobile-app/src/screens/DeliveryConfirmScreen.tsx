@@ -21,10 +21,10 @@ import {
   TextInput,
   Image,
   ScrollView,
-  Platform,
   Keyboard,
   Modal,
-  FlatList,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -33,7 +33,10 @@ import * as ImagePicker from 'expo-image-picker';
 import api from '../services/api';
 import { enqueueDelivery, isNetworkError } from '../services/deliveryQueue';
 import SignatureScreen from 'react-native-signature-canvas';
-import { createAudioPlayer } from 'expo-audio';
+import { createAudioPlayer, setAudioModeAsync } from 'expo-audio';
+
+// Configurar sesión de audio para mezclar con cámara iOS (evita que la cámara bloquee los sonidos)
+setAudioModeAsync({ playsInSilentModeIOS: true, shouldRouteThroughEarpiece: false }).catch(() => {});
 
 // Sonidos pre-cargados (success/error)
 const successPlayer = createAudioPlayer(require('../../assets/sounds/success.wav'));
@@ -99,6 +102,25 @@ const normalizeScanCode = (rawCode: string): string => {
     return code.slice(-12); // Últimos 12 dígitos
   }
 
+  // Normalizar sufijo numérico corto a 4 dígitos: US-2609131174-02 → US-2609131174-0002
+  const shortSuffix = code.match(/^([A-Z]{2,}-[A-Z0-9]+-)(0*\d{1,3})$/);
+  if (shortSuffix) {
+    return `${shortSuffix[1]}${shortSuffix[2].padStart(4, '0')}`;
+  }
+
+  // US compacto sin guiones: US + 10 dígitos base + 1-4 dígitos sufijo (con o sin padding)
+  // US260913117402 (12 dígitos) → US-2609131174-0002
+  // US260913117400002 (14 dígitos) → US-2609131174-0002
+  if (/^US\d{11,14}$/.test(code)) {
+    const digits = code.slice(2);
+    const base = digits.slice(0, 10);
+    const suffix = digits.slice(10);
+    return `US-${base}-${suffix.padStart(4, '0')}`;
+  }
+  if (/^US\d{10}$/.test(code)) {
+    return `US-${code.slice(2, 12)}`;
+  }
+
   // Preservar códigos que ya tienen formato XX-XXXXX... (guías internas)
   const canonicalTracking = code.match(/^[A-Z]{2,}-[A-Z0-9]{2,}(?:-[A-Z0-9]{2,})*$/);
   if (canonicalTracking?.[0]) {
@@ -142,8 +164,6 @@ const extractMasterGuide = (scannedCode: string): { masterGuide: string; extraNu
 export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const preSelectedPackage = route?.params?.package;
   const token = route?.params?.token;
-  const currentUser = route?.params?.user;
-  const userBranchUpper = String(currentUser?.branch_code || currentUser?.branch_name || '').toUpperCase();
   const initialScanMode: ScanMode = route?.params?.scanMode === 'scanner' ? 'scanner' : 'camera';
   // Paquetes ya cargados en camioneta — pasados desde DriverHomeScreen para match local rápido
   const cachedLoadedPackages: any[] = route?.params?.loadedPackages || [];
@@ -153,6 +173,11 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const [packageInfo, setPackageInfo] = useState<PackageInfo | null>(preSelectedPackage || null);
   const [scannerActive, setScannerActive] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
+  const isScanningRef = useRef(false); // guard síncrono para evitar doble scan
+  const [tapArmed, setTapArmed] = useState(false);
+  const tapArmedRef = useRef(false);   // ref síncrono para la cámara — desarma inmediatamente al primer frame
+  const tapArmTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showBatchSummaryModal, setShowBatchSummaryModal] = useState(false);
   const [lastScannedCode, setLastScannedCode] = useState('');
   const [scanMode, setScanMode] = useState<ScanMode>(initialScanMode);
   const [manualCode, setManualCode] = useState('');
@@ -169,26 +194,9 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
   // Lote de cajas adicionales que se entregan con la MISMA firma/foto/nombre (entrega local)
   const [batchPackages, setBatchPackages] = useState<PackageInfo[]>([]);
-  
-  const isPaqueteExpress = (name: string) => /paquete\s*express/i.test(name || '');
-  const isLocalCarrier = (name: string) => /entregax|local|pick\s*up|pickup|propio/i.test(name || '');
-  const isBodegaOrUnknown = (name: string) => !name || /^bodega$/i.test(name.trim());
+  const [addingToBatch, setAddingToBatch] = useState(false);
+  const addingToBatchRef = useRef(false); // ref síncrono para captura correcta en useCallback
 
-  // Para entrega múltiple (cualquier paquetería con guía de carrier)
-  const [isBulkDelivery, setIsBulkDelivery] = useState(false);
-  const [scannedPackages, setScannedPackages] = useState<Array<{packageId: string, internalGuide: string, carrierGuide: string, selectedCarrierName?: string}>>([]);
-  const [currentScanStep, setCurrentScanStep] = useState<'internal' | 'carrier'>('internal');
-  const [tempInternalGuide, setTempInternalGuide] = useState('');
-  const [tempMasterTracking, setTempMasterTracking] = useState('');
-  const [tempCarrierGuide, setTempCarrierGuide] = useState('');
-  const [bulkCarrierName, setBulkCarrierName] = useState<string>('');
-  const [deliveryTypeAsked, setDeliveryTypeAsked] = useState(false);
-
-  // Selector de paquetería para entrega a carrier externo
-  const [deliveryCarriers, setDeliveryCarriers] = useState<Array<{carrier_key: string, name: string, icon?: string}>>([]);
-  const [showCarrierPicker, setShowCarrierPicker] = useState(false);
-  const [selectedDropoffCarrier, setSelectedDropoffCarrier] = useState<{carrier_key: string, name: string} | null>(null);
-  
   const [permission, requestPermission] = useCameraPermissions();
   const signatureRef = useRef<any>(null);
   const feedbackOpacity = useRef(new Animated.Value(0)).current;
@@ -207,27 +215,8 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     ]).start(() => setFeedback(null));
   };
 
-  // Por defecto siempre entrega individual
-  // La auto-detección cambiará a múltiple si es necesario
   useEffect(() => {
-    if (!deliveryTypeAsked && !preSelectedPackage) {
-      setDeliveryTypeAsked(true);
-      setIsBulkDelivery(false);
-      setCurrentStep('scan');
-    }
-  }, [deliveryTypeAsked, preSelectedPackage]);
-
-  // Cargar paqueterías configuradas en Nacional México
-  useEffect(() => {
-    api.get('/api/carrier-options/by-service/mx_national', {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    }).then(res => {
-      if (res.data?.data?.length) setDeliveryCarriers(res.data.data);
-    }).catch(() => {});
-  }, [token]);
-
-  useEffect(() => {
-    if (currentStep === 'scan' && !route?.params?.scanMode && !hasAskedModeRef.current && !isBulkDelivery) {
+    if (currentStep === 'scan' && !route?.params?.scanMode && !hasAskedModeRef.current) {
       hasAskedModeRef.current = true;
       Alert.alert(
         'Selecciona método de captura',
@@ -239,57 +228,6 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       );
     }
   }, [currentStep, route?.params?.scanMode]);
-
-  // Detectar si es entrega multi-caja (con guías hijas o asignada a Paquete Express)
-  useEffect(() => {
-    if (!packageInfo || isBulkDelivery) return; // No hacer nada si ya está en bulk o si no hay paquete
-    
-    const hasChildren = (packageInfo as any).child_guides?.length > 0 || 
-                       (packageInfo as any).has_children === true ||
-                       ((packageInfo as any).total_pieces && (packageInfo as any).total_pieces > 1);
-    
-    const carrierRaw = ((packageInfo as any).national_carrier || '').toString().toLowerCase();
-    // EntregaX / local / pickup / bodega (placeholder) NO requieren doble escaneo
-    const isOwnDelivery = /entregax|local|pick ?up|propio|bodega/.test(carrierRaw);
-
-    // Paquetes con carrier externo real (Estafeta, FedEx, Paquete Express, etc.) se entregan
-    // desde "Envío Paquetería" → no deben procesarse aquí
-    const hasExternalCarrier = !isOwnDelivery && carrierRaw !== '' &&
-        ((packageInfo as any).national_carrier !== null && (packageInfo as any).national_carrier !== '');
-    if (hasExternalCarrier) {
-      const carrierName = ((packageInfo as any).national_carrier || 'paquetería').toString();
-      setPackageInfo(null);
-      setCurrentStep('scan');
-      showFeedback({
-        type: 'error',
-        message: `Este paquete se entrega vía ${carrierName}. Usa "Envío Paquetería" → Mostrador o Recolección.`,
-      });
-      return;
-    }
-
-    const isCarrierService = !isOwnDelivery && (
-      (packageInfo as any).requires_carrier_scan === true ||
-      ((packageInfo as any).national_carrier !== null && (packageInfo as any).national_carrier !== '')
-    );
-
-    // Si detectamos que es multi-caja o tiene carrier nacional EXTERNO, cambiar a bulk
-    if (hasChildren || isCarrierService) {
-      const scannedGuide = packageInfo.tracking_number || '';
-      const carrierName = ((packageInfo as any).national_carrier || 'Paquetería').toString().trim() || 'Paquetería';
-      setBulkCarrierName(carrierName);
-      setTempInternalGuide(scannedGuide);
-      setTempMasterTracking(((packageInfo as any).national_tracking || '').toString().toUpperCase());
-      setCurrentScanStep('carrier');
-      setIsBulkDelivery(true);
-      setCurrentStep('scan');
-      showFeedback({
-        type: 'success',
-        message: hasChildren 
-          ? `Guía multi-caja (${scannedGuide}) detectada. Escanea guía de ${carrierName}.`
-          : `${carrierName} detectado. Escanea guía del carrier.`,
-      });
-    }
-  }, [packageInfo, isBulkDelivery]);
 
   useEffect(() => {
     if (currentStep !== 'scan') return;
@@ -317,203 +255,18 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     return () => clearTimeout(timer);
   }, [currentStep, packageInfo?.requires_carrier_scan, showCarrierGuideCamera, scanMode]);
 
+  // Extrae el prefijo master: US-2609131174-0001 → US-2609131174
+  const getMasterPrefix = (tracking: string) => tracking.replace(/-\d{4}$/, '');
+
   const processScanCode = useCallback(async (rawCode: string, source: 'camera' | 'scanner' = 'camera') => {
     const data = normalizeScanCode(rawCode);
-    if (!data || isScanning) return;
+    if (!data || isScanningRef.current) return; // ref síncrono evita doble-scan
     if (source === 'camera' && (!scannerActive || data === lastScannedCode)) return;
+    isScanningRef.current = true; // bloquear inmediatamente (síncrono)
+    // Mostrar la guía siendo validada en el input mientras espera respuesta
+    setManualCode(data);
 
-    // Modo múltiple (multi-caja con carrier)
-    if (isBulkDelivery) {
-      setIsScanning(true);
-      if (source === 'camera') setScannerActive(false);
-      setLastScannedCode(data);
-
-      try {
-        if (currentScanStep === 'internal') {
-          // Validar guía interna contra el servidor
-          const res = await api.get(`/api/driver/verify-package/${encodeURIComponent(data)}`, {
-            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          });
-
-          if (!res.data.success || !res.data.package) {
-            Vibration.vibrate([0, 200, 100, 200]);
-            showFeedback({
-              type: 'error',
-              message: 'Guía interna no encontrada',
-            });
-            return;
-          }
-
-          const pkg = res.data.package;
-
-          // Verificar que no esté duplicada
-          if (scannedPackages.some(p => p.internalGuide === data)) {
-            Vibration.vibrate([0, 200, 100, 200]);
-            showFeedback({
-              type: 'error',
-              message: `❌ Esta guía (${data}) ya fue escaneada.`,
-            });
-            return;
-          }
-
-          const carrierName = (pkg.national_carrier || bulkCarrierName || '').toString().trim();
-          setBulkCarrierName(carrierName);
-          setTempInternalGuide(data);
-          setTempMasterTracking((pkg.national_tracking || '').toString().toUpperCase());
-          setSelectedDropoffCarrier(null);
-          setCurrentScanStep('carrier');
-          Vibration.vibrate(50);
-
-          if (!isPaqueteExpress(carrierName) && !isLocalCarrier(carrierName)) {
-            showFeedback({ type: 'success', message: `✅ Guía interna ${data} validada. Selecciona paquetería de entrega.` });
-            setShowCarrierPicker(true);
-          } else {
-            showFeedback({ type: 'success', message: `✅ Guía interna ${data} validada. Escanea guía de ${carrierName || 'carrier'}.` });
-          }
-          setManualCode('');
-        } else {
-          // Validar que no es la misma que la interna
-          if (data === tempInternalGuide) {
-            Vibration.vibrate([0, 200, 100, 200]);
-            showFeedback({
-              type: 'error',
-              message: `❌ La guía del carrier no puede ser la misma que la guía interna (${data})`,
-            });
-            return;
-          }
-
-          const dataUpper = data.toUpperCase().replace(/[^A-Z0-9]/g, '');
-
-          // Validaciones específicas de Paquete Express (multi-pieza con guía MASTER/HIJA)
-          if (isPaqueteExpress(bulkCarrierName)) {
-            // Rechazar lectura demasiado corta (parcial del scanner)
-            if (dataUpper.length < 14) {
-              Vibration.vibrate([0, 200, 100, 200]);
-              showFeedback({
-                type: 'error',
-                message: `❌ Lectura incompleta (${data}). Vuelve a escanear la guía HIJA completa de Paquete Express.`,
-              });
-              return;
-            }
-
-            // Considerar MASTER si NO tiene sufijo de pieza adicional (longitud cercana a 14)
-            if (dataUpper.length <= 14) {
-              Vibration.vibrate([0, 200, 100, 200]);
-              showFeedback({
-                type: 'error',
-                message: `❌ Escaneaste la guía MASTER (${data}). Debes escanear la guía HIJA de cada caja (master + dígitos de pieza).`,
-              });
-              return;
-            }
-
-            const masterUpper = (tempMasterTracking || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-            if (masterUpper && dataUpper === masterUpper) {
-              Vibration.vibrate([0, 200, 100, 200]);
-              showFeedback({
-                type: 'error',
-                message: `❌ Escaneaste la guía MASTER (${data}). Debes escanear la guía HIJA de cada caja.`,
-              });
-              return;
-            }
-
-            if (masterUpper && !dataUpper.startsWith(masterUpper)) {
-              Vibration.vibrate([0, 200, 100, 200]);
-              showFeedback({
-                type: 'error',
-                message: `❌ La guía escaneada (${data}) no corresponde al master ${tempMasterTracking}. Verifica que estés escaneando la etiqueta correcta.`,
-              });
-              return;
-            }
-
-            if (!masterUpper) {
-              const isPqtxFormat = /^[A-Z]{2,}\d+[A-Z]+/.test(dataUpper);
-              if (!isPqtxFormat) {
-                Vibration.vibrate([0, 200, 100, 200]);
-                showFeedback({
-                  type: 'error',
-                  message: `❌ La guía (${data}) no parece ser de Paquete Express. Verifica que estés escaneando la etiqueta correcta.`,
-                });
-                return;
-              }
-            }
-          }
-
-          // Verificar que la guía del carrier sea diferente de otras ya escaneadas
-          // Comparación tolerante: quita no-alfanuméricos y ceros a la izquierda del sufijo
-          const normalizeForDup = (s: string) => {
-            const clean = String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-            // quita ceros redundantes después del último bloque alfa para igualar truncados/padding
-            return clean.replace(/^([A-Z0-9]*?[A-Z])0*(\d+)$/, '$1$2');
-          };
-          const dataKey = normalizeForDup(data);
-          const dupFound = scannedPackages.find(p => {
-            const k = normalizeForDup(p.carrierGuide);
-            return k === dataKey || k.startsWith(dataKey) || dataKey.startsWith(k);
-          });
-          if (dupFound) {
-            Vibration.vibrate([0, 200, 100, 200]);
-            showFeedback({
-              type: 'error',
-              message: `❌ Esta guía de carrier (${data}) ya fue escaneada (Caja ${dupFound.packageId}).`,
-            });
-            return;
-          }
-
-          // Validar contra el servidor: que no esté asignada a OTRO paquete
-          try {
-            const checkRes = await api.get(`/api/driver/check-carrier-guide/${encodeURIComponent(data)}`, {
-              params: { excludeInternal: tempInternalGuide },
-              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-            });
-            if (checkRes.data && checkRes.data.available === false) {
-              const usedBy = checkRes.data.usedBy || {};
-              Vibration.vibrate([0, 200, 100, 200]);
-              showFeedback({
-                type: 'error',
-                message: `❌ Esta guía (${data}) ya está asignada al paquete ${usedBy.tracking || 'otro'} (estado: ${usedBy.status || 'n/a'}).`,
-              });
-              return;
-            }
-          } catch (e) {
-            // Si el endpoint falla, continuamos pero advertimos en consola
-            console.warn('check-carrier-guide falló, continuando:', e);
-          }
-
-          const newPackage = {
-            packageId: `${scannedPackages.length + 1}`,
-            internalGuide: tempInternalGuide,
-            carrierGuide: data,
-            selectedCarrierName: selectedDropoffCarrier?.name,
-          };
-          setScannedPackages([...scannedPackages, newPackage]);
-          setTempInternalGuide('');
-          setTempMasterTracking('');
-          setSelectedDropoffCarrier(null);
-          setCurrentScanStep('internal');
-          Vibration.vibrate(100);
-          showFeedback({
-            type: 'success',
-            message: `✅ Caja ${scannedPackages.length + 1} registrada: ${tempInternalGuide} → ${data}. Siguiente caja...`,
-          });
-          setManualCode('');
-        }
-      } catch (error: any) {
-        Vibration.vibrate([0, 200, 100, 200]);
-        showFeedback({
-          type: 'error',
-          message: error.response?.data?.error || 'Error al escanear. Intenta nuevamente.',
-        });
-      } finally {
-        setTimeout(() => {
-          setIsScanning(false);
-          if (source === 'camera') setScannerActive(true);
-          setLastScannedCode('');
-        }, source === 'camera' ? 1500 : 500);
-      }
-      return;
-    }
-
-    // Modo individual (flujo normal)
+    // Flujo normal de entrega individual
     setIsScanning(true);
     if (source === 'camera') setScannerActive(false);
     setLastScannedCode(data);
@@ -541,6 +294,28 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           child_guides: [],
         };
         Vibration.vibrate(100);
+
+        // Si estamos en modo "agregar caja al lote", agregar al batch en lugar de reemplazar
+        if (packageInfo && addingToBatchRef.current) {
+          const masterMain = getMasterPrefix(packageInfo.tracking_number);
+          const masterNew = getMasterPrefix(newPkg.tracking_number);
+          if (masterMain !== masterNew) {
+            Vibration.vibrate([0, 300, 100, 300]);
+            showFeedback({ type: 'error', message: `⛔ ${newPkg.tracking_number} es de otro embarque (${masterNew}). Solo puedes agregar cajas del mismo master: ${masterMain}` });
+            return;
+          }
+          const allTrackings = [packageInfo.tracking_number, ...batchPackages.map(p => p.tracking_number)];
+          if (allTrackings.includes(newPkg.tracking_number)) {
+            Vibration.vibrate([0, 200, 100, 200]);
+            showFeedback({ type: 'error', message: `❌ La caja ${newPkg.tracking_number} ya está en este lote.` });
+          } else {
+            setBatchPackages(prev => [...prev, newPkg]);
+            showFeedback({ type: 'success', message: `✅ Caja ${newPkg.tracking_number} agregada. Escanea la siguiente o presiona Ver guías.` });
+            setManualCode('');
+          }
+          return;
+        }
+
         setPackageInfo(newPkg);
         setRecipientName(newPkg.recipient_name || '');
         setCurrentStep('signature');
@@ -556,10 +331,27 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       if (res.data.success && res.data.package) {
         const newPkg = res.data.package;
 
-        // Si ya tenemos un paquete cargado y NO requiere carrier scan,
-        // estamos agregando una caja adicional al lote (misma firma/foto/nombre).
-        if (packageInfo && !packageInfo.requires_carrier_scan && !newPkg.requires_carrier_scan) {
-          // Evitar duplicados (mismo tracking que el principal o que ya está en el batch)
+        // Bloquear masters con hijas — deben escanearse caja por caja
+        if (newPkg.has_children && newPkg.child_guides?.length > 0) {
+          Vibration.vibrate([0, 300, 150, 300]);
+          showFeedback({
+            type: 'error',
+            message: `⚠️ ${newPkg.tracking_number} tiene ${newPkg.child_guides.length} cajas. Escanea cada caja individual (-0001, -0002…)`,
+          });
+          return;
+        }
+
+        // Si el usuario presionó "+ Agregar otra caja", siempre agregar al lote
+        if (packageInfo && addingToBatchRef.current) {
+          // Validar que sea del mismo master
+          const masterMain = getMasterPrefix(packageInfo.tracking_number);
+          const masterNew = getMasterPrefix(newPkg.tracking_number);
+          if (masterMain !== masterNew) {
+            Vibration.vibrate([0, 300, 100, 300]);
+            showFeedback({ type: 'error', message: `⛔ ${newPkg.tracking_number} es de otro embarque (${masterNew}). Solo cajas del mismo master: ${masterMain}` });
+            return;
+          }
+          // Evitar duplicados
           const allTrackings = [packageInfo.tracking_number, ...batchPackages.map(p => p.tracking_number)];
           if (allTrackings.includes(newPkg.tracking_number)) {
             Vibration.vibrate([0, 200, 100, 200]);
@@ -611,22 +403,28 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         message: error.response?.data?.error || 'Paquete no encontrado o no asignado',
       });
     } finally {
+      setManualCode('');
+      isScanningRef.current = false;
       setTimeout(() => {
         setIsScanning(false);
         if (source === 'camera') setScannerActive(true);
         setLastScannedCode('');
       }, source === 'camera' ? 1500 : 500);
     }
-  }, [scannerActive, isScanning, lastScannedCode, token, isBulkDelivery, currentScanStep, tempInternalGuide, tempMasterTracking, scannedPackages, packageInfo, batchPackages]);
+  }, [scannerActive, lastScannedCode, token, packageInfo, batchPackages]);
+  // Nota: addingToBatchRef.current se lee directamente del ref — siempre fresco, sin stale closure.
 
   const handleBarCodeScanned = useCallback(async (result: BarcodeScanningResult) => {
+    if (!tapArmedRef.current) return; // check síncrono — rechaza todos los frames excepto el primero
+    tapArmedRef.current = false;       // desarmar inmediatamente para que frames siguientes no pasen
+    if (tapArmTimerRef.current) clearTimeout(tapArmTimerRef.current);
+    setTapArmed(false);
     await processScanCode(result.data, 'camera');
   }, [processScanCode]);
 
   const handleManualSubmit = async () => {
     const code = normalizeScanCode(manualCode);
     if (!code) return;
-    setManualCode('');
     await processScanCode(code, 'scanner');
   };
 
@@ -776,68 +574,6 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   };
 
   const handleConfirmDelivery = async (photoOverride?: string) => {
-    // Modo múltiple
-    if (isBulkDelivery) {
-      if (!photo) {
-        Alert.alert('Foto requerida', 'Debes tomar una foto antes de confirmar la entrega múltiple.');
-        return;
-      }
-
-      setLoading(true);
-      try {
-        // Confirmar cada caja - pasar todas las guías al backend para procesamiento bulk
-        const res = await api.post('/api/driver/confirm-delivery-bulk', {
-          packages: scannedPackages.map(pkg => ({
-            internalGuide: pkg.internalGuide,
-            carrierGuide: pkg.carrierGuide,
-            selectedCarrierName: pkg.selectedCarrierName,
-          })),
-          photoBase64: photo,
-          signatureBase64: signature,
-          recipientName: recipientName.trim(),
-          notes: notes,
-        }, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
-
-        if (res.data.success) {
-          Vibration.vibrate(100);
-          const confirmedCount = res.data.confirmed?.length ?? scannedPackages.length;
-          const errs: string[] = res.data.errors || [];
-          if (errs.length > 0) {
-            Alert.alert(
-              `Entrega parcial: ${confirmedCount} de ${scannedPackages.length}`,
-              `Algunos paquetes no se actualizaron:\n\n${errs.join('\n')}`,
-              [{ text: 'OK', onPress: () => {
-                setIsBulkDelivery(false);
-                setScannedPackages([]);
-                setCurrentScanStep('internal');
-                setPhoto('');
-                setNotes('');
-                navigation.goBack();
-              }}]
-            );
-          } else {
-            // Resetear estado y volver al menú anterior inmediatamente
-            setIsBulkDelivery(false);
-            setScannedPackages([]);
-            setCurrentScanStep('internal');
-            setPhoto('');
-            setNotes('');
-            navigation.goBack();
-          }
-        } else {
-          throw new Error(res.data.error || 'Error desconocido');
-        }
-      } catch (error: any) {
-        Alert.alert('Error', error.response?.data?.error || error.message || 'No se pudo confirmar la entrega');
-      } finally {
-        setLoading(false);
-      }
-      return;
-    }
-
-    // Modo individual (flujo normal)
     if (!packageInfo) return;
 
     const trimmedRecipientName = recipientName.trim();
@@ -931,14 +667,6 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
   // Renderizar paso actual
   const renderStep = () => {
-    // Si es modo múltiple, usar flujo especial
-    if (isBulkDelivery && currentStep === 'scan') {
-      return renderBulkScanStep();
-    }
-    if (isBulkDelivery && currentStep === 'confirm') {
-      return renderBulkConfirmStep();
-    }
-
     switch (currentStep) {
       case 'scan':
         return renderScanStep();
@@ -949,6 +677,18 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       case 'confirm':
         return renderConfirmStep();
     }
+  };
+
+  const handleCameraTap = () => {
+    if (isScanningRef.current) return;
+    if (tapArmTimerRef.current) clearTimeout(tapArmTimerRef.current);
+    tapArmedRef.current = true;
+    setTapArmed(true);
+    setScannerActive(true);
+    tapArmTimerRef.current = setTimeout(() => {
+      tapArmedRef.current = false;
+      setTapArmed(false);
+    }, 1500);
   };
 
   const renderScanStep = () => {
@@ -967,34 +707,81 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     return (
       <View style={styles.stepContent}>
         {scanMode === 'camera' ? (
-          <>
-            <View style={styles.scannerWrapper}>
+          // Cámara compacta: visor pequeño + botón "Scan" para activar
+          <View style={styles.scannerInputCard}>
+            {/* Visor compacto — solo muestra, NO escanea al tocar */}
+            <View style={{ width: 220, height: 160, borderRadius: 12, overflow: 'hidden', backgroundColor: '#000', alignSelf: 'center', marginBottom: 12 }}>
               <CameraView
-                style={styles.scanner}
-                barcodeScannerSettings={{
-                  barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8'],
-                }}
-                onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
+                style={{ flex: 1 }}
+                barcodeScannerSettings={{ barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8'] }}
+                onBarcodeScanned={tapArmed ? handleBarCodeScanned : undefined}
               />
-              <View style={styles.scannerOverlay}>
-                <View style={styles.scannerFrame}>
-                  <View style={[styles.corner, styles.topLeft]} />
-                  <View style={[styles.corner, styles.topRight]} />
-                  <View style={[styles.corner, styles.bottomLeft]} />
-                  <View style={[styles.corner, styles.bottomRight]} />
+              {/* Esquinas del frame */}
+              <View style={StyleSheet.absoluteFillObject}>
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+                  <View style={{ width: 140, height: 90, position: 'relative' }}>
+                    <View style={[styles.corner, styles.topLeft, tapArmed && { borderColor: '#F05A28' }]} />
+                    <View style={[styles.corner, styles.topRight, tapArmed && { borderColor: '#F05A28' }]} />
+                    <View style={[styles.corner, styles.bottomLeft, tapArmed && { borderColor: '#F05A28' }]} />
+                    <View style={[styles.corner, styles.bottomRight, tapArmed && { borderColor: '#F05A28' }]} />
+                  </View>
                 </View>
               </View>
-              {isScanning && (
-                <View style={styles.scanningIndicator}>
-                  <ActivityIndicator size="small" color="#fff" />
-                  <Text style={styles.scanningText}>Verificando...</Text>
-                </View>
-              )}
+              {/* Overlay estado */}
+              <View style={{ position: 'absolute', bottom: 6, left: 0, right: 0, alignItems: 'center' }}>
+                {isScanning ? (
+                  <View style={{ backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4, flexDirection: 'row', gap: 5, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: '600' }}>{lastScannedCode || 'Verificando...'}</Text>
+                  </View>
+                ) : tapArmed ? (
+                  <View style={{ backgroundColor: 'rgba(240,90,40,0.9)', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4 }}>
+                    <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>📡 Escaneando...</Text>
+                  </View>
+                ) : (
+                  <View style={{ backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16, paddingHorizontal: 10, paddingVertical: 4 }}>
+                    <Text style={{ color: '#fff', fontSize: 11 }}>Apunta al código y presiona Scan</Text>
+                  </View>
+                )}
+              </View>
             </View>
-            <Text style={styles.helperText}>
-              📷 Escanea el código del paquete a entregar
-            </Text>
-          </>
+
+            <MaterialIcons name="photo-camera" size={32} color="#F05A28" />
+            <Text style={styles.scannerInputTitle}>Modo Cámara</Text>
+            <Text style={styles.scannerInputSubtitle}>Presiona Scan para leer el código.</Text>
+            <TextInput
+              ref={manualInputRef}
+              style={styles.scannerInput}
+              placeholder="O escribe el código manualmente"
+              value={manualCode}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              returnKeyType="send"
+              showSoftInputOnFocus={true}
+              blurOnSubmit={false}
+              onChangeText={setManualCode}
+              onSubmitEditing={handleManualSubmit}
+            />
+            <TouchableOpacity
+              style={[styles.manualSubmitButton, (isScanning || tapArmed) && styles.buttonDisabled]}
+              onPress={manualCode.trim() ? handleManualSubmit : handleCameraTap}
+              disabled={isScanning || tapArmed}
+            >
+              {isScanning ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : tapArmed ? (
+                <>
+                  <ActivityIndicator size="small" color="#fff" />
+                  <Text style={styles.manualSubmitText}>Escaneando...</Text>
+                </>
+              ) : (
+                <>
+                  <MaterialIcons name={manualCode.trim() ? 'check-circle' : 'photo-camera'} size={20} color="#fff" />
+                  <Text style={styles.manualSubmitText}>{manualCode.trim() ? 'Validar' : 'Scan'}</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
         ) : (
           <View style={styles.scannerInputCard}>
             <MaterialIcons name="qr-code-scanner" size={52} color="#F05A28" />
@@ -1031,289 +818,59 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
                 </>
               )}
             </TouchableOpacity>
-            {/* Botón "Listo" en modo escaneo en serie */}
-            {packageInfo && !isBulkDelivery && batchPackages.length > 0 && (
-              <TouchableOpacity
-                style={{ marginTop: 12, backgroundColor: '#4CAF50', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-                onPress={() => setCurrentStep('signature')}
-              >
-                <MaterialIcons name="check" size={20} color="#fff" />
-                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>
-                  Listo · {1 + batchPackages.length} cajas · Continuar →
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-      </View>
-    );
-  };
-
-  const renderBulkScanStep = () => {
-    if (scanMode === 'camera' && !permission?.granted) {
-      return (
-        <View style={styles.centerContent}>
-          <MaterialIcons name="camera-alt" size={64} color="#ccc" />
-          <Text style={styles.permissionTitle}>Permiso de Cámara Requerido</Text>
-          <TouchableOpacity style={styles.permissionButton} onPress={requestPermission}>
-            <Text style={styles.permissionButtonText}>Otorgar Permiso</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
-    const instruction = currentScanStep === 'internal' 
-      ? `Escanea Guía Interna (Caja ${scannedPackages.length + 1})`
-      : `Escanea Guía ${bulkCarrierName || 'del Carrier'} (Caja ${scannedPackages.length + 1})`;
-
-    return (
-      <View style={styles.stepContent}>
-        {/* Resumen de cajas escaneadas */}
-        {scannedPackages.length > 0 && (
-          <View style={styles.bulkSummaryBox}>
-            <Text style={styles.bulkSummaryTitle}>Cajas Registradas: {scannedPackages.length}</Text>
-            <ScrollView style={{ maxHeight: 150 }} showsVerticalScrollIndicator={true}>
-              {scannedPackages.map((pkg, idx) => (
-                <View key={idx} style={styles.bulkPackageItem}>
-                  <Text style={styles.bulkPackageIndex}>Caja {idx + 1}:</Text>
-                  <Text style={styles.bulkPackageCode}>{pkg.internalGuide}</Text>
-                  {pkg.carrierGuide && (
-                    <Text style={styles.bulkPackageCode}>{pkg.carrierGuide}</Text>
-                  )}
-                </View>
-              ))}
-            </ScrollView>
           </View>
         )}
 
-        {scanMode === 'camera' ? (
-          <>
-            <View style={styles.scannerWrapper}>
-              <CameraView
-                style={styles.scanner}
-                barcodeScannerSettings={{
-                  barcodeTypes: ['code128', 'code39', 'qr', 'ean13', 'ean8'],
-                }}
-                onBarcodeScanned={scannerActive ? handleBarCodeScanned : undefined}
-              />
-              <View style={styles.scannerOverlay}>
-                <View style={styles.scannerFrame}>
-                  <View style={[styles.corner, styles.topLeft]} />
-                  <View style={[styles.corner, styles.topRight]} />
-                  <View style={[styles.corner, styles.bottomLeft]} />
-                  <View style={[styles.corner, styles.bottomRight]} />
-                </View>
-              </View>
-              {isScanning && (
-                <View style={styles.scanningIndicator}>
-                  <ActivityIndicator size="small" color="#fff" />
-                  <Text style={styles.scanningText}>Verificando...</Text>
-                </View>
-              )}
-            </View>
-            <Text style={styles.helperText}>📷 {instruction}</Text>
-          </>
-        ) : (
-          <View style={styles.scannerInputCard}>
-            <MaterialIcons name="qr-code-scanner" size={52} color="#F05A28" />
-            <Text style={styles.scannerInputTitle}>{instruction}</Text>
-            <Text style={styles.scannerInputSubtitle}>
-              {currentScanStep === 'carrier' ? 'Escanea con el lector externo o escribe manualmente.' : 'Usa lector externo o escribe manualmente.'}
-            </Text>
-            <TextInput
-              ref={manualInputRef}
-              style={styles.scannerInput}
-              placeholder={currentScanStep === 'internal' ? 'Guía Interna' : `Guía ${bulkCarrierName || 'del Carrier'}`}
-              value={manualCode}
-              autoCapitalize="characters"
-              autoCorrect={false}
-              returnKeyType="send"
-              autoFocus
-              showSoftInputOnFocus={false}
-              caretHidden={true}
-              blurOnSubmit={false}
-              onChangeText={setManualCode}
-              onSubmitEditing={handleManualSubmit}
-            />
-            <TouchableOpacity
-              style={[styles.manualSubmitButton, isScanning && styles.buttonDisabled]}
-              onPress={handleManualSubmit}
-              disabled={isScanning}
-            >
-              {isScanning ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <MaterialIcons name="check-circle" size={20} color="#fff" />
-                  <Text style={styles.manualSubmitText}>Validar código</Text>
-                </>
-              )}
-            </TouchableOpacity>
-            {currentScanStep === 'carrier' && !isPaqueteExpress(bulkCarrierName) && (
-              <View style={styles.carrierPickerSection}>
-                {/* CASO 1: Carrier asignado por el sistema (no BODEGA, no vacío) */}
-                {!isBodegaOrUnknown(bulkCarrierName) ? (
-                  <>
-                    <View style={styles.selectedCarrierRow}>
-                      <MaterialIcons name="local-shipping" size={20} color="#555" />
-                      <Text style={styles.selectedCarrierName}>{bulkCarrierName}</Text>
-                      <View style={styles.systemBadge}>
-                        <Text style={styles.systemBadgeText}>Sistema</Text>
-                      </View>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.registerBoxButton}
-                      onPress={() => {
-                        const guide = manualCode.trim() || bulkCarrierName;
-                        const newPackage = {
-                          packageId: `${scannedPackages.length + 1}`,
-                          internalGuide: tempInternalGuide,
-                          carrierGuide: guide,
-                          selectedCarrierName: bulkCarrierName,
-                        };
-                        setScannedPackages([...scannedPackages, newPackage]);
-                        setTempInternalGuide('');
-                        setTempMasterTracking('');
-                        setCurrentScanStep('internal');
-                        setManualCode('');
-                        Vibration.vibrate(100);
-                        showFeedback({ type: 'success', message: `✅ Caja ${scannedPackages.length + 1} registrada → ${bulkCarrierName}. Siguiente caja...` });
-                      }}
-                    >
-                      <MaterialIcons name="check-circle" size={20} color="#fff" />
-                      <Text style={styles.registerBoxText}>Registrar en {bulkCarrierName}</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : selectedDropoffCarrier ? (
-                  /* CASO 2: Usuario seleccionó paquetería del picker */
-                  <>
-                    <View style={styles.selectedCarrierRow}>
-                      <MaterialIcons name="local-shipping" size={20} color="#F05A28" />
-                      <Text style={styles.selectedCarrierName}>{selectedDropoffCarrier.name}</Text>
-                      <TouchableOpacity onPress={() => setShowCarrierPicker(true)} style={styles.changeCarrierBtn}>
-                        <Text style={styles.changeCarrierText}>Cambiar</Text>
-                      </TouchableOpacity>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.registerBoxButton}
-                      onPress={() => {
-                        const guide = manualCode.trim() || selectedDropoffCarrier.name;
-                        const newPackage = {
-                          packageId: `${scannedPackages.length + 1}`,
-                          internalGuide: tempInternalGuide,
-                          carrierGuide: guide,
-                          selectedCarrierName: selectedDropoffCarrier.name,
-                        };
-                        setScannedPackages([...scannedPackages, newPackage]);
-                        setTempInternalGuide('');
-                        setTempMasterTracking('');
-                        setSelectedDropoffCarrier(null);
-                        setCurrentScanStep('internal');
-                        setManualCode('');
-                        Vibration.vibrate(100);
-                        showFeedback({ type: 'success', message: `✅ Caja ${scannedPackages.length + 1} registrada → ${selectedDropoffCarrier.name}. Siguiente caja...` });
-                      }}
-                    >
-                      <MaterialIcons name="check-circle" size={20} color="#fff" />
-                      <Text style={styles.registerBoxText}>Registrar en {selectedDropoffCarrier.name}</Text>
-                    </TouchableOpacity>
-                  </>
-                ) : (
-                  /* CASO 3: Sin carrier conocido (BODEGA) → mostrar selector */
-                  <TouchableOpacity
-                    style={styles.selectCarrierButton}
-                    onPress={() => setShowCarrierPicker(true)}
-                  >
-                    <MaterialIcons name="local-shipping" size={20} color="#F05A28" />
-                    <Text style={styles.selectCarrierText}>Seleccionar paquetería de entrega</Text>
-                    <MaterialIcons name="chevron-right" size={20} color="#F05A28" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            )}
-          </View>
-        )}
-
-        {/* Botón para terminar de escanear cajas */}
-        {scannedPackages.length > 0 && (
+        {/* Botón "Ver guías · Terminar" — visible en ambos modos (cámara y escáner) */}
+        {packageInfo && batchPackages.length > 0 && (
           <TouchableOpacity
-            style={styles.finishBulkButton}
-            onPress={() => {
-              // Pasar a capturar foto
-              setCurrentStep('photo');
-            }}
+            style={{ marginTop: 12, backgroundColor: '#F05A28', borderRadius: 12, paddingVertical: 14, paddingHorizontal: 24, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            onPress={() => setShowBatchSummaryModal(true)}
           >
-            <MaterialIcons name="done-all" size={20} color="#fff" />
-            <Text style={styles.finishBulkButtonText}>
-              Terminar Escaneo ({scannedPackages.length} cajas)
+            <MaterialIcons name="visibility" size={20} color="#fff" />
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 16 }}>
+              Ver · {1 + batchPackages.length} guías · Terminar
             </Text>
           </TouchableOpacity>
         )}
-      {/* Modal selector de paquetería */}
-      <Modal
-        visible={showCarrierPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowCarrierPicker(false)}
-      >
-        <View style={styles.carrierModalOverlay}>
-          <View style={styles.carrierModalSheet}>
-            <View style={styles.carrierModalHeader}>
-              <Text style={styles.carrierModalTitle}>Selecciona paquetería</Text>
-              <TouchableOpacity onPress={() => setShowCarrierPicker(false)}>
-                <MaterialIcons name="close" size={24} color="#333" />
-              </TouchableOpacity>
-            </View>
-            <CarrierList
-              carriers={deliveryCarriers}
-              userBranchUpper={userBranchUpper}
-              selectedKey={selectedDropoffCarrier?.carrier_key}
-              onSelect={(carrier) => { setSelectedDropoffCarrier(carrier); setShowCarrierPicker(false); }}
-            />
-          </View>
-        </View>
-      </Modal>
       </View>
     );
   };
 
   const renderSignatureStep = () => (
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={100}
+    >
     <View style={styles.stepContent}>
-      {/* Info del paquete */}
+      {/* Info del paquete + badge de total de guías en el lote */}
       <View style={styles.packageInfoBox}>
-        <Text style={styles.packageInfoTracking}>{packageInfo?.tracking_number}</Text>
-        <Text style={styles.packageInfoAddress} numberOfLines={2}>
-          📍 {packageInfo?.delivery_address}
-        </Text>
-        <Text style={styles.packageInfoRecipient}>
-          👤 {packageInfo?.recipient_name}
-        </Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Text style={[styles.packageInfoTracking, { flex: 1 }]}>{packageInfo?.tracking_number}</Text>
+          {batchPackages.length > 0 && (
+            <View style={{ backgroundColor: '#F05A28', borderRadius: 12, paddingHorizontal: 10, paddingVertical: 3 }}>
+              <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
+                📦 {1 + batchPackages.length} guías
+              </Text>
+            </View>
+          )}
+        </View>
+        {!!packageInfo?.delivery_address && packageInfo.delivery_address !== 'Pendiente de asignar' && (
+          <Text style={styles.packageInfoAddress} numberOfLines={2}>
+            📍 {packageInfo.delivery_address}
+          </Text>
+        )}
+        {!!packageInfo?.recipient_name && (
+          <Text style={styles.packageInfoRecipient}>
+            👤 {packageInfo.recipient_name}
+          </Text>
+        )}
       </View>
 
-      {/* Lote de cajas adicionales (entrega local) */}
-      {!packageInfo?.requires_carrier_scan && batchPackages.length > 0 && (
-        <View style={[styles.packageInfoBox, { backgroundColor: '#FFF6F0', borderColor: '#F05A28', borderWidth: 1 }]}>
-          <Text style={[styles.packageInfoTracking, { fontSize: 13, marginBottom: 6 }]}>
-            📦 Cajas adicionales ({batchPackages.length})
-          </Text>
-          {batchPackages.map((p, idx) => (
-            <View key={idx} style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 2 }}>
-              <Text style={{ fontSize: 12, color: '#444', flex: 1 }} numberOfLines={1}>
-                {idx + 2}. {p.tracking_number}
-              </Text>
-              <TouchableOpacity
-                onPress={() => setBatchPackages(prev => prev.filter((_, i) => i !== idx))}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <MaterialIcons name="close" size={18} color="#C1272D" />
-              </TouchableOpacity>
-            </View>
-          ))}
-        </View>
-      )}
 
-      {/* Botón para agregar otra caja al mismo lote (solo entrega local) */}
-      {!packageInfo?.requires_carrier_scan && (
+      {/* Botón para agregar otra caja al mismo lote — solo si la guía tiene sufijo hijo (-0001, -0002…) */}
+      {!packageInfo?.requires_carrier_scan && /^[A-Z]{2,}-[A-Z0-9]+-\d{4}$/.test(packageInfo?.tracking_number || '') && (
         <TouchableOpacity
           style={{
             flexDirection: 'row',
@@ -1331,6 +888,8 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           onPress={() => {
             setManualCode('');
             setLastScannedCode('');
+            addingToBatchRef.current = true;
+            setAddingToBatch(true);
             setCurrentStep('scan');
           }}
         >
@@ -1494,6 +1053,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         <MaterialIcons name="arrow-forward" size={20} color="#fff" />
       </TouchableOpacity>
     </View>
+    </KeyboardAvoidingView>
   );
 
   const renderPhotoStep = () => (
@@ -1502,7 +1062,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         <MaterialIcons name="photo-camera" size={80} color="#F05A28" />
         <Text style={styles.photoTitle}>📸 Foto de Evidencia</Text>
         <Text style={styles.photoSubtitle}>
-          {isBulkDelivery ? 'Toma una foto de las cajas entregadas' : 'Toma una foto del paquete entregado o del recibo'}
+          Toma una foto del paquete entregado o del recibo
         </Text>
 
         {photo ? (
@@ -1543,14 +1103,12 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       </View>
 
       <View style={styles.photoActions}>
-        {!isBulkDelivery && (
-          <TouchableOpacity 
-            style={styles.skipButton}
-            onPress={handleSkipPhoto}
-          >
-            <Text style={styles.skipButtonText}>Omitir foto</Text>
-          </TouchableOpacity>
-        )}
+        <TouchableOpacity
+          style={styles.skipButton}
+          onPress={handleSkipPhoto}
+        >
+          <Text style={styles.skipButtonText}>Omitir foto</Text>
+        </TouchableOpacity>
 
         {photo && (
           <TouchableOpacity 
@@ -1565,15 +1123,25 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     </View>
   );
 
-  const renderConfirmStep = () => (
+  const renderConfirmStep = () => {
+    const totalPkgs = 1 + batchPackages.length;
+    const isBatch = batchPackages.length > 0;
+    return (
     <ScrollView style={styles.stepContent}>
       <Text style={styles.confirmTitle}>Confirmar Entrega</Text>
-      
+
       {/* Resumen */}
       <View style={styles.summaryBox}>
         <View style={styles.summaryRow}>
-          <Text style={styles.summaryLabel}>Paquete:</Text>
-          <Text style={styles.summaryValue}>{packageInfo?.tracking_number}</Text>
+          <Text style={styles.summaryLabel}>{isBatch ? 'Lote:' : 'Paquete:'}</Text>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.summaryValue}>{packageInfo?.tracking_number}</Text>
+            {isBatch && (
+              <View style={{ backgroundColor: '#F05A28', borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginTop: 2 }}>
+                <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>📦 {totalPkgs} guías en total</Text>
+              </View>
+            )}
+          </View>
         </View>
         <View style={styles.summaryRow}>
           <Text style={styles.summaryLabel}>Recibió:</Text>
@@ -1585,9 +1153,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           <Text style={styles.summaryLabel}>Firma:</Text>
           {packageInfo?.requires_carrier_scan ? (
             <Text style={[styles.summaryValue, { color: carrierGuideVerified ? '#4CAF50' : '#FF9800' }]}>
-              {carrierGuideVerified
-                ? `✅ ${packageInfo.national_carrier || 'Paquetería externa'}`
-                : '⚠️ Pendiente'}
+              {carrierGuideVerified ? `✅ ${packageInfo.national_carrier || 'Paquetería externa'}` : '⚠️ Pendiente'}
             </Text>
           ) : (
             <Text style={[styles.summaryValue, { color: signature ? '#4CAF50' : '#FF9800' }]}>
@@ -1603,138 +1169,36 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         </View>
       </View>
 
-      {/* Confirmando... */}
+      {/* Estado de envío */}
       <View style={{ alignItems: 'center', paddingVertical: 24 }}>
         {loading ? (
           <>
             <ActivityIndicator size="large" color="#4CAF50" />
-            <Text style={{ color: '#4CAF50', marginTop: 8, fontWeight: '600' }}>Confirmando entrega...</Text>
+            <Text style={{ color: '#4CAF50', marginTop: 12, fontWeight: '700', fontSize: 15 }}>
+              Registrando {isBatch ? `${totalPkgs} entregas` : 'entrega'}...
+            </Text>
+            <Text style={{ color: '#888', marginTop: 6, fontSize: 13, textAlign: 'center', paddingHorizontal: 24 }}>
+              Por favor espera. Si no hay internet, las entregas se guardan y sincronizan automáticamente al reconectarte.
+            </Text>
           </>
         ) : (
           <>
             <MaterialIcons name="check-circle" size={64} color="#4CAF50" />
-            <Text style={{ color: '#4CAF50', fontSize: 18, fontWeight: '700', marginTop: 8 }}>✅ Entregado</Text>
+            <Text style={{ color: '#4CAF50', fontSize: 18, fontWeight: '700', marginTop: 8 }}>
+              ✅ {isBatch ? `${totalPkgs} entregas registradas` : 'Entregado'}
+            </Text>
           </>
         )}
       </View>
 
-      {/* Cancelar si aún está cargando */}
       {loading && (
         <TouchableOpacity style={styles.cancelButton} onPress={() => navigation.goBack()}>
           <Text style={styles.cancelButtonText}>Cancelar</Text>
         </TouchableOpacity>
       )}
     </ScrollView>
-  );
-
-  const renderBulkConfirmStep = () => (
-    <ScrollView style={styles.stepContent}>
-      <Text style={styles.confirmTitle}>Confirmar Entrega de {scannedPackages.length} Cajas</Text>
-      
-      {/* Resumen de cajas */}
-      <View style={styles.summaryBox}>
-        <Text style={[styles.summaryLabel, { fontSize: 16, fontWeight: 'bold', marginBottom: 10 }]}>
-          Cajas Registradas:
-        </Text>
-        {scannedPackages.map((pkg, idx) => (
-          <View key={idx} style={styles.summaryRow}>
-            <Text style={[styles.summaryLabel, { fontWeight: 'bold' }]}>Caja {idx + 1}:</Text>
-            <View style={{ flex: 1, alignItems: 'flex-end' }}>
-              <Text style={[styles.summaryValue, { fontSize: 12 }]}>{pkg.internalGuide}</Text>
-              <Text style={[styles.summaryValue, { fontSize: 12 }]}>{pkg.carrierGuide}</Text>
-            </View>
-          </View>
-        ))}
-      </View>
-
-      {/* Foto */}
-      <View style={styles.photoSection}>
-        <MaterialIcons name="photo-camera" size={80} color="#F05A28" />
-        <Text style={styles.photoTitle}>📸 Foto de Evidencia</Text>
-        <Text style={styles.photoSubtitle}>
-          Toma una foto de las cajas entregadas
-        </Text>
-
-        {photo ? (
-          <View style={styles.photoPreviewContainer}>
-            <Image source={{ uri: photo }} style={styles.photoPreview} />
-            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
-              <TouchableOpacity 
-                style={styles.retakeButton}
-                onPress={handleTakePhoto}
-              >
-                <MaterialIcons name="refresh" size={20} color="#F05A28" />
-                <Text style={styles.retakeText}>Volver a tomar</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.retakeButton, { borderColor: '#2196F3' }]}
-                onPress={handlePickFromGallery}
-              >
-                <MaterialIcons name="photo-library" size={20} color="#2196F3" />
-                <Text style={[styles.retakeText, { color: '#2196F3' }]}>Galería</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          <View style={{ gap: 12, alignItems: 'center', width: '100%' }}>
-            <TouchableOpacity style={styles.takePhotoButton} onPress={handleTakePhoto}>
-              <MaterialIcons name="camera-alt" size={32} color="#fff" />
-              <Text style={styles.takePhotoText}>Tomar Foto</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.takePhotoButton, { backgroundColor: '#2196F3' }]}
-              onPress={handlePickFromGallery}
-            >
-              <MaterialIcons name="photo-library" size={32} color="#fff" />
-              <Text style={styles.takePhotoText}>Seleccionar de Galería</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
-
-      {/* Notas adicionales */}
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Notas adicionales (opcional):</Text>
-        <TextInput
-          style={[styles.input, styles.inputMultiline]}
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Ej: Entregado en mostrador"
-          multiline
-          numberOfLines={3}
-        />
-      </View>
-
-      {/* Botón confirmar */}
-      <TouchableOpacity 
-        style={[styles.confirmButton, (loading || !photo) && styles.buttonDisabled]}
-        onPress={() => handleConfirmDelivery()}
-        disabled={loading || !photo}
-      >
-        {loading ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <>
-            <MaterialIcons name="check-circle" size={24} color="#fff" />
-            <Text style={styles.confirmButtonText}>CONFIRMAR {scannedPackages.length} CAJAS</Text>
-          </>
-        )}
-      </TouchableOpacity>
-
-      {/* Botón cancelar */}
-      <TouchableOpacity 
-        style={styles.cancelButton}
-        onPress={() => {
-          setIsBulkDelivery(false);
-          setScannedPackages([]);
-          setCurrentScanStep('internal');
-          setCurrentStep('scan');
-        }}
-      >
-        <Text style={styles.cancelButtonText}>Cancelar</Text>
-      </TouchableOpacity>
-    </ScrollView>
-  );
+    );
+  };
 
   // Indicador de pasos
   const getStepNumber = () => {
@@ -1756,7 +1220,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         <View style={styles.headerTitle}>
           <Text style={styles.title}>Confirmar Entrega 📦</Text>
           <Text style={styles.subtitle}>
-            {isBulkDelivery ? `Entrega Múltiple - Caja ${scannedPackages.length + 1}` : `Paso ${getStepNumber()} de 4`}
+            {`Paso ${getStepNumber()} de 4`}
           </Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
@@ -1776,67 +1240,22 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
               <MaterialIcons name={scanMode === 'camera' ? 'photo-camera' : 'qr-code-scanner'} size={22} color="#F05A28" />
             </TouchableOpacity>
           )}
-          <TouchableOpacity
-            style={[styles.modeButton, { backgroundColor: isBulkDelivery ? '#FF6B6B' : '#E8E8E8' }]}
-            onPress={() => {
-              if (isBulkDelivery) {
-                // Si ya está en modo múltiple, cancelar
-                setIsBulkDelivery(false);
-                setScannedPackages([]);
-                setCurrentScanStep('internal');
-                setTempInternalGuide('');
-                setTempMasterTracking('');
-                setTempCarrierGuide('');
-              } else {
-                // Cambiar a modo múltiple
-                setIsBulkDelivery(true);
-              }
-            }}
-          >
-            <MaterialIcons 
-              name={isBulkDelivery ? 'done-all' : 'inbox'} 
-              size={22} 
-              color={isBulkDelivery ? '#FFF' : '#666'} 
-            />
-          </TouchableOpacity>
         </View>
       </View>
 
       {/* Progress dots */}
-      {isBulkDelivery ? (
-        <View style={styles.bulkProgressContainer}>
-          <View style={styles.bulkProgressBar}>
-            <View 
-              style={[
-                styles.bulkProgressFill,
-                { 
-                  width: currentStep === 'photo' 
-                    ? '100%'
-                    : (scannedPackages.length / 5) * 100 + '%'
-                }
-              ]}
-            />
-          </View>
-          <Text style={styles.bulkProgressText}>
-            {currentStep === 'photo' 
-              ? 'Capturar Foto (Paso Final)' 
-              : `${scannedPackages.length} cajas escaneadas`}
-          </Text>
-        </View>
-      ) : (
-        <View style={styles.progressDots}>
-          {['scan', 'signature', 'photo', 'confirm'].map((step, index) => (
-            <View 
-              key={step}
-              style={[
-                styles.dot,
-                getStepNumber() > index + 1 && styles.dotCompleted,
-                getStepNumber() === index + 1 && styles.dotActive,
-              ]}
-            />
-          ))}
-        </View>
-      )}
+      <View style={styles.progressDots}>
+        {['scan', 'signature', 'photo', 'confirm'].map((step, index) => (
+          <View
+            key={step}
+            style={[
+              styles.dot,
+              getStepNumber() > index + 1 && styles.dotCompleted,
+              getStepNumber() === index + 1 && styles.dotActive,
+            ]}
+          />
+        ))}
+      </View>
 
       {/* Step content */}
       {renderStep()}
@@ -1859,6 +1278,83 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           <Text style={styles.feedbackText}>{feedback.message}</Text>
         </Animated.View>
       )}
+
+      {/* Modal resumen de cajas escaneadas en serie */}
+      <Modal visible={showBatchSummaryModal} transparent animationType="slide" onRequestClose={() => setShowBatchSummaryModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <MaterialIcons name="inventory" size={24} color="#F05A28" />
+                <Text style={{ fontSize: 17, fontWeight: '800', color: '#111' }}>Guías a Entregar</Text>
+                <View style={{ backgroundColor: '#F05A28', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 }}>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{1 + batchPackages.length}</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowBatchSummaryModal(false)}>
+                <MaterialIcons name="close" size={24} color="#666" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView contentContainerStyle={{ padding: 16 }}>
+              {/* Caja principal */}
+              {packageInfo && (
+                <View style={{ backgroundColor: '#FFF5F2', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#F05A28' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <MaterialIcons name="check-circle" size={14} color="#F05A28" />
+                    <Text style={{ fontSize: 13, fontWeight: '800', color: '#2E7D32' }}>Caja 1 (principal)</Text>
+                  </View>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#111', marginBottom: 2 }}>{packageInfo.tracking_number}</Text>
+                  {packageInfo.recipient_name ? <Text style={{ fontSize: 12, color: '#555' }}>{packageInfo.recipient_name}</Text> : null}
+                  {packageInfo.delivery_address ? <Text style={{ fontSize: 11, color: '#888' }} numberOfLines={1}>{packageInfo.delivery_address}</Text> : null}
+                </View>
+              )}
+              {/* Cajas adicionales */}
+              {batchPackages.map((pkg: any, idx: number) => (
+                <View key={idx} style={{ backgroundColor: '#FFF5F2', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#F05A28' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <MaterialIcons name="check-circle" size={14} color="#F05A28" />
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: '#F05A28' }}>Guía {idx + 2}</Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => Alert.alert(
+                        'Eliminar caja',
+                        `¿Quitar ${pkg.tracking_number} del lote?`,
+                        [
+                          { text: 'Cancelar', style: 'cancel' },
+                          { text: 'Eliminar', style: 'destructive', onPress: () => setBatchPackages(prev => prev.filter((_, i) => i !== idx)) },
+                        ]
+                      )}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <MaterialIcons name="close" size={18} color="#E53935" />
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={{ fontSize: 14, fontWeight: '700', color: '#111', marginBottom: 2 }}>{pkg.tracking_number}</Text>
+                  {pkg.recipient_name ? <Text style={{ fontSize: 12, color: '#555' }}>{pkg.recipient_name}</Text> : null}
+                  {pkg.delivery_address ? <Text style={{ fontSize: 11, color: '#888' }} numberOfLines={1}>{pkg.delivery_address}</Text> : null}
+                </View>
+              ))}
+            </ScrollView>
+            <View style={{ padding: 16, paddingBottom: 24, flexDirection: 'row', gap: 10 }}>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#F0F0F0', borderRadius: 12, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+                onPress={() => setShowBatchSummaryModal(false)}
+              >
+                <MaterialIcons name="arrow-back" size={20} color="#333" />
+                <Text style={{ color: '#333', fontWeight: '700', fontSize: 15 }}>Regresar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, backgroundColor: '#F05A28', borderRadius: 12, paddingVertical: 16, alignItems: 'center', flexDirection: 'row', justifyContent: 'center', gap: 6 }}
+                onPress={() => { setShowBatchSummaryModal(false); addingToBatchRef.current = false; setAddingToBatch(false); setCurrentStep('signature'); }}
+              >
+                <MaterialIcons name="edit" size={20} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 15 }}>Continuar a Firma →</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -2033,150 +1529,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
-  carrierPickerSection: {
-    marginTop: 12,
-    gap: 8,
-    alignSelf: 'stretch',
-  },
-  selectCarrierButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 10,
-    borderWidth: 1.5,
-    borderColor: '#F05A28',
-    backgroundColor: '#fff8f5',
-    alignSelf: 'stretch',
-  },
-  selectCarrierText: {
-    flex: 1,
-    color: '#F05A28',
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  selectedCarrierRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 10,
-    backgroundColor: '#F5F5F5',
-    borderWidth: 1,
-    borderColor: '#ddd',
-  },
-  selectedCarrierName: {
-    flex: 1,
-    color: '#333',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  systemBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    backgroundColor: '#E0E0E0',
-  },
-  systemBadgeText: {
-    color: '#555',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  changeCarrierBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    backgroundColor: '#F05A28',
-  },
-  changeCarrierText: {
-    color: '#fff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  registerBoxButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 10,
-    backgroundColor: '#2E7D32',
-    alignSelf: 'stretch',
-  },
-  registerBoxText: {
-    color: '#fff',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  // Carrier Picker Modal
-  carrierModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  carrierModalSheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    maxHeight: '70%',
-    paddingBottom: 30,
-  },
-  carrierModalHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  carrierModalTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#1a1a1a',
-  },
-  carrierModalEmpty: {
-    alignItems: 'center',
-    padding: 40,
-    gap: 12,
-  },
-  carrierModalEmptyText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#888',
-    textAlign: 'center',
-  },
-  carrierModalEmptySubtext: {
-    fontSize: 13,
-    color: '#aaa',
-    textAlign: 'center',
-  },
-  carrierOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  carrierOptionSelected: {
-    backgroundColor: '#FFF8F5',
-  },
-  carrierOptionIcon: {
-    width: 32,
-    height: 32,
-    resizeMode: 'contain',
-    borderRadius: 4,
-  },
-  carrierOptionName: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '500',
-    color: '#1a1a1a',
-  },
-
   // Permission
   permissionTitle: {
     fontSize: 18,
@@ -2222,7 +1574,6 @@ const styles = StyleSheet.create({
   
   // Signature
   signatureContainer: {
-    flex: 1,
     backgroundColor: '#fff',
     borderRadius: 10,
     padding: 15,
@@ -2235,8 +1586,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   signatureWrapper: {
-    flex: 1,
-    minHeight: 200,
+    height: 180,
     borderRadius: 8,
     overflow: 'hidden',
   },
@@ -2527,141 +1877,5 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
   
-  // Bulk delivery
-  bulkSummaryBox: {
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    padding: 12,
-    marginBottom: 15,
-    borderLeftWidth: 4,
-    borderLeftColor: '#FF6B6B',
-  },
-  bulkSummaryTitle: {
-    fontSize: 14,
-    fontWeight: 'bold',
-    color: '#FF6B6B',
-    marginBottom: 10,
-  },
-  bulkPackageItem: {
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0',
-  },
-  bulkPackageIndex: {
-    fontSize: 12,
-    color: '#666',
-    fontWeight: '600',
-  },
-  bulkPackageCode: {
-    fontSize: 13,
-    color: '#333',
-    fontWeight: '500',
-    marginTop: 2,
-  },
-  finishBulkButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#4CAF50',
-    padding: 15,
-    borderRadius: 10,
-    marginTop: 15,
-    gap: 8,
-  },
-  finishBulkButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  
-  // Bulk progress
-  bulkProgressContainer: {
-    paddingHorizontal: 15,
-    paddingVertical: 15,
-    backgroundColor: '#fff',
-    borderBottomWidth: 1,
-    borderBottomColor: '#eee',
-  },
-  bulkProgressBar: {
-    height: 8,
-    backgroundColor: '#eee',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  bulkProgressFill: {
-    height: '100%',
-    backgroundColor: '#F05A28',
-    borderRadius: 4,
-  },
-  bulkProgressText: {
-    marginTop: 8,
-    fontSize: 12,
-    color: '#666',
-    textAlign: 'center',
-    fontWeight: '500',
-  },
 });
 
-// ─────────────────────────────────────────────
-// CarrierList — subcomponente para el picker de paquetería
-// Filtra carriers según la sucursal del usuario
-// ─────────────────────────────────────────────
-function CarrierList({
-  carriers,
-  userBranchUpper,
-  selectedKey,
-  onSelect,
-}: {
-  carriers: Array<{ carrier_key: string; name: string; icon?: string }>;
-  userBranchUpper: string;
-  selectedKey?: string;
-  onSelect: (carrier: { carrier_key: string; name: string }) => void;
-}) {
-  const isMTY = userBranchUpper.includes('MTY') || userBranchUpper.includes('MONTERREY');
-  const isCDMX = userBranchUpper.includes('CDMX');
-
-  const filtered = carriers.filter((c) => {
-    const n = c.name.toUpperCase();
-    if (isMTY && (n.includes('CDMX') || n.includes('CIUDAD DE MX'))) return false;
-    if (isCDMX && (n.includes(' MTY') || n.includes('MONTERREY'))) return false;
-    return true;
-  });
-
-  if (filtered.length === 0) {
-    return (
-      <View style={styles.carrierModalEmpty}>
-        <MaterialIcons name="local-shipping" size={40} color="#ccc" />
-        <Text style={styles.carrierModalEmptyText}>No hay paqueterías configuradas.</Text>
-        <Text style={styles.carrierModalEmptySubtext}>
-          Configura paqueterías en Operaciones → Nacional México.
-        </Text>
-      </View>
-    );
-  }
-
-  return (
-    <FlatList
-      data={filtered}
-      keyExtractor={(item) => item.carrier_key}
-      renderItem={({ item }) => (
-        <TouchableOpacity
-          style={[
-            styles.carrierOption,
-            selectedKey === item.carrier_key && styles.carrierOptionSelected,
-          ]}
-          onPress={() => onSelect({ carrier_key: item.carrier_key, name: item.name })}
-        >
-          {item.icon ? (
-            <Image source={{ uri: item.icon }} style={styles.carrierOptionIcon} />
-          ) : (
-            <MaterialIcons name="local-shipping" size={24} color="#F05A28" />
-          )}
-          <Text style={styles.carrierOptionName}>{item.name}</Text>
-          {selectedKey === item.carrier_key && (
-            <MaterialIcons name="check-circle" size={20} color="#F05A28" />
-          )}
-        </TouchableOpacity>
-      )}
-    />
-  );
-}

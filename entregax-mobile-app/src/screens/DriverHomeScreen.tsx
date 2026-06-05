@@ -71,6 +71,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const user = route?.params?.user;
   const directTo: string | undefined = route?.params?.directTo;
+  const preloadedRoute = route?.params?.preloadedRoute;
   const logoUrl = useBrandAsset('entregax_full_black');
   // 👁️ Rol Monitoreo: NO conduce vehiculo, NO checa asistencia desde el dashboard.
   const isMonitoreo = String(user?.role || '').toLowerCase() === 'monitoreo';
@@ -84,7 +85,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       return () => clearTimeout(timer);
     }
   }, [directTo]);
-  const [loading, setLoading] = useState(true);
+  // Si venimos desde EmployeeHome con datos ya cargados, arrancamos sin spinner
+  const [loading, setLoading] = useState(!preloadedRoute);
   const [refreshing, setRefreshing] = useState(false);
   const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
   const [deliveredPackages, setDeliveredPackages] = useState<any[]>([]);
@@ -115,11 +117,20 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [scanModal, setScanModal] = useState<{ visible: boolean; action: QuickAction | null }>({ visible: false, action: null });
   const [rememberChoice, setRememberChoice] = useState(false);
+  const [assignedStatusFilter, setAssignedStatusFilter] = useState<'all' | 'delivered' | 'loaded' | 'pending'>('all');
+  const [assignedCarrierFilter, setAssignedCarrierFilter] = useState<'all' | 'po_box' | 'tdi' | 'dhl'>('all');
 
   // Actualizar hora cada minuto
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
+  }, []);
+
+  // Si llegamos con datos precargados desde EmployeeHome, aplicarlos de inmediato
+  useEffect(() => {
+    if (preloadedRoute) {
+      applyRouteData(preloadedRoute);
+    }
   }, []);
 
   // Recargar datos cada vez que la pantalla recibe foco
@@ -128,6 +139,47 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       loadDayData();
     }, [])
   );
+
+  const applyRouteData = (route: any) => {
+    const pendingPackages = Array.isArray(route.pendingPackages) ? route.pendingPackages : [];
+    const loaded = Array.isArray(route.loadedPackages) ? route.loadedPackages : [];
+    const delivered = Array.isArray(route.deliveredPackages) ? route.deliveredPackages : [];
+    const deliveredToday = delivered.length || Number(route.deliveredToday) || 0;
+    const totalAssignedFromApi = Number(route.totalAssigned) || 0;
+    const totalAssignedComputed = pendingPackages.length + loaded.length + deliveredToday;
+    setLoadedPackages(loaded);
+    setDeliveredPackages(delivered);
+    setPendingPackagesList(pendingPackages);
+    const requireLabel = route.requireLabelToLoad ?? true;
+    setRequireLabelToLoad(requireLabel);
+    const isLocalCarrier = (c: string) => {
+      const s = String(c || '').toLowerCase();
+      return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
+    };
+    const carrierMap: Record<string, any[]> = {};
+    [...pendingPackages, ...loaded].forEach((p: any) => {
+      const c = p.national_carrier || '';
+      if (!c || isLocalCarrier(c)) return;
+      const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') || String(p.delivery_status || '').includes('in_transit');
+      if (!isLoaded && requireLabel && !p.has_label) return;
+      if (!carrierMap[c]) carrierMap[c] = [];
+      carrierMap[c].push(p);
+    });
+    setPaqueteriaGroups(
+      Object.entries(carrierMap)
+        .map(([carrier, pkgs]) => ({ carrier, count: pkgs.length, packages: pkgs }))
+        .sort((a, b) => b.count - a.count)
+    );
+    setStats({
+      totalAssigned: totalAssignedFromApi > 0 ? totalAssignedFromApi : totalAssignedComputed,
+      loadedToday: Number(route.loadedToday) || 0,
+      deliveredToday,
+      paqueteriaCount: Number(route.paqueteriaCount) || 0,
+      pendingToLoad: Number(route.pendingToLoad) ?? 0,
+      pendingDelivery: loaded.filter((p: any) => isLocalCarrier(String(p.national_carrier || ''))).length,
+      returnedToday: 0,
+    });
+  };
 
   const loadDayData = async () => {
     try {
@@ -189,49 +241,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       // Ruta (stats + listas)
       if (routeSettled.status === 'fulfilled') {
         const routeData = routeSettled.value.data;
-        const route = routeData?.route || routeData?.data?.route || routeData?.data || {};
-        const pendingPackages = Array.isArray(route.pendingPackages) ? route.pendingPackages : [];
-        const loadedPackages = Array.isArray(route.loadedPackages) ? route.loadedPackages : [];
-        const deliveredPackagesArr = Array.isArray(route.deliveredPackages) ? route.deliveredPackages : [];
-
-        const deliveredToday = deliveredPackagesArr.length || Number(route.deliveredToday) || 0;
-        const totalAssignedFromApi = Number(route.totalAssigned) || 0;
-        const totalAssignedComputed = pendingPackages.length + loadedPackages.length + deliveredToday;
-
-        setLoadedPackages(loadedPackages);
-        setDeliveredPackages(deliveredPackagesArr);
-        setPendingPackagesList(pendingPackages);
-
-        const requireLabel = route.requireLabelToLoad ?? true;
-        setRequireLabelToLoad(requireLabel);
-        const isLocalCarrier = (c: string) => {
-          const s = String(c || '').toLowerCase();
-          return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
-        };
-        const carrierMap: Record<string, any[]> = {};
-        [...pendingPackages, ...loadedPackages].forEach((p: any) => {
-          const c = p.national_carrier || '';
-          if (!c || isLocalCarrier(c)) return;
-          const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') ||
-                           String(p.delivery_status || '').includes('in_transit');
-          if (!isLoaded && requireLabel && !p.has_label) return;
-          if (!carrierMap[c]) carrierMap[c] = [];
-          carrierMap[c].push(p);
-        });
-        const groups = Object.entries(carrierMap)
-          .map(([carrier, pkgs]) => ({ carrier, count: pkgs.length, packages: pkgs }))
-          .sort((a, b) => b.count - a.count);
-        setPaqueteriaGroups(groups);
-
-        setStats({
-          totalAssigned: totalAssignedFromApi > 0 ? totalAssignedFromApi : totalAssignedComputed,
-          loadedToday: Number(route.loadedToday) || 0,
-          deliveredToday,
-          paqueteriaCount: Number(route.paqueteriaCount) || 0,
-          pendingToLoad: Number(route.pendingToLoad) ?? 0,
-          pendingDelivery: loadedPackages.filter((p: any) => isLocalCarrier(String(p.national_carrier || ''))).length,
-          returnedToday: 0,
-        });
+        const routeObj = routeData?.route || routeData?.data?.route || routeData?.data || {};
+        applyRouteData(routeObj);
       } else {
         console.error('Error cargando ruta del repartidor:', routeSettled.reason);
       }
@@ -454,6 +465,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       return;
     }
     // Siempre abrir el modal de resumen de hoy (incluso si hay 0 pendientes)
+    setAssignedStatusFilter('all');
+    setAssignedCarrierFilter('all');
     setShowAssignedModal(true);
   };
 
@@ -499,6 +512,26 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   // Así el badge del modal (totalAssigned) coincide con la suma real
   // de los renglones mostrados (entregados + en camioneta + pendientes).
   const filteredPendingForModal = pendingPackagesList;
+
+  const matchesCarrierFilter = (pkg: any) => {
+    if (assignedCarrierFilter === 'all') return true;
+    const carrier = String(pkg.national_carrier || '').toLowerCase();
+    const tracking = String(pkg.tracking_number || '');
+    if (assignedCarrierFilter === 'po_box') return /^US-/i.test(tracking);
+    if (assignedCarrierFilter === 'tdi') return carrier.includes('tdi') || /^TDX-/i.test(tracking);
+    if (assignedCarrierFilter === 'dhl') return carrier.includes('dhl');
+    return true;
+  };
+  const modalDelivered = deliveredPackages.filter(matchesCarrierFilter);
+  const modalLoaded = loadedPackages.filter(matchesCarrierFilter);
+  const modalPending = filteredPendingForModal.filter(matchesCarrierFilter);
+  const showModalDelivered = (assignedStatusFilter === 'all' || assignedStatusFilter === 'delivered') && modalDelivered.length > 0;
+  const showModalLoaded = (assignedStatusFilter === 'all' || assignedStatusFilter === 'loaded') && modalLoaded.length > 0;
+  const showModalPending = (assignedStatusFilter === 'all' || assignedStatusFilter === 'pending') && modalPending.length > 0;
+  const modalFilteredTotal =
+    (showModalDelivered ? modalDelivered.length : 0) +
+    (showModalLoaded ? modalLoaded.length : 0) +
+    (showModalPending ? modalPending.length : 0);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -812,22 +845,75 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                 <MaterialIcons name="inventory-2" size={24} color="#F05A28" />
                 <Text style={{ fontSize: 17, fontWeight: '800', color: '#111' }}>Asignados Hoy</Text>
                 <View style={{ backgroundColor: '#F05A28', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 }}>
-                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>{stats.totalAssigned}</Text>
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
+                    {assignedStatusFilter === 'all' && assignedCarrierFilter === 'all' ? stats.totalAssigned : modalFilteredTotal}
+                  </Text>
                 </View>
               </View>
               <TouchableOpacity onPress={() => setShowAssignedModal(false)}>
                 <MaterialIcons name="close" size={24} color="#666" />
               </TouchableOpacity>
             </View>
+
+            {/* Filter Row 1: Status */}
+            <View style={{ paddingHorizontal: 16, paddingTop: 10, paddingBottom: 6 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {([
+                  { key: 'all' as const, label: 'Todos' },
+                  { key: 'delivered' as const, label: 'Entregados' },
+                  { key: 'loaded' as const, label: 'Cargados' },
+                  { key: 'pending' as const, label: 'Pendientes de Cargar' },
+                ]).map(f => (
+                  <TouchableOpacity
+                    key={f.key}
+                    onPress={() => setAssignedStatusFilter(f.key)}
+                    style={{
+                      paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+                      backgroundColor: assignedStatusFilter === f.key ? '#F05A28' : '#F5F5F5',
+                      borderWidth: 1,
+                      borderColor: assignedStatusFilter === f.key ? '#F05A28' : '#E0E0E0',
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: assignedStatusFilter === f.key ? '#fff' : '#555' }}>{f.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* Filter Row 2: Carrier */}
+            <View style={{ paddingHorizontal: 16, paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                {([
+                  { key: 'all' as const, label: 'Todos' },
+                  { key: 'po_box' as const, label: 'PO BOX' },
+                  { key: 'tdi' as const, label: 'TDI EXPRESS' },
+                  { key: 'dhl' as const, label: 'DHL MTY' },
+                ]).map(f => (
+                  <TouchableOpacity
+                    key={f.key}
+                    onPress={() => setAssignedCarrierFilter(f.key)}
+                    style={{
+                      paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
+                      backgroundColor: assignedCarrierFilter === f.key ? '#1565C0' : '#F5F5F5',
+                      borderWidth: 1,
+                      borderColor: assignedCarrierFilter === f.key ? '#1565C0' : '#E0E0E0',
+                    }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: assignedCarrierFilter === f.key ? '#fff' : '#555' }}>{f.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+
             <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 32 }}>
               {/* ENTREGADOS */}
-              {deliveredPackages.length > 0 && (
+              {showModalDelivered && (
                 <View style={{ marginBottom: 16 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                     <MaterialIcons name="check-circle" size={18} color="#4CAF50" />
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#4CAF50' }}>Entregados hoy ({deliveredPackages.length})</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#4CAF50' }}>Entregados hoy ({modalDelivered.length})</Text>
                   </View>
-                  {deliveredPackages.map((pkg: any, i: number) => (
+                  {modalDelivered.map((pkg: any, i: number) => (
                     <View key={`delivered-${pkg.id}-${i}`} style={{ backgroundColor: '#F1F8E9', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#4CAF50' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                         <Text style={{ fontSize: 13, fontWeight: '800', color: '#2E7D32', flexShrink: 1 }}>{pkg.tracking_number}</Text>
@@ -840,13 +926,13 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                 </View>
               )}
               {/* CARGADOS EN CAMIONETA */}
-              {loadedPackages.length > 0 && (
+              {showModalLoaded && (
                 <View style={{ marginBottom: 16 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                     <MaterialIcons name="local-shipping" size={18} color="#2196F3" />
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#2196F3' }}>En camioneta ({loadedPackages.length})</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#2196F3' }}>En camioneta ({modalLoaded.length})</Text>
                   </View>
-                  {loadedPackages.map((pkg: any, i: number) => (
+                  {modalLoaded.map((pkg: any, i: number) => (
                     <View key={`loaded-${pkg.id}-${i}`} style={{ backgroundColor: '#E3F2FD', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#2196F3' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                         <Text style={{ fontSize: 13, fontWeight: '800', color: '#1565C0', flexShrink: 1 }}>{pkg.tracking_number}</Text>
@@ -858,14 +944,14 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   ))}
                 </View>
               )}
-              {/* PENDIENTES POR CARGAR (filtrados por toggles igual que Entrega Local) */}
-              {filteredPendingForModal.length > 0 && (
+              {/* PENDIENTES POR CARGAR */}
+              {showModalPending && (
                 <View style={{ marginBottom: 8 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                     <MaterialIcons name="pending" size={18} color="#FF9800" />
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#FF9800' }}>Pendientes por cargar ({filteredPendingForModal.length})</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#FF9800' }}>Pendientes por cargar ({modalPending.length})</Text>
                   </View>
-                  {filteredPendingForModal.map((pkg: any, i: number) => {
+                  {modalPending.map((pkg: any, i: number) => {
                     const carrierRaw = String(pkg.national_carrier || '').trim();
                     const isLocal = isLocalCarrierModal(carrierRaw);
                     const carrierLabel = isLocal ? 'LOCAL' : (carrierRaw.toUpperCase() || 'PAQUETERIA');
@@ -885,10 +971,14 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                   })}
                 </View>
               )}
-              {deliveredPackages.length === 0 && loadedPackages.length === 0 && filteredPendingForModal.length === 0 && (
+              {!showModalDelivered && !showModalLoaded && !showModalPending && (
                 <View style={{ alignItems: 'center', paddingVertical: 40 }}>
                   <MaterialIcons name="inbox" size={48} color="#ccc" />
-                  <Text style={{ color: '#999', marginTop: 8 }}>Sin paquetes asignados hoy</Text>
+                  <Text style={{ color: '#999', marginTop: 8 }}>
+                    {assignedStatusFilter === 'all' && assignedCarrierFilter === 'all'
+                      ? 'Sin paquetes asignados hoy'
+                      : 'Sin paquetes con estos filtros'}
+                  </Text>
                 </View>
               )}
             </ScrollView>

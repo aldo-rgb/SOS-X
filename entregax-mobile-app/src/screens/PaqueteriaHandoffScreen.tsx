@@ -12,13 +12,17 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Alert, ActivityIndicator, Vibration, TextInput, Keyboard,
-  FlatList,
+  FlatList, Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { setStringAsync as copyToClipboard } from 'expo-clipboard';
 import { MaterialIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 
 import api from '../services/api';
+
+const PAQUETERIA_SCAN_KEY = 'scanMethod:paqueteria';
 
 // Normaliza códigos escaneados con layout de teclado ES (scanner HID)
 // Ñ→:  '→-  ¿→/  ¡→!  y extrae tracking de URL si es QR
@@ -91,6 +95,13 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   const [showList, setShowList] = useState(false);
   const [copiedGuideId, setCopiedGuideId] = useState<number | null>(null);
 
+  // Modo de captura
+  const [scanMode, setScanMode] = useState<'scanner' | 'camera' | null>(null); // null = aún no elegido
+  const [showModeModal, setShowModeModal] = useState(false);
+  const [rememberMode, setRememberMode] = useState(false);
+  const [scannerActive, setScannerActive] = useState(true);
+  const [permission, requestPermission] = useCameraPermissions();
+
   const inputRef = useRef<TextInput | null>(null);
   const autoSubmitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastInputTimeRef = useRef<number>(0);
@@ -113,7 +124,14 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
   );
 
   useEffect(() => {
-    setTimeout(() => inputRef.current?.focus(), 300);
+    AsyncStorage.getItem(PAQUETERIA_SCAN_KEY).then(saved => {
+      if (saved === 'scanner' || saved === 'camera') {
+        setScanMode(saved);
+        if (saved === 'scanner') setTimeout(() => inputRef.current?.focus(), 300);
+      } else {
+        setShowModeModal(true);
+      }
+    });
   }, []);
 
   const showFeedback = (type: 'ok' | 'err' | 'warn', msg: string) => {
@@ -123,12 +141,31 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
     setTimeout(() => setFeedback(null), type === 'ok' ? 2000 : 4000);
   };
 
+  const handleSelectMode = async (mode: 'scanner' | 'camera') => {
+    if (rememberMode) await AsyncStorage.setItem(PAQUETERIA_SCAN_KEY, mode);
+    setScanMode(mode);
+    setShowModeModal(false);
+    if (mode === 'scanner') setTimeout(() => inputRef.current?.focus(), 300);
+    else if (!permission?.granted) requestPermission();
+  };
+
+  const handleCameraBarcode = useCallback((result: BarcodeScanningResult) => {
+    if (!scannerActive || loading) return;
+    setScannerActive(false);
+    const code = normalizeBarcode(result.data);
+    setManualCode(code);
+    processCode(code).finally(() => {
+      setTimeout(() => setScannerActive(true), 1500);
+    });
+  }, [scannerActive, loading, processCode]);
+
   const resetToInternal = () => {
     setScanPhase('internal');
     setConfirmedPackageId(null);
     setConfirmedTracking('');
     setManualCode('');
-    setTimeout(() => inputRef.current?.focus(), 200);
+    if (scanMode === 'scanner') setTimeout(() => inputRef.current?.focus(), 200);
+    else setScannerActive(true);
   };
 
   // Buscar en lista local por código truncado o compacto
@@ -340,36 +377,67 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
 
       {/* Scanner input */}
       <View style={styles.scannerBox}>
-        <MaterialIcons
-          name="qr-code-scanner"
-          size={40}
-          color={scanPhase === 'external' ? '#1976d2' : ORANGE}
-        />
-        <Text style={[styles.scanPrompt, { color: scanPhase === 'external' ? '#1976d2' : ORANGE }]}>
-          {scanPhase === 'external'
-            ? `Escanea guía de ${carrierLabel(carrier)}`
-            : 'Escanea guía interna'}
-        </Text>
-        <TextInput
-          ref={inputRef}
-          style={styles.input}
-          value={manualCode}
-          onChangeText={handleTextChange}
-          onSubmitEditing={handleManualSubmit}
-          placeholder="Escanea o escribe el código"
-          placeholderTextColor="#bbb"
-          autoCapitalize="characters"
-          returnKeyType="done"
-          editable={!loading}
-          blurOnSubmit={false}
-        />
-        <TouchableOpacity style={styles.validateBtn} onPress={handleManualSubmit} disabled={loading}>
-          {loading
-            ? <ActivityIndicator color="#fff" size="small" />
-            : <><MaterialIcons name="check-circle" size={20} color="#fff" />
-               <Text style={styles.validateBtnText}>Validar</Text></>
-          }
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%', marginBottom: 10 }}>
+          <Text style={[styles.scanPrompt, { color: scanPhase === 'external' ? '#1976d2' : ORANGE, marginBottom: 0 }]}>
+            {scanPhase === 'external' ? `Escanea guía de ${carrierLabel(carrier)}` : 'Escanea guía interna'}
+          </Text>
+          <TouchableOpacity onPress={() => setShowModeModal(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+            <MaterialIcons name={scanMode === 'camera' ? 'photo-camera' : 'qr-code-scanner'} size={18} color="#999" />
+            <Text style={{ fontSize: 11, color: '#999' }}>{scanMode === 'camera' ? 'Cámara' : 'Escáner'}</Text>
+          </TouchableOpacity>
+        </View>
+
+        {scanMode === 'camera' ? (
+          permission?.granted ? (
+            <TouchableOpacity activeOpacity={1} onPress={() => setScannerActive(true)} style={{ width: '100%', height: 200, borderRadius: 10, overflow: 'hidden', position: 'relative' }}>
+              <CameraView
+                style={{ width: '100%', height: '100%' }}
+                barcodeScannerSettings={{ barcodeTypes: ['code128', 'code39', 'qr', 'ean13'] }}
+                onBarcodeScanned={scannerActive ? handleCameraBarcode : undefined}
+              />
+              <View style={{ position: 'absolute', bottom: 8, left: 0, right: 0, alignItems: 'center' }}>
+                {loading ? (
+                  <View style={{ backgroundColor: 'rgba(0,0,0,0.7)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6, flexDirection: 'row', gap: 6 }}>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={{ color: '#fff', fontSize: 12 }}>{manualCode || 'Verificando...'}</Text>
+                  </View>
+                ) : !scannerActive ? (
+                  <View style={{ backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6 }}>
+                    <Text style={{ color: '#fff', fontSize: 12 }}>Toca para escanear</Text>
+                  </View>
+                ) : null}
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity onPress={requestPermission} style={{ padding: 20, alignItems: 'center' }}>
+              <MaterialIcons name="camera-alt" size={40} color="#ccc" />
+              <Text style={{ color: ORANGE, marginTop: 8 }}>Otorgar permiso de cámara</Text>
+            </TouchableOpacity>
+          )
+        ) : (
+          <>
+            <MaterialIcons name="qr-code-scanner" size={36} color={scanPhase === 'external' ? '#1976d2' : ORANGE} />
+            <TextInput
+              ref={inputRef}
+              style={styles.input}
+              value={manualCode}
+              onChangeText={handleTextChange}
+              onSubmitEditing={handleManualSubmit}
+              placeholder="Escanea o escribe el código"
+              placeholderTextColor="#bbb"
+              autoCapitalize="characters"
+              returnKeyType="done"
+              editable={!loading}
+              blurOnSubmit={false}
+            />
+            <TouchableOpacity style={styles.validateBtn} onPress={handleManualSubmit} disabled={loading}>
+              {loading
+                ? <ActivityIndicator color="#fff" size="small" />
+                : <><MaterialIcons name="check-circle" size={20} color="#fff" /><Text style={styles.validateBtnText}>Validar</Text></>
+              }
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* Lista inline de ya cargados */}
@@ -487,6 +555,54 @@ export default function PaqueteriaHandoffScreen({ navigation, route }: any) {
           </View>
         </View>
       )}
+      {/* Modal selección de modo de captura */}
+      <Modal visible={showModeModal} transparent animationType="fade" onRequestClose={() => scanMode && setShowModeModal(false)}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 14, padding: 20, width: '100%' }}>
+            <Text style={{ fontSize: 17, fontWeight: '700', color: '#1A1A1A', marginBottom: 6 }}>
+              Selecciona método de captura
+            </Text>
+            <Text style={{ fontSize: 14, color: '#6B7280', marginBottom: 16 }}>
+              ¿Deseas usar escáner externo o cámara del celular?
+            </Text>
+
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 16 }}
+              onPress={() => setRememberMode(!rememberMode)}
+            >
+              <View style={{ width: 20, height: 20, borderRadius: 4, borderWidth: 1.5, borderColor: rememberMode ? ORANGE : '#C0C0C0', backgroundColor: rememberMode ? ORANGE : '#fff', alignItems: 'center', justifyContent: 'center', marginRight: 10 }}>
+                {rememberMode && <MaterialIcons name="check" size={14} color="#fff" />}
+              </View>
+              <Text style={{ fontSize: 14, color: '#1A1A1A', fontWeight: '500' }}>No volver a preguntar</Text>
+            </TouchableOpacity>
+
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              {scanMode && (
+                <TouchableOpacity
+                  style={{ flex: 0.4, paddingVertical: 10, borderRadius: 8, backgroundColor: '#F5F5F5', alignItems: 'center' }}
+                  onPress={() => setShowModeModal(false)}
+                >
+                  <Text style={{ color: '#6B7280', fontWeight: '600', fontSize: 14 }}>Cancelar</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 8, backgroundColor: '#F5F5F5', borderWidth: 1, borderColor: '#ECECEC' }}
+                onPress={() => handleSelectMode('scanner')}
+              >
+                <MaterialIcons name="qr-code-scanner" size={18} color="#1A1A1A" />
+                <Text style={{ color: '#1A1A1A', fontWeight: '600', fontSize: 14 }}>Escáner</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 8, backgroundColor: ORANGE }}
+                onPress={() => handleSelectMode('camera')}
+              >
+                <MaterialIcons name="photo-camera" size={18} color="#fff" />
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Cámara</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }

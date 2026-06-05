@@ -244,6 +244,9 @@ export default function PettyCashHubPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [deletingMovId, setDeletingMovId] = useState<number | null>(null);
   const [cajaMxnBalance, setCajaMxnBalance] = useState<number | null>(null);
+  // Filtro de fecha en estado de cuenta
+  const [detailDateFrom, setDetailDateFrom] = useState<string>('');
+  const [detailDateTo, setDetailDateTo] = useState<string>('');
 
   // Visor de foto de evidencia
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
@@ -473,6 +476,8 @@ export default function PettyCashHubPage() {
   const openWalletDetail = async (wallet: Wallet) => {
     setDetailWallet(wallet);
     setDetailMovs([]);
+    setDetailDateFrom('');
+    setDetailDateTo('');
     setDetailOpen(true);
     setDetailLoading(true);
     try {
@@ -1487,6 +1492,45 @@ export default function PettyCashHubPage() {
           📒 Estado de cuenta — {detailWallet?.owner_name || ''}
         </DialogTitle>
         <DialogContent>
+          {/* Filtro de fecha */}
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 2, alignItems: 'center' }}>
+            <TextField
+              label="Desde"
+              type="date"
+              size="small"
+              value={detailDateFrom}
+              onChange={(e) => setDetailDateFrom(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+            <TextField
+              label="Hasta"
+              type="date"
+              size="small"
+              value={detailDateTo}
+              onChange={(e) => setDetailDateTo(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+            />
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => { setDetailDateFrom(''); setDetailDateTo(''); }}
+              disabled={!detailDateFrom && !detailDateTo}
+            >
+              Limpiar
+            </Button>
+            {(detailDateFrom || detailDateTo) && (
+              <Chip
+                size="small"
+                color="primary"
+                label={`Filtrado: ${detailMovs.filter(m => {
+                  const d = new Date(m.created_at);
+                  if (detailDateFrom && d < new Date(detailDateFrom + 'T00:00:00')) return false;
+                  if (detailDateTo && d > new Date(detailDateTo + 'T23:59:59')) return false;
+                  return true;
+                }).length} de ${detailMovs.length}`}
+              />
+            )}
+          </Box>
           {detailWallet && (() => {
             let totalCargo = 0;
             let totalAbono = 0;
@@ -1494,7 +1538,13 @@ export default function PettyCashHubPage() {
             // (Para una sucursal, el endpoint también devuelve los gastos de sus
             //  choferes como informativos — esos NO afectan balance_mxn de la
             //  sucursal, el anticipo original ya descontó esos fondos.)
-            for (const m of detailMovs) {
+            const filteredForTotals = detailMovs.filter(m => {
+              const d = new Date(m.created_at);
+              if (detailDateFrom && d < new Date(detailDateFrom + 'T00:00:00')) return false;
+              if (detailDateTo && d > new Date(detailDateTo + 'T23:59:59')) return false;
+              return true;
+            });
+            for (const m of filteredForTotals) {
               if (m.status !== 'approved') continue;
               if (Number((m as any).wallet_id) !== Number((detailWallet as any).id)) continue;
               const meta = MOVEMENT_TYPE_META[m.movement_type] || { sign: 1 as const };
@@ -1512,7 +1562,7 @@ export default function PettyCashHubPage() {
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Movimientos</Typography>
-                  <Typography variant="h5" fontWeight="bold">{detailMovs.length}</Typography>
+                  <Typography variant="h5" fontWeight="bold">{filteredForTotals.length}</Typography>
                 </Box>
                 <Box>
                   <Typography variant="caption" color="text.secondary">Total abono</Typography>
@@ -1554,8 +1604,15 @@ export default function PettyCashHubPage() {
                 </TableHead>
                 <TableBody>
                   {(() => {
+                    // Aplicar filtro de fecha
+                    const filteredMovs = detailMovs.filter(m => {
+                      const d = new Date(m.created_at);
+                      if (detailDateFrom && d < new Date(detailDateFrom + 'T00:00:00')) return false;
+                      if (detailDateTo && d > new Date(detailDateTo + 'T23:59:59')) return false;
+                      return true;
+                    });
                     // Orden cronológico ascendente para el estado de cuenta
-                    const ordered = [...detailMovs].sort(
+                    const ordered = [...filteredMovs].sort(
                       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
                     );
                     let running = 0;
@@ -1646,6 +1703,14 @@ export default function PettyCashHubPage() {
                   })()}
                   {detailMovs.length === 0 && !detailLoading && (
                     <TableRow><TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">Sin movimientos registrados</TableCell></TableRow>
+                  )}
+                  {detailMovs.length > 0 && !detailLoading && (detailDateFrom || detailDateTo) && detailMovs.filter(m => {
+                    const d = new Date(m.created_at);
+                    if (detailDateFrom && d < new Date(detailDateFrom + 'T00:00:00')) return false;
+                    if (detailDateTo && d > new Date(detailDateTo + 'T23:59:59')) return false;
+                    return true;
+                  }).length === 0 && (
+                    <TableRow><TableCell colSpan={isSuperAdmin ? 9 : 8} align="center">Sin movimientos en el rango de fechas seleccionado</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
