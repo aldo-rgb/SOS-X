@@ -617,13 +617,8 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
   const handleSignatureOK = (signatureData: string) => {
     setSignature(signatureData);
-
-    if (!packageInfo?.requires_carrier_scan && !recipientName.trim()) {
-      Alert.alert('Nombre requerido', 'Debes escribir el nombre de quien recibe para continuar.');
-      return;
-    }
-
-    setCurrentStep('photo');
+    // No avanzar automáticamente — el usuario debe presionar "Continuar"
+    // para que pueda llenar el nombre antes de avanzar a foto
   };
 
   const handleSignatureClear = () => {
