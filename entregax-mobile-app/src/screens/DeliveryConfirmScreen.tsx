@@ -2328,27 +2328,27 @@ const styles = StyleSheet.create({
   
   // Confirm step
   confirmTitle: {
-    fontSize: 22,
+    fontSize: 17,
     fontWeight: 'bold',
     color: '#333',
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
   summaryBox: {
     backgroundColor: '#fff',
     borderRadius: 10,
-    padding: 15,
-    marginBottom: 20,
+    padding: 10,
+    marginBottom: 10,
   },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    paddingVertical: 6,
     borderBottomWidth: 1,
     borderBottomColor: '#f5f5f5',
   },
   summaryLabel: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#666',
   },
   carrierGuideSubtitle: {
