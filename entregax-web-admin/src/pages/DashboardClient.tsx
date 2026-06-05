@@ -160,9 +160,11 @@ interface ClientStats {
 interface PackageTracking {
   id: number;
   tracking: string;
+  tracking_internal?: string;
   descripcion: string;
   servicio: string;
   shipment_type?: string;
+  service_type?: string;
   status: string;
   status_label: string;
   fecha_estimada: string;
@@ -2733,16 +2735,9 @@ export default function DashboardClient() {
   const getFilteredPackages = useCallback(() => {
     let filtered = packages;
     
-    // Filtro por tipo de servicio
+    // Filtro por tipo de servicio (helper centralizado: matchesServiceFilter)
     if (serviceFilter !== 'all') {
-      filtered = filtered.filter(pkg => {
-        const type = pkg.shipment_type || pkg.servicio;
-        if (serviceFilter === 'china_air') return type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX' || type === 'tdi_express';
-        if (serviceFilter === 'china_sea') return type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl' || type === 'FCL_CHN_MX';
-        if (serviceFilter === 'usa_pobox') return type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
-        if (serviceFilter === 'dhl') return type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
-        return true;
-      });
+      filtered = filtered.filter(pkg => matchesServiceFilter(pkg, serviceFilter));
     }
     
     // Filtro por instrucciones
@@ -2926,7 +2921,7 @@ export default function DashboardClient() {
 
     packages.forEach(pkg => {
       const type = pkg.shipment_type || pkg.servicio;
-      if (type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX' || type === 'tdi_express') {
+      if (matchesServiceFilter(pkg, 'china_air')) {
         // Agrupar hijas AIR<prefix>-NNN bajo el mismo master virtual
         const tracking = String(pkg.tracking || '').toUpperCase();
         const childMatch = tracking.match(/^(AIR[A-Z0-9]+)-(\d{2,4})$/i);
@@ -2939,13 +2934,15 @@ export default function DashboardClient() {
         } else {
           counts.china_air++;
         }
-      } else if (type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl' || type === 'FCL_CHN_MX') {
+      } else if (matchesServiceFilter(pkg, 'china_sea')) {
         counts.china_sea++;
-      } else if (type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type) {
+      } else if (matchesServiceFilter(pkg, 'usa_pobox')) {
         counts.usa_pobox++;
-      } else if (type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY') {
+      } else if (matchesServiceFilter(pkg, 'dhl')) {
         counts.dhl++;
       }
+      // Suppress unused 'type' lint warning — kept for future explicit cases.
+      void type;
     });
 
     return counts;
@@ -3253,6 +3250,55 @@ export default function DashboardClient() {
     if (s.includes('air') || s === 'aereo' || s === 'china_air') return 'air';
     if (s.includes('pobox') || s.includes('po_box') || s === 'usa' || s === 'usa_pobox') return 'pobox';
     return 'other';
+  };
+
+  // Helper centralizado de filtros por tab de servicio. Antes vivía duplicado
+  // inline en 3 lugares con `|| !type` para PO Box, lo que arrastraba envíos
+  // marítimos legacy (sin service_type) al tab PO Box. Ahora:
+  //  - prioriza la columna `service_type` (que es la real en BD); cae a
+  //    `shipment_type` o `servicio` solo si la primera está vacía.
+  //  - tipos vacíos/'air' solo cuentan como PO Box si el tracking interno
+  //    empieza con `US-` (convención bodega Hidalgo TX).
+  //  - tracking que empieza con LOG/SEA nunca cae en PO Box (es marítimo).
+  const matchesServiceFilter = (
+    pkg: any,
+    filter: ServiceFilter
+  ): boolean => {
+    if (filter === 'all') return true;
+    const rawType = pkg.service_type || pkg.shipment_type || pkg.servicio;
+    const type = String(rawType || '');
+    const typeLower = type.toLowerCase();
+    const cat = getServiceCategory(rawType);
+    const tracking = String(pkg.tracking_internal || pkg.tracking || '').toUpperCase();
+    // Trackings internos que claramente NO son PO Box
+    const looksLikeMaritime = tracking.startsWith('LOG') || tracking.startsWith('SEA');
+    const looksLikeAirChina = tracking.startsWith('CN') || tracking.startsWith('AIR');
+    const looksLikePobox = tracking.startsWith('US-');
+
+    switch (filter) {
+      case 'china_air':
+        // Aéreo China: categoría 'air' + (tracking lo confirma O service_type explícito).
+        if (looksLikeMaritime || looksLikePobox) return false;
+        if (cat === 'air') {
+          // Excluir el alias 'air' a secas (ambiguo histórico) salvo que el tracking confirme.
+          if (typeLower === 'air' && !looksLikeAirChina) return false;
+          if (typeLower.includes('pobox')) return false;
+          return true;
+        }
+        return false;
+      case 'china_sea':
+        return cat === 'maritime' || looksLikeMaritime;
+      case 'usa_pobox':
+        if (cat === 'pobox') return true;
+        if (looksLikeMaritime || looksLikeAirChina) return false;
+        // Sin service_type o 'air' ambiguo → solo PO Box si el tracking empieza con US-.
+        if ((!rawType || typeLower === 'air') && looksLikePobox) return true;
+        return false;
+      case 'dhl':
+        return cat === 'dhl';
+      default:
+        return true;
+    }
   };
 
   const togglePackageSelection = (id: number, pkg: PackageTracking) => {
@@ -5496,15 +5542,11 @@ export default function DashboardClient() {
                     setInstructionFilter(newFilter);
                     // Auto-seleccionar todos los paquetes filtrados
                     if (newFilter !== 'all') {
-                      const filtered = packages.filter(pkg => {
-                        const type = pkg.shipment_type || pkg.servicio;
-                        let matchesService = true;
-                        if (serviceFilter === 'china_air') matchesService = type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX';
-                        else if (serviceFilter === 'china_sea') matchesService = type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl' || type === 'FCL_CHN_MX';
-                        else if (serviceFilter === 'usa_pobox') matchesService = type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
-                        else if (serviceFilter === 'dhl') matchesService = type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
-                        return matchesService && !pkg.has_delivery_instructions && !pkg.delivery_address_id;
-                      }).filter(isPackagePayable);
+                      const filtered = packages.filter(pkg =>
+                        matchesServiceFilter(pkg, serviceFilter)
+                        && !pkg.has_delivery_instructions
+                        && !pkg.delivery_address_id
+                      ).filter(isPackagePayable);
                       setSelectedPackageIds(filtered.map(p => p.id));
                     } else {
                       setSelectedPackageIds([]);
@@ -5529,15 +5571,10 @@ export default function DashboardClient() {
                     setInstructionFilter(newFilter);
                     // Auto-seleccionar todos los paquetes filtrados
                     if (newFilter !== 'all') {
-                      const filtered = packages.filter(pkg => {
-                        const type = pkg.shipment_type || pkg.servicio;
-                        let matchesService = true;
-                        if (serviceFilter === 'china_air') matchesService = type === 'china_air' || type === 'TDI_AEREO' || type === 'AIR_CHN_MX';
-                        else if (serviceFilter === 'china_sea') matchesService = type === 'china_sea' || type === 'maritime' || type === 'SEA_CHN_MX' || type === 'fcl';
-                        else if (serviceFilter === 'usa_pobox') matchesService = type === 'usa_pobox' || type === 'POBOX_USA' || type === 'air' || !type;
-                        else if (serviceFilter === 'dhl') matchesService = type === 'dhl' || type === 'mx_cedis' || type === 'NATIONAL' || type === 'AA_DHL' || type === 'DHL_MTY';
-                        return matchesService && (pkg.has_delivery_instructions || pkg.delivery_address_id);
-                      }).filter(isPackagePayable);
+                      const filtered = packages.filter(pkg =>
+                        matchesServiceFilter(pkg, serviceFilter)
+                        && (pkg.has_delivery_instructions || !!pkg.delivery_address_id)
+                      ).filter(isPackagePayable);
                       setSelectedPackageIds(filtered.map(p => p.id));
                     } else {
                       setSelectedPackageIds([]);
