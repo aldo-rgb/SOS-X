@@ -176,12 +176,15 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         return;
       }
 
-      // 🚚 Repartidor: solo 2 llamadas esenciales (route-today + inspection).
-      // wallet y attendance se movieron a la pantalla principal (HomeScreen).
-      const [routeSettled, inspSettled] = await Promise.allSettled([
-        api.get('/api/driver/route-today', { headers: authHeaders }),
-        api.get('/api/fleet/inspection/today', { headers: authHeaders }),
-      ]);
+      // 🚚 Repartidor: route-today primero → mostrar UI inmediatamente.
+      // Inspección corre en background (no bloquea el render).
+      api.get('/api/fleet/inspection/today', { headers: authHeaders })
+        .then(r => setInspectionDone(r.data?.has_inspection || r.data?.already_inspected || false))
+        .catch(() => setInspectionDone(false));
+
+      const routeSettled = await api.get('/api/driver/route-today', { headers: authHeaders })
+        .then(v => ({ status: 'fulfilled' as const, value: v }))
+        .catch(e => ({ status: 'rejected' as const, reason: e }));
 
       // Ruta (stats + listas)
       if (routeSettled.status === 'fulfilled') {
@@ -231,14 +234,6 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         });
       } else {
         console.error('Error cargando ruta del repartidor:', routeSettled.reason);
-      }
-
-      // Inspección
-      if (inspSettled.status === 'fulfilled') {
-        const data = inspSettled.value.data;
-        setInspectionDone(data?.has_inspection || data?.already_inspected || false);
-      } else {
-        setInspectionDone(false);
       }
 
     } catch (error) {
