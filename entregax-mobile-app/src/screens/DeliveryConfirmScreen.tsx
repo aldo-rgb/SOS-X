@@ -31,6 +31,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import * as ImagePicker from 'expo-image-picker';
 import api from '../services/api';
+import { enqueueDelivery, isNetworkError } from '../services/deliveryQueue';
 import SignatureScreen from 'react-native-signature-canvas';
 import { createAudioPlayer } from 'expo-audio';
 

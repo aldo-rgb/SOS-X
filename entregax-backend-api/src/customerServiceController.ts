@@ -1032,34 +1032,68 @@ export const sincronizarCartera = async () => {
             )
     `);
 
-    // DHL en CEDIS no pagados
+    // DHL en CEDIS no pagados.
+    // NOTA: la tabla `dhl_shipments` usa `inbound_tracking` (no `waybill_number`)
+    // y `cost_payment_status` (no `payment_status`).
     await pool.query(`
       INSERT INTO cartera_vencida_logs (guia_id, guia_tracking, servicio, cliente_id, fecha_llegada_cedis, saldo_deudor)
-      SELECT d.id, d.waybill_number, 'dhl', d.user_id, COALESCE(d.delivered_at, d.created_at), COALESCE(d.saldo_pendiente, 0)
+      SELECT d.id,
+             COALESCE(d.inbound_tracking, d.secondary_tracking) AS tracking,
+             'dhl',
+             d.user_id,
+             COALESCE(d.delivered_at, d.created_at),
+             COALESCE(d.saldo_pendiente, 0)
       FROM dhl_shipments d
-      WHERE d.status IN ('delivered_cedis', 'ready_for_pickup')
-        AND COALESCE(d.payment_status, 'pending') != 'paid'
-        AND NOT EXISTS (SELECT 1 FROM cartera_vencida_logs cv WHERE cv.guia_tracking = d.waybill_number AND cv.servicio = 'dhl')
+      WHERE d.status::text IN ('received_mty', 'received_cdmx', 'ready_pickup', 'ready_for_pickup')
+        AND COALESCE(d.cost_payment_status, 'pending') != 'paid'
+        AND COALESCE(d.inbound_tracking, d.secondary_tracking) IS NOT NULL
+        AND NOT EXISTS (
+              SELECT 1 FROM cartera_vencida_logs cv
+              WHERE cv.guia_tracking = COALESCE(d.inbound_tracking, d.secondary_tracking)
+                AND cv.servicio = 'dhl'
+            )
     `);
 
-    // China receipts en CEDIS
+    // China receipts en CEDIS.
+    // NOTA: usa `fno` o `international_tracking` (no `tracking_number`).
     await pool.query(`
       INSERT INTO cartera_vencida_logs (guia_id, guia_tracking, servicio, cliente_id, fecha_llegada_cedis, saldo_deudor)
-      SELECT c.id, c.tracking_number, 'china', c.user_id, COALESCE(c.delivered_at, c.created_at), COALESCE(c.saldo_pendiente, 0)
+      SELECT c.id,
+             COALESCE(c.fno, c.international_tracking) AS tracking,
+             'china',
+             c.user_id,
+             COALESCE(c.delivered_at, c.created_at),
+             COALESCE(c.saldo_pendiente, 0)
       FROM china_receipts c
-      WHERE c.status IN ('delivered_cedis', 'ready_for_pickup', 'in_warehouse')
+      WHERE c.status::text IN ('received_mty', 'received_cdmx', 'ready_pickup', 'delivered')
         AND COALESCE(c.payment_status, 'pending') != 'paid'
-        AND NOT EXISTS (SELECT 1 FROM cartera_vencida_logs cv WHERE cv.guia_tracking = c.tracking_number AND cv.servicio = 'china')
+        AND COALESCE(c.fno, c.international_tracking) IS NOT NULL
+        AND NOT EXISTS (
+              SELECT 1 FROM cartera_vencida_logs cv
+              WHERE cv.guia_tracking = COALESCE(c.fno, c.international_tracking)
+                AND cv.servicio = 'china'
+            )
     `);
 
-    // Maritime orders en CEDIS
+    // Maritime orders en CEDIS.
+    // NOTA: usa `bl_number` o `container_number` (no `tracking_number`).
     await pool.query(`
       INSERT INTO cartera_vencida_logs (guia_id, guia_tracking, servicio, cliente_id, fecha_llegada_cedis, saldo_deudor)
-      SELECT m.id, m.tracking_number, 'maritime', m.user_id, COALESCE(m.delivered_at, m.created_at), COALESCE(m.saldo_pendiente, 0)
+      SELECT m.id,
+             COALESCE(m.bl_number, m.container_number, m.gex_folio) AS tracking,
+             'maritime',
+             m.user_id,
+             COALESCE(m.delivered_at, m.created_at),
+             COALESCE(m.saldo_pendiente, 0)
       FROM maritime_orders m
-      WHERE m.status IN ('delivered_cedis', 'ready_for_pickup', 'in_warehouse')
+      WHERE m.status::text IN ('received_mty', 'received_cdmx', 'ready_pickup', 'customs_cleared', 'customs_mx')
         AND COALESCE(m.payment_status, 'pending') != 'paid'
-        AND NOT EXISTS (SELECT 1 FROM cartera_vencida_logs cv WHERE cv.guia_tracking = m.tracking_number AND cv.servicio = 'maritime')
+        AND COALESCE(m.bl_number, m.container_number, m.gex_folio) IS NOT NULL
+        AND NOT EXISTS (
+              SELECT 1 FROM cartera_vencida_logs cv
+              WHERE cv.guia_tracking = COALESCE(m.bl_number, m.container_number, m.gex_folio)
+                AND cv.servicio = 'maritime'
+            )
     `);
 
     console.log('[CRON] Cartera sincronizada');
