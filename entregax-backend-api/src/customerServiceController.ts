@@ -1004,14 +1004,32 @@ export const sincronizarCartera = async () => {
   console.log('[CRON] Sincronizando cartera...');
   
   try {
-    // Packages en CEDIS no pagados
+    // Packages en CEDIS no pagados.
+    // NOTA: la tabla `packages` en producción usa `tracking_internal` y la
+    // columna enum `status` (package_status), NO `tracking_number` ni
+    // `package_status`. Antes el cron fallaba con
+    // `column p.tracking_number does not exist`.
     await pool.query(`
       INSERT INTO cartera_vencida_logs (guia_id, guia_tracking, servicio, cliente_id, fecha_llegada_cedis, saldo_deudor)
-      SELECT p.id, p.tracking_number, 'packages', p.user_id, COALESCE(p.delivered_at, p.updated_at), COALESCE(p.saldo_pendiente, 0)
+      SELECT p.id,
+             COALESCE(p.tracking_internal, p.tracking_provider) AS tracking,
+             'packages',
+             p.user_id,
+             COALESCE(p.delivered_at, p.updated_at),
+             COALESCE(p.saldo_pendiente, 0)
       FROM packages p
-      WHERE p.package_status IN ('in_warehouse', 'ready_for_pickup')
+      WHERE p.status::text IN (
+              'received_mty', 'received_cdmx', 'received_gdl', 'received_qro',
+              'received_pue', 'received_tij', 'received_mid', 'received_cun',
+              'received_leo', 'received_hgo', 'received_cc', 'ready_pickup'
+            )
         AND COALESCE(p.payment_status, 'pending') != 'paid'
-        AND NOT EXISTS (SELECT 1 FROM cartera_vencida_logs cv WHERE cv.guia_tracking = p.tracking_number AND cv.servicio = 'packages')
+        AND COALESCE(p.tracking_internal, p.tracking_provider) IS NOT NULL
+        AND NOT EXISTS (
+              SELECT 1 FROM cartera_vencida_logs cv
+              WHERE cv.guia_tracking = COALESCE(p.tracking_internal, p.tracking_provider)
+                AND cv.servicio = 'packages'
+            )
     `);
 
     // DHL en CEDIS no pagados

@@ -93,6 +93,17 @@ let inCedisWriteStatusCache: 'in_cedis' | 'received_mty' | null = null;
 let sentWriteStatusCache: 'sent' | 'delivered' | null = null;
 let pqtxShipmentsTableExistsCache: boolean | null = null;
 
+// Cache de 10s para getDriverRouteToday — evita recalcular cuando el repartidor
+// entra/sale de pantallas rápidamente (useFocusEffect dispara en cada foco).
+const routeCache = new Map<string, { data: any; expiresAt: number }>();
+const ROUTE_CACHE_TTL = 10_000; // 10 segundos
+
+export const invalidateRouteCache = (driverId: number) => {
+    for (const key of routeCache.keys()) {
+        if (key.startsWith(`${driverId}:`)) routeCache.delete(key);
+    }
+};
+
 interface LoadingFlags { requirePayment: boolean; requireLabel: boolean; }
 let loadingFlagsCache: LoadingFlags | null = null;
 let loadingFlagsCacheAt: number | null = null;
@@ -709,8 +720,9 @@ export const scanPackageToLoad = async (req: Request, res: Response): Promise<an
         // TODO: Enviar notificación al cliente
         // await sendPushNotification(pkg.client_id, '🚚 En Camino', 'Tu paquete ha sido cargado en la unidad de reparto.');
 
-        return res.json({ 
-            success: true, 
+        invalidateRouteCache(driverId);
+        return res.json({
+            success: true,
             message: '✅ Paquete cargado correctamente.',
             package: {
                 id: pkg.id,
@@ -742,6 +754,12 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
 
     try {
         const driverBranchId = await getDriverBranchId(driverId);
+        // ── Cache de 10s para evitar recalcular en cada useFocusEffect ──────────
+        const cacheKey = `${driverId}:${driverBranchId || 'none'}`;
+        const cached = routeCache.get(cacheKey);
+        if (cached && cached.expiresAt > Date.now()) {
+            return res.json(cached.data);
+        }
         const packageBranchSql = await getPackageBranchSql('p');
         const hasAssignedDriverColumn = await hasPackageColumn('assigned_driver_id');
 
@@ -953,20 +971,18 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     return !!(carrier && !isLocalCarrier(carrier));
                 }).length;
 
-        return res.json({
+        const payload = {
             success: true,
             route: {
-                                totalAssigned,
-                                loadedToday,
-                                deliveredToday,
-                                pendingToLoad,
-                                paqueteriaCount,
-                                requireLabelToLoad: reqLabel,
+                totalAssigned, loadedToday, deliveredToday,
+                pendingToLoad, paqueteriaCount, requireLabelToLoad: reqLabel,
                 pendingPackages: pendingRes.rows,
                 loadedPackages: loadedRes.rows,
-                deliveredPackages: deliveredTodayRes.rows
-            }
-        });
+                deliveredPackages: deliveredTodayRes.rows,
+            },
+        };
+        routeCache.set(cacheKey, { data: payload, expiresAt: Date.now() + ROUTE_CACHE_TTL });
+        return res.json(payload);
 
     } catch (error) {
         console.error('Error en getDriverRouteToday:', error);
@@ -1425,8 +1441,9 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
             }).catch((e: any) => console.warn('[notif] delivered notify failed:', e?.message));
         }
 
-        return res.json({ 
-            success: true, 
+        invalidateRouteCache(driverId);
+        return res.json({
+            success: true,
             message: '✅ Entrega confirmada exitosamente.',
             package: {
                 id: pkg.id,

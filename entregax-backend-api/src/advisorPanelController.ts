@@ -1628,7 +1628,9 @@ export const getAdvisorPackages = async (req: Request, res: Response): Promise<a
     }
 
     const result = await pool.query(`
-      SELECT p.id, p.tracking_number, p.status, p.goods_name, p.assigned_cost_mxn,
+      SELECT p.id,
+             COALESCE(p.tracking_internal, p.tracking_provider) AS tracking_number,
+             p.status, p.description AS goods_name, p.assigned_cost_mxn,
              p.saldo_pendiente, p.destination_address, p.assigned_address_id,
              p.created_at, p.updated_at,
              u.full_name AS client_name, u.box_id AS client_box_id
