@@ -1645,7 +1645,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       {/* Botón confirmar */}
       <TouchableOpacity 
         style={[styles.confirmButton, (loading || !photo) && styles.buttonDisabled]}
-        onPress={handleConfirmDelivery}
+        onPress={() => handleConfirmDelivery()}
         disabled={loading || !photo}
       >
         {loading ? (
