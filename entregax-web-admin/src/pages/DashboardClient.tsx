@@ -2731,6 +2731,68 @@ export default function DashboardClient() {
     }
   };
 
+  // Categoriza un valor de servicio normalizado (tolera AIR_CHN_MX/china_air/aereo,
+  // SEA_CHN_MX/maritime/fcl, AA_DHL/dhl, POBOX_USA/usa, etc.). Devuelve uno de:
+  // 'air' | 'maritime' | 'dhl' | 'pobox' | 'other'.
+  const getServiceCategory = (servicio: string | undefined | null): 'air' | 'maritime' | 'dhl' | 'pobox' | 'other' => {
+    const s = String(servicio || '').toLowerCase();
+    if (!s) return 'other';
+    if (s.includes('sea') || s.includes('maritime') || s.includes('maritimo') || s === 'fcl') return 'maritime';
+    if (s.includes('dhl') || s === 'aa_dhl') return 'dhl';
+    if (s.includes('air') || s === 'aereo' || s === 'china_air') return 'air';
+    if (s.includes('pobox') || s.includes('po_box') || s === 'usa' || s === 'usa_pobox') return 'pobox';
+    return 'other';
+  };
+
+  // Helper centralizado de filtros por tab de servicio. Antes vivía duplicado
+  // inline en 3 lugares con `|| !type` para PO Box, lo que arrastraba envíos
+  // marítimos legacy (sin service_type) al tab PO Box. Ahora:
+  //  - prioriza la columna `service_type` (que es la real en BD); cae a
+  //    `shipment_type` o `servicio` solo si la primera está vacía.
+  //  - tipos vacíos/'air' solo cuentan como PO Box si el tracking interno
+  //    empieza con `US-` (convención bodega Hidalgo TX).
+  //  - tracking que empieza con LOG/SEA nunca cae en PO Box (es marítimo).
+  const matchesServiceFilter = (
+    pkg: any,
+    filter: ServiceFilter
+  ): boolean => {
+    if (filter === 'all') return true;
+    const rawType = pkg.service_type || pkg.shipment_type || pkg.servicio;
+    const type = String(rawType || '');
+    const typeLower = type.toLowerCase();
+    const cat = getServiceCategory(rawType);
+    const tracking = String(pkg.tracking_internal || pkg.tracking || '').toUpperCase();
+    // Trackings internos que claramente NO son PO Box
+    const looksLikeMaritime = tracking.startsWith('LOG') || tracking.startsWith('SEA');
+    const looksLikeAirChina = tracking.startsWith('CN') || tracking.startsWith('AIR');
+    const looksLikePobox = tracking.startsWith('US-');
+
+    switch (filter) {
+      case 'china_air':
+        // Aéreo China: categoría 'air' + (tracking lo confirma O service_type explícito).
+        if (looksLikeMaritime || looksLikePobox) return false;
+        if (cat === 'air') {
+          // Excluir el alias 'air' a secas (ambiguo histórico) salvo que el tracking confirme.
+          if (typeLower === 'air' && !looksLikeAirChina) return false;
+          if (typeLower.includes('pobox')) return false;
+          return true;
+        }
+        return false;
+      case 'china_sea':
+        return cat === 'maritime' || looksLikeMaritime;
+      case 'usa_pobox':
+        if (cat === 'pobox') return true;
+        if (looksLikeMaritime || looksLikeAirChina) return false;
+        // Sin service_type o 'air' ambiguo → solo PO Box si el tracking empieza con US-.
+        if ((!rawType || typeLower === 'air') && looksLikePobox) return true;
+        return false;
+      case 'dhl':
+        return cat === 'dhl';
+      default:
+        return true;
+    }
+  };
+
   // Filtrar paquetes por tipo de servicio
   const getFilteredPackages = useCallback(() => {
     let filtered = packages;
@@ -3239,68 +3301,6 @@ export default function DashboardClient() {
   };
 
   // Toggle selección de paquete
-  // Categoriza un valor de servicio normalizado (tolera AIR_CHN_MX/china_air/aereo,
-  // SEA_CHN_MX/maritime/fcl, AA_DHL/dhl, POBOX_USA/usa, etc.). Devuelve uno de:
-  // 'air' | 'maritime' | 'dhl' | 'pobox' | 'other'.
-  const getServiceCategory = (servicio: string | undefined | null): 'air' | 'maritime' | 'dhl' | 'pobox' | 'other' => {
-    const s = String(servicio || '').toLowerCase();
-    if (!s) return 'other';
-    if (s.includes('sea') || s.includes('maritime') || s.includes('maritimo') || s === 'fcl') return 'maritime';
-    if (s.includes('dhl') || s === 'aa_dhl') return 'dhl';
-    if (s.includes('air') || s === 'aereo' || s === 'china_air') return 'air';
-    if (s.includes('pobox') || s.includes('po_box') || s === 'usa' || s === 'usa_pobox') return 'pobox';
-    return 'other';
-  };
-
-  // Helper centralizado de filtros por tab de servicio. Antes vivía duplicado
-  // inline en 3 lugares con `|| !type` para PO Box, lo que arrastraba envíos
-  // marítimos legacy (sin service_type) al tab PO Box. Ahora:
-  //  - prioriza la columna `service_type` (que es la real en BD); cae a
-  //    `shipment_type` o `servicio` solo si la primera está vacía.
-  //  - tipos vacíos/'air' solo cuentan como PO Box si el tracking interno
-  //    empieza con `US-` (convención bodega Hidalgo TX).
-  //  - tracking que empieza con LOG/SEA nunca cae en PO Box (es marítimo).
-  const matchesServiceFilter = (
-    pkg: any,
-    filter: ServiceFilter
-  ): boolean => {
-    if (filter === 'all') return true;
-    const rawType = pkg.service_type || pkg.shipment_type || pkg.servicio;
-    const type = String(rawType || '');
-    const typeLower = type.toLowerCase();
-    const cat = getServiceCategory(rawType);
-    const tracking = String(pkg.tracking_internal || pkg.tracking || '').toUpperCase();
-    // Trackings internos que claramente NO son PO Box
-    const looksLikeMaritime = tracking.startsWith('LOG') || tracking.startsWith('SEA');
-    const looksLikeAirChina = tracking.startsWith('CN') || tracking.startsWith('AIR');
-    const looksLikePobox = tracking.startsWith('US-');
-
-    switch (filter) {
-      case 'china_air':
-        // Aéreo China: categoría 'air' + (tracking lo confirma O service_type explícito).
-        if (looksLikeMaritime || looksLikePobox) return false;
-        if (cat === 'air') {
-          // Excluir el alias 'air' a secas (ambiguo histórico) salvo que el tracking confirme.
-          if (typeLower === 'air' && !looksLikeAirChina) return false;
-          if (typeLower.includes('pobox')) return false;
-          return true;
-        }
-        return false;
-      case 'china_sea':
-        return cat === 'maritime' || looksLikeMaritime;
-      case 'usa_pobox':
-        if (cat === 'pobox') return true;
-        if (looksLikeMaritime || looksLikeAirChina) return false;
-        // Sin service_type o 'air' ambiguo → solo PO Box si el tracking empieza con US-.
-        if ((!rawType || typeLower === 'air') && looksLikePobox) return true;
-        return false;
-      case 'dhl':
-        return cat === 'dhl';
-      default:
-        return true;
-    }
-  };
-
   const togglePackageSelection = (id: number, pkg: PackageTracking) => {
     // Solo permitir seleccionar paquetes elegibles (no pagados, no entregados)
     if (!isPackagePayable(pkg)) {
