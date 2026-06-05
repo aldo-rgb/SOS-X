@@ -500,22 +500,14 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
   };
 
-  // Filtro para el modal "Asignados Hoy": muestra TODOS los servicios
-  // (PO Box, DHL/AA_DHL, paquetería externa, etc.) respetando solo los
-  // toggles globales:
-  //  - requireLabelToLoad: el paquete debe tener etiqueta/destino. Para LOCAL
-  //    eso es `assigned_address_id` (cliente asignó destino). Para CARRIER
-  //    EXTERNO basta con `has_label` o `national_tracking` (caso típico de DHL
-  //    desde origen).
-  //  - pago: el backend ya filtró por payment_status='paid' cuando el toggle
-  //    está activo, así que aquí no repetimos la validación.
-  const filteredPendingForModal = requireLabelToLoad
-    ? pendingPackagesList.filter((p: any) => {
-        const isLocal = isLocalCarrierModal(p.national_carrier);
-        if (isLocal) return !!p.assigned_address_id;
-        return !!(p.has_label || p.national_tracking || p.assigned_address_id);
-      })
-    : pendingPackagesList;
+  // Lista de pendientes para el modal "Asignados Hoy": mostramos TODOS los
+  // paquetes que el backend regresó como pendientes (PO Box, DHL/AA_DHL,
+  // paquetería externa, etc.). El modal es solo VISUALIZACIÓN del inventario
+  // asignado hoy, así que no aplicamos el toggle de etiqueta — ese toggle
+  // solo limita qué se puede cargar desde el botón "Entrega Local".
+  // Así el badge del modal (totalAssigned) coincide con la suma real
+  // de los renglones mostrados (entregados + en camioneta + pendientes).
+  const filteredPendingForModal = pendingPackagesList;
 
   return (
     <SafeAreaView style={styles.container}>
