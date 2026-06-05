@@ -946,17 +946,11 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
                 const outStatus = await getOutForDeliveryWriteStatus();
                 const allPkgs = [...pendingRes.rows, ...loadedRes.rows];
+                // paqueteriaCount = TODOS los paquetes con carrier externo (el toggle de etiqueta
+                // aplica solo a Entrega Local, no a Envío Paquetería)
                 const paqueteriaCount = allPkgs.filter(p => {
                     const carrier = p.national_carrier || '';
-                    if (!carrier || isLocalCarrier(carrier)) return false;
-                    // Paquetes ya cargados en camioneta (out_for_delivery) con carrier externo
-                    // siempre cuentan → aún necesitan entregarse via Mostrador/Recolección
-                    const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') ||
-                                     String(p.delivery_status || '').includes('in_transit');
-                    if (isLoaded) return true;
-                    // Para pendientes: toggle ON requiere etiqueta impresa
-                    if (reqLabel && !p.has_label) return false;
-                    return true;
+                    return !!(carrier && !isLocalCarrier(carrier));
                 }).length;
 
         return res.json({
