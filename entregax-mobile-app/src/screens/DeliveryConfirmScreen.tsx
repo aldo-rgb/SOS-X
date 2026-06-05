@@ -144,6 +144,8 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   const currentUser = route?.params?.user;
   const userBranchUpper = String(currentUser?.branch_code || currentUser?.branch_name || '').toUpperCase();
   const initialScanMode: ScanMode = route?.params?.scanMode === 'scanner' ? 'scanner' : 'camera';
+  // Paquetes ya cargados en camioneta — pasados desde DriverHomeScreen para match local rápido
+  const cachedLoadedPackages: any[] = route?.params?.loadedPackages || [];
   
   const [currentStep, setCurrentStep] = useState<Step>(preSelectedPackage ? 'signature' : 'scan');
   const [loading, setLoading] = useState(false);
@@ -516,11 +518,43 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
     setLastScannedCode(data);
 
     try {
-      // Verificar que el paquete existe y está asignado al chofer
+      // ── Búsqueda LOCAL primero (paquetes ya cargados en camioneta) ──────────────
+      const dataUpper = data.toUpperCase().replace(/-/g, '');
+      const localMatch = cachedLoadedPackages.find((p: any) => {
+        const t = String(p.tracking_number || '').toUpperCase().replace(/-/g, '');
+        return t === dataUpper || t.startsWith(dataUpper) || dataUpper.startsWith(t);
+      });
+
+      if (localMatch && !localMatch.national_carrier?.trim()) {
+        // Paquete local encontrado en caché — sin llamada al backend
+        const newPkg = {
+          id: localMatch.id,
+          tracking_number: localMatch.tracking_number,
+          recipient_name: localMatch.recipient_name || '',
+          recipient_phone: '',
+          delivery_address: localMatch.delivery_address || '',
+          delivery_city: localMatch.delivery_city || '',
+          delivery_zip: localMatch.delivery_zip || '',
+          national_tracking: localMatch.national_tracking || '',
+          national_carrier: localMatch.national_carrier || '',
+          requires_carrier_scan: false,
+          has_children: false,
+          child_guides: [],
+          carrier_service_request_code: null,
+        };
+        Vibration.vibrate(100);
+        setPackageInfo(newPkg);
+        setRecipientName(newPkg.recipient_name || '');
+        setCurrentStep('signature');
+        setManualCode('');
+        return;
+      }
+
+      // ── Fallback: verificar en backend ──────────────────────────────────────────
       const res = await api.get(`/api/driver/verify-package/${encodeURIComponent(data)}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
-      
+
       if (res.data.success && res.data.package) {
         const newPkg = res.data.package;
 

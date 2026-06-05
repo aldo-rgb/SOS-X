@@ -119,58 +119,76 @@ export default function DriverHomeScreen({ navigation, route }: any) {
 
   const loadDayData = async () => {
     try {
-      // Cargar caja chica del chofer (saldo + anticipos pendientes de aceptar).
-      // Va primero porque el flujo de monitoreo hace return temprano más abajo.
-      try {
-        const wRes = await api.get('/api/petty-cash/my-wallet', {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
-        const balance = Number(wRes.data?.wallet?.balance_mxn) || 0;
-        const pendingAdv = Array.isArray(wRes.data?.pending_advances) ? wRes.data.pending_advances.length : 0;
-        setWalletInfo({ balance, pending_advances: pendingAdv });
-      } catch {
-        setWalletInfo({ balance: 0, pending_advances: 0 });
-      }
+      const authHeaders = token ? { Authorization: `Bearer ${token}` } : undefined;
 
-      // 👁️ Monitoreo: el widget "Asignados Hoy" muestra contenedores en ruta
-      // (customs_cleared + in_transit_clientfinal)
+      // 👁️ Monitoreo: solo necesita /api/monitoreo/stats.
       if (isMonitoreo) {
         try {
-          const statsRes = await api.get('/api/monitoreo/stats', {
-            headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-          });
-          const liberados = Number(statsRes.data?.liberados) || 0;
-          const cargados = Number(statsRes.data?.cargados) || 0;
-          const entregados = Number(statsRes.data?.entregados) || 0;
-          // 🚛 Contenedores en Ruta = todos los activos en tránsito al cliente final
-          // (incluye los que ya están en monitoreo). Así el monitorista sigue
-          // accediendo al detalle aunque ya haya iniciado las 2 fotos.
-          const totalRoute = (Number(statsRes.data?.in_transit_clientfinal) || 0);
-          const assignment = statsRes.data?.currentAssignment || null;
-          setStats({
-            totalAssigned: totalRoute > 0 ? totalRoute : liberados,
-            loadedToday: cargados,
-            deliveredToday: entregados,
-            paqueteriaCount: 0,
-            pendingToLoad: liberados,
-            pendingDelivery: cargados,
-            returnedToday: 0,
-          });
-          setLoadedPackages([]);
-          setInspectionDone(true); // Monitoreo no requiere inspección
-          setMonitorAssignment(assignment);
-        } catch (monitorErr) {
-          console.error('Error cargando stats monitoreo:', monitorErr);
+          const [walletSettled, statsSettled] = await Promise.allSettled([
+            api.get('/api/petty-cash/my-wallet', { headers: authHeaders }),
+            api.get('/api/monitoreo/stats', { headers: authHeaders }),
+          ]);
+          if (walletSettled.status === 'fulfilled') {
+            const wData = walletSettled.value.data;
+            const balance = Number(wData?.wallet?.balance_mxn) || 0;
+            const pendingAdv = Array.isArray(wData?.pending_advances) ? wData.pending_advances.length : 0;
+            setWalletInfo({ balance, pending_advances: pendingAdv });
+          } else {
+            setWalletInfo({ balance: 0, pending_advances: 0 });
+          }
+          if (statsSettled.status === 'fulfilled') {
+            const data = statsSettled.value.data;
+            const liberados = Number(data?.liberados) || 0;
+            const cargados = Number(data?.cargados) || 0;
+            const entregados = Number(data?.entregados) || 0;
+            const totalRoute = Number(data?.in_transit_clientfinal) || 0;
+            const assignment = data?.currentAssignment || null;
+            setStats({
+              totalAssigned: totalRoute > 0 ? totalRoute : liberados,
+              loadedToday: cargados,
+              deliveredToday: entregados,
+              paqueteriaCount: 0,
+              pendingToLoad: liberados,
+              pendingDelivery: cargados,
+              returnedToday: 0,
+            });
+            setLoadedPackages([]);
+            setInspectionDone(true);
+            setMonitorAssignment(assignment);
+          } else {
+            console.error('Error cargando stats monitoreo:', statsSettled.reason);
+          }
+        } catch (e) {
+          console.error('Error monitoreo init:', e);
         }
         return;
       }
 
-      // Cargar estadísticas de ruta (resistente a cambios de forma del payload)
-      try {
-        const routeRes = await api.get('/api/driver/route-today', {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
-        const route = routeRes.data?.route || routeRes.data?.data?.route || routeRes.data?.data || {};
+      // 🚚 Repartidor: paraleliza las 4 llamadas independientes.
+      // Antes se hacían secuenciales con await, sumando latencias (~3-5s
+      // total). Ahora corren en paralelo → el tiempo total es solo el de la
+      // más lenta (típicamente /api/driver/route-today).
+      const [walletSettled, routeSettled, inspSettled, attSettled] = await Promise.allSettled([
+        api.get('/api/petty-cash/my-wallet', { headers: authHeaders }),
+        api.get('/api/driver/route-today', { headers: authHeaders }),
+        api.get('/api/fleet/inspection/today', { headers: authHeaders }),
+        api.get('/api/hr/my-attendance', { headers: authHeaders }),
+      ]);
+
+      // Wallet
+      if (walletSettled.status === 'fulfilled') {
+        const wData = walletSettled.value.data;
+        const balance = Number(wData?.wallet?.balance_mxn) || 0;
+        const pendingAdv = Array.isArray(wData?.pending_advances) ? wData.pending_advances.length : 0;
+        setWalletInfo({ balance, pending_advances: pendingAdv });
+      } else {
+        setWalletInfo({ balance: 0, pending_advances: 0 });
+      }
+
+      // Ruta (stats + listas)
+      if (routeSettled.status === 'fulfilled') {
+        const routeData = routeSettled.value.data;
+        const route = routeData?.route || routeData?.data?.route || routeData?.data || {};
         const pendingPackages = Array.isArray(route.pendingPackages) ? route.pendingPackages : [];
         const loadedPackages = Array.isArray(route.loadedPackages) ? route.loadedPackages : [];
         const deliveredPackagesArr = Array.isArray(route.deliveredPackages) ? route.deliveredPackages : [];
@@ -183,7 +201,6 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         setDeliveredPackages(deliveredPackagesArr);
         setPendingPackagesList(pendingPackages);
 
-        // Agrupar paquetes pendientes por carrier (solo national_carrier explícito, excluye local/entregax/pickup)
         const requireLabel = route.requireLabelToLoad ?? true;
         setRequireLabelToLoad(requireLabel);
         const isLocalCarrier = (c: string) => {
@@ -194,7 +211,6 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         [...pendingPackages, ...loadedPackages].forEach((p: any) => {
           const c = p.national_carrier || '';
           if (!c || isLocalCarrier(c)) return;
-          // Paquetes ya cargados en camioneta: siempre aparecen (aún necesitan Mostrador/Recolección)
           const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') ||
                            String(p.delivery_status || '').includes('in_transit');
           if (!isLoaded && requireLabel && !p.has_label) return;
@@ -212,30 +228,24 @@ export default function DriverHomeScreen({ navigation, route }: any) {
           deliveredToday,
           paqueteriaCount: Number(route.paqueteriaCount) || 0,
           pendingToLoad: Number(route.pendingToLoad) ?? 0,
-          // Solo paquetes de entrega local (excluir carrier externo que van por Envío Paquetería)
           pendingDelivery: loadedPackages.filter((p: any) => isLocalCarrier(String(p.national_carrier || ''))).length,
           returnedToday: 0,
         });
-      } catch (routeError) {
-        console.error('Error cargando ruta del repartidor:', routeError);
+      } else {
+        console.error('Error cargando ruta del repartidor:', routeSettled.reason);
       }
 
-      // Verificar inspección del día
-      try {
-        const inspRes = await api.get('/api/fleet/inspection/today', {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
-        setInspectionDone(inspRes.data?.has_inspection || inspRes.data?.already_inspected || false);
-      } catch {
+      // Inspección
+      if (inspSettled.status === 'fulfilled') {
+        const data = inspSettled.value.data;
+        setInspectionDone(data?.has_inspection || data?.already_inspected || false);
+      } else {
         setInspectionDone(false);
       }
 
-      // Cargar estado de asistencia del día
-      try {
-        const attRes = await api.get('/api/hr/my-attendance', {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-        });
-        const data = attRes.data;
+      // Asistencia
+      if (attSettled.status === 'fulfilled') {
+        const data = attSettled.value.data;
         if (data && data.check_in_time) {
           setAttendance({
             check_in_time: data.check_in_time,
@@ -244,7 +254,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         } else {
           setAttendance(null);
         }
-      } catch {
+      } else {
         setAttendance(null);
       }
 
