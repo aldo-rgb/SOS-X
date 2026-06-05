@@ -10832,6 +10832,21 @@ async function ensureRequiredColumns() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_version ON legal_document_versions(document_id, version DESC)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_saved_at ON legal_document_versions(document_id, saved_at DESC)`);
+    // Índices de expresión para acelerar queries de ruta del repartidor
+    try {
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_delivery_status_expr
+          ON packages ((COALESCE(to_jsonb(packages)->>'delivery_status', to_jsonb(packages)->>'status')))`);
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_assigned_driver_expr
+          ON packages ((to_jsonb(packages)->>'assigned_driver_id'))
+          WHERE to_jsonb(packages)->>'assigned_driver_id' IS NOT NULL`);
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_master_id_int
+          ON packages (((to_jsonb(packages)->>'master_id')::int))
+          WHERE to_jsonb(packages)->>'master_id' IS NOT NULL`);
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_updated_at ON packages (updated_at DESC)`);
+      console.log('✅ [STARTUP] Índices de expresión packages verificados');
+    } catch (e: any) {
+      console.warn('⚠️ [STARTUP] Índices expresión (puede estar ya corriendo CONCURRENTLY):', e.message?.slice(0, 80));
+    }
     // Columnas de usuario que pueden no existir en instancias antiguas
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gex_auto_enabled BOOLEAN DEFAULT FALSE`);
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS warehouse_location VARCHAR(100)`);
