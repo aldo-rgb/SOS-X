@@ -1066,7 +1066,8 @@ import {
   deleteDhlShipment,
   updateDhlShipmentProductType,
   getDhlImportTaxSetting,
-  updateDhlImportTaxSetting
+  updateDhlImportTaxSetting,
+  updateDhlShipmentStatus
 } from './dhlController';
 import {
   getPrivacyNotice,
@@ -5451,6 +5452,7 @@ app.post('/api/admin/dhl/dispatch', authenticateToken, requireMinLevel(ROLES.WAR
 app.get('/api/admin/dhl/stats', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), getDhlStats);
 // Cambio de tipo de producto (requiere PIN de supervisor dentro del handler)
 app.patch('/api/admin/dhl/shipments/:id/product-type', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateDhlShipmentProductType);
+app.patch('/api/admin/dhl/shipments/:id/status', authenticateToken, requireMinLevel(ROLES.SUPER_ADMIN), updateDhlShipmentStatus);
 // Eliminacion de guia (solo Super Admin)
 app.delete('/api/admin/dhl/shipments/:id', authenticateToken, requireRole('super_admin'), deleteDhlShipment);
 app.get('/api/admin/dhl/settings/import-tax', authenticateToken, requireMinLevel(ROLES.ADMIN), getDhlImportTaxSetting);

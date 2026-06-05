@@ -163,6 +163,31 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
   
   const [selectedShipment, setSelectedShipment] = useState<DhlShipment | null>(null);
 
+  // Cambiar status (solo super_admin)
+  const [statusDialog, setStatusDialog] = useState<{ open: boolean; shipment: DhlShipment | null; newStatus: string; saving: boolean; error: string }>({
+    open: false, shipment: null, newStatus: '', saving: false, error: '',
+  });
+
+  const handleOpenStatusDialog = (shipment: DhlShipment) => {
+    setStatusDialog({ open: true, shipment, newStatus: shipment.status, saving: false, error: '' });
+  };
+
+  const handleConfirmStatusChange = async () => {
+    if (!statusDialog.shipment || !statusDialog.newStatus) return;
+    setStatusDialog(s => ({ ...s, saving: true, error: '' }));
+    try {
+      const token = localStorage.getItem('token');
+      await axios.patch(`${API_URL}/api/admin/dhl/shipments/${statusDialog.shipment.id}/status`,
+        { status: statusDialog.newStatus },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      setStatusDialog(s => ({ ...s, open: false, saving: false }));
+      fetchShipments();
+    } catch (e: any) {
+      setStatusDialog(s => ({ ...s, saving: false, error: e?.response?.data?.error || 'Error al cambiar status' }));
+    }
+  };
+
   // Editar tipo de producto (con PIN de supervisor)
   const [editTypeDialog, setEditTypeDialog] = useState<{ open: boolean; shipment: DhlShipment | null }>({ open: false, shipment: null });
   const [editTypeValue, setEditTypeValue] = useState<'standard' | 'high_value'>('standard');
@@ -786,6 +811,17 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
                           <Tooltip title="Despachar">
                             <IconButton size="small" color="success" onClick={() => handleOpenDispatch(shipment)}>
                               <SendIcon />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {isSuperAdmin && (
+                          <Tooltip title="Cambiar status">
+                            <IconButton
+                              size="small"
+                              color="warning"
+                              onClick={() => handleOpenStatusDialog(shipment)}
+                            >
+                              <EditIcon />
                             </IconButton>
                           </Tooltip>
                         )}

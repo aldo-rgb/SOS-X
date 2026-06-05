@@ -1621,3 +1621,25 @@ export const getDhlImportTaxMxn = async (): Promise<number> => {
   }
 };
 
+
+export const updateDhlShipmentStatus = async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id);
+  const { status } = req.body || {};
+  const VALID = ['received_mty', 'quoted', 'paid', 'dispatched', 'in_transit', 'delivered', 'returned'];
+
+  if (!Number.isFinite(id) || id <= 0) { res.status(400).json({ error: 'ID inválido' }); return; }
+  if (!status || !VALID.includes(status)) {
+    res.status(400).json({ error: `Status inválido. Valores permitidos: ${VALID.join(', ')}` }); return;
+  }
+
+  try {
+    const result = await pool.query(
+      `UPDATE dhl_shipments SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING id, status`,
+      [status, id]
+    );
+    if (result.rowCount === 0) { res.status(404).json({ error: 'Guía no encontrada' }); return; }
+    res.json({ success: true, id, status });
+  } catch (e: any) {
+    res.status(500).json({ error: e.message });
+  }
+};

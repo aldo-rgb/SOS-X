@@ -10921,11 +10921,32 @@ export default function DashboardClient() {
                     <Paper sx={{ p: 2, bgcolor: '#e8f5e9' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                         <LocationOnIcon sx={{ color: 'success.main' }} />
-                        <Typography variant="body2" fontWeight="bold" color="success.main">
+                        <Typography variant="body2" fontWeight="bold" color="success.main" sx={{ flexGrow: 1 }}>
                           {selectedPackage.instructions_assigned_by_name
                             ? `Asignadas por ${selectedPackage.instructions_assigned_by_name}`
                             : t('cd.detail.instructionsAssigned')}
                         </Typography>
+                        {/* ✏️ Solo permitir editar instrucciones cuando el paquete
+                            esté en CEDIS MTY (no en bodega USA ni ya despachado). */}
+                        {selectedPackage.status === 'received_mty' && !hasPrintedLabel(selectedPackage) && (
+                          <Tooltip title="Editar instrucciones de entrega" arrow>
+                            <IconButton
+                              size="small"
+                              color="primary"
+                              onClick={() => {
+                                setSelectedPackageIds([selectedPackage.id]);
+                                setSelectedPackage(null);
+                                setDeliveryModalOpen(true);
+                              }}
+                              sx={{
+                                bgcolor: 'rgba(255,255,255,0.7)',
+                                '&:hover': { bgcolor: 'white' },
+                              }}
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
                       </Box>
                       {(() => {
                         // Resolver dirección completa desde deliveryAddresses
