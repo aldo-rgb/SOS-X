@@ -880,19 +880,50 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
             deliveredErr.push(`${pkg.tracking_number}: respuesta inesperada`);
           }
         } catch (e: any) {
-          deliveredErr.push(`${pkg.tracking_number}: ${e.response?.data?.error || e.message || 'error'}`);
+          if (isNetworkError(e)) {
+            // Sin internet → guardar en cola offline para sync posterior
+            await enqueueDelivery({
+              barcode: pkg.tracking_number,
+              signatureBase64: signature,
+              photoBase64: photoToUse,
+              recipientName: requiresCarrierScan ? '' : trimmedRecipientName,
+              notes: notes,
+            });
+            deliveredOk.push(pkg.tracking_number); // Contar como OK para UX
+          } else {
+            deliveredErr.push(`${pkg.tracking_number}: ${e.response?.data?.error || e.message || 'error'}`);
+          }
         }
       }
 
       if (deliveredOk.length > 0) {
         Vibration.vibrate(100);
-        showFeedback({ type: 'success', message: `✅ ${deliveredOk.length} paquete(s) entregado(s)` });
+        const offlineCount = deliveredOk.length - (deliveredErr.length > 0 ? 0 : 0);
+        showFeedback({
+          type: 'success',
+          message: `✅ ${deliveredOk.length} paquete(s) registrado(s)${offlineCount > 0 && !navigator.onLine ? ' (offline — se sincronizará)' : ''}`,
+        });
         setTimeout(() => navigation.goBack(), 1500);
       } else {
         Alert.alert('Error', `No se pudo confirmar ninguna entrega:\n${deliveredErr.join('\n')}`);
       }
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.error || 'No se pudo confirmar la entrega');
+      if (isNetworkError(error)) {
+        const pkg = packageInfo;
+        if (pkg) {
+          await enqueueDelivery({
+            barcode: pkg.tracking_number,
+            signatureBase64: signature,
+            photoBase64: photoToUse,
+            recipientName: recipientName.trim(),
+            notes: notes,
+          });
+          showFeedback({ type: 'success', message: '📶 Sin internet — entrega guardada para sync automático' });
+          setTimeout(() => navigation.goBack(), 2000);
+        }
+      } else {
+        Alert.alert('Error', error.response?.data?.error || 'No se pudo confirmar la entrega');
+      }
     } finally {
       setLoading(false);
     }

@@ -1287,9 +1287,16 @@ export const confirmDelivery = async (req: Request, res: Response): Promise<any>
             }
         }
 
-        // 3. VALIDAR ESTADO
+        // 3. VALIDAR ESTADO — idempotente: si ya está entregado, retornar 200 (sync offline)
+        if (['delivered', 'sent', 'shipped'].includes(pkg.delivery_status)) {
+            return res.json({
+                success: true,
+                message: '✅ Entrega ya registrada anteriormente (sync offline).',
+                package: { id: pkg.id, trackingNumber: pkg.tracking_number, deliveredAt: new Date().toISOString() },
+            });
+        }
         if (pkg.delivery_status !== 'out_for_delivery') {
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: `⚠️ Este paquete no está en ruta. Estado: ${pkg.delivery_status}`,
                 barcode
             });

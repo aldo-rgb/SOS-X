@@ -28,6 +28,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import api from '../services/api';
+import { useDeliverySync } from '../hooks/useDeliverySync';
 
 const SCAN_METHOD_PREFIX = 'scanMethod:';
 
@@ -72,6 +73,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
   const logoUrl = useBrandAsset('entregax_full_black');
   // 👁️ Rol Monitoreo: NO conduce vehiculo, NO checa asistencia desde el dashboard.
   const isMonitoreo = String(user?.role || '').toLowerCase() === 'monitoreo';
+  // Sync automático de entregas guardadas offline
+  useDeliverySync(token);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
