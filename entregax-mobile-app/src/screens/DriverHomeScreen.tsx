@@ -70,11 +70,20 @@ interface LoadedPackage {
 export default function DriverHomeScreen({ navigation, route }: any) {
   const token = route?.params?.token;
   const user = route?.params?.user;
+  const directTo: string | undefined = route?.params?.directTo;
   const logoUrl = useBrandAsset('entregax_full_black');
   // 👁️ Rol Monitoreo: NO conduce vehiculo, NO checa asistencia desde el dashboard.
   const isMonitoreo = String(user?.role || '').toLowerCase() === 'monitoreo';
   // Sync automático de entregas guardadas offline
   useDeliverySync(token);
+
+  // Navegación directa desde HomeScreen (accesos rápidos)
+  useEffect(() => {
+    if (directTo) {
+      const timer = setTimeout(() => navigation.navigate(directTo, { user, token }), 100);
+      return () => clearTimeout(timer);
+    }
+  }, [directTo]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadedPackages, setLoadedPackages] = useState<LoadedPackage[]>([]);
@@ -167,26 +176,12 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         return;
       }
 
-      // 🚚 Repartidor: paraleliza las 4 llamadas independientes.
-      // Antes se hacían secuenciales con await, sumando latencias (~3-5s
-      // total). Ahora corren en paralelo → el tiempo total es solo el de la
-      // más lenta (típicamente /api/driver/route-today).
-      const [walletSettled, routeSettled, inspSettled, attSettled] = await Promise.allSettled([
-        api.get('/api/petty-cash/my-wallet', { headers: authHeaders }),
+      // 🚚 Repartidor: solo 2 llamadas esenciales (route-today + inspection).
+      // wallet y attendance se movieron a la pantalla principal (HomeScreen).
+      const [routeSettled, inspSettled] = await Promise.allSettled([
         api.get('/api/driver/route-today', { headers: authHeaders }),
         api.get('/api/fleet/inspection/today', { headers: authHeaders }),
-        api.get('/api/hr/my-attendance', { headers: authHeaders }),
       ]);
-
-      // Wallet
-      if (walletSettled.status === 'fulfilled') {
-        const wData = walletSettled.value.data;
-        const balance = Number(wData?.wallet?.balance_mxn) || 0;
-        const pendingAdv = Array.isArray(wData?.pending_advances) ? wData.pending_advances.length : 0;
-        setWalletInfo({ balance, pending_advances: pendingAdv });
-      } else {
-        setWalletInfo({ balance: 0, pending_advances: 0 });
-      }
 
       // Ruta (stats + listas)
       if (routeSettled.status === 'fulfilled') {
@@ -244,21 +239,6 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         setInspectionDone(data?.has_inspection || data?.already_inspected || false);
       } else {
         setInspectionDone(false);
-      }
-
-      // Asistencia
-      if (attSettled.status === 'fulfilled') {
-        const data = attSettled.value.data;
-        if (data && data.check_in_time) {
-          setAttendance({
-            check_in_time: data.check_in_time,
-            check_out_time: data.check_out_time || null,
-          });
-        } else {
-          setAttendance(null);
-        }
-      } else {
-        setAttendance(null);
       }
 
     } catch (error) {
@@ -613,18 +593,9 @@ export default function DriverHomeScreen({ navigation, route }: any) {
               activeOpacity={0.85}
               onPress={() => navigation.navigate('PettyCash', { user, token })}
             >
-              {walletInfo && walletInfo.pending_advances > 0 && (
-                <View style={styles.statBadge}>
-                  <Text style={styles.statBadgeText}>{walletInfo.pending_advances}</Text>
-                </View>
-              )}
               <MaterialIcons name="account-balance-wallet" size={28} color="#00B894" />
-              <Text style={[styles.statNumber, { color: '#00B894', fontSize: 18 }]} numberOfLines={1}>
-                ${Number(walletInfo?.balance || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </Text>
-              <Text style={styles.statLabel}>
-                {walletInfo && walletInfo.pending_advances > 0 ? 'Vale por aceptar' : 'Fondo Caja'}
-              </Text>
+              <Text style={[styles.statNumber, { color: '#00B894', fontSize: 15 }]}>Fondo Caja</Text>
+              <Text style={styles.statLabel}>Ver saldo →</Text>
             </TouchableOpacity>
           </View>
         </View>

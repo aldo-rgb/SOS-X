@@ -2153,7 +2153,37 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         </TouchableOpacity>
       )}
 
-      {/* �🔐 Banner de verificación pendiente (solo para clientes) */}
+      {/* Accesos rápidos repartidor: Inspección Diaria + Fondo Caja */}
+      {(user.role === 'repartidor') && employeeVerified && (
+        <View style={{ flexDirection: 'row', gap: 10, marginHorizontal: 16, marginTop: 8 }}>
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}
+            onPress={() => (navigation as any).navigate('DriverHome', { user, token, directTo: 'VehicleInspection' })}
+          >
+            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#FF980022', justifyContent: 'center', alignItems: 'center' }}>
+              <Ionicons name="clipboard-outline" size={20} color="#FF9800" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#333' }}>Inspección</Text>
+              <Text style={{ fontSize: 11, color: '#888' }}>Vehículo diaria</Text>
+            </View>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 4, elevation: 2 }}
+            onPress={() => (navigation as any).navigate('DriverHome', { user, token, directTo: 'PettyCash' })}
+          >
+            <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: '#00B89422', justifyContent: 'center', alignItems: 'center' }}>
+              <Ionicons name="wallet-outline" size={20} color="#00B894" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#333' }}>Fondo Caja</Text>
+              <Text style={{ fontSize: 11, color: '#888' }}>Saldo y vales</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {/* 🔐 Banner de verificación pendiente (solo para clientes) */}
       {!isEmployee && !isUserVerified && (
         <View style={[styles.verificationBanner, isPendingReview ? styles.pendingBanner : styles.warningBanner]}>
           <Icon source={isPendingReview ? "clock-outline" : "alert-circle"} size={20} color={isPendingReview ? "#ff9800" : "#f44336"} />
