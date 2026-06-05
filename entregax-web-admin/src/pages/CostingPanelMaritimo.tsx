@@ -318,6 +318,10 @@ export default function CostingPanelMaritimo() {
     const normalizedRole = userRole.toLowerCase().replace(/\s+/g, '_');
     const canViewUtilidades = ['admin', 'super_admin'].includes(normalizedRole);
     const canEditReference = ['admin', 'super_admin', 'director'].includes(normalizedRole);
+    const isSuperAdmin = normalizedRole === 'super_admin';
+    const [editingAnticipoId, setEditingAnticipoId] = useState<number | null>(null);
+    const [editingAnticipoValue, setEditingAnticipoValue] = useState('');
+    const [savingAnticipoAjuste, setSavingAnticipoAjuste] = useState(false);
     const [editingReference, setEditingReference] = useState(false);
     const [referenceValue, setReferenceValue] = useState('');
     const [savingReference, setSavingReference] = useState(false);
@@ -336,6 +340,7 @@ export default function CostingPanelMaritimo() {
         id: number;
         referencia: string;
         monto: number;
+        monto_ajuste: number | null;
         estado: string;
         usado_at: string | null;
         created_at: string;
@@ -1054,6 +1059,30 @@ export default function CostingPanelMaritimo() {
     };
 
     // Guardar costos
+    const handleSaveAnticipoAjuste = async (anticipo: AnticipoReferencia) => {
+        const val = parseFloat(editingAnticipoValue.replace(/,/g, ''));
+        if (isNaN(val)) return;
+        setSavingAnticipoAjuste(true);
+        try {
+            const token = localStorage.getItem('token');
+            await axios.patch(
+                `${API_URL}/api/anticipos/referencias/${anticipo.id}/ajuste`,
+                { monto_ajuste: val },
+                { headers: { Authorization: `Bearer ${token}` } }
+            );
+            // Actualizar estado local sin recargar
+            setAnticiposContainer(prev => {
+                if (!prev) return prev;
+                const nuevos = prev.anticipos.map(a =>
+                    a.id === anticipo.id ? { ...a, monto_ajuste: val } : a
+                );
+                const nuevoTotal = nuevos.reduce((s, a) => s + (a.monto_ajuste ?? a.monto), 0);
+                return { ...prev, anticipos: nuevos, total: nuevoTotal };
+            });
+            setEditingAnticipoId(null);
+        } catch { /* noop */ } finally { setSavingAnticipoAjuste(false); }
+    };
+
     const handleSaveReference = async () => {
         if (!selectedContainer) return;
         setSavingReference(true);
@@ -2231,10 +2260,55 @@ export default function CostingPanelMaritimo() {
                                                         />
                                                     </Box>
                                                     
-                                                    <Typography variant="h5" fontWeight="bold" color={SEA_DARK} sx={{ mb: 1 }}>
-                                                        ${formatCurrency(anticipo.monto)}
-                                                    </Typography>
-                                                    
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                                        {editingAnticipoId === anticipo.id ? (
+                                                            <>
+                                                                <TextField
+                                                                    size="small"
+                                                                    autoFocus
+                                                                    value={editingAnticipoValue}
+                                                                    onChange={e => setEditingAnticipoValue(e.target.value)}
+                                                                    onKeyDown={e => {
+                                                                        if (e.key === 'Enter') handleSaveAnticipoAjuste(anticipo);
+                                                                        if (e.key === 'Escape') setEditingAnticipoId(null);
+                                                                    }}
+                                                                    inputProps={{ style: { fontWeight: 700, fontSize: 18, width: 140 } }}
+                                                                    sx={{ maxWidth: 160 }}
+                                                                />
+                                                                <IconButton size="small" onClick={() => handleSaveAnticipoAjuste(anticipo)} disabled={savingAnticipoAjuste} sx={{ color: '#2e7d32' }}>
+                                                                    {savingAnticipoAjuste ? <CircularProgress size={14} /> : <CheckIcon fontSize="small" />}
+                                                                </IconButton>
+                                                                <IconButton size="small" onClick={() => setEditingAnticipoId(null)} sx={{ color: '#999' }}>
+                                                                    <CloseIcon fontSize="small" />
+                                                                </IconButton>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Typography variant="h5" fontWeight="bold" color={anticipo.monto_ajuste !== null && anticipo.monto_ajuste !== undefined ? '#E65100' : SEA_DARK}>
+                                                                    ${formatCurrency(anticipo.monto_ajuste ?? anticipo.monto)}
+                                                                </Typography>
+                                                                {anticipo.monto_ajuste !== null && anticipo.monto_ajuste !== undefined && (
+                                                                    <Typography variant="caption" color="text.secondary" sx={{ textDecoration: 'line-through' }}>
+                                                                        ${formatCurrency(anticipo.monto)}
+                                                                    </Typography>
+                                                                )}
+                                                                {isSuperAdmin && (
+                                                                    <IconButton
+                                                                        size="small"
+                                                                        title="Ajustar monto (solo afecta totales de costeo)"
+                                                                        onClick={() => {
+                                                                            setEditingAnticipoId(anticipo.id);
+                                                                            setEditingAnticipoValue(String(anticipo.monto_ajuste ?? anticipo.monto));
+                                                                        }}
+                                                                        sx={{ color: '#999', '&:hover': { color: '#E65100' } }}
+                                                                    >
+                                                                        <EditIcon sx={{ fontSize: 15 }} />
+                                                                    </IconButton>
+                                                                )}
+                                                            </>
+                                                        )}
+                                                    </Box>
+
                                                     <Box sx={{ mb: 1 }}>
                                                         <Typography variant="body2" color="text.secondary">
                                                             📅 Fecha: {new Date(anticipo.fecha_pago).toLocaleDateString()}

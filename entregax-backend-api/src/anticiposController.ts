@@ -347,12 +347,19 @@ export const getAnticiposByContainer = async (req: AuthRequest, res: Response): 
       return;
     }
     
+    // Auto-crear columna monto_ajuste si no existe
+    await pool.query(`
+      ALTER TABLE anticipo_referencias
+      ADD COLUMN IF NOT EXISTS monto_ajuste NUMERIC(15,2) DEFAULT NULL
+    `).catch(() => {/* ya existe */});
+
     // Obtener todos los anticipos para esta referencia (excluyendo eliminados)
     const result = await pool.query(`
-      SELECT 
+      SELECT
         ar.id,
         ar.referencia,
         ar.monto,
+        ar.monto_ajuste,
         ar.estado,
         ar.usado_at,
         ar.created_at,
@@ -369,14 +376,15 @@ export const getAnticiposByContainer = async (req: AuthRequest, res: Response): 
       WHERE ar.referencia = $1 AND ar.estado != 'eliminado' AND ba.estado != 'eliminado'
       ORDER BY ar.created_at DESC
     `, [reference_code]);
-    
+
     // Generar URLs firmadas para comprobantes
     const anticiposConUrls = await Promise.all(result.rows.map(async (anticipo) => ({
       ...anticipo,
       comprobante_url: await getSignedComprobante(anticipo.comprobante_url)
     })));
-    
-    const total = result.rows.reduce((sum, r) => sum + Number(r.monto), 0);
+
+    // Total usa monto_ajuste si está definido, si no usa monto original
+    const total = result.rows.reduce((sum, r) => sum + Number(r.monto_ajuste ?? r.monto), 0);
     
     res.json({
       container_number,
@@ -1160,5 +1168,43 @@ export const revalidarReferenciasBolsa = async (req: AuthRequest, res: Response)
     res.status(500).json({ error: 'Error al revalidar referencias' });
   } finally {
     client.release();
+  }
+};
+
+// Ajuste de monto de un anticipo para efectos de totales en costeo (solo super_admin)
+// No toca bolsas_anticipos — guarda monto_ajuste en anticipo_referencias
+export const setAjusteMontoAnticipo = async (req: AuthRequest, res: Response): Promise<void> => {
+  const { referenciaId } = req.params;
+  const { monto_ajuste } = req.body;
+
+  if (monto_ajuste === undefined || monto_ajuste === null || isNaN(Number(monto_ajuste))) {
+    res.status(400).json({ error: 'monto_ajuste es requerido y debe ser un número' });
+    return;
+  }
+
+  try {
+    // Auto-crear columna si no existe (idempotente)
+    await pool.query(`
+      ALTER TABLE anticipo_referencias
+      ADD COLUMN IF NOT EXISTS monto_ajuste NUMERIC(15,2) DEFAULT NULL
+    `);
+
+    const result = await pool.query(
+      `UPDATE anticipo_referencias
+       SET monto_ajuste = $1, updated_at = NOW()
+       WHERE id = $2
+       RETURNING id, monto, monto_ajuste`,
+      [Number(monto_ajuste), Number(referenciaId)]
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Anticipo no encontrado' });
+      return;
+    }
+
+    res.json({ success: true, ...result.rows[0] });
+  } catch (error) {
+    console.error('Error ajustando monto anticipo:', error);
+    res.status(500).json({ error: 'Error al ajustar monto' });
   }
 };

@@ -723,7 +723,8 @@ import {
   getAnticiposStats,
   updateReferenciaMonto,
   revalidarReferenciasBolsa,
-  desasignarReferencia
+  desasignarReferencia,
+  setAjusteMontoAnticipo
 } from './anticiposController';
 import {
   getProveedoresTransporte,
@@ -6009,6 +6010,7 @@ app.post('/api/anticipos/bolsas/:bolsaId/revalidar', authenticateToken, requireM
 
 // Anticipos por contenedor
 app.get('/api/anticipos/container/:containerId/anticipos', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAnticiposByContainer);
+app.patch('/api/anticipos/referencias/:referenciaId/ajuste', authenticateToken, requireRole('super_admin'), setAjusteMontoAnticipo);
 
 // Asignaciones de Anticipos
 app.get('/api/anticipos/container/:containerId/asignaciones', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getAsignacionesByContainer);
