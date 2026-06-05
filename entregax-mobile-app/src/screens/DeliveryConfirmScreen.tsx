@@ -527,20 +527,17 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
       if (localMatch && !localMatch.national_carrier?.trim()) {
         // Paquete local encontrado en caché — sin llamada al backend
-        const newPkg = {
+        const newPkg: PackageInfo = {
           id: localMatch.id,
           tracking_number: localMatch.tracking_number,
           recipient_name: localMatch.recipient_name || '',
-          recipient_phone: '',
           delivery_address: localMatch.delivery_address || '',
           delivery_city: localMatch.delivery_city || '',
-          delivery_zip: localMatch.delivery_zip || '',
           national_tracking: localMatch.national_tracking || '',
           national_carrier: localMatch.national_carrier || '',
           requires_carrier_scan: false,
           has_children: false,
           child_guides: [],
-          carrier_service_request_code: null,
         };
         Vibration.vibrate(100);
         setPackageInfo(newPkg);

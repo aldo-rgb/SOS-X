@@ -455,7 +455,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       // Si ya guardó preferencia, ir directo
       const saved = await AsyncStorage.getItem(`${SCAN_METHOD_PREFIX}${action.id}`);
       if (saved === 'scanner' || saved === 'camera') {
-        navigation.navigate(action.screen, { user, token, scanMode: saved });
+        const extraParams = action.id === 'delivery' ? { loadedPackages } : {};
+        navigation.navigate(action.screen, { user, token, scanMode: saved, ...extraParams });
         return;
       }
       // Mostrar modal personalizado
@@ -464,7 +465,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       return;
     }
 
-    navigation.navigate(action.screen, { user, token, ...(action.params || {}) });
+    const extraParams = action.id === 'delivery' ? { loadedPackages } : {};
+    navigation.navigate(action.screen, { user, token, ...extraParams, ...(action.params || {}) });
   };
 
   const handleAssignedTodayPress = () => {
@@ -485,7 +487,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       await AsyncStorage.setItem(`${SCAN_METHOD_PREFIX}${action.id}`, mode);
     }
     setScanModal({ visible: false, action: null });
-    navigation.navigate(action.screen, { user, token, scanMode: mode });
+    const extraParams = action.id === 'delivery' ? { loadedPackages } : {};
+    navigation.navigate(action.screen, { user, token, scanMode: mode, ...extraParams });
   };
 
   if (loading) {
