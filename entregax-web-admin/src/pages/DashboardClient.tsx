@@ -10927,8 +10927,12 @@ export default function DashboardClient() {
                             : t('cd.detail.instructionsAssigned')}
                         </Typography>
                         {/* ✏️ Solo permitir editar instrucciones cuando el paquete
-                            esté en CEDIS MTY (no en bodega USA ni ya despachado). */}
-                        {selectedPackage.status === 'received_mty' && !hasPrintedLabel(selectedPackage) && (
+                            esté en CEDIS MTY y aún no se haya generado el PDF de
+                            la etiqueta nacional. Para envíos DHL, `national_tracking`
+                            llega poblado desde origen (es la guía DHL misma), por
+                            eso aquí miramos solo `national_label_url` que sí indica
+                            que la etiqueta ya se imprimió. */}
+                        {selectedPackage.status === 'received_mty' && !selectedPackage.national_label_url && (
                           <Tooltip title="Editar instrucciones de entrega" arrow>
                             <IconButton
                               size="small"

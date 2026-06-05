@@ -1361,6 +1361,45 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
         </DialogActions>
       </Dialog>
 
+      {/* ✏️ Dialog: Cambiar status (super_admin) */}
+      <Dialog open={statusDialog.open} onClose={() => !statusDialog.saving && setStatusDialog(s => ({ ...s, open: false }))} maxWidth="xs" fullWidth>
+        <DialogTitle>🔄 Cambiar Status</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" gutterBottom>
+            Guía: <strong>{statusDialog.shipment?.inbound_tracking}</strong>
+          </Typography>
+          <FormControl fullWidth size="small" sx={{ mt: 2 }}>
+            <InputLabel>Nuevo status</InputLabel>
+            <Select
+              label="Nuevo status"
+              value={statusDialog.newStatus}
+              onChange={(e) => setStatusDialog(s => ({ ...s, newStatus: e.target.value }))}
+            >
+              {Object.entries(STATUS_CONFIG).map(([key, cfg]) => (
+                <MenuItem key={key} value={key}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: cfg.color }} />
+                    {cfg.label}
+                  </Box>
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          {statusDialog.error && <Alert severity="error" sx={{ mt: 2 }}>{statusDialog.error}</Alert>}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setStatusDialog(s => ({ ...s, open: false }))} disabled={statusDialog.saving}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="warning"
+            onClick={handleConfirmStatusChange}
+            disabled={statusDialog.saving || statusDialog.newStatus === statusDialog.shipment?.status}
+          >
+            {statusDialog.saving ? 'Guardando...' : 'Cambiar Status'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       {/* 🗑️ Dialog: Eliminar guía (super_admin) */}
       <Dialog
         open={deleteDialog.open}
