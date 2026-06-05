@@ -499,8 +499,22 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     const s = String(c || '').toLowerCase();
     return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
   };
-  const filteredPending = requireLabelToLoad
-    ? pendingPackagesList.filter((p: any) => p.assigned_address_id && isLocalCarrierModal(p.national_carrier))
+
+  // Filtro para el modal "Asignados Hoy": muestra TODOS los servicios
+  // (PO Box, DHL/AA_DHL, paquetería externa, etc.) respetando solo los
+  // toggles globales:
+  //  - requireLabelToLoad: el paquete debe tener etiqueta/destino. Para LOCAL
+  //    eso es `assigned_address_id` (cliente asignó destino). Para CARRIER
+  //    EXTERNO basta con `has_label` o `national_tracking` (caso típico de DHL
+  //    desde origen).
+  //  - pago: el backend ya filtró por payment_status='paid' cuando el toggle
+  //    está activo, así que aquí no repetimos la validación.
+  const filteredPendingForModal = requireLabelToLoad
+    ? pendingPackagesList.filter((p: any) => {
+        const isLocal = isLocalCarrierModal(p.national_carrier);
+        if (isLocal) return !!p.assigned_address_id;
+        return !!(p.has_label || p.national_tracking || p.assigned_address_id);
+      })
     : pendingPackagesList;
 
   return (
@@ -926,25 +940,33 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                 </View>
               )}
               {/* PENDIENTES POR CARGAR (filtrados por toggles igual que Entrega Local) */}
-              {filteredPending.length > 0 && (
+              {filteredPendingForModal.length > 0 && (
                 <View style={{ marginBottom: 8 }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
                     <MaterialIcons name="pending" size={18} color="#FF9800" />
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#FF9800' }}>Pendientes por cargar ({filteredPending.length})</Text>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#FF9800' }}>Pendientes por cargar ({filteredPendingForModal.length})</Text>
                   </View>
-                  {filteredPending.map((pkg: any, i: number) => (
-                    <View key={`pending-${pkg.id}-${i}`} style={{ backgroundColor: '#FFF8E1', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#FF9800' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                        <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', flexShrink: 1 }}>{pkg.tracking_number}</Text>
-                        {pkg.client_number ? <View style={{ backgroundColor: '#FFE0B2', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}><Text style={{ fontSize: 11, fontWeight: '700', color: '#BF360C' }}>{pkg.client_number}</Text></View> : null}
+                  {filteredPendingForModal.map((pkg: any, i: number) => {
+                    const carrierRaw = String(pkg.national_carrier || '').trim();
+                    const isLocal = isLocalCarrierModal(carrierRaw);
+                    const carrierLabel = isLocal ? 'LOCAL' : (carrierRaw.toUpperCase() || 'PAQUETERIA');
+                    return (
+                      <View key={`pending-${pkg.id}-${i}`} style={{ backgroundColor: '#FFF8E1', borderRadius: 10, padding: 12, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#FF9800' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                          <Text style={{ fontSize: 13, fontWeight: '800', color: '#E65100', flexShrink: 1 }}>{pkg.tracking_number}</Text>
+                          <View style={{ backgroundColor: isLocal ? '#FFE0B2' : '#FFCDD2', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: isLocal ? '#BF360C' : '#B71C1C' }}>{carrierLabel}</Text>
+                          </View>
+                          {pkg.client_number ? <View style={{ backgroundColor: '#FFE0B2', borderRadius: 5, paddingHorizontal: 5, paddingVertical: 1 }}><Text style={{ fontSize: 11, fontWeight: '700', color: '#BF360C' }}>{pkg.client_number}</Text></View> : null}
+                        </View>
+                        {pkg.recipient_name ? <Text style={{ fontSize: 12, color: '#E65100' }}>{pkg.recipient_name}</Text> : null}
+                        {pkg.delivery_address ? <Text style={{ fontSize: 11, color: '#666' }} numberOfLines={1}>{pkg.delivery_address}{pkg.delivery_city ? `, ${pkg.delivery_city}` : ''}</Text> : null}
                       </View>
-                      {pkg.recipient_name ? <Text style={{ fontSize: 12, color: '#E65100' }}>{pkg.recipient_name}</Text> : null}
-                      {pkg.delivery_address ? <Text style={{ fontSize: 11, color: '#666' }} numberOfLines={1}>{pkg.delivery_address}{pkg.delivery_city ? `, ${pkg.delivery_city}` : ''}</Text> : null}
-                    </View>
-                  ))}
+                    );
+                  })}
                 </View>
               )}
-              {deliveredPackages.length === 0 && loadedPackages.length === 0 && filteredPending.length === 0 && (
+              {deliveredPackages.length === 0 && loadedPackages.length === 0 && filteredPendingForModal.length === 0 && (
                 <View style={{ alignItems: 'center', paddingVertical: 40 }}>
                   <MaterialIcons name="inbox" size={48} color="#ccc" />
                   <Text style={{ color: '#999', marginTop: 8 }}>Sin paquetes asignados hoy</Text>

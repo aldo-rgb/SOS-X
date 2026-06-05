@@ -707,8 +707,9 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       });
 
       if (!result.canceled && result.assets[0].base64) {
-        setPhoto(`data:image/jpeg;base64,${result.assets[0].base64}`);
-        setCurrentStep('confirm');
+        const photoData = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        setPhoto(photoData);
+        handleConfirmDelivery(photoData);
       }
     } catch (error) {
       Alert.alert('Error', 'No se pudo tomar la foto');
@@ -729,8 +730,9 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         base64: true,
       });
       if (!result.canceled && result.assets[0].base64) {
-        setPhoto(`data:image/jpeg;base64,${result.assets[0].base64}`);
-        setCurrentStep('confirm');
+        const photoData = `data:image/jpeg;base64,${result.assets[0].base64}`;
+        setPhoto(photoData);
+        handleConfirmDelivery(photoData);
       }
     } catch (error) {
       Alert.alert('Error', 'No se pudo seleccionar la foto');
@@ -738,10 +740,10 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   };
 
   const handleSkipPhoto = () => {
-    setCurrentStep('confirm');
+    handleConfirmDelivery('');
   };
 
-  const handleConfirmDelivery = async () => {
+  const handleConfirmDelivery = async (photoOverride?: string) => {
     // Modo múltiple
     if (isBulkDelivery) {
       if (!photo) {
@@ -821,6 +823,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       return;
     }
 
+    const photoToUse = photoOverride !== undefined ? photoOverride : photo;
     setLoading(true);
     try {
       // Procesar paquete principal + cualquier caja del lote (todas con la misma firma/foto/nombre)
@@ -833,7 +836,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           const res = await api.post('/api/driver/confirm-delivery', {
             barcode: pkg.tracking_number,
             signatureBase64: signature,
-            photoBase64: photo,
+            photoBase64: photoToUse,
             recipientName: requiresCarrierScan ? '' : trimmedRecipientName,
             notes: notes,
           }, {
@@ -851,38 +854,8 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
       if (deliveredOk.length > 0) {
         Vibration.vibrate(100);
-        const summary = deliveredErr.length === 0
-          ? `${deliveredOk.length} paquete(s) entregado(s) correctamente:\n${deliveredOk.join('\n')}`
-          : `Entregados: ${deliveredOk.length}\nErrores: ${deliveredErr.length}\n\n${deliveredErr.join('\n')}`;
-        Alert.alert(
-          '✅ Entrega confirmada',
-          `${summary}\n\n¿Deseas entregar otro paquete?`,
-          [
-            {
-              text: 'Terminar',
-              style: 'cancel',
-              onPress: () => navigation.goBack(),
-            },
-            {
-              text: 'Entregar otro',
-              onPress: () => {
-                // Resetear estado para escanear el siguiente paquete
-                setPackageInfo(null);
-                setBatchPackages([]);
-                setSignature('');
-                setPhoto('');
-                setRecipientName('');
-                setNotes('');
-                setCarrierGuideCode('');
-                setCarrierGuideVerified(false);
-                setManualCode('');
-                setLastScannedCode('');
-                setCurrentStep('scan');
-              },
-            },
-          ],
-          { cancelable: false }
-        );
+        showFeedback({ type: 'success', message: `✅ ${deliveredOk.length} paquete(s) entregado(s)` });
+        setTimeout(() => navigation.goBack(), 1500);
       } else {
         Alert.alert('Error', `No se pudo confirmar ninguna entrega:\n${deliveredErr.join('\n')}`);
       }
@@ -1421,6 +1394,19 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         </View>
       )}
 
+      {/* Notas adicionales (opcional) */}
+      <View style={styles.inputContainer}>
+        <Text style={styles.inputLabel}>Notas adicionales (opcional):</Text>
+        <TextInput
+          style={[styles.input, { height: 64, textAlignVertical: 'top' }]}
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="Ej: Dejado con el vigilante"
+          multiline
+          numberOfLines={2}
+        />
+      </View>
+
       <TouchableOpacity 
         style={[styles.nextButton, !packageInfo?.requires_carrier_scan && !recipientName.trim() && styles.buttonDisabled]}
         onPress={() => {
@@ -1554,42 +1540,27 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         </View>
       </View>
 
-      {/* Notas adicionales */}
-      <View style={styles.inputContainer}>
-        <Text style={styles.inputLabel}>Notas adicionales (opcional):</Text>
-        <TextInput
-          style={[styles.input, styles.inputMultiline]}
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Ej: Dejado con el vigilante"
-          multiline
-          numberOfLines={3}
-        />
-      </View>
-
-      {/* Botón confirmar */}
-      <TouchableOpacity 
-        style={[styles.confirmButton, loading && styles.buttonDisabled]}
-        onPress={handleConfirmDelivery}
-        disabled={loading}
-      >
+      {/* Confirmando... */}
+      <View style={{ alignItems: 'center', paddingVertical: 24 }}>
         {loading ? (
-          <ActivityIndicator color="#fff" />
+          <>
+            <ActivityIndicator size="large" color="#4CAF50" />
+            <Text style={{ color: '#4CAF50', marginTop: 8, fontWeight: '600' }}>Confirmando entrega...</Text>
+          </>
         ) : (
           <>
-            <MaterialIcons name="check-circle" size={24} color="#fff" />
-            <Text style={styles.confirmButtonText}>CONFIRMAR ENTREGA</Text>
+            <MaterialIcons name="check-circle" size={64} color="#4CAF50" />
+            <Text style={{ color: '#4CAF50', fontSize: 18, fontWeight: '700', marginTop: 8 }}>✅ Entregado</Text>
           </>
         )}
-      </TouchableOpacity>
+      </View>
 
-      {/* Botón cancelar */}
-      <TouchableOpacity 
-        style={styles.cancelButton}
-        onPress={() => navigation.goBack()}
-      >
-        <Text style={styles.cancelButtonText}>Cancelar</Text>
-      </TouchableOpacity>
+      {/* Cancelar si aún está cargando */}
+      {loading && (
+        <TouchableOpacity style={styles.cancelButton} onPress={() => navigation.goBack()}>
+          <Text style={styles.cancelButtonText}>Cancelar</Text>
+        </TouchableOpacity>
+      )}
     </ScrollView>
   );
 
