@@ -188,7 +188,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
         setRequireLabelToLoad(requireLabel);
         const isLocalCarrier = (c: string) => {
           const s = String(c || '').toLowerCase();
-          return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up');
+          return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
         };
         const carrierMap: Record<string, any[]> = {};
         [...pendingPackages, ...loadedPackages].forEach((p: any) => {

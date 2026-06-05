@@ -933,7 +933,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
 
                 const isLocalCarrier = (carrier: string) => {
                     const c = String(carrier || '').toLowerCase();
-                    return !c || c.includes('local') || c.includes('entregax') || c.includes('pickup') || c.includes('pick up');
+                    return !c || c.includes('local') || c.includes('entregax') || c.includes('pickup') || c.includes('pick up') || c.includes('bodega');
                 };
 
                 // pendingToLoad = paquetes visibles en "Entrega Local"
