@@ -738,14 +738,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   };
 
   const handleSkipPhoto = () => {
-    Alert.alert(
-      'Omitir Foto',
-      '¿Estás seguro de confirmar la entrega sin foto de evidencia?',
-      [
-        { text: 'Cancelar', style: 'cancel' },
-        { text: 'Continuar', onPress: () => setCurrentStep('confirm') },
-      ]
-    );
+    setCurrentStep('confirm');
   };
 
   const handleConfirmDelivery = async () => {
