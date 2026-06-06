@@ -125,7 +125,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.
 
 const CEDIS_MODULES = ['reception', 'storage', 'picking', 'packing', 'dispatch', 'transfers', 'scanning', 'inventory_count'];
 
-export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = {}) {
+export default function DhlOperationsPage({ onBack, autoOpenRecibir }: { onBack?: () => void; autoOpenRecibir?: boolean } = {}) {
   const navigate = useNavigate();
   const { allowedModules, loading: permLoading, canEdit } = useModulePermissions('ops_mx_cedis', CEDIS_MODULES);
   const [tabValue, setTabValue] = useState(0);
@@ -134,9 +134,9 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
   const [loading, setLoading] = useState(false);
   const [filters, setFilters] = useState({ status: '', search: '' });
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as 'success' | 'error' });
-  
+
   // Dialogs
-  const [receiveDialog, setReceiveDialog] = useState(false);
+  const [receiveDialog, setReceiveDialog] = useState(autoOpenRecibir === true);
   const [quoteDialog, setQuoteDialog] = useState(false);
   const [dispatchDialog, setDispatchDialog] = useState(false);
   const [detailDialog, setDetailDialog] = useState(false);

@@ -139,6 +139,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
     const [locations, setLocations] = useState<WarehouseLocation[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedPanel, setSelectedPanel] = useState<string | null>(null);
+    const [mtySubTool, setMtySubTool] = useState<'dhl_recibir' | 'inventario' | null>(null);
     const [userRole, setUserRole] = useState<string>('');
     const [inventoryBranchId, setInventoryBranchId] = useState<number | undefined>(undefined);
     const [lockInventoryBranch, setLockInventoryBranch] = useState<boolean>(false);
@@ -268,8 +269,13 @@ export default function WarehouseHubPage({ users = [] }: Props) {
     const handleBackToHub = () => {
         console.log('⬅️ Volviendo al Hub');
         setSelectedPanel(null);
+        setMtySubTool(null);
         setInventoryBranchId(undefined);
         setLockInventoryBranch(false);
+    };
+
+    const handleBackToMtyHub = () => {
+        setMtySubTool(null);
     };
 
     // Si hay un panel seleccionado, mostrar ese panel
@@ -299,7 +305,75 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 ) : selectedPanel === 'mx_national' ? (
                     <NacionalMexicoPage />
                 ) : selectedPanel === 'mx_cedis' ? (
-                    <DhlOperationsPage onBack={handleBackToHub} />
+                    mtySubTool === 'dhl_recibir' ? (
+                        <DhlOperationsPage onBack={handleBackToMtyHub} autoOpenRecibir={true} />
+                    ) : mtySubTool === 'inventario' ? (
+                        <DhlOperationsPage onBack={handleBackToMtyHub} />
+                    ) : (
+                        <Box sx={{ p: 3, bgcolor: '#FAFAFA', minHeight: '100vh' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 4, cursor: 'pointer' }} onClick={handleBackToHub}>
+                                <Typography sx={{ color: '#F05A28', fontWeight: 600, fontSize: 14 }}>← Operaciones</Typography>
+                            </Box>
+                            <Typography variant="h5" sx={{ fontWeight: 700, mb: 0.5 }}>DHL Monterrey</Typography>
+                            <Typography variant="body2" sx={{ color: '#6B7280', mb: 4 }}>Selecciona una opción</Typography>
+                            <Grid container spacing={3}>
+                                {/* TDI Express - Por desarrollar */}
+                                <Grid size={{ xs: 12, sm: 4 }}>
+                                    <Card sx={{ borderRadius: 2, border: '1px solid #E0E0E0', opacity: 0.5 }}>
+                                        <CardActionArea disabled sx={{ height: '100%' }}>
+                                            <Box sx={{ height: 4, bgcolor: '#9E9E9E' }} />
+                                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                                <Box sx={{ width: 48, height: 48, borderRadius: 1.5, bgcolor: '#F5F5F5', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <TruckIcon sx={{ fontSize: 26, color: '#9E9E9E' }} />
+                                                </Box>
+                                                <Typography sx={{ fontSize: 22 }}>🚚</Typography>
+                                            </Box>
+                                            <CardContent>
+                                                <Typography sx={{ fontWeight: 700, fontSize: 16, color: '#9E9E9E', mb: 0.5 }}>TDI Express</Typography>
+                                                <Typography sx={{ fontSize: 13, color: '#BDBDBD' }}>Por desarrollar</Typography>
+                                            </CardContent>
+                                        </CardActionArea>
+                                    </Card>
+                                </Grid>
+                                {/* DHL Monterrey - Recibir paquete */}
+                                <Grid size={{ xs: 12, sm: 4 }}>
+                                    <Card sx={{ borderRadius: 2, border: '1px solid #ECECEC', transition: 'all 0.2s', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
+                                        <CardActionArea onClick={() => setMtySubTool('dhl_recibir')}>
+                                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
+                                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                                <Box sx={{ width: 48, height: 48, borderRadius: 1.5, bgcolor: '#F05A2815', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <TruckIcon sx={{ fontSize: 26, color: '#F05A28' }} />
+                                                </Box>
+                                                <Typography sx={{ fontSize: 22 }}>📮</Typography>
+                                            </Box>
+                                            <CardContent>
+                                                <Typography sx={{ fontWeight: 700, fontSize: 16, color: '#1A1A1A', mb: 0.5 }}>DHL Monterrey</Typography>
+                                                <Typography sx={{ fontSize: 13, color: '#6B7280' }}>Acceso directo a recibir paquete</Typography>
+                                            </CardContent>
+                                        </CardActionArea>
+                                    </Card>
+                                </Grid>
+                                {/* Inventario DHL */}
+                                <Grid size={{ xs: 12, sm: 4 }}>
+                                    <Card sx={{ borderRadius: 2, border: '1px solid #ECECEC', transition: 'all 0.2s', '&:hover': { borderColor: '#1565C0', boxShadow: '0 8px 24px rgba(21,101,192,0.12)', transform: 'translateY(-2px)' } }}>
+                                        <CardActionArea onClick={() => setMtySubTool('inventario')}>
+                                            <Box sx={{ height: 4, bgcolor: '#1565C0' }} />
+                                            <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+                                                <Box sx={{ width: 48, height: 48, borderRadius: 1.5, bgcolor: '#1565C015', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                                    <InventoryIcon sx={{ fontSize: 26, color: '#1565C0' }} />
+                                                </Box>
+                                                <Typography sx={{ fontSize: 22 }}>📦</Typography>
+                                            </Box>
+                                            <CardContent>
+                                                <Typography sx={{ fontWeight: 700, fontSize: 16, color: '#1A1A1A', mb: 0.5 }}>Inventario</Typography>
+                                                <Typography sx={{ fontSize: 13, color: '#6B7280' }}>Operaciones DHL Monterrey</Typography>
+                                            </CardContent>
+                                        </CardActionArea>
+                                    </Card>
+                                </Grid>
+                            </Grid>
+                        </Box>
+                    )
                 ) : selectedPanel === 'scanner_unificado' ? (
                     <UnifiedWarehousePanel onBack={handleBackToHub} />
                 ) : selectedPanel === 'inventario_sucursal' ? (
