@@ -27,12 +27,13 @@ import ChinaAirReceptionWizard from './ChinaAirReceptionWizard';
 import ChinaAirInventoryPage from './ChinaAirInventoryPage';
 import TdiExpressShipmentsPage from './TdiExpressShipmentsPage';
 import TdiExpressOutboundPage from './TdiExpressOutboundPage';
+import TdiCedisMtyPage from './TdiCedisMtyPage';
 
 interface Props {
     onBack: () => void;
 }
 
-type Panel = 'menu' | 'reception' | 'inventory' | 'tdi_express' | 'tdi_outbound';
+type Panel = 'menu' | 'reception' | 'inventory' | 'tdi_express' | 'tdi_outbound' | 'tdi_cedis_mty';
 
 const ORANGE = '#FF6B35';
 const BLACK = '#1A1A1A';
@@ -66,6 +67,13 @@ const OPTIONS = [
         icon: <FlightTakeoffIcon sx={{ fontSize: 56, color: '#FFF' }} />,
         bgGradient: 'linear-gradient(135deg, #D40511 0%, #FF1744 100%)',
     },
+    {
+        key: 'tdi_cedis_mty' as const,
+        title: 'Recibir en CEDIS MTY',
+        description: 'Escanea guías TDX que llegaron a Monterrey para marcarlas como Recibido MTY',
+        icon: <ShippingIcon sx={{ fontSize: 56, color: '#111' }} />,
+        bgGradient: 'linear-gradient(135deg, #2E7D32 0%, #66BB6A 100%)',
+    },
 ];
 
 export default function ChinaAirHubPage({ onBack }: Props) {
@@ -82,6 +90,9 @@ export default function ChinaAirHubPage({ onBack }: Props) {
     }
     if (panel === 'tdi_outbound') {
         return <TdiExpressOutboundPage onBack={() => setPanel('menu')} />;
+    }
+    if (panel === 'tdi_cedis_mty') {
+        return <TdiCedisMtyPage onBack={() => setPanel('menu')} />;
     }
 
     return (

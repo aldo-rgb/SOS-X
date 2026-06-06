@@ -8955,6 +8955,60 @@ app.delete('/api/tdi-express/serial/:masterId/child/:childId', authenticateToken
 app.patch('/api/tdi-express/serial/:masterId/child/:childId', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), updateTdiBox);
 app.get('/api/tdi-express/outbound/ready', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listTdiOutboundReady);
 app.post('/api/tdi-express/outbound/dispatch', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), dispatchTdiBoxes);
+// Recepción en CEDIS MTY: cambia status de received_china → received_mty
+app.post('/api/tdi-express/receive-cedis-mty', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), async (req: Request, res: Response) => {
+  try {
+    const { tracking } = req.body;
+    if (!tracking) return res.status(400).json({ error: 'Tracking requerido' });
+    const norm = String(tracking).trim().toUpperCase();
+    // Buscar master o hijo por tracking_internal
+    const pkgRes = await pool.query(`
+      SELECT p.id, p.tracking_internal, p.status::text AS status,
+        p.service_type, COALESCE(p.is_master, false) AS is_master,
+        (SELECT COUNT(*) FROM packages c WHERE c.master_id = p.id)::int AS children_count,
+        u.full_name AS client_name, u.box_id AS client_box_id
+      FROM packages p
+      LEFT JOIN users u ON u.id = p.user_id
+      WHERE p.tracking_internal = $1
+        AND p.service_type IN ('tdi_express','tdi_aereo')
+      LIMIT 1
+    `, [norm]);
+
+    if (pkgRes.rows.length === 0) {
+      return res.status(404).json({ error: `Guía no encontrada: ${norm}` });
+    }
+    const pkg = pkgRes.rows[0];
+
+    if (!['received_china', 'in_transit', 'customs'].includes(pkg.status)) {
+      return res.status(400).json({
+        error: `Esta guía ya está en status "${pkg.status}" — no puede recibirse de nuevo`,
+        already_received: pkg.status === 'received_mty'
+      });
+    }
+
+    // Actualizar master y todos sus hijos
+    await pool.query(`
+      UPDATE packages SET status = 'received_mty', updated_at = NOW()
+      WHERE (id = $1 OR master_id = $1)
+        AND service_type IN ('tdi_express','tdi_aereo')
+    `, [pkg.id]);
+
+    return res.json({
+      success: true,
+      id: pkg.id,
+      tracking: pkg.tracking_internal,
+      client_name: pkg.client_name || '—',
+      client_box_id: pkg.client_box_id || '—',
+      is_master: pkg.is_master,
+      children_count: pkg.children_count,
+      previous_status: pkg.status,
+      new_status: 'received_mty',
+    });
+  } catch (error) {
+    console.error('[tdi] receive-cedis-mty error:', error);
+    res.status(500).json({ error: 'Error al recibir guía' });
+  }
+});
 
 // ========== RECEPCIÓN AÉREA POR AWB (Hub TDI Aéreo China) ==========
 app.get('/api/admin/china-air/awbs/in-transit', authenticateToken, requireMinLevel(ROLES.WAREHOUSE_OPS), listInTransitAwbs);
