@@ -952,13 +952,14 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 `, [driverBranchId])
                 : Promise.resolve({ rows: [] as any[] });
 
-        // DHL solo para drivers de sucursales MTY (CEDIS MTY=1, Centro CC=7)
+        // DHL: incluir para drivers de sucursal MTY o drivers con assigned_driver_id
+        // (sistema opera actualmente solo en Monterrey — ampliar con city filter si se expande)
         const isMtyBranch = driverBranchId != null
             ? await pool.query(
                 `SELECT 1 FROM branches WHERE id = $1 AND city ILIKE '%monterrey%'`,
                 [driverBranchId]
               ).then(r => r.rows.length > 0).catch(() => false)
-            : false;
+            : hasAssignedDriverColumn; // si usa assigned_driver_id es driver MTY
 
         // Query DHL shipments pendientes de entrega local MTY (solo sucursales MTY)
         const dhlPendingPromise = isMtyBranch
