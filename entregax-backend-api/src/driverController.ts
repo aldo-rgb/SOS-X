@@ -952,8 +952,50 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 `, [driverBranchId])
                 : Promise.resolve({ rows: [] as any[] });
 
-        // Ejecutar las 3 queries en paralelo
-        const [pendingRes, loadedRes, deliveredTodayRes] = await Promise.all([pendingPromise, loadedPromise, deliveredPromise]);
+        // DHL solo para drivers de sucursales MTY (CEDIS MTY=1, Centro CC=7)
+        const isMtyBranch = driverBranchId != null
+            ? await pool.query(
+                `SELECT 1 FROM branches WHERE id = $1 AND city ILIKE '%monterrey%'`,
+                [driverBranchId]
+              ).then(r => r.rows.length > 0).catch(() => false)
+            : false;
+
+        // Query DHL shipments pendientes de entrega local MTY (solo sucursales MTY)
+        const dhlPendingPromise = isMtyBranch
+            ? pool.query(`
+                SELECT
+                    'DHL-' || ds.id::text AS id,
+                    COALESCE(NULLIF(ds.secondary_tracking,''), ds.inbound_tracking) AS tracking_number,
+                    ds.inbound_tracking AS national_tracking,
+                    'DHL' AS national_carrier,
+                    ds.status AS delivery_status,
+                    COALESCE(
+                        a.street || ' ' || a.exterior_number,
+                        'Pendiente de asignar'
+                    ) AS delivery_address,
+                    COALESCE(a.city, 'MTY') AS delivery_city,
+                    a.zip_code AS delivery_zip,
+                    u.full_name AS recipient_name,
+                    u.phone AS recipient_phone,
+                    ds.box_id AS client_number,
+                    true AS is_dhl_shipment,
+                    ds.delivery_address_id AS assigned_address_id,
+                    true AS has_label
+                FROM dhl_shipments ds
+                LEFT JOIN users u ON u.id = ds.user_id
+                LEFT JOIN addresses a ON a.id = ds.delivery_address_id
+                WHERE ds.status = 'received_mty'
+                ORDER BY ds.created_at ASC
+            `)
+            : Promise.resolve({ rows: [] as any[] });
+
+        // Ejecutar las 4 queries en paralelo
+        const [pendingRes, loadedRes, deliveredTodayRes, dhlPendingRes] = await Promise.all([
+            pendingPromise, loadedPromise, deliveredPromise, dhlPendingPromise
+        ]);
+
+        // Combinar pendientes regulares + DHL pendientes
+        const allPendingRows = [...pendingRes.rows, ...dhlPendingRes.rows];
 
         const deliveredToday = deliveredTodayRes.rows.length;
 
@@ -969,7 +1011,8 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ? pendingRes.rows.filter(p => p.assigned_address_id && isLocalCarrier(String(p.national_carrier || ''))).length
                     : pendingRes.rows.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
                 const loadedToday = loadedRes.rows.length;
-                const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
+                // DHL siempre suma al total asignado (son entregas locales pendientes)
+                const totalAssigned = pendingToLoad + loadedToday + deliveredToday + dhlPendingRes.rows.length;
                 const outStatus = await getOutForDeliveryWriteStatus();
                 const allPkgs = [...pendingRes.rows, ...loadedRes.rows];
                 // paqueteriaCount = TODOS los paquetes con carrier externo (el toggle de etiqueta
@@ -984,7 +1027,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
             route: {
                 totalAssigned, loadedToday, deliveredToday,
                 pendingToLoad, paqueteriaCount, requireLabelToLoad: reqLabel,
-                pendingPackages: pendingRes.rows,
+                pendingPackages: allPendingRows,
                 loadedPackages: loadedRes.rows,
                 deliveredPackages: deliveredTodayRes.rows,
             },

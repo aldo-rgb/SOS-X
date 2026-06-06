@@ -712,19 +712,19 @@ export default function DhlOperationsPage({ onBack }: { onBack?: () => void } = 
                           sub = inb;
                           subLabel = 'Ref:';
                         } else if (isInbJJD) {
-                          // Nuevo formato: inbound=JJD larga, secondary=corta
-                          main = inb;
-                          sub = sec;
-                          subLabel = 'Master:';
+                          // inbound=JJD larga (hija), secondary=número corto (master)
+                          main = sec || inb;  // master va en negrita arriba
+                          sub = sec ? inb : '';  // JJD va abajo como "Hija:"
+                          subLabel = 'Hija:';
                         } else if (isSecJJD) {
-                          // Legacy: inbound=corta, secondary=JJD larga
+                          // Legacy: inbound=corta (master), secondary=JJD larga (hija)
                           main = inb;
                           sub = sec;
-                          subLabel = 'JJD:';
+                          subLabel = 'Hija:';
                         } else {
                           main = inb;
                           sub = sec;
-                          subLabel = 'Master:';
+                          subLabel = 'Hija:';
                         }
                         return (
                           <>
