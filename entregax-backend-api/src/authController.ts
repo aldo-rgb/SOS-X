@@ -803,7 +803,7 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
 export const getAllUsers = async (_req: Request, res: Response): Promise<void> => {
     try {
         const result = await pool.query(`
-            SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.created_at, u.advisor_id,
+            SELECT u.id, u.full_name, u.email, u.box_id, u.role, u.phone, u.created_at, u.advisor_id,
                    a.full_name as advisor_name
             FROM users u
             LEFT JOIN users a ON u.advisor_id = a.id
