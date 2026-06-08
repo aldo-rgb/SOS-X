@@ -28,6 +28,7 @@ import {
   setBiometricEnabled,
 } from '../services/biometricAuth';
 import SocialAuthButtons from '../components/SocialAuthButtons';
+import { Ionicons } from '@expo/vector-icons';
 
 // Colores de marca
 const ORANGE = '#F05A28';
@@ -35,6 +36,7 @@ const BLACK = '#111111';
 
 type RootStackParamList = {
   Login: undefined;
+  GuestTracking: { initialLang?: 'es' | 'en' | 'zh' };
   ChangePassword: { user: any; token: string; currentPassword: string };
   Verification: { user: any; token: string };
   Home: { user: any; token: string };
@@ -42,6 +44,13 @@ type RootStackParamList = {
   DriverHome: { user: any; token: string };
   AdvisorDashboard: { user: any; token: string };
 };
+
+type Lang = 'es' | 'en' | 'zh';
+const LANG_OPTIONS: { code: Lang; flag: string }[] = [
+  { code: 'es', flag: '🇲🇽' },
+  { code: 'en', flag: '🇺🇸' },
+  { code: 'zh', flag: '🇨🇳' },
+];
 
 type LoginScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
@@ -52,6 +61,8 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [lang, setLang] = useState<Lang>('es');
+  const [langOpen, setLangOpen] = useState(false);
 
   // Forgot password modal
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -282,14 +293,39 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     >
       <StatusBar barStyle="light-content" backgroundColor={BLACK} />
       
-      {/* Header con logo */}
+      {/* Header con logo + selector de idioma */}
       <View style={styles.header}>
-        <Image 
-          source={require('../../assets/logo.png')} 
+        {/* Selector de idioma — top right */}
+        <View style={styles.langRow}>
+          {LANG_OPTIONS.map(opt => (
+            <TouchableOpacity
+              key={opt.code}
+              style={[styles.langPill, lang === opt.code && styles.langPillActive]}
+              onPress={() => setLang(opt.code)}
+            >
+              <Text style={styles.langFlag}>{opt.flag}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Image
+          source={require('../../assets/logo.png')}
           style={styles.logoImage}
           resizeMode="contain"
         />
         <Text style={styles.subtitle}>Tu suite inteligente</Text>
+
+        {/* Botón de rastreo guest */}
+        <TouchableOpacity
+          style={styles.trackBtn}
+          onPress={() => (navigation as any).navigate('GuestTracking', { initialLang: lang })}
+        >
+          <Ionicons name="search" size={16} color={ORANGE} />
+          <Text style={styles.trackBtnText}>
+            {lang === 'en' ? '🔍 Track a package' : lang === 'zh' ? '🔍 查询包裹' : '🔍 Rastrear un paquete'}
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color={ORANGE} />
+        </TouchableOpacity>
       </View>
 
       {/* Formulario */}
@@ -452,10 +488,45 @@ const styles = StyleSheet.create({
     backgroundColor: BLACK,
   },
   header: {
-    flex: 0.28,
+    flex: 0.32,
     justifyContent: 'flex-end',
     alignItems: 'center',
     paddingBottom: 10,
+  },
+  langRow: {
+    position: 'absolute',
+    top: 12,
+    right: 16,
+    flexDirection: 'row',
+    gap: 6,
+  },
+  langPill: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+  },
+  langPillActive: {
+    backgroundColor: 'rgba(240,90,40,0.25)',
+    borderWidth: 1,
+    borderColor: ORANGE,
+  },
+  langFlag: { fontSize: 18 },
+  trackBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    backgroundColor: 'rgba(240,90,40,0.12)',
+    borderWidth: 1,
+    borderColor: `${ORANGE}55`,
+  },
+  trackBtnText: {
+    color: ORANGE,
+    fontWeight: '700',
+    fontSize: 13,
   },
   logoImage: {
     width: 150,
