@@ -727,15 +727,22 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               {lt.adminPanel}
             </Typography>
 
-            {/* Cajito asomando (mismo que la app móvil) */}
-            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 0.5 }}>
-              <Box
-                component="img"
-                src="/cajito-asomando.png"
-                alt="Cajito"
-                sx={{ width: 140, height: 140, objectFit: 'contain' }}
-              />
-            </Box>
+            {/* Cajito asomando — pegado al borde derecho del header oscuro */}
+            <Box
+              component="img"
+              src="/cajito-asomando.png"
+              alt="Cajito"
+              sx={{
+                position: 'absolute',
+                right: 0,
+                bottom: -38, // ~1 cm más abajo (asoma sobre los tabs)
+                width: 140,
+                height: 140,
+                objectFit: 'contain',
+                zIndex: 5,
+                pointerEvents: 'none',
+              }}
+            />
 
             {/* Rastrear paquete */}
             <Box sx={{ mt: 1.5 }}>

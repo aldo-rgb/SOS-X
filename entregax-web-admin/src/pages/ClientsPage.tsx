@@ -92,6 +92,7 @@ interface User {
   email: string;
   box_id: string;
   role: string;
+  phone?: string;
   created_at?: string;
   advisor_id?: number | null;
   advisor_name?: string;

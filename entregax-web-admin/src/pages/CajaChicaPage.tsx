@@ -889,10 +889,6 @@ const CajaChicaPage: React.FC = () => {
     } finally { setRefPagoProcesando(false); }
   };
 
-  const handlePagarConsolidacion = () => {
-    setRefPagoInput(''); setRefPagoData(null); setRefPagoOpen(true);
-  };
-
   const loadData = useCallback(async () => {
     setLoading(true);
     await Promise.all([fetchStats(), fetchTransacciones(), fetchCortes()]);
