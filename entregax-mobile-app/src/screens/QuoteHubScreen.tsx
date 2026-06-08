@@ -439,7 +439,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               <Text style={{ color: '#FF6B35', fontWeight: '700', fontSize: 14 }}>¿Cómo enviar con</Text>
               <Image
                 source={require('../../assets/logo-negro.png')}
-                style={{ height: 18, width: 88, resizeMode: 'contain' }}
+                style={{ height: 25, width: 123, resizeMode: 'contain' }}
               />
               <Text style={{ color: '#FF6B35', fontWeight: '700', fontSize: 14 }}>?</Text>
               <Ionicons name="chevron-forward" size={16} color="#FF6B35" />
@@ -492,7 +492,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
                   </View>
                   <Text style={[styles.tierCell, { flex: 1.2, color: '#666' }]}>{s.tiempo_estimado}</Text>
                   <Text style={[styles.tierCell, { flex: 1.5, textAlign: 'right', color: ORANGE, fontWeight: '700' }]}>
-                    ${Number(s.precio_base_usd).toFixed(2)} USD/{s.unidad}
+                    ${Number(s.precio_base_usd).toFixed(2)} USD/{s.unidad === 'CBM' ? 'm³' : s.unidad}
                   </Text>
                 </View>
               );
