@@ -189,18 +189,28 @@ export default function PublicTrackingPage() {
         boxShadow: '0 1px 8px rgba(0,0,0,0.06)',
       }}>
         {/* Logo */}
-        <Box component="a" href="/" sx={{ display: 'flex', alignItems: 'center', textDecoration: 'none' }}>
-          <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.3 }}>
-            <Typography sx={{ fontSize: 22, fontWeight: 900, color: BLACK, letterSpacing: -0.5, fontFamily: 'Inter, sans-serif' }}>
-              Entrega
-            </Typography>
-            <Typography sx={{ fontSize: 22, fontWeight: 900, color: ORANGE, letterSpacing: -0.5, fontFamily: 'Inter, sans-serif' }}>
-              X
-            </Typography>
-            <Typography sx={{ fontSize: 11, color: '#888', ml: 0.5, mt: 0.3, fontWeight: 500 }}>
-              Paquetería
-            </Typography>
-          </Box>
+        <Box component="a" href="/" sx={{ display: 'flex', alignItems: 'center', textDecoration: 'none', gap: 1 }}>
+          {entregaxFullBlackUrl ? (
+            <Box
+              component="img"
+              src={entregaxFullBlackUrl}
+              alt="EntregaX"
+              onError={(e: any) => { e.target.style.display = 'none'; }}
+              sx={{ height: 36, objectFit: 'contain' }}
+            />
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.3 }}>
+              <Typography sx={{ fontSize: 22, fontWeight: 900, color: BLACK, letterSpacing: -0.5, fontFamily: 'Inter, sans-serif' }}>
+                Entrega
+              </Typography>
+              <Typography sx={{ fontSize: 22, fontWeight: 900, color: ORANGE, letterSpacing: -0.5, fontFamily: 'Inter, sans-serif' }}>
+                X
+              </Typography>
+            </Box>
+          )}
+          <Typography sx={{ fontSize: 11, color: '#888', fontWeight: 500 }}>
+            Paquetería
+          </Typography>
         </Box>
 
         {/* Language selector */}
