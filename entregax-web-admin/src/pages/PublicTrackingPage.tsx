@@ -441,26 +441,52 @@ export default function PublicTrackingPage() {
             </Paper>
           ))}
 
-          {/* CTA */}
+          {/* CTA + App Store badges */}
           <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: `2px solid ${ORANGE}33`, textAlign: 'center', backgroundColor: '#FFF9F7' }}>
-            <Typography sx={{ fontSize: 15, fontWeight: 800, color: BLACK, mb: 1 }}>{t.ctaTitle}</Typography>
-            <Button
-              fullWidth
-              variant="contained"
-              size="large"
-              href="/"
-              sx={{
-                backgroundColor: '#2E7D32',
-                '&:hover': { backgroundColor: '#1B5E20' },
-                fontWeight: 800,
-                borderRadius: 2,
-                py: 1.5,
-                fontSize: 14,
-                boxShadow: '0 4px 14px rgba(46,125,50,0.35)',
-              }}
+            <Typography sx={{ fontSize: 15, fontWeight: 800, color: BLACK, mb: 1.5 }}>{t.ctaTitle}</Typography>
+
+            {/* App Store badge */}
+            <Box
+              component="a"
+              href="https://apps.apple.com/app/id6762685124"
+              target="_blank"
+              rel="noopener noreferrer"
+              sx={{ display: 'block', mb: 1 }}
             >
-              {t.ctaBtn} →
-            </Button>
+              <Box sx={{
+                display: 'flex', alignItems: 'center', gap: 1.5,
+                backgroundColor: BLACK, color: '#fff', borderRadius: 2,
+                px: 2.5, py: 1.2, cursor: 'pointer',
+                '&:hover': { backgroundColor: '#222' }, transition: '0.2s',
+              }}>
+                <Typography sx={{ fontSize: 22 }}>🍎</Typography>
+                <Box sx={{ textAlign: 'left' }}>
+                  <Typography sx={{ fontSize: 9, color: 'rgba(255,255,255,0.7)', lineHeight: 1 }}>
+                    {lang === 'en' ? 'Download on the' : lang === 'zh' ? '下载于' : 'Descargar en'}
+                  </Typography>
+                  <Typography sx={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.3 }}>App Store</Typography>
+                </Box>
+              </Box>
+            </Box>
+
+            {/* Google Play badge (placeholder — link pendiente) */}
+            <Box sx={{
+              display: 'flex', alignItems: 'center', gap: 1.5,
+              backgroundColor: '#1A1A2E', color: '#fff', borderRadius: 2,
+              px: 2.5, py: 1.2, opacity: 0.5, cursor: 'not-allowed',
+            }}>
+              <Typography sx={{ fontSize: 22 }}>▶️</Typography>
+              <Box sx={{ textAlign: 'left' }}>
+                <Typography sx={{ fontSize: 9, color: 'rgba(255,255,255,0.7)', lineHeight: 1 }}>
+                  {lang === 'en' ? 'Get it on' : lang === 'zh' ? '获取于' : 'Disponible en'}
+                </Typography>
+                <Typography sx={{ fontSize: 15, fontWeight: 800, color: '#fff', lineHeight: 1.3 }}>Google Play</Typography>
+              </Box>
+            </Box>
+
+            <Typography sx={{ fontSize: 10, color: '#BBB', mt: 1.5 }}>
+              {lang === 'en' ? 'Android — Coming soon' : lang === 'zh' ? 'Android 即将上线' : 'Android — Próximamente'}
+            </Typography>
           </Paper>
         </Box>
       </Box>

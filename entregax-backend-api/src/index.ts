@@ -9637,21 +9637,30 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
   ];
 
   const SERVICE_NAMES: Record<string, { es: string; en: string; zh: string }> = {
-    POBOX_USA:  { es: 'Terrestre USA a México', en: 'Ground USA to Mexico', zh: '美国陆运' },
-    china_air:  { es: 'Aéreo China',            en: 'China Air Freight',    zh: '中国空运' },
-    china_sea:  { es: 'Marítimo China',         en: 'China Sea Freight',    zh: '中国海运' },
-    dhl:        { es: 'Trámite Aduanal MTY',    en: 'Customs Clearance MTY', zh: '清关服务' },
-    maritime:   { es: 'Marítimo China',         en: 'China Sea Freight',    zh: '中国海运' },
+    POBOX_USA:   { es: 'Terrestre USA a México', en: 'Ground USA to Mexico',   zh: '美国陆运' },
+    china_air:   { es: 'Aéreo China',            en: 'China Air Freight',      zh: '中国空运' },
+    tdi_aereo:   { es: 'Aéreo China',            en: 'China Air Freight',      zh: '中国空运' },
+    tdi_express: { es: 'Aéreo Express',          en: 'Express Air Freight',    zh: '急速空运' },
+    china_sea:   { es: 'Marítimo China',         en: 'China Sea Freight',      zh: '中国海运' },
+    maritime:    { es: 'Marítimo China',         en: 'China Sea Freight',      zh: '中国海运' },
+    dhl:         { es: 'Trámite Aduanal MTY',   en: 'Customs Clearance MTY',  zh: '清关服务' },
   };
 
   try {
-    // 1. Buscar en packages (POBOX, china_air, china_sea)
+    // 1. Buscar en packages (POBOX, china_air, china_sea, tdi_express)
+    //    delivery_status se accede vía jsonb para compatibilidad con el schema real
     const pkgRes = await pool.query(`
       SELECT
-        p.id, p.tracking_number, p.national_tracking, p.carrier_tracking,
-        COALESCE(p.delivery_status, p.status) AS status,
-        p.service_type, p.shipment_type,
-        p.national_carrier,
+        p.id,
+        p.tracking_number,
+        p.national_tracking,
+        p.carrier_tracking,
+        COALESCE(
+          to_jsonb(p)->>'delivery_status',
+          to_jsonb(p)->>'status',
+          p.status::text
+        ) AS status,
+        COALESCE(p.service_type, p.shipment_type) AS service_type,
         p.created_at,
         p.updated_at
       FROM packages p
@@ -9662,49 +9671,56 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
     `, [raw]);
 
     // 2. Buscar en dhl_shipments
-    const dhlRes = await pool.query(`
-      SELECT
-        'dhl' AS shipment_type, 'dhl' AS service_type,
-        COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking_number,
-        ds.inbound_tracking AS national_tracking,
-        ds.status,
-        ds.created_at, ds.updated_at
-      FROM dhl_shipments ds
-      WHERE UPPER(COALESCE(ds.secondary_tracking,'')) = $1
-         OR UPPER(COALESCE(ds.inbound_tracking,'')) = $1
-      LIMIT 1
-    `, [raw]);
+    let dhlRow: any = null;
+    try {
+      const dhlRes = await pool.query(`
+        SELECT
+          NULL::int AS id,
+          'dhl' AS service_type,
+          COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking_number,
+          ds.status::text AS status,
+          ds.created_at,
+          ds.updated_at
+        FROM dhl_shipments ds
+        WHERE UPPER(COALESCE(ds.secondary_tracking,'')) = $1
+           OR UPPER(COALESCE(ds.inbound_tracking,'')) = $1
+        LIMIT 1
+      `, [raw]);
+      dhlRow = dhlRes.rows[0] || null;
+    } catch { /* dhl_shipments opcional */ }
 
-    const row = pkgRes.rows[0] || dhlRes.rows[0];
+    const row = pkgRes.rows[0] || dhlRow;
     if (!row) return res.status(404).json({ error: 'Guía no encontrada. Verifica el número e intenta de nuevo.' });
 
-    const statusKey = (row.status || '').toLowerCase().replace(/ /g, '_');
+    const statusKey = (row.status || '').toLowerCase().replace(/[ -]/g, '_');
     const currentMilestone = MILESTONE_MAP[statusKey] ?? 0;
-    const svcKey = row.service_type || row.shipment_type || '';
-    const serviceName = SERVICE_NAMES[svcKey] || SERVICE_NAMES['china_air'];
+    const svcKey = (row.service_type || '');
+    const serviceName = SERVICE_NAMES[svcKey] || { es: 'EntregaX', en: 'EntregaX', zh: 'EntregaX' };
 
-    // 3. Últimos movimientos — solo ciudades, sin nombres/direcciones
+    // 3. Últimos movimientos — solo ciudades, sin datos sensibles
     let movements: { date: string; location: string; description_es: string; description_en: string; description_zh: string }[] = [];
-    try {
-      const movRes = await pool.query(`
-        SELECT
-          pm.created_at AS date,
-          COALESCE(b.city, 'Monterrey') AS location,
-          pm.description AS raw_desc
-        FROM package_movements pm
-        LEFT JOIN branches b ON b.id = pm.branch_id
-        WHERE pm.package_id = $1
-        ORDER BY pm.created_at DESC
-        LIMIT 3
-      `, [row.id]);
-      movements = movRes.rows.map((m: any) => ({
-        date: m.date,
-        location: m.location,
-        description_es: m.raw_desc || 'Actualización de estado',
-        description_en: m.raw_desc || 'Status update',
-        description_zh: m.raw_desc || '状态更新',
-      }));
-    } catch { /* tabla opcional */ }
+    if (row.id) {
+      try {
+        const movRes = await pool.query(`
+          SELECT
+            pm.created_at AS date,
+            COALESCE(b.city, 'Monterrey') AS location,
+            pm.description AS raw_desc
+          FROM package_movements pm
+          LEFT JOIN branches b ON b.id = pm.branch_id
+          WHERE pm.package_id = $1
+          ORDER BY pm.created_at DESC
+          LIMIT 3
+        `, [row.id]);
+        movements = movRes.rows.map((m: any) => ({
+          date: m.date,
+          location: m.location || 'Monterrey',
+          description_es: 'Actualización de estado',
+          description_en: 'Status update',
+          description_zh: '状态更新',
+        }));
+      } catch { /* tabla opcional */ }
+    }
 
     if (movements.length === 0) {
       movements = [{
