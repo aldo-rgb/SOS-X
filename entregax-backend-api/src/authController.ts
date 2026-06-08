@@ -326,19 +326,59 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
 };
 
 // ============ LOGIN ============
+// Acepta tres formatos de identificador en el campo "email":
+//   1. Correo electrónico   (cualquier string con @)
+//   2. Número de cliente    (box_id, ej. "S1", "S1234")
+//   3. Teléfono verificado  (phone_verified = true) — sólo dígitos
+//
+// El parámetro sigue llamándose "email" en el body para no romper la app
+// móvil ni el web admin existente. Acepta también `identifier` por
+// compatibilidad futura.
 export const loginUser = async (req: Request, res: Response): Promise<void> => {
     try {
-        const { email, password } = req.body;
+        const rawIdentifier = (req.body.email ?? req.body.identifier ?? '').toString().trim();
+        const password = req.body.password;
 
         // Validaciones básicas
-        if (!email || !password) {
-            res.status(400).json({ error: 'Email y contraseña son requeridos' });
+        if (!rawIdentifier || !password) {
+            res.status(400).json({ error: 'Usuario y contraseña son requeridos' });
             return;
         }
 
-        // 1. Buscar usuario por email
-        const userQuery = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-        
+        // 1. Detectar tipo de identificador y construir query.
+        //    - Con '@' → email (case-insensitive)
+        //    - Sólo dígitos (≥ 7) → teléfono verificado
+        //    - Cualquier otra cosa → box_id (case-insensitive)
+        const isEmail = rawIdentifier.includes('@');
+        const phoneOnly = rawIdentifier.replace(/[\s\-+()]/g, '');
+        const isPhone = !isEmail && /^\d{7,15}$/.test(phoneOnly);
+        const looksLikeBoxId = !isEmail && !isPhone;
+
+        let userQuery;
+        if (isEmail) {
+            userQuery = await pool.query(
+                'SELECT * FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1',
+                [rawIdentifier]
+            );
+        } else if (isPhone) {
+            // Sólo permitimos login por teléfono si está VERIFICADO.
+            // Comparamos quitando + / espacios / guiones para tolerar formatos.
+            userQuery = await pool.query(
+                `SELECT * FROM users
+                 WHERE phone_verified = true
+                   AND regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g') = $1
+                 LIMIT 1`,
+                [phoneOnly]
+            );
+        } else if (looksLikeBoxId) {
+            userQuery = await pool.query(
+                'SELECT * FROM users WHERE UPPER(box_id) = UPPER($1) LIMIT 1',
+                [rawIdentifier]
+            );
+        } else {
+            userQuery = { rows: [] } as any;
+        }
+
         if (userQuery.rows.length === 0) {
             res.status(401).json({ error: 'Verifique su nombre de usuario y/o contraseña' });
             return;

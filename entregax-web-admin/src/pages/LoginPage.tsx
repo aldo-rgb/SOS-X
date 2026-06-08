@@ -71,7 +71,8 @@ const LT = {
     adminPanel:  'Panel Administrativo',
     tabLogin:    'Iniciar Sesión',
     tabRegister: 'Registrarse',
-    emailLabel:  'Correo electrónico',
+    emailLabel:  'Correo, número de cliente o teléfono',
+    emailHelper: 'Puedes usar tu correo, tu Número de Cliente (ej. S1234) o teléfono verificado',
     passwordLabel:'Contraseña',
     loginBtn:    'Ingresar al Panel',
     forgotPw:    '¿Olvidaste tu contraseña?',
@@ -98,7 +99,8 @@ const LT = {
     adminPanel:  'Administrative Panel',
     tabLogin:    'Sign In',
     tabRegister: 'Register',
-    emailLabel:  'Email address',
+    emailLabel:  'Email, customer number or phone',
+    emailHelper: 'Use your email, Customer Number (e.g. S1234) or verified phone',
     passwordLabel:'Password',
     loginBtn:    'Sign In',
     forgotPw:    'Forgot your password?',
@@ -124,7 +126,8 @@ const LT = {
     adminPanel:  '管理面板',
     tabLogin:    '登录',
     tabRegister: '注册',
-    emailLabel:  '电子邮箱',
+    emailLabel:  '邮箱、客户号或电话',
+    emailHelper: '可使用邮箱、客户号（如 S1234）或已验证的电话',
     passwordLabel:'密码',
     loginBtn:    '登录面板',
     forgotPw:    '忘记密码？',
@@ -811,12 +814,13 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               <form onSubmit={handleLogin}>
                 <TextField
                   fullWidth
-                  label="Correo electrónico"
-                  type="email"
+                  label={lt.emailLabel}
+                  type="text"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
                   required
                   sx={{ mb: 2.5 }}
+                  helperText={lt.emailHelper}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">

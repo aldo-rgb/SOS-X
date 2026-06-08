@@ -56,8 +56,8 @@ const LOGIN_T = {
   es: {
     welcome: 'Bienvenido',
     subtitle: 'Tu suite inteligente',
-    instruction: 'Ingresa con tu correo registrado',
-    emailLabel: 'Correo electrónico',
+    instruction: 'Ingresa con tu correo, número de cliente o teléfono',
+    emailLabel: 'Correo, N° de cliente o teléfono',
     passwordLabel: 'Contraseña',
     loginBtn: 'Ingresar',
     loggingIn: 'Ingresando...',
@@ -77,8 +77,8 @@ const LOGIN_T = {
   en: {
     welcome: 'Welcome',
     subtitle: 'Your smart suite',
-    instruction: 'Sign in with your registered email',
-    emailLabel: 'Email address',
+    instruction: 'Sign in with email, customer number or phone',
+    emailLabel: 'Email, customer # or phone',
     passwordLabel: 'Password',
     loginBtn: 'Sign In',
     loggingIn: 'Signing in...',
@@ -98,8 +98,8 @@ const LOGIN_T = {
   zh: {
     welcome: '欢迎',
     subtitle: '您的智能平台',
-    instruction: '使用注册邮箱登录',
-    emailLabel: '电子邮箱',
+    instruction: '使用邮箱、客户号或电话登录',
+    emailLabel: '邮箱、客户号或电话',
     passwordLabel: '密码',
     loginBtn: '登录',
     loggingIn: '登录中...',
@@ -182,7 +182,12 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 
     setLoading(true);
     try {
-      const response = await loginApi(email.trim().toLowerCase(), password);
+      // Acepta email / box_id / teléfono. Sólo aplicamos toLowerCase si es
+      // un correo (contiene @); para box_id (S1234) y teléfono mantenemos
+      // tal cual los teclea el usuario para que el backend pueda comparar.
+      const id = email.trim();
+      const normalized = id.includes('@') ? id.toLowerCase() : id;
+      const response = await loginApi(normalized, password);
       
       const userData = {
         id: response.user.id,
@@ -385,10 +390,9 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           value={email}
           onChangeText={setEmail}
           mode="outlined"
-          keyboardType="email-address"
           autoCapitalize="none"
-          autoComplete="email"
-          left={<TextInput.Icon icon="email" />}
+          autoComplete="username"
+          left={<TextInput.Icon icon="account" />}
           style={styles.input}
           outlineColor="#ddd"
           activeOutlineColor={ORANGE}

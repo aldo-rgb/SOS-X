@@ -9658,6 +9658,11 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
   };
 
   try {
+    // Versión compacta del término: sólo letras+dígitos, mayúsculas.
+    // Permite que "AIR-2630456Qydeh" o "air2630456qydeh-001" hagan match
+    // contra valores almacenados con o sin guión / case mixto.
+    const compact = raw.replace(/[^A-Z0-9]/g, '');
+
     // 1. Buscar en packages
     //    Columnas reales: tracking_internal, tracking_provider, child_no, status, service_type
     const pkgRes = await pool.query(`
@@ -9677,8 +9682,18 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
          OR UPPER(COALESCE(p.tracking_provider,'')) = $1
          OR UPPER(COALESCE(p.child_no,'')) = $1
          OR UPPER(COALESCE(p.national_tracking,'')) = $1
+         OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal,'')), '[^A-Z0-9]', '', 'g') = $2
+         OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_provider,'')), '[^A-Z0-9]', '', 'g') = $2
+         OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no,'')), '[^A-Z0-9]', '', 'g') = $2
+         OR REGEXP_REPLACE(UPPER(COALESCE(p.national_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
+      ORDER BY
+        CASE WHEN UPPER(COALESCE(p.tracking_internal,'')) = $1 THEN 0
+             WHEN UPPER(COALESCE(p.tracking_provider,'')) = $1 THEN 1
+             WHEN UPPER(COALESCE(p.child_no,'')) = $1 THEN 2
+             ELSE 3 END ASC,
+        p.id DESC
       LIMIT 1
-    `, [raw]);
+    `, [raw, compact]);
 
     // 2. Buscar en dhl_shipments
     let dhlRow: any = null;
@@ -9694,8 +9709,10 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
         FROM dhl_shipments ds
         WHERE UPPER(COALESCE(ds.secondary_tracking,'')) = $1
            OR UPPER(COALESCE(ds.inbound_tracking,'')) = $1
+           OR REGEXP_REPLACE(UPPER(COALESCE(ds.secondary_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
+           OR REGEXP_REPLACE(UPPER(COALESCE(ds.inbound_tracking,'')), '[^A-Z0-9]', '', 'g') = $2
         LIMIT 1
-      `, [raw]);
+      `, [raw, compact]);
       dhlRow = dhlRes.rows[0] || null;
     } catch { /* dhl_shipments opcional */ }
 
@@ -9712,8 +9729,9 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
           ps.updated_at
         FROM pqtx_shipments ps
         WHERE UPPER(ps.tracking_number) = $1
+           OR REGEXP_REPLACE(UPPER(COALESCE(ps.tracking_number,'')), '[^A-Z0-9]', '', 'g') = $2
         LIMIT 1
-      `, [raw]);
+      `, [raw, compact]);
       pqtxRow = pqtxRes.rows[0] || null;
     } catch { /* pqtx_shipments opcional */ }
 
@@ -9731,8 +9749,10 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
         FROM china_receipts cr
         WHERE UPPER(cr.ordersn) = $1
            OR UPPER(COALESCE(cr.awb_number,'')) = $1
+           OR REGEXP_REPLACE(UPPER(COALESCE(cr.ordersn,'')), '[^A-Z0-9]', '', 'g') = $2
+           OR REGEXP_REPLACE(UPPER(COALESCE(cr.awb_number,'')), '[^A-Z0-9]', '', 'g') = $2
         LIMIT 1
-      `, [raw]);
+      `, [raw, compact]);
       chinaRow = chinaRes.rows[0] || null;
     } catch { /* china_receipts opcional */ }
 
@@ -9751,8 +9771,11 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
         WHERE UPPER(mo.ordersn) = $1
            OR UPPER(COALESCE(mo.bl_number,'')) = $1
            OR UPPER(COALESCE(mo.ship_number,'')) = $1
+           OR REGEXP_REPLACE(UPPER(COALESCE(mo.ordersn,'')), '[^A-Z0-9]', '', 'g') = $2
+           OR REGEXP_REPLACE(UPPER(COALESCE(mo.bl_number,'')), '[^A-Z0-9]', '', 'g') = $2
+           OR REGEXP_REPLACE(UPPER(COALESCE(mo.ship_number,'')), '[^A-Z0-9]', '', 'g') = $2
         LIMIT 1
-      `, [raw]);
+      `, [raw, compact]);
       maritimeRow = maritimeRes.rows[0] || null;
     } catch { /* maritime_orders opcional */ }
 
@@ -9780,8 +9803,11 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
         WHERE UPPER(COALESCE(c.container_number,'')) = $1
            OR UPPER(COALESCE(c.bl_number,'')) = $1
            OR UPPER(COALESCE(c.reference_code,'')) = $1
+           OR REGEXP_REPLACE(UPPER(COALESCE(c.container_number,'')), '[^A-Z0-9]', '', 'g') = $2
+           OR REGEXP_REPLACE(UPPER(COALESCE(c.bl_number,'')), '[^A-Z0-9]', '', 'g') = $2
+           OR REGEXP_REPLACE(UPPER(COALESCE(c.reference_code,'')), '[^A-Z0-9]', '', 'g') = $2
         LIMIT 1
-      `, [raw]);
+      `, [raw, compact]);
       if (contRes.rows[0]) {
         containerRow = contRes.rows[0];
         containerRow._isContainer = true;

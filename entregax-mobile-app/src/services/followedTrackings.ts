@@ -34,6 +34,17 @@ export interface PublicTrackingSnapshot {
         description_en?: string;
         description_zh?: string;
     }>;
+    // Master AIR multi-caja
+    is_master?: boolean;
+    total_boxes?: number;
+    children?: Array<{
+        tracking: string;
+        box_number?: number | null;
+        current_milestone: number;
+        status_label: { es?: string; en?: string; zh?: string };
+        weight?: number | null;
+        dimensions?: string | null;
+    }>;
     fetchedAt: string;
 }
 

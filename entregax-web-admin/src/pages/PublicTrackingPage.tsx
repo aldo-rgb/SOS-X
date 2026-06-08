@@ -150,7 +150,6 @@ interface TrackingResult {
 
 export default function PublicTrackingPage() {
   const [lang, setLang] = useState<Lang>('es');
-  const [tracking, setTracking] = useState('');
   const { cajitoAvatarUrl, entregaxFullBlackUrl } = usePaymentStatus();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -479,6 +478,59 @@ export default function PublicTrackingPage() {
                         </Typography>
                       </Box>
                     )}
+                  </Box>
+                </Paper>
+              )}
+
+              {/* Cajas del envío (master con multi-caja AIR) */}
+              {result.is_master && (result.children?.length ?? 0) > 0 && (
+                <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: '1px solid #F0F0F0' }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+                    <Typography variant="overline" sx={{ color: '#888', fontWeight: 700, letterSpacing: 1.5 }}>
+                      {lang === 'en' ? 'Boxes in this shipment' : lang === 'zh' ? '本次运输的箱数' : 'Cajas de este envío'}
+                    </Typography>
+                    <Box sx={{
+                      px: 1.5, py: 0.5, borderRadius: 10,
+                      bgcolor: `${ORANGE}15`, color: ORANGE,
+                      fontSize: 13, fontWeight: 700,
+                    }}>
+                      {result.total_boxes ?? result.children?.length}
+                    </Box>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                    {(result.children || []).map((child, idx) => {
+                      const childLabel = lang === 'en'
+                        ? child.status_label.en
+                        : lang === 'zh' ? child.status_label.zh
+                        : child.status_label.es;
+                      const reached = child.current_milestone >= 5;
+                      return (
+                        <Box key={child.tracking}>
+                          <Box sx={{ display: 'flex', gap: 2, py: 1.5, alignItems: 'flex-start' }}>
+                            <Box sx={{
+                              width: 32, height: 32, borderRadius: '50%',
+                              backgroundColor: reached ? '#4CAF50' : ORANGE,
+                              color: '#fff', fontSize: 13, fontWeight: 700,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              flexShrink: 0,
+                            }}>
+                              {child.box_number ?? idx + 1}
+                            </Box>
+                            <Box sx={{ flex: 1, minWidth: 0 }}>
+                              <Typography sx={{ fontSize: 13, fontWeight: 600, color: BLACK, fontFamily: 'monospace' }}>
+                                {child.tracking}
+                              </Typography>
+                              <Typography sx={{ fontSize: 12, color: '#666', mt: 0.3 }}>
+                                {childLabel}
+                                {child.weight ? ` · ${child.weight} kg` : ''}
+                                {child.dimensions ? ` · ${child.dimensions}` : ''}
+                              </Typography>
+                            </Box>
+                          </Box>
+                          {idx < (result.children?.length ?? 0) - 1 && <Divider sx={{ ml: 5.5 }} />}
+                        </Box>
+                      );
+                    })}
                   </Box>
                 </Paper>
               )}

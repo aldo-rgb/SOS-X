@@ -1373,6 +1373,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         current_milestone: data.current_milestone,
         milestones: data.milestones,
         movements: data.movements,
+        is_master: data.is_master,
+        total_boxes: data.total_boxes,
+        children: data.children,
         fetchedAt: new Date().toISOString(),
       };
       setPublicSearchResult(snapshot);
@@ -2100,6 +2103,54 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     );
                   })}
                 </View>
+
+                {/* Cajas del envío (master AIR multi-caja) */}
+                {publicSearchResult.is_master && (publicSearchResult.children?.length ?? 0) > 0 && (
+                  <View style={{ marginTop: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#666' }}>
+                        CAJAS DE ESTE ENVÍO
+                      </Text>
+                      <View style={{
+                        paddingHorizontal: 10, paddingVertical: 2, borderRadius: 12,
+                        backgroundColor: `${ORANGE}22`,
+                      }}>
+                        <Text style={{ color: ORANGE, fontSize: 12, fontWeight: '700' }}>
+                          {publicSearchResult.total_boxes ?? publicSearchResult.children?.length}
+                        </Text>
+                      </View>
+                    </View>
+                    {(publicSearchResult.children || []).map((child, idx) => (
+                      <View key={child.tracking} style={{
+                        flexDirection: 'row', alignItems: 'center',
+                        paddingVertical: 8,
+                        borderBottomWidth: idx < (publicSearchResult.children?.length ?? 0) - 1 ? 1 : 0,
+                        borderBottomColor: '#eee',
+                      }}>
+                        <View style={{
+                          width: 28, height: 28, borderRadius: 14,
+                          backgroundColor: child.current_milestone >= 5 ? '#4CAF50' : ORANGE,
+                          alignItems: 'center', justifyContent: 'center',
+                          marginRight: 10,
+                        }}>
+                          <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>
+                            {child.box_number ?? idx + 1}
+                          </Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: '#111', fontFamily: 'monospace' }}>
+                            {child.tracking}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                            {child.status_label?.es || ''}
+                            {child.weight ? ` · ${child.weight} kg` : ''}
+                            {child.dimensions ? ` · ${child.dimensions}` : ''}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
 
                 {/* Últimos eventos */}
                 {(publicSearchResult.movements || []).length > 0 && (
