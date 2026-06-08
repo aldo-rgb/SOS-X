@@ -19,7 +19,6 @@ import {
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
   PictureAsPdf as PictureAsPdfIcon,
-  WhatsApp as WhatsAppIcon,
   CheckCircle as CheckCircleIcon,
   Person as PersonIcon,
   ArrowBack as ArrowBackIcon,
@@ -729,27 +728,6 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
               {selected.size === 0 ? 'Selecciona consolidaciones para generar reporte o referencia' : `${selected.size} consolidación(es) seleccionada(s)`}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              <Tooltip title={selected.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
-                <span>
-                  <Button variant="outlined" color="error" startIcon={<PictureAsPdfIcon />} onClick={handleGenerarPDF} disabled={selected.size === 0}>
-                    Descargar PDF
-                  </Button>
-                </span>
-              </Tooltip>
-              <Tooltip title={selected.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
-                <span>
-                  <Button variant="outlined" startIcon={<WhatsAppIcon />} onClick={handleEnviarWhatsApp} disabled={selected.size === 0} sx={{ color: '#25D366', borderColor: '#25D366', '&:hover': { borderColor: '#1DA851', color: '#1DA851' } }}>
-                    WhatsApp
-                  </Button>
-                </span>
-              </Tooltip>
-              <Tooltip title={selected.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
-                <span>
-                  <Button variant="outlined" color="primary" startIcon={<AssignmentIcon />} onClick={handleGenerarOrdenPago} disabled={selected.size === 0}>
-                    Orden de Pago
-                  </Button>
-                </span>
-              </Tooltip>
               <Button
                 variant="outlined"
                 color="secondary"
