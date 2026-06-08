@@ -22,6 +22,7 @@ interface PaymentStatusCache {
   external_sync_enabled: boolean;
   cajito_enabled: boolean;
   cajito_avatar_url: string | null;
+  entregax_full_black_url: string | null;
   maintenance_mode: boolean;
 }
 
@@ -42,6 +43,7 @@ const FALLBACK: PaymentStatusCache = {
   external_sync_enabled: true,
   cajito_enabled: false,
   cajito_avatar_url: null,
+  entregax_full_black_url: null,
   maintenance_mode: false,
 };
 
@@ -102,6 +104,7 @@ export function usePaymentStatus() {
             external_sync_enabled: data.external_sync_enabled !== false,
             cajito_enabled: data.cajito_enabled === true,
             cajito_avatar_url: typeof data.cajito_avatar_url === 'string' ? data.cajito_avatar_url : null,
+            entregax_full_black_url: typeof data.entregax_full_black_url === 'string' ? data.entregax_full_black_url : null,
             maintenance_mode: data.maintenance_mode === true,
           };
           lastFetch = Date.now();
@@ -135,6 +138,7 @@ export function usePaymentStatus() {
     externalSyncEnabled: status.external_sync_enabled,
     cajitoEnabled: status.cajito_enabled,
     cajitoAvatarUrl: status.cajito_avatar_url,
+    entregaxFullBlackUrl: status.entregax_full_black_url,
     maintenanceMode: status.maintenance_mode,
     loading,
   };

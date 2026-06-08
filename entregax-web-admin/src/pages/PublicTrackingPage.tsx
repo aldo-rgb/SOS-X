@@ -131,7 +131,7 @@ interface TrackingResult {
 export default function PublicTrackingPage() {
   const [lang, setLang] = useState<Lang>('es');
   const [langAnchor, setLangAnchor] = useState<null | HTMLElement>(null);
-  const { cajitoAvatarUrl } = usePaymentStatus();
+  const { cajitoAvatarUrl, entregaxFullBlackUrl } = usePaymentStatus();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TrackingResult | null>(null);
@@ -288,13 +288,20 @@ export default function PublicTrackingPage() {
 
         {/* Logo + Cajito */}
         <Box sx={{ display: { xs: 'none', md: 'flex' }, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
-          <Box
-            component="img"
-            src="/logo-blanco.png"
-            alt="EntregaX"
-            onError={(e: any) => { e.target.style.display = 'none'; }}
-            sx={{ width: 220, objectFit: 'contain', filter: 'brightness(0) invert(1)', opacity: 0.92 }}
-          />
+          {(entregaxFullBlackUrl || true) && (
+            <Box
+              component="img"
+              src={entregaxFullBlackUrl || '/logo-blanco.png'}
+              alt="EntregaX"
+              onError={(e: any) => { e.target.style.display = 'none'; }}
+              sx={{
+                width: 220,
+                objectFit: 'contain',
+                filter: entregaxFullBlackUrl ? 'brightness(0) invert(1)' : 'brightness(0) invert(1)',
+                opacity: 0.92,
+              }}
+            />
+          )}
           {cajitoAvatarUrl && (
             <Box
               component="img"

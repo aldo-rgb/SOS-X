@@ -11204,15 +11204,19 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['maintenance_mode']?.enabled === true
       : false;
 
-    // cajito_avatar_url: imagen activa del avatar de Cajito (slot brand_assets)
+    // cajito_avatar_url + entregax_full_black_url: imágenes activas de brand_assets
     let cajitoAvatarUrl: string | null = null;
+    let entregaxFullBlackUrl: string | null = null;
     try {
       const av = await pool.query(
-        `SELECT url, storage_key FROM brand_assets WHERE slot = 'cajito_avatar' AND is_active = TRUE
-         ORDER BY created_at DESC LIMIT 1`
+        `SELECT slot, url, storage_key FROM brand_assets
+         WHERE slot IN ('cajito_avatar', 'entregax_full_black') AND is_active = TRUE
+         ORDER BY slot ASC, created_at DESC`
       );
-      if (av.rows[0]) {
-        cajitoAvatarUrl = await resolveAssetUrl(av.rows[0]);
+      for (const row of av.rows) {
+        const signed = await resolveAssetUrl(row);
+        if (row.slot === 'cajito_avatar') cajitoAvatarUrl = signed;
+        if (row.slot === 'entregax_full_black') entregaxFullBlackUrl = signed;
       }
     } catch { /* tabla aún no creada */ }
 
@@ -11229,10 +11233,11 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       external_sync_enabled: externalSyncEnabled,
       cajito_enabled: cajitoEnabled,
       cajito_avatar_url: cajitoAvatarUrl,
+      entregax_full_black_url: entregaxFullBlackUrl,
       maintenance_mode: maintenanceMode,
     });
   } catch (_e) {
-    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, maintenance_mode: false });
+    res.json({ payments_enabled: true, xpay_enabled: true, entregax_payments_enabled: true, entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true }, gex_enabled: true, advisor_instructions_enabled: true, require_payment_to_load: true, require_label_to_load: true, require_instructions_to_load_pobox: false, external_sync_enabled: true, cajito_enabled: false, cajito_avatar_url: null, entregax_full_black_url: null, maintenance_mode: false });
   }
 });
 
