@@ -367,16 +367,15 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           style={styles.logoImage}
           resizeMode="contain"
         />
-        <Text style={styles.subtitle}>{t.subtitle}</Text>
-      </View>
-
-      {/* Cajito asomándose sobre la tarjeta */}
-      <View style={styles.cajitoWrapper} pointerEvents="none">
-        <Image
-          source={require('../../assets/cajito-blanco.png')}
-          style={styles.cajitoImg}
-          resizeMode="contain"
-        />
+        {/* Cajito asomándose al lado del subtitle */}
+        <View style={styles.subtitleRow} pointerEvents="none">
+          <Text style={styles.subtitle}>{t.subtitle}</Text>
+          <Image
+            source={require('../../assets/cajito-asomando.png')}
+            style={styles.cajitoImg}
+            resizeMode="contain"
+          />
+        </View>
       </View>
 
       {/* Formulario */}
@@ -614,16 +613,18 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.80)',
     marginTop: 5,
   },
-  cajitoWrapper: {
-    position: 'absolute',
-    right: 24,
-    bottom: '28%',
-    zIndex: 10,
+  subtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 4,
   },
   cajitoImg: {
-    width: 88,
-    height: 88,
-    opacity: 0.92,
+    width: 72,
+    height: 72,
+    opacity: 0.95,
+    marginBottom: -8,
   },
   formContainer: {
     flex: 0.72,
