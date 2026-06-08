@@ -62,10 +62,13 @@ import {
   Person as PersonIcon,
   CheckCircle as CheckCircleIcon,
   PictureAsPdf as PictureAsPdfIcon,
-  WhatsApp as WhatsAppIcon,
   ArrowBack as ArrowBackIcon,
   DeleteForever as DeleteForeverIcon,
   Edit as EditIcon,
+  ListAlt as ListAltIcon,
+  AddCircleOutline as AddCircleOutlineIcon,
+  Delete as DeleteIcon,
+  GridOn as GridOnIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -264,6 +267,13 @@ const CajaChicaPage: React.FC = () => {
   const [pagoMultipleRef, setPagoMultipleRef] = useState('');
   const [pagoMultipleNotas, setPagoMultipleNotas] = useState('');
   const [procesandoPagoMultiple, setProcesandoPagoMultiple] = useState(false);
+  // Referencias de pago
+  const [refModalOpen, setRefModalOpen] = useState(false);
+  const [referencias, setReferencias] = useState<any[]>([]);
+  const [loadingReferencias, setLoadingReferencias] = useState(false);
+  const [creandoRef, setCreandoRef] = useState(false);
+  const [deletingRefId, setDeletingRefId] = useState<number | null>(null);
+  const [confirmDeleteRefId, setConfirmDeleteRefId] = useState<number | null>(null);
   // Filas expandibles en la tabla de Transacciones (para ver detalle
   // de consolidaciones en pagos a proveedor agrupados).
   const [expandedTxs, setExpandedTxs] = useState<Set<number>>(new Set());
@@ -597,6 +607,100 @@ const CajaChicaPage: React.FC = () => {
       });
     });
     return { rows, totalUsd, totalMxn, selectedCount: selected.length };
+  };
+
+  // ── Funciones de Referencias de Pago ──────────────────────────────
+  const fmtDateRef = (d?: string | null) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' }); } catch { return '—'; } };
+
+  const fetchReferencias = async () => {
+    if (!pagoProveedorSel) return;
+    setLoadingReferencias(true);
+    try {
+      const r = await api.get('/pobox/payment-references', { params: { supplier_id: pagoProveedorSel.id } });
+      setReferencias(r.data.references || []);
+    } catch { /* ignore */ } finally { setLoadingReferencias(false); }
+  };
+
+  const handleVerReferencias = async () => { await fetchReferencias(); setRefModalOpen(true); };
+
+  const handleGenerarReferencia = async () => {
+    if (selectedConsolidaciones.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
+    const { rows, totalUsd, totalMxn } = getReporteRows();
+    if (rows.length === 0) { setSnackbar({ open: true, message: 'Sin guías recibidas en las consolidaciones seleccionadas', severity: 'info' }); return; }
+    setCreandoRef(true);
+    try {
+      await api.post('/pobox/payment-references', {
+        supplier_id: pagoProveedorSel!.id,
+        supplier_name: pagoProveedorSel!.name,
+        consolidation_ids: consolidacionesPendientes.filter(c => selectedConsolidaciones.has(c.id)).map(c => c.id),
+        total_usd: totalUsd,
+        total_mxn: totalMxn,
+        packages_count: rows.length,
+        packages_data: rows,
+        notas: null,
+      });
+      await fetchReferencias();
+      setRefModalOpen(true);
+      setSnackbar({ open: true, message: '✅ Referencia generada correctamente', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al generar referencia', severity: 'error' });
+    } finally { setCreandoRef(false); }
+  };
+
+  const handleEliminarReferencia = async (id: number) => {
+    setDeletingRefId(id);
+    try {
+      await api.delete(`/pobox/payment-references/${id}`);
+      setReferencias(prev => prev.filter(r => r.id !== id));
+      setConfirmDeleteRefId(null);
+      setSnackbar({ open: true, message: 'Referencia eliminada', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al eliminar', severity: 'error' });
+    } finally { setDeletingRefId(null); }
+  };
+
+  const generateOrdenPagoFromRef = (ref: any) => {
+    const rows = ref.packages_data || [];
+    const totalUsd = Number(ref.total_usd) || 0;
+    const totalMxn = Number(ref.total_mxn) || 0;
+    const fecha = new Date().toLocaleString('es-MX');
+    const refFecha = new Date(ref.created_at).toLocaleString('es-MX');
+    const idsStr = (ref.consolidation_ids || []).map((id: number) => `#${id}`).join(', ');
+    const rowsHTML = (ref.consolidation_ids || []).map((id: number) => {
+      const guias = rows.filter((r: any) => r.consolidacion_id === id);
+      const usd = guias.filter((r: any) => r.countsToTotal).reduce((s: number, r: any) => s + r.usd, 0);
+      const mxn = guias.filter((r: any) => r.countsToTotal).reduce((s: number, r: any) => s + r.mxn, 0);
+      return `<tr><td style="font-family:monospace;font-weight:600">#${id}</td><td style="text-align:center">${guias.length}</td><td style="text-align:right">$${usd.toFixed(2)}</td><td style="text-align:right">$${mxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`;
+    }).join('');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Orden de Pago REF-${ref.id}</title>
+<style>@page{size:letter;margin:20mm}body{font-family:Arial,sans-serif;font-size:12px;color:#222}h1{font-size:20px;color:#C1272D;margin:0 0 2px}h2{font-size:13px;color:#333;margin:0 0 16px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;border-bottom:2px solid #C1272D;padding-bottom:12px}.ref-badge{background:#C1272D;color:#fff;font-size:18px;font-weight:900;padding:6px 14px;border-radius:6px;letter-spacing:1px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#1a1a1a;color:#fff;padding:6px 8px;text-align:left;font-size:11px}td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:11px}.totals{border:2px solid #C1272D;padding:14px 18px;margin:18px 0;display:flex;justify-content:space-around;align-items:center}.totals .lbl{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px}.totals .big{font-size:22px;font-weight:900;color:#C1272D}.ref-box{border:1px dashed #999;padding:12px;margin-top:18px;font-size:11px}.sig{margin-top:44px;display:flex;justify-content:space-between}.sig div{text-align:center;width:44%}.sig hr{border:none;border-top:1px solid #333;margin-bottom:4px}</style></head><body>
+<div class="header"><div><h1>EntregaX · Orden de Pago</h1><h2>PO Box USA — Proveedor: <strong>${ref.supplier_name || pagoProveedorSel?.name || ''}</strong></h2><p style="font-size:11px;color:#666;margin:4px 0">Consolidaciones: ${idsStr}</p><p style="font-size:11px;color:#666;margin:0">Generada: ${refFecha}</p></div><div style="text-align:right"><div class="ref-badge">REF-${ref.id}</div><p style="font-size:11px;color:#666;margin-top:6px">Impresa: ${fecha}</p></div></div>
+<table><thead><tr><th>Consolidación</th><th style="text-align:center">Guías</th><th style="text-align:right">Total USD</th><th style="text-align:right">Total MXN</th></tr></thead><tbody>${rowsHTML}<tr style="background:#f5f5f5;font-weight:bold"><td>TOTAL</td><td style="text-align:center">${ref.packages_count ?? rows.length}</td><td style="text-align:right">$${totalUsd.toFixed(2)}</td><td style="text-align:right">$${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr></tbody></table>
+<div class="totals"><div><div class="lbl">Total USD</div><div class="big">$${totalUsd.toFixed(2)}</div></div><div style="font-size:28px;color:#ddd">|</div><div><div class="lbl">Total MXN</div><div class="big">$${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div></div>
+<div class="ref-box">Referencia EntregaX: <strong>REF-${ref.id}</strong>&nbsp;&nbsp;&nbsp;Folio/SPEI/Cheque: ___________________________________&nbsp;&nbsp;&nbsp;Fecha de pago: _____________</div>
+<div class="sig"><div><hr>Elaborado por</div><div><hr>Autorizado por</div></div>
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});</script>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) { setSnackbar({ open: true, message: 'Permite ventanas emergentes', severity: 'error' }); return; }
+    w.document.write(html); w.document.close();
+  };
+
+  const generateExcelFromRef = (ref: any) => {
+    const rows = ref.packages_data || [];
+    const headers = ['No.', 'Consolidación', '# Cliente', 'Guía Origen', 'Guía', 'Ingresada', 'Recibida MTY', 'Peso (lb)', 'USD', 'TC', 'MXN', 'Estado'];
+    const csvRows = rows.map((r: any, idx: number) => [
+      idx + 1, `#${r.consolidacion_id}`, r.client_box_id || '', r.tracking_provider || '', r.tracking,
+      fmtDateRef(r.received_at), fmtDateRef(r.received_mty_at), Number(r.weight || 0).toFixed(2),
+      Number(r.usd || 0).toFixed(2), Number(r.tc || 0).toFixed(2), Number(r.mxn || 0).toFixed(2), r.statusLabel || '',
+    ]);
+    const bom = '﻿';
+    const csv = bom + [headers, ...csvRows].map(row => row.map((c: any) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `REF-${ref.id}-${(ref.supplier_name || '').replace(/\s+/g, '_')}.csv`; a.click();
+    URL.revokeObjectURL(url);
   };
 
   // Generar PDF imprimible (HTML → window.print → guardar como PDF)
@@ -2265,29 +2369,24 @@ const CajaChicaPage: React.FC = () => {
             </Typography>
           </Box>
           <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+            <Button
+              variant="outlined"
+              color="secondary"
+              startIcon={<ListAltIcon />}
+              onClick={handleVerReferencias}
+            >
+              Ver Referencias
+            </Button>
             <Tooltip title={selectedConsolidaciones.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
               <span>
                 <Button
                   variant="outlined"
-                  color="error"
-                  startIcon={<PictureAsPdfIcon />}
-                  onClick={handleGenerarPDF}
-                  disabled={selectedConsolidaciones.size === 0}
+                  color="inherit"
+                  startIcon={creandoRef ? <CircularProgress size={16} /> : <AddCircleOutlineIcon />}
+                  onClick={handleGenerarReferencia}
+                  disabled={selectedConsolidaciones.size === 0 || creandoRef}
                 >
-                  Descargar PDF
-                </Button>
-              </span>
-            </Tooltip>
-            <Tooltip title={selectedConsolidaciones.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
-              <span>
-                <Button
-                  variant="outlined"
-                  startIcon={<WhatsAppIcon />}
-                  onClick={handleEnviarWhatsApp}
-                  disabled={selectedConsolidaciones.size === 0}
-                  sx={{ color: '#25D366', borderColor: '#25D366', '&:hover': { borderColor: '#1ebd5a', bgcolor: 'rgba(37,211,102,0.08)' } }}
-                >
-                  WhatsApp
+                  Generar Referencia ({selectedConsolidaciones.size})
                 </Button>
               </span>
             </Tooltip>
@@ -2310,6 +2409,114 @@ const CajaChicaPage: React.FC = () => {
           </Box>
             </>
           )}
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Modal: Referencias de Pago ─────────────────────────── */}
+      <Dialog open={refModalOpen} onClose={() => setRefModalOpen(false)} maxWidth="lg" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <ListAltIcon color="warning" />
+            <Typography fontWeight="bold">Referencias de Pago — {pagoProveedorSel?.name}</Typography>
+          </Box>
+          <Typography variant="caption" color="text.secondary">{referencias.length} referencia(s)</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {loadingReferencias ? (
+            <Box display="flex" justifyContent="center" p={4}><CircularProgress /></Box>
+          ) : referencias.length === 0 ? (
+            <Box p={4} textAlign="center">
+              <Typography color="text.secondary">No hay referencias de pago para este proveedor.</Typography>
+            </Box>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                    <TableCell><strong>Ref #</strong></TableCell>
+                    <TableCell><strong>Fecha</strong></TableCell>
+                    <TableCell><strong>Consolidaciones</strong></TableCell>
+                    <TableCell align="center"><strong>Guías</strong></TableCell>
+                    <TableCell align="right"><strong>Total USD</strong></TableCell>
+                    <TableCell align="right"><strong>Total MXN</strong></TableCell>
+                    <TableCell align="center"><strong>Acciones</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {referencias.map((ref) => {
+                    const rows = ref.packages_data || [];
+                    const totalUsd = rows.filter((r: any) => r.countsToTotal).reduce((s: number, r: any) => s + Number(r.usd || 0), 0);
+                    const totalMxn = rows.filter((r: any) => r.countsToTotal).reduce((s: number, r: any) => s + Number(r.mxn || 0), 0);
+                    const isDeleting = deletingRefId === ref.id;
+                    return (
+                      <TableRow key={ref.id} hover>
+                        <TableCell><Typography fontWeight="bold" fontFamily="monospace">REF-{ref.id}</Typography></TableCell>
+                        <TableCell>
+                          <Typography variant="body2">{fmtDateRef(ref.created_at)}</Typography>
+                          <Typography variant="caption" color="text.secondary">{new Date(ref.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Box display="flex" gap={0.5} flexWrap="wrap">
+                            {(ref.consolidation_ids || []).map((id: number) => (
+                              <Chip key={id} label={`#${id}`} size="small" variant="outlined" color="primary" />
+                            ))}
+                          </Box>
+                        </TableCell>
+                        <TableCell align="center"><Chip label={ref.packages_count ?? rows.length} size="small" /></TableCell>
+                        <TableCell align="right"><Typography fontWeight="bold" color="success.main">${Number(ref.total_usd || totalUsd).toFixed(2)}</Typography></TableCell>
+                        <TableCell align="right"><Typography fontWeight="bold" color="primary.main">{Number(ref.total_mxn || totalMxn).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' })}</Typography></TableCell>
+                        <TableCell align="center">
+                          <Box display="flex" gap={0.5} justifyContent="center">
+                            <Tooltip title="Orden de Pago (REF)">
+                              <IconButton size="small" color="primary" onClick={() => generateOrdenPagoFromRef(ref)}>
+                                <AssignmentIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Descargar PDF detallado">
+                              <IconButton size="small" color="error" onClick={() => { const r = ref.packages_data||[]; const u = r.filter((x:any)=>x.countsToTotal).reduce((s:number,x:any)=>s+Number(x.usd||0),0); const m = r.filter((x:any)=>x.countsToTotal).reduce((s:number,x:any)=>s+Number(x.mxn||0),0); handleGenerarPDF(); }}>
+                                <PictureAsPdfIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Descargar Excel">
+                              <IconButton size="small" color="success" onClick={() => generateExcelFromRef(ref)}>
+                                <GridOnIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Eliminar referencia">
+                              <IconButton size="small" color="error" disabled={isDeleting} onClick={() => setConfirmDeleteRefId(ref.id)}>
+                                {isDeleting ? <CircularProgress size={16} /> : <DeleteIcon fontSize="small" />}
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRefModalOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Confirmar eliminar referencia ─────────────────────── */}
+      <Dialog open={confirmDeleteRefId !== null} onClose={() => setConfirmDeleteRefId(null)} maxWidth="xs">
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DeleteIcon color="error" /> Eliminar referencia
+        </DialogTitle>
+        <DialogContent>
+          <Typography>¿Eliminar <strong>REF-{confirmDeleteRefId}</strong>? Esta acción no se puede deshacer.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDeleteRefId(null)}>Cancelar</Button>
+          <Button variant="contained" color="error" disabled={deletingRefId === confirmDeleteRefId}
+            startIcon={deletingRefId === confirmDeleteRefId ? <CircularProgress size={16} color="inherit" /> : <DeleteIcon />}
+            onClick={() => confirmDeleteRefId !== null && handleEliminarReferencia(confirmDeleteRefId)}>
+            Eliminar
+          </Button>
         </DialogActions>
       </Dialog>
 

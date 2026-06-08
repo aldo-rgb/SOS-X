@@ -11301,6 +11301,19 @@ async function ensureRequiredColumns() {
         icon = EXCLUDED.icon,
         category = EXCLUDED.category
     `);
+    // Sembrar módulos del panel admin_usa_pobox en admin_panel_modules (idempotente)
+    await pool.query(`
+      INSERT INTO admin_panel_modules (panel_key, module_key, module_name, description, icon, sort_order, is_active)
+      VALUES
+        ('admin_usa_pobox', 'pobox_rates',           'Tarifas PO Box',    'Configuración de tarifas por volumen (CBM) y tipo de cambio',          'PriceChange',   1, TRUE),
+        ('admin_usa_pobox', 'suppliers',             'Proveedores',       'Gestión de proveedores y consolidaciones USA',                          'LocalShipping', 2, TRUE),
+        ('admin_usa_pobox', 'pobox_consolidaciones', 'Consolidaciones',   'Pagos a proveedores PO Box: órdenes de pago y referencias',             'Inventory',     3, TRUE),
+        ('admin_usa_pobox', 'invoicing',             'Facturación',       'Emisión y gestión de facturas PO Box USA',                              'Receipt',       4, TRUE),
+        ('admin_usa_pobox', 'instructions',          'Instrucciones',     'Configuración de instrucciones de entrega por cliente',                 'Description',   5, TRUE),
+        ('admin_usa_pobox', 'carrier_options',       'Opciones de Envío', 'Paqueterías nacionales disponibles para clientes PO Box',               'LocalShipping', 6, TRUE)
+      ON CONFLICT (panel_key, module_key) DO NOTHING
+    `).catch(() => {});
+
     // Tabla de permisos de contadores por empresa fiscal
     await pool.query(`
       CREATE TABLE IF NOT EXISTS accountant_emitter_permissions (
