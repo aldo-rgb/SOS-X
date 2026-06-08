@@ -302,6 +302,34 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
     URL.revokeObjectURL(url);
   };
 
+  // ── Orden de Pago desde referencia (con REF #) ─────────────────────
+  const generateOrdenPagoFromRef = (ref: PaymentReference) => {
+    const rows = ref.packages_data || [];
+    const totalUsd = Number(ref.total_usd) || rows.filter(r => r.countsToTotal).reduce((s, r) => s + r.usd, 0);
+    const totalMxn = Number(ref.total_mxn) || rows.filter(r => r.countsToTotal).reduce((s, r) => s + r.mxn, 0);
+    const fecha = new Date().toLocaleString('es-MX');
+    const refFecha = new Date(ref.created_at).toLocaleString('es-MX');
+    const idsStr = (ref.consolidation_ids || []).map(id => `#${id}`).join(', ');
+    const rowsHTML = (ref.consolidation_ids || []).map(id => {
+      const guias = rows.filter(r => r.consolidacion_id === id);
+      const usd = guias.filter(r => r.countsToTotal).reduce((s, r) => s + r.usd, 0);
+      const mxn = guias.filter(r => r.countsToTotal).reduce((s, r) => s + r.mxn, 0);
+      return `<tr><td style="font-family:monospace;font-weight:600">#${id}</td><td style="text-align:center">${guias.length}</td><td style="text-align:right">$${usd.toFixed(2)}</td><td style="text-align:right">$${mxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`;
+    }).join('');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Orden de Pago REF-${ref.id}</title>
+<style>@page{size:letter;margin:20mm}body{font-family:Arial,sans-serif;font-size:12px;color:#222}h1{font-size:20px;color:#C1272D;margin:0 0 2px}h2{font-size:13px;color:#333;margin:0 0 16px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;border-bottom:2px solid #C1272D;padding-bottom:12px}.ref-badge{background:#C1272D;color:#fff;font-size:18px;font-weight:900;padding:6px 14px;border-radius:6px;letter-spacing:1px}table{width:100%;border-collapse:collapse;margin:10px 0}th{background:#1a1a1a;color:#fff;padding:6px 8px;text-align:left;font-size:11px}td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:11px}.totals{border:2px solid #C1272D;padding:14px 18px;margin:18px 0;display:flex;justify-content:space-around;align-items:center}.totals .lbl{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px}.totals .big{font-size:22px;font-weight:900;color:#C1272D}.ref-box{border:1px dashed #999;padding:12px;margin-top:18px;font-size:11px}.sig{margin-top:44px;display:flex;justify-content:space-between}.sig div{text-align:center;width:44%}.sig hr{border:none;border-top:1px solid #333;margin-bottom:4px}</style></head><body>
+<div class="header"><div><h1>EntregaX · Orden de Pago</h1><h2>PO Box USA — Proveedor: <strong>${ref.supplier_name || proveedorSel?.name || ''}</strong></h2><p style="font-size:11px;color:#666;margin:4px 0">Consolidaciones: ${idsStr}</p><p style="font-size:11px;color:#666;margin:0">Generada por sistema: ${refFecha}</p></div><div style="text-align:right"><div class="ref-badge">REF-${ref.id}</div><p style="font-size:11px;color:#666;margin-top:6px">Impresa: ${fecha}</p></div></div>
+<table><thead><tr><th>Consolidación</th><th style="text-align:center">Guías</th><th style="text-align:right">Total USD</th><th style="text-align:right">Total MXN</th></tr></thead><tbody>${rowsHTML}<tr style="background:#f5f5f5;font-weight:bold"><td>TOTAL (${(ref.consolidation_ids||[]).length} consolidaciones)</td><td style="text-align:center">${ref.packages_count ?? rows.length}</td><td style="text-align:right">$${totalUsd.toFixed(2)}</td><td style="text-align:right">$${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr></tbody></table>
+<div class="totals"><div><div class="lbl">Total USD a pagar</div><div class="big">$${totalUsd.toFixed(2)}</div></div><div style="font-size:28px;color:#ddd">|</div><div><div class="lbl">Total MXN a pagar</div><div class="big">$${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div></div>
+<div class="ref-box">Referencia EntregaX: <strong>REF-${ref.id}</strong>&nbsp;&nbsp;&nbsp;&nbsp;Folio / SPEI / Cheque: ___________________________________&nbsp;&nbsp;&nbsp;&nbsp;Fecha de pago: _____________</div>
+<div class="sig"><div><hr>Elaborado por</div><div><hr>Autorizado por</div></div>
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});</script>
+</body></html>`;
+    const w = window.open('', '_blank', 'width=900,height=700');
+    if (!w) { setSnackbar({ open: true, message: 'Permite ventanas emergentes para generar la orden', severity: 'error' }); return; }
+    w.document.write(html); w.document.close();
+  };
+
   const handleGenerarPDF = () => {
     if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
     const { rows, totalUsd, totalMxn, selectedCount } = getReporteRows();
@@ -811,7 +839,16 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                         </TableCell>
                         <TableCell align="center">
                           <Box display="flex" gap={0.5} justifyContent="center">
-                            <Tooltip title="Descargar PDF">
+                            <Tooltip title="Orden de Pago (REF)">
+                              <IconButton
+                                size="small"
+                                color="primary"
+                                onClick={() => generateOrdenPagoFromRef(ref)}
+                              >
+                                <AssignmentIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Descargar PDF detallado">
                               <IconButton
                                 size="small"
                                 color="error"

@@ -1678,6 +1678,65 @@ export const syncProveedoresFromRemote = async (req: Request, res: Response): Pr
   return res.json({ ok: true, ...summary, raw: remote.raw });
 };
 
+// ---------------------------------------------------------------------------
+// Sync interno para cron — misma lógica que syncProveedoresFromRemote
+// pero sin req/res para poder llamarse desde cronJobs.ts
+// ---------------------------------------------------------------------------
+export const syncEntangledForCron = async (): Promise<{ ok: boolean; updated: number; inserted: number; error?: string }> => {
+  if (!isEntangledConfigured()) return { ok: false, updated: 0, inserted: 0, error: 'ENTANGLED_API_KEY no configurada' };
+
+  const remote = await listProveedoresRemote();
+  if (!remote.ok) return { ok: false, updated: 0, inserted: 0, error: remote.error || 'Error remoto' };
+
+  const tcUsdRes = await getTipoCambio('USD');
+  const tcUsd = tcUsdRes.ok && tcUsdRes.tipo_cambio != null ? Number(tcUsdRes.tipo_cambio) : 0;
+  const tcRmbRes = await getTipoCambio('RMB' as any).catch(() => ({ ok: false, tipo_cambio: 0 } as any));
+  const tcRmb = tcRmbRes.ok && tcRmbRes.tipo_cambio != null ? Number(tcRmbRes.tipo_cambio) : 0;
+
+  const proveedores = remote.proveedores || [];
+  let inserted = 0; let updated = 0;
+  const activosExternos: string[] = [];
+
+  const extractTC = (v: any): number | null => {
+    if (v == null) return null;
+    if (typeof v === 'number') return v;
+    if (typeof v === 'object') { const ef = v.valor_efectivo ?? v.valor_base ?? v.valor; return ef != null ? Number(ef) : null; }
+    return null;
+  };
+
+  for (const p of proveedores) {
+    activosExternos.push(p.id);
+    const existing = await pool.query(`SELECT id FROM entangled_providers WHERE external_id = $1`, [p.id]);
+    const remoteUsd = extractTC(p.tipos_cambio?.USD);
+    const remoteRmb = extractTC(p.tipos_cambio?.RMB);
+    const provTcUsd = remoteUsd != null ? remoteUsd : tcUsd;
+    const provTcRmb = remoteRmb != null ? remoteRmb : tcRmb;
+    if (existing.rows.length > 0) {
+      await pool.query(
+        `UPDATE entangled_providers SET tipo_cambio_usd=$1, tipo_cambio_rmb=$2, last_synced_at=NOW(), updated_at=NOW() WHERE external_id=$3`,
+        [provTcUsd, provTcRmb, p.id]
+      );
+      updated++;
+    } else {
+      await pool.query(
+        `INSERT INTO entangled_providers (name, code, external_id, tipo_cambio_usd, tipo_cambio_rmb, is_active, is_default, sort_order, last_synced_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 0, NOW(), NOW(), NOW())`,
+        [p.nombre, (p.nombre || '').toUpperCase().slice(0, 16).replace(/[^A-Z0-9]/g, ''), p.id, provTcUsd, provTcRmb, p.activo !== false, false]
+      );
+      inserted++;
+    }
+  }
+
+  // Si no hay default activo, marcar el primero
+  const def = await pool.query(`SELECT id FROM entangled_providers WHERE is_active=true AND is_default=true LIMIT 1`);
+  if (def.rows.length === 0) {
+    const first = await pool.query(`SELECT id FROM entangled_providers WHERE is_active=true ORDER BY id ASC LIMIT 1`);
+    if (first.rows.length > 0) await pool.query(`UPDATE entangled_providers SET is_default=true WHERE id=$1`, [first.rows[0].id]);
+  }
+
+  return { ok: true, updated, inserted };
+};
+
 // ===========================================================================
 // GET /api/entangled/clave-sat-history    — historial de claves SAT del usuario
 // ===========================================================================

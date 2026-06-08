@@ -662,6 +662,24 @@ export const startAutoCheckoutCron = () => {
   console.log('📅 [CRON] Job de auto-checkout programado: 00:01 diario (cierra jornadas sin salida a las 19:00)');
 };
 
+export const startEntangledSyncCron = () => {
+  // Sincronizar proveedores Entangled cada hora: actualiza tipo_cambio_usd/rmb y updated_at
+  cron.schedule('0 * * * *', async () => {
+    console.log('🔄 [CRON] Sincronizando proveedores Entangled...');
+    try {
+      const { syncEntangledForCron } = await import('./entangledControllerV2');
+      const result = await syncEntangledForCron();
+      if (result.ok) {
+        console.log(`✅ [CRON] Entangled sync: updated=${result.updated}, inserted=${result.inserted}`);
+      } else {
+        console.warn(`⚠️ [CRON] Entangled sync falló: ${result.error}`);
+      }
+    } catch (err: any) {
+      console.error('❌ [CRON] Error en Entangled sync:', err.message);
+    }
+  });
+};
+
 export const startDatabaseBackupCron = () => {
   // Todos los días a las 02:00 AM UTC
   cron.schedule('0 2 * * *', async () => {
@@ -693,6 +711,7 @@ export const initCronJobs = () => {
   startFacturapiSyncCron();
   startAutoCheckoutCron();
   startDatabaseBackupCron();
+  startEntangledSyncCron();
 };
 
 export default initCronJobs;
