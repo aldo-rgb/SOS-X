@@ -209,7 +209,7 @@ export default function PublicTrackingPage() {
             </Box>
           )}
           <Typography sx={{ fontSize: 11, color: '#888', fontWeight: 500 }}>
-            Paquetería
+            Internacional
           </Typography>
         </Box>
 
