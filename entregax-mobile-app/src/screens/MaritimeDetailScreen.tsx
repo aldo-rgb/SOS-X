@@ -4,6 +4,7 @@
 // ============================================
 
 import React, { useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   View,
   Text,
@@ -62,6 +63,8 @@ interface Address {
 export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const { package: pkg, user, token } = route.params;
   const { gexEnabled, entregaxPaymentsEnabled, isEntregaxPaymentEnabledFor } = usePaymentStatus();
+  const { i18n } = useTranslation();
+  const lang = i18n.language as 'es' | 'en' | 'zh';
   const entregaxPayForThis = isEntregaxPaymentEnabledFor((pkg as any)?.servicio || (pkg as any)?.shipment_type);
   const [loading, setLoading] = useState(true);
   const [currentPkg, setCurrentPkg] = useState<any>(pkg as any);
@@ -182,38 +185,46 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
   );
 
   const getStatusInfo = (status: string) => {
+    const zh = lang === 'zh';
+    const en = lang === 'en';
     switch (status) {
       case 'received_china':
       case 'received_china_air':
-        return { label: 'Recibido en China', color: '#FF9800', icon: 'package-variant' };
+        return { label: zh ? '已在中国收货' : en ? 'Received in China' : 'Recibido en China', color: '#FF9800', icon: 'package-variant' };
       case 'received_origin':
-        return { label: 'Recibido en Origen', color: '#FF9800', icon: 'package-variant' };
+        return { label: zh ? '已在发货地收货' : en ? 'Received at Origin' : 'Recibido en Origen', color: '#FF9800', icon: 'package-variant' };
       case 'pending_inspection':
-        return { label: 'Pendiente Inspección', color: '#FF9800', icon: 'magnify' };
+        return { label: zh ? '待检验' : en ? 'Pending Inspection' : 'Pendiente Inspección', color: '#FF9800', icon: 'magnify' };
       case 'received_mty':
       case 'received_cedis':
-        return { label: 'Recibido MTY', color: '#6B7280', icon: 'package-variant' };
+        return { label: zh ? '已到达蒙特雷' : en ? 'Received MTY' : 'Recibido MTY', color: '#6B7280', icon: 'package-variant' };
       case 'inspected':
-        return { label: 'Inspeccionado', color: '#6B7280', icon: 'check' };
+        return { label: zh ? '已检验' : en ? 'Inspected' : 'Inspeccionado', color: '#6B7280', icon: 'check' };
       case 'pending_payment':
-        return { label: 'Pendiente de Pago', color: '#F59E0B', icon: 'credit-card-outline' };
+        return { label: zh ? '待付款' : en ? 'Pending Payment' : 'Pendiente de Pago', color: '#F59E0B', icon: 'credit-card-outline' };
       case 'paid':
-        return { label: 'Pagado', color: '#10B981', icon: 'check-circle' };
+        return { label: zh ? '已付款' : en ? 'Paid' : 'Pagado', color: '#10B981', icon: 'check-circle' };
       case 'dispatched':
-        return { label: 'Enviado', color: '#3B82F6', icon: 'truck-fast' };
+        return { label: zh ? '已发货' : en ? 'Dispatched' : 'Enviado', color: '#3B82F6', icon: 'truck-fast' };
+      case 'loading':
+        return { label: zh ? '装柜中' : en ? 'Loading' : 'Cargando en contenedor', color: '#FF6B35', icon: 'package-variant-closed' };
       case 'in_transit':
-        return { label: 'Ya Zarpó', color: '#E53935', icon: 'ferry' };
+        return { label: zh ? '已起航' : en ? 'Departed' : 'Ya Zarpó', color: '#E53935', icon: 'ferry' };
       case 'in_transit_transfer':
-        return { label: 'En Tránsito', color: '#E53935', icon: 'airplane' };
+        return { label: zh ? '运输中' : en ? 'In Transit' : 'En Tránsito', color: '#E53935', icon: 'airplane' };
       case 'arrived_mx':
-        return { label: 'Arribado a México', color: '#2196F3', icon: 'airplane-landing' };
+        return { label: zh ? '已抵达墨西哥' : en ? 'Arrived Mexico' : 'Arribado a México', color: '#2196F3', icon: 'airplane-landing' };
       case 'at_port':
-        return { label: 'En Puerto MX', color: '#2196F3', icon: 'anchor' };
+        return { label: zh ? '在墨西哥港口' : en ? 'At Port MX' : 'En Puerto MX', color: '#2196F3', icon: 'anchor' };
       case 'at_customs':
       case 'customs':
-        return { label: 'En Aduana', color: '#9C27B0', icon: 'file-document' };
+        return { label: zh ? '清关中' : en ? 'In Customs' : 'En Aduana', color: '#9C27B0', icon: 'file-document' };
+      case 'customs_cleared':
+        return { label: zh ? '清关完成' : en ? 'Customs Cleared' : 'Liberado de Aduana', color: '#1976D2', icon: 'shield-check' };
       case 'delivered':
-        return { label: 'Entregado', color: '#4CAF50', icon: 'check-circle' };
+        return { label: zh ? '已签收' : en ? 'Delivered' : 'Entregado', color: '#4CAF50', icon: 'check-circle' };
+      case 'in_warehouse':
+        return { label: zh ? '在仓库中' : en ? 'In Warehouse' : 'En Bodega', color: '#6B7280', icon: 'warehouse' };
       default:
         return { label: status.replace(/_/g, ' '), color: '#999999', icon: 'package' };
     }
@@ -821,18 +832,28 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                   {movements.length === 0 ? (
                     <Text style={styles.movementsEmptyText}>Aún no hay movimientos registrados para este embarque.</Text>
                   ) : (
-                    movements.map((m, index) => (
+                    movements.map((m, index) => {
+                      // En modo chino: preferir notes si está en chino, si no, usar status_label
+                      const hasChineseNotes = !!m.notes && /[一-鿿]/.test(m.notes);
+                      const primaryLabel = lang === 'zh' && hasChineseNotes
+                        ? m.notes
+                        : (m.status_label || m.status || 'Movimiento');
+                      const secondaryLabel = lang === 'zh' && hasChineseNotes
+                        ? null  // no duplicar
+                        : (!!m.notes && m.notes !== primaryLabel ? m.notes : null);
+                      return (
                       <View key={`${m.id || index}-${index}`} style={styles.movementItem}>
                         <View style={styles.movementDot} />
                         <View style={styles.movementContent}>
-                          <Text style={styles.movementStatusText}>{m.status_label || m.status || 'Movimiento'}</Text>
-                          {!!m.notes && <Text style={styles.movementNotesText}>{m.notes}</Text>}
+                          <Text style={styles.movementStatusText}>{primaryLabel}</Text>
+                          {!!secondaryLabel && <Text style={styles.movementNotesText}>{secondaryLabel}</Text>}
                           <Text style={styles.movementDateText}>
-                            {m.created_at ? new Date(m.created_at).toLocaleString('es-MX') : 'Sin fecha'}
+                            {m.created_at ? new Date(m.created_at).toLocaleString(lang === 'zh' ? 'zh-CN' : lang === 'en' ? 'en-US' : 'es-MX') : 'Sin fecha'}
                           </Text>
                         </View>
                       </View>
-                    ))
+                      );
+                    })
                   )}
                 </ScrollView>
               )}
