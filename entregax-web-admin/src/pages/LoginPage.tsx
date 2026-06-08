@@ -735,9 +735,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               sx={{
                 position: 'absolute',
                 right: 0,
-                bottom: -38, // ~1 cm más abajo (asoma sobre los tabs)
-                width: 140,
-                height: 140,
+                bottom: -19,
+                width: 196,
+                height: 196,
                 objectFit: 'contain',
                 zIndex: 5,
                 pointerEvents: 'none',
