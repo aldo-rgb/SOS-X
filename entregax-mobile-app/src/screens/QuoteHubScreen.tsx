@@ -60,7 +60,7 @@ const SERVICES: ServiceMeta[] = [
   { key: 'pobox',     title: 'Terrestre USA a México',          subtitle: 'USA → México',            description: 'Traslado de Estados Unidos desde 1 caja de zapatos hasta 1 contenedor completo', icon: 'package-variant', emoji: '🇺🇸', endpoint: '/api/quotes/pobox',       eta: '5-10 días'  },
   { key: 'air_china', title: 'Aéreo China',                    subtitle: 'Aéreo China → México',    description: 'Envío aéreo costo por kilo',                                                     icon: 'airplane',        emoji: '🇨🇳', endpoint: '/api/quotes/air-china',   eta: '10-15 días' },
   { key: 'maritime',  title: 'Marítimo China',                 subtitle: 'Marítimo China → México', description: 'Envía desde 1 caja hasta 1 contenedor completo',                                 icon: 'ferry',           emoji: '🇨🇳', endpoint: '/api/maritime/calculate', eta: '45-60 días' },
-  { key: 'dhl',       title: 'Trámite Aduanal DHL Monterrey', subtitle: 'Despacho Aduanal',        description: 'Envía desde cualquier parte del mundo.',                                          icon: 'truck-fast',      emoji: '🌍', endpoint: '/api/public/quote',       eta: '1-3 días'   },
+  { key: 'dhl',       title: 'Trámite Aduanal Monterrey',     subtitle: 'Despacho Aduanal',        description: 'Envía desde cualquier parte del mundo.',                                          icon: 'truck-fast',      emoji: '🌍', endpoint: '/api/public/quote',       eta: '1-3 días'   },
 ];
 
 interface RatesService {

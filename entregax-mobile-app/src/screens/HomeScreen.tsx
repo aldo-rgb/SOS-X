@@ -15,6 +15,7 @@ import {
   Clipboard,
   ToastAndroid,
   Platform,
+  ScrollView,
 } from 'react-native';
 import {
   Text,
@@ -2300,7 +2301,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             {/* 🎯 Filtros de Servicio — Aéreo, Marítimo y PO Box
                 siempre visibles. MTY (DHL) solo aparece si el cliente
                 tiene paquetes DHL en ruta. */}
-            <View style={styles.serviceFilters}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.serviceFiltersScroll} contentContainerStyle={styles.serviceFilters}>
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'air' && styles.filterChipActive]}
                 onPress={() => {
@@ -2343,7 +2344,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>Despacho</Text>
                 </Pressable>
               )}
-            </View>
+            </ScrollView>
           </>
         }
         ListEmptyComponent={renderEmptyList}
@@ -2492,13 +2493,14 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   // 🎯 Filtros de Servicio
+  serviceFiltersScroll: {
+    backgroundColor: '#f5f5f5',
+  },
   serviceFilters: {
     flexDirection: 'row',
-    justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
     gap: 8,
-    backgroundColor: '#f5f5f5',
   },
   filterChip: {
     flexDirection: 'row',
