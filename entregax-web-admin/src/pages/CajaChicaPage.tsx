@@ -257,16 +257,13 @@ const CajaChicaPage: React.FC = () => {
   const [expandedConsolidaciones, setExpandedConsolidaciones] = useState<Set<number>>(new Set());
   const [soloFaltantes, setSoloFaltantes] = useState<Set<number>>(new Set());
   const [soloNoLlegados, setSoloNoLlegados] = useState<Set<number>>(new Set());
-  const [consolidacionAPagar, setConsolidacionAPagar] = useState<ConsolidacionPendiente | null>(null);
-  const [pagoConsolidacionDialogOpen, setPagoConsolidacionDialogOpen] = useState(false);
-  const [pagoConsolidacionRef, setPagoConsolidacionRef] = useState('');
-  const [pagoConsolidacionNotas, setPagoConsolidacionNotas] = useState('');
-  const [procesandoPagoProveedor, setProcesandoPagoProveedor] = useState(false);
   const [selectedConsolidaciones, setSelectedConsolidaciones] = useState<Set<number>>(new Set());
-  const [pagoMultipleDialogOpen, setPagoMultipleDialogOpen] = useState(false);
-  const [pagoMultipleRef, setPagoMultipleRef] = useState('');
-  const [pagoMultipleNotas, setPagoMultipleNotas] = useState('');
-  const [procesandoPagoMultiple, setProcesandoPagoMultiple] = useState(false);
+  // Pago por Referencia (nuevo flujo unificado)
+  const [refPagoOpen, setRefPagoOpen] = useState(false);
+  const [refPagoInput, setRefPagoInput] = useState('');
+  const [refPagoData, setRefPagoData] = useState<any | null>(null);
+  const [refPagoLoading, setRefPagoLoading] = useState(false);
+  const [refPagoProcesando, setRefPagoProcesando] = useState(false);
   // Referencias de pago
   const [refModalOpen, setRefModalOpen] = useState(false);
   const [referencias, setReferencias] = useState<any[]>([]);
@@ -467,11 +464,8 @@ const CajaChicaPage: React.FC = () => {
   };
 
   // Iniciar pago de consolidación
-  const handleIniciarPagoConsolidacion = (consolidacion: ConsolidacionPendiente) => {
-    setConsolidacionAPagar(consolidacion);
-    setPagoConsolidacionRef('');
-    setPagoConsolidacionNotas('');
-    setPagoConsolidacionDialogOpen(true);
+  const handleIniciarPagoConsolidacion = (_consolidacion: ConsolidacionPendiente) => {
+    setRefPagoInput(''); setRefPagoData(null); setRefPagoOpen(true);
   };
 
   // Toggle selección de consolidación
@@ -860,85 +854,51 @@ const CajaChicaPage: React.FC = () => {
   // Enviar reporte por WhatsApp (texto resumen, abre wa.me)
   // Pago múltiple de consolidaciones seleccionadas
   const handleIniciarPagoMultiple = () => {
-    if (selectedConsolidaciones.size === 0) {
-      setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' });
-      return;
-    }
-    setPagoMultipleRef('');
-    setPagoMultipleNotas('');
-    setPagoMultipleDialogOpen(true);
+    setRefPagoInput(''); setRefPagoData(null); setRefPagoOpen(true);
   };
 
-  const handleConfirmarPagoMultiple = async () => {
-    const selected = consolidacionesPendientes.filter(c => selectedConsolidaciones.has(c.id));
-    const pagables = selected.filter(c => Number(c.total_cost_mxn || 0) > 0);
-    if (pagables.length === 0) {
-      setSnackbar({ open: true, message: 'Ninguna de las consolidaciones seleccionadas tiene monto a pagar', severity: 'warning' });
-      return;
-    }
-    setProcesandoPagoMultiple(true);
+  const handleBuscarRef = async () => {
+    const raw = refPagoInput.trim().replace(/^REF-?/i, '');
+    const id = Number(raw);
+    if (!id) { setSnackbar({ open: true, message: 'Ingresa un número de referencia válido (ej: 1)', severity: 'warning' }); return; }
+    setRefPagoLoading(true); setRefPagoData(null);
     try {
-      // Un solo endpoint = una sola transacción de caja en lugar de N filas
-      // de "Pago Proveedor" duplicadas en el historial.
-      const response = await api.post('/caja-chica/pagar-consolidaciones-multiple', {
-        consolidation_ids: pagables.map(c => c.id),
-        referencia: pagoMultipleRef || null,
-        notas: pagoMultipleNotas || null,
-      });
-      setProcesandoPagoMultiple(false);
-      setPagoMultipleDialogOpen(false);
+      const r = await api.get(`/pobox/payment-references`, { params: { supplier_id: pagoProveedorSel?.id } });
+      const refs: any[] = r.data.references || [];
+      const found = refs.find((x: any) => x.id === id);
+      if (!found) { setSnackbar({ open: true, message: `REF-${id} no encontrada para este proveedor`, severity: 'error' }); }
+      else if (found.status === 'pagada') { setSnackbar({ open: true, message: `REF-${id} ya fue pagada el ${new Date(found.paid_at).toLocaleString('es-MX')}`, severity: 'warning' }); setRefPagoData(found); }
+      else { setRefPagoData(found); }
+    } catch { setSnackbar({ open: true, message: 'Error buscando referencia', severity: 'error' }); }
+    finally { setRefPagoLoading(false); }
+  };
+
+  const handleConfirmarRefPago = async () => {
+    if (!refPagoData) return;
+    setRefPagoProcesando(true);
+    try {
+      const r = await api.post(`/pobox/payment-references/${refPagoData.id}/pay`);
+      const data = r.data || {};
+      setSnackbar({ open: true, message: `✅ REF-${refPagoData.id} pagada · ${data.packages_updated || 0} paquetes · ${formatCurrency(Number(data.total_monto || refPagoData.total_mxn || 0))}`, severity: 'success' });
+      setRefPagoOpen(false); setRefPagoData(null); setRefPagoInput('');
       setSelectedConsolidaciones(new Set());
-      const data = response.data || {};
-      setSnackbar({
-        open: true,
-        message: `✅ ${data.consolidations?.length || pagables.length} consolidación(es) pagadas · ${data.packages_updated || 0} paquetes · ${formatCurrency(Number(data.total_monto || 0))}`,
-        severity: 'success',
-      });
       fetchConsolidacionesPendientes();
       loadData();
-    } catch (error: unknown) {
-      setProcesandoPagoMultiple(false);
-      const axiosError = error as { response?: { data?: { error?: string } } };
-      setSnackbar({
-        open: true,
-        message: axiosError.response?.data?.error || 'Error al procesar pago múltiple',
-        severity: 'error',
-      });
-    }
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al procesar pago', severity: 'error' });
+    } finally { setRefPagoProcesando(false); }
   };
 
-  // Confirmar pago de consolidación a proveedor
+  // Legacy stub — mantenido para evitar errores de compilación si hay referencias residuales
   const handlePagarConsolidacion = async () => {
-    if (!consolidacionAPagar) return;
-    
-    setProcesandoPagoProveedor(true);
-    try {
-      const response = await api.post('/caja-chica/pagar-consolidacion', {
-        consolidation_id: consolidacionAPagar.id,
-        monto: Number(consolidacionAPagar.total_cost_mxn),
-        referencia: pagoConsolidacionRef || null,
-        notas: pagoConsolidacionNotas || null
-      });
-      
-      setSnackbar({ 
-        open: true, 
-        message: `✅ Pago de ${formatCurrency(Number(consolidacionAPagar.total_cost_mxn))} registrado - ${response.data.packages_updated} paquetes actualizados`, 
-        severity: 'success' 
-      });
-      
-      // Cerrar diálogos y refrescar
-      setPagoConsolidacionDialogOpen(false);
-      setConsolidacionAPagar(null);
-      fetchConsolidacionesPendientes();
-      loadData(); // Refrescar stats de caja chica
-      
-    } catch (error: unknown) {
-      console.error('Error pagando consolidación:', error);
-      const axiosError = error as { response?: { data?: { error?: string } } };
-      setSnackbar({ 
-        open: true, 
-        message: axiosError.response?.data?.error || 'Error al procesar pago', 
-        severity: 'error' 
+    // Redirigir al nuevo flujo
+    setRefPagoInput(''); setRefPagoData(null); setRefPagoOpen(true);
+    const _noop = async () => {
+      const axiosError = {} as { response?: { data?: { error?: string } } };
+      setSnackbar({
+        open: true,
+        message: axiosError.response?.data?.error || 'Error al procesar pago',
+        severity: 'error'
       });
     } finally {
       setProcesandoPagoProveedor(false);
@@ -2484,9 +2444,99 @@ const CajaChicaPage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Diálogo: Pago múltiple de consolidaciones */}
+      {/* ── Diálogo: Pago por Referencia ──────────────────────── */}
+      <Dialog open={refPagoOpen} onClose={() => !refPagoProcesando && (setRefPagoOpen(false), setRefPagoData(null), setRefPagoInput(''))} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'warning.main', color: 'white' }}>
+          <PaymentIcon /> Pago por Referencia — {pagoProveedorSel?.name}
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          {/* Paso 1: Buscar */}
+          <Typography variant="subtitle2" fontWeight="bold" gutterBottom>1. Ingresa el número de referencia</Typography>
+          <Box display="flex" gap={1} mb={2}>
+            <TextField
+              fullWidth size="small"
+              label="Número de referencia"
+              placeholder="Ej: 1  (o REF-1)"
+              value={refPagoInput}
+              onChange={e => setRefPagoInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleBuscarRef()}
+              disabled={refPagoLoading || refPagoProcesando}
+            />
+            <Button variant="contained" color="warning" onClick={handleBuscarRef}
+              disabled={!refPagoInput.trim() || refPagoLoading || refPagoProcesando}
+              startIcon={refPagoLoading ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />}
+              sx={{ minWidth: 100 }}>
+              Buscar
+            </Button>
+          </Box>
+
+          {/* Paso 2: Mostrar detalles de la referencia encontrada */}
+          {refPagoData && (
+            <Box>
+              <Divider sx={{ mb: 2 }} />
+              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>2. Detalles de la referencia</Typography>
+
+              {refPagoData.status === 'pagada' ? (
+                <Alert severity="warning" sx={{ mb: 2 }}>
+                  Esta referencia ya fue pagada el {new Date(refPagoData.paid_at).toLocaleString('es-MX')}. No se puede pagar dos veces.
+                </Alert>
+              ) : (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Se marcará el pago de <strong>{(refPagoData.consolidation_ids || []).length}</strong> consolidación(es) y se registrará el egreso en Caja CC.
+                </Alert>
+              )}
+
+              <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                  <Typography fontWeight="bold" fontSize={18} color="warning.dark">REF-{refPagoData.id}</Typography>
+                  <Chip label={refPagoData.status === 'pagada' ? '✅ Pagada' : '⏳ Pendiente'} color={refPagoData.status === 'pagada' ? 'success' : 'warning'} size="small" />
+                </Box>
+                <Typography variant="body2" color="text.secondary" mb={1}>
+                  Proveedor: <strong>{refPagoData.supplier_name || pagoProveedorSel?.name}</strong>
+                  &nbsp;·&nbsp; Creada: {new Date(refPagoData.created_at).toLocaleDateString('es-MX')}
+                </Typography>
+                <Box display="flex" gap={0.5} flexWrap="wrap" mb={2}>
+                  {(refPagoData.consolidation_ids || []).map((id: number) => (
+                    <Chip key={id} label={`#${id}`} size="small" variant="outlined" color="primary" />
+                  ))}
+                </Box>
+                <Divider sx={{ mb: 1.5 }} />
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 4 }}>
+                    <Typography variant="caption" color="text.secondary">Guías</Typography>
+                    <Typography variant="h6" fontWeight="bold">{refPagoData.packages_count || 0}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 4 }}>
+                    <Typography variant="caption" color="text.secondary">Total USD</Typography>
+                    <Typography variant="h6" fontWeight="bold" color="success.dark">${Number(refPagoData.total_usd || 0).toFixed(2)}</Typography>
+                  </Grid>
+                  <Grid size={{ xs: 4 }}>
+                    <Typography variant="caption" color="text.secondary">Total MXN</Typography>
+                    <Typography variant="h6" fontWeight="bold" color="primary.dark">{formatCurrency(Number(refPagoData.total_mxn || 0))}</Typography>
+                  </Grid>
+                </Grid>
+              </Paper>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button onClick={() => { setRefPagoOpen(false); setRefPagoData(null); setRefPagoInput(''); }} disabled={refPagoProcesando}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained" color="warning"
+            startIcon={refPagoProcesando ? <CircularProgress size={16} color="inherit" /> : <PaymentIcon />}
+            onClick={handleConfirmarRefPago}
+            disabled={!refPagoData || refPagoData.status === 'pagada' || refPagoProcesando}
+          >
+            {refPagoProcesando ? 'Procesando...' : `Confirmar Pago REF-${refPagoData?.id ?? ''}`}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Diálogo: Pago múltiple de consolidaciones (OBSOLETO — redirige al nuevo) */}
       <Dialog
-        open={pagoMultipleDialogOpen}
+        open={false}
         onClose={() => !procesandoPagoMultiple && setPagoMultipleDialogOpen(false)}
         maxWidth="sm"
         fullWidth
@@ -2589,10 +2639,10 @@ const CajaChicaPage: React.FC = () => {
         </DialogActions>
       </Dialog>
 
-      {/* Diálogo de Confirmación de Pago a Proveedor */}
+      {/* Diálogo de Confirmación de Pago a Proveedor (OBSOLETO) */}
       <Dialog
-        open={pagoConsolidacionDialogOpen}
-        onClose={() => !procesandoPagoProveedor && setPagoConsolidacionDialogOpen(false)}
+        open={false}
+        onClose={() => {}}
         maxWidth="sm"
         fullWidth
       >

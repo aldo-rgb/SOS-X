@@ -6198,6 +6198,51 @@ app.delete('/api/pobox/payment-references/:id', authenticateToken, requireMinLev
   }
 });
 
+// ── PAGAR por Referencia ─────────────────────────────────────────────────────
+app.post('/api/pobox/payment-references/:id/pay', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: Request, res: Response) => {
+  const refId = Number(req.params.id);
+  const userId = (req as any).user?.userId ?? (req as any).user?.id ?? null;
+  try {
+    const ref = await pool.query(`SELECT * FROM pobox_payment_references WHERE id = $1`, [refId]);
+    if (ref.rows.length === 0) return res.status(404).json({ error: 'Referencia no encontrada' });
+    const refRow = ref.rows[0];
+    if (refRow.status === 'pagada') return res.status(409).json({ error: 'Esta referencia ya fue pagada' });
+
+    // Llamar al handler existente inyectando los datos de la referencia
+    const fakeReq = {
+      body: {
+        consolidation_ids: refRow.consolidation_ids,
+        referencia: `REF-${refId}`,
+        notas: refRow.notas || null,
+      },
+      user: (req as any).user,
+    } as any;
+
+    // Capturar respuesta del pago múltiple
+    let pagoResult: any = null;
+    let pagoError: any = null;
+    const fakeRes = {
+      status: (code: number) => ({ json: (data: any) => { if (code >= 400) pagoError = data; else pagoResult = data; return fakeRes; } }),
+      json: (data: any) => { pagoResult = data; return fakeRes; },
+    } as any;
+
+    await pagarMultiplesConsolidaciones(fakeReq, fakeRes);
+
+    if (pagoError) return res.status(400).json(pagoError);
+
+    // Marcar referencia como pagada
+    await pool.query(
+      `UPDATE pobox_payment_references SET status='pagada', paid_at=NOW(), paid_by=$1 WHERE id=$2`,
+      [userId, refId]
+    );
+
+    return res.json({ ok: true, reference_id: refId, ...pagoResult });
+  } catch (err: any) {
+    console.error('[pobox/payment-references/pay]', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============================================================
 // FACEBOOK MESSENGER WEBHOOK
 // ============================================================
@@ -12131,10 +12176,17 @@ httpServer.listen(PORT, '0.0.0.0', () => {
       packages_count INTEGER,
       packages_data JSONB,
       notas TEXT,
+      status TEXT DEFAULT 'pendiente',
+      paid_at TIMESTAMPTZ,
+      paid_by INTEGER,
       created_by INTEGER,
       created_at TIMESTAMPTZ DEFAULT NOW()
     )
   `).catch(() => {});
+  // Migrar tabla existente: columnas de pago
+  pool.query(`ALTER TABLE pobox_payment_references ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pendiente'`).catch(() => {});
+  pool.query(`ALTER TABLE pobox_payment_references ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ`).catch(() => {});
+  pool.query(`ALTER TABLE pobox_payment_references ADD COLUMN IF NOT EXISTS paid_by INTEGER`).catch(() => {});
 
   // Tabla package_documents para documentos subidos por asesores
   pool.query(`
