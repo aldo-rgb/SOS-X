@@ -3,7 +3,7 @@
 // Sin autenticación — 3 idiomas — Upsell
 // ============================================
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, ActivityIndicator, Platform,
@@ -39,6 +39,10 @@ const T = {
     error: 'Guía no encontrada. Verifica el número.',
     langLabel: 'Idioma',
     milestones: ['Ordenado', 'En tránsito', 'Aduana', 'En bodega', 'Listo', 'Entregado'],
+    desde: 'Desde',
+    aereoLabel: 'Aéreo China · Todo incluido',
+    maritimoLabel: 'Marítimo China · Por m³',
+    poboxLabel: 'Terrestre USA · Por caja',
   },
   en: {
     title: 'Track package',
@@ -57,6 +61,10 @@ const T = {
     error: 'Tracking not found. Please double-check.',
     langLabel: 'Language',
     milestones: ['Ordered', 'In transit', 'Customs', 'Warehouse', 'Ready', 'Delivered'],
+    desde: 'From',
+    aereoLabel: 'China Air · All inclusive',
+    maritimoLabel: 'China Sea · Per m³',
+    poboxLabel: 'USA Ground · Per box',
   },
   zh: {
     title: '包裹查询',
@@ -75,6 +83,10 @@ const T = {
     error: '未找到该运单号，请检查后重试。',
     langLabel: '语言',
     milestones: ['已下单', '运输中', '清关中', '仓库中', '待派送', '已签收'],
+    desde: '起价',
+    aereoLabel: '中国空运 · 全包价',
+    maritimoLabel: '中国海运 · 每立方米',
+    poboxLabel: '美国直邮 · 每箱',
   },
 } as const;
 
@@ -123,6 +135,22 @@ export default function GuestTrackingScreen({ navigation, route }: Props) {
   const [lang, setLang] = useState<Lang>(route?.params?.initialLang || 'es');
   const [langOpen, setLangOpen] = useState(false);
   const [input, setInput] = useState('');
+  const [rates, setRates] = useState({ aereo: 19.30, maritimo: 39, pobox: 39 });
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/public/rates`)
+      .then(r => r.json())
+      .then(data => {
+        const m: Record<string, any> = {};
+        for (const s of (data.servicios || [])) m[s.id] = s;
+        setRates({
+          aereo: m.aereo?.precio_base_usd ?? 19.30,
+          maritimo: m.maritimo?.precio_base_usd ?? 39,
+          pobox: 39,
+        });
+      })
+      .catch(() => {});
+  }, []);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TrackResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -319,6 +347,28 @@ export default function GuestTrackingScreen({ navigation, route }: Props) {
           </View>
         )}
 
+        {/* ── Pricing cards ───────────────────────────────────────────────── */}
+        <View style={styles.pricingRow}>
+          <View style={[styles.priceCard, { backgroundColor: ORANGE }]}>
+            <Text style={styles.priceFrom}>{t.desde}</Text>
+            <Text style={styles.priceValue}>${rates.aereo.toFixed(2)}</Text>
+            <Text style={styles.priceUnit}>USD/kg</Text>
+            <Text style={styles.priceLabel}>{t.aereoLabel}</Text>
+          </View>
+          <View style={styles.priceCard}>
+            <Text style={[styles.priceFrom, { color: ORANGE }]}>{t.desde}</Text>
+            <Text style={[styles.priceValue, { color: '#111' }]}>${rates.maritimo.toFixed(0)}</Text>
+            <Text style={[styles.priceUnit, { color: '#555' }]}>USD/m³</Text>
+            <Text style={[styles.priceLabel, { color: '#777' }]}>{t.maritimoLabel}</Text>
+          </View>
+          <View style={styles.priceCard}>
+            <Text style={[styles.priceFrom, { color: ORANGE }]}>{t.desde}</Text>
+            <Text style={[styles.priceValue, { color: '#111' }]}>${rates.pobox}</Text>
+            <Text style={[styles.priceUnit, { color: '#555' }]}>USD/{lang === 'en' ? 'box' : lang === 'zh' ? '箱' : 'caja'}</Text>
+            <Text style={[styles.priceLabel, { color: '#777' }]}>{t.poboxLabel}</Text>
+          </View>
+        </View>
+
         {/* ── Upsell card ─────────────────────────────────────────────────── */}
         <View style={styles.upsellCard}>
           <Image
@@ -459,11 +509,23 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 13, color: '#BBB' },
 
   // Upsell
+  pricingRow: {
+    flexDirection: 'row', gap: 8, marginBottom: 12,
+  },
+  priceCard: {
+    flex: 1, backgroundColor: '#fff', borderRadius: 12, padding: 12,
+    borderWidth: 1, borderColor: '#F0F0F0', alignItems: 'center',
+  },
+  priceFrom: { fontSize: 9, fontWeight: '700', color: '#fff', opacity: 0.85, textTransform: 'uppercase', letterSpacing: 0.5 },
+  priceValue: { fontSize: 20, fontWeight: '900', color: '#fff', lineHeight: 24, marginTop: 2 },
+  priceUnit: { fontSize: 10, color: 'rgba(255,255,255,0.75)', marginTop: 1 },
+  priceLabel: { fontSize: 9, color: 'rgba(255,255,255,0.65)', textAlign: 'center', marginTop: 4, lineHeight: 12 },
+
   upsellCard: {
     backgroundColor: BLACK, borderRadius: 16, padding: 20, alignItems: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4,
   },
-  upsellLogo: { width: 540, height: 156, marginBottom: 14 },
+  upsellLogo: { width: 280, height: 81, alignSelf: 'center', marginBottom: 14 },
   upsellTitle: { fontSize: 17, fontWeight: '900', color: '#fff', textAlign: 'center', marginBottom: 6 },
   upsellBody: { fontSize: 13, color: 'rgba(255,255,255,0.65)', textAlign: 'center', lineHeight: 18, marginBottom: 14 },
   upsellBtn: {

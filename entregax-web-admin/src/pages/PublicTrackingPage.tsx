@@ -3,7 +3,7 @@
 // Ruta: /rastrear
 // ============================================
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import {
   Box, Typography, TextField, Button, Paper, Stepper, Step,
@@ -147,6 +147,22 @@ export default function PublicTrackingPage() {
   const [result, setResult] = useState<TrackingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [rates, setRates] = useState<{ aereo: number; maritimo: number; pobox: number } | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/api/public/rates`)
+      .then(r => r.json())
+      .then(data => {
+        const svcMap: Record<string, any> = {};
+        for (const s of (data.servicios || [])) svcMap[s.id] = s;
+        setRates({
+          aereo: svcMap.aereo?.precio_base_usd ?? 19.30,
+          maritimo: svcMap.maritimo?.precio_base_usd ?? 39,
+          pobox: 39,
+        });
+      })
+      .catch(() => setRates({ aereo: 19.30, maritimo: 39, pobox: 39 }));
+  }, []);
 
   const t = T[lang];
 
@@ -493,17 +509,53 @@ export default function PublicTrackingPage() {
         {/* ── Panel de conversión (columna derecha) ─────────────────────────── */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 2, minWidth: { lg: 300 } }}>
 
-          {/* Precio de referencia */}
+          {/* Precio Aéreo China */}
           <Paper elevation={0} sx={{ p: 3, borderRadius: 3, background: `linear-gradient(135deg, ${ORANGE} 0%, #FF8C42 100%)`, color: '#fff' }}>
             <Typography sx={{ fontSize: 12, fontWeight: 700, opacity: 0.85, letterSpacing: 1, textTransform: 'uppercase' }}>
-              {t.priceFrom}
+              {lang === 'zh' ? '起价' : lang === 'en' ? 'From' : 'Desde'}
             </Typography>
             <Typography sx={{ fontSize: 38, fontWeight: 900, lineHeight: 1.1 }}>
-              $19.30 <span style={{ fontSize: 16, opacity: 0.85 }}>{t.priceSuffix}/kg</span>
+              ${(rates?.aereo ?? 19.30).toFixed(2)} <span style={{ fontSize: 16, opacity: 0.85 }}>USD/kg</span>
             </Typography>
             <Typography sx={{ fontSize: 12, opacity: 0.8, mt: 0.5 }}>
               {lang === 'en' ? 'China Air Freight · All inclusive' : lang === 'zh' ? '中国空运 · 全包价' : 'Aéreo China · Todo incluido'}
             </Typography>
+          </Paper>
+
+          {/* Precio Marítimo */}
+          <Paper elevation={0} sx={{ p: 2.5, borderRadius: 3, border: `1px solid ${ORANGE}44`, background: '#FFF9F7' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Typography sx={{ fontSize: 26 }}>🚢</Typography>
+              <Box sx={{ flex: 1 }}>
+                <Typography sx={{ fontSize: 11, color: ORANGE, fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  {lang === 'zh' ? '起价' : lang === 'en' ? 'From' : 'Desde'}
+                </Typography>
+                <Typography sx={{ fontSize: 22, fontWeight: 900, color: BLACK, lineHeight: 1.1 }}>
+                  ${(rates?.maritimo ?? 39).toFixed(0)} <span style={{ fontSize: 13, color: '#666' }}>USD/m³</span>
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: '#777', mt: 0.3 }}>
+                  {lang === 'en' ? 'China Sea Freight · Per cubic meter' : lang === 'zh' ? '中国海运 · 每立方米' : 'Marítimo China · Por m³'}
+                </Typography>
+              </Box>
+            </Box>
+          </Paper>
+
+          {/* Precio PO Box */}
+          <Paper elevation={0} sx={{ p: 2.5, borderRadius: 3, border: '1px solid #E8E8E8' }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Typography sx={{ fontSize: 26 }}>🇺🇸</Typography>
+              <Box sx={{ flex: 1 }}>
+                <Typography sx={{ fontSize: 11, color: '#888', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  {lang === 'zh' ? '起价' : lang === 'en' ? 'From' : 'Desde'}
+                </Typography>
+                <Typography sx={{ fontSize: 22, fontWeight: 900, color: BLACK, lineHeight: 1.1 }}>
+                  ${(rates?.pobox ?? 39).toFixed(0)} <span style={{ fontSize: 13, color: '#666' }}>USD/{lang === 'en' ? 'box' : lang === 'zh' ? '箱' : 'caja'}</span>
+                </Typography>
+                <Typography sx={{ fontSize: 11, color: '#777', mt: 0.3 }}>
+                  {lang === 'en' ? 'USA to Mexico · Per package' : lang === 'zh' ? '美国直邮墨西哥 · 每箱' : 'Terrestre USA a México · Por caja'}
+                </Typography>
+              </Box>
+            </Box>
           </Paper>
 
           {/* Cards de beneficios */}
