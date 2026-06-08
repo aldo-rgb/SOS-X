@@ -511,6 +511,8 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
               <MenuItem value="warehouse_ops">{t('roles.warehouse_ops')}</MenuItem>
               <MenuItem value="soporte_tecnico">{t('roles.soporte_tecnico', 'Soporte Técnico')}</MenuItem>
               <MenuItem value="monitoreo">{t('roles.monitoreo')}</MenuItem>
+              <MenuItem value="advisor">Asesor</MenuItem>
+              <MenuItem value="sub_advisor">Sub Asesor</MenuItem>
               <MenuItem value="client">{t('roles.client')}</MenuItem>
             </Select>
           </FormControl>
