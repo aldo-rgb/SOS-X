@@ -4,6 +4,7 @@
 // ============================================
 
 import { useState } from 'react';
+import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import {
   Box, Typography, TextField, Button, Paper, Stepper, Step,
   StepLabel, CircularProgress, Chip, Divider, Alert, IconButton,
@@ -130,6 +131,7 @@ interface TrackingResult {
 export default function PublicTrackingPage() {
   const [lang, setLang] = useState<Lang>('es');
   const [langAnchor, setLangAnchor] = useState<null | HTMLElement>(null);
+  const { cajitoAvatarUrl } = usePaymentStatus();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<TrackingResult | null>(null);
@@ -284,17 +286,23 @@ export default function PublicTrackingPage() {
           </Box>
         </Box>
 
-        {/* Mascot placeholder — número de cliente ilustrativo */}
-        <Box sx={{ display: { xs: 'none', md: 'flex' }, flexDirection: 'column', alignItems: 'center', gap: 1 }}>
-          <Box sx={{
-            width: 140, height: 140, borderRadius: 4,
-            background: 'linear-gradient(135deg, #FF6B35 0%, #FFCC00 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 72, boxShadow: '0 8px 32px rgba(240,90,40,0.5)',
-          }}>
-            📦
-          </Box>
-          <Typography sx={{ color: 'rgba(255,255,255,0.6)', fontSize: 12 }}>EntregaX · Cajito</Typography>
+        {/* Logo + Cajito */}
+        <Box sx={{ display: { xs: 'none', md: 'flex' }, flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+          <Box
+            component="img"
+            src="/logo-blanco.png"
+            alt="EntregaX"
+            onError={(e: any) => { e.target.style.display = 'none'; }}
+            sx={{ width: 220, objectFit: 'contain', filter: 'brightness(0) invert(1)', opacity: 0.92 }}
+          />
+          {cajitoAvatarUrl && (
+            <Box
+              component="img"
+              src={cajitoAvatarUrl}
+              alt="Cajito"
+              sx={{ width: 180, height: 180, objectFit: 'contain', borderRadius: '50%', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
+            />
+          )}
         </Box>
       </Box>
 

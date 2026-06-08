@@ -463,7 +463,7 @@ const styles = StyleSheet.create({
     backgroundColor: BLACK, borderRadius: 16, padding: 20, alignItems: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4,
   },
-  upsellLogo: { width: 180, height: 52, marginBottom: 12 },
+  upsellLogo: { width: 540, height: 156, marginBottom: 14 },
   upsellTitle: { fontSize: 17, fontWeight: '900', color: '#fff', textAlign: 'center', marginBottom: 6 },
   upsellBody: { fontSize: 13, color: 'rgba(255,255,255,0.65)', textAlign: 'center', lineHeight: 18, marginBottom: 14 },
   upsellBtn: {
