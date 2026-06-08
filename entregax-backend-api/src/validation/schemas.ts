@@ -43,7 +43,8 @@ export const validateBody =
 
 export const loginSchema = z
   .object({
-    email: z.string().trim().toLowerCase().email().max(255),
+    // Acepta email, número de cliente (box_id) o teléfono — validación de formato en loginUser
+    email: z.string().trim().min(1).max(255),
     password: z.string().min(1).max(200),
   })
   .strict();
