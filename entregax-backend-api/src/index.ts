@@ -9655,12 +9655,8 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
         p.tracking_number,
         p.national_tracking,
         p.carrier_tracking,
-        COALESCE(
-          to_jsonb(p)->>'delivery_status',
-          to_jsonb(p)->>'status',
-          p.status::text
-        ) AS status,
-        COALESCE(p.service_type, p.shipment_type) AS service_type,
+        p.status::text AS status,
+        p.service_type,
         p.created_at,
         p.updated_at
       FROM packages p

@@ -8,7 +8,9 @@ import {
   ScrollView,
   Alert,
   Image,
+  TouchableOpacity,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import {
   Text,
   TextInput,
@@ -148,8 +150,14 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
 
       {/* Header */}
       <View style={styles.header}>
-        <Image 
-          source={require('../../assets/logo.png')} 
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => navigation.goBack()}
+        >
+          <Ionicons name="arrow-back" size={22} color="#fff" />
+        </TouchableOpacity>
+        <Image
+          source={require('../../assets/logo.png')}
           style={styles.logoImage}
           resizeMode="contain"
         />
@@ -384,6 +392,14 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 52,
+    left: 16,
+    padding: 8,
+    zIndex: 10,
   },
   logoImage: {
     width: 70,

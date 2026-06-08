@@ -52,6 +52,72 @@ const LANG_OPTIONS: { code: Lang; flag: string }[] = [
   { code: 'zh', flag: '🇨🇳' },
 ];
 
+const LOGIN_T = {
+  es: {
+    welcome: 'Bienvenido',
+    subtitle: 'Tu suite inteligente',
+    instruction: 'Ingresa con tu correo registrado',
+    emailLabel: 'Correo electrónico',
+    passwordLabel: 'Contraseña',
+    loginBtn: 'Ingresar',
+    loggingIn: 'Ingresando...',
+    forgotPw: '¿Olvidaste tu contraseña?',
+    continueWith: 'o continúa con',
+    trackBtn: 'Rastrear un paquete',
+    noAccount: '¿No tienes cuenta?',
+    register: 'Regístrate',
+    forgotTitle: '¿Olvidaste tu contraseña?',
+    forgotDone: 'Revisa tu correo',
+    forgotBody: 'Ingresa tu correo registrado y te mandaremos un enlace para restablecer tu contraseña.',
+    forgotSentBody: 'Te enviamos un enlace a {email} para restablecer tu contraseña. Es válido por 1 hora. Revisa también tu carpeta de spam.',
+    forgotEmailLabel: 'Tu correo registrado',
+    forgotSubmit: 'Enviar enlace',
+    forgotClose: 'Cerrar',
+  },
+  en: {
+    welcome: 'Welcome',
+    subtitle: 'Your smart suite',
+    instruction: 'Sign in with your registered email',
+    emailLabel: 'Email address',
+    passwordLabel: 'Password',
+    loginBtn: 'Sign In',
+    loggingIn: 'Signing in...',
+    forgotPw: 'Forgot your password?',
+    continueWith: 'or continue with',
+    trackBtn: 'Track a package',
+    noAccount: 'No account?',
+    register: 'Sign up',
+    forgotTitle: 'Forgot your password?',
+    forgotDone: 'Check your email',
+    forgotBody: 'Enter your registered email and we\'ll send you a reset link.',
+    forgotSentBody: 'We sent a link to {email} to reset your password. Valid for 1 hour. Check your spam folder too.',
+    forgotEmailLabel: 'Your registered email',
+    forgotSubmit: 'Send link',
+    forgotClose: 'Close',
+  },
+  zh: {
+    welcome: '欢迎',
+    subtitle: '您的智能平台',
+    instruction: '使用注册邮箱登录',
+    emailLabel: '电子邮箱',
+    passwordLabel: '密码',
+    loginBtn: '登录',
+    loggingIn: '登录中...',
+    forgotPw: '忘记密码？',
+    continueWith: '或通过以下方式登录',
+    trackBtn: '查询包裹',
+    noAccount: '没有账户？',
+    register: '立即注册',
+    forgotTitle: '忘记密码？',
+    forgotDone: '请查收邮件',
+    forgotBody: '输入您的注册邮箱，我们将发送重置链接。',
+    forgotSentBody: '我们已向 {email} 发送了密码重置链接，有效期1小时，请也检查垃圾邮件文件夹。',
+    forgotEmailLabel: '您的注册邮箱',
+    forgotSubmit: '发送链接',
+    forgotClose: '关闭',
+  },
+} as const;
+
 type LoginScreenProps = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Login'>;
 };
@@ -63,6 +129,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [lang, setLang] = useState<Lang>('es');
   const [langOpen, setLangOpen] = useState(false);
+  const t = LOGIN_T[lang];
 
   // Forgot password modal
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -300,18 +367,16 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           style={styles.logoImage}
           resizeMode="contain"
         />
-        <Text style={styles.subtitle}>Tu suite inteligente</Text>
+        <Text style={styles.subtitle}>{t.subtitle}</Text>
       </View>
 
       {/* Formulario */}
       <Surface style={styles.formContainer} elevation={4}>
-        <Text style={styles.welcomeText}>Bienvenido</Text>
-        <Text style={styles.instructionText}>
-          Ingresa con tu correo registrado
-        </Text>
+        <Text style={styles.welcomeText}>{t.welcome}</Text>
+        <Text style={styles.instructionText}>{t.instruction}</Text>
 
         <TextInput
-          label="Correo electrónico"
+          label={t.emailLabel}
           value={email}
           onChangeText={setEmail}
           mode="outlined"
@@ -325,7 +390,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         />
 
         <TextInput
-          label="Contraseña"
+          label={t.passwordLabel}
           value={password}
           onChangeText={setPassword}
           mode="outlined"
@@ -351,7 +416,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           contentStyle={styles.loginButtonContent}
           labelStyle={styles.loginButtonLabel}
         >
-          {loading ? 'Ingresando...' : 'Ingresar'}
+          {loading ? t.loggingIn : t.loginBtn}
         </Button>
 
         <Button
@@ -360,10 +425,10 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           style={styles.forgotButton}
           labelStyle={{ color: ORANGE }}
         >
-          ¿Olvidaste tu contraseña?
+          {t.forgotPw}
         </Button>
 
-        {/* Sign in con Google / Apple (feature-flagged) */}
+        {/* Sign in con Google / Apple */}
         <SocialAuthButtons
           onSuccess={({ user, access }: { user: any; access: any }) => {
             handleSocialLoginSuccess(user, access);
@@ -385,9 +450,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           onPress={() => (navigation as any).navigate('GuestTracking', { initialLang: lang })}
         >
           <Ionicons name="search" size={16} color={ORANGE} />
-          <Text style={styles.trackBtnText}>
-            {lang === 'en' ? 'Track a package' : lang === 'zh' ? '查询包裹' : 'Rastrear un paquete'}
-          </Text>
+          <Text style={styles.trackBtnText}>{t.trackBtn}</Text>
           <Ionicons name="chevron-forward" size={14} color={ORANGE} />
         </TouchableOpacity>
 
@@ -407,14 +470,14 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 
       {/* Footer */}
       <View style={styles.footer}>
-        <Text style={styles.footerText}>¿No tienes cuenta?</Text>
+        <Text style={styles.footerText}>{t.noAccount}</Text>
         <Button
           mode="text"
           compact
           onPress={() => navigation.navigate('Register' as never)}
           labelStyle={{ color: ORANGE, fontWeight: 'bold' }}
         >
-          Regístrate
+          {t.register}
         </Button>
       </View>
 
@@ -428,23 +491,18 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>
-              {forgotSent ? 'Revisa tu correo' : '¿Olvidaste tu contraseña?'}
+              {forgotSent ? t.forgotDone : t.forgotTitle}
             </Text>
             {forgotSent ? (
               <Text style={styles.modalBody}>
-                Te enviamos un enlace a {forgotEmail} para restablecer
-                tu contraseña. Es válido por 1 hora. Revisa también
-                tu carpeta de spam.
+                {t.forgotSentBody.replace('{email}', forgotEmail)}
               </Text>
             ) : (
               <>
-                <Text style={styles.modalBody}>
-                  Ingresa tu correo registrado y te mandaremos un enlace
-                  para restablecer tu contraseña.
-                </Text>
+                <Text style={styles.modalBody}>{t.forgotBody}</Text>
                 <TextInput
                   mode="outlined"
-                  label="Correo electrónico"
+                  label={t.forgotEmailLabel}
                   value={forgotEmail}
                   onChangeText={setForgotEmail}
                   autoCapitalize="none"
@@ -461,7 +519,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
             )}
             <View style={styles.modalActions}>
               <TouchableOpacity onPress={closeForgot} disabled={forgotSubmitting}>
-                <Text style={styles.modalCancel}>{forgotSent ? 'Cerrar' : 'Cancelar'}</Text>
+                <Text style={styles.modalCancel}>{t.forgotClose}</Text>
               </TouchableOpacity>
               {!forgotSent && (
                 <TouchableOpacity
@@ -471,7 +529,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
                 >
                   {forgotSubmitting
                     ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={styles.modalSubmitText}>Enviar enlace</Text>}
+                    : <Text style={styles.modalSubmitText}>{t.forgotSubmit}</Text>}
                 </TouchableOpacity>
               )}
             </View>
