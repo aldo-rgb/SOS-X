@@ -430,14 +430,19 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               onPress={() => navigation.navigate('ServicesGuide', { user, token })}
               style={{
                 flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-                backgroundColor: '#F8F4FF', borderRadius: 12, borderWidth: 1,
-                borderColor: '#E0D4FF', paddingVertical: 12, paddingHorizontal: 18,
-                marginBottom: 10, gap: 8,
+                backgroundColor: '#FFF5EE', borderRadius: 12, borderWidth: 1.5,
+                borderColor: '#FF6B35', paddingVertical: 10, paddingHorizontal: 18,
+                marginBottom: 10, gap: 6,
               }}
             >
-              <MaterialCommunityIcons name="help-circle-outline" size={20} color="#7C3AED" />
-              <Text style={{ color: '#7C3AED', fontWeight: '700', fontSize: 14 }}>¿Cómo enviar con EntregaX?</Text>
-              <Ionicons name="chevron-forward" size={16} color="#7C3AED" />
+              <MaterialCommunityIcons name="help-circle-outline" size={20} color="#FF6B35" />
+              <Text style={{ color: '#FF6B35', fontWeight: '700', fontSize: 14 }}>¿Cómo enviar con</Text>
+              <Image
+                source={require('../../assets/logo-negro.png')}
+                style={{ height: 18, width: 88, resizeMode: 'contain' }}
+              />
+              <Text style={{ color: '#FF6B35', fontWeight: '700', fontSize: 14 }}>?</Text>
+              <Ionicons name="chevron-forward" size={16} color="#FF6B35" />
             </TouchableOpacity>
           )}
         </View>
