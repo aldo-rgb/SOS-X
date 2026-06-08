@@ -1219,9 +1219,6 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         </TouchableOpacity>
         <View style={styles.headerTitle}>
           <Text style={styles.title}>Confirmar Entrega 📦</Text>
-          <Text style={styles.subtitle}>
-            {`Paso ${getStepNumber()} de 4`}
-          </Text>
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
           {currentStep === 'scan' && (
@@ -1243,19 +1240,6 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         </View>
       </View>
 
-      {/* Progress dots */}
-      <View style={styles.progressDots}>
-        {['scan', 'signature', 'photo', 'confirm'].map((step, index) => (
-          <View
-            key={step}
-            style={[
-              styles.dot,
-              getStepNumber() > index + 1 && styles.dotCompleted,
-              getStepNumber() === index + 1 && styles.dotActive,
-            ]}
-          />
-        ))}
-      </View>
 
       {/* Step content */}
       {renderStep()}
