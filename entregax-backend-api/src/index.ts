@@ -69,6 +69,7 @@ import {
   logoutUser,
   deleteMyAccount
 } from './authController';
+import { send2FACode, toggle2FA, changeEmail, notifyPhoneChanged } from './accountSecurityController';
 import { googleAuth, appleAuth, socialAuthStatus } from './socialAuthController';
 import {
   sendPhoneVerificationCode,
@@ -2290,6 +2291,11 @@ app.put('/api/auth/update-profile', authenticateToken, updateProfile);
 app.put('/api/auth/profile-photo', authenticateToken, updateProfilePhoto);
 // Account Deletion (Google Play + App Store 2024) — requiere password + confirm="ELIMINAR"
 app.delete('/api/auth/account', authenticateToken, deleteMyAccount);
+
+// ── Seguridad de cuenta: 2FA + cambio de email ──────────────────────────────
+app.post('/api/auth/2fa/send-code', authenticateToken, send2FACode);
+app.post('/api/auth/2fa/toggle', authenticateToken, toggle2FA);
+app.post('/api/auth/change-email', authenticateToken, changeEmail);
 
 // --- SIGN IN WITH GOOGLE / APPLE (feature flags via env) ---
 // Si GOOGLE_OAUTH_CLIENT_IDS / APPLE_AUDIENCES no están configuradas,
@@ -12187,6 +12193,22 @@ httpServer.listen(PORT, '0.0.0.0', () => {
   pool.query(`ALTER TABLE pobox_payment_references ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'pendiente'`).catch(() => {});
   pool.query(`ALTER TABLE pobox_payment_references ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ`).catch(() => {});
   pool.query(`ALTER TABLE pobox_payment_references ADD COLUMN IF NOT EXISTS paid_by INTEGER`).catch(() => {});
+
+  // Seguridad de cuenta: timestamps de cambios + tabla 2FA
+  pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_email_changed_at TIMESTAMPTZ`).catch(() => {});
+  pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_phone_changed_at TIMESTAMPTZ`).catch(() => {});
+  pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN DEFAULT FALSE`).catch(() => {});
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS two_factor_codes (
+      id SERIAL PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      code VARCHAR(10) NOT NULL,
+      expires_at TIMESTAMPTZ NOT NULL,
+      used BOOLEAN DEFAULT FALSE,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {});
+  pool.query(`CREATE INDEX IF NOT EXISTS idx_2fa_user ON two_factor_codes(user_id)`).catch(() => {});
 
   // Tabla package_documents para documentos subidos por asesores
   pool.query(`

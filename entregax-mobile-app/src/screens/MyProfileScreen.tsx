@@ -53,7 +53,24 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   const [showPasswordModal, setShowPasswordModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [refreshingStatus, setRefreshingStatus] = useState(false);
-  const [twoFactorEnabled] = useState(false);
+  const [twoFactorEnabled, setTwoFactorEnabled] = useState<boolean>(
+    (initialUser as any).twoFactorEnabled === true || (initialUser as any).two_factor_enabled === true
+  );
+  // Modal 2FA
+  const [show2FAModal, setShow2FAModal] = useState(false);
+  const [twoFAAction, setTwoFAAction] = useState<'enable' | 'disable'>('enable');
+  const [twoFAPassword, setTwoFAPassword] = useState('');
+  const [twoFACode, setTwoFACode] = useState('');
+  const [twoFASending, setTwoFASending] = useState(false);
+  const [twoFACodeSent, setTwoFACodeSent] = useState(false);
+  const [twoFASaving, setTwoFASaving] = useState(false);
+  // Modal cambiar email
+  const [showChangeEmailModal, setShowChangeEmailModal] = useState(false);
+  const [changeEmailNew, setChangeEmailNew] = useState('');
+  const [changeEmailPassword, setChangeEmailPassword] = useState('');
+  const [changeEmailCode, setChangeEmailCode] = useState('');
+  const [changeEmailCodeSent, setChangeEmailCodeSent] = useState(false);
+  const [changeEmailSaving, setChangeEmailSaving] = useState(false);
 
   // GEX auto-config
   const { gexEnabled } = usePaymentStatus();
@@ -684,12 +701,93 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     return uso ? `${uso.clave} - ${uso.descripcion}` : 'G03 - Gastos en general';
   };
 
-  const handleToggle2FA = (_value: boolean) => {
-    Alert.alert(
-      'Autenticación 2FA',
-      'Esta función aún no está disponible. Para activarla contacta a soporte.',
-      [{ text: 'Entendido', style: 'default' }]
-    );
+  const handleToggle2FA = (value: boolean) => {
+    if (!isPhoneVerified) {
+      Alert.alert('Teléfono requerido', 'Debes verificar tu número de teléfono antes de activar 2FA.');
+      return;
+    }
+    setTwoFAAction(value ? 'enable' : 'disable');
+    setTwoFAPassword(''); setTwoFACode(''); setTwoFACodeSent(false);
+    setShow2FAModal(true);
+  };
+
+  const handleSend2FACode = async () => {
+    setTwoFASending(true);
+    try {
+      const r = await fetch(`${API_URL}/api/auth/2fa/send-code`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      const data = await r.json();
+      if (!r.ok) { Alert.alert('Error', data.error || 'No se pudo enviar el código'); return; }
+      setTwoFACodeSent(true);
+      Alert.alert('Código enviado', `Se envió un código de 6 dígitos a tu WhatsApp. Expira en 10 minutos.`);
+    } catch { Alert.alert('Error', 'Error de conexión'); }
+    finally { setTwoFASending(false); }
+  };
+
+  const handleConfirm2FA = async () => {
+    if (!twoFAPassword) { Alert.alert('Error', 'Ingresa tu contraseña'); return; }
+    if (!twoFACode) { Alert.alert('Error', 'Ingresa el código recibido'); return; }
+    setTwoFASaving(true);
+    try {
+      const r = await fetch(`${API_URL}/api/auth/2fa/toggle`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: twoFAAction, password: twoFAPassword, code: twoFACode }),
+      });
+      const data = await r.json();
+      if (!r.ok) { Alert.alert('Error', data.error || 'No se pudo actualizar 2FA'); return; }
+      setTwoFactorEnabled(data.two_factor_enabled);
+      setShow2FAModal(false);
+      Alert.alert('✅ Listo', `Autenticación 2FA ${data.two_factor_enabled ? 'activada' : 'desactivada'} correctamente`);
+    } catch { Alert.alert('Error', 'Error de conexión'); }
+    finally { setTwoFASaving(false); }
+  };
+
+  // Cambiar correo electrónico
+  const handleSendEmailChangeCode = async () => {
+    if (!isPhoneVerified) {
+      Alert.alert('Teléfono requerido', 'Debes tener un número de teléfono verificado para cambiar tu correo.');
+      return;
+    }
+    setChangeEmailSaving(true);
+    try {
+      const r = await fetch(`${API_URL}/api/auth/2fa/send-code`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      });
+      const data = await r.json();
+      if (!r.ok) { Alert.alert('Error', data.error || 'No se pudo enviar el código'); return; }
+      setChangeEmailCodeSent(true);
+      Alert.alert('Código enviado', 'Se envió un código de verificación a tu WhatsApp.');
+    } catch { Alert.alert('Error', 'Error de conexión'); }
+    finally { setChangeEmailSaving(false); }
+  };
+
+  const handleSaveEmail = async () => {
+    if (!changeEmailNew.trim()) { Alert.alert('Error', 'Ingresa el nuevo correo'); return; }
+    if (!changeEmailPassword) { Alert.alert('Error', 'Ingresa tu contraseña'); return; }
+    if (twoFactorEnabled && !changeEmailCode) { Alert.alert('Error', 'Ingresa el código 2FA'); return; }
+    setChangeEmailSaving(true);
+    try {
+      const body: any = { newEmail: changeEmailNew.trim(), password: changeEmailPassword };
+      if (twoFactorEnabled) body.twoFactorCode = changeEmailCode;
+      const r = await fetch(`${API_URL}/api/auth/change-email`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!r.ok) {
+        Alert.alert('Error', data.error || 'No se pudo cambiar el correo');
+        return;
+      }
+      setUser((prev: any) => ({ ...prev, email: data.email }));
+      setShowChangeEmailModal(false);
+      Alert.alert('✅ Correo actualizado', `Tu correo es ahora ${data.email}. Recibirás una notificación de confirmación.`);
+    } catch { Alert.alert('Error', 'Error de conexión'); }
+    finally { setChangeEmailSaving(false); }
   };
 
   // Guardar teléfono (requiere contraseña y 2FA si está activo)
@@ -1078,8 +1176,28 @@ export default function MyProfileScreen({ navigation, route }: Props) {
         <Text style={styles.sectionTitle}>{t('profile.accountInfo')}</Text>
         <Card style={styles.card}>
           <Card.Content>
+            {/* Correo electrónico - Editable */}
+            <TouchableOpacity
+              style={styles.infoRow}
+              onPress={() => {
+                setChangeEmailNew('');
+                setChangeEmailPassword('');
+                setChangeEmailCode('');
+                setChangeEmailCodeSent(false);
+                setShowChangeEmailModal(true);
+              }}
+            >
+              <Text style={styles.infoLabel}>Correo electrónico</Text>
+              <View style={styles.editableValue}>
+                <Text style={styles.infoValue}>{user.email || '—'}</Text>
+                <Ionicons name="pencil" size={16} color={ORANGE} style={{ marginLeft: 8 }} />
+              </View>
+            </TouchableOpacity>
+
+            <Divider style={styles.divider} />
+
             {/* Teléfono - Editable */}
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.infoRow}
               onPress={() => {
                 setEditPhone(user.phone || '');
@@ -1774,9 +1892,171 @@ export default function MyProfileScreen({ navigation, route }: Props) {
         </View>
       </Modal>
 
+      {/* ── Modal: Activar / Desactivar 2FA ──────────────────────────── */}
+      <Modal visible={show2FAModal} animationType="slide" transparent>
+        <View style={modalStyles.overlay}>
+          <View style={modalStyles.sheet}>
+            <Text style={modalStyles.title}>
+              {twoFAAction === 'enable' ? '🔐 Activar 2FA' : '🔓 Desactivar 2FA'}
+            </Text>
+            <Text style={modalStyles.subtitle}>
+              {twoFAAction === 'enable'
+                ? 'Protege tu cuenta con verificación en dos pasos via WhatsApp.'
+                : 'Se desactivará la verificación en dos pasos.'}
+            </Text>
+
+            <Text style={modalStyles.label}>Contraseña actual</Text>
+            <TextInput
+              style={modalStyles.input}
+              secureTextEntry
+              value={twoFAPassword}
+              onChangeText={setTwoFAPassword}
+              placeholder="Tu contraseña"
+            />
+
+            {!twoFACodeSent ? (
+              <TouchableOpacity
+                style={[modalStyles.btn, { backgroundColor: ORANGE, marginBottom: 8 }]}
+                onPress={handleSend2FACode}
+                disabled={twoFASending || !twoFAPassword}
+              >
+                <Text style={modalStyles.btnText}>
+                  {twoFASending ? 'Enviando...' : 'Enviar código por WhatsApp'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <>
+                <Text style={modalStyles.label}>Código recibido (6 dígitos)</Text>
+                <TextInput
+                  style={modalStyles.input}
+                  keyboardType="number-pad"
+                  maxLength={6}
+                  value={twoFACode}
+                  onChangeText={setTwoFACode}
+                  placeholder="000000"
+                />
+                <TouchableOpacity
+                  style={[modalStyles.btn, { backgroundColor: ORANGE }]}
+                  onPress={handleConfirm2FA}
+                  disabled={twoFASaving}
+                >
+                  <Text style={modalStyles.btnText}>
+                    {twoFASaving ? 'Procesando...' : twoFAAction === 'enable' ? 'Activar 2FA' : 'Desactivar 2FA'}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={handleSend2FACode} disabled={twoFASending} style={{ marginTop: 8 }}>
+                  <Text style={{ color: ORANGE, textAlign: 'center', fontSize: 13 }}>
+                    {twoFASending ? 'Reenviando...' : 'Reenviar código'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+            <TouchableOpacity onPress={() => setShow2FAModal(false)} style={{ marginTop: 12 }}>
+              <Text style={{ color: '#999', textAlign: 'center' }}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Modal: Cambiar correo electrónico ────────────────────────── */}
+      <Modal visible={showChangeEmailModal} animationType="slide" transparent>
+        <View style={modalStyles.overlay}>
+          <View style={modalStyles.sheet}>
+            <Text style={modalStyles.title}>✉️ Cambiar correo</Text>
+            {!isPhoneVerified ? (
+              <>
+                <Text style={{ color: '#c00', textAlign: 'center', marginBottom: 16 }}>
+                  Debes verificar tu número de teléfono antes de poder cambiar el correo.
+                </Text>
+                <TouchableOpacity onPress={() => setShowChangeEmailModal(false)} style={[modalStyles.btn, { backgroundColor: '#eee' }]}>
+                  <Text style={{ color: BLACK, textAlign: 'center', fontWeight: '600' }}>Entendido</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={modalStyles.subtitle}>
+                  Se requiere contraseña{twoFactorEnabled ? ' y código 2FA' : ''}. Recibirás una notificación por WhatsApp y correo.
+                </Text>
+
+                <Text style={modalStyles.label}>Nuevo correo electrónico</Text>
+                <TextInput
+                  style={modalStyles.input}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  value={changeEmailNew}
+                  onChangeText={setChangeEmailNew}
+                  placeholder="nuevo@correo.com"
+                />
+
+                <Text style={modalStyles.label}>Contraseña actual</Text>
+                <TextInput
+                  style={modalStyles.input}
+                  secureTextEntry
+                  value={changeEmailPassword}
+                  onChangeText={setChangeEmailPassword}
+                  placeholder="Tu contraseña"
+                />
+
+                {twoFactorEnabled && (
+                  <>
+                    {!changeEmailCodeSent ? (
+                      <TouchableOpacity
+                        style={[modalStyles.btn, { backgroundColor: '#555', marginBottom: 8 }]}
+                        onPress={handleSendEmailChangeCode}
+                        disabled={changeEmailSaving}
+                      >
+                        <Text style={modalStyles.btnText}>
+                          {changeEmailSaving ? 'Enviando...' : 'Enviar código 2FA por WhatsApp'}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <>
+                        <Text style={modalStyles.label}>Código 2FA (6 dígitos)</Text>
+                        <TextInput
+                          style={modalStyles.input}
+                          keyboardType="number-pad"
+                          maxLength={6}
+                          value={changeEmailCode}
+                          onChangeText={setChangeEmailCode}
+                          placeholder="000000"
+                        />
+                      </>
+                    )}
+                  </>
+                )}
+
+                <TouchableOpacity
+                  style={[modalStyles.btn, { backgroundColor: ORANGE }]}
+                  onPress={handleSaveEmail}
+                  disabled={changeEmailSaving || (twoFactorEnabled && !changeEmailCodeSent)}
+                >
+                  <Text style={modalStyles.btnText}>
+                    {changeEmailSaving ? 'Guardando...' : 'Cambiar correo'}
+                  </Text>
+                </TouchableOpacity>
+              </>
+            )}
+            <TouchableOpacity onPress={() => setShowChangeEmailModal(false)} style={{ marginTop: 12 }}>
+              <Text style={{ color: '#999', textAlign: 'center' }}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
     </View>
   );
 }
+
+const modalStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40 },
+  title: { fontSize: 20, fontWeight: 'bold', color: BLACK, marginBottom: 6 },
+  subtitle: { fontSize: 14, color: '#666', marginBottom: 16 },
+  label: { fontSize: 13, color: '#555', fontWeight: '600', marginBottom: 4, marginTop: 12 },
+  input: { borderWidth: 1, borderColor: '#ddd', borderRadius: 10, padding: 12, fontSize: 15, backgroundColor: '#fafafa' },
+  btn: { borderRadius: 12, paddingVertical: 14, marginTop: 16 },
+  btnText: { color: 'white', fontWeight: 'bold', textAlign: 'center', fontSize: 16 },
+});
 
 const styles = StyleSheet.create({
   container: {

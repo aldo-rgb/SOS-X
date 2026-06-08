@@ -1616,11 +1616,33 @@ export const updateProfile = async (req: Request, res: Response): Promise<void> 
                 );
             }
 
-            // Actualizar teléfono
+            // Cooldown: 30 días entre cambios de teléfono
+            const cooldownRes = await pool.query(
+                `SELECT last_phone_changed_at, last_email_changed_at FROM users WHERE id = $1`, [userId]
+            );
+            const { last_phone_changed_at, last_email_changed_at } = cooldownRes.rows[0] || {};
+            const daysSince = (d: any) => d ? (Date.now() - new Date(d).getTime()) / (1000 * 60 * 60 * 24) : null;
+            const dPhone = daysSince(last_phone_changed_at);
+            const dEmail = daysSince(last_email_changed_at);
+            const COOLDOWN = 30;
+            if (dPhone !== null && dPhone < COOLDOWN) {
+                res.status(429).json({ error: `Debes esperar ${Math.ceil(COOLDOWN - dPhone)} día(s) para volver a cambiar el teléfono`, cooldownDays: Math.ceil(COOLDOWN - dPhone) });
+                return;
+            }
+            if (dEmail !== null && dEmail < COOLDOWN) {
+                res.status(429).json({ error: `Cambiaste tu correo recientemente. Debes esperar ${Math.ceil(COOLDOWN - dEmail)} día(s)`, cooldownDays: Math.ceil(COOLDOWN - dEmail) });
+                return;
+            }
+
+            // Actualizar teléfono + timestamp
             await pool.query(
-                'UPDATE users SET phone = $1 WHERE id = $2',
+                'UPDATE users SET phone = $1, last_phone_changed_at = NOW() WHERE id = $2',
                 [phone, userId]
             );
+
+            // Notificaciones asíncronas (no bloquean la respuesta)
+            const { notifyPhoneChanged } = await import('./accountSecurityController');
+            notifyPhoneChanged(userId, phone, user.email, user.full_name).catch(() => {});
         }
 
         // Actualizar código de referencia propio
