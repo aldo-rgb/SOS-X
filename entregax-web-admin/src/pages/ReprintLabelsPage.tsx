@@ -86,42 +86,8 @@ export default function ReprintLabelsPage() {
     } catch (err) {
       console.error('Error cargando paquetes:', err);
       setError('Error al cargar paquetes. Intenta de nuevo.');
-      // Datos de ejemplo para desarrollo
-      setPackages([
-        {
-          id: 1,
-          tracking: 'US-1Z999AA10123456784',
-          description: 'Electronics',
-          weight: 2.5,
-          status: 'received',
-          statusLabel: 'En Bodega',
-          receivedAt: '2026-03-10T14:30:00Z',
-          client: { id: 1, name: 'María García', email: 'maria@email.com', boxId: 'S1-1234' },
-          dimensions: { length: 30, width: 20, height: 15 },
-        },
-        {
-          id: 2,
-          tracking: 'US-1Z999AA10123456785',
-          description: 'Clothing',
-          weight: 1.2,
-          status: 'received',
-          statusLabel: 'En Bodega',
-          receivedAt: '2026-03-10T10:15:00Z',
-          client: { id: 2, name: 'Juan Pérez', email: 'juan@email.com', boxId: 'S1-0089' },
-          dimensions: { length: 40, width: 30, height: 10 },
-        },
-        {
-          id: 3,
-          tracking: 'US-1Z999AA10123456786',
-          description: 'Books',
-          weight: 3.8,
-          status: 'received',
-          statusLabel: 'En Bodega',
-          receivedAt: '2026-03-09T16:45:00Z',
-          client: { id: 3, name: 'Ana López', email: 'ana@email.com', boxId: 'S1-2456' },
-          dimensions: { length: 25, width: 20, height: 20 },
-        },
-      ]);
+      // Estado vacío: nunca mostrar paquetes/clientes ficticios.
+      setPackages([]);
     } finally {
       setLoading(false);
     }

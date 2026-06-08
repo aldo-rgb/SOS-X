@@ -58,7 +58,6 @@ function TabPanel(props: TabPanelProps) {
 }
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
-const BRAND_API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 const ORANGE = '#F05A28';
 
 type LoginLang = 'es' | 'en' | 'zh';
@@ -79,6 +78,21 @@ const LT = {
     trackBtn:    '🔍 Rastrear un paquete',
     nameLabel:   'Nombre completo',
     registerBtn: 'Crear mi cuenta',
+    // Registro
+    confirmPasswordLabel: 'Confirmar contraseña',
+    passwordMinHelp: 'Mínimo 6 caracteres',
+    whatsappLabel: 'WhatsApp',
+    whatsappHelp: 'Recibirás un código de verificación por WhatsApp',
+    referralTitle: '¿Tienes un código de referido?',
+    referralDescription: 'Si un amigo o asesor te recomendó, ingresa su código',
+    referralLabel: 'Código de referido (opcional)',
+    referralPlaceholder: 'Ej: ABC123',
+    referralInvalid: 'Código no válido',
+    referralYourAdvisor: 'Tu Asesor',
+    referralReferredBy: 'Referido por',
+    createAccountBtn: 'Crear Cuenta',
+    legacyClientBtn: 'Si ya tienes Número Cliente, da click aquí',
+    socialSignUpHint: 'Completa tu registro para crear tu Número Cliente. Tu cuenta de {provider} quedará vinculada al iniciar sesión.',
   },
   en: {
     adminPanel:  'Administrative Panel',
@@ -91,6 +105,20 @@ const LT = {
     trackBtn:    '🔍 Track a package',
     nameLabel:   'Full name',
     registerBtn: 'Create my account',
+    confirmPasswordLabel: 'Confirm password',
+    passwordMinHelp: 'Minimum 6 characters',
+    whatsappLabel: 'WhatsApp',
+    whatsappHelp: 'You will receive a verification code by WhatsApp',
+    referralTitle: 'Do you have a referral code?',
+    referralDescription: 'If a friend or advisor recommended you, enter their code',
+    referralLabel: 'Referral code (optional)',
+    referralPlaceholder: 'Ex: ABC123',
+    referralInvalid: 'Invalid code',
+    referralYourAdvisor: 'Your Advisor',
+    referralReferredBy: 'Referred by',
+    createAccountBtn: 'Create Account',
+    legacyClientBtn: 'If you already have a Customer Number, click here',
+    socialSignUpHint: 'Complete your registration to create your Customer Number. Your {provider} account will be linked on sign-in.',
   },
   zh: {
     adminPanel:  '管理面板',
@@ -103,13 +131,26 @@ const LT = {
     trackBtn:    '🔍 查询包裹',
     nameLabel:   '姓名',
     registerBtn: '创建账户',
+    confirmPasswordLabel: '确认密码',
+    passwordMinHelp: '至少6个字符',
+    whatsappLabel: 'WhatsApp',
+    whatsappHelp: '您将通过 WhatsApp 收到验证码',
+    referralTitle: '您有推荐码吗？',
+    referralDescription: '如果朋友或顾问推荐了您，请输入他们的推荐码',
+    referralLabel: '推荐码（可选）',
+    referralPlaceholder: '例如：ABC123',
+    referralInvalid: '推荐码无效',
+    referralYourAdvisor: '您的顾问',
+    referralReferredBy: '推荐人',
+    createAccountBtn: '创建账户',
+    legacyClientBtn: '如果您已有客户编号，请点击这里',
+    socialSignUpHint: '完成注册以创建您的客户编号。登录时您的 {provider} 账户将被关联。',
   },
 } as const;
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [tabValue, setTabValue] = useState(0);
   const [loginLang, setLoginLang] = useState<LoginLang>('es');
-  const [cajitoUrl, setCajitoUrl] = useState<string | null>(null);
   const lt = LT[loginLang];
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -121,14 +162,6 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-
-  // Cajito avatar from brand_assets
-  useEffect(() => {
-    fetch(`${BRAND_API}/api/system/payment-status`)
-      .then(r => r.json())
-      .then(d => { if (d.cajito_avatar_url) setCajitoUrl(d.cajito_avatar_url); })
-      .catch(() => {});
-  }, []);
 
   // Forgot password dialog state
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -691,17 +724,15 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               {lt.adminPanel}
             </Typography>
 
-            {/* Cajito */}
-            {cajitoUrl && (
-              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 0.5 }}>
-                <Box
-                  component="img"
-                  src={cajitoUrl}
-                  alt="Cajito"
-                  sx={{ width: 72, height: 72, objectFit: 'contain', borderRadius: '50%' }}
-                />
-              </Box>
-            )}
+            {/* Cajito asomando (mismo que la app móvil) */}
+            <Box sx={{ display: 'flex', justifyContent: 'center', mt: 0.5 }}>
+              <Box
+                component="img"
+                src="/cajito-asomando.png"
+                alt="Cajito"
+                sx={{ width: 140, height: 140, objectFit: 'contain' }}
+              />
+            </Box>
 
             {/* Rastrear paquete */}
             <Box sx={{ mt: 1.5 }}>
@@ -917,7 +948,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
               <form onSubmit={handleRegister}>
                 <TextField
                   fullWidth
-                  label="Nombre completo"
+                  label={lt.nameLabel}
                   value={registerName}
                   onChange={(e) => setRegisterName(e.target.value)}
                   required
@@ -932,7 +963,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 />
                 <TextField
                   fullWidth
-                  label="Correo electrónico"
+                  label={lt.emailLabel}
                   type="email"
                   value={registerEmail}
                   onChange={(e) => setRegisterEmail(e.target.value)}
@@ -948,12 +979,12 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 />
                 <TextField
                   fullWidth
-                  label="Contraseña"
+                  label={lt.passwordLabel}
                   type={showPassword ? 'text' : 'password'}
                   value={registerPassword}
                   onChange={(e) => setRegisterPassword(e.target.value)}
                   required
-                  helperText="Mínimo 6 caracteres"
+                  helperText={lt.passwordMinHelp}
                   sx={{ mb: 2.5 }}
                   InputProps={{
                     startAdornment: (
@@ -976,7 +1007,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 />
                 <TextField
                   fullWidth
-                  label="Confirmar contraseña"
+                  label={lt.confirmPasswordLabel}
                   type={showPassword ? 'text' : 'password'}
                   value={registerConfirmPassword}
                   onChange={(e) => setRegisterConfirmPassword(e.target.value)}
@@ -994,9 +1025,9 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   <CountryPhoneInput
                     value={registerPhone}
                     onChange={setRegisterPhone}
-                    label="WhatsApp"
+                    label={lt.whatsappLabel}
                     required
-                    helperText="Recibirás un código de verificación por WhatsApp"
+                    helperText={lt.whatsappHelp}
                   />
                 </Box>
 
@@ -1028,7 +1059,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                       </Avatar>
                       <Box sx={{ flex: 1 }}>
                         <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
-                          {codeValidation.isAdvisor ? 'Tu Asesor' : 'Referido por'}
+                          {codeValidation.isAdvisor ? lt.referralYourAdvisor : lt.referralReferredBy}
                         </Typography>
                         <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
                           {codeValidation.referrerName}
@@ -1050,15 +1081,15 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   <>
                 <Divider sx={{ my: 2 }}>
                   <Typography variant="caption" color="text.secondary">
-                    ¿Tienes un código de referido?
+                    {lt.referralTitle}
                   </Typography>
                 </Divider>
                 <Typography variant="body2" color="text.secondary" sx={{ mb: 1.5, textAlign: 'center' }}>
-                  Si un amigo o asesor te recomendó, ingresa su código
+                  {lt.referralDescription}
                 </Typography>
                 <TextField
                   fullWidth
-                  label="Código de referido (opcional)"
+                  label={lt.referralLabel}
                   value={referralCode}
                   disabled={refFromUrl}
                   onChange={(e) => {
@@ -1072,7 +1103,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                       validateReferralCode(referralCode);
                     }
                   }}
-                  placeholder="Ej: ABC123"
+                  placeholder={lt.referralPlaceholder}
                   sx={{ mb: 1.5 }}
                   InputProps={{
                     startAdornment: (
@@ -1122,7 +1153,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                         </Avatar>
                         <Box sx={{ flex: 1 }}>
                           <Typography variant="caption" color="text.secondary" sx={{ lineHeight: 1 }}>
-                            {codeValidation.isAdvisor ? 'Tu Asesor' : 'Referido por'}
+                            {codeValidation.isAdvisor ? lt.referralYourAdvisor : lt.referralReferredBy}
                           </Typography>
                           <Typography variant="subtitle2" sx={{ fontWeight: 600, lineHeight: 1.3 }}>
                             {codeValidation.referrerName}
@@ -1140,7 +1171,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                       </Box>
                     ) : (
                       <Typography variant="caption" color="error">
-                        Código no válido
+                        {lt.referralInvalid}
                       </Typography>
                     )}
                   </Box>
@@ -1172,7 +1203,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   {loading ? (
                     <CircularProgress size={24} color="inherit" />
                   ) : (
-                    'Crear Cuenta'
+                    lt.createAccountBtn
                   )}
                 </Button>
 
@@ -1184,7 +1215,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     setRegisterName(prefill.fullName || '');
                     setRegisterEmail(prefill.email || '');
                     setError('');
-                    setSuccess(`Completa tu registro para crear tu Número Cliente. Tu cuenta de ${prefill.provider === 'google' ? 'Google' : 'Apple'} quedará vinculada al iniciar sesión.`);
+                    setSuccess(lt.socialSignUpHint.replace('{provider}', prefill.provider === 'google' ? 'Google' : 'Apple'));
                     setTimeout(() => setSuccess(''), 8000);
                   }}
                   disabled={loading}
@@ -1216,7 +1247,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                     },
                   }}
                 >
-                  Si ya tienes Número Cliente, da click aquí
+                  {lt.legacyClientBtn}
                 </Button>
 
               </form>

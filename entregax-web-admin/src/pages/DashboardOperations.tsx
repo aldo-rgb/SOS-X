@@ -101,23 +101,9 @@ export default function DashboardOperations() {
       }
     } catch (error) {
       console.error('Error cargando dashboard:', error);
-      // Datos de ejemplo
-      setStats({
-        recepcion: { 
-          hoy: 156, 
-          pendientes_procesar: 23,
-          por_servicio: { usa_pobox: 45, china_air: 67, china_sea: 32, nacional: 12 }
-        },
-        inventario: { total_paquetes: 1245, por_ubicar: 45, ubicados: 1200 },
-        despacho: { hoy: 89, en_proceso: 15, consolidaciones_pendientes: 8 },
-        productividad: { recepciones_por_hora: 18, despachos_por_hora: 12, porcentaje_meta: 92 },
-      });
-      setPendingTasks([
-        { id: 1, tipo: 'recepcion', descripcion: 'Contenedor China Marítimo #FCL-2024-089', cantidad: 156, prioridad: 'alta', servicio: 'china_sea' },
-        { id: 2, tipo: 'ubicacion', descripcion: 'Paquetes sin ubicar en rack', cantidad: 23, prioridad: 'media', servicio: 'usa_pobox' },
-        { id: 3, tipo: 'consolidacion', descripcion: 'Consolidaciones pendientes USA', cantidad: 8, prioridad: 'alta', servicio: 'usa_pobox' },
-        { id: 4, tipo: 'despacho', descripcion: 'Despachos programados para hoy', cantidad: 15, prioridad: 'media', servicio: 'nacional' },
-      ]);
+      // Estado vacío: nunca mostrar tareas/clientes ficticios.
+      setStats(null);
+      setPendingTasks([]);
     } finally {
       setLoading(false);
     }

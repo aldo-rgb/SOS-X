@@ -1757,79 +1757,17 @@ export default function DashboardClient() {
       if (response.data?.addresses) {
         setDeliveryAddresses(response.data.addresses);
       } else {
-        // Direcciones de ejemplo si no hay ninguna
-        setDeliveryAddresses([
-          {
-            id: 1,
-            alias: 'Bodega 1',
-            contact_name: 'Revolución Sur 2851 Nte. B1',
-            street: 'Revolución Sur',
-            exterior_number: '2851 Nte. B1',
-            interior_number: '',
-            colony: 'Monterrey',
-            city: 'Nuevo León',
-            state: 'Nuevo León',
-            zip_code: '64860',
-            country: 'México',
-            phone: '8119411741',
-            reference: 'Bodega principal',
-            is_default: true
-          },
-          {
-            id: 2,
-            alias: 'Bioma 120',
-            contact_name: 'Bioma 1234 Int. A1',
-            street: 'Bioma',
-            exterior_number: '1234',
-            interior_number: 'Int. A1',
-            colony: 'Jardín',
-            city: 'Nájiri',
-            state: 'C.P.',
-            zip_code: '6000',
-            country: 'México',
-            phone: '3000000',
-            reference: 'Ubicación secundaria',
-            is_default: false
-          }
-        ]);
+        // Sin direcciones registradas → estado vacío.
+        // ⚠️ NUNCA rellenar con datos hardcodeados: cada cliente sólo
+        // debe ver SUS propias direcciones.
+        setDeliveryAddresses([]);
       }
     } catch (error) {
       console.error('Error cargando direcciones:', error);
-      // Direcciones de ejemplo como fallback
-      setDeliveryAddresses([
-        {
-          id: 1,
-          alias: 'Bodega 1',
-          contact_name: 'Revolución Sur 2851 Nte. B1',
-          street: 'Revolución Sur',
-          exterior_number: '2851 Nte. B1',
-          interior_number: '',
-          colony: 'Monterrey',
-          city: 'Nuevo León',
-          state: 'Nuevo León',
-          zip_code: '64860',
-          country: 'México',
-          phone: '8119411741',
-          reference: 'Bodega principal',
-          is_default: true
-        },
-        {
-          id: 2,
-          alias: 'Bioma 120',
-          contact_name: 'Bioma 1234 Int. A1',
-          street: 'Bioma',
-          exterior_number: '1234',
-          interior_number: 'Int. A1',
-          colony: 'Jardín',
-          city: 'Nájiri',
-          state: 'C.P.',
-          zip_code: '6000',
-          country: 'México',
-          phone: '3000000',
-          reference: 'Ubicación secundaria',
-          is_default: false
-        }
-      ]);
+      // Si la API falla, dejamos la lista vacía. Mostrar direcciones
+      // de ejemplo aquí sería una fuga de datos: el usuario podría
+      // creer que son suyas o ver las de otro cliente.
+      setDeliveryAddresses([]);
     }
   };
 
@@ -1837,69 +1775,17 @@ export default function DashboardClient() {
   const loadPaymentMethods = async () => {
     try {
       const response = await api.get('/payment-methods');
-      console.log('📳 Response métodos de pago:', response.data);
       if (response.data?.paymentMethods) {
         setPaymentMethods(response.data.paymentMethods);
       } else {
-        // Datos de prueba mientras resolvemos el backend
-        console.log('🔧 Usando datos de prueba para métodos de pago');
-        const testMethods: PaymentMethod[] = [
-          {
-            id: 1,
-            type: 'paypal',
-            alias: 'Buyer - password123',
-            paypal_email: 'buyer@example.com',
-            is_default: false,
-          },
-          {
-            id: 2,
-            type: 'card',
-            alias: 'Sandbox Openpay',
-            last_four: '1111',
-            card_brand: 'Visa',
-            is_default: true,
-          },
-          {
-            id: 3,
-            type: 'card',
-            alias: 'Sandbox Paypal',
-            last_four: '4444',
-            card_brand: 'MasterCard',
-            is_default: false,
-          }
-        ];
-        setPaymentMethods(testMethods);
+        // Sin métodos registrados → estado vacío.
+        // ⚠️ NUNCA mostrar datos de prueba a un cliente real:
+        // podría confundirlos con métodos de pago propios.
+        setPaymentMethods([]);
       }
     } catch (error) {
       console.error('Error cargando métodos de pago:', error);
-      // En caso de error, mostrar datos de prueba
-      console.log('🔧 Error en backend, usando datos de prueba');
-      const testMethods: PaymentMethod[] = [
-        {
-          id: 1,
-          type: 'paypal',
-          alias: 'Buyer - password123',
-          paypal_email: 'buyer@example.com',
-          is_default: false,
-        },
-        {
-          id: 2,
-          type: 'card',
-          alias: 'Sandbox Openpay',
-          last_four: '1111',
-          card_brand: 'Visa',
-          is_default: true,
-        },
-        {
-          id: 3,
-          type: 'card',
-          alias: 'Sandbox Paypal',
-          last_four: '4444',
-          card_brand: 'MasterCard',
-          is_default: false,
-        }
-      ];
-      setPaymentMethods(testMethods);
+      setPaymentMethods([]);
     }
   };
 
@@ -2711,20 +2597,10 @@ export default function DashboardClient() {
         severity: 'error' 
       });
       
-      // En caso de error, mostrar datos vacíos en lugar de datos de ejemplo
-      setStats({
-        casillero: boxId || 'S1-1234',
-        direccion_usa: {
-          nombre: userName || t('cd.address.yourName'),
-          direccion: `1234 Shipping Lane, Suite ${boxId || 'S1-1234'}`,
-          ciudad: 'Laredo',
-          estado: 'TX',
-          zip: '78045',
-        },
-        paquetes: { en_transito: 0, en_bodega: 0, listos_recoger: 0, entregados_mes: 0 },
-        financiero: { saldo_pendiente: 0, saldo_favor: 0, credito_disponible: 0, ultimo_pago: '' },
-      });
-      setPackages([]); // No mostrar paquetes falsos
+      // En caso de error: estado vacío. ⚠️ NUNCA inventar dirección USA,
+      // box_id ni datos del cliente: el usuario podría creer que son suyos.
+      setStats(null);
+      setPackages([]);
       setInvoices([]);
     } finally {
       setLoading(false);

@@ -36,7 +36,7 @@ const BLACK = '#111111';
 
 type RootStackParamList = {
   Login: undefined;
-  GuestTracking: { initialLang?: 'es' | 'en' | 'zh' };
+  GuestTracking: { initialLang?: 'es' | 'en' | 'zh'; initialTracking?: string };
   ChangePassword: { user: any; token: string; currentPassword: string };
   Verification: { user: any; token: string };
   Home: { user: any; token: string };
@@ -598,9 +598,11 @@ const styles = StyleSheet.create({
   },
   langFlag: { fontSize: 20 },
   logoImage: {
-    width: 150,
-    height: 150,
+    width: 195,
+    height: 195,
     marginBottom: 4,
+    marginLeft: 32,
+    marginTop: 44,
   },
   logoText: {
     fontSize: 42,

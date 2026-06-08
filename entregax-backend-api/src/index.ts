@@ -9667,6 +9667,9 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
         COALESCE(p.tracking_provider, p.child_no) AS external_tracking,
         p.status::text AS status,
         p.service_type,
+        COALESCE(p.is_master, false) AS is_master,
+        p.master_id,
+        p.total_boxes,
         p.created_at,
         p.updated_at
       FROM packages p
@@ -9838,6 +9841,51 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       }];
     }
 
+    // 4. Si es master de AIR (multi-caja), traer info pública de las hijas.
+    //    Sólo datos no sensibles: tracking_internal, status, hito, peso, dimensiones.
+    let childRows: any[] = [];
+    let childCount = 0;
+    if (row.is_master && row.id) {
+      try {
+        const childRes = await pool.query(`
+          SELECT
+            c.id,
+            c.tracking_internal,
+            c.child_no,
+            c.box_number,
+            c.status::text AS status,
+            c.weight,
+            c.pkg_length,
+            c.pkg_width,
+            c.pkg_height
+          FROM packages c
+          WHERE c.master_id = $1
+          ORDER BY c.box_number ASC NULLS LAST, c.id ASC
+        `, [row.id]);
+        childRows = childRes.rows.map((c: any) => {
+          const cStatusKey = (c.status || '').toLowerCase().replace(/[ -]/g, '_');
+          const cMilestone = MILESTONE_MAP[cStatusKey] ?? 0;
+          return {
+            tracking: c.tracking_internal || c.child_no || `${row.tracking}-${String(c.box_number || '').padStart(3, '0')}`,
+            box_number: c.box_number,
+            current_milestone: cMilestone,
+            status_label: {
+              es: MILESTONES[cMilestone]?.label_es,
+              en: MILESTONES[cMilestone]?.label_en,
+              zh: MILESTONES[cMilestone]?.label_zh,
+            },
+            weight: c.weight ? Number(c.weight) : null,
+            dimensions: (c.pkg_length && c.pkg_width && c.pkg_height)
+              ? `${c.pkg_length}×${c.pkg_width}×${c.pkg_height} cm`
+              : null,
+          };
+        });
+        childCount = childRows.length || row.total_boxes || 0;
+      } catch (err) {
+        console.warn('[public/track] error fetching children:', err);
+      }
+    }
+
     return res.json({
       tracking: row.tracking || raw,
       service: serviceName,
@@ -9845,6 +9893,12 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       milestones: MILESTONES,
       movements,
       found: true,
+      // Master/hijas (sólo packages)
+      ...(row.is_master ? {
+        is_master: true,
+        total_boxes: childCount,
+        children: childRows,
+      } : {}),
       // Datos extra para contenedores (no sensibles)
       ...(row._isContainer && {
         container: {

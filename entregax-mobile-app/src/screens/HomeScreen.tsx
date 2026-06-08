@@ -32,6 +32,14 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp, useFocusEffect } from '@react-navigation/native';
 import { getMyPackagesApi, Package, getCarouselSlidesApi, API_URL } from '../services/api';
+import {
+  getFollowedTrackings,
+  addFollowedTracking,
+  removeFollowedTracking,
+  updateFollowedSnapshot,
+  type FollowedTracking,
+  type PublicTrackingSnapshot,
+} from '../services/followedTrackings';
 import { registerForPushNotifications, subscribeNotificationListeners } from '../services/pushClient';
 import { getPackageCostBreakdown } from '../utils/packageCosts';
 import { usePaymentStatus } from '../hooks/usePaymentStatus';
@@ -131,6 +139,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const [trackedPackage, setTrackedPackage] = useState<Package | null>(null);
   const [trackingLoading, setTrackingLoading] = useState(false);
   const [trackingError, setTrackingError] = useState('');
+
+  // 👁 Lista de guías en seguimiento (no son suyas, sólo datos públicos)
+  const [followed, setFollowed] = useState<FollowedTracking[]>([]);
+  // 🔍 Búsqueda pública inline (cuando la guía no está en su cuenta)
+  const [publicSearchLoading, setPublicSearchLoading] = useState(false);
+  const [publicSearchResult, setPublicSearchResult] = useState<PublicTrackingSnapshot | null>(null);
+  const [publicSearchError, setPublicSearchError] = useState<string | null>(null);
 
   // 🔔 Estado para contador de notificaciones no leídas
   const [unreadNotifications, setUnreadNotifications] = useState(0);
@@ -552,6 +567,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     fetchPackages();
     fetchCarouselSlides();
     fetchUnreadNotifications();
+    // 👁 Cargar lista de guías en seguimiento al inicio
+    getFollowedTrackings().then(setFollowed).catch(() => {});
   }, [fetchPackages, fetchCarouselSlides, fetchUnreadNotifications]);
 
   // 🔔 Registrar push token y manejar deep-link desde notificaciones de ticket
@@ -1315,23 +1332,177 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     );
   };
 
-  const renderEmptyList = () => (
-    <View style={styles.emptyContainer}>
-      {trnFilter.trim() ? (
-        <>
-          <Text style={styles.emptyEmoji}>🔍</Text>
-          <Text style={styles.emptyTitle}>Guía no encontrada</Text>
-          <Text style={styles.emptySubtitle}>No encontramos ningún paquete con el número "{trnFilter.trim()}" en tu cuenta.</Text>
-        </>
-      ) : (
-        <>
-          <Text style={styles.emptyEmoji}>📭</Text>
-          <Text style={styles.emptyTitle}>{t('home.noPackages')}</Text>
-          <Text style={styles.emptySubtitle}>{t('home.noPackagesDesc')}</Text>
-        </>
-      )}
-    </View>
-  );
+  // 🔍 Submit del input de búsqueda: abre modal con resultado.
+  // Si la guía está en la cuenta del usuario → muestra su paquete.
+  // Si no → consulta /api/public/track/:tracking y muestra los datos públicos
+  // con la opción de "Agregar a mi seguimiento".
+  const handleTrnSubmit = useCallback(async () => {
+    const q = trnFilter.trim().toUpperCase();
+    if (!q) return;
+    setPublicSearchError(null);
+    setPublicSearchResult(null);
+    setTrackedPackage(null);
+    setTrackingError('');
+    // Sincronizar con el input interno del modal por compatibilidad
+    setTrackingSearch(q);
+
+    // 1. Buscar primero en sus paquetes locales (todas las series)
+    const own = packages.find(p => {
+      const t = String(p.tracking_internal || '').toUpperCase();
+      const ext = String((p as any).external_tracking || (p as any).tracking_provider || '').toUpperCase();
+      return t === q || ext === q || t.includes(q) || ext.includes(q);
+    });
+    if (own) {
+      setTrackedPackage(own);
+      setShowTrackingModal(true);
+      return;
+    }
+
+    // 2. No es suya → consultar endpoint público
+    setPublicSearchLoading(true);
+    setShowTrackingModal(true);
+    try {
+      const res = await fetch(`${API_URL}/api/public/track/${encodeURIComponent(q)}`);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || 'No encontramos esta guía en el sistema.');
+      }
+      const snapshot: PublicTrackingSnapshot = {
+        tracking: data.tracking || q,
+        service: data.service,
+        current_milestone: data.current_milestone,
+        milestones: data.milestones,
+        movements: data.movements,
+        fetchedAt: new Date().toISOString(),
+      };
+      setPublicSearchResult(snapshot);
+      // Si ya está en seguimiento, refrescar snapshot en cache local
+      const isFol = followed.some(f => f.tracking === snapshot.tracking);
+      if (isFol) {
+        await updateFollowedSnapshot(snapshot.tracking, snapshot);
+        setFollowed(await getFollowedTrackings());
+      }
+    } catch (err: any) {
+      setPublicSearchError(err?.message || 'Error de conexión');
+    } finally {
+      setPublicSearchLoading(false);
+    }
+  }, [trnFilter, packages, followed]);
+
+  // Cerrar modal de tracking y limpiar estado
+  const closeTrackingModal = () => {
+    setShowTrackingModal(false);
+    setTrackedPackage(null);
+    setPublicSearchResult(null);
+    setPublicSearchError(null);
+  };
+
+  // Toggle: agregar / quitar guía pública del seguimiento local
+  const handleToggleFollow = async () => {
+    if (!publicSearchResult) return;
+    const trk = publicSearchResult.tracking;
+    const isFol = followed.some(f => f.tracking === trk);
+    if (isFol) {
+      const next = await removeFollowedTracking(trk);
+      setFollowed(next);
+    } else {
+      const next = await addFollowedTracking(trk, publicSearchResult);
+      setFollowed(next);
+    }
+  };
+
+  const isCurrentResultFollowed = !!publicSearchResult
+    && followed.some(f => f.tracking === publicSearchResult.tracking);
+
+  const formatMilestoneLabel = (idx: number): string => {
+    const m = publicSearchResult?.milestones?.[idx];
+    if (!m) return '';
+    return m.label_es || '';
+  };
+
+  // Mensajes contextuales sutiles según el servicio filtrado.
+  // No es un anuncio: es una pista discreta de que ese canal existe.
+  const getEmptyServicePitch = (): { emoji: string; title: string; subtitle: string; cta: string } | null => {
+    switch (serviceFilter) {
+      case 'usa':
+        return {
+          emoji: '🇺🇸',
+          title: 'USA → México',
+          subtitle: 'Envía tus paquetes desde Estados Unidos por terrestre desde $39 USD por caja.',
+          cta: 'Cotizar terrestre',
+        };
+      case 'air':
+        return {
+          emoji: '✈️',
+          title: 'China → México (aéreo)',
+          subtitle: 'Aéreo express desde China desde $19.30 USD/kg. Tiempo estimado 8–12 días.',
+          cta: 'Cotizar aéreo',
+        };
+      case 'maritime':
+        return {
+          emoji: '🚢',
+          title: 'China → México (marítimo)',
+          subtitle: 'Marítimo desde $39 USD/CBM. Caja suelta o contenedor completo.',
+          cta: 'Cotizar marítimo',
+        };
+      case 'dhl':
+        return {
+          emoji: '📦',
+          title: 'Despacho aduanal MTY',
+          subtitle: 'Cruce aduanal y despacho de tu carga DHL en Monterrey.',
+          cta: 'Cotizar despacho',
+        };
+      default:
+        return null;
+    }
+  };
+
+  const renderEmptyList = () => {
+    const pitch = !trnFilter.trim() ? getEmptyServicePitch() : null;
+    return (
+      <View style={styles.emptyContainer}>
+        {trnFilter.trim() ? (
+          <>
+            <Text style={styles.emptyEmoji}>🔍</Text>
+            <Text style={styles.emptyTitle}>Sin resultados en tu cuenta</Text>
+            <Text style={styles.emptySubtitle}>
+              Pulsa el botón naranja de búsqueda para consultar esta guía con
+              el rastreo público (US, AIR, LOG, TDX, FCL, DHL).
+            </Text>
+          </>
+        ) : pitch ? (
+          <>
+            <Text style={styles.emptyEmoji}>{pitch.emoji}</Text>
+            <Text style={styles.emptyTitle}>{pitch.title}</Text>
+            <Text style={styles.emptySubtitle}>{pitch.subtitle}</Text>
+            <Pressable
+              style={styles.emptyPitchBtn}
+              onPress={() => navigation.navigate('QuoteHub' as any, { user, token })}
+              android_ripple={{ color: '#FFD7C7' }}
+            >
+              <Text style={styles.emptyPitchBtnText}>{pitch.cta}</Text>
+              <Ionicons name="chevron-forward" size={14} color={ORANGE} />
+            </Pressable>
+          </>
+        ) : (
+          <>
+            <Text style={styles.emptyEmoji}>📭</Text>
+            <Text style={styles.emptyTitle}>{t('home.noPackages')}</Text>
+            <Text style={styles.emptySubtitle}>{t('home.noPackagesDesc')}</Text>
+            {/* ➕ Botón para abrir rastreo y agregar guía manualmente */}
+            <Pressable
+              style={styles.emptyAddButton}
+              onPress={() => setShowTrnSearch(true)}
+              android_ripple={{ color: '#FFD7C7' }}
+            >
+              <Ionicons name="add" size={28} color="#fff" />
+            </Pressable>
+            <Text style={styles.emptyAddHint}>Agregar número de guía</Text>
+          </>
+        )}
+      </View>
+    );
+  };
 
   if (loading) {
     return (
@@ -1678,7 +1849,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           <View style={styles.trackingModalContainer}>
             <View style={styles.trackingModalHeader}>
               <Text style={styles.trackingModalTitle}>🔍 Rastrear Paquete</Text>
-              <TouchableOpacity onPress={() => setShowTrackingModal(false)}>
+              <TouchableOpacity onPress={closeTrackingModal}>
                 <Ionicons name="close-circle" size={28} color="#666" />
               </TouchableOpacity>
             </View>
@@ -1877,8 +2048,129 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               </View>
             )}
 
+            {/* 🌐 Resultado del rastreo PÚBLICO (guías que NO son del usuario) */}
+            {publicSearchResult && !trackedPackage && (
+              <View style={styles.trackedPackageCard}>
+                <View style={styles.trackedPackageHeader}>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <Ionicons name="globe-outline" size={14} color="#0EA5E9" />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#0EA5E9' }}>
+                        RASTREO PÚBLICO
+                      </Text>
+                    </View>
+                    <Text style={styles.trackedPackageTracking}>
+                      {publicSearchResult.tracking}
+                    </Text>
+                    <Text style={styles.trackedPackageDescription} numberOfLines={1}>
+                      {publicSearchResult.service?.es || 'Envío'}
+                    </Text>
+                  </View>
+                  <View style={[styles.trackedStatusBadge, styles.trackedStatusTransit]}>
+                    <Text style={styles.trackedStatusText}>
+                      {formatMilestoneLabel(publicSearchResult.current_milestone ?? 0)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.trackedPackageDivider} />
+
+                {/* Timeline de hitos públicos */}
+                <View style={styles.trackedTimeline}>
+                  {(publicSearchResult.milestones || []).map((m, idx) => {
+                    const reached = idx <= (publicSearchResult.current_milestone ?? 0);
+                    const isCurrent = idx === (publicSearchResult.current_milestone ?? 0);
+                    return (
+                      <View key={idx} style={styles.timelineItem}>
+                        <View style={[
+                          styles.timelineDot,
+                          isCurrent ? styles.timelineDotOrange
+                            : reached ? styles.timelineDotGreen
+                            : styles.timelineDotGray,
+                        ]} />
+                        <View style={styles.timelineContent}>
+                          <Text style={[
+                            styles.timelineTitle,
+                            !reached && { color: '#999' },
+                          ]}>
+                            {m.label_es}
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+
+                {/* Últimos eventos */}
+                {(publicSearchResult.movements || []).length > 0 && (
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#666', marginBottom: 6 }}>
+                      ÚLTIMAS ACTUALIZACIONES
+                    </Text>
+                    {(publicSearchResult.movements || []).slice(0, 4).map((mv, idx) => (
+                      <View key={idx} style={{ flexDirection: 'row', marginBottom: 6 }}>
+                        <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: ORANGE, marginTop: 6, marginRight: 8 }} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 13, color: '#111' }}>
+                            {mv.description_es || ''}
+                          </Text>
+                          <Text style={{ fontSize: 11, color: '#888' }}>
+                            {mv.location ? `${mv.location} · ` : ''}
+                            {new Date(mv.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
+                {/* Acción: agregar / quitar de seguimiento */}
+                <Pressable
+                  onPress={handleToggleFollow}
+                  style={{
+                    marginTop: 12,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 8,
+                    paddingVertical: 11,
+                    borderRadius: 10,
+                    backgroundColor: isCurrentResultFollowed ? '#FEF2F2' : ORANGE,
+                    borderWidth: isCurrentResultFollowed ? 1.5 : 0,
+                    borderColor: '#EF4444',
+                  }}
+                >
+                  <Ionicons
+                    name={isCurrentResultFollowed ? 'trash-outline' : 'bookmark-outline'}
+                    size={18}
+                    color={isCurrentResultFollowed ? '#EF4444' : '#fff'}
+                  />
+                  <Text style={{
+                    fontSize: 14,
+                    fontWeight: '700',
+                    color: isCurrentResultFollowed ? '#EF4444' : '#fff',
+                  }}>
+                    {isCurrentResultFollowed
+                      ? 'Quitar de mi seguimiento'
+                      : 'Agregar a mi seguimiento'}
+                  </Text>
+                </Pressable>
+                <Text style={{ fontSize: 11, color: '#888', textAlign: 'center', marginTop: 6, paddingHorizontal: 12 }}>
+                  Sólo se muestran datos públicos del envío. No incluye información del cliente.
+                </Text>
+              </View>
+            )}
+
+            {/* Error de búsqueda pública */}
+            {publicSearchError && !publicSearchResult && (
+              <View style={styles.trackingErrorContainer}>
+                <Ionicons name="alert-circle" size={40} color="#EF4444" />
+                <Text style={styles.trackingErrorText}>{publicSearchError}</Text>
+              </View>
+            )}
+
             {/* Estado inicial */}
-            {!trackedPackage && !trackingError && !trackingLoading && (
+            {!trackedPackage && !publicSearchResult && !publicSearchError && !trackingError && !trackingLoading && !publicSearchLoading && (
               <View style={styles.trackingEmptyState}>
                 <Ionicons name="qr-code-outline" size={60} color="#ddd" />
                 <Text style={styles.trackingEmptyText}>Ingresa el número de guía</Text>
@@ -2079,7 +2371,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
         {/* 🔍 Barra de búsqueda TRN inline */}
         {showTrnSearch && (
-          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, gap: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 12, paddingBottom: 12, gap: 8 }}>
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F5F5F5', borderRadius: 10, borderWidth: 1.5, borderColor: ORANGE, paddingHorizontal: 10, height: 40 }}>
               <Ionicons name="search" size={16} color={ORANGE} style={{ marginRight: 6 }} />
               <TextInput
@@ -2091,6 +2383,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 autoFocus
                 autoCapitalize="characters"
                 returnKeyType="search"
+                onSubmitEditing={() => handleTrnSubmit()}
               />
               {trnFilter.length > 0 && (
                 <Pressable onPress={() => setTrnFilter('')}>
@@ -2098,6 +2391,23 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 </Pressable>
               )}
             </View>
+            {/* Botón de acción: Buscar */}
+            <Pressable
+              onPress={() => handleTrnSubmit()}
+              disabled={!trnFilter.trim() || publicSearchLoading}
+              style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                backgroundColor: !trnFilter.trim() || publicSearchLoading ? '#E5E7EB' : ORANGE,
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {publicSearchLoading
+                ? <ActivityIndicator size="small" color="#fff" />
+                : <Ionicons name="arrow-forward" size={18} color="#fff" />}
+            </Pressable>
           </View>
         )}
       </Surface>
@@ -3698,6 +4008,43 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
     paddingHorizontal: 40,
+  },
+  emptyAddButton: {
+    marginTop: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: ORANGE,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: ORANGE,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  emptyAddHint: {
+    marginTop: 8,
+    fontSize: 13,
+    color: ORANGE,
+    fontWeight: '600',
+  },
+  emptyPitchBtn: {
+    marginTop: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 9,
+    paddingHorizontal: 18,
+    borderRadius: 22,
+    backgroundColor: '#FFF5EE',
+    borderWidth: 1.5,
+    borderColor: `${ORANGE}55`,
+  },
+  emptyPitchBtnText: {
+    fontSize: 13,
+    color: ORANGE,
+    fontWeight: '700',
   },
   fab: {
     position: 'absolute',

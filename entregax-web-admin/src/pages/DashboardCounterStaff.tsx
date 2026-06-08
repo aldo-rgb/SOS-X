@@ -141,18 +141,9 @@ export default function DashboardCounterStaff() {
       }
     } catch (error) {
       console.error('Error cargando dashboard:', error);
-      // Datos de ejemplo
-      setStats({
-        entregas: { pendientes: 28, realizadas_hoy: 45, en_espera: 5 },
-        cobros: { pendientes: 15, cobrados_hoy: 32, monto_cobrado: 8750 },
-        recepciones: { hoy: 67, por_registrar: 3 },
-      });
-      setPendingDeliveries([
-        { id: 1, tracking: 'US-ABC12345', cliente: 'María García', box_id: 'S1-1234', monto: 450, status: 'listo', llegada: 'hace 2h' },
-        { id: 2, tracking: 'CH-XYZ78901', cliente: 'Juan Pérez', box_id: 'S1-0089', monto: 1200, status: 'listo', llegada: 'hace 4h' },
-        { id: 3, tracking: 'US-DEF45678', cliente: 'Ana López', box_id: 'S1-2456', monto: 890, status: 'pendiente_pago', llegada: 'ayer' },
-        { id: 4, tracking: 'MX-NAC12345', cliente: 'Carlos Ruiz', box_id: 'S1-1122', monto: 0, status: 'listo', llegada: 'hace 1h' },
-      ]);
+      // Estado vacío: nunca mostrar clientes/box_ids ficticios.
+      setStats(null);
+      setPendingDeliveries([]);
     } finally {
       setLoading(false);
     }

@@ -8,7 +8,7 @@ import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import {
   Box, Typography, TextField, Button, Paper, Stepper, Step,
   StepLabel, CircularProgress, Chip, Divider, Alert, IconButton,
-  Menu, MenuItem, Tooltip,
+  Tooltip,
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -18,7 +18,6 @@ import {
   Warehouse as WarehouseIcon,
   Inventory as InventoryIcon,
   DoneAll as DoneAllIcon,
-  Language as LanguageIcon,
   ContentCopy as CopyIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
@@ -126,6 +125,17 @@ interface TrackingResult {
   milestones: { label_es: string; label_en: string; label_zh: string }[];
   movements: { date: string; location: string; description_es: string; description_en: string; description_zh: string }[];
   found: boolean;
+  // Master AIR multi-caja
+  is_master?: boolean;
+  total_boxes?: number;
+  children?: Array<{
+    tracking: string;
+    box_number?: number | null;
+    current_milestone: number;
+    status_label: { es?: string; en?: string; zh?: string };
+    weight?: number | null;
+    dimensions?: string | null;
+  }>;
   container?: {
     container_number: string | null;
     bl_number: string | null;
@@ -140,7 +150,7 @@ interface TrackingResult {
 
 export default function PublicTrackingPage() {
   const [lang, setLang] = useState<Lang>('es');
-  const [langAnchor, setLangAnchor] = useState<null | HTMLElement>(null);
+  const [tracking, setTracking] = useState('');
   const { cajitoAvatarUrl, entregaxFullBlackUrl } = usePaymentStatus();
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -239,22 +249,30 @@ export default function PublicTrackingPage() {
           </Typography>
         </Box>
 
-        {/* Language selector */}
-        <Box>
-          <Button
-            startIcon={<LanguageIcon />}
-            onClick={(e) => setLangAnchor(e.currentTarget)}
-            sx={{ color: '#555', textTransform: 'none', fontWeight: 600, fontSize: 13 }}
-          >
-            {LANG_OPTIONS.find(l => l.code === lang)?.flag} {LANG_OPTIONS.find(l => l.code === lang)?.label}
-          </Button>
-          <Menu anchorEl={langAnchor} open={Boolean(langAnchor)} onClose={() => setLangAnchor(null)}>
-            {LANG_OPTIONS.map(opt => (
-              <MenuItem key={opt.code} selected={lang === opt.code} onClick={() => { setLang(opt.code); setLangAnchor(null); }}>
-                <Typography sx={{ mr: 1 }}>{opt.flag}</Typography> {opt.label}
-              </MenuItem>
-            ))}
-          </Menu>
+        {/* Language selector — 3 banderas visibles */}
+        <Box sx={{ display: 'flex', gap: 0.5 }}>
+          {LANG_OPTIONS.map(opt => (
+            <Button
+              key={opt.code}
+              onClick={() => setLang(opt.code)}
+              size="small"
+              sx={{
+                minWidth: 0,
+                px: 1.2,
+                py: 0.4,
+                fontSize: 18,
+                lineHeight: 1,
+                borderRadius: 2,
+                border: lang === opt.code ? `2px solid ${ORANGE}` : '2px solid transparent',
+                bgcolor: lang === opt.code ? `${ORANGE}11` : 'transparent',
+                opacity: lang === opt.code ? 1 : 0.55,
+                transition: 'all 0.2s',
+                '&:hover': { opacity: 1, bgcolor: `${ORANGE}11` },
+              }}
+            >
+              {opt.flag}
+            </Button>
+          ))}
         </Box>
       </Box>
 
@@ -629,15 +647,28 @@ export default function PublicTrackingPage() {
         <Box sx={{ display: 'flex', gap: 3, alignItems: 'center' }}>
           <Button size="small" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, textTransform: 'none', '&:hover': { color: '#fff' } }}>{t.privacy}</Button>
           <Button size="small" sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, textTransform: 'none', '&:hover': { color: '#fff' } }}>{t.terms}</Button>
-          {/* Language selector en footer */}
-          <Box>
-            <Button
-              startIcon={<LanguageIcon />}
-              onClick={(e) => setLangAnchor(e.currentTarget)}
-              sx={{ color: 'rgba(255,255,255,0.5)', fontSize: 12, textTransform: 'none', '&:hover': { color: '#fff' } }}
-            >
-              {LANG_OPTIONS.find(l => l.code === lang)?.flag}
-            </Button>
+          {/* Language selector en footer — 3 banderas visibles */}
+          <Box sx={{ display: 'flex', gap: 0.5 }}>
+            {LANG_OPTIONS.map(opt => (
+              <Button
+                key={opt.code}
+                onClick={() => setLang(opt.code)}
+                size="small"
+                sx={{
+                  minWidth: 0,
+                  px: 1,
+                  py: 0.3,
+                  fontSize: 14,
+                  lineHeight: 1,
+                  borderRadius: 1.5,
+                  border: lang === opt.code ? `1.5px solid ${ORANGE}` : '1.5px solid transparent',
+                  opacity: lang === opt.code ? 1 : 0.45,
+                  '&:hover': { opacity: 1 },
+                }}
+              >
+                {opt.flag}
+              </Button>
+            ))}
           </Box>
         </Box>
       </Box>

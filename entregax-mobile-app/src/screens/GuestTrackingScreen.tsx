@@ -125,7 +125,7 @@ interface TrackResult {
 
 interface Props {
   navigation: any;
-  route?: { params?: { initialLang?: Lang } };
+  route?: { params?: { initialLang?: Lang; initialTracking?: string } };
 }
 
 // ── Componente ───────────────────────────────────────────────────────────────
@@ -134,7 +134,7 @@ export default function GuestTrackingScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const [lang, setLang] = useState<Lang>(route?.params?.initialLang || 'es');
   const [langOpen, setLangOpen] = useState(false);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState(route?.params?.initialTracking || '');
   const [rates, setRates] = useState({ aereo: 19.30, maritimo: 39, pobox: 39 });
 
   useEffect(() => {
@@ -158,8 +158,8 @@ export default function GuestTrackingScreen({ navigation, route }: Props) {
 
   const t = T[lang];
 
-  const handleSearch = async () => {
-    const tracking = input.trim().toUpperCase();
+  const handleSearch = async (overrideTracking?: string) => {
+    const tracking = (overrideTracking ?? input).trim().toUpperCase();
     if (!tracking) return;
     setLoading(true);
     setError(null);
@@ -177,6 +177,15 @@ export default function GuestTrackingScreen({ navigation, route }: Props) {
       setLoading(false);
     }
   };
+
+  // Si llegamos con un tracking pre-cargado, disparar búsqueda automática
+  useEffect(() => {
+    const initial = route?.params?.initialTracking;
+    if (initial && initial.trim()) {
+      handleSearch(initial);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const moveDesc = (m: Movement) =>
     lang === 'en' ? m.description_en : lang === 'zh' ? m.description_zh : m.description_es;
