@@ -107,7 +107,22 @@ interface GroupedInvoices {
 const MyPaymentsScreen = () => {
   const navigation = useNavigation<any>();
   const route = useRoute<RouteProp<RootStackParamList, 'MyPayments'>>();
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const mLang = i18n.language;
+  const MT = {
+    title:        mLang === 'zh' ? '💳 待付账款'    : mLang === 'en' ? '💳 Pending Payments'    : '💳 Mis Cuentas por Pagar',
+    totalLabel:   mLang === 'zh' ? '总待付款金额'    : mLang === 'en' ? 'Total Pending Amount'   : 'Total Pendiente por Pagar',
+    pending:      mLang === 'zh' ? '待付款'          : mLang === 'en' ? 'Pending'                : 'Pendientes',
+    history:      mLang === 'zh' ? '历史记录'        : mLang === 'en' ? 'History'                : 'Historial',
+    loading:      mLang === 'zh' ? '加载订单...'     : mLang === 'en' ? 'Loading orders...'      : 'Cargando órdenes...',
+    paid:         mLang === 'zh' ? '✅ 已付款'       : mLang === 'en' ? '✅ Paid'                : '✅ Pagado',
+    method:       mLang === 'zh' ? '支付方式：'      : mLang === 'en' ? 'Method:'               : 'Método:',
+    amount:       mLang === 'zh' ? '金额：'          : mLang === 'en' ? 'Amount:'               : 'Monto:',
+    date:         mLang === 'zh' ? '日期：'          : mLang === 'en' ? 'Date:'                 : 'Fecha:',
+    paidDate:     mLang === 'zh' ? '付款日期：'      : mLang === 'en' ? 'Paid on:'              : 'Pagado:',
+    packages:     mLang === 'zh' ? '包裹：'          : mLang === 'en' ? 'Packages:'             : 'Paquetes:',
+    pkgCount:     (n: number) => mLang === 'zh' ? `${n} 件` : mLang === 'en' ? `${n} package(s)` : `${n} paquete(s)`,
+  };
   const { user, token, initialTab } = route.params;
   
   const [loading, setLoading] = useState(true);
@@ -1204,7 +1219,7 @@ const MyPaymentsScreen = () => {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#333" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>💳 Mis Cuentas por Pagar</Text>
+        <Text style={styles.headerTitle}>{MT.title}</Text>
         <TouchableOpacity onPress={onRefresh}>
           <Ionicons name="refresh" size={24} color="#FF6B00" />
         </TouchableOpacity>
@@ -1212,7 +1227,7 @@ const MyPaymentsScreen = () => {
 
       {/* Total Pendiente */}
       <View style={styles.totalCard}>
-        <Text style={styles.totalLabel}>Total Pendiente por Pagar</Text>
+        <Text style={styles.totalLabel}>{MT.totalLabel}</Text>
         <Text style={styles.totalAmount}>{formatCurrency(totalPending)}</Text>
         <Text style={styles.totalCurrency}>MXN</Text>
       </View>
@@ -1224,14 +1239,14 @@ const MyPaymentsScreen = () => {
           onPress={() => setActiveTab('pending')}
         >
           <Ionicons name="time-outline" size={16} color={activeTab === 'pending' ? '#FF6B00' : '#999'} />
-          <Text style={[styles.tabText, activeTab === 'pending' && styles.tabTextActive]}>Pendientes ({pendingOrdersList.length})</Text>
+          <Text style={[styles.tabText, activeTab === 'pending' && styles.tabTextActive]}>{MT.pending} ({pendingOrdersList.length})</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[styles.tab, activeTab === 'history' && styles.tabActive]}
           onPress={() => setActiveTab('history')}
         >
           <Ionicons name="checkmark-done-outline" size={16} color={activeTab === 'history' ? '#FF6B00' : '#999'} />
-          <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>Historial ({historyOrdersList.length})</Text>
+          <Text style={[styles.tabText, activeTab === 'history' && styles.tabTextActive]}>{MT.history} ({historyOrdersList.length})</Text>
         </TouchableOpacity>
       </View>
 
@@ -1245,7 +1260,7 @@ const MyPaymentsScreen = () => {
         {loadingOrders ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color="#FF6B00" />
-            <Text style={styles.loadingText}>Cargando órdenes...</Text>
+            <Text style={styles.loadingText}>{MT.loading}</Text>
           </View>
         ) : visibleOrders.length === 0 ? (
           <View style={styles.emptyState}>
@@ -1260,8 +1275,8 @@ const MyPaymentsScreen = () => {
               pending: { bg: '#FFF3E0', text: '#E65100', label: '⏳ Pendiente' },
               vouchers_submitted: { bg: '#E3F2FD', text: '#1565C0', label: '🔄 Procesando' },
               vouchers_partial: { bg: '#FFF8E1', text: '#F57C00', label: '🔄 Procesando' },
-              completed: { bg: '#E8F5E9', text: '#2E7D32', label: '✅ Pagado' },
-              paid: { bg: '#E8F5E9', text: '#2E7D32', label: '✅ Pagado' },
+              completed: { bg: '#E8F5E9', text: '#2E7D32', label: MT.paid },
+              paid: { bg: '#E8F5E9', text: '#2E7D32', label: MT.paid },
               failed: { bg: '#FFEBEE', text: '#C62828', label: '❌ Fallido' },
               expired: { bg: '#F5F5F5', text: '#757575', label: '⏰ Expirado' },
             };
@@ -1292,22 +1307,22 @@ const MyPaymentsScreen = () => {
                 </TouchableOpacity>
                 <View style={styles.orderBody}>
                   <View style={styles.orderRow}>
-                    <Text style={styles.orderLabel}>Método:</Text>
+                    <Text style={styles.orderLabel}>{MT.method}</Text>
                     <Text style={styles.orderValue}>{methodLabels[order.payment_method] || order.payment_method}</Text>
                   </View>
                   <View style={styles.orderRow}>
-                    <Text style={styles.orderLabel}>Monto:</Text>
+                    <Text style={styles.orderLabel}>{MT.amount}</Text>
                     <Text style={[styles.orderValue, { fontWeight: 'bold', color: '#FF6B00' }]}>
                       {formatCurrency(order.amount)} {order.currency}
                     </Text>
                   </View>
                   <View style={styles.orderRow}>
-                    <Text style={styles.orderLabel}>Fecha:</Text>
+                    <Text style={styles.orderLabel}>{MT.date}</Text>
                     <Text style={styles.orderValue}>{formatDate(order.created_at)}</Text>
                   </View>
                   {order.paid_at && (
                     <View style={styles.orderRow}>
-                      <Text style={styles.orderLabel}>Pagado:</Text>
+                      <Text style={styles.orderLabel}>{MT.paidDate}</Text>
                       <Text style={[styles.orderValue, { color: '#2E7D32' }]}>{formatDate(order.paid_at)}</Text>
                     </View>
                   )}
@@ -1315,10 +1330,10 @@ const MyPaymentsScreen = () => {
                     style={styles.orderRow}
                     onPress={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
                   >
-                    <Text style={styles.orderLabel}>📦 Paquetes:</Text>
+                    <Text style={styles.orderLabel}>📦 {MT.packages}</Text>
                     <Text style={[styles.orderValue, { color: '#FF6B00' }]}>
-                      {Array.isArray(order.packages) ? order.packages.length : 
-                       Array.isArray(order.package_ids) ? order.package_ids.length : 0} paquete(s) ▾
+                      {MT.pkgCount(Array.isArray(order.packages) ? order.packages.length :
+                       Array.isArray(order.package_ids) ? order.package_ids.length : 0)} ▾
                     </Text>
                   </TouchableOpacity>
                   {(order.status === 'pending_payment' || order.status === 'pending') && (

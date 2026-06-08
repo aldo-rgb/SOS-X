@@ -19,6 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getSecure } from '../services/secureStorage';
 import { API_URL } from '../services/api';
+import { useTranslation } from 'react-i18next';
 
 // Colores
 const SEA_COLOR = '#0097A7';
@@ -60,6 +61,24 @@ interface WalletResumen {
 }
 
 export default function SaldoFavorScreen({ navigation }: any) {
+  const { i18n } = useTranslation();
+  const sl = i18n.language;
+  const ST = {
+    available:    sl === 'zh' ? '可用余额'      : sl === 'en' ? 'Available Balance'  : 'Saldo Disponible',
+    pending:      sl === 'zh' ? '待到账'        : sl === 'en' ? 'pending'            : 'pendiente',
+    earned:       sl === 'zh' ? '累计获得'      : sl === 'en' ? 'Total Earned'       : 'Total Ganado',
+    used:         sl === 'zh' ? '已使用'        : sl === 'en' ? 'Used'               : 'Usado',
+    referrals:    sl === 'zh' ? '推荐人数'      : sl === 'en' ? 'Referrals'          : 'Referidos',
+    earnPromo:    sl === 'zh' ? '每推荐一位朋友赚 $500！' : sl === 'en' ? 'Earn $500 per friend!' : '¡Gana $500 por cada amigo!',
+    earnPromoSub: sl === 'zh' ? '邀请朋友，他们首次发货时您即可获得奖励' : sl === 'en' ? 'Invite friends and earn when they make their first shipment' : 'Invita amigos y gana cuando hagan su primer envío',
+    history:      sl === 'zh' ? '交易记录'      : sl === 'en' ? 'Transaction History' : 'Historial de Movimientos',
+    seeAll:       sl === 'zh' ? '查看全部'      : sl === 'en' ? 'See all'            : 'Ver todo',
+    seeLess:      sl === 'zh' ? '收起'          : sl === 'en' ? 'See less'           : 'Ver menos',
+    noMovements:  sl === 'zh' ? '暂无交易记录'  : sl === 'en' ? 'No transactions yet' : 'Aún no tienes movimientos',
+    noMovSub:     sl === 'zh' ? '邀请朋友，他们首次发货时您即可获得余额' : sl === 'en' ? 'Invite friends and earn balance when they make their first shipment' : 'Invita amigos y gana saldo cuando hagan su primer envío',
+    howToUse:     sl === 'zh' ? '如何使用余额？' : sl === 'en' ? 'How to use my balance?' : '¿Cómo usar mi saldo?',
+    autoApplied:  sl === 'zh' ? '支付运费时自动抵扣' : sl === 'en' ? 'Automatically applied when paying for shipments' : 'Se aplica automáticamente al pagar tus envíos',
+  };
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [resumen, setResumen] = useState<WalletResumen | null>(null);
@@ -206,7 +225,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         >
-          <Text style={styles.balanceLabel}>Saldo Disponible</Text>
+          <Text style={styles.balanceLabel}>{ST.available}</Text>
           <Text style={styles.balanceAmount}>
             {saldo ? formatMoney(saldo.saldo_disponible) : '$0.00'}
           </Text>
@@ -216,7 +235,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
             <View style={styles.pendingBadge}>
               <Ionicons name="time-outline" size={14} color="#FFF" />
               <Text style={styles.pendingText}>
-                {formatMoney(saldo.saldo_pendiente)} pendiente
+                {formatMoney(saldo.saldo_pendiente)} {ST.pending}
               </Text>
             </View>
           )}
@@ -229,14 +248,14 @@ export default function SaldoFavorScreen({ navigation }: any) {
             <Text style={styles.infoValue}>
               {formatMoney(resumen?.estadisticas?.total_ingresos || 0)}
             </Text>
-            <Text style={styles.infoLabel}>Total Ganado</Text>
+            <Text style={styles.infoLabel}>{ST.earned}</Text>
           </View>
           <View style={styles.infoCard}>
             <Ionicons name="cart-outline" size={24} color={ORANGE} />
             <Text style={styles.infoValue}>
               {formatMoney(resumen?.estadisticas?.total_egresos || 0)}
             </Text>
-            <Text style={styles.infoLabel}>Usado</Text>
+            <Text style={styles.infoLabel}>{ST.used}</Text>
           </View>
           <TouchableOpacity
             style={styles.infoCard}
@@ -245,7 +264,7 @@ export default function SaldoFavorScreen({ navigation }: any) {
           >
             <Ionicons name="people" size={24} color={ORANGE} />
             <Text style={styles.infoValue}>{totalReferidos}</Text>
-            <Text style={styles.infoLabel}>Referidos</Text>
+            <Text style={styles.infoLabel}>{ST.referrals}</Text>
           </TouchableOpacity>
         </View>
 
@@ -265,10 +284,8 @@ export default function SaldoFavorScreen({ navigation }: any) {
                 <Ionicons name="gift" size={32} color="#FFF" />
               </View>
               <View style={styles.referralInfo}>
-                <Text style={styles.referralTitle}>¡Gana $500 por cada amigo!</Text>
-                <Text style={styles.referralSubtitle}>
-                  Invita amigos y gana cuando hagan su primer envío
-                </Text>
+                <Text style={styles.referralTitle}>{ST.earnPromo}</Text>
+                <Text style={styles.referralSubtitle}>{ST.earnPromoSub}</Text>
               </View>
               <Ionicons name="chevron-forward" size={24} color="#FFF" />
             </View>
@@ -278,11 +295,11 @@ export default function SaldoFavorScreen({ navigation }: any) {
         {/* Sección de transacciones */}
         <View style={styles.transactionsSection}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Historial de Movimientos</Text>
+            <Text style={styles.sectionTitle}>{ST.history}</Text>
             {transacciones.length > 5 && (
               <TouchableOpacity onPress={() => setShowAllTransactions(!showAllTransactions)}>
                 <Text style={styles.seeAllText}>
-                  {showAllTransactions ? 'Ver menos' : 'Ver todo'}
+                  {showAllTransactions ? ST.seeLess : ST.seeAll}
                 </Text>
               </TouchableOpacity>
             )}
@@ -291,10 +308,8 @@ export default function SaldoFavorScreen({ navigation }: any) {
           {transacciones.length === 0 ? (
             <View style={styles.emptyTransactions}>
               <Ionicons name="wallet-outline" size={48} color="#CCC" />
-              <Text style={styles.emptyText}>Aún no tienes movimientos</Text>
-              <Text style={styles.emptySubtext}>
-                Invita amigos y gana saldo cuando hagan su primer envío
-              </Text>
+              <Text style={styles.emptyText}>{ST.noMovements}</Text>
+              <Text style={styles.emptySubtext}>{ST.noMovSub}</Text>
             </View>
           ) : (
             <View>
@@ -309,11 +324,11 @@ export default function SaldoFavorScreen({ navigation }: any) {
 
         {/* Información de cómo usar el saldo */}
         <View style={styles.infoSection}>
-          <Text style={styles.infoTitle}>¿Cómo usar mi saldo?</Text>
+          <Text style={styles.infoTitle}>{ST.howToUse}</Text>
           <View style={styles.infoItem}>
             <Ionicons name="checkmark-circle" size={20} color={GREEN} />
             <Text style={styles.infoText}>
-              Se aplica automáticamente al pagar tus envíos
+              {ST.autoApplied}
             </Text>
           </View>
           <View style={styles.infoItem}>
