@@ -843,6 +843,11 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={100}
     >
+    <ScrollView
+      scrollEnabled={!signatureExpanded}
+      keyboardShouldPersistTaps="handled"
+      contentContainerStyle={{ paddingBottom: 32 }}
+    >
     <View style={styles.stepContent}>
       {/* Info del paquete + badge de total de guías en el lote */}
       <View style={styles.packageInfoBox}>
@@ -1093,6 +1098,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
         <MaterialIcons name="arrow-forward" size={20} color="#fff" />
       </TouchableOpacity>
     </View>
+    </ScrollView>
     </KeyboardAvoidingView>
   );
 
