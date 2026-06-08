@@ -29,7 +29,6 @@ import {
   Delete as DeleteIcon,
   GridOn as GridOnIcon,
 } from '@mui/icons-material';
-import Divider from '@mui/material/Divider';
 import api from '../services/api';
 
 interface ConsolidacionPendiente {
