@@ -247,7 +247,7 @@ export default function GuestTrackingScreen({ navigation, route }: Props) {
               style={styles.searchInput}
               value={input}
               onChangeText={setInput}
-              onSubmitEditing={handleSearch}
+              onSubmitEditing={() => handleSearch()}
               placeholder={t.placeholder}
               placeholderTextColor="#BBB"
               autoCapitalize="characters"
@@ -262,7 +262,7 @@ export default function GuestTrackingScreen({ navigation, route }: Props) {
           </View>
           <TouchableOpacity
             style={[styles.searchBtn, (!input.trim() || loading) && { opacity: 0.5 }]}
-            onPress={handleSearch}
+            onPress={() => handleSearch()}
             disabled={!input.trim() || loading}
           >
             {loading

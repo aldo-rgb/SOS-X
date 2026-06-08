@@ -75,6 +75,25 @@ export const sendPhoneVerificationCode = async (req: AuthRequest, res: Response)
         let userId: number | null = req.user?.userId || null;
 
         if (userId) {
+            // ¿El usuario ya tiene este mismo número verificado?
+            // En ese caso no hay que volver a mandar código ni chocar con la
+            // validación de "ya asociado a otra cuenta" (que falla cuando
+            // existen duplicados legacy con el mismo número).
+            const me = await pool.query(
+                `SELECT regexp_replace(COALESCE(phone, ''), '\\D', '', 'g') AS phone_clean,
+                        phone_verified
+                 FROM users WHERE id = $1`,
+                [userId]
+            );
+            if (me.rows[0]?.phone_clean === normalized && me.rows[0]?.phone_verified === true) {
+                res.json({
+                    ok: true,
+                    alreadyVerified: true,
+                    message: 'Este número ya está verificado en tu cuenta.',
+                });
+                return;
+            }
+
             // Actualizar phone del usuario autenticado (puede ser cambio)
             await pool.query(
                 'UPDATE users SET phone = $1 WHERE id = $2',

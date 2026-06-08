@@ -294,13 +294,41 @@ export default function MyProfileScreen({ navigation, route }: Props) {
 
   const handleWhatsappToggle = (value: boolean) => {
     if (value && !isPhoneVerified) {
-      // No verificado → mostrar modal de verificación
-      setPhoneVerifCode('');
-      setPhoneVerifSent(false);
-      setShowPhoneVerifModal(true);
+      // Antes de mostrar el modal, revalidamos contra backend por si el flag
+      // local está stale (p.ej. el usuario verificó en otro device).
+      ensurePhoneVerified().then(verified => {
+        if (verified) {
+          updateNotifPref('whatsapp', value);
+        } else {
+          setPhoneVerifCode('');
+          setPhoneVerifSent(false);
+          setShowPhoneVerifModal(true);
+        }
+      });
       return;
     }
     updateNotifPref('whatsapp', value);
+  };
+
+  // Helper: refresca el flag phone_verified desde el backend.
+  // Si el backend confirma que ya está verificado, sincroniza el estado local
+  // y devuelve true (para que el caller no muestre el flujo de verificación).
+  const ensurePhoneVerified = async (): Promise<boolean> => {
+    try {
+      const r = await fetch(`${API_URL}/api/auth/profile`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (r.ok) {
+        const data = await r.json();
+        const verified = data?.phone_verified === true;
+        setIsPhoneVerified(verified);
+        if (verified) {
+          setUser((prev: any) => ({ ...prev, phoneVerified: true, phone_verified: true }));
+        }
+        return verified;
+      }
+    } catch { /* ignore */ }
+    return isPhoneVerified;
   };
 
   const handleSendPhoneVerifCode = async () => {
@@ -317,6 +345,18 @@ export default function MyProfileScreen({ navigation, route }: Props) {
       });
       const data = await r.json();
       if (r.ok) {
+        // Si el backend nos dice que ya está verificado, no hay que pedir código:
+        // sincronizamos estado local y cerramos el modal con un mensaje amable.
+        if (data.alreadyVerified) {
+          setUser((prev: any) => ({ ...prev, phoneVerified: true, phone_verified: true }));
+          setShowPhoneVerifModal(false);
+          setPhoneVerifSent(false);
+          setPhoneVerifCode('');
+          Alert.alert('Ya verificado', 'Este número ya está verificado en tu cuenta.');
+          // Activamos preferencia de WhatsApp ya que el usuario quería hacerlo.
+          try { updateNotifPref('whatsapp', true); } catch {}
+          return;
+        }
         setPhoneVerifSent(true);
       } else {
         Alert.alert('Error', data.error || 'No se pudo enviar el código.');
@@ -701,10 +741,15 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     return uso ? `${uso.clave} - ${uso.descripcion}` : 'G03 - Gastos en general';
   };
 
-  const handleToggle2FA = (value: boolean) => {
+  const handleToggle2FA = async (value: boolean) => {
+    // Revalidar contra backend si el flag local dice no-verificado: puede
+    // estar stale (verificado en otro dispositivo, snapshot viejo en nav).
     if (!isPhoneVerified) {
-      Alert.alert('Teléfono requerido', 'Debes verificar tu número de teléfono antes de activar 2FA.');
-      return;
+      const verified = await ensurePhoneVerified();
+      if (!verified) {
+        Alert.alert('Teléfono requerido', 'Debes verificar tu número de teléfono antes de activar 2FA.');
+        return;
+      }
     }
     setTwoFAAction(value ? 'enable' : 'disable');
     setTwoFAPassword(''); setTwoFACode(''); setTwoFACodeSent(false);
@@ -748,8 +793,11 @@ export default function MyProfileScreen({ navigation, route }: Props) {
   // Cambiar correo electrónico
   const handleSendEmailChangeCode = async () => {
     if (!isPhoneVerified) {
-      Alert.alert('Teléfono requerido', 'Debes tener un número de teléfono verificado para cambiar tu correo.');
-      return;
+      const verified = await ensurePhoneVerified();
+      if (!verified) {
+        Alert.alert('Teléfono requerido', 'Debes tener un número de teléfono verificado para cambiar tu correo.');
+        return;
+      }
     }
     setChangeEmailSaving(true);
     try {
@@ -1290,7 +1338,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 <View style={styles.menuItem}>
                   <Ionicons name="airplane-outline" size={22} color="#555" />
                   <View style={styles.menuItemContent}>
-                    <Text style={styles.menuItemTitle}>Aéreo</Text>
+                    <Text style={styles.menuItemTitle}>Aéreo China</Text>
                   </View>
                   <Switch
                     value={notifPrefs.air}
@@ -1305,7 +1353,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 <View style={styles.menuItem}>
                   <Ionicons name="boat-outline" size={22} color="#555" />
                   <View style={styles.menuItemContent}>
-                    <Text style={styles.menuItemTitle}>Marítimo</Text>
+                    <Text style={styles.menuItemTitle}>Marítimo China</Text>
                   </View>
                   <Switch
                     value={notifPrefs.maritime}
@@ -1320,7 +1368,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 <View style={styles.menuItem}>
                   <Ionicons name="cube-outline" size={22} color="#555" />
                   <View style={styles.menuItemContent}>
-                    <Text style={styles.menuItemTitle}>DHL</Text>
+                    <Text style={styles.menuItemTitle}>Despacho Aduanal</Text>
                   </View>
                   <Switch
                     value={notifPrefs.dhl}
@@ -1335,7 +1383,7 @@ export default function MyProfileScreen({ navigation, route }: Props) {
                 <View style={styles.menuItem}>
                   <Ionicons name="home-outline" size={22} color="#555" />
                   <View style={styles.menuItemContent}>
-                    <Text style={styles.menuItemTitle}>eeePO Box / Suite</Text>
+                    <Text style={styles.menuItemTitle}>Terrestre USA / Suite</Text>
                   </View>
                   <Switch
                     value={notifPrefs.pobox}

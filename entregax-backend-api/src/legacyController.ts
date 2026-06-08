@@ -679,12 +679,19 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         const newUserId = newUser.rows[0].id;
 
-        // 6. Marcar como reclamado
+        // 6. Marcar como reclamado y LIMPIAR datos sensibles del legacy.
+        //    Los datos (email, full_name) ya viven en users; mantenerlos
+        //    aquí provoca colisiones tipo "este correo ya está asociado a
+        //    otra cuenta" en validaciones posteriores que escanean toda la BD.
+        //    Conservamos box_id (para trazabilidad histórica), is_claimed y
+        //    claimed_by_user_id (para el join legacy → users).
         await client.query(`
             UPDATE legacy_clients
             SET is_claimed = TRUE,
                 claimed_by_user_id = $1,
-                claimed_at = NOW()
+                claimed_at = NOW(),
+                email = NULL,
+                full_name = NULL
             WHERE box_id = $2
         `, [newUserId, boxId.toUpperCase()]);
 
