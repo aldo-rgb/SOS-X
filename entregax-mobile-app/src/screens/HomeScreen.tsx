@@ -84,7 +84,16 @@ type HomeScreenProps = {
 };
 
 export default function HomeScreen({ navigation, route }: HomeScreenProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const uiLang = i18n.language as 'es' | 'en' | 'zh';
+  const HT = {
+    filterSearch:      uiLang === 'zh' ? '追踪'    : uiLang === 'en' ? 'Track'           : 'Rastreo',
+    filterNoInstr:     uiLang === 'zh' ? '无指示'   : uiLang === 'en' ? 'No Instructions' : 'Sin Instrucciones',
+    filterWithInstr:   uiLang === 'zh' ? '有指示'   : uiLang === 'en' ? 'With Instructions': 'Con Instrucciones',
+    filterHistory:     uiLang === 'zh' ? '历史'    : uiLang === 'en' ? 'History'          : 'Historial',
+    selectService:     uiLang === 'zh' ? '请选择服务' : uiLang === 'en' ? 'Select a service' : '📦 Selecciona un servicio',
+    selectServiceBody: uiLang === 'zh' ? '请先选择服务类型进行过滤。' : uiLang === 'en' ? 'Please select a service type to filter first.' : 'Primero selecciona un tipo de servicio para filtrar.',
+  };
   const insets = useSafeAreaInsets();
   const { user: initialUser, token } = route.params;
   const { xpayEnabled, entregaxPaymentsEnabled, isEntregaxPaymentEnabledFor, gexEnabled } = usePaymentStatus();
@@ -1980,7 +1989,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <View style={[styles.headerActionIcon, showTrnSearch && { backgroundColor: ORANGE + '20', borderColor: ORANGE }]}>
               <Ionicons name={showTrnSearch ? 'close' : 'search'} size={20} color={showTrnSearch ? ORANGE : '#374151'} />
             </View>
-            <Text style={[styles.headerActionLabel, showTrnSearch && { color: ORANGE }]}>Rastreo</Text>
+            <Text style={[styles.headerActionLabel, showTrnSearch && { color: ORANGE }]}>{HT.filterSearch}</Text>
           </Pressable>
 
           {/* ❌ Sin Instrucciones */}
@@ -1992,11 +2001,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 setSelectedIds([]);
               } else {
                 if (serviceFilter === null) {
-                  Alert.alert(
-                    '📦 Selecciona un servicio',
-                    'Primero selecciona un tipo de servicio para filtrar.',
-                    [{ text: 'OK' }]
-                  );
+                  Alert.alert(HT.selectService, HT.selectServiceBody, [{ text: 'OK' }]);
                   return;
                 }
                 setInstructionFilter(false);
@@ -2018,7 +2023,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Ionicons name="close" size={20} color={instructionFilter === false ? '#FFF' : '#374151'} />
             </View>
             <Text style={[styles.headerActionLabel, instructionFilter === false && styles.headerActionLabelActive]}>
-              Sin Instrucciones
+              {HT.filterNoInstr}
             </Text>
           </Pressable>
 
@@ -2031,11 +2036,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 setSelectedIds([]);
               } else {
                 if (serviceFilter === null) {
-                  Alert.alert(
-                    '📦 Selecciona un servicio',
-                    'Primero selecciona un tipo de servicio para filtrar.',
-                    [{ text: 'OK' }]
-                  );
+                  Alert.alert(HT.selectService, HT.selectServiceBody, [{ text: 'OK' }]);
                   return;
                 }
                 setInstructionFilter(true);
@@ -2060,7 +2061,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               <Ionicons name="checkmark" size={20} color={instructionFilter === true ? '#FFF' : '#374151'} />
             </View>
             <Text style={[styles.headerActionLabel, instructionFilter === true && styles.headerActionLabelActive]}>
-              Con Instrucciones
+              {HT.filterWithInstr}
             </Text>
           </Pressable>
 
@@ -2072,7 +2073,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
             <View style={styles.headerActionIcon}>
               <Ionicons name="time" size={20} color="#374151" />
             </View>
-            <Text style={styles.headerActionLabel}>Historial</Text>
+            <Text style={styles.headerActionLabel}>{HT.filterHistory}</Text>
           </Pressable>
         </View>
 
