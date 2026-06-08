@@ -9647,22 +9647,21 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
   };
 
   try {
-    // 1. Buscar en packages (POBOX, china_air, china_sea, tdi_express)
-    //    delivery_status se accede vía jsonb para compatibilidad con el schema real
+    // 1. Buscar en packages
+    //    Columnas reales: tracking_internal, tracking_provider, child_no, status, service_type
     const pkgRes = await pool.query(`
       SELECT
         p.id,
-        p.tracking_number,
-        p.national_tracking,
-        p.carrier_tracking,
+        p.tracking_internal AS tracking,
+        COALESCE(p.tracking_provider, p.child_no) AS external_tracking,
         p.status::text AS status,
         p.service_type,
         p.created_at,
         p.updated_at
       FROM packages p
-      WHERE UPPER(COALESCE(p.tracking_number,'')) = $1
-         OR UPPER(COALESCE(p.national_tracking,'')) = $1
-         OR UPPER(COALESCE(p.carrier_tracking,'')) = $1
+      WHERE UPPER(p.tracking_internal) = $1
+         OR UPPER(COALESCE(p.tracking_provider,'')) = $1
+         OR UPPER(COALESCE(p.child_no,'')) = $1
       LIMIT 1
     `, [raw]);
 
@@ -9673,7 +9672,7 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
         SELECT
           NULL::int AS id,
           'dhl' AS service_type,
-          COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking_number,
+          COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking,
           ds.status::text AS status,
           ds.created_at,
           ds.updated_at
@@ -9729,7 +9728,7 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
     }
 
     return res.json({
-      tracking: row.tracking_number || raw,
+      tracking: row.tracking || raw,
       service: serviceName,
       current_milestone: currentMilestone,
       milestones: MILESTONES,
