@@ -889,20 +889,8 @@ const CajaChicaPage: React.FC = () => {
     } finally { setRefPagoProcesando(false); }
   };
 
-  // Legacy stub — mantenido para evitar errores de compilación si hay referencias residuales
-  const handlePagarConsolidacion = async () => {
-    // Redirigir al nuevo flujo
+  const handlePagarConsolidacion = () => {
     setRefPagoInput(''); setRefPagoData(null); setRefPagoOpen(true);
-    const _noop = async () => {
-      const axiosError = {} as { response?: { data?: { error?: string } } };
-      setSnackbar({
-        open: true,
-        message: axiosError.response?.data?.error || 'Error al procesar pago',
-        severity: 'error'
-      });
-    } finally {
-      setProcesandoPagoProveedor(false);
-    }
   };
 
   const loadData = useCallback(async () => {
