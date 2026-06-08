@@ -2308,7 +2308,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   setServiceFilter(serviceFilter === 'air' ? null : 'air');
                 }}
               >
-                <Text style={styles.filterIcon}>✈️</Text>
+                <Text style={styles.filterIcon}>🇨🇳</Text>
                 <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
               </Pressable>
               <Pressable
@@ -2318,7 +2318,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   setServiceFilter(serviceFilter === 'maritime' ? null : 'maritime');
                 }}
               >
-                <Text style={styles.filterIcon}>🚢</Text>
+                <Text style={styles.filterIcon}>🇨🇳</Text>
                 <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
               </Pressable>
               <Pressable
@@ -2328,8 +2328,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   setServiceFilter(serviceFilter === 'usa' ? null : 'usa');
                 }}
               >
-                <Text style={styles.filterIcon}>📦</Text>
-                <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>PO Box</Text>
+                <Text style={styles.filterIcon}>🇺🇸</Text>
+                <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>Terrestre</Text>
               </Pressable>
               {serviceCounts.dhl > 0 && (
                 <Pressable
@@ -2339,8 +2339,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     setServiceFilter(serviceFilter === 'dhl' ? null : 'dhl');
                   }}
                 >
-                  <Text style={styles.filterIcon}>🚚</Text>
-                  <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>MTY</Text>
+                  <Text style={styles.filterIcon}>🌍</Text>
+                  <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>Despacho</Text>
                 </Pressable>
               )}
             </View>

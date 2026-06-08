@@ -49,16 +49,18 @@ interface ServiceMeta {
   key: ServiceKey;
   title: string;
   subtitle: string;
+  description: string;
   icon: string;
+  emoji?: string;
   endpoint: string;
   eta: string;
 }
 
 const SERVICES: ServiceMeta[] = [
-  { key: 'pobox',     title: 'PO Box USA',          subtitle: 'Estados Unidos → Monterrey', icon: 'package-variant',  endpoint: '/api/quotes/pobox',         eta: '5-10 días'  },
-  { key: 'air_china', title: 'TDI Aéreo China',     subtitle: 'Aéreo China → México',       icon: 'airplane',         endpoint: '/api/quotes/air-china',     eta: '10-15 días' },
-  { key: 'maritime',  title: 'Marítimo China',      subtitle: 'Contenedor LCL/FCL',         icon: 'ferry',            endpoint: '/api/maritime/calculate',   eta: '45-60 días' },
-  { key: 'dhl',       title: 'DHL Nacional',        subtitle: 'Liberación DHL en Monterrey',icon: 'truck-fast',       endpoint: '/api/public/quote',         eta: '1-3 días'   },
+  { key: 'pobox',     title: 'Terrestre USA a México',          subtitle: 'USA → México',            description: 'Traslado de Estados Unidos desde 1 caja de zapatos hasta 1 contenedor completo', icon: 'package-variant', emoji: '🇺🇸', endpoint: '/api/quotes/pobox',       eta: '5-10 días'  },
+  { key: 'air_china', title: 'Aéreo China',                    subtitle: 'Aéreo China → México',    description: 'Envío aéreo costo por kilo',                                                     icon: 'airplane',        emoji: '🇨🇳', endpoint: '/api/quotes/air-china',   eta: '10-15 días' },
+  { key: 'maritime',  title: 'Marítimo China',                 subtitle: 'Marítimo China → México', description: 'Envía desde 1 caja hasta 1 contenedor completo',                                 icon: 'ferry',           emoji: '🇨🇳', endpoint: '/api/maritime/calculate', eta: '45-60 días' },
+  { key: 'dhl',       title: 'Trámite Aduanal DHL Monterrey', subtitle: 'Despacho Aduanal',        description: 'Envía desde cualquier parte del mundo.',                                          icon: 'truck-fast',      emoji: '🌍', endpoint: '/api/public/quote',       eta: '1-3 días'   },
 ];
 
 interface RatesService {
@@ -110,6 +112,8 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
 
   // Inputs específicos Marítimo (paridad con web)
   const [maritimeMode, setMaritimeMode] = useState<'volumen' | 'fcl_40'>('volumen');
+  // Sub-tipo Aéreo China (paridad con web)
+  const [airSubservice, setAirSubservice] = useState<'tdi_aereo' | 'tdi_express'>('tdi_aereo');
   const [estimatedValueUsd, setEstimatedValueUsd] = useState('');
 
   // Tarifas dinámicas del backend (mismo origen que web)
@@ -352,8 +356,8 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     if (selectedService.key === 'pobox') {
       body.quantity = Math.max(1, parseInt(quantity) || 1);
     } else if (selectedService.key === 'air_china') {
-      // Cotizador siempre asume Genérico — sin selector visible.
       body.tariffType = 'G';
+      body.subservicio = airSubservice;
     } else if (selectedService.key === 'maritime') {
       body.userId = user?.id;
       body.category = 'Generico';
@@ -400,22 +404,43 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
       <Text style={styles.stepTitle}>¿Qué servicio quieres cotizar?</Text>
       <Text style={styles.stepHint}>Cada servicio tiene su propia fórmula de cálculo.</Text>
 
-      {SERVICES.map(s => (
-        <TouchableOpacity
-          key={s.key}
-          style={[styles.serviceCard, service === s.key && styles.serviceCardActive]}
-          onPress={() => { setService(s.key); setStep(1); }}
-        >
-          <View style={styles.serviceIconWrap}>
-            <MaterialCommunityIcons name={s.icon as any} size={28} color={ORANGE} />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.serviceTitle}>{s.title}</Text>
-            <Text style={styles.serviceSubtitle}>{s.subtitle}</Text>
-            <Text style={styles.serviceEta}>⏱️ {s.eta}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={22} color="#999" />
-        </TouchableOpacity>
+      {SERVICES.map((s, idx) => (
+        <View key={s.key}>
+          <TouchableOpacity
+            style={[styles.serviceCard, service === s.key && styles.serviceCardActive]}
+            onPress={() => { setService(s.key); setStep(1); }}
+          >
+            <View style={styles.serviceIconWrap}>
+              {s.emoji
+                ? <Text style={{ fontSize: 30 }}>{s.emoji}</Text>
+                : <MaterialCommunityIcons name={s.icon as any} size={28} color={ORANGE} />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.serviceTitle}>{s.title}</Text>
+              <Text style={styles.serviceSubtitle}>{s.subtitle}</Text>
+              <Text style={[styles.serviceEta, { color: '#666', fontSize: 11, marginTop: 2 }]}>{s.description}</Text>
+              <Text style={[styles.serviceEta, { marginTop: 4 }]}>⏱️ {s.eta}</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={22} color="#999" />
+          </TouchableOpacity>
+
+          {/* Botón "¿Cómo enviar?" entre Aéreo China (idx=1) y Marítimo China (idx=2) */}
+          {idx === 1 && (
+            <TouchableOpacity
+              onPress={() => navigation.navigate('ServicesGuide', { user, token })}
+              style={{
+                flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+                backgroundColor: '#F8F4FF', borderRadius: 12, borderWidth: 1,
+                borderColor: '#E0D4FF', paddingVertical: 12, paddingHorizontal: 18,
+                marginBottom: 10, gap: 8,
+              }}
+            >
+              <MaterialCommunityIcons name="help-circle-outline" size={20} color="#7C3AED" />
+              <Text style={{ color: '#7C3AED', fontWeight: '700', fontSize: 14 }}>¿Cómo enviar con EntregaX?</Text>
+              <Ionicons name="chevron-forward" size={16} color="#7C3AED" />
+            </TouchableOpacity>
+          )}
+        </View>
       ))}
 
       {/* Tabla de Tarifas de Referencia (paridad con web) */}
@@ -448,17 +473,25 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
                 <Text style={[styles.tierCell, styles.tierCellHead, { flex: 1.2 }]}>Tiempo</Text>
                 <Text style={[styles.tierCell, styles.tierCellHead, { flex: 1.5, textAlign: 'right' }]}>Precio</Text>
               </View>
-              {rates.map((s) => (
+              {rates.filter(s => !/dhl\s*nacional/i.test(s.nombre) && !/dhl\s*mty/i.test(s.nombre) && s.id !== 'dhl_monterrey').map((s) => {
+                const nombre = s.nombre
+                  .replace(/TDI\s*Express/gi, 'Aéreo Express')
+                  .replace(/TDI\s*Aéreo/gi, 'Aéreo China')
+                  .replace(/TDI\s*Aereo/gi, 'Aéreo China')
+                  .replace(/PO\s*Box\s*USA/gi, 'Terrestre USA 🇺🇸')
+                  .replace(/\(.*?\)/g, '').trim();
+                return (
                 <View key={s.id} style={styles.tierRow}>
                   <View style={{ flex: 2 }}>
-                    <Text style={[styles.tierCell, { fontWeight: '700' }]}>{s.icono || ''} {s.nombre}</Text>
+                    <Text style={[styles.tierCell, { fontWeight: '700' }]}>{s.icono || ''} {nombre}</Text>
                   </View>
                   <Text style={[styles.tierCell, { flex: 1.2, color: '#666' }]}>{s.tiempo_estimado}</Text>
                   <Text style={[styles.tierCell, { flex: 1.5, textAlign: 'right', color: ORANGE, fontWeight: '700' }]}>
                     ${Number(s.precio_base_usd).toFixed(2)} USD/{s.unidad}
                   </Text>
                 </View>
-              ))}
+              );
+              })}
               {/* Footer con tipo de cambio actual */}
               {globalFxRate && (
                 <View style={styles.fxFooter}>
@@ -503,6 +536,33 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               ? 'Cotiza por metros cúbicos. Ideal para volúmenes mixtos.'
               : 'Contenedor completo de 40 pies (~66 m³). Cotiza por contenedor.'}
           </Text>
+        </View>
+      )}
+
+      {/* Selector Aéreo / Express (solo para air_china) */}
+      {selectedService?.key === 'air_china' && (
+        <View style={styles.fieldGroup}>
+          <Text style={styles.label}>Tipo de servicio aéreo</Text>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            {([
+              { key: 'tdi_aereo' as const, label: '✈️ Aéreo', eta: '10-15 días' },
+              { key: 'tdi_express' as const, label: '🚀 Express', eta: '7-10 días' },
+            ]).map(opt => (
+              <TouchableOpacity
+                key={opt.key}
+                onPress={() => setAirSubservice(opt.key)}
+                style={{
+                  flex: 1, padding: 12, borderRadius: 10, borderWidth: 2,
+                  borderColor: airSubservice === opt.key ? ORANGE : '#E0E0E0',
+                  backgroundColor: airSubservice === opt.key ? '#FFF5F0' : '#FAFAFA',
+                  alignItems: 'center',
+                }}
+              >
+                <Text style={{ fontWeight: '700', color: airSubservice === opt.key ? ORANGE : '#333', fontSize: 15 }}>{opt.label}</Text>
+                <Text style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{opt.eta}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
       )}
 
