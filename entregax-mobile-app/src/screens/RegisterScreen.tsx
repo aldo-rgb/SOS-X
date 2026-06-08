@@ -77,6 +77,13 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [phonePrefix, setPhonePrefix] = useState('+52');
+  const [showPrefixPicker, setShowPrefixPicker] = useState(false);
+  const LADA_OPTIONS = [
+    { flag: '🇲🇽', code: '+52', label: 'México' },
+    { flag: '🇺🇸', code: '+1',  label: 'USA' },
+    { flag: '🇨🇳', code: '+86', label: '中国' },
+  ];
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [referralCode, setReferralCode] = useState('');
@@ -135,7 +142,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
       const response = await api.post('/api/auth/register', {
         fullName: fullName.trim(),
         email: email.trim().toLowerCase(),
-        phone: phone.trim(),
+        phone: `${phonePrefix}${phone.trim()}`,
         password,
         referralCodeInput: referralCode.trim().toUpperCase() || undefined,
       });
@@ -194,9 +201,6 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
           style={styles.logoImage}
           resizeMode="contain"
         />
-        <Text style={styles.logoText}>
-          Entrega<Text style={styles.logoX}>X</Text>
-        </Text>
         <Text style={styles.subtitle}>{RT.title}</Text>
       </View>
 
@@ -238,20 +242,46 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
             </HelperText>
           )}
 
-          {/* Teléfono */}
-          <TextInput
-            label={RT.phone}
-            value={phone}
-            onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ''))}
-            mode="outlined"
-            keyboardType="phone-pad"
-            maxLength={10}
-            left={<TextInput.Icon icon="whatsapp" />}
-            style={styles.input}
-            outlineColor="#ddd"
-            activeOutlineColor={ORANGE}
-            error={!!phoneError}
-          />
+          {/* Teléfono con selector de lada */}
+          <View style={[styles.phoneRow, phoneError ? { borderColor: 'red' } : {}]}>
+            <TouchableOpacity
+              style={styles.ladaBtn}
+              onPress={() => setShowPrefixPicker(!showPrefixPicker)}
+            >
+              <Text style={styles.ladaFlag}>
+                {LADA_OPTIONS.find(o => o.code === phonePrefix)?.flag || '🇲🇽'}
+              </Text>
+              <Text style={styles.ladaCode}>{phonePrefix}</Text>
+              <Ionicons name="chevron-down" size={12} color="#666" />
+            </TouchableOpacity>
+            <TextInput
+              label={rl === 'zh' ? '电话' : rl === 'en' ? 'Phone' : 'Teléfono'}
+              value={phone}
+              onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ''))}
+              mode="outlined"
+              keyboardType="phone-pad"
+              maxLength={12}
+              left={<TextInput.Icon icon="phone" />}
+              style={[styles.input, { flex: 1, marginBottom: 0 }]}
+              outlineColor={phoneError ? 'red' : '#ddd'}
+              activeOutlineColor={ORANGE}
+            />
+          </View>
+          {showPrefixPicker && (
+            <View style={styles.ladaPicker}>
+              {LADA_OPTIONS.map(opt => (
+                <TouchableOpacity
+                  key={opt.code}
+                  style={[styles.ladaOption, phonePrefix === opt.code && { backgroundColor: ORANGE + '18' }]}
+                  onPress={() => { setPhonePrefix(opt.code); setShowPrefixPicker(false); }}
+                >
+                  <Text style={styles.ladaFlag}>{opt.flag}</Text>
+                  <Text style={styles.ladaOptionLabel}>{opt.label}</Text>
+                  <Text style={styles.ladaCode}>{opt.code}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
           {phoneError && (
             <HelperText type="error" visible>
               {RT.errPhone}
@@ -425,10 +455,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   logoImage: {
-    width: 70,
+    width: 200,
     height: 70,
-    marginBottom: 5,
-    borderRadius: 14,
+    marginBottom: 6,
   },
   logoText: {
     fontSize: 36,
@@ -443,6 +472,43 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 3,
   },
+  phoneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+    borderRadius: 4,
+  },
+  ladaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 16,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 4,
+    backgroundColor: '#fafafa',
+    height: 56,
+  },
+  ladaFlag: { fontSize: 20 },
+  ladaCode: { fontSize: 13, fontWeight: '600', color: '#333' },
+  ladaPicker: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#ddd',
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  ladaOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  ladaOptionLabel: { flex: 1, fontSize: 14, color: '#333' },
   formContainer: {
     flex: 1,
     backgroundColor: 'white',
