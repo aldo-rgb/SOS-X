@@ -171,7 +171,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
   const [verificationDetail, setVerificationDetail] = useState<VerificationDetail | null>(null);
   const [loadingVerification, setLoadingVerification] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [editForm, setEditForm] = useState({ full_name: '', email: '', role: '', box_id: '', advisor_id: null as number | null });
+  const [editForm, setEditForm] = useState({ full_name: '', email: '', role: '', box_id: '', phone: '', advisor_id: null as number | null });
   const [advisors, setAdvisors] = useState<Advisor[]>([]);
   const [loadingAdvisors, setLoadingAdvisors] = useState(false);
   
@@ -313,6 +313,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
       email: user.email,
       role: user.role,
       box_id: user.box_id,
+      phone: (user as any).phone || '',
       advisor_id: user.advisor_id || null,
     });
     loadAdvisors();
@@ -361,6 +362,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
           email: editForm.email,
           role: editForm.role,
           box_id: editForm.box_id,
+          phone: editForm.phone || null,
           advisor_id: editForm.advisor_id,
         },
         { headers: { Authorization: `Bearer ${token}` } }
@@ -1176,7 +1178,20 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                 helperText="El casillero no puede ser modificado"
               />
             )}
-            
+
+            <TextField
+              label="Teléfono / WhatsApp"
+              fullWidth
+              value={editForm.phone}
+              onChange={(e) => setEditForm({ ...editForm, phone: e.target.value.replace(/[^0-9+\s()-]/g, '') })}
+              placeholder="Ej: 528119411741"
+              helperText={
+                selectedUser && (selectedUser as any).phone
+                  ? 'Si cambias el número, el cliente deberá verificarlo de nuevo.'
+                  : 'Incluye código de país. Ej: 521... para México.'
+              }
+            />
+
             {/* Selector de Asesor */}
             <FormControl fullWidth>
               <InputLabel>Asesor Asignado</InputLabel>

@@ -1814,6 +1814,11 @@ export const updateUser = async (req: Request, res: Response): Promise<void> => 
         if (phone !== undefined) {
             updates.push(`phone = $${paramCount++}`);
             values.push(phone);
+            // Si el teléfono cambia desde admin, el flag de verificación
+            // debe resetearse: el dueño tendrá que reverificar el nuevo
+            // número antes de poder usarlo para login OTP / 2FA.
+            updates.push(`phone_verified = $${paramCount++}`);
+            values.push(false);
         }
         // Actualizar advisor_id (puede ser null para quitar el asesor)
         if (advisor_id !== undefined) {
