@@ -9620,11 +9620,21 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
 
   // Mapa de status interno → hito público (0-5)
   const MILESTONE_MAP: Record<string, number> = {
-    registered: 0, ordered: 0, created: 0,
+    // Milestone 0 — Ordenado
+    registered: 0, ordered: 0, created: 0, pending: 0, generado: 0,
+    // Milestone 1 — En Tránsito (en China o en ruta)
     shipped: 1, in_transit: 1, received_china: 1, received_origin: 1, en_transito: 1,
-    in_customs: 2, customs: 2, cruce_aduanal: 2,
-    received: 3, received_mty: 3, in_warehouse: 3, bodega: 3, processing: 3,
-    out_for_delivery: 4, loaded: 4, listo_entrega: 4,
+    loading: 1, at_port: 1, in_warehouse: 1, processing: 1,
+    in_transit_china: 1, at_warehouse_china: 1, in_warehouse_china: 1,
+    // Milestone 2 — Cruce Aduanal
+    in_customs: 2, customs: 2, cruce_aduanal: 2, at_customs: 2,
+    in_transit_mx: 2, pending_inspection: 2,
+    // Milestone 3 — En Bodega MTY
+    received: 3, received_mty: 3, bodega: 3,
+    received_cedis: 3, inspected: 3, pending_payment: 3, pending_inspection_mty: 3,
+    // Milestone 4 — Listo para Entrega
+    out_for_delivery: 4, loaded: 4, listo_entrega: 4, ready_pickup: 4,
+    // Milestone 5 — Entregado
     delivered: 5, completed: 5, entregado: 5,
   };
   const MILESTONES = [
