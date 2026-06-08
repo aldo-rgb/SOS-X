@@ -9644,6 +9644,7 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
     china_sea:   { es: 'Marítimo China',         en: 'China Sea Freight',      zh: '中国海运' },
     maritime:    { es: 'Marítimo China',         en: 'China Sea Freight',      zh: '中国海运' },
     dhl:         { es: 'Trámite Aduanal MTY',   en: 'Customs Clearance MTY',  zh: '清关服务' },
+    pqtx:        { es: 'Paquetería Nacional',    en: 'National Shipping',      zh: '国内物流' },
   };
 
   try {
@@ -9662,6 +9663,7 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       WHERE UPPER(p.tracking_internal) = $1
          OR UPPER(COALESCE(p.tracking_provider,'')) = $1
          OR UPPER(COALESCE(p.child_no,'')) = $1
+         OR UPPER(COALESCE(p.national_tracking,'')) = $1
       LIMIT 1
     `, [raw]);
 
@@ -9684,7 +9686,25 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       dhlRow = dhlRes.rows[0] || null;
     } catch { /* dhl_shipments opcional */ }
 
-    const row = pkgRes.rows[0] || dhlRow;
+    // 3. Buscar en pqtx_shipments (guías nacionales LOG...)
+    let pqtxRow: any = null;
+    try {
+      const pqtxRes = await pool.query(`
+        SELECT
+          ps.id,
+          'pqtx' AS service_type,
+          ps.tracking_number AS tracking,
+          ps.status::text AS status,
+          ps.created_at,
+          ps.updated_at
+        FROM pqtx_shipments ps
+        WHERE UPPER(ps.tracking_number) = $1
+        LIMIT 1
+      `, [raw]);
+      pqtxRow = pqtxRes.rows[0] || null;
+    } catch { /* pqtx_shipments opcional */ }
+
+    const row = pkgRes.rows[0] || dhlRow || pqtxRow;
     if (!row) return res.status(404).json({ error: 'Guía no encontrada. Verifica el número e intenta de nuevo.' });
 
     const statusKey = (row.status || '').toLowerCase().replace(/[ -]/g, '_');
