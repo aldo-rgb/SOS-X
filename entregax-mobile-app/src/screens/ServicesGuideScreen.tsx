@@ -182,6 +182,30 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
     return `${addr.address_line1}\n${addr.city}, ${addr.state} ${addr.zip_code}\nA nombre de: ${name} (${box})\n${addr.contact_phone || ''}`;
   };
 
+  const getChineseNote = (): string | null => {
+    const box = user.boxId || 'S-XXX';
+    if (selected?.id === 'china_sea') {
+      return [
+        '🇨🇳 中文说明（请转发给您的供应商）:',
+        '发货前，请供应商联系 Sankie Guo（郭先生）',
+        '电话 / 微信：13828423184',
+        '并提供完整装箱单（Packing List），以获取装运单（S/O）。',
+        `⚠️ 每箱请贴上唛头标签（Shipping Mark）：${box}`,
+        '⚠️ 未提前联系确认，仓库将无法收货。',
+      ].join('\n');
+    }
+    if (selected?.id === 'china_air') {
+      return [
+        '🇨🇳 中文说明（请转发给您的供应商）:',
+        '发货前，请供应商联系冯小姐',
+        '电话 / 微信：+13068841004',
+        `⚠️ 每箱请贴上唛头标签（Shipping Mark）：${box}`,
+        '⚠️ 不接受无唛头货物及到付件。',
+      ].join('\n');
+    }
+    return null;
+  };
+
   const getFullShipmentText = (addr: WarehouseAddress): string => {
     const svcName = selected?.name || 'EntregaX';
     const lines: string[] = [
@@ -201,6 +225,10 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
     }
     if (serviceInfo?.instructions?.general_notes) {
       lines.push('', '⚠️ NOTAS IMPORTANTES:', serviceInfo.instructions.general_notes);
+    }
+    const chineseNote = getChineseNote();
+    if (chineseNote) {
+      lines.push('', '─'.repeat(30), '', chineseNote);
     }
     lines.push('', '✅ Enviado vía EntregaX Paquetería');
     return lines.join('\n');
