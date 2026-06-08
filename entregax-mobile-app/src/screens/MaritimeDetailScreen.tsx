@@ -65,6 +65,29 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const { gexEnabled, entregaxPaymentsEnabled, isEntregaxPaymentEnabledFor } = usePaymentStatus();
   const { i18n } = useTranslation();
   const lang = i18n.language as 'es' | 'en' | 'zh';
+  const TT = {
+    screenTitle:     lang === 'zh' ? '货运详情'         : lang === 'en' ? 'Shipment Detail'       : 'Detalle de Embarque',
+    defaultDesc:     lang === 'zh' ? '海运包裹'         : lang === 'en' ? 'Maritime Shipment'      : 'Envío Marítimo',
+    copied:          lang === 'zh' ? '已复制'           : lang === 'en' ? 'Copied'                 : 'Copiado',
+    copiedMsg:       (n: string) => lang === 'zh' ? `运单号 ${n} 已复制` : lang === 'en' ? `Tracking ${n} copied` : `Guía ${n} copiada al portapapeles`,
+    copyToast:       lang === 'zh' ? '已复制运单号'     : lang === 'en' ? 'Tracking copied'        : 'Guía copiada al portapapeles',
+    viewMovements:   lang === 'zh' ? '查看物流'         : lang === 'en' ? 'View Movements'         : 'Ver Movimientos',
+    peso:            lang === 'zh' ? '重量'             : lang === 'en' ? 'Weight'                 : 'Peso',
+    volumen:         lang === 'zh' ? '体积'             : lang === 'en' ? 'Volume'                 : 'Volumen',
+    cajas:           lang === 'zh' ? '箱数'             : lang === 'en' ? 'Boxes'                  : 'Cajas',
+    container:       lang === 'zh' ? '集装箱：'         : lang === 'en' ? 'Container:'             : 'Contenedor:',
+    bl:              lang === 'zh' ? '提单：'           : lang === 'en' ? 'BL:'                    : 'BL:',
+    deliveryAddr:    lang === 'zh' ? '收货地址'         : lang === 'en' ? 'Delivery Address'       : 'Dirección de Entrega',
+    noAddress:       lang === 'zh' ? '未指定地址'       : lang === 'en' ? 'No address assigned'    : 'Sin dirección asignada',
+    additionalNotes: lang === 'zh' ? '备注：'           : lang === 'en' ? 'Additional notes:'      : 'Notas adicionales:',
+    modifyInstr:     lang === 'zh' ? '修改指示'         : lang === 'en' ? 'Modify Instructions'    : 'Modificar Instrucciones',
+    assignAddr:      lang === 'zh' ? '指定地址'         : lang === 'en' ? 'Assign Address'         : 'Asignar Dirección',
+    labelLocked:     lang === 'zh' ? '🔒 最后一公里运单已生成，无法修改配送指示。' : lang === 'en' ? '🔒 Last-mile label already generated. Delivery instructions cannot be changed.' : '🔒 La guía de última milla ya fue generada. Las instrucciones de entrega no se pueden modificar.',
+    movementsTitle:  lang === 'zh' ? '货运动态'         : lang === 'en' ? 'Shipment Movements'     : 'Movimientos del Embarque',
+    movLoading:      lang === 'zh' ? '加载中...'        : lang === 'en' ? 'Loading movements...'   : 'Cargando movimientos...',
+    movEmpty:        lang === 'zh' ? '暂无物流记录。'   : lang === 'en' ? 'No movements registered yet.' : 'Aún no hay movimientos registrados para este embarque.',
+    noDate:          lang === 'zh' ? '无日期'           : lang === 'en' ? 'No date'                : 'Sin fecha',
+  };
   const entregaxPayForThis = isEntregaxPaymentEnabledFor((pkg as any)?.servicio || (pkg as any)?.shipment_type);
   const [loading, setLoading] = useState(true);
   const [currentPkg, setCurrentPkg] = useState<any>(pkg as any);
@@ -311,7 +334,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
           size={28}
         />
         <Appbar.Content 
-          title="Detalle de Embarque" 
+          title={TT.screenTitle}
           titleStyle={styles.headerTitle}
         />
       </Appbar.Header>
@@ -321,7 +344,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
         <Card style={styles.infoCard}>
           <Card.Content>
             <View style={styles.titleRow}>
-              <Text style={styles.productName}>{currentPkg.description || 'Envío Marítimo'}</Text>
+              <Text style={styles.productName}>{currentPkg.description || TT.defaultDesc}</Text>
               <Chip 
                 mode="flat" 
                 style={[styles.statusChip, { backgroundColor: statusInfo.color + '20' }]}
@@ -342,9 +365,9 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                   if (tn) {
                     Clipboard.setString(String(tn));
                     if (Platform.OS === 'android') {
-                      ToastAndroid.show('Guía copiada al portapapeles', ToastAndroid.SHORT);
+                      ToastAndroid.show(TT.copyToast, ToastAndroid.SHORT);
                     } else {
-                      Alert.alert('Copiado', `Guía ${tn} copiada al portapapeles`);
+                      Alert.alert(TT.copied, TT.copiedMsg(tn));
                     }
                   }
                 }}
@@ -371,7 +394,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                 textColor={SEA_COLOR}
                 icon="timeline-text"
               >
-                Ver Movimientos
+                {TT.viewMovements}
               </Button>
             </View>
             
@@ -381,17 +404,17 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             <View style={styles.dataGrid}>
               <View style={styles.dataItem}>
                 <Ionicons name="scale-outline" size={20} color="#666" />
-                <Text style={styles.dataLabel}>Peso</Text>
+                <Text style={styles.dataLabel}>{TT.peso}</Text>
                 <Text style={styles.dataValue}>{currentPkg.weight ? `${currentPkg.weight} kg` : '--'}</Text>
               </View>
               <View style={styles.dataItem}>
                 <Ionicons name="cube-outline" size={20} color="#666" />
-                <Text style={styles.dataLabel}>Volumen</Text>
+                <Text style={styles.dataLabel}>{TT.volumen}</Text>
                 <Text style={styles.dataValue}>{(currentPkg as any).volume ? `${(currentPkg as any).volume} m³` : '--'}</Text>
               </View>
               <View style={styles.dataItem}>
                 <Ionicons name="layers-outline" size={20} color="#666" />
-                <Text style={styles.dataLabel}>Cajas</Text>
+                <Text style={styles.dataLabel}>{TT.cajas}</Text>
                 <Text style={styles.dataValue}>{currentPkg.total_boxes || 1}</Text>
               </View>
             </View>
@@ -404,14 +427,14 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                   {(currentPkg as any).container_number && (
                     <View style={styles.infoRow}>
                       <MaterialCommunityIcons name="truck-cargo-container" size={18} color={SEA_COLOR} />
-                      <Text style={styles.infoLabel}>Contenedor:</Text>
+                      <Text style={styles.infoLabel}>{TT.container}</Text>
                       <Text style={styles.infoValue}>{(currentPkg as any).container_number}</Text>
                     </View>
                   )}
                   {(currentPkg as any).bl_number && (
                     <View style={styles.infoRow}>
                       <MaterialCommunityIcons name="file-document-outline" size={18} color={SEA_COLOR} />
-                      <Text style={styles.infoLabel}>BL:</Text>
+                      <Text style={styles.infoLabel}>{TT.bl}</Text>
                       <Text style={styles.infoValue}>{(currentPkg as any).bl_number}</Text>
                     </View>
                   )}
@@ -426,7 +449,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
           <Card.Content>
             <View style={styles.sectionHeader}>
               <Ionicons name="location" size={22} color={SEA_COLOR} />
-              <Text style={styles.sectionTitle}>Dirección de Entrega</Text>
+              <Text style={styles.sectionTitle}>{TT.deliveryAddr}</Text>
             </View>
 
             {address ? (
@@ -452,7 +475,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                 {/* Instrucciones adicionales */}
                 {(currentPkg as any).delivery_instructions && (
                   <View style={styles.instructionsBox}>
-                    <Text style={styles.instructionsLabel}>Notas adicionales:</Text>
+                    <Text style={styles.instructionsLabel}>{TT.additionalNotes}</Text>
                     <Text style={styles.instructionsText}>{(currentPkg as any).delivery_instructions}</Text>
                   </View>
                 )}
@@ -460,7 +483,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
             ) : (
               <View style={styles.noAddressContainer}>
                 <MaterialCommunityIcons name="map-marker-off" size={32} color="#ccc" />
-                <Text style={styles.noAddressText}>Sin dirección asignada</Text>
+                <Text style={styles.noAddressText}>{TT.noAddress}</Text>
               </View>
             )}
 
@@ -472,11 +495,11 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               icon="pencil"
               disabled={!!(currentPkg?.national_tracking || currentPkg?.national_label_url)}
             >
-              {address ? 'Modificar Instrucciones' : 'Asignar Dirección'}
+              {address ? TT.modifyInstr : TT.assignAddr}
             </Button>
             {!!(currentPkg?.national_tracking || currentPkg?.national_label_url) && (
               <Text style={{ marginTop: 8, fontSize: 12, color: '#888', textAlign: 'center' }}>
-                🔒 La guía de última milla ya fue generada. Las instrucciones de entrega no se pueden modificar.
+                {TT.labelLocked}
               </Text>
             )}
           </Card.Content>
@@ -803,7 +826,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
           <View style={styles.movementsOverlay}>
             <View style={styles.movementsModal}>
               <View style={styles.movementsHeader}>
-                <Text style={styles.movementsTitle}>Movimientos del Embarque</Text>
+                <Text style={styles.movementsTitle}>{TT.movementsTitle}</Text>
                 <TouchableOpacity onPress={() => setMovementsOpen(false)}>
                   <MaterialCommunityIcons name="close" size={24} color="#666" />
                 </TouchableOpacity>
@@ -817,7 +840,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               {movementsLoading && (
                 <View style={styles.movementsLoadingWrap}>
                   <ActivityIndicator color={SEA_COLOR} />
-                  <Text style={styles.movementsLoadingText}>Cargando movimientos...</Text>
+                  <Text style={styles.movementsLoadingText}>{TT.movLoading}</Text>
                 </View>
               )}
 
@@ -830,7 +853,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
               {!movementsLoading && !movementsError && (
                 <ScrollView style={styles.movementsList} showsVerticalScrollIndicator={false}>
                   {movements.length === 0 ? (
-                    <Text style={styles.movementsEmptyText}>Aún no hay movimientos registrados para este embarque.</Text>
+                    <Text style={styles.movementsEmptyText}>{TT.movEmpty}</Text>
                   ) : (
                     movements.map((m, index) => {
                       // En modo chino: preferir notes si está en chino, si no, usar status_label
@@ -848,7 +871,7 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                           <Text style={styles.movementStatusText}>{primaryLabel}</Text>
                           {!!secondaryLabel && <Text style={styles.movementNotesText}>{secondaryLabel}</Text>}
                           <Text style={styles.movementDateText}>
-                            {m.created_at ? new Date(m.created_at).toLocaleString(lang === 'zh' ? 'zh-CN' : lang === 'en' ? 'en-US' : 'es-MX') : 'Sin fecha'}
+                            {m.created_at ? new Date(m.created_at).toLocaleString(lang === 'zh' ? 'zh-CN' : lang === 'en' ? 'en-US' : 'es-MX') : TT.noDate}
                           </Text>
                         </View>
                       </View>
