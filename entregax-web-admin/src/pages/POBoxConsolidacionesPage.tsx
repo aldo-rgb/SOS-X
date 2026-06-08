@@ -18,14 +18,16 @@ import {
   LocalShipping as ShippingIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  Payment as PaymentIcon,
   PictureAsPdf as PictureAsPdfIcon,
   WhatsApp as WhatsAppIcon,
   CheckCircle as CheckCircleIcon,
   Person as PersonIcon,
   ArrowBack as ArrowBackIcon,
   Assignment as AssignmentIcon,
-  Receipt as ReceiptIcon,
+  AddCircleOutline as AddCircleOutlineIcon,
+  ListAlt as ListAltIcon,
+  Delete as DeleteIcon,
+  GridOn as GridOnIcon,
 } from '@mui/icons-material';
 import Divider from '@mui/material/Divider';
 import api from '../services/api';
@@ -74,8 +76,48 @@ interface ConsolidacionPendiente {
   }>;
 }
 
+interface PaymentReference {
+  id: number;
+  supplier_id: number;
+  supplier_name: string;
+  consolidation_ids: number[];
+  total_usd: number;
+  total_mxn: number;
+  packages_count: number;
+  packages_data: ReporteRow[];
+  notas: string | null;
+  created_by: number | null;
+  created_at: string;
+}
+
+interface ReporteRow {
+  consolidacion_id: number;
+  supplier_name: string;
+  tracking: string;
+  tracking_provider: string;
+  client: string;
+  client_box_id: string;
+  description: string;
+  weight: number;
+  dims: string;
+  usd: number;
+  tc: number;
+  mxn: number;
+  status: string;
+  statusLabel: string;
+  countsToTotal: boolean;
+  reasonNoCount?: string;
+  received_at?: string | null;
+  received_mty_at?: string | null;
+}
+
 const formatCurrency = (n: number) =>
   n.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+
+const fmtDate = (d?: string | null) => {
+  if (!d) return '—';
+  try { return new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' }); } catch { return '—'; }
+};
 
 const POBoxConsolidacionesPage: React.FC = () => {
   // === STEP: 'supplier' | 'consolidations' ===
@@ -100,14 +142,13 @@ const POBoxConsolidacionesPage: React.FC = () => {
   const [soloFaltantes, setSoloFaltantes] = useState<Set<number>>(new Set());
   const [soloNoLlegados, setSoloNoLlegados] = useState<Set<number>>(new Set());
 
-  // (Generar Orden de Pago abre PDF directo — sin estado de diálogo)
-
-  // Realizar Pago Referenciado (múltiple) — 2 pasos: referencia → confirmación
-  const [pagoRefDialogOpen, setPagoRefDialogOpen] = useState(false);
-  const [pagoRefStep, setPagoRefStep] = useState<'referencia' | 'confirmacion'>('referencia');
-  const [pagoRefInput, setPagoRefInput] = useState('');
-  const [pagoRefNotas, setPagoRefNotas] = useState('');
-  const [procesandoPagoRef, setProcesandoPagoRef] = useState(false);
+  // Referencias de pago
+  const [refModalOpen, setRefModalOpen] = useState(false);
+  const [referencias, setReferencias] = useState<PaymentReference[]>([]);
+  const [loadingReferencias, setLoadingReferencias] = useState(false);
+  const [creandoRef, setCreandoRef] = useState(false);
+  const [deletingRefId, setDeletingRefId] = useState<number | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<number | null>(null);
 
   // Snackbar
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' | 'info' }>({ open: false, message: '', severity: 'success' });
@@ -143,6 +184,18 @@ const POBoxConsolidacionesPage: React.FC = () => {
     }
   }, [proveedorSel?.id]);
 
+  // ── Cargar referencias ──────────────────────────────────────────────
+  const fetchReferencias = useCallback(async () => {
+    if (!proveedorSel) return;
+    setLoadingReferencias(true);
+    try {
+      const r = await api.get('/pobox/payment-references', { params: { supplier_id: proveedorSel.id } });
+      setReferencias(r.data.references || []);
+    } catch { /* ignore */ } finally {
+      setLoadingReferencias(false);
+    }
+  }, [proveedorSel]);
+
   // ── Seleccionar proveedor ───────────────────────────────────────────
   const handleSelectProveedor = (prov: { id: number; name: string }) => {
     setProveedorSel(prov);
@@ -159,16 +212,9 @@ const POBoxConsolidacionesPage: React.FC = () => {
     selected.size === consolidaciones.length ? new Set() : new Set(consolidaciones.map(c => c.id))
   );
 
-  // ── Reporte (PDF / WA) ──────────────────────────────────────────────
+  // ── Reporte rows ────────────────────────────────────────────────────
   const getReporteRows = () => {
-    const rows: Array<{
-      consolidacion_id: number; supplier_name: string; tracking: string;
-      tracking_provider: string; client: string; client_box_id: string;
-      description: string; weight: number; dims: string;
-      usd: number; tc: number; mxn: number; status: string;
-      statusLabel: string; countsToTotal: boolean; reasonNoCount?: string;
-      received_at?: string | null; received_mty_at?: string | null;
-    }> = [];
+    const rows: ReporteRow[] = [];
     let totalUsd = 0; let totalMxn = 0;
     const sel = consolidaciones.filter(c => selected.has(c.id));
     sel.forEach((c) => {
@@ -205,22 +251,19 @@ const POBoxConsolidacionesPage: React.FC = () => {
     return { rows, totalUsd, totalMxn, selectedCount: sel.length };
   };
 
-  const handleGenerarPDF = () => {
-    if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
-    const { rows, totalUsd, totalMxn, selectedCount } = getReporteRows();
-    if (rows.length === 0) { setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' }); return; }
+  // ── Generar PDF desde filas ─────────────────────────────────────────
+  const generatePDFFromRows = (rows: ReporteRow[], totalUsd: number, totalMxn: number, selectedCount: number) => {
     const fecha = new Date().toLocaleString('es-MX');
     const counts = rows.reduce((acc, r) => { acc[r.statusLabel] = (acc[r.statusLabel] || 0) + 1; return acc; }, {} as Record<string, number>);
     const aPagar = counts['A PAGAR'] || 0; const yaPagada = counts['YA PAGADA'] || 0;
     const enTransito = counts['EN TRÁNSITO'] || 0; const faltante = counts['FALTANTE'] || 0; const perdida = counts['PERDIDA'] || 0;
     const rowStyle = (label: string) => label === 'YA PAGADA' ? 'background:#eef5ff;color:#1565c0;' : label === 'EN TRÁNSITO' ? 'background:#fff8e1;color:#a06000;' : label === 'FALTANTE' ? 'background:#fdecea;color:#b71c1c;' : label === 'PERDIDA' ? 'background:#f3e5f5;color:#6a1b9a;' : '';
     const badgeClass = (label: string) => label === 'A PAGAR' ? 'b-pay' : label === 'YA PAGADA' ? 'b-paid' : label === 'EN TRÁNSITO' ? 'b-tr' : label === 'FALTANTE' ? 'b-miss' : 'b-lost';
-    const fmtDate = (d?: string | null) => { if (!d) return '—'; try { return new Date(d).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' }); } catch { return '—'; } };
     const statusMap: Record<string, string> = { received: 'Recibido (USA)', received_mty: 'En MTY', in_transit: 'En tránsito', out_for_delivery: 'En reparto', delivered: 'Entregado' };
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Reporte Pagos Proveedor</title>
 <style>@page{size:letter landscape;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:10px;color:#222;margin:0}h1{font-size:16px;margin:0 0 4px;color:#C1272D}.sub{color:#666;font-size:10px;margin-bottom:6px}.breakdown{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;font-size:10px}.chip{padding:3px 8px;border-radius:10px;font-weight:600;border:1px solid #ddd}.chip.pay{background:#e8f5e9;color:#1b5e20;border-color:#a5d6a7}.chip.paid{background:#eef5ff;color:#1565c0;border-color:#90caf9}.chip.tr{background:#fff8e1;color:#a06000;border-color:#ffe082}.chip.miss{background:#fdecea;color:#b71c1c;border-color:#f5c2bd}.chip.lost{background:#f3e5f5;color:#6a1b9a;border-color:#ce93d8}table{width:100%;border-collapse:collapse;margin-top:8px}th{background:#1a1a1a;color:#fff;padding:6px 4px;text-align:left;font-size:9px}td{padding:5px 4px;border-bottom:1px solid #ddd;font-size:9px}td.num{text-align:right;font-variant-numeric:tabular-nums}th.center,td.center{text-align:center}.badge{display:inline-block;padding:2px 6px;border-radius:8px;font-weight:700;font-size:8px}.b-pay{background:#1b5e20;color:#fff}.b-paid{background:#1565c0;color:#fff}.b-tr{background:#a06000;color:#fff}.b-miss{background:#b71c1c;color:#fff}.b-lost{background:#6a1b9a;color:#fff}.totals{margin-top:12px;border:2px solid #C1272D;padding:8px 12px;display:flex;justify-content:space-between}.totals .big{font-size:14px;font-weight:900;color:#C1272D}.footer{margin-top:12px;font-size:9px;color:#999;text-align:center}</style></head><body>
 <h1>🚚 EntregaX · Reporte de Pagos a Proveedores — PO Box</h1>
-<div class="sub">Proveedor: ${proveedorSel?.name || '—'} · Generado: ${fecha} · ${selectedCount} consolidación(es) · ${rows.length} guía(s) total</div>
+<div class="sub">Proveedor: ${proveedorSel?.name || rows[0]?.supplier_name || '—'} · Generado: ${fecha} · ${selectedCount} consolidación(es) · ${rows.length} guía(s) total</div>
 <div class="breakdown"><span class="chip pay">A PAGAR: <strong>${aPagar}</strong></span>${yaPagada ? `<span class="chip paid">YA PAGADA: <strong>${yaPagada}</strong></span>` : ''}${enTransito ? `<span class="chip tr">EN TRÁNSITO: <strong>${enTransito}</strong></span>` : ''}${faltante ? `<span class="chip miss">FALTANTE: <strong>${faltante}</strong></span>` : ''}${perdida ? `<span class="chip lost">PERDIDA: <strong>${perdida}</strong></span>` : ''}</div>
 <table><thead><tr><th class="num center">No.</th><th>Consolidación</th><th># Cliente</th><th>Guía Origen</th><th>Guía</th><th class="center">Ingresada</th><th class="center">Recibida MTY</th><th class="num center">Peso (lb)</th><th>Medidas (in)</th><th class="num">USD</th><th class="num">TC</th><th class="num">MXN</th><th class="center">Estado</th><th>Motivo</th></tr></thead><tbody>
 ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num center" style="font-weight:600">${idx + 1}</td><td>#${r.consolidacion_id}</td><td style="font-family:monospace;font-weight:600">${r.client_box_id || '—'}</td><td style="font-family:monospace">${r.tracking_provider || '—'}</td><td style="font-family:monospace;font-weight:600">${r.tracking}</td><td class="center">${fmtDate(r.received_at)}</td><td class="center">${fmtDate(r.received_mty_at)}</td><td class="num center">${r.weight.toFixed(2)}</td><td>${r.dims}</td><td class="num">$${r.usd.toFixed(2)}</td><td class="num">${r.tc.toFixed(2)}</td><td class="num">$${r.mxn.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td><td class="center"><span class="badge ${badgeClass(r.statusLabel)}">${r.statusLabel}</span></td><td>${r.reasonNoCount || statusMap[r.status] || r.status || '—'}</td></tr>`).join('')}
@@ -232,6 +275,39 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
     const w = window.open('', '_blank', 'width=1200,height=800');
     if (!w) { setSnackbar({ open: true, message: 'Permite ventanas emergentes para generar el PDF', severity: 'error' }); return; }
     w.document.write(html); w.document.close();
+  };
+
+  // ── Generar Excel (CSV) desde filas ────────────────────────────────
+  const generateExcelFromRows = (rows: ReporteRow[], refId: number, supplierName: string) => {
+    const headers = ['No.', 'Consolidación', '# Cliente', 'Guía Origen', 'Guía', 'Ingresada', 'Recibida MTY', 'Peso (lb)', 'Medidas (in)', 'USD', 'TC', 'MXN', 'Estado', 'Motivo'];
+    const csvRows = rows.map((r: ReporteRow, idx: number) => [
+      idx + 1, `#${r.consolidacion_id}`, r.client_box_id || '', r.tracking_provider || '', r.tracking,
+      fmtDate(r.received_at), fmtDate(r.received_mty_at),
+      r.weight.toFixed(2), r.dims,
+      r.usd.toFixed(2), r.tc.toFixed(2), r.mxn.toFixed(2),
+      r.statusLabel, r.reasonNoCount || '',
+    ]);
+    const totalUsd = rows.filter(r => r.countsToTotal).reduce((s, r) => s + r.usd, 0);
+    const totalMxn = rows.filter(r => r.countsToTotal).reduce((s, r) => s + r.mxn, 0);
+    csvRows.push(['', '', '', '', '', '', '', '', 'TOTAL A PAGAR', totalUsd.toFixed(2), '', totalMxn.toFixed(2), '', '']);
+    const bom = '﻿';
+    const csv = bom + [headers, ...csvRows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `referencia-${refId}-${supplierName.replace(/\s+/g, '_')}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleGenerarPDF = () => {
+    if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
+    const { rows, totalUsd, totalMxn, selectedCount } = getReporteRows();
+    if (rows.length === 0) { setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' }); return; }
+    generatePDFFromRows(rows, totalUsd, totalMxn, selectedCount);
   };
 
   const handleEnviarWhatsApp = () => {
@@ -268,25 +344,52 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
     w.document.write(html); w.document.close();
   };
 
-  // ── Realizar Pago Referenciado ──────────────────────────────────────
-  const handleConfirmarPagoReferenciado = async () => {
-    const pagables = consolidaciones.filter(c => selected.has(c.id) && Number(c.total_cost_mxn || 0) > 0 && !c.has_missing);
-    if (pagables.length === 0) { setSnackbar({ open: true, message: 'No hay consolidaciones pagables seleccionadas', severity: 'info' }); return; }
-    if (!pagoRefInput.trim()) { setSnackbar({ open: true, message: 'La referencia es requerida', severity: 'info' }); return; }
-    setProcesandoPagoRef(true);
+  // ── Generar Referencia ──────────────────────────────────────────────
+  const handleGenerarReferencia = async () => {
+    if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
+    const { rows, totalUsd, totalMxn } = getReporteRows();
+    if (rows.length === 0) { setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' }); return; }
+    setCreandoRef(true);
     try {
-      const r = await api.post('/caja-chica/pagar-consolidaciones-multiple', {
-        consolidation_ids: pagables.map(c => c.id),
-        referencia: pagoRefInput.trim(),
-        notas: pagoRefNotas || null,
+      await api.post('/pobox/payment-references', {
+        supplier_id: proveedorSel!.id,
+        supplier_name: proveedorSel!.name,
+        consolidation_ids: consolidaciones.filter(c => selected.has(c.id)).map(c => c.id),
+        total_usd: totalUsd,
+        total_mxn: totalMxn,
+        packages_count: rows.length,
+        packages_data: rows,
+        notas: null,
       });
-      setSnackbar({ open: true, message: `✅ ${r.data.consolidations?.length || pagables.length} consolidaciones pagadas · ${r.data.packages_updated || 0} paquetes · ${formatCurrency(Number(r.data.total_monto || 0))}`, severity: 'success' });
-      setPagoRefDialogOpen(false); setPagoRefStep('referencia'); setPagoRefInput(''); setPagoRefNotas('');
-      setSelected(new Set());
-      fetchConsolidaciones(filtroDesde || undefined, filtroHasta || undefined, proveedorSel?.id);
+      await fetchReferencias();
+      setRefModalOpen(true);
+      setSnackbar({ open: true, message: '✅ Referencia generada correctamente', severity: 'success' });
     } catch (e: any) {
-      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al procesar pago', severity: 'error' });
-    } finally { setProcesandoPagoRef(false); }
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al generar referencia', severity: 'error' });
+    } finally {
+      setCreandoRef(false);
+    }
+  };
+
+  // ── Ver referencias ─────────────────────────────────────────────────
+  const handleVerReferencias = async () => {
+    await fetchReferencias();
+    setRefModalOpen(true);
+  };
+
+  // ── Eliminar referencia ─────────────────────────────────────────────
+  const handleEliminarReferencia = async (id: number) => {
+    setDeletingRefId(id);
+    try {
+      await api.delete(`/pobox/payment-references/${id}`);
+      setReferencias(prev => prev.filter(r => r.id !== id));
+      setConfirmDeleteId(null);
+      setSnackbar({ open: true, message: 'Referencia eliminada', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al eliminar', severity: 'error' });
+    } finally {
+      setDeletingRefId(null);
+    }
   };
 
   // ═══════════════════════════════════════════════════════════════════
@@ -598,7 +701,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
           {/* Barra inferior */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 2, flexWrap: 'wrap', gap: 1 }}>
             <Typography variant="body2" color={selected.size > 0 ? 'primary.main' : 'text.secondary'} fontWeight={selected.size > 0 ? 'bold' : 'normal'}>
-              {selected.size === 0 ? 'Selecciona consolidaciones para generar reporte o pagar' : `${selected.size} consolidación(es) seleccionada(s)`}
+              {selected.size === 0 ? 'Selecciona consolidaciones para generar reporte o referencia' : `${selected.size} consolidación(es) seleccionada(s)`}
             </Typography>
             <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
               <Tooltip title={selected.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
@@ -615,15 +718,24 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                   </Button>
                 </span>
               </Tooltip>
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<ListAltIcon />}
+                onClick={handleVerReferencias}
+              >
+                Ver Referencias
+              </Button>
               <Tooltip title={selected.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
                 <span>
                   <Button
-                    variant="contained" color="warning"
-                    startIcon={<ReceiptIcon />}
-                    onClick={() => { setPagoRefInput(''); setPagoRefNotas(''); setPagoRefStep('referencia'); setPagoRefDialogOpen(true); }}
-                    disabled={selected.size === 0}
+                    variant="contained"
+                    color="warning"
+                    startIcon={creandoRef ? <CircularProgress size={16} color="inherit" /> : <AddCircleOutlineIcon />}
+                    onClick={handleGenerarReferencia}
+                    disabled={selected.size === 0 || creandoRef}
                   >
-                    Realizar Pago Referenciado ({selected.size})
+                    Generar Referencia ({selected.size})
                   </Button>
                 </span>
               </Tooltip>
@@ -632,100 +744,132 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
         </Box>
       )}
 
-      {/* Dialog: Realizar Pago Referenciado (2 pasos) */}
-      <Dialog open={pagoRefDialogOpen} onClose={() => !procesandoPagoRef && (setPagoRefDialogOpen(false), setPagoRefStep('referencia'))} maxWidth="sm" fullWidth>
-        {pagoRefStep === 'referencia' ? (
-          <>
-            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <ReceiptIcon color="warning" /> Realizar Pago Referenciado
-            </DialogTitle>
-            <DialogContent>
-              <Typography variant="body2" color="text.secondary" gutterBottom>
-                Ingresa la referencia del pago realizado al proveedor (folio, SPEI, cheque, etc.)
-              </Typography>
-              <TextField
-                label="Referencia de pago"
-                placeholder="Ej: SPEI-2024060401 / CHK-00123"
-                fullWidth autoFocus
-                value={pagoRefInput}
-                onChange={(e) => setPagoRefInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter' && pagoRefInput.trim()) setPagoRefStep('confirmacion'); }}
-                sx={{ mt: 2 }}
-              />
-              <TextField
-                label="Notas (opcional)"
-                fullWidth multiline rows={2}
-                value={pagoRefNotas}
-                onChange={(e) => setPagoRefNotas(e.target.value)}
-                sx={{ mt: 2 }}
-              />
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setPagoRefDialogOpen(false)}>Cancelar</Button>
-              <Button variant="contained" color="primary" disabled={!pagoRefInput.trim()} onClick={() => setPagoRefStep('confirmacion')}>
-                Continuar →
-              </Button>
-            </DialogActions>
-          </>
-        ) : (
-          <>
-            <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <PaymentIcon color="warning" /> Confirmar Pago Referenciado
-            </DialogTitle>
-            <DialogContent>
-              <Box sx={{ bgcolor: 'grey.50', borderRadius: 1, p: 2, mb: 2 }}>
-                <Typography variant="body2" color="text.secondary">Referencia</Typography>
-                <Typography variant="h6" fontWeight="bold" fontFamily="monospace">{pagoRefInput}</Typography>
-                {pagoRefNotas && <Typography variant="caption" color="text.secondary">{pagoRefNotas}</Typography>}
-              </Box>
-              <Divider sx={{ my: 2 }} />
-              {(() => {
-                const pagables = consolidaciones.filter(c => selected.has(c.id) && Number(c.total_cost_mxn || 0) > 0 && !c.has_missing);
-                const conFaltantes = consolidaciones.filter(c => selected.has(c.id) && c.has_missing);
-                const totalMxn = pagables.reduce((s, c) => s + Number(c.total_cost_mxn || 0), 0);
-                const totalUsd = pagables.reduce((s, c) => s + Number(c.total_cost_usd || 0), 0);
-                return (
-                  <>
-                    {pagables.map(c => (
-                      <Box key={c.id} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5 }}>
-                        <Typography variant="body2">Consolidación #{c.id} · {c.supplier_name}</Typography>
-                        <Typography variant="body2" fontWeight="bold">{formatCurrency(Number(c.total_cost_mxn || 0))}</Typography>
-                      </Box>
-                    ))}
-                    <Divider sx={{ my: 1 }} />
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
-                      <Typography fontWeight="bold">Total</Typography>
-                      <Box textAlign="right">
-                        <Typography fontWeight="bold" color="warning.dark">{formatCurrency(totalMxn)}</Typography>
-                        <Typography variant="caption" color="text.secondary">${totalUsd.toFixed(2)} USD</Typography>
-                      </Box>
-                    </Box>
-                    {conFaltantes.length > 0 && (
-                      <Alert severity="warning" sx={{ mt: 2 }}>
-                        {conFaltantes.length} consolidación(es) con faltantes fueron excluidas. Págalas por separado.
-                      </Alert>
-                    )}
-                    <Alert severity="warning" sx={{ mt: 2 }}>
-                      Se registrará un <strong>egreso</strong> en Caja CC y los paquetes quedarán marcados como <strong>pagados al proveedor</strong>.
-                    </Alert>
-                  </>
-                );
-              })()}
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={() => setPagoRefStep('referencia')} disabled={procesandoPagoRef}>← Cambiar referencia</Button>
-              <Button onClick={() => setPagoRefDialogOpen(false)} disabled={procesandoPagoRef}>Cancelar</Button>
-              <Button
-                variant="contained" color="warning"
-                onClick={handleConfirmarPagoReferenciado}
-                disabled={procesandoPagoRef}
-                startIcon={procesandoPagoRef ? <CircularProgress size={16} /> : <PaymentIcon />}
-              >
-                {procesandoPagoRef ? 'Procesando...' : `Pagar (${consolidaciones.filter(c => selected.has(c.id) && Number(c.total_cost_mxn || 0) > 0 && !c.has_missing).length})`}
-              </Button>
-            </DialogActions>
-          </>
-        )}
+      {/* ── Modal: Referencias de Pago ──────────────────────────────── */}
+      <Dialog open={refModalOpen} onClose={() => setRefModalOpen(false)} maxWidth="lg" fullWidth>
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box display="flex" alignItems="center" gap={1}>
+            <ListAltIcon color="warning" />
+            <Typography fontWeight="bold">Referencias de Pago — {proveedorSel?.name}</Typography>
+          </Box>
+          <Typography variant="caption" color="text.secondary">{referencias.length} referencia(s)</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ p: 0 }}>
+          {loadingReferencias ? (
+            <Box display="flex" justifyContent="center" p={4}><CircularProgress /></Box>
+          ) : referencias.length === 0 ? (
+            <Box p={4} textAlign="center">
+              <Typography color="text.secondary">No hay referencias de pago para este proveedor.</Typography>
+            </Box>
+          ) : (
+            <TableContainer>
+              <Table size="small">
+                <TableHead>
+                  <TableRow sx={{ bgcolor: 'grey.100' }}>
+                    <TableCell><strong>Ref #</strong></TableCell>
+                    <TableCell><strong>Fecha</strong></TableCell>
+                    <TableCell><strong>Consolidaciones</strong></TableCell>
+                    <TableCell align="center"><strong>Guías</strong></TableCell>
+                    <TableCell align="right"><strong>Total USD</strong></TableCell>
+                    <TableCell align="right"><strong>Total MXN</strong></TableCell>
+                    <TableCell align="center"><strong>Acciones</strong></TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {referencias.map((ref) => {
+                    const rows = ref.packages_data || [];
+                    const totalUsd = rows.filter((r: ReporteRow) => r.countsToTotal).reduce((s: number, r: ReporteRow) => s + Number(r.usd || 0), 0);
+                    const totalMxn = rows.filter((r: ReporteRow) => r.countsToTotal).reduce((s: number, r: ReporteRow) => s + Number(r.mxn || 0), 0);
+                    const isDeleting = deletingRefId === ref.id;
+                    return (
+                      <TableRow key={ref.id} hover>
+                        <TableCell>
+                          <Typography fontWeight="bold" fontFamily="monospace">REF-{ref.id}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2">{new Date(ref.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' })}</Typography>
+                          <Typography variant="caption" color="text.secondary">{new Date(ref.created_at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Box display="flex" gap={0.5} flexWrap="wrap">
+                            {(ref.consolidation_ids || []).map((id: number) => (
+                              <Chip key={id} label={`#${id}`} size="small" variant="outlined" color="primary" />
+                            ))}
+                          </Box>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Chip label={ref.packages_count ?? rows.length} size="small" color="default" />
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight="bold" color="success.main">${Number(ref.total_usd || totalUsd).toFixed(2)}</Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography fontWeight="bold" color="primary.main">{formatCurrency(Number(ref.total_mxn || totalMxn))}</Typography>
+                        </TableCell>
+                        <TableCell align="center">
+                          <Box display="flex" gap={0.5} justifyContent="center">
+                            <Tooltip title="Descargar PDF">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={() => generatePDFFromRows(rows, Number(ref.total_usd || totalUsd), Number(ref.total_mxn || totalMxn), (ref.consolidation_ids || []).length)}
+                              >
+                                <PictureAsPdfIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Descargar Excel">
+                              <IconButton
+                                size="small"
+                                color="success"
+                                onClick={() => generateExcelFromRows(rows, ref.id, ref.supplier_name || proveedorSel?.name || '')}
+                              >
+                                <GridOnIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Eliminar referencia">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                disabled={isDeleting}
+                                onClick={() => setConfirmDeleteId(ref.id)}
+                              >
+                                {isDeleting ? <CircularProgress size={16} /> : <DeleteIcon fontSize="small" />}
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </TableContainer>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setRefModalOpen(false)}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Confirm Delete Dialog ─────────────────────────────────────── */}
+      <Dialog open={confirmDeleteId !== null} onClose={() => setConfirmDeleteId(null)} maxWidth="xs">
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <DeleteIcon color="error" /> Eliminar referencia
+        </DialogTitle>
+        <DialogContent>
+          <Typography>¿Estás seguro de que quieres eliminar la referencia <strong>REF-{confirmDeleteId}</strong>? Esta acción no se puede deshacer.</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setConfirmDeleteId(null)}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="error"
+            startIcon={deletingRefId === confirmDeleteId ? <CircularProgress size={16} color="inherit" /> : <DeleteIcon />}
+            disabled={deletingRefId === confirmDeleteId}
+            onClick={() => confirmDeleteId !== null && handleEliminarReferencia(confirmDeleteId)}
+          >
+            Eliminar
+          </Button>
+        </DialogActions>
       </Dialog>
 
       {/* Snackbar */}

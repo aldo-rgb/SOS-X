@@ -6153,6 +6153,51 @@ app.put('/api/suppliers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR)
 app.put('/api/suppliers/consolidations/:consolidationId/status', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), updateConsolidationStatus);
 app.delete('/api/suppliers/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteSupplier);
 
+// ── POBOX PAYMENT REFERENCES ────────────────────────────────────────────────
+app.get('/api/pobox/payment-references', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: Request, res: Response) => {
+  const { supplier_id } = req.query;
+  try {
+    const q = supplier_id
+      ? await pool.query(
+          `SELECT * FROM pobox_payment_references WHERE supplier_id = $1 ORDER BY created_at DESC`,
+          [Number(supplier_id)]
+        )
+      : await pool.query(`SELECT * FROM pobox_payment_references ORDER BY created_at DESC`);
+    res.json({ references: q.rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/pobox/payment-references', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: Request, res: Response) => {
+  const { supplier_id, supplier_name, consolidation_ids, total_usd, total_mxn, packages_count, packages_data, notas } = req.body;
+  if (!supplier_id || !consolidation_ids?.length) {
+    return res.status(400).json({ error: 'supplier_id y consolidation_ids son requeridos' });
+  }
+  const userId = (req as any).user?.id ?? null;
+  try {
+    const r = await pool.query(
+      `INSERT INTO pobox_payment_references (supplier_id, supplier_name, consolidation_ids, total_usd, total_mxn, packages_count, packages_data, notas, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [supplier_id, supplier_name, consolidation_ids, total_usd, total_mxn, packages_count, JSON.stringify(packages_data ?? []), notas ?? null, userId]
+    );
+    res.json({ reference: r.rows[0] });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/pobox/payment-references/:id', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: Request, res: Response) => {
+  const { id } = req.params;
+  try {
+    const r = await pool.query(`DELETE FROM pobox_payment_references WHERE id = $1 RETURNING id`, [Number(id)]);
+    if (r.rowCount === 0) return res.status(404).json({ error: 'Referencia no encontrada' });
+    res.json({ deleted: r.rows[0].id });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============================================================
 // FACEBOOK MESSENGER WEBHOOK
 // ============================================================
@@ -9615,7 +9660,7 @@ app.get('/api/driver/check-carrier-guide/:guide', authenticateToken, requireMinL
 // ============================================
 
 app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
-  const raw = (req.params.tracking || '').trim().toUpperCase();
+  const raw = (String(req.params.tracking || '')).trim().toUpperCase();
   if (!raw) return res.status(400).json({ error: 'Número de guía requerido' });
 
   // Mapa de status interno → hito público (0-5)
@@ -9919,12 +9964,13 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
     }
 
     if (movements.length === 0) {
+      const ms = MILESTONES[currentMilestone ?? 0] ?? MILESTONES[0];
       movements = [{
         date: row.updated_at || row.created_at,
         location: 'Monterrey',
-        description_es: MILESTONES[currentMilestone].label_es,
-        description_en: MILESTONES[currentMilestone].label_en,
-        description_zh: MILESTONES[currentMilestone].label_zh,
+        description_es: ms?.label_es ?? '',
+        description_en: ms?.label_en ?? '',
+        description_zh: ms?.label_zh ?? '',
       }];
     }
 
@@ -12059,6 +12105,23 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     pool.query(`ALTER TABLE packages ADD COLUMN IF NOT EXISTS wants_factura_paqueteria BOOLEAN DEFAULT FALSE`),
   ]).catch(() => {});
 
+
+  // Tabla para referencias de pago a proveedores PO Box
+  pool.query(`
+    CREATE TABLE IF NOT EXISTS pobox_payment_references (
+      id SERIAL PRIMARY KEY,
+      supplier_id INTEGER,
+      supplier_name TEXT,
+      consolidation_ids INTEGER[],
+      total_usd NUMERIC(12,2),
+      total_mxn NUMERIC(12,2),
+      packages_count INTEGER,
+      packages_data JSONB,
+      notas TEXT,
+      created_by INTEGER,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `).catch(() => {});
 
   // Tabla package_documents para documentos subidos por asesores
   pool.query(`
