@@ -460,8 +460,8 @@ export default function CotizadorPublico() {
                   label="Tipo de servicio aéreo"
                   onChange={(e) => setAirSubservice(e.target.value as 'tdi_aereo' | 'tdi_express')}
                 >
-                  <MenuItem value="tdi_aereo">✈️ TDI Aéreo · 10-15 días</MenuItem>
-                  <MenuItem value="tdi_express">🚀 TDI Express · 7-10 días</MenuItem>
+                  <MenuItem value="tdi_aereo">✈️ Aéreo · 10-15 días</MenuItem>
+                  <MenuItem value="tdi_express">🚀 Express · 7-10 días</MenuItem>
                 </Select>
               </FormControl>
             </Grid>

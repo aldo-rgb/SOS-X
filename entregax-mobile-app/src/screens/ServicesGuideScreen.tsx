@@ -99,7 +99,7 @@ const SERVICES: ServiceCard[] = [
     benefits: [
       '🚢 Contenedor compartido (LCL)',
       '📦 Desde 1 caja',
-      '💵 Costo por CBM ultra competitivo',
+      '💵 Costo por Metro Cubico ultra competitivo',
       '🔒 Consolidación segura',
     ],
     serviceType: 'china_sea',

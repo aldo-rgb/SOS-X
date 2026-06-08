@@ -7422,7 +7422,7 @@ export default function DashboardClient() {
                                 </TableCell>
                                 <TableCell>45-60 días</TableCell>
                                 <TableCell>
-                                  <Typography fontWeight="bold" color="primary.main">Desde $39 USD/CBM</Typography>
+                                  <Typography fontWeight="bold" color="primary.main">Desde $39 USD/Paquete</Typography>
                                 </TableCell>
                               </TableRow>
                             </Tooltip>

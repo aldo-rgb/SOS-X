@@ -194,6 +194,8 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         children_count: parseInt(s.childrenCount ?? s.children_count ?? 0),
         is_master: s.isMaster ?? s.is_master ?? false,
         is_unidentified: s.is_unidentified ?? false,
+        carrier_tracking: s.carrier_tracking ?? null,
+        carrier_name: s.carrier_name ?? null,
       }));
       setShipments(list);
     } catch (e) {
@@ -544,10 +546,16 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
             </View>
             {item.goods_name ? <Text style={styles.goodsName}>{item.goods_name}</Text> : null}
             <View style={styles.cardFooter}>
-              <Text style={styles.clientName} numberOfLines={1}>
-                {item.client_name} · {item.client_box_id}
-                {item.is_unidentified && item.carrier_tracking ? ` · ${item.carrier_tracking}` : ''}
-              </Text>
+              {item.is_unidentified ? (
+                <Text style={[styles.clientName, { color: '#7B1FA2' }]} numberOfLines={1}>
+                  {item.carrier_tracking ? `📦 ${item.carrier_tracking}` : 'Sin guía origen'}
+                  {item.carrier_name ? ` · ${item.carrier_name}` : ''}
+                </Text>
+              ) : (
+                <Text style={styles.clientName} numberOfLines={1}>
+                  {item.client_name} · {item.client_box_id}
+                </Text>
+              )}
               <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
                 {item.saldo_pendiente > 0 && (
                   <Text style={styles.saldo}>${item.saldo_pendiente.toFixed(2)}</Text>

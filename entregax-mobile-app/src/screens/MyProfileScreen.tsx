@@ -777,8 +777,8 @@ export default function MyProfileScreen({ navigation, route }: Props) {
     const status = user.verificationStatus || 'not_started';
     const isVerified = user.isVerified === true;
 
-    // 👷 Detectar si es empleado
-    const employeeRoles = ['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager'];
+    // 👷 Detectar si es empleado (incluye asesores — tienen expediente digital como empleados)
+    const employeeRoles = ['repartidor', 'monitoreo', 'warehouse_ops', 'counter_staff', 'customer_service', 'branch_manager', 'advisor', 'asesor', 'asesor_lider', 'sub_advisor'];
     const isEmployee = employeeRoles.includes(user.role);
     const isEmployeeOnboarded = user.isEmployeeOnboarded === true;
 

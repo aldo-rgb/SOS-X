@@ -65,7 +65,22 @@ interface Transaction {
 }
 
 export default function WalletScreen({ navigation }: any) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const wLang = i18n.language;
+  const WT = {
+    title:        wLang === 'zh' ? '余额'          : wLang === 'en' ? 'Credit Balance'       : 'Saldo a Favor',
+    available:    wLang === 'zh' ? '可用余额'       : wLang === 'en' ? 'Available Balance'     : 'Saldo Disponible',
+    earned:       wLang === 'zh' ? '累计获得'       : wLang === 'en' ? 'Total Earned'          : 'Total Ganado',
+    used:         wLang === 'zh' ? '已使用'         : wLang === 'en' ? 'Used'                  : 'Usado',
+    referrals:    wLang === 'zh' ? '推荐人数'       : wLang === 'en' ? 'Referrals'             : 'Referidos',
+    earnPromo:    wLang === 'zh' ? '每推荐一位朋友赚 $500！' : wLang === 'en' ? 'Earn $500 per friend!' : '¡Gana $500 por cada amigo!',
+    earnPromoSub: wLang === 'zh' ? '邀请朋友，他们首次发货时您即可获得奖励' : wLang === 'en' ? 'Invite friends and earn when they make their first shipment' : 'Invita amigos y gana cuando hagan su primer envío',
+    history:      wLang === 'zh' ? '交易记录'       : wLang === 'en' ? 'Transaction History'   : 'Historial de Movimientos',
+    noMovements:  wLang === 'zh' ? '暂无交易记录'   : wLang === 'en' ? 'No transactions yet'   : 'Aún no tienes movimientos',
+    noMovSub:     wLang === 'zh' ? '邀请朋友，他们首次发货时您即可获得余额' : wLang === 'en' ? 'Invite friends and earn balance when they make their first shipment' : 'Invita amigos y gana saldo cuando hagan su primer envío',
+    howToUse:     wLang === 'zh' ? '如何使用余额？' : wLang === 'en' ? 'How to use my balance?' : '¿Cómo usar mi saldo?',
+    autoApplied:  wLang === 'zh' ? '支付运费时自动抵扣' : wLang === 'en' ? 'Automatically applied when paying for shipments' : 'Se aplica automáticamente al pagar tus envíos',
+  };
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [wallet, setWallet] = useState<WalletStatus | null>(null);

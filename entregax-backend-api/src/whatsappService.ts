@@ -41,6 +41,11 @@ import axios from 'axios';
 
 const API_VERSION = process.env.WHATSAPP_API_VERSION || 'v23.0';
 
+// Cache en memoria del idioma que Meta acepta para cada plantilla.
+// Evita repetir los fallbacks (y el ruido en logs) en cada envío.
+//   Map<templateName, languageCode>
+const templateLangCache = new Map<string, string>();
+
 interface SendTemplateOptions {
     to: string;
     template: string;
@@ -107,13 +112,20 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
         });
     }
 
+    // Si ya conocemos el idioma que Meta acepta para esta plantilla, úsalo.
+    const cachedLang = templateLangCache.get(opts.template);
+    const effectiveLang = opts.languageCode
+        || cachedLang
+        || process.env.WHATSAPP_DEFAULT_LANG
+        || 'es_MX';
+
     const payload = {
         messaging_product: 'whatsapp',
         to: normalized,
         type: 'template',
         template: {
             name: opts.template,
-            language: { code: opts.languageCode || process.env.WHATSAPP_DEFAULT_LANG || 'es_MX' },
+            language: { code: effectiveLang },
             ...(components.length > 0 ? { components } : {}),
         },
     };
@@ -128,26 +140,36 @@ export const sendTemplate = async (opts: SendTemplateOptions): Promise<{ ok: boo
             timeout: 15000,
         });
         const messageId = data?.messages?.[0]?.id;
-        console.log(`[WHATSAPP] ✅ Template "${opts.template}" enviado a ${normalized} (id=${messageId})`);
+        // Cachea el idioma que funcionó para no volver a probar fallbacks.
+        if (templateLangCache.get(opts.template) !== effectiveLang) {
+            templateLangCache.set(opts.template, effectiveLang);
+        }
+        console.log(`[WHATSAPP] ✅ Template "${opts.template}" enviado a ${normalized} (lang=${effectiveLang}, id=${messageId})`);
         return { ok: true, messageId };
     } catch (err: any) {
         const meta = err?.response?.data?.error;
         const msg = meta?.message || err?.message || 'Error desconocido';
         const code = meta?.code;
         // Fallback automático cuando la plantilla no existe en ese idioma (#132001)
-        const triedLang = opts.languageCode || 'es_MX';
         const allFallbacks = ['es_MX', 'es', 'es_ES', 'es_LA', 'en_US', 'en'];
-        const triedSoFar: string[] = (opts as any)._triedLangs || [triedLang];
+        const triedSoFar: string[] = (opts as any)._triedLangs || [effectiveLang];
         const nextLang = allFallbacks.find(l => !triedSoFar.includes(l));
         if (code === 132001 && nextLang) {
-            console.warn(`[WHATSAPP] template "${opts.template}" no existe en ${triedLang}, probando ${nextLang}...`);
+            // Fallback esperado: log informativo, no warn (evita ruido en consola/Sentry).
+            console.log(`[WHATSAPP] template "${opts.template}" no existe en ${effectiveLang}, probando ${nextLang}...`);
+            // Si el idioma cacheado falló (template movido en Meta), invalida cache.
+            if (cachedLang === effectiveLang) templateLangCache.delete(opts.template);
             return sendTemplate({
                 ...opts,
                 languageCode: nextLang,
                 ...({ _triedLangs: [...triedSoFar, nextLang] } as any),
             });
         }
-        console.error(`[WHATSAPP] ❌ Falló template "${opts.template}" a ${normalized}:`, msg, meta);
+        if (code === 132001) {
+            console.error(`[WHATSAPP] ❌ Template "${opts.template}" no encontrado en NINGÚN idioma (probados: ${triedSoFar.join(', ')}). Crea/aprueba la plantilla en Meta Business → WhatsApp Manager.`);
+        } else {
+            console.error(`[WHATSAPP] ❌ Falló template "${opts.template}" a ${normalized}:`, msg, meta);
+        }
         return { ok: false, error: msg };
     }
 };
@@ -173,6 +195,9 @@ export const sendWelcomeWhatsapp = async (params: {
         await sendTemplate({
             to: params.phone,
             template: process.env.WHATSAPP_WELCOME_TEMPLATE || 'welcome_entregax',
+            // Idioma explícito: en Meta esta plantilla está aprobada como "Spanish (SPA)" = es_ES.
+            // Se puede sobreescribir con WHATSAPP_WELCOME_TEMPLATE_LANG.
+            languageCode: process.env.WHATSAPP_WELCOME_TEMPLATE_LANG || 'es_ES',
             parameters: [firstName, params.boxId],
         });
     } catch (err) {

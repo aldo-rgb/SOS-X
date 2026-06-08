@@ -360,22 +360,19 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     >
       <StatusBar barStyle="light-content" backgroundColor={BLACK} />
       
-      {/* Header con logo */}
+      {/* Header con logo + cajito mascota */}
       <View style={styles.header}>
         <Image
           source={require('../../assets/logo.png')}
           style={styles.logoImage}
           resizeMode="contain"
         />
-        {/* Cajito asomándose al lado del subtitle */}
-        <View style={styles.subtitleRow} pointerEvents="none">
-          <Text style={styles.subtitle}>{t.subtitle}</Text>
-          <Image
-            source={require('../../assets/cajito-asomando.png')}
-            style={styles.cajitoImg}
-            resizeMode="contain"
-          />
-        </View>
+        <Image
+          source={require('../../assets/cajito-asomando.png')}
+          style={styles.cajitoImg}
+          resizeMode="contain"
+        />
+        <Text style={styles.subtitle}>{t.subtitle}</Text>
       </View>
 
       {/* Formulario */}
@@ -554,10 +551,15 @@ const styles = StyleSheet.create({
     backgroundColor: BLACK,
   },
   header: {
-    flex: 0.28,
+    flex: 0.32,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingBottom: 10,
+    paddingBottom: 6,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   trackBtn: {
     flexDirection: 'row',
@@ -611,7 +613,7 @@ const styles = StyleSheet.create({
   subtitle: {
     fontSize: 16,
     color: 'rgba(255,255,255,0.80)',
-    marginTop: 5,
+    marginTop: -8,
   },
   subtitleRow: {
     flexDirection: 'row',
@@ -621,10 +623,13 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   cajitoImg: {
-    width: 72,
-    height: 72,
-    opacity: 0.95,
-    marginBottom: -8,
+    position: 'absolute',
+    right: -20,
+    bottom: -30,
+    width: 170,
+    height: 170,
+    zIndex: 10,
+    elevation: 10,
   },
   formContainer: {
     flex: 0.72,
