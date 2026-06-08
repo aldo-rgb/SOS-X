@@ -858,42 +858,6 @@ const CajaChicaPage: React.FC = () => {
   };
 
   // Enviar reporte por WhatsApp (texto resumen, abre wa.me)
-  const handleEnviarWhatsApp = () => {
-    if (selectedConsolidaciones.size === 0) {
-      setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' });
-      return;
-    }
-    const { rows, totalUsd, totalMxn } = getReporteRows();
-    if (rows.length === 0) {
-      setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' });
-      return;
-    }
-    const fecha = new Date().toLocaleDateString('es-MX');
-    const byCons = new Map<number, typeof rows>();
-    rows.forEach(r => {
-      const arr = byCons.get(r.consolidacion_id) || [];
-      arr.push(r);
-      byCons.set(r.consolidacion_id, arr);
-    });
-    let msg = `*🚚 EntregaX · Pagos a Proveedor*\n`;
-    msg += `_Fecha:_ ${fecha}\n\n`;
-    byCons.forEach((items, consId) => {
-      const supplier = items[0]?.supplier_name || '—';
-      msg += `*Consolidación #${consId}* — ${supplier}\n`;
-      items.forEach(r => {
-        msg += `✅ \`${r.tracking}\` · ${r.weight.toFixed(1)}lb · $${r.usd.toFixed(2)} USD · $${r.mxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})} MXN\n`;
-      });
-      msg += `\n`;
-    });
-    msg += `━━━━━━━━━━━━━━━━\n`;
-    msg += `*Guías a pagar:* ${rows.length}\n`;
-    msg += `*Total USD:* $${totalUsd.toFixed(2)}\n`;
-    msg += `*Total MXN:* $${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}\n\n`;
-    msg += `_Reporte solo incluye guías con estado A PAGAR._`;
-    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-    window.open(url, '_blank');
-  };
-
   // Pago múltiple de consolidaciones seleccionadas
   const handleIniciarPagoMultiple = () => {
     if (selectedConsolidaciones.size === 0) {
@@ -2473,7 +2437,7 @@ const CajaChicaPage: React.FC = () => {
                               </IconButton>
                             </Tooltip>
                             <Tooltip title="Descargar PDF detallado">
-                              <IconButton size="small" color="error" onClick={() => { const r = ref.packages_data||[]; const u = r.filter((x:any)=>x.countsToTotal).reduce((s:number,x:any)=>s+Number(x.usd||0),0); const m = r.filter((x:any)=>x.countsToTotal).reduce((s:number,x:any)=>s+Number(x.mxn||0),0); handleGenerarPDF(); }}>
+                              <IconButton size="small" color="error" onClick={() => handleGenerarPDF()}>
                                 <PictureAsPdfIcon fontSize="small" />
                               </IconButton>
                             </Tooltip>
