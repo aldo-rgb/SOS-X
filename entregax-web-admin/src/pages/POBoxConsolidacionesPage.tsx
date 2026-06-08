@@ -327,14 +327,21 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
     window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
-  // ── Generar Orden de Pago (individual) ─────────────────────────────
-  const handleGenerarOrdenPago = (c: ConsolidacionPendiente) => {
+  // ── Generar Orden de Pago (consolidaciones seleccionadas) ──────────
+  const handleGenerarOrdenPago = () => {
+    if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
+    const sel = consolidaciones.filter(c => selected.has(c.id));
+    const totalUsd = sel.reduce((s, c) => s + Number(c.total_cost_usd || 0), 0);
+    const totalMxn = sel.reduce((s, c) => s + Number(c.total_cost_mxn || 0), 0);
+    const totalPkgs = sel.reduce((s, c) => s + Number(c.package_count || 0), 0);
     const fecha = new Date().toLocaleString('es-MX');
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Orden de Pago #${c.id}</title>
-<style>@page{size:letter;margin:20mm}body{font-family:Arial,sans-serif;font-size:12px;color:#222}h1{font-size:20px;color:#C1272D;margin:0 0 4px}h2{font-size:14px;color:#333;margin:0 0 16px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:2px solid #C1272D;padding-bottom:12px}.info{margin-bottom:16px}.info dt{font-weight:700;color:#555;font-size:11px;text-transform:uppercase;letter-spacing:.5px}.info dd{font-size:14px;margin:0 0 8px}.totals{border:2px solid #C1272D;padding:12px 16px;margin:20px 0;display:flex;justify-content:space-between}.totals .big{font-size:20px;font-weight:900;color:#C1272D}.ref-box{border:1px dashed #999;padding:10px;margin-top:20px;font-size:11px}.sig{margin-top:40px;display:flex;justify-content:space-between}.sig div{text-align:center;width:45%}.sig hr{border:none;border-top:1px solid #333;margin-bottom:4px}</style></head><body>
-<div class="header"><div><h1>EntregaX · Orden de Pago</h1><h2>PO Box USA — Proveedor ${c.supplier_name}</h2></div><div style="text-align:right;font-size:11px;color:#666">Generada: ${fecha}<br/>Consolidación: <strong>#${c.id}</strong></div></div>
-<dl class="info"><dt>Proveedor</dt><dd>${c.supplier_name}</dd><dt>Consolidación</dt><dd>#${c.id} · ${new Date(c.created_at).toLocaleDateString('es-MX')}</dd><dt>Paquetes</dt><dd>${c.package_count}</dd></dl>
-<div class="totals"><div>Total USD: <span class="big">$${Number(c.total_cost_usd || 0).toFixed(2)}</span></div><div>Total MXN: <span class="big">$${Number(c.total_cost_mxn || 0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</span></div></div>
+    const idsStr = sel.map(c => `#${c.id}`).join(', ');
+    const rowsHTML = sel.map(c => `<tr><td style="font-family:monospace;font-weight:600">#${c.id}</td><td>${new Date(c.created_at).toLocaleDateString('es-MX')}</td><td style="text-align:center">${c.package_count}</td><td style="text-align:right;font-weight:600">$${Number(c.total_cost_usd||0).toFixed(2)}</td><td style="text-align:right;font-weight:600">$${Number(c.total_cost_mxn||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`).join('');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Orden de Pago — ${proveedorSel?.name}</title>
+<style>@page{size:letter;margin:20mm}body{font-family:Arial,sans-serif;font-size:12px;color:#222}h1{font-size:20px;color:#C1272D;margin:0 0 4px}h2{font-size:13px;color:#333;margin:0 0 16px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:2px solid #C1272D;padding-bottom:12px}table{width:100%;border-collapse:collapse;margin:12px 0}th{background:#1a1a1a;color:#fff;padding:6px 8px;text-align:left;font-size:11px}td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:11px}.totals{border:2px solid #C1272D;padding:14px 18px;margin:20px 0;display:flex;justify-content:space-around;align-items:center}.totals .lbl{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px}.totals .big{font-size:22px;font-weight:900;color:#C1272D}.ref-box{border:1px dashed #999;padding:12px;margin-top:20px;font-size:11px}.sig{margin-top:48px;display:flex;justify-content:space-between}.sig div{text-align:center;width:44%}.sig hr{border:none;border-top:1px solid #333;margin-bottom:4px}</style></head><body>
+<div class="header"><div><h1>EntregaX · Orden de Pago</h1><h2>PO Box USA — Proveedor: <strong>${proveedorSel?.name || ''}</strong></h2></div><div style="text-align:right;font-size:11px;color:#666">Generada: ${fecha}<br/>Consolidaciones: <strong>${idsStr}</strong></div></div>
+<table><thead><tr><th>Consolidación</th><th>Fecha</th><th style="text-align:center">Paquetes</th><th style="text-align:right">Total USD</th><th style="text-align:right">Total MXN</th></tr></thead><tbody>${rowsHTML}<tr style="background:#f5f5f5;font-weight:bold"><td colspan="2">TOTAL (${sel.length} consolidaciones)</td><td style="text-align:center">${totalPkgs}</td><td style="text-align:right">$${totalUsd.toFixed(2)}</td><td style="text-align:right">$${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr></tbody></table>
+<div class="totals"><div><div class="lbl">Total USD a pagar</div><div class="big">$${totalUsd.toFixed(2)}</div></div><div style="font-size:28px;color:#ddd">|</div><div><div class="lbl">Total MXN a pagar</div><div class="big">$${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div></div>
 <div class="ref-box">Referencia de pago (folio / SPEI / cheque): ___________________________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Fecha de pago: _____________</div>
 <div class="sig"><div><hr>Elaborado por</div><div><hr>Autorizado por</div></div>
 <script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});</script>
@@ -543,7 +550,6 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                   <TableCell><strong>Estado</strong></TableCell>
                   <TableCell align="right"><strong>Total USD</strong></TableCell>
                   <TableCell align="right"><strong>Total MXN</strong></TableCell>
-                  <TableCell align="center"><strong>Acción</strong></TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -598,18 +604,10 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                           <Typography fontWeight="bold" color="primary.main">{formatCurrency(Number(c.total_cost_mxn || 0))}</Typography>
                           {Number(c.paid_cost_mxn || 0) > 0 && <Typography variant="caption" color="success.dark" sx={{ display: 'block' }}>✓ {formatCurrency(Number(c.paid_cost_mxn))} pagado</Typography>}
                           {c.has_missing && Number(c.pending_cost_mxn || 0) > 0 && <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>⚠ {formatCurrency(Number(c.pending_cost_mxn))} faltante</Typography>}
-                        </TableCell>
-                        <TableCell align="center">
-                          {Number(c.total_cost_mxn || 0) <= 0 ? (
+                          {Number(c.total_cost_mxn || 0) <= 0 && (
                             <Typography variant="caption" color="text.secondary">
                               {Number(c.paid_cost_mxn || 0) > 0 ? 'Ya pagada' : 'Esperando llegada'}
                             </Typography>
-                          ) : (
-                            <Button variant="outlined" size="small" color="primary" startIcon={<AssignmentIcon />}
-                              onClick={(e) => { e.stopPropagation(); handleGenerarOrdenPago(c); }}
-                            >
-                              Generar Orden de Pago
-                            </Button>
                           )}
                         </TableCell>
                       </TableRow>
@@ -617,7 +615,7 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                       {/* Detalle expandido */}
                       {expanded.has(c.id) && (
                         <TableRow>
-                          <TableCell colSpan={9} sx={{ p: 0, bgcolor: 'grey.50' }}>
+                          <TableCell colSpan={8} sx={{ p: 0, bgcolor: 'grey.50' }}>
                             <Box sx={{ p: 2 }}>
                               <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
                                 <Typography variant="subtitle2">Paquetes en esta consolidación:</Typography>
@@ -715,6 +713,13 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
                 <span>
                   <Button variant="outlined" startIcon={<WhatsAppIcon />} onClick={handleEnviarWhatsApp} disabled={selected.size === 0} sx={{ color: '#25D366', borderColor: '#25D366', '&:hover': { borderColor: '#1DA851', color: '#1DA851' } }}>
                     WhatsApp
+                  </Button>
+                </span>
+              </Tooltip>
+              <Tooltip title={selected.size === 0 ? 'Selecciona al menos una consolidación' : ''}>
+                <span>
+                  <Button variant="outlined" color="primary" startIcon={<AssignmentIcon />} onClick={handleGenerarOrdenPago} disabled={selected.size === 0}>
+                    Orden de Pago
                   </Button>
                 </span>
               </Tooltip>
