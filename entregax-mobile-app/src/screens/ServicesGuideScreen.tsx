@@ -1,37 +1,24 @@
-// ============================================
-// 🚀 PANTALLA DE GUÍA DE SERVICIOS - EXPERIENCIA PREMIUM
-// Muestra los 4 tipos de envío con tutoriales y direcciones personalizadas
-// Diseño de marketing subliminal para conversión
-// ============================================
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
-  Animated,
-  Dimensions,
-  StatusBar,
+  ActivityIndicator,
   Alert,
   Share,
   Platform,
   Clipboard,
 } from 'react-native';
-import { Appbar, Surface, Chip, Button, Divider, ActivityIndicator } from 'react-native-paper';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
+import { Appbar } from 'react-native-paper';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { api } from '../services/api';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const ORANGE = '#E65100';
-const BLACK = '#1a1a1a';
-
-// ============================================
-// TIPOS LOCALES
-// ============================================
+const ORANGE = '#F05A28';
+const BLACK = '#111';
+const BG = '#F5F5F5';
 
 interface User {
   id: number;
@@ -45,16 +32,6 @@ type RootStackParamList = {
   ServicesGuide: { user: User; token: string };
   RequestAdvisor: { user: User; token: string };
 };
-
-interface ServiceInfo {
-  serviceType: string;
-  instructions: {
-    packaging_instructions: string;
-    shipping_instructions: string;
-    general_notes: string;
-  } | null;
-  addresses: WarehouseAddress[];
-}
 
 interface WarehouseAddress {
   alias: string;
@@ -73,898 +50,493 @@ interface WarehouseAddress {
   is_primary: boolean;
 }
 
+interface ServiceApiInfo {
+  serviceType: string;
+  instructions: {
+    packaging_instructions: string;
+    shipping_instructions: string;
+    general_notes: string;
+  } | null;
+  addresses: WarehouseAddress[];
+}
+
 interface ServiceCard {
   id: string;
   name: string;
-  shortName: string;
-  icon: string;
-  color: string;
-  gradient: [string, string];
+  emoji: string;
   tagline: string;
-  benefits: string[];
   timeframe: string;
   idealFor: string;
+  benefits: string[];
   serviceType: string;
+  accentColor: string;
 }
-
-// ============================================
-// DATOS DE LOS SERVICIOS
-// ============================================
 
 const SERVICES: ServiceCard[] = [
   {
     id: 'china_air',
-    name: 'Todo Incluido Aéreo China',
-    shortName: 'Aéreo',
-    icon: 'airplane',
-    color: '#2196F3',
-    gradient: ['#1976D2', '#42A5F5'],
-    tagline: '¡Velocidad sin límites desde China!',
-    benefits: [
-      '✈️ Llegada en 7-15 días',
-      '📦 Ideal para muestras y urgentes',
-      '🛡️ Seguimiento en tiempo real',
-      '💰 Precio competitivo por kg',
-    ],
-    timeframe: '7-15 días',
+    name: 'Aéreo China',
+    emoji: '🇨🇳',
+    tagline: 'Velocidad sin límites desde China',
+    timeframe: '10-15 días',
     idealFor: 'Muestras, productos urgentes, electrónicos pequeños',
+    benefits: [
+      '✈️ Llegada en 10-15 días',
+      '📦 Ideal para muestras y urgentes',
+      '💰 Precio competitivo por kg',
+      '🛡️ Seguimiento en tiempo real',
+    ],
     serviceType: 'china_air',
+    accentColor: '#1565C0',
   },
   {
     id: 'china_sea',
-    name: 'Marítimo China LCL',
-    shortName: 'Marítimo',
-    icon: 'boat',
-    color: '#00796B',
-    gradient: ['#004D40', '#26A69A'],
-    tagline: '¡El mejor precio para volumen!',
+    name: 'Marítimo China',
+    emoji: '🇨🇳',
+    tagline: 'El mejor precio para volumen',
+    timeframe: '45-60 días',
+    idealFor: 'Compras mayoristas, inventario, productos no urgentes',
     benefits: [
       '🚢 Contenedor compartido (LCL)',
       '📦 Desde 1 caja',
       '💵 Costo por CBM ultra competitivo',
       '🔒 Consolidación segura',
     ],
-    timeframe: '45-60 días',
-    idealFor: 'Compras mayoristas, inventario, productos no urgentes',
     serviceType: 'china_sea',
+    accentColor: '#00695C',
   },
   {
     id: 'mx_cedis',
-    name: 'Liberación Aduanal Monterrey',
-    shortName: 'MTY',
-    icon: 'shield-checkmark',
-    color: '#FF9800',
-    gradient: ['#E65100', '#FFB74D'],
-    tagline: '¡Express nacional sin complicaciones!',
+    name: 'Trámite Aduanal Monterrey',
+    emoji: '🌍',
+    tagline: 'Despacho aduanal sin complicaciones',
+    timeframe: '1-3 días',
+    idealFor: 'Paquetes DHL internacionales, liberación en MTY',
     benefits: [
       '✅ Liberación en 24-48 hrs',
-      '📋 Sin trámites de importación complicados',
+      '📋 Sin trámites complicados',
       '🏪 Recibe en nuestro CEDIS MTY',
       '💳 Pago contra entrega disponible',
     ],
-    timeframe: '24-48 hrs',
-    idealFor: 'Compras nacionales, reenvíos urgentes, sin aduana',
     serviceType: 'mx_cedis',
+    accentColor: '#2E7D32',
   },
   {
     id: 'usa_pobox',
-    name: 'PO Box USA',
-    shortName: 'PO Box',
-    icon: 'mail',
-    color: '#9C27B0',
-    gradient: ['#6A1B9A', '#BA68C8'],
-    tagline: '¡Tu dirección en Estados Unidos!',
+    name: 'Terrestre USA a México',
+    emoji: '🇺🇸',
+    tagline: 'Tu dirección en Estados Unidos',
+    timeframe: '5-10 días',
+    idealFor: 'Compras online USA, consolidación de paquetes',
     benefits: [
       '🇺🇸 Dirección física en Texas',
       '📦 Consolida múltiples paquetes',
       '💰 Ahorra en envíos combinados',
       '🛒 Compra en Amazon, eBay, etc.',
     ],
-    timeframe: '5-7 días',
-    idealFor: 'Compras online USA, consolidación de paquetes',
     serviceType: 'usa_pobox',
+    accentColor: '#6A1B9A',
   },
 ];
-
-// ============================================
-// COMPONENTE PRINCIPAL
-// ============================================
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ServicesGuide'>;
 
 export default function ServicesGuideScreen({ navigation, route }: Props) {
   const { user, token } = route.params;
-  const [selectedService, setSelectedService] = useState<string | null>(null);
-  const [serviceInfo, setServiceInfo] = useState<ServiceInfo | null>(null);
+  const [step, setStep] = useState<0 | 1>(0);
+  const [selected, setSelected] = useState<ServiceCard | null>(null);
+  const [serviceInfo, setServiceInfo] = useState<ServiceApiInfo | null>(null);
   const [loading, setLoading] = useState(false);
-  const [copiedField, setCopiedField] = useState<string | null>(null);
-  
-  // Animaciones
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(50)).current;
-  const scrollViewRef = useRef<ScrollView>(null);
+  const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 600,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        friction: 8,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, []);
-
-  // ============================================
-  // CARGAR INFO DEL SERVICIO
-  // ============================================
-
-  const loadServiceInfo = async (serviceType: string) => {
+  const handleSelect = async (service: ServiceCard) => {
+    setSelected(service);
+    setServiceInfo(null);
+    setStep(1);
     setLoading(true);
     try {
-      const response = await api.get(`/api/services/${serviceType}/info`);
-      setServiceInfo(response.data);
-    } catch (error) {
-      console.error('Error loading service info:', error);
-      Alert.alert('Error', 'No se pudo cargar la información del servicio');
+      const res = await api.get(`/api/services/${service.serviceType}/info`);
+      setServiceInfo(res.data);
+    } catch {
+      // No forzamos error — mostramos lo que tengamos
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSelectService = (serviceId: string) => {
-    if (selectedService === serviceId) {
-      setSelectedService(null);
-      setServiceInfo(null);
-    } else {
-      setSelectedService(serviceId);
-      const service = SERVICES.find(s => s.id === serviceId);
-      if (service) {
-        loadServiceInfo(service.serviceType);
-      }
+  const handleBack = () => {
+    setStep(0);
+    setSelected(null);
+    setServiceInfo(null);
+  };
+
+  const getPersonalizedAddress = (addr: WarehouseAddress): string => {
+    const name = user.full_name || user.name || 'TU NOMBRE';
+    const box = user.boxId || 'S-XXX';
+    if (selected?.id === 'usa_pobox') {
+      return `${addr.address_line1.replace('(S-Numero de Cliente)', box)}\nATTN: ${name}\n${addr.city}, ${addr.state} ${addr.zip_code}\n${addr.contact_phone || ''}`;
     }
-  };
-
-  // ============================================
-  // GENERAR DIRECCIÓN PERSONALIZADA
-  // ============================================
-
-  const generatePersonalizedAddress = (address: WarehouseAddress, service: ServiceCard): string => {
-    const clientName = user.full_name || user.name || 'NOMBRE';
-    const boxId = user.boxId || 'S-XXX';
-    
-    let formattedAddress = '';
-    
-    if (service.id === 'usa_pobox') {
-      // PO Box USA - Formato especial con Suite
-      formattedAddress = `${address.address_line1.replace('(S-Numero de Cliente)', boxId)}\n` +
-        `ATTN: ${clientName}\n` +
-        `${address.city}, ${address.state} ${address.zip_code}\n` +
-        `📞 ${address.contact_phone || ''}`;
-    } else if (service.id === 'china_air' || service.id === 'china_sea') {
-      // China - Incluir shipping mark
-      formattedAddress = `📍 ${address.address_line1}\n` +
-        (address.address_line2 ? `${address.address_line2}\n` : '') +
-        `📦 Shipping Mark / 唛头: ${boxId}\n` +
-        `👤 Contacto: ${address.contact_name || ''}\n` +
-        `📞 ${address.contact_phone || ''}`;
-    } else {
-      // DHL MTY
-      formattedAddress = `📍 ${address.address_line1}\n` +
-        `${address.city}, ${address.state} ${address.zip_code}\n` +
-        `📦 A nombre de: ${clientName} (${boxId})\n` +
-        `📞 ${address.contact_phone || ''}`;
+    if (selected?.id === 'china_air' || selected?.id === 'china_sea') {
+      return `${addr.address_line1}\n${addr.address_line2 ? addr.address_line2 + '\n' : ''}Shipping Mark / 唛头: ${box}\nContacto: ${addr.contact_name || ''}\n${addr.contact_phone || ''}`;
     }
-    
-    return formattedAddress;
+    return `${addr.address_line1}\n${addr.city}, ${addr.state} ${addr.zip_code}\nA nombre de: ${name} (${box})\n${addr.contact_phone || ''}`;
   };
 
-  // ============================================
-  // COPIAR AL PORTAPAPELES
-  // ============================================
-
-  const handleCopy = async (text: string, field: string) => {
-    Clipboard.setString(text.replace(/📍|📦|👤|📞|🏪/g, '').trim());
-    setCopiedField(field);
-    setTimeout(() => setCopiedField(null), 2000);
-    
-    // Vibración suave (si está disponible)
-    // Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  const handleCopy = (text: string) => {
+    Clipboard.setString(text.replace(/[📍📦👤📞🏪]/g, '').trim());
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  // ============================================
-  // COMPARTIR DIRECCIÓN
-  // ============================================
-
-  const handleShare = async (address: WarehouseAddress, service: ServiceCard) => {
-    const text = generatePersonalizedAddress(address, service);
-    try {
-      await Share.share({
-        message: `🚚 Mi dirección de envío EntregaX - ${service.name}:\n\n${text}`,
-      });
-    } catch (error) {
-      console.error('Error sharing:', error);
-    }
+  const handleShare = async (addr: WarehouseAddress) => {
+    const text = getPersonalizedAddress(addr);
+    await Share.share({ message: `Mi dirección EntregaX - ${selected?.name}:\n\n${text}` });
   };
 
-  // ============================================
-  // RENDER: TARJETA DE SERVICIO
-  // ============================================
+  // ── Paso 0: Selección ─────────────────────────────────────────────────────
 
-  const renderServiceCard = (service: ServiceCard, index: number) => {
-    const isSelected = selectedService === service.id;
-    const animDelay = index * 100;
-
+  if (step === 0) {
     return (
-      <Animated.View
-        key={service.id}
-        style={[
-          styles.serviceCardContainer,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }],
-          },
-        ]}
-      >
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => handleSelectService(service.id)}
-        >
-          <LinearGradient
-            colors={isSelected ? service.gradient : ['#ffffff', '#f5f5f5']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={[
-              styles.serviceCard,
-              isSelected && styles.serviceCardSelected,
-            ]}
-          >
-            {/* Header con icono y nombre */}
-            <View style={styles.serviceCardHeader}>
-              <View style={[
-                styles.serviceIconContainer,
-                { backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : service.color + '20' }
-              ]}>
-                <Ionicons
-                  name={service.icon as any}
-                  size={28}
-                  color={isSelected ? '#fff' : service.color}
-                />
+      <View style={styles.container}>
+        <Appbar.Header style={styles.header}>
+          <Appbar.BackAction onPress={() => navigation.goBack()} color="#fff" />
+          <Appbar.Content title="Nuestros Servicios" titleStyle={styles.headerTitle} />
+        </Appbar.Header>
+
+        <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
+          <Text style={styles.stepTitle}>¿Cómo quieres enviar?</Text>
+          <Text style={styles.stepHint}>Selecciona un servicio para ver la dirección y las instrucciones de envío.</Text>
+
+          {SERVICES.map((s) => (
+            <TouchableOpacity
+              key={s.id}
+              style={styles.serviceCard}
+              activeOpacity={0.85}
+              onPress={() => handleSelect(s)}
+            >
+              <View style={[styles.serviceEmojiWrap, { backgroundColor: s.accentColor + '15' }]}>
+                <Text style={styles.serviceEmoji}>{s.emoji}</Text>
               </View>
-              <View style={styles.serviceCardTitleContainer}>
-                <Text style={[
-                  styles.serviceCardTitle,
-                  isSelected && styles.serviceCardTitleSelected
-                ]}>
-                  {service.name}
-                </Text>
-                <Text style={[
-                  styles.serviceCardTagline,
-                  isSelected && styles.serviceCardTaglineSelected
-                ]}>
-                  {service.tagline}
-                </Text>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.serviceName}>{s.name}</Text>
+                <Text style={styles.serviceTagline}>{s.tagline}</Text>
+                <View style={styles.timeBadge}>
+                  <Ionicons name="time-outline" size={12} color={s.accentColor} />
+                  <Text style={[styles.timeBadgeText, { color: s.accentColor }]}>{s.timeframe}</Text>
+                </View>
               </View>
-              <View style={[
-                styles.timeframeBadge,
-                { backgroundColor: isSelected ? 'rgba(255,255,255,0.2)' : service.color + '15' }
-              ]}>
-                <Ionicons
-                  name="time-outline"
-                  size={12}
-                  color={isSelected ? '#fff' : service.color}
-                />
-                <Text style={[
-                  styles.timeframeText,
-                  { color: isSelected ? '#fff' : service.color }
-                ]}>
-                  {service.timeframe}
-                </Text>
-              </View>
-            </View>
+              <Ionicons name="chevron-forward" size={22} color="#CCC" />
+            </TouchableOpacity>
+          ))}
 
-            {/* Beneficios - Visible siempre pero más destacado cuando seleccionado */}
-            <View style={styles.benefitsContainer}>
-              {service.benefits.slice(0, isSelected ? 4 : 2).map((benefit, idx) => (
-                <Text
-                  key={idx}
-                  style={[
-                    styles.benefitText,
-                    isSelected && styles.benefitTextSelected
-                  ]}
-                >
-                  {benefit}
-                </Text>
-              ))}
-            </View>
-
-            {/* Ideal para */}
-            <View style={styles.idealForContainer}>
-              <Text style={[
-                styles.idealForLabel,
-                isSelected && styles.idealForLabelSelected
-              ]}>
-                Ideal para:
-              </Text>
-              <Text style={[
-                styles.idealForText,
-                isSelected && styles.idealForTextSelected
-              ]}>
-                {service.idealFor}
-              </Text>
-            </View>
-
-            {/* Indicador de expansión */}
-            <View style={styles.expandIndicator}>
-              <Ionicons
-                name={isSelected ? 'chevron-up' : 'chevron-down'}
-                size={20}
-                color={isSelected ? '#fff' : '#999'}
-              />
-              <Text style={[
-                styles.expandText,
-                isSelected && styles.expandTextSelected
-              ]}>
-                {isSelected ? 'Ver menos' : 'Ver dirección de envío'}
-              </Text>
-            </View>
-          </LinearGradient>
-        </TouchableOpacity>
-
-        {/* Panel expandido con dirección */}
-        {isSelected && (
-          <Animated.View style={styles.expandedPanel}>
-            {loading ? (
-              <View style={styles.loadingContainer}>
-                <ActivityIndicator size="large" color={service.color} />
-                <Text style={styles.loadingText}>Cargando información...</Text>
-              </View>
-            ) : serviceInfo ? (
-              <>
-                {/* Dirección de envío */}
-                {serviceInfo.addresses.map((addr, idx) => (
-                  <Surface key={idx} style={styles.addressCard}>
-                    <View style={styles.addressHeader}>
-                      <Ionicons name="location" size={24} color={service.color} />
-                      <View style={styles.addressHeaderText}>
-                        <Text style={styles.addressTitle}>📍 Tu Dirección de Envío</Text>
-                        <Text style={styles.addressSubtitle}>
-                          Personalizada con tu número de cliente
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.addressContent}>
-                      <Text style={styles.addressText}>
-                        {generatePersonalizedAddress(addr, service)}
-                      </Text>
-                    </View>
-
-                    {/* Botones de acción */}
-                    <View style={styles.addressActions}>
-                      <TouchableOpacity
-                        style={[styles.actionButton, { backgroundColor: service.color }]}
-                        onPress={() => handleCopy(generatePersonalizedAddress(addr, service), 'address')}
-                      >
-                        <Ionicons
-                          name={copiedField === 'address' ? 'checkmark' : 'copy'}
-                          size={18}
-                          color="#fff"
-                        />
-                        <Text style={styles.actionButtonText}>
-                          {copiedField === 'address' ? '¡Copiado!' : 'Copiar Dirección'}
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.actionButtonOutline, { borderColor: service.color }]}
-                        onPress={() => handleShare(addr, service)}
-                      >
-                        <Ionicons name="share-social" size={18} color={service.color} />
-                        <Text style={[styles.actionButtonOutlineText, { color: service.color }]}>
-                          Compartir
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {/* Horario de atención */}
-                    {addr.business_hours && (
-                      <View style={styles.businessHours}>
-                        <Ionicons name="time" size={16} color="#666" />
-                        <Text style={styles.businessHoursText}>{addr.business_hours}</Text>
-                      </View>
-                    )}
-                  </Surface>
-                ))}
-
-                {/* Instrucciones de empaque */}
-                {serviceInfo.instructions?.packaging_instructions && (
-                  <Surface style={styles.instructionsCard}>
-                    <View style={styles.instructionsHeader}>
-                      <Ionicons name="cube" size={20} color={service.color} />
-                      <Text style={styles.instructionsTitle}>📦 Instrucciones de Empaque</Text>
-                    </View>
-                    <Text style={styles.instructionsText}>
-                      {serviceInfo.instructions.packaging_instructions}
-                    </Text>
-                  </Surface>
-                )}
-
-                {/* Instrucciones de envío */}
-                {serviceInfo.instructions?.shipping_instructions && (
-                  <Surface style={styles.instructionsCard}>
-                    <View style={styles.instructionsHeader}>
-                      <Ionicons name="send" size={20} color={service.color} />
-                      <Text style={styles.instructionsTitle}>🚚 Instrucciones de Envío</Text>
-                    </View>
-                    <Text style={styles.instructionsText}>
-                      {serviceInfo.instructions.shipping_instructions}
-                    </Text>
-                  </Surface>
-                )}
-
-                {/* Notas generales */}
-                {serviceInfo.instructions?.general_notes && (
-                  <Surface style={styles.instructionsCard}>
-                    <View style={styles.instructionsHeader}>
-                      <Ionicons name="information-circle" size={20} color="#ff9800" />
-                      <Text style={styles.instructionsTitle}>⚠️ Notas Importantes</Text>
-                    </View>
-                    <Text style={styles.instructionsText}>
-                      {serviceInfo.instructions.general_notes}
-                    </Text>
-                  </Surface>
-                )}
-
-                {/* Botón Continuar - cierra la sección y permite seguir leyendo */}
-                <TouchableOpacity
-                  style={[styles.ctaButton, { backgroundColor: service.color }]}
-                  onPress={() => {
-                    // Cerrar la dirección de envío (colapsar el servicio)
-                    setSelectedService(null);
-                    setServiceInfo(null);
-                    // Scroll hacia arriba
-                    scrollViewRef.current?.scrollTo({ y: 0, animated: true });
-                  }}
-                >
-                  <Ionicons name="checkmark-circle" size={24} color="#fff" />
-                  <Text style={styles.ctaButtonText}>
-                    Continuar
-                  </Text>
-                </TouchableOpacity>
-              </>
-            ) : null}
-          </Animated.View>
-        )}
-      </Animated.View>
+          <View style={styles.advisorBox}>
+            <Text style={styles.advisorTitle}>¿No sabes cuál elegir?</Text>
+            <Text style={styles.advisorText}>Contacta a tu asesor y te ayudamos a encontrar la mejor opción.</Text>
+            <TouchableOpacity
+              style={styles.advisorBtn}
+              onPress={() => navigation.navigate('RequestAdvisor', { user, token })}
+            >
+              <Ionicons name="headset" size={18} color={ORANGE} />
+              <Text style={styles.advisorBtnText}>Solicitar Asesoría</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </View>
     );
-  };
+  }
 
-  // ============================================
-  // RENDER PRINCIPAL
-  // ============================================
+  // ── Paso 1: Detalle ───────────────────────────────────────────────────────
+
+  const svc = selected!;
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={BLACK} />
+      {/* Header coloreado con gradiente visual */}
+      <View style={[styles.detailHeader, { backgroundColor: svc.accentColor }]}>
+        <TouchableOpacity onPress={handleBack} style={styles.backBtn}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={styles.detailEmoji}>{svc.emoji}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.detailTitle}>{svc.name}</Text>
+          <Text style={styles.detailTagline}>{svc.tagline}</Text>
+        </View>
+        <View style={styles.detailTimeBadge}>
+          <Ionicons name="time-outline" size={12} color="#fff" />
+          <Text style={styles.detailTimeText}>{svc.timeframe}</Text>
+        </View>
+      </View>
 
-      {/* Header */}
-      <Appbar.Header style={styles.header}>
-        <Appbar.BackAction onPress={() => navigation.goBack()} color="#fff" />
-        <Appbar.Content
-          title="Nuestros Servicios"
-          titleStyle={styles.headerTitle}
-          subtitle="Elige cómo quieres importar"
-          subtitleStyle={styles.headerSubtitle}
-        />
-      </Appbar.Header>
+      <ScrollView contentContainerStyle={styles.detailBody} showsVerticalScrollIndicator={false}>
 
-      {/* Contenido */}
-      <ScrollView
-        ref={scrollViewRef}
-        style={styles.content}
-        contentContainerStyle={styles.contentContainer}
-        showsVerticalScrollIndicator={false}
-      >
-        {/* Hero Section */}
-        <LinearGradient
-          colors={[ORANGE, '#FF8A50']}
-          style={styles.heroSection}
-        >
-          <Ionicons name="globe" size={40} color="rgba(255,255,255,0.3)" style={styles.heroIcon} />
-          <Text style={styles.heroTitle}>Envia desde China o USA a Mexico</Text>
-          <Text style={styles.heroSubtitle}>
-            Tu número de cliente: <Text style={styles.heroBoxId}>{user.boxId || 'S-XXX'}</Text>
-          </Text>
-          <Text style={styles.heroDescription}>
-            Selecciona un servicio para ver tu dirección personalizada y las instrucciones de envío
-          </Text>
-        </LinearGradient>
-
-        {/* Tarjetas de servicios */}
-        <View style={styles.servicesContainer}>
-          {SERVICES.map((service, index) => renderServiceCard(service, index))}
+        {/* Beneficios */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Ventajas del servicio</Text>
+          {svc.benefits.map((b, i) => (
+            <Text key={i} style={styles.benefitRow}>{b}</Text>
+          ))}
         </View>
 
-        {/* Footer motivacional */}
-        <View style={styles.footer}>
-          <Text style={styles.footerTitle}>💡 ¿No sabes cuál elegir?</Text>
-          <Text style={styles.footerText}>
-            Contacta a tu asesor y te ayudamos a encontrar la mejor opción para tu negocio.
-          </Text>
-          <TouchableOpacity
-            style={styles.footerButton}
-            onPress={() => navigation.navigate('RequestAdvisor', { user, token })}
-          >
-            <Ionicons name="headset" size={20} color={ORANGE} />
-            <Text style={styles.footerButtonText}>Solicitar Asesoría</Text>
-          </TouchableOpacity>
+        {/* Ideal para */}
+        <View style={[styles.idealBox, { borderLeftColor: svc.accentColor }]}>
+          <Text style={styles.idealLabel}>Ideal para</Text>
+          <Text style={styles.idealText}>{svc.idealFor}</Text>
         </View>
+
+        {/* Dirección(es) */}
+        {loading ? (
+          <View style={styles.loadingBox}>
+            <ActivityIndicator color={svc.accentColor} size="large" />
+            <Text style={styles.loadingText}>Cargando dirección…</Text>
+          </View>
+        ) : serviceInfo?.addresses && serviceInfo.addresses.length > 0 ? (
+          serviceInfo.addresses.map((addr, idx) => (
+            <View key={idx} style={styles.section}>
+              <Text style={styles.sectionTitle}>📍 Tu dirección de envío</Text>
+              <Text style={styles.addrSubtitle}>Personalizada con tu número de cliente <Text style={{ fontWeight: '700' }}>{user.boxId}</Text></Text>
+              <View style={[styles.addrBox, { borderLeftColor: svc.accentColor }]}>
+                <Text style={styles.addrText}>{getPersonalizedAddress(addr)}</Text>
+              </View>
+              <View style={styles.addrActions}>
+                <TouchableOpacity
+                  style={[styles.btnPrimary, { backgroundColor: svc.accentColor }]}
+                  onPress={() => handleCopy(getPersonalizedAddress(addr))}
+                >
+                  <Ionicons name={copied ? 'checkmark' : 'copy'} size={16} color="#fff" />
+                  <Text style={styles.btnPrimaryText}>{copied ? '¡Copiado!' : 'Copiar'}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.btnOutline, { borderColor: svc.accentColor }]}
+                  onPress={() => handleShare(addr)}
+                >
+                  <Ionicons name="share-social" size={16} color={svc.accentColor} />
+                  <Text style={[styles.btnOutlineText, { color: svc.accentColor }]}>Compartir</Text>
+                </TouchableOpacity>
+              </View>
+              {addr.business_hours && (
+                <View style={styles.hoursRow}>
+                  <Ionicons name="time" size={14} color="#888" />
+                  <Text style={styles.hoursText}>{addr.business_hours}</Text>
+                </View>
+              )}
+            </View>
+          ))
+        ) : (
+          !loading && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>📍 Dirección de envío</Text>
+              <Text style={styles.noInfoText}>Contacta a tu asesor para obtener la dirección actualizada de este servicio.</Text>
+            </View>
+          )
+        )}
+
+        {/* Instrucciones */}
+        {serviceInfo?.instructions?.packaging_instructions && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>📦 Instrucciones de empaque</Text>
+            <Text style={styles.instrText}>{serviceInfo.instructions.packaging_instructions}</Text>
+          </View>
+        )}
+        {serviceInfo?.instructions?.shipping_instructions && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>🚚 Cómo enviar</Text>
+            <Text style={styles.instrText}>{serviceInfo.instructions.shipping_instructions}</Text>
+          </View>
+        )}
+        {serviceInfo?.instructions?.general_notes && (
+          <View style={[styles.section, styles.notesSection]}>
+            <Text style={styles.sectionTitle}>⚠️ Notas importantes</Text>
+            <Text style={styles.instrText}>{serviceInfo.instructions.general_notes}</Text>
+          </View>
+        )}
+
+        {/* CTA */}
+        <TouchableOpacity style={styles.backToList} onPress={handleBack}>
+          <Ionicons name="arrow-back-circle-outline" size={20} color={ORANGE} />
+          <Text style={styles.backToListText}>Ver otros servicios</Text>
+        </TouchableOpacity>
+
       </ScrollView>
     </View>
   );
 }
 
-// ============================================
-// ESTILOS
-// ============================================
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-  header: {
-    backgroundColor: BLACK,
-    elevation: 4,
-  },
-  headerTitle: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  headerSubtitle: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 12,
-  },
-  content: {
-    flex: 1,
-  },
-  contentContainer: {
-    paddingBottom: 40,
-  },
+  container: { flex: 1, backgroundColor: BG },
 
-  // Hero Section
-  heroSection: {
-    padding: 24,
-    paddingTop: 30,
-    paddingBottom: 30,
-    position: 'relative',
-    overflow: 'hidden',
-  },
-  heroIcon: {
-    position: 'absolute',
-    right: 20,
-    top: 20,
-  },
-  heroTitle: {
-    fontSize: 22,
-    fontWeight: 'bold',
-    color: '#fff',
-    marginBottom: 8,
-  },
-  heroSubtitle: {
-    fontSize: 16,
-    color: 'rgba(255,255,255,0.9)',
-    marginBottom: 8,
-  },
-  heroBoxId: {
-    fontWeight: 'bold',
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    paddingHorizontal: 8,
-    borderRadius: 4,
-  },
-  heroDescription: {
-    fontSize: 14,
-    color: 'rgba(255,255,255,0.8)',
-    lineHeight: 20,
-  },
+  // Header paso 0
+  header: { backgroundColor: BLACK },
+  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
 
-  // Services Container
-  servicesContainer: {
-    padding: 16,
-  },
+  // Scroll body paso 0
+  scrollBody: { padding: 20, paddingBottom: 40 },
+  stepTitle: { fontSize: 22, fontWeight: '800', color: BLACK, marginBottom: 6 },
+  stepHint: { fontSize: 14, color: '#666', marginBottom: 20, lineHeight: 20 },
 
-  // Service Card
-  serviceCardContainer: {
-    marginBottom: 16,
-  },
+  // Tarjeta de servicio (paso 0)
   serviceCard: {
-    borderRadius: 16,
+    backgroundColor: '#fff',
+    borderRadius: 14,
     padding: 16,
-    elevation: 3,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.07,
     shadowRadius: 4,
-  },
-  serviceCardSelected: {
-    elevation: 6,
-  },
-  serviceCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  serviceIconContainer: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 12,
-  },
-  serviceCardTitleContainer: {
-    flex: 1,
-  },
-  serviceCardTitle: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  serviceCardTitleSelected: {
-    color: '#fff',
-  },
-  serviceCardTagline: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 2,
-  },
-  serviceCardTaglineSelected: {
-    color: 'rgba(255,255,255,0.9)',
-  },
-  timeframeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 12,
-    gap: 4,
-  },
-  timeframeText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-
-  // Benefits
-  benefitsContainer: {
-    marginBottom: 12,
-  },
-  benefitText: {
-    fontSize: 13,
-    color: '#555',
-    marginBottom: 4,
-  },
-  benefitTextSelected: {
-    color: 'rgba(255,255,255,0.95)',
-  },
-
-  // Ideal For
-  idealForContainer: {
-    backgroundColor: 'rgba(0,0,0,0.03)',
-    padding: 10,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  idealForLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#888',
-    marginBottom: 2,
-  },
-  idealForLabelSelected: {
-    color: 'rgba(255,255,255,0.7)',
-  },
-  idealForText: {
-    fontSize: 12,
-    color: '#555',
-  },
-  idealForTextSelected: {
-    color: '#fff',
-  },
-
-  // Expand Indicator
-  expandIndicator: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingTop: 8,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
-    gap: 6,
-  },
-  expandText: {
-    fontSize: 12,
-    color: '#999',
-  },
-  expandTextSelected: {
-    color: 'rgba(255,255,255,0.8)',
-  },
-
-  // Expanded Panel
-  expandedPanel: {
-    marginTop: 12,
-    paddingHorizontal: 4,
-  },
-  loadingContainer: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  loadingText: {
-    marginTop: 12,
-    color: '#666',
-  },
-
-  // Address Card
-  addressCard: {
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
     elevation: 2,
   },
-  addressHeader: {
+  serviceEmojiWrap: {
+    width: 54,
+    height: 54,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  serviceEmoji: { fontSize: 30 },
+  serviceName: { fontSize: 16, fontWeight: '700', color: BLACK, marginBottom: 2 },
+  serviceTagline: { fontSize: 12, color: '#777', marginBottom: 6 },
+  timeBadge: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  timeBadgeText: { fontSize: 11, fontWeight: '600' },
+
+  // Asesor box
+  advisorBox: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
+    padding: 20,
+    marginTop: 8,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  advisorTitle: { fontSize: 15, fontWeight: '700', color: BLACK, marginBottom: 6 },
+  advisorText: { fontSize: 13, color: '#666', textAlign: 'center', marginBottom: 14 },
+  advisorBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    gap: 8,
+    borderWidth: 1.5,
+    borderColor: ORANGE,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 18,
+  },
+  advisorBtnText: { color: ORANGE, fontWeight: '700', fontSize: 14 },
+
+  // Header paso 1
+  detailHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: Platform.OS === 'ios' ? 52 : 14,
+    paddingBottom: 18,
+    paddingHorizontal: 16,
     gap: 12,
   },
-  addressHeaderText: {
-    flex: 1,
+  backBtn: { padding: 4 },
+  detailEmoji: { fontSize: 32 },
+  detailTitle: { fontSize: 18, fontWeight: '800', color: '#fff' },
+  detailTagline: { fontSize: 12, color: 'rgba(255,255,255,0.8)', marginTop: 2 },
+  detailTimeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
-  addressTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  addressSubtitle: {
-    fontSize: 12,
-    color: '#666',
-  },
-  addressContent: {
-    backgroundColor: '#f8f8f8',
+  detailTimeText: { fontSize: 11, color: '#fff', fontWeight: '600' },
+
+  // Cuerpo detalle
+  detailBody: { padding: 18, paddingBottom: 40 },
+
+  section: {
+    backgroundColor: '#fff',
+    borderRadius: 14,
     padding: 16,
-    borderRadius: 8,
     marginBottom: 12,
-    borderLeftWidth: 4,
-    borderLeftColor: ORANGE,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
   },
-  addressText: {
-    fontSize: 14,
+  notesSection: { backgroundColor: '#FFFDE7' },
+  sectionTitle: { fontSize: 14, fontWeight: '700', color: BLACK, marginBottom: 10 },
+
+  benefitRow: { fontSize: 13, color: '#444', marginBottom: 5, lineHeight: 20 },
+
+  idealBox: {
+    backgroundColor: '#fff',
+    borderLeftWidth: 4,
+    borderRadius: 10,
+    padding: 14,
+    marginBottom: 12,
+  },
+  idealLabel: { fontSize: 11, fontWeight: '700', color: '#888', marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 },
+  idealText: { fontSize: 13, color: '#444' },
+
+  addrSubtitle: { fontSize: 12, color: '#888', marginBottom: 10 },
+  addrBox: {
+    backgroundColor: '#F8F8F8',
+    borderLeftWidth: 4,
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 12,
+  },
+  addrText: {
+    fontSize: 13,
     color: '#333',
     lineHeight: 22,
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
   },
-  addressActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 12,
-  },
-  actionButton: {
+  addrActions: { flexDirection: 'row', gap: 10, marginBottom: 10 },
+  btnPrimary: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-    gap: 8,
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 10,
   },
-  actionButtonText: {
-    color: '#fff',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  actionButtonOutline: {
+  btnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 14 },
+  btnOutline: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 2,
-    gap: 8,
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1.5,
   },
-  actionButtonOutlineText: {
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  businessHours: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#f0f0f0',
-    padding: 10,
-    borderRadius: 6,
-  },
-  businessHoursText: {
-    fontSize: 12,
-    color: '#666',
-  },
+  btnOutlineText: { fontWeight: '700', fontSize: 14 },
+  hoursRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  hoursText: { fontSize: 12, color: '#888' },
 
-  // Instructions Card
-  instructionsCard: {
-    padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    elevation: 1,
-  },
-  instructionsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 12,
-  },
-  instructionsTitle: {
-    fontSize: 15,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  instructionsText: {
-    fontSize: 13,
-    color: '#555',
-    lineHeight: 20,
-  },
+  instrText: { fontSize: 13, color: '#555', lineHeight: 21 },
 
-  // CTA Button
-  ctaButton: {
+  loadingBox: { alignItems: 'center', paddingVertical: 30, gap: 12 },
+  loadingText: { color: '#888', fontSize: 13 },
+
+  noInfoText: { fontSize: 13, color: '#888', lineHeight: 20 },
+
+  backToList: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 16,
-    borderRadius: 12,
-    marginTop: 8,
-    gap: 10,
-  },
-  ctaButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-
-  // Footer
-  footer: {
-    padding: 24,
-    alignItems: 'center',
-    backgroundColor: '#fff',
-    marginTop: 8,
-  },
-  footerTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#333',
-    marginBottom: 8,
-  },
-  footerText: {
-    fontSize: 14,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  footerButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
     gap: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
-    borderWidth: 2,
+    paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1.5,
     borderColor: ORANGE,
+    marginTop: 4,
   },
-  footerButtonText: {
-    color: ORANGE,
-    fontWeight: '600',
-  },
+  backToListText: { color: ORANGE, fontWeight: '700', fontSize: 14 },
 });
