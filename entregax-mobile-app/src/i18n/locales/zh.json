@@ -388,7 +388,12 @@
       "other": "其他"
     },
     "yourAdvisor": "您的顾问",
-    "noAdvisorPhone": "此顾问没有登记电话号码"
+    "noAdvisorPhone": "此顾问没有登记电话号码",
+    "myTickets": "我的工单",
+    "myTicketsDesc": "查看报告状态并回复消息",
+    "privacyNotice": "隐私声明",
+    "privacyNoticeDesc": "了解我们如何处理您的个人数据",
+    "privacyLoadError": "无法加载隐私声明。请检查网络连接后重试。"
   },
   "support": {
     "title": "帮助中心",

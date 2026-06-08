@@ -68,14 +68,14 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
       const data = await res.json();
       if (data?.success && data.document) {
         setPrivacyDoc({
-          title: data.document.title || 'Aviso de Privacidad',
+          title: data.document.title || t('helpCenter.privacyNotice'),
           content: data.document.content || '',
           version: data.document.version,
           updated_at: data.document.updated_at,
         });
       }
     } catch {
-      setPrivacyDoc({ title: 'Aviso de Privacidad', content: 'No se pudo cargar el aviso. Verifica tu conexión e intenta de nuevo.' });
+      setPrivacyDoc({ title: t('helpCenter.privacyNotice'), content: t('helpCenter.privacyLoadError') });
     } finally {
       setPrivacyLoading(false);
     }
@@ -461,8 +461,8 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
                 <Ionicons name="list" size={32} color="#7B1FA2" />
               </View>
               <View style={styles.optionContent}>
-                <Text style={styles.optionTitle}>Mis Tickets</Text>
-                <Text style={styles.optionDescription}>Consulta el estado de tus reportes y responde mensajes</Text>
+                <Text style={styles.optionTitle}>{t('helpCenter.myTickets')}</Text>
+                <Text style={styles.optionDescription}>{t('helpCenter.myTicketsDesc')}</Text>
               </View>
               <Ionicons name="chevron-forward" size={24} color="#999" />
             </Surface>
@@ -475,8 +475,8 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
                 <Ionicons name="shield-checkmark" size={32} color="#1976D2" />
               </View>
               <View style={styles.optionContent}>
-                <Text style={styles.optionTitle}>Aviso de Privacidad</Text>
-                <Text style={styles.optionDescription}>Consulta cómo tratamos tus datos personales</Text>
+                <Text style={styles.optionTitle}>{t('helpCenter.privacyNotice')}</Text>
+                <Text style={styles.optionDescription}>{t('helpCenter.privacyNoticeDesc')}</Text>
               </View>
               <Ionicons name="chevron-forward" size={24} color="#999" />
             </Surface>
@@ -709,7 +709,7 @@ export default function HelpCenterScreen({ navigation, route }: Props) {
               <Ionicons name="close" size={26} color="#fff" />
             </TouchableOpacity>
             <View style={{ flex: 1 }}>
-              <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>Aviso de Privacidad</Text>
+              <Text style={{ color: '#fff', fontSize: 17, fontWeight: '700' }}>{t('helpCenter.privacyNotice')}</Text>
               {privacyDoc?.version != null ? (
                 <Text style={{ color: 'rgba(255,255,255,0.85)', fontSize: 12 }}>
                   Versión {privacyDoc.version}

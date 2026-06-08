@@ -389,7 +389,12 @@
       "other": "Other"
     },
     "yourAdvisor": "Your Advisor",
-    "noAdvisorPhone": "No phone number registered for this advisor"
+    "noAdvisorPhone": "No phone number registered for this advisor",
+    "myTickets": "My Tickets",
+    "myTicketsDesc": "Check the status of your reports and reply to messages",
+    "privacyNotice": "Privacy Notice",
+    "privacyNoticeDesc": "Learn how we handle your personal data",
+    "privacyLoadError": "Could not load the privacy notice. Please check your connection and try again."
   },
   "support": {
     "title": "Help Center",

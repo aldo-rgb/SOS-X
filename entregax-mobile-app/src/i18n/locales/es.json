@@ -387,7 +387,12 @@
       "other": "Otro"
     },
     "yourAdvisor": "Tu Asesor",
-    "noAdvisorPhone": "No hay teléfono registrado para este asesor"
+    "noAdvisorPhone": "No hay teléfono registrado para este asesor",
+    "myTickets": "Mis Tickets",
+    "myTicketsDesc": "Consulta el estado de tus reportes y responde mensajes",
+    "privacyNotice": "Aviso de Privacidad",
+    "privacyNoticeDesc": "Consulta cómo tratamos tus datos personales",
+    "privacyLoadError": "No se pudo cargar el aviso. Verifica tu conexión e intenta de nuevo."
   },
   "support": {
     "title": "Servicio al Cliente",
