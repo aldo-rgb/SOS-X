@@ -471,6 +471,15 @@ const PANEL_MODULE_SEEDS: Record<string, Array<[string, string, string, string, 
     ['reception_fcl', 'Actualizar Status Full Conteiner','Actualiza el status de contenedores FCL (un solo cliente) y confirma llegada a CEDIS', 'Scanner',   2],
     ['inventory',     'Inventario',                      'Consulta las órdenes marítimas en bodega, su contenedor y estado',          'Inventory', 3],
   ],
+  // Hub Administrativo PO Box USA (AdminHubPage → usa_pobox service)
+  admin_usa_pobox: [
+    ['pobox_rates',           'Tarifas PO Box',      'Configuración de tarifas por volumen (CBM) y tipo de cambio',                 'PriceChange',   1],
+    ['suppliers',             'Proveedores',         'Gestión de proveedores y consolidaciones USA',                                'LocalShipping', 2],
+    ['pobox_consolidaciones', 'Consolidaciones',     'Pagos a proveedores PO Box: órdenes de pago y referencias',                  'Inventory',     3],
+    ['invoicing',             'Facturación',         'Emisión y gestión de facturas PO Box USA',                                   'Receipt',       4],
+    ['instructions',          'Instrucciones',       'Configuración de instrucciones de entrega por cliente',                      'Description',   5],
+    ['carrier_options',       'Opciones de Envío',   'Paqueterías nacionales disponibles para clientes PO Box',                    'LocalShipping', 6],
+  ],
 };
 const seededPanels = new Set<string>();
 const ensurePanelModules = async (panelKey: string): Promise<void> => {
@@ -642,6 +651,9 @@ export const getMyModulePermissions = async (req: Request, res: Response): Promi
   const userId = user.userId || user.id;
 
   try {
+    // Garantizar que los módulos del panel estén sembrados en admin_panel_modules
+    await ensurePanelModules(String(panelKey || ''));
+
     // Super admin tiene acceso a todo
     if (user.role === 'super_admin') {
       const allModules = await pool.query(`
