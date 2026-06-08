@@ -22,6 +22,7 @@ import {
 } from 'react-native-paper';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { api } from '../services/api';
+import { useTranslation } from 'react-i18next';
 
 // Colores de marca
 const ORANGE = '#F05A28';
@@ -41,6 +42,38 @@ type RegisterScreenProps = {
 };
 
 export default function RegisterScreen({ navigation }: RegisterScreenProps) {
+  const { i18n } = useTranslation();
+  const rl = i18n.language;
+  const RT = {
+    title:        rl === 'zh' ? '创建免费账户'   : rl === 'en' ? 'Create your free suite' : 'Crea tu suite gratis',
+    heading:      rl === 'zh' ? '注册'            : rl === 'en' ? 'Register'               : 'Registro',
+    subheading:   rl === 'zh' ? '填写信息以获取您的地址' : rl === 'en' ? 'Complete your details to get your suite' : 'Completa tus datos para obtener tu suite',
+    fullName:     rl === 'zh' ? '姓名'            : rl === 'en' ? 'Full name'              : 'Nombre completo',
+    email:        rl === 'zh' ? '电子邮箱'        : rl === 'en' ? 'Email address'          : 'Correo electrónico',
+    phone:        rl === 'zh' ? 'WhatsApp (10位)' : rl === 'en' ? 'WhatsApp (10 digits)'   : 'WhatsApp (10 dígitos)',
+    password:     rl === 'zh' ? '密码'            : rl === 'en' ? 'Password'               : 'Contraseña',
+    confirmPw:    rl === 'zh' ? '确认密码'        : rl === 'en' ? 'Confirm password'       : 'Confirmar contraseña',
+    referralQ:    rl === 'zh' ? '有推荐码吗？'    : rl === 'en' ? 'Have a referral code?'  : '¿Tienes un código de referido?',
+    referralSub:  rl === 'zh' ? '输入推荐您的朋友或顾问的代码' : rl === 'en' ? 'If a friend or advisor referred you, enter their code' : 'Si un amigo o asesor te recomendó, ingresa su código',
+    referralLabel:rl === 'zh' ? '推荐码（选填）'  : rl === 'en' ? 'Referral Code (Optional)' : 'Código de Referido (Opcional)',
+    advisor:      rl === 'zh' ? '顾问：'          : rl === 'en' ? 'Advisor:'               : 'Asesor:',
+    createBtn:    rl === 'zh' ? '创建我的地址'    : rl === 'en' ? 'Create my Suite'        : 'Crear mi Suite',
+    creating:     rl === 'zh' ? '创建中...'       : rl === 'en' ? 'Creating...'            : 'Creando cuenta...',
+    hasAccount:   rl === 'zh' ? '已有账户？'      : rl === 'en' ? 'Already have an account?' : '¿Ya tienes cuenta?',
+    signIn:       rl === 'zh' ? '登录'            : rl === 'en' ? 'Sign In'                : 'Ingresar',
+    existingQ:    rl === 'zh' ? '📦 已有客户编号？' : rl === 'en' ? '📦 Already have a client number?' : '📦 ¿Ya tienes número de cliente?',
+    existingSub:  rl === 'zh' ? '如果您是现有客户，请在此激活账户' : rl === 'en' ? 'If you\'re an existing EntregaX client, activate your account here' : 'Si ya eres cliente de EntregaX antes, activa tu cuenta aquí',
+    activateBtn:  rl === 'zh' ? '激活现有账户'    : rl === 'en' ? 'Activate existing account' : 'Activar cuenta existente',
+    errFill:      rl === 'zh' ? '请正确填写所有字段' : rl === 'en' ? 'Please fill all fields correctly' : 'Por favor completa todos los campos correctamente',
+    errMinPw:     rl === 'zh' ? '最少6位字符'     : rl === 'en' ? 'Minimum 6 characters'   : 'Mínimo 6 caracteres',
+    errPwMatch:   rl === 'zh' ? '密码不匹配'      : rl === 'en' ? 'Passwords do not match'  : 'Las contraseñas no coinciden',
+    errEmail:     rl === 'zh' ? '请输入有效邮箱'  : rl === 'en' ? 'Enter a valid email'     : 'Ingresa un correo válido',
+    errPhone:     rl === 'zh' ? '电话需10位数字'  : rl === 'en' ? 'Phone must be 10 digits'  : 'El teléfono debe tener 10 dígitos',
+    errCodeNotFound: rl === 'zh' ? '未找到该代码' : rl === 'en' ? 'Code not found'          : 'Código no encontrado',
+    welcomeTitle: rl === 'zh' ? '🎉 欢迎加入 EntregaX！' : rl === 'en' ? '🎉 Welcome to EntregaX!' : '🎉 ¡Bienvenido a EntregaX!',
+    welcomeBody:  (suite: string) => rl === 'zh' ? `您的地址编号：${suite}\n\n请保存此号码，接收包裹时需要用到。` : rl === 'en' ? `Your suite is: ${suite}\n\nSave this number, you'll need it to receive packages.` : `Tu suite es: ${suite}\n\nGuarda este número, lo necesitarás para recibir tus paquetes.`,
+    continue:     rl === 'zh' ? '继续'            : rl === 'en' ? 'Continue'               : 'Continuar',
+  };
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -93,7 +126,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
 
   const handleRegister = async () => {
     if (!isFormValid) {
-      Alert.alert('Error', 'Por favor completa todos los campos correctamente');
+      Alert.alert('Error', RT.errFill);
       return;
     }
 
@@ -116,11 +149,11 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
       };
 
       Alert.alert(
-        '🎉 ¡Bienvenido a EntregaX!',
-        `Tu suite es: ${userData.boxId}\n\nGuarda este número, lo necesitarás para recibir tus paquetes.`,
+        RT.welcomeTitle,
+        RT.welcomeBody(userData.boxId),
         [
           {
-            text: 'Continuar',
+            text: RT.continue,
             onPress: () => {
               // Navegar a verificación
               navigation.replace('Verification', {
@@ -164,20 +197,18 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
         <Text style={styles.logoText}>
           Entrega<Text style={styles.logoX}>X</Text>
         </Text>
-        <Text style={styles.subtitle}>Crea tu suite gratis</Text>
+        <Text style={styles.subtitle}>{RT.title}</Text>
       </View>
 
       {/* Formulario */}
       <Surface style={styles.formContainer} elevation={4}>
         <ScrollView showsVerticalScrollIndicator={false}>
-          <Text style={styles.welcomeText}>Registro</Text>
-          <Text style={styles.instructionText}>
-            Completa tus datos para obtener tu suite
-          </Text>
+          <Text style={styles.welcomeText}>{RT.heading}</Text>
+          <Text style={styles.instructionText}>{RT.subheading}</Text>
 
           {/* Nombre Completo */}
           <TextInput
-            label="Nombre completo"
+            label={RT.fullName}
             value={fullName}
             onChangeText={setFullName}
             mode="outlined"
@@ -189,7 +220,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
 
           {/* Email */}
           <TextInput
-            label="Correo electrónico"
+            label={RT.email}
             value={email}
             onChangeText={setEmail}
             mode="outlined"
@@ -203,13 +234,13 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
           />
           {emailError && (
             <HelperText type="error" visible>
-              Ingresa un correo válido
+              {RT.errEmail}
             </HelperText>
           )}
 
           {/* Teléfono */}
           <TextInput
-            label="WhatsApp (10 dígitos)"
+            label={RT.phone}
             value={phone}
             onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ''))}
             mode="outlined"
@@ -223,13 +254,13 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
           />
           {phoneError && (
             <HelperText type="error" visible>
-              El teléfono debe tener 10 dígitos
+              {RT.errPhone}
             </HelperText>
           )}
 
           {/* Contraseña */}
           <TextInput
-            label="Contraseña"
+            label={RT.password}
             value={password}
             onChangeText={setPassword}
             mode="outlined"
@@ -248,13 +279,13 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
           />
           {passwordError && (
             <HelperText type="error" visible>
-              Mínimo 6 caracteres
+              {RT.errMinPw}
             </HelperText>
           )}
 
           {/* Confirmar Contraseña */}
           <TextInput
-            label="Confirmar contraseña"
+            label={RT.confirmPw}
             value={confirmPassword}
             onChangeText={setConfirmPassword}
             mode="outlined"
@@ -267,7 +298,7 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
           />
           {confirmError && (
             <HelperText type="error" visible>
-              Las contraseñas no coinciden
+              {RT.errPwMatch}
             </HelperText>
           )}
 
@@ -276,15 +307,11 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
 
           {/* Código de Referido (Opcional) */}
           <View style={styles.referralSection}>
-            <Text style={styles.referralTitle}>
-              ¿Tienes un código de referido?
-            </Text>
-            <Text style={styles.referralSubtitle}>
-              Si un amigo o asesor te recomendó, ingresa su código
-            </Text>
+            <Text style={styles.referralTitle}>{RT.referralQ}</Text>
+            <Text style={styles.referralSubtitle}>{RT.referralSub}</Text>
 
             <TextInput
-              label="Código de Referido (Opcional)"
+              label={RT.referralLabel}
               value={referralCode}
               onChangeText={(text) => {
                 setReferralCode(text.toUpperCase());
@@ -318,13 +345,13 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
                 style={styles.advisorChip}
                 textStyle={{ color: GREEN }}
               >
-                Asesor: {codeValidation.advisorName}
+                {RT.advisor} {codeValidation.advisorName}
               </Chip>
             )}
 
             {codeValidation && !codeValidation.valid && (
               <HelperText type="error" visible>
-                Código no encontrado
+                {RT.errCodeNotFound}
               </HelperText>
             )}
           </View>
@@ -342,38 +369,34 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
             contentStyle={styles.registerButtonContent}
             labelStyle={styles.registerButtonLabel}
           >
-            {loading ? 'Creando cuenta...' : 'Crear mi Suite'}
+            {loading ? RT.creating : RT.createBtn}
           </Button>
 
           {/* Link a Login */}
           <View style={styles.loginLink}>
-            <Text style={styles.loginLinkText}>¿Ya tienes cuenta?</Text>
+            <Text style={styles.loginLinkText}>{RT.hasAccount}</Text>
             <Button
               mode="text"
               compact
               onPress={() => navigation.navigate('Login')}
               labelStyle={{ color: ORANGE, fontWeight: 'bold' }}
             >
-              Ingresar
+              {RT.signIn}
             </Button>
           </View>
 
           {/* Link para clientes existentes */}
           <Divider style={{ marginBottom: 15 }} />
           <Surface style={styles.existingClientCard} elevation={1}>
-            <Text style={styles.existingClientTitle}>
-              📦 ¿Ya tienes número de cliente?
-            </Text>
-            <Text style={styles.existingClientSubtitle}>
-              Si ya eres cliente de EntregaX antes, activa tu cuenta aquí
-            </Text>
+            <Text style={styles.existingClientTitle}>{RT.existingQ}</Text>
+            <Text style={styles.existingClientSubtitle}>{RT.existingSub}</Text>
             <Button
               mode="outlined"
               onPress={() => navigation.navigate('ExistingClient')}
               style={styles.existingClientButton}
               labelStyle={{ color: ORANGE }}
             >
-              Activar cuenta existente
+              {RT.activateBtn}
             </Button>
           </Surface>
         </ScrollView>

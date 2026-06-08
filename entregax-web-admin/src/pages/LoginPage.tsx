@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import {
   Box,
@@ -58,9 +58,59 @@ function TabPanel(props: TabPanelProps) {
 }
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
+const BRAND_API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+const ORANGE = '#F05A28';
+
+type LoginLang = 'es' | 'en' | 'zh';
+const LOGIN_LANG_OPTIONS: { code: LoginLang; flag: string }[] = [
+  { code: 'es', flag: '🇲🇽' },
+  { code: 'en', flag: '🇺🇸' },
+  { code: 'zh', flag: '🇨🇳' },
+];
+const LT = {
+  es: {
+    adminPanel:  'Panel Administrativo',
+    tabLogin:    'Iniciar Sesión',
+    tabRegister: 'Registrarse',
+    emailLabel:  'Correo electrónico',
+    passwordLabel:'Contraseña',
+    loginBtn:    'Ingresar al Panel',
+    forgotPw:    '¿Olvidaste tu contraseña?',
+    trackBtn:    '🔍 Rastrear un paquete',
+    nameLabel:   'Nombre completo',
+    registerBtn: 'Crear mi cuenta',
+  },
+  en: {
+    adminPanel:  'Administrative Panel',
+    tabLogin:    'Sign In',
+    tabRegister: 'Register',
+    emailLabel:  'Email address',
+    passwordLabel:'Password',
+    loginBtn:    'Sign In',
+    forgotPw:    'Forgot your password?',
+    trackBtn:    '🔍 Track a package',
+    nameLabel:   'Full name',
+    registerBtn: 'Create my account',
+  },
+  zh: {
+    adminPanel:  '管理面板',
+    tabLogin:    '登录',
+    tabRegister: '注册',
+    emailLabel:  '电子邮箱',
+    passwordLabel:'密码',
+    loginBtn:    '登录面板',
+    forgotPw:    '忘记密码？',
+    trackBtn:    '🔍 查询包裹',
+    nameLabel:   '姓名',
+    registerBtn: '创建账户',
+  },
+} as const;
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [tabValue, setTabValue] = useState(0);
+  const [loginLang, setLoginLang] = useState<LoginLang>('es');
+  const [cajitoUrl, setCajitoUrl] = useState<string | null>(null);
+  const lt = LT[loginLang];
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -71,6 +121,14 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+
+  // Cajito avatar from brand_assets
+  useEffect(() => {
+    fetch(`${BRAND_API}/api/system/payment-status`)
+      .then(r => r.json())
+      .then(d => { if (d.cajito_avatar_url) setCajitoUrl(d.cajito_avatar_url); })
+      .catch(() => {});
+  }, []);
 
   // Forgot password dialog state
   const [forgotOpen, setForgotOpen] = useState(false);
@@ -597,26 +655,71 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
             sx={{
               bgcolor: '#111111',
               color: 'white',
-              py: 4,
+              py: 3,
               px: 3,
               textAlign: 'center',
+              position: 'relative',
             }}
           >
-            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 1 }}>
+            {/* Language flag pills */}
+            <Box sx={{ position: 'absolute', top: 12, right: 12, display: 'flex', gap: 0.5 }}>
+              {LOGIN_LANG_OPTIONS.map(opt => (
+                <Box
+                  key={opt.code}
+                  onClick={() => setLoginLang(opt.code)}
+                  sx={{
+                    fontSize: 20, cursor: 'pointer', px: 0.5, borderRadius: 1,
+                    border: loginLang === opt.code ? `2px solid ${ORANGE}` : '2px solid transparent',
+                    opacity: loginLang === opt.code ? 1 : 0.55,
+                    '&:hover': { opacity: 1 },
+                  }}
+                >
+                  {opt.flag}
+                </Box>
+              ))}
+            </Box>
+
+            <Box sx={{ display: 'flex', justifyContent: 'center', mb: 0.5 }}>
               <Box
                 component="img"
                 src="/logo-paqeteria.png"
                 alt="EntregaX"
-                sx={{
-                  width: 260,
-                  height: 'auto',
-                  objectFit: 'contain',
-                }}
+                sx={{ width: 220, height: 'auto', objectFit: 'contain' }}
               />
             </Box>
-            <Typography variant="body2" sx={{ opacity: 0.6, mt: 1 }}>
-              Panel Administrativo
+            <Typography variant="body2" sx={{ opacity: 0.6, mb: 1 }}>
+              {lt.adminPanel}
             </Typography>
+
+            {/* Cajito */}
+            {cajitoUrl && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 0.5 }}>
+                <Box
+                  component="img"
+                  src={cajitoUrl}
+                  alt="Cajito"
+                  sx={{ width: 72, height: 72, objectFit: 'contain', borderRadius: '50%' }}
+                />
+              </Box>
+            )}
+
+            {/* Rastrear paquete */}
+            <Box sx={{ mt: 1.5 }}>
+              <Box
+                component="a"
+                href="/rastrear"
+                target="_blank"
+                sx={{
+                  display: 'inline-flex', alignItems: 'center', gap: 0.8,
+                  color: ORANGE, border: `1px solid ${ORANGE}44`, borderRadius: 6,
+                  px: 2, py: 0.6, fontSize: 13, fontWeight: 600,
+                  textDecoration: 'none', transition: '0.2s',
+                  '&:hover': { background: `${ORANGE}18` },
+                }}
+              >
+                {lt.trackBtn}
+              </Box>
+            </Box>
           </Box>
 
           {/* Tabs */}
@@ -650,8 +753,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 },
               }}
             >
-              <Tab label="Iniciar Sesión" />
-              <Tab label="Registrarse" />
+              <Tab label={lt.tabLogin} />
+              <Tab label={lt.tabRegister} />
             </Tabs>
           </Box>
 
@@ -741,7 +844,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                   {loading ? (
                     <CircularProgress size={24} color="inherit" />
                   ) : (
-                    'Ingresar al Panel'
+                    lt.loginBtn
                   )}
                 </Button>
 
@@ -759,7 +862,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                       '&:hover': { background: 'rgba(240,90,40,0.06)' },
                     }}
                   >
-                    ¿Olvidaste tu contraseña?
+                    {lt.forgotPw}
                   </Button>
                 </Box>
 
