@@ -7,7 +7,7 @@ import React, { useState, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TextInput,
   TouchableOpacity, ActivityIndicator, Platform,
-  StatusBar, Animated,
+  StatusBar, Animated, Image,
 } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -321,7 +321,11 @@ export default function GuestTrackingScreen({ navigation, route }: Props) {
 
         {/* ── Upsell card ─────────────────────────────────────────────────── */}
         <View style={styles.upsellCard}>
-          <Text style={styles.upsellEmoji}>🚀</Text>
+          <Image
+            source={require('../../assets/logo.png')}
+            style={styles.upsellLogo}
+            resizeMode="contain"
+          />
           <Text style={styles.upsellTitle}>{t.upsellTitle}</Text>
           <Text style={styles.upsellBody}>{t.upsellBody}</Text>
           <TouchableOpacity
@@ -459,7 +463,7 @@ const styles = StyleSheet.create({
     backgroundColor: BLACK, borderRadius: 16, padding: 20, alignItems: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4,
   },
-  upsellEmoji: { fontSize: 36, marginBottom: 8 },
+  upsellLogo: { width: 180, height: 52, marginBottom: 12 },
   upsellTitle: { fontSize: 17, fontWeight: '900', color: '#fff', textAlign: 'center', marginBottom: 6 },
   upsellBody: { fontSize: 13, color: 'rgba(255,255,255,0.65)', textAlign: 'center', lineHeight: 18, marginBottom: 14 },
   upsellBtn: {
