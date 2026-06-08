@@ -9686,7 +9686,7 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       dhlRow = dhlRes.rows[0] || null;
     } catch { /* dhl_shipments opcional */ }
 
-    // 3. Buscar en pqtx_shipments (guías nacionales LOG...)
+    // 3. Buscar en pqtx_shipments (guías nacionales)
     let pqtxRow: any = null;
     try {
       const pqtxRes = await pool.query(`
@@ -9704,7 +9704,46 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       pqtxRow = pqtxRes.rows[0] || null;
     } catch { /* pqtx_shipments opcional */ }
 
-    const row = pkgRes.rows[0] || dhlRow || pqtxRow;
+    // 4. Buscar en china_receipts (TDI Aéreo — ordersn LOG...)
+    let chinaRow: any = null;
+    try {
+      const chinaRes = await pool.query(`
+        SELECT
+          cr.id,
+          'china_air' AS service_type,
+          cr.ordersn AS tracking,
+          cr.status::text AS status,
+          cr.created_at,
+          cr.updated_at
+        FROM china_receipts cr
+        WHERE UPPER(cr.ordersn) = $1
+           OR UPPER(COALESCE(cr.awb_number,'')) = $1
+        LIMIT 1
+      `, [raw]);
+      chinaRow = chinaRes.rows[0] || null;
+    } catch { /* china_receipts opcional */ }
+
+    // 5. Buscar en maritime_orders (Marítimo — ordersn LOG...)
+    let maritimeRow: any = null;
+    try {
+      const maritimeRes = await pool.query(`
+        SELECT
+          mo.id,
+          'china_sea' AS service_type,
+          mo.ordersn AS tracking,
+          mo.status::text AS status,
+          mo.created_at,
+          mo.updated_at
+        FROM maritime_orders mo
+        WHERE UPPER(mo.ordersn) = $1
+           OR UPPER(COALESCE(mo.bl_number,'')) = $1
+           OR UPPER(COALESCE(mo.ship_number,'')) = $1
+        LIMIT 1
+      `, [raw]);
+      maritimeRow = maritimeRes.rows[0] || null;
+    } catch { /* maritime_orders opcional */ }
+
+    const row = pkgRes.rows[0] || dhlRow || pqtxRow || chinaRow || maritimeRow;
     if (!row) return res.status(404).json({ error: 'Guía no encontrada. Verifica el número e intenta de nuevo.' });
 
     const statusKey = (row.status || '').toLowerCase().replace(/[ -]/g, '_');
