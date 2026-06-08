@@ -9610,6 +9610,127 @@ app.get('/api/driver/verify-package/:barcode', authenticateToken, requireMinLeve
 app.get('/api/driver/check-carrier-guide/:guide', authenticateToken, requireMinLevel(ROLES.REPARTIDOR), checkCarrierGuideAvailable);
 
 // ============================================
+// RASTREADOR PÚBLICO (GUEST) — sin auth
+// Solo expone los 6 hitos públicos + últimos 3 movimientos sin datos sensibles
+// ============================================
+
+app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
+  const raw = (req.params.tracking || '').trim().toUpperCase();
+  if (!raw) return res.status(400).json({ error: 'Número de guía requerido' });
+
+  // Mapa de status interno → hito público (0-5)
+  const MILESTONE_MAP: Record<string, number> = {
+    registered: 0, ordered: 0, created: 0,
+    shipped: 1, in_transit: 1, received_china: 1, received_origin: 1, en_transito: 1,
+    in_customs: 2, customs: 2, cruce_aduanal: 2,
+    received: 3, received_mty: 3, in_warehouse: 3, bodega: 3, processing: 3,
+    out_for_delivery: 4, loaded: 4, listo_entrega: 4,
+    delivered: 5, completed: 5, entregado: 5,
+  };
+  const MILESTONES = [
+    { key: 'ordered',   label_es: 'Ordenado',               label_en: 'Ordered',              label_zh: '已下单',     icon: 'check-circle' },
+    { key: 'transit',   label_es: 'En Tránsito',             label_en: 'In Transit',            label_zh: '运输中',     icon: 'local-shipping' },
+    { key: 'customs',   label_es: 'Cruce Aduanal',           label_en: 'Customs',               label_zh: '清关中',     icon: 'security' },
+    { key: 'warehouse', label_es: 'En Bodega MTY',           label_en: 'At Warehouse',          label_zh: '仓库中',     icon: 'warehouse' },
+    { key: 'ready',     label_es: 'Listo para Entrega',      label_en: 'Ready for Delivery',    label_zh: '待派送',     icon: 'inventory' },
+    { key: 'delivered', label_es: 'Entregado',               label_en: 'Delivered',             label_zh: '已签收',     icon: 'done-all' },
+  ];
+
+  const SERVICE_NAMES: Record<string, { es: string; en: string; zh: string }> = {
+    POBOX_USA:  { es: 'Terrestre USA a México', en: 'Ground USA to Mexico', zh: '美国陆运' },
+    china_air:  { es: 'Aéreo China',            en: 'China Air Freight',    zh: '中国空运' },
+    china_sea:  { es: 'Marítimo China',         en: 'China Sea Freight',    zh: '中国海运' },
+    dhl:        { es: 'Trámite Aduanal MTY',    en: 'Customs Clearance MTY', zh: '清关服务' },
+    maritime:   { es: 'Marítimo China',         en: 'China Sea Freight',    zh: '中国海运' },
+  };
+
+  try {
+    // 1. Buscar en packages (POBOX, china_air, china_sea)
+    const pkgRes = await pool.query(`
+      SELECT
+        p.id, p.tracking_number, p.national_tracking, p.carrier_tracking,
+        COALESCE(p.delivery_status, p.status) AS status,
+        p.service_type, p.shipment_type,
+        p.national_carrier,
+        p.created_at,
+        p.updated_at
+      FROM packages p
+      WHERE UPPER(COALESCE(p.tracking_number,'')) = $1
+         OR UPPER(COALESCE(p.national_tracking,'')) = $1
+         OR UPPER(COALESCE(p.carrier_tracking,'')) = $1
+      LIMIT 1
+    `, [raw]);
+
+    // 2. Buscar en dhl_shipments
+    const dhlRes = await pool.query(`
+      SELECT
+        'dhl' AS shipment_type, 'dhl' AS service_type,
+        COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking_number,
+        ds.inbound_tracking AS national_tracking,
+        ds.status,
+        ds.created_at, ds.updated_at
+      FROM dhl_shipments ds
+      WHERE UPPER(COALESCE(ds.secondary_tracking,'')) = $1
+         OR UPPER(COALESCE(ds.inbound_tracking,'')) = $1
+      LIMIT 1
+    `, [raw]);
+
+    const row = pkgRes.rows[0] || dhlRes.rows[0];
+    if (!row) return res.status(404).json({ error: 'Guía no encontrada. Verifica el número e intenta de nuevo.' });
+
+    const statusKey = (row.status || '').toLowerCase().replace(/ /g, '_');
+    const currentMilestone = MILESTONE_MAP[statusKey] ?? 0;
+    const svcKey = row.service_type || row.shipment_type || '';
+    const serviceName = SERVICE_NAMES[svcKey] || SERVICE_NAMES['china_air'];
+
+    // 3. Últimos movimientos — solo ciudades, sin nombres/direcciones
+    let movements: { date: string; location: string; description_es: string; description_en: string; description_zh: string }[] = [];
+    try {
+      const movRes = await pool.query(`
+        SELECT
+          pm.created_at AS date,
+          COALESCE(b.city, 'Monterrey') AS location,
+          pm.description AS raw_desc
+        FROM package_movements pm
+        LEFT JOIN branches b ON b.id = pm.branch_id
+        WHERE pm.package_id = $1
+        ORDER BY pm.created_at DESC
+        LIMIT 3
+      `, [row.id]);
+      movements = movRes.rows.map((m: any) => ({
+        date: m.date,
+        location: m.location,
+        description_es: m.raw_desc || 'Actualización de estado',
+        description_en: m.raw_desc || 'Status update',
+        description_zh: m.raw_desc || '状态更新',
+      }));
+    } catch { /* tabla opcional */ }
+
+    if (movements.length === 0) {
+      movements = [{
+        date: row.updated_at || row.created_at,
+        location: 'Monterrey',
+        description_es: MILESTONES[currentMilestone].label_es,
+        description_en: MILESTONES[currentMilestone].label_en,
+        description_zh: MILESTONES[currentMilestone].label_zh,
+      }];
+    }
+
+    return res.json({
+      tracking: row.tracking_number || raw,
+      service: serviceName,
+      current_milestone: currentMilestone,
+      milestones: MILESTONES,
+      movements,
+      found: true,
+    });
+  } catch (err) {
+    console.error('[public/track] error:', err);
+    return res.status(500).json({ error: 'Error al consultar. Intenta de nuevo.' });
+  }
+});
+
+// ============================================
 // COTIZADOR PÚBLICO UNIVERSAL
 // Endpoint para obtener todas las tarifas y calcular cotizaciones
 // ============================================

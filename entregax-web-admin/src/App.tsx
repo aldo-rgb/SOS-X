@@ -53,6 +53,7 @@ import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
 import LoginPage from './pages/LoginPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import AssetDetailPage from './pages/AssetDetailPage';
+import PublicTrackingPage from './pages/PublicTrackingPage';
 import ClientsPage from './pages/ClientsPage';
 import CajitoFab from './components/CajitoFab';
 // QuotesPage removido - ahora se accede desde PanelsHubPage > Nacional México
@@ -971,6 +972,19 @@ function App() {
           isAuthenticated={isAuthenticated}
           forcePreview={isLocalXPayPreview}
         />
+      </ThemeProvider>
+    );
+  }
+
+  // /rastrear — página pública de rastreo de paquetes (sin auth)
+  if (typeof window !== 'undefined' && (
+    window.location.pathname === '/rastrear' ||
+    window.location.pathname.startsWith('/rastrear/')
+  )) {
+    return (
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <PublicTrackingPage />
       </ThemeProvider>
     );
   }
