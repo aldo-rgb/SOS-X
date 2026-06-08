@@ -994,9 +994,10 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
             {!signatureExpanded && !signature && (
               <TouchableOpacity
-                style={{ borderWidth: 1.5, borderColor: '#F05A28', borderStyle: 'dashed', borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginTop: 8 }}
+                style={{ borderWidth: 1.5, borderColor: '#F05A28', borderStyle: 'dashed', borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginTop: 8, flexDirection: 'row', justifyContent: 'center', gap: 8 }}
                 onPress={() => setSignatureExpanded(true)}
               >
+                <MaterialIcons name="draw" size={18} color="#F05A28" />
                 <Text style={{ color: '#F05A28', fontWeight: '600' }}>Toca para firmar</Text>
               </TouchableOpacity>
             )}
