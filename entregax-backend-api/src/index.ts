@@ -9814,7 +9814,68 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       }
     } catch { /* containers opcional */ }
 
-    const row = pkgRes.rows[0] || dhlRow || pqtxRow || chinaRow || maritimeRow || containerRow;
+    // 7. MASTER VIRTUAL — si nada hizo match exacto pero el término ingresado
+    //    es un FNO/prefijo de hijas multi-caja (ej. "AIR2630456Qydeh" cuando
+    //    en BD sólo existen hijas "AIR2630456Qydeh-001", "...-002").
+    //    Sintetizamos el master agregando las hijas.
+    let virtualMasterRow: any = null;
+    let virtualChildrenForMaster: any[] = [];
+    if (!pkgRes.rows[0] && !dhlRow && !pqtxRow && !chinaRow && !maritimeRow && !containerRow) {
+      try {
+        const childrenRes = await pool.query(`
+          SELECT
+            p.id, p.tracking_internal, p.tracking_provider, p.child_no,
+            p.box_number, p.master_id, p.service_type,
+            p.status::text AS status, p.weight,
+            p.pkg_length, p.pkg_width, p.pkg_height,
+            p.created_at, p.updated_at
+          FROM packages p
+          WHERE UPPER(COALESCE(p.child_no,'')) LIKE $1 || '-%'
+             OR UPPER(COALESCE(p.tracking_internal,'')) LIKE $1 || '-%'
+             OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no,'')), '[^A-Z0-9]', '', 'g') LIKE $2 || '%'
+          ORDER BY p.box_number ASC NULLS LAST, p.id ASC
+          LIMIT 100
+        `, [raw, compact]);
+        if (childrenRes.rows.length > 0) {
+          virtualChildrenForMaster = childrenRes.rows;
+          // Hito agregado: el MENOR (más atrasado) de las hijas — refleja que
+          // el master está "en el peor estado de cualquiera de sus hijas".
+          // Luego pintamos las hijas con su propio hito.
+          let minMilestone = 99;
+          let aggregatedService = childrenRes.rows[0].service_type || 'china_air';
+          let lastUpdated = childrenRes.rows[0].updated_at || childrenRes.rows[0].created_at;
+          for (const ch of childrenRes.rows) {
+            const sk = (ch.status || '').toLowerCase().replace(/[ -]/g, '_');
+            const m = MILESTONE_MAP[sk] ?? 0;
+            if (m < minMilestone) minMilestone = m;
+            if (ch.updated_at && ch.updated_at > lastUpdated) lastUpdated = ch.updated_at;
+          }
+          if (minMilestone === 99) minMilestone = 0;
+          // Reverse-map del hito → status
+          const statusByMilestone: Record<number, string> = {
+            0: 'ordered', 1: 'in_transit', 2: 'in_customs',
+            3: 'received', 4: 'ready_pickup', 5: 'delivered',
+          };
+          virtualMasterRow = {
+            id: null, // virtual
+            tracking: raw,
+            external_tracking: null,
+            status: statusByMilestone[minMilestone] || 'ordered',
+            service_type: aggregatedService,
+            is_master: true,
+            master_id: null,
+            total_boxes: childrenRes.rows.length,
+            created_at: lastUpdated,
+            updated_at: lastUpdated,
+            _isVirtualMaster: true,
+          };
+        }
+      } catch (err) {
+        console.warn('[public/track] virtual master lookup failed:', err);
+      }
+    }
+
+    const row = pkgRes.rows[0] || dhlRow || pqtxRow || chinaRow || maritimeRow || containerRow || virtualMasterRow;
     if (!row) return res.status(404).json({ error: 'Guía no encontrada. Verifica el número e intenta de nuevo.' });
 
     // Para contenedores: usar cn_status_en para inferir hito si el status interno no mapea
@@ -9871,24 +9932,32 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
     //    Sólo datos no sensibles: tracking_internal, status, hito, peso, dimensiones.
     let childRows: any[] = [];
     let childCount = 0;
-    if (row.is_master && row.id) {
+    if (row.is_master) {
       try {
-        const childRes = await pool.query(`
-          SELECT
-            c.id,
-            c.tracking_internal,
-            c.child_no,
-            c.box_number,
-            c.status::text AS status,
-            c.weight,
-            c.pkg_length,
-            c.pkg_width,
-            c.pkg_height
-          FROM packages c
-          WHERE c.master_id = $1
-          ORDER BY c.box_number ASC NULLS LAST, c.id ASC
-        `, [row.id]);
-        childRows = childRes.rows.map((c: any) => {
+        let rawChildren: any[] = [];
+        if (row.id) {
+          // Master real: query por master_id
+          const childRes = await pool.query(`
+            SELECT
+              c.id,
+              c.tracking_internal,
+              c.child_no,
+              c.box_number,
+              c.status::text AS status,
+              c.weight,
+              c.pkg_length,
+              c.pkg_width,
+              c.pkg_height
+            FROM packages c
+            WHERE c.master_id = $1
+            ORDER BY c.box_number ASC NULLS LAST, c.id ASC
+          `, [row.id]);
+          rawChildren = childRes.rows;
+        } else if (row._isVirtualMaster) {
+          // Master virtual: ya tenemos las hijas en virtualChildrenForMaster
+          rawChildren = virtualChildrenForMaster;
+        }
+        childRows = rawChildren.map((c: any) => {
           const cStatusKey = (c.status || '').toLowerCase().replace(/[ -]/g, '_');
           const cMilestone = MILESTONE_MAP[cStatusKey] ?? 0;
           return {
