@@ -182,15 +182,38 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
     return `${addr.address_line1}\n${addr.city}, ${addr.state} ${addr.zip_code}\nA nombre de: ${name} (${box})\n${addr.contact_phone || ''}`;
   };
 
-  const handleCopy = (text: string) => {
-    Clipboard.setString(text.replace(/[📍📦👤📞🏪]/g, '').trim());
+  const getFullShipmentText = (addr: WarehouseAddress): string => {
+    const svcName = selected?.name || 'EntregaX';
+    const lines: string[] = [
+      `📦 INSTRUCCIONES DE ENVÍO - ${svcName.toUpperCase()}`,
+      '',
+      '📍 DIRECCIÓN DE ENVÍO:',
+      getPersonalizedAddress(addr),
+    ];
+    if (addr.business_hours) {
+      lines.push('', `🕐 Horario: ${addr.business_hours}`);
+    }
+    if (serviceInfo?.instructions?.packaging_instructions) {
+      lines.push('', '📦 INSTRUCCIONES DE EMPAQUE:', serviceInfo.instructions.packaging_instructions);
+    }
+    if (serviceInfo?.instructions?.shipping_instructions) {
+      lines.push('', '🚚 CÓMO ENVIAR:', serviceInfo.instructions.shipping_instructions);
+    }
+    if (serviceInfo?.instructions?.general_notes) {
+      lines.push('', '⚠️ NOTAS IMPORTANTES:', serviceInfo.instructions.general_notes);
+    }
+    lines.push('', '✅ Enviado vía EntregaX Paquetería');
+    return lines.join('\n');
+  };
+
+  const handleCopy = (addr: WarehouseAddress) => {
+    Clipboard.setString(getFullShipmentText(addr));
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleShare = async (addr: WarehouseAddress) => {
-    const text = getPersonalizedAddress(addr);
-    await Share.share({ message: `Mi dirección EntregaX - ${selected?.name}:\n\n${text}` });
+    await Share.share({ message: getFullShipmentText(addr) });
   };
 
   // ── Paso 0: Selección ─────────────────────────────────────────────────────
@@ -300,10 +323,10 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
               <View style={styles.addrActions}>
                 <TouchableOpacity
                   style={[styles.btnPrimary, { backgroundColor: svc.accentColor }]}
-                  onPress={() => handleCopy(getPersonalizedAddress(addr))}
+                  onPress={() => handleCopy(addr)}
                 >
                   <Ionicons name={copied ? 'checkmark' : 'copy'} size={16} color="#fff" />
-                  <Text style={styles.btnPrimaryText}>{copied ? '¡Copiado!' : 'Copiar'}</Text>
+                  <Text style={styles.btnPrimaryText}>{copied ? '¡Copiado!' : 'Copiar todo'}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.btnOutline, { borderColor: svc.accentColor }]}
