@@ -329,54 +329,6 @@ ${rows.map((r, idx) => `<tr style="${rowStyle(r.statusLabel)}"><td class="num ce
     w.document.write(html); w.document.close();
   };
 
-  const handleGenerarPDF = () => {
-    if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
-    const { rows, totalUsd, totalMxn, selectedCount } = getReporteRows();
-    if (rows.length === 0) { setSnackbar({ open: true, message: 'Las consolidaciones seleccionadas no tienen guías', severity: 'info' }); return; }
-    generatePDFFromRows(rows, totalUsd, totalMxn, selectedCount);
-  };
-
-  const handleEnviarWhatsApp = () => {
-    if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
-    const { rows, totalUsd, totalMxn } = getReporteRows();
-    if (rows.length === 0) { setSnackbar({ open: true, message: 'Sin guías en las consolidaciones seleccionadas', severity: 'info' }); return; }
-    const fecha = new Date().toLocaleDateString('es-MX');
-    const byCons = new Map<number, typeof rows>();
-    rows.forEach(r => { const arr = byCons.get(r.consolidacion_id) || []; arr.push(r); byCons.set(r.consolidacion_id, arr); });
-    let msg = `*🚚 EntregaX · Pagos PO Box — ${proveedorSel?.name || ''}*\n_Fecha:_ ${fecha}\n\n`;
-    byCons.forEach((items, consId) => {
-      msg += `*Consolidación #${consId}*\n`;
-      items.forEach(r => { msg += `✅ \`${r.tracking}\` · ${r.weight.toFixed(1)}lb · $${r.usd.toFixed(2)} USD\n`; });
-      msg += '\n';
-    });
-    msg += `━━━━━━━━━━━━━━━━\n*Total USD:* $${totalUsd.toFixed(2)}\n*Total MXN:* $${totalMxn.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-  };
-
-  // ── Generar Orden de Pago (consolidaciones seleccionadas) ──────────
-  const handleGenerarOrdenPago = () => {
-    if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
-    const sel = consolidaciones.filter(c => selected.has(c.id));
-    const totalUsd = sel.reduce((s, c) => s + Number(c.total_cost_usd || 0), 0);
-    const totalMxn = sel.reduce((s, c) => s + Number(c.total_cost_mxn || 0), 0);
-    const totalPkgs = sel.reduce((s, c) => s + Number(c.package_count || 0), 0);
-    const fecha = new Date().toLocaleString('es-MX');
-    const idsStr = sel.map(c => `#${c.id}`).join(', ');
-    const rowsHTML = sel.map(c => `<tr><td style="font-family:monospace;font-weight:600">#${c.id}</td><td>${new Date(c.created_at).toLocaleDateString('es-MX')}</td><td style="text-align:center">${c.package_count}</td><td style="text-align:right;font-weight:600">$${Number(c.total_cost_usd||0).toFixed(2)}</td><td style="text-align:right;font-weight:600">$${Number(c.total_cost_mxn||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>`).join('');
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Orden de Pago — ${proveedorSel?.name}</title>
-<style>@page{size:letter;margin:20mm}body{font-family:Arial,sans-serif;font-size:12px;color:#222}h1{font-size:20px;color:#C1272D;margin:0 0 4px}h2{font-size:13px;color:#333;margin:0 0 16px}.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:2px solid #C1272D;padding-bottom:12px}table{width:100%;border-collapse:collapse;margin:12px 0}th{background:#1a1a1a;color:#fff;padding:6px 8px;text-align:left;font-size:11px}td{padding:6px 8px;border-bottom:1px solid #ddd;font-size:11px}.totals{border:2px solid #C1272D;padding:14px 18px;margin:20px 0;display:flex;justify-content:space-around;align-items:center}.totals .lbl{font-size:11px;color:#555;text-transform:uppercase;letter-spacing:.5px}.totals .big{font-size:22px;font-weight:900;color:#C1272D}.ref-box{border:1px dashed #999;padding:12px;margin-top:20px;font-size:11px}.sig{margin-top:48px;display:flex;justify-content:space-between}.sig div{text-align:center;width:44%}.sig hr{border:none;border-top:1px solid #333;margin-bottom:4px}</style></head><body>
-<div class="header"><div><h1>EntregaX · Orden de Pago</h1><h2>PO Box USA — Proveedor: <strong>${proveedorSel?.name || ''}</strong></h2></div><div style="text-align:right;font-size:11px;color:#666">Generada: ${fecha}<br/>Consolidaciones: <strong>${idsStr}</strong></div></div>
-<table><thead><tr><th>Consolidación</th><th>Fecha</th><th style="text-align:center">Paquetes</th><th style="text-align:right">Total USD</th><th style="text-align:right">Total MXN</th></tr></thead><tbody>${rowsHTML}<tr style="background:#f5f5f5;font-weight:bold"><td colspan="2">TOTAL (${sel.length} consolidaciones)</td><td style="text-align:center">${totalPkgs}</td><td style="text-align:right">$${totalUsd.toFixed(2)}</td><td style="text-align:right">$${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr></tbody></table>
-<div class="totals"><div><div class="lbl">Total USD a pagar</div><div class="big">$${totalUsd.toFixed(2)}</div></div><div style="font-size:28px;color:#ddd">|</div><div><div class="lbl">Total MXN a pagar</div><div class="big">$${totalMxn.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})}</div></div></div>
-<div class="ref-box">Referencia de pago (folio / SPEI / cheque): ___________________________________&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;Fecha de pago: _____________</div>
-<div class="sig"><div><hr>Elaborado por</div><div><hr>Autorizado por</div></div>
-<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},300);});</script>
-</body></html>`;
-    const w = window.open('', '_blank', 'width=900,height=700');
-    if (!w) { setSnackbar({ open: true, message: 'Permite ventanas emergentes para generar la orden', severity: 'error' }); return; }
-    w.document.write(html); w.document.close();
-  };
-
   // ── Generar Referencia ──────────────────────────────────────────────
   const handleGenerarReferencia = async () => {
     if (selected.size === 0) { setSnackbar({ open: true, message: 'Selecciona al menos una consolidación', severity: 'info' }); return; }
