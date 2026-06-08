@@ -295,6 +295,8 @@
     "refUpdated": "Referral code updated",
     "noCode": "No code",
     "requestAdvisor": "Request Advisor",
+    "myPendingPayments": "Pending Payments",
+    "myBalance": "Credit Balance",
     "helpCenter": "Help Center",
     "logout": "Log Out",
     "changePassword": "Change Password",

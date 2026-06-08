@@ -1514,7 +1514,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               }}
             >
               <Ionicons name="receipt-outline" size={24} color={BLACK} />
-              <Text style={styles.menuItemText}>Mis Cuentas por Pagar</Text>
+              <Text style={styles.menuItemText}>{t('profile.myPendingPayments')}</Text>
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
 
@@ -1526,7 +1526,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               }}
             >
               <Ionicons name="gift-outline" size={24} color={BLACK} />
-              <Text style={styles.menuItemText}>Saldo a Favor</Text>
+              <Text style={styles.menuItemText}>{t('profile.myBalance')}</Text>
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
             </>
