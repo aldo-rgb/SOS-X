@@ -370,6 +370,15 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         <Text style={styles.subtitle}>{t.subtitle}</Text>
       </View>
 
+      {/* Cajito asomándose sobre la tarjeta */}
+      <View style={styles.cajitoWrapper} pointerEvents="none">
+        <Image
+          source={require('../../assets/cajito-blanco.png')}
+          style={styles.cajitoImg}
+          resizeMode="contain"
+        />
+      </View>
+
       {/* Formulario */}
       <Surface style={styles.formContainer} elevation={4}>
         <Text style={styles.welcomeText}>{t.welcome}</Text>
@@ -602,8 +611,19 @@ const styles = StyleSheet.create({
   },
   subtitle: {
     fontSize: 16,
-    color: '#999',
+    color: 'rgba(255,255,255,0.80)',
     marginTop: 5,
+  },
+  cajitoWrapper: {
+    position: 'absolute',
+    right: 24,
+    bottom: '28%',
+    zIndex: 10,
+  },
+  cajitoImg: {
+    width: 88,
+    height: 88,
+    opacity: 0.92,
   },
   formContainer: {
     flex: 0.72,
@@ -704,6 +724,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   footer: {
+    paddingBottom: 16,
     flex: 0.1,
     flexDirection: 'row',
     justifyContent: 'center',
