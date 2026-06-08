@@ -936,7 +936,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   const handleSelectRate = (rate: any) => {
     setSelectedRate(rate);
     setCarrier(rate.carrierName || rate.provider);
-    setSnackbar({ open: true, message: `🚚 ${rate.carrierName || rate.provider} - $${rate.totalPrice.toFixed(2)} MXN seleccionado`, severity: 'success' });
+    setSnackbar({ open: true, message: `🚚 ${rate.carrierName || rate.provider} - $${(Number(rate.totalPrice) || 0).toFixed(2)} MXN seleccionado`, severity: 'success' });
   };
 
   // ============ COTIZAR GEX (GARANTÍA EXTENDIDA) ============
@@ -1603,8 +1603,9 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
   // Cada caja se cotiza individualmente según su volumen
   const calcularCostoPOBox = (): { totalUsd: number; totalMxn: number; cbmTotal: number; nivel: number; desglosePorCaja: { cbm: number; costoUsd: number; nivel: number }[] } | null => {
     if (!clientInstructions?.poboxRatesInfo || boxes.length === 0) return null;
-    
+
     const { tipoCambio, tarifasVolumen } = clientInstructions.poboxRatesInfo;
+    if (!tipoCambio || !tarifasVolumen?.length) return null;
     
     let totalUsd = 0;
     let cbmTotal = 0;
@@ -2409,7 +2410,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                     {i18n.language === 'es' ? 'Tipo de Cambio' : 'Exchange Rate'}
                                   </Typography>
                                   <Typography variant="h4" fontWeight="bold" sx={{ color: ORANGE }}>
-                                    ${clientInstructions.poboxRatesInfo.tipoCambio.valor.toFixed(2)}
+                                    ${(clientInstructions.poboxRatesInfo.tipoCambio?.valor || 0).toFixed(2)}
                                   </Typography>
                                   <Typography variant="caption" color="text.secondary">
                                     MXN/USD
@@ -2580,7 +2581,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                         <Typography variant="body2">{selectedRate.serviceName}</Typography>
                                       </Box>
                                       <Typography variant="h6" color="success.dark" fontWeight="bold">
-                                        ${selectedRate.totalPrice.toFixed(2)} MXN
+                                        ${(Number(selectedRate.totalPrice) || 0).toFixed(2)} MXN
                                       </Typography>
                                     </Box>
                                   </Paper>
@@ -2620,7 +2621,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                             <Typography variant="caption" color="text.secondary">{rate.serviceName}</Typography>
                                           </Box>
                                           <Typography variant={rate.isLocal ? 'h6' : 'body2'} fontWeight="bold" color={rate.isLocal ? 'warning.main' : 'primary'}>
-                                            {rate.totalPrice === 0 ? 'GRATIS' : `$${rate.totalPrice.toFixed(2)}`}
+                                            {rate.totalPrice === 0 ? 'GRATIS' : `$${(Number(rate.totalPrice) || 0).toFixed(2)}`}
                                           </Typography>
                                         </Box>
                                       </Paper>
@@ -2716,7 +2717,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                     </Typography>
                                   </Box>
                                   <Typography variant="h5" color="success.main" fontWeight="bold">
-                                    ${selectedRate.totalPrice.toFixed(2)} MXN
+                                    ${(Number(selectedRate.totalPrice) || 0).toFixed(2)} MXN
                                   </Typography>
                                 </Box>
                               </Paper>
@@ -2877,7 +2878,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                         </Typography>
                                         <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1 }}>
                                           <Typography variant="h5" color="primary" fontWeight="bold">
-                                            ${rate.totalPrice.toFixed(2)}
+                                            ${(Number(rate.totalPrice) || 0).toFixed(2)}
                                           </Typography>
                                           <Typography variant="body2" color="text.secondary">MXN</Typography>
                                         </Box>
@@ -2896,7 +2897,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
 
                                 {selectedRate && (
                                   <Alert severity="success" sx={{ mt: 2 }}>
-                                    <strong>{i18n.language === 'es' ? 'Seleccionado:' : 'Selected:'}</strong> {selectedRate.carrierName || selectedRate.provider} - ${selectedRate.totalPrice.toFixed(2)} MXN
+                                    <strong>{i18n.language === 'es' ? 'Seleccionado:' : 'Selected:'}</strong> {selectedRate.carrierName || selectedRate.provider} - ${(Number(selectedRate.totalPrice) || 0).toFixed(2)} MXN
                                   </Alert>
                                 )}
                               </Box>
@@ -3115,7 +3116,7 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
                                   <Typography>Envío Nacional ({selectedRate.carrierName || carrier})</Typography>
                                 </Grid>
                                 <Grid size={4}>
-                                  <Typography textAlign="right" fontWeight="bold">${selectedRate.totalPrice.toFixed(2)} MXN</Typography>
+                                  <Typography textAlign="right" fontWeight="bold">${(Number(selectedRate.totalPrice) || 0).toFixed(2)} MXN</Typography>
                                 </Grid>
                               </>
                             )}
