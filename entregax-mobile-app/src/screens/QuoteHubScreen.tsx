@@ -527,7 +527,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               style={[styles.chip, maritimeMode === 'volumen' && styles.chipActive]}
               onPress={() => setMaritimeMode('volumen')}
             >
-              <Text style={[styles.chipText, maritimeMode === 'volumen' && styles.chipTextActive]}>📦 Por volumen (CBM)</Text>
+              <Text style={[styles.chipText, maritimeMode === 'volumen' && styles.chipTextActive]}>📦 Por volumen (m³)</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.chip, maritimeMode === 'fcl_40' && styles.chipActive]}
