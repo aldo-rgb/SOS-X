@@ -203,7 +203,8 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
     const matchesSearch = 
       user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.box_id.toLowerCase().includes(searchTerm.toLowerCase());
+      user.box_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (user.phone || '').replace(/\D/g, '').includes(searchTerm.replace(/\D/g, ''));
     
     const matchesRole = roleFilter === 'all' || user.role === roleFilter;
     
@@ -546,6 +547,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                 <TableCell>{t('clients.client', 'Cliente')}</TableCell>
                 <TableCell>{t('clients.boxId')}</TableCell>
                 <TableCell>{t('auth.email')}</TableCell>
+                <TableCell>Teléfono</TableCell>
                 <TableCell>{t('clients.role')}</TableCell>
                 <TableCell align="center">{t('common.actions')}</TableCell>
               </TableRow>
@@ -612,9 +614,14 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                     </Box>
                   </TableCell>
                   <TableCell>
-                    <Chip 
-                      label={translateRoleI18n(user.role)} 
-                      size="small" 
+                    <Typography variant="body2" color={user.phone ? 'text.primary' : 'text.disabled'} fontFamily={user.phone ? 'monospace' : undefined}>
+                      {user.phone || '—'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip
+                      label={translateRoleI18n(user.role)}
+                      size="small"
                       color={getRoleColor(user.role)}
                       sx={{ fontWeight: 600 }}
                     />
