@@ -55,8 +55,69 @@ interface Notification {
   created_at: string;
 }
 
+// ── Traducción de notificaciones ─────────────────────────────────────────────
+function translateNotif(item: Notification, lang: string): { title: string; message: string } {
+  if (lang === 'es') return { title: item.title, message: item.message };
+
+  const zh = lang === 'zh';
+  const trn = item.message?.match(/([A-Z]{2,}-[\w]+|TDX-\d+|US-[\w]+|LOG[\w]+|AIR[\w]+|TKT-[\w]+)/)?.[1] || '';
+
+  // Paquete entregado
+  if (/entregado|delivered/i.test(item.title)) {
+    return {
+      title: zh ? '🎉 包裹已签收！' : '🎉 Package delivered!',
+      message: trn
+        ? (zh ? `您的包裹 ${trn} 已成功签收。` : `Your package ${trn} has been delivered successfully.`)
+        : (zh ? '您的包裹已成功签收。' : 'Your package has been delivered successfully.'),
+    };
+  }
+  // Paquete recibido en bodega
+  if (/recibido|received/i.test(item.title) && /bodega|warehouse/i.test(item.message)) {
+    return {
+      title: zh ? `📦 包裹已收到 · ${item.title.replace(/.*·\s*/, '')}` : `📦 Package received · ${item.title.replace(/.*·\s*/, '')}`,
+      message: trn
+        ? (zh ? `您的包裹 ${trn} 已到达仓库。` : `Your package ${trn} has arrived at the warehouse.`)
+        : (zh ? '您的包裹已到达仓库。' : 'Your package has arrived at the warehouse.'),
+    };
+  }
+  // Cotización / Ticket creado
+  if (item.type === 'ticket_created' || /cotización|quotation|ticket/i.test(item.title)) {
+    const tktId = item.title.match(/(TKT-[\w]+)/)?.[1] || trn;
+    return {
+      title: zh ? `📋 报价单 ${tktId}` : `📋 Quote ${tktId}`,
+      message: zh ? '您的请求已发送给顾问，收到回复后将通知您。' : 'Your request has been sent to your advisor. You\'ll be notified when they respond.',
+    };
+  }
+  // Respuesta de soporte
+  if (item.type === 'support_reply' || /respuesta|reply|soporte/i.test(item.title)) {
+    return {
+      title: zh ? '💬 顾问已回复' : '💬 Advisor replied',
+      message: zh ? '您的顾问已回复您的支持请求。' : 'Your advisor has replied to your support request.',
+    };
+  }
+  // Paquete en tránsito
+  if (/tránsito|transit|en ruta/i.test(item.title) || /tránsito|transit/i.test(item.message)) {
+    return {
+      title: zh ? '🚚 包裹运输中' : '🚚 Package in transit',
+      message: trn
+        ? (zh ? `您的包裹 ${trn} 正在运输途中。` : `Your package ${trn} is in transit.`)
+        : (zh ? '您的包裹正在运输途中。' : 'Your package is in transit.'),
+    };
+  }
+  // GEX / garantía
+  if (/garantía|gex|protección/i.test(item.title)) {
+    return {
+      title: zh ? '🛡️ 延伸保修' : '🛡️ Extended Warranty',
+      message: zh ? item.message : item.message,
+    };
+  }
+  // Fallback: devolver original
+  return { title: item.title, message: item.message };
+}
+
 const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const notifLang = i18n.language;
   const { user, token } = route.params;
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -326,6 +387,7 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
   const renderNotification = ({ item }: { item: Notification }) => {
     const typeColor = getTypeColor(item.type);
     const isSelected = selectedIds.has(item.id);
+    const { title: notifTitle, message: notifMessage } = translateNotif(item, notifLang);
     
     return (
       <TouchableOpacity 
@@ -353,10 +415,10 @@ const NotificationsScreen: React.FC<Props> = ({ navigation, route }) => {
           
           <View style={styles.contentContainer}>
             <View style={styles.headerRow}>
-              <Text style={styles.title} numberOfLines={1}>{item.title}</Text>
+              <Text style={styles.title} numberOfLines={1}>{notifTitle}</Text>
               <Text style={styles.timeAgo}>{getTimeAgo(item.created_at)}</Text>
             </View>
-            <Text style={styles.message} numberOfLines={2}>{item.message}</Text>
+            <Text style={styles.message} numberOfLines={2}>{notifMessage}</Text>
           </View>
 
           {!item.is_read && !selectionMode && (
