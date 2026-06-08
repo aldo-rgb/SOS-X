@@ -184,6 +184,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
   
   // Datos de entrega
   const [signature, setSignature] = useState<string>('');
+  const [signatureExpanded, setSignatureExpanded] = useState(false);
   const [photo, setPhoto] = useState<string>('');
   const [recipientName, setRecipientName] = useState('');
   const [notes, setNotes] = useState('');
@@ -447,8 +448,7 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
 
   const handleSignatureOK = (signatureData: string) => {
     setSignature(signatureData);
-    // No avanzar automáticamente — el usuario debe presionar "Continuar"
-    // para que pueda llenar el nombre antes de avanzar a foto
+    setSignatureExpanded(false); // Contraer automáticamente al guardar la firma
   };
 
   const handleSignatureClear = () => {
@@ -972,32 +972,73 @@ export default function DeliveryConfirmScreen({ navigation, route }: any) {
           </>
         ) : (
           <>
-            <Text style={styles.signatureLabel}>✍️ Firma del Receptor</Text>
-            <View style={styles.signatureWrapper}>
-              <SignatureScreen
-                ref={signatureRef}
-                onOK={handleSignatureOK}
-                onEnd={handleSignatureEnd}
-                descriptionText=""
-                clearText="Borrar"
-                confirmText="Aceptar"
-                webStyle={`
-                  .m-signature-pad { box-shadow: none; border: none; }
-                  .m-signature-pad--body { border: 1px solid #ddd; border-radius: 8px; }
-                  .m-signature-pad--footer { display: none; }
-                `}
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 4 }}
+              onPress={() => setSignatureExpanded(v => !v)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.signatureLabel}>
+                {signature ? '✅ Firma del Receptor' : '✍️ Firma del Receptor'}
+              </Text>
+              <MaterialIcons
+                name={signatureExpanded ? 'keyboard-arrow-up' : 'keyboard-arrow-down'}
+                size={24}
+                color="#F05A28"
               />
-            </View>
+            </TouchableOpacity>
 
-            <View style={styles.signatureActions}>
+            {!signatureExpanded && !signature && (
               <TouchableOpacity
-                style={styles.signatureClearBtn}
-                onPress={handleSignatureClear}
+                style={{ borderWidth: 1.5, borderColor: '#F05A28', borderStyle: 'dashed', borderRadius: 10, paddingVertical: 18, alignItems: 'center', marginTop: 8 }}
+                onPress={() => setSignatureExpanded(true)}
               >
-                <MaterialIcons name="refresh" size={20} color="#666" />
-                <Text style={styles.signatureClearText}>Borrar</Text>
+                <MaterialIcons name="draw" size={28} color="#F05A28" />
+                <Text style={{ color: '#F05A28', fontWeight: '600', marginTop: 6 }}>Toca para firmar</Text>
               </TouchableOpacity>
-            </View>
+            )}
+
+            {!signatureExpanded && !!signature && (
+              <TouchableOpacity
+                style={{ borderWidth: 1.5, borderColor: '#4CAF50', borderRadius: 10, paddingVertical: 10, alignItems: 'center', marginTop: 8, flexDirection: 'row', justifyContent: 'center', gap: 8 }}
+                onPress={() => setSignatureExpanded(true)}
+              >
+                <MaterialIcons name="check-circle" size={20} color="#4CAF50" />
+                <Text style={{ color: '#4CAF50', fontWeight: '600' }}>Firma capturada — toca para cambiar</Text>
+              </TouchableOpacity>
+            )}
+
+            {signatureExpanded && (
+              <>
+                <View style={styles.signatureWrapper}>
+                  <SignatureScreen
+                    ref={signatureRef}
+                    onOK={handleSignatureOK}
+                    onEnd={handleSignatureEnd}
+                    descriptionText=""
+                    clearText="Borrar"
+                    confirmText="Aceptar"
+                    webStyle={`
+                      .m-signature-pad { box-shadow: none; border: none; }
+                      .m-signature-pad--body { border: 1px solid #ddd; border-radius: 8px; }
+                      .m-signature-pad--footer { display: none; }
+                    `}
+                  />
+                </View>
+                <View style={styles.signatureActions}>
+                  <TouchableOpacity style={styles.signatureClearBtn} onPress={handleSignatureClear}>
+                    <MaterialIcons name="refresh" size={20} color="#666" />
+                    <Text style={styles.signatureClearText}>Borrar</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#F05A28', borderRadius: 8 }}
+                    onPress={() => { signatureRef.current?.readSignature(); setSignatureExpanded(false); }}
+                  >
+                    <MaterialIcons name="check" size={18} color="#fff" />
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Guardar firma</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </>
         )}
       </View>
