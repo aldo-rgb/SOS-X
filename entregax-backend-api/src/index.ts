@@ -9753,10 +9753,52 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       maritimeRow = maritimeRes.rows[0] || null;
     } catch { /* maritime_orders opcional */ }
 
-    const row = pkgRes.rows[0] || dhlRow || pqtxRow || chinaRow || maritimeRow;
+    // 6. Buscar en containers (por número de contenedor, BL o referencia)
+    let containerRow: any = null;
+    try {
+      const contRes = await pool.query(`
+        SELECT
+          c.id,
+          'china_sea' AS service_type,
+          COALESCE(c.container_number, c.bl_number, c.reference_code) AS tracking,
+          c.container_number,
+          c.bl_number,
+          c.reference_code,
+          c.status::text AS status,
+          c.cn_status_en,
+          c.cn_status_ch,
+          c.vessel,
+          c.port_name,
+          c.eta,
+          c.actual_arrival,
+          c.created_at,
+          c.updated_at
+        FROM containers c
+        WHERE UPPER(COALESCE(c.container_number,'')) = $1
+           OR UPPER(COALESCE(c.bl_number,'')) = $1
+           OR UPPER(COALESCE(c.reference_code,'')) = $1
+        LIMIT 1
+      `, [raw]);
+      if (contRes.rows[0]) {
+        containerRow = contRes.rows[0];
+        containerRow._isContainer = true;
+      }
+    } catch { /* containers opcional */ }
+
+    const row = pkgRes.rows[0] || dhlRow || pqtxRow || chinaRow || maritimeRow || containerRow;
     if (!row) return res.status(404).json({ error: 'Guía no encontrada. Verifica el número e intenta de nuevo.' });
 
-    const statusKey = (row.status || '').toLowerCase().replace(/[ -]/g, '_');
+    // Para contenedores: usar cn_status_en para inferir hito si el status interno no mapea
+    let statusKey = (row.status || '').toLowerCase().replace(/[ -]/g, '_');
+    if (row._isContainer && (MILESTONE_MAP[statusKey] === undefined)) {
+      const cnEn = (row.cn_status_en || '').toLowerCase();
+      if (cnEn.includes('deliver') || cnEn.includes('arrived') || cnEn.includes('unload')) statusKey = 'delivered';
+      else if (cnEn.includes('pickup') || cnEn.includes('ready')) statusKey = 'ready_pickup';
+      else if (cnEn.includes('warehouse') || cnEn.includes('bodega') || cnEn.includes('cedis')) statusKey = 'received_mty';
+      else if (cnEn.includes('customs') || cnEn.includes('aduana')) statusKey = 'in_customs';
+      else if (cnEn.includes('port') || cnEn.includes('sailing') || cnEn.includes('transit') || cnEn.includes('ship')) statusKey = 'in_transit';
+      else if (cnEn.includes('load')) statusKey = 'loading';
+    }
     const currentMilestone = MILESTONE_MAP[statusKey] ?? 0;
     const svcKey = (row.service_type || '');
     const serviceName = SERVICE_NAMES[svcKey] || { es: 'EntregaX', en: 'EntregaX', zh: 'EntregaX' };
@@ -9803,6 +9845,19 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       milestones: MILESTONES,
       movements,
       found: true,
+      // Datos extra para contenedores (no sensibles)
+      ...(row._isContainer && {
+        container: {
+          container_number: row.container_number || null,
+          bl_number: row.bl_number || null,
+          reference: row.reference_code || null,
+          vessel: row.vessel || null,
+          port: row.port_name || null,
+          eta: row.eta || null,
+          cn_status_en: row.cn_status_en || null,
+          cn_status_ch: row.cn_status_ch || null,
+        },
+      }),
     });
   } catch (err) {
     console.error('[public/track] error:', err);

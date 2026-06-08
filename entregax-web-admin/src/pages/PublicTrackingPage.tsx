@@ -126,6 +126,16 @@ interface TrackingResult {
   milestones: { label_es: string; label_en: string; label_zh: string }[];
   movements: { date: string; location: string; description_es: string; description_en: string; description_zh: string }[];
   found: boolean;
+  container?: {
+    container_number: string | null;
+    bl_number: string | null;
+    reference: string | null;
+    vessel: string | null;
+    port: string | null;
+    eta: string | null;
+    cn_status_en: string | null;
+    cn_status_ch: string | null;
+  };
 }
 
 export default function PublicTrackingPage() {
@@ -393,6 +403,51 @@ export default function PublicTrackingPage() {
                   })}
                 </Stepper>
               </Paper>
+
+              {/* Datos del contenedor (solo si aplica) */}
+              {result.container && (
+                <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: '1px solid #F0F0F0' }}>
+                  <Typography variant="overline" sx={{ color: ORANGE, fontWeight: 700, letterSpacing: 1.5 }}>
+                    {lang === 'zh' ? '集装箱信息' : lang === 'en' ? 'Container Info' : 'Info del Contenedor'}
+                  </Typography>
+                  <Box sx={{ mt: 1.5, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+                    {result.container.container_number && (
+                      <Box>
+                        <Typography sx={{ fontSize: 10, color: '#888', fontWeight: 700, letterSpacing: 1 }}>CONTENEDOR</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 700, fontFamily: 'monospace', color: BLACK }}>{result.container.container_number}</Typography>
+                      </Box>
+                    )}
+                    {result.container.bl_number && (
+                      <Box>
+                        <Typography sx={{ fontSize: 10, color: '#888', fontWeight: 700, letterSpacing: 1 }}>BL / REFERENCIA</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 700, fontFamily: 'monospace', color: BLACK }}>{result.container.bl_number}</Typography>
+                      </Box>
+                    )}
+                    {result.container.vessel && (
+                      <Box>
+                        <Typography sx={{ fontSize: 10, color: '#888', fontWeight: 700, letterSpacing: 1 }}>BUQUE</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, color: BLACK }}>{result.container.vessel}</Typography>
+                      </Box>
+                    )}
+                    {result.container.eta && (
+                      <Box>
+                        <Typography sx={{ fontSize: 10, color: '#888', fontWeight: 700, letterSpacing: 1 }}>ETA</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, color: BLACK }}>
+                          {new Date(result.container.eta).toLocaleDateString(lang === 'en' ? 'en-US' : lang === 'zh' ? 'zh-CN' : 'es-MX', { day: '2-digit', month: 'long', year: 'numeric' })}
+                        </Typography>
+                      </Box>
+                    )}
+                    {result.container.cn_status_en && (
+                      <Box sx={{ gridColumn: '1 / -1' }}>
+                        <Typography sx={{ fontSize: 10, color: '#888', fontWeight: 700, letterSpacing: 1 }}>STATUS</Typography>
+                        <Typography sx={{ fontSize: 13, fontWeight: 600, color: BLACK }}>
+                          {lang === 'zh' && result.container.cn_status_ch ? result.container.cn_status_ch : result.container.cn_status_en}
+                        </Typography>
+                      </Box>
+                    )}
+                  </Box>
+                </Paper>
+              )}
 
               {/* Últimos movimientos */}
               <Paper elevation={0} sx={{ p: 3, borderRadius: 3, border: '1px solid #F0F0F0' }}>
