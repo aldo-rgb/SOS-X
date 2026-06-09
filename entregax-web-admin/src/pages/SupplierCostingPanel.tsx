@@ -559,7 +559,11 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                 fullWidth
                                 size="small"
                                 value={trackingFilter}
-                                onChange={(e) => setTrackingFilter(e.target.value.trim())}
+                                onChange={(e) => {
+                                    const v = e.target.value.trim();
+                                    setTrackingFilter(v);
+                                    if (v) setShowPaidFilter('all');
+                                }}
                                 placeholder="US-123456789"
                                 InputLabelProps={{ shrink: true }}
                             />
