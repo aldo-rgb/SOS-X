@@ -159,6 +159,46 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
   const [waSending, setWaSending] = useState(false);
   const [waVerifying, setWaVerifying] = useState(false);
 
+  // 2FA modal
+  const [show2FAModal, setShow2FAModal] = useState(false);
+  const [twoFAAction, setTwoFAAction] = useState<'enable' | 'disable'>('enable');
+  const [twoFAPassword, setTwoFAPassword] = useState('');
+  const [twoFACode, setTwoFACode] = useState('');
+  const [twoFACodeSent, setTwoFACodeSent] = useState(false);
+  const [twoFASending, setTwoFASending] = useState(false);
+  const [twoFASaving, setTwoFASaving] = useState(false);
+
+  const handleToggle2FA = (value: boolean) => {
+    setTwoFAAction(value ? 'enable' : 'disable');
+    setTwoFAPassword(''); setTwoFACode(''); setTwoFACodeSent(false);
+    setShow2FAModal(true);
+  };
+
+  const handleSend2FACode = async () => {
+    setTwoFASending(true);
+    try {
+      const r = await api.post('/auth/2fa/send-code');
+      if (r.status !== 200) { setSnackbar({ open: true, message: r.data?.error || 'No se pudo enviar el código', severity: 'error' }); return; }
+      setTwoFACodeSent(true);
+      setSnackbar({ open: true, message: 'Código enviado a tu WhatsApp. Expira en 10 minutos.', severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al enviar código', severity: 'error' });
+    } finally { setTwoFASending(false); }
+  };
+
+  const handleConfirm2FA = async () => {
+    if (!twoFAPassword || !twoFACode) { setSnackbar({ open: true, message: 'Completa contraseña y código', severity: 'error' }); return; }
+    setTwoFASaving(true);
+    try {
+      const r = await api.post('/auth/2fa/toggle', { action: twoFAAction, password: twoFAPassword, code: twoFACode });
+      setProfile(p => p ? { ...p, two_factor_enabled: r.data.two_factor_enabled } : p);
+      setShow2FAModal(false);
+      setSnackbar({ open: true, message: `Autenticación 2FA ${r.data.two_factor_enabled ? 'activada' : 'desactivada'}`, severity: 'success' });
+    } catch (e: any) {
+      setSnackbar({ open: true, message: e?.response?.data?.error || 'Error al actualizar 2FA', severity: 'error' });
+    } finally { setTwoFASaving(false); }
+  };
+
   const loadProfile = useCallback(async () => {
     try {
       setLoading(true);
@@ -875,9 +915,7 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
           </Box>
           <Switch
             checked={profile?.two_factor_enabled || false}
-            onChange={() => {
-              setSnackbar({ open: true, message: 'Contacta a soporte para activar 2FA', severity: 'info' });
-            }}
+            onChange={(_, v) => handleToggle2FA(v)}
             sx={{
               '& .MuiSwitch-switchBase.Mui-checked': { color: ORANGE },
               '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: ORANGE },
@@ -1723,8 +1761,63 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
         </DialogActions>
       </Dialog>
 
+      {/* 2FA Dialog */}
+      <Dialog open={show2FAModal} onClose={() => !twoFASaving && setShow2FAModal(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>🔐 {twoFAAction === 'enable' ? 'Activar' : 'Desactivar'} Autenticación 2FA</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <Typography variant="body2" color="text.secondary">
+            {twoFAAction === 'enable'
+              ? 'Protege tu cuenta con verificación en dos pasos vía WhatsApp.'
+              : 'Confirma tu identidad para desactivar la autenticación en dos pasos.'}
+          </Typography>
+          <TextField
+            label="Contraseña actual"
+            type="password"
+            size="small"
+            fullWidth
+            value={twoFAPassword}
+            onChange={e => setTwoFAPassword(e.target.value)}
+            disabled={twoFASaving}
+          />
+          {!twoFACodeSent ? (
+            <Button
+              variant="contained"
+              onClick={handleSend2FACode}
+              disabled={!twoFAPassword || twoFASending}
+              sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#d44e22' } }}
+            >
+              {twoFASending ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Enviar código por WhatsApp'}
+            </Button>
+          ) : (
+            <TextField
+              label="Código de 6 dígitos"
+              size="small"
+              fullWidth
+              value={twoFACode}
+              onChange={e => setTwoFACode(e.target.value)}
+              inputProps={{ maxLength: 6 }}
+              disabled={twoFASaving}
+              helperText="Revisa tu WhatsApp"
+            />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setShow2FAModal(false)} disabled={twoFASaving}>Cancelar</Button>
+          {twoFACodeSent && (
+            <Button
+              variant="contained"
+              onClick={handleConfirm2FA}
+              disabled={!twoFACode || twoFASaving}
+              sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#d44e22' } }}
+            >
+              {twoFASaving ? <CircularProgress size={18} sx={{ color: '#fff' }} /> : 'Confirmar'}
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
       {/* Snackbar */}
-      <Snackbar 
+      <Snackbar
         open={snackbar.open} 
         autoHideDuration={4000} 
         onClose={() => setSnackbar(s => ({ ...s, open: false }))}
