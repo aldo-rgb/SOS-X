@@ -93,6 +93,10 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
       : { label: 'Sin instrucciones', color: '#9E9E9E', bg: '#F5F5F5', icon: '📋' }
     : null;
 
+  const enviado = result?.waybill?.guia_salida
+    ? { label: `Enviado · ${result.waybill.guia_salida}`, color: '#2E7D32', bg: '#E8F5E9', icon: '🚚' }
+    : null;
+
   return (
     <Box>
       <Typography variant="h6" fontWeight={700} gutterBottom>
@@ -171,6 +175,19 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
                   <Typography variant="body2" fontWeight={700} sx={{ color: instruccionesStatus.color }}>
                     {instruccionesStatus.label}
                   </Typography>
+                </Box>
+              )}
+              {enviado && (
+                <Box sx={{ px: 1.5, py: 0.5, borderRadius: 2, bgcolor: enviado.bg, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Typography sx={{ fontSize: 14 }}>{enviado.icon}</Typography>
+                  <Typography variant="body2" fontWeight={700} sx={{ color: enviado.color }}>
+                    {enviado.label}
+                  </Typography>
+                  <Tooltip title="Copiar guía">
+                    <IconButton size="small" onClick={() => navigator.clipboard.writeText(result!.waybill!.guia_salida!)}>
+                      <ContentCopyIcon sx={{ fontSize: 13 }} />
+                    </IconButton>
+                  </Tooltip>
                 </Box>
               )}
             </Box>
