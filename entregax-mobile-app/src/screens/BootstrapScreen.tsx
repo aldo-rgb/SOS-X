@@ -127,7 +127,7 @@ export default function BootstrapScreen({ navigation }: Props) {
       navigation.replace('EmployeeHome', { user, token });
       return;
     }
-    if (user.role === 'client' && user.isVerified === false) {
+    if (user.role === 'client' && user.isVerified === false && !user.authProvider) {
       navigation.replace('Verification', { user, token });
       return;
     }

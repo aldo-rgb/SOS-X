@@ -93,6 +93,7 @@ const buildLoginResponse = (user: any, token: string, message: string) => {
             rfc: user.rfc || null,
             isVerified: user.is_verified || false,
             verificationStatus: user.verification_status || 'not_started',
+            authProvider: user.auth_provider || null,
             isEmployeeOnboarded: user.is_employee_onboarded || false,
             privacyAcceptedAt: user.privacy_accepted_at || null,
             profilePhotoUrl: user.profile_photo_url && user.profile_photo_url.length > 10000
@@ -129,10 +130,9 @@ const upsertSocialUser = async (params: {
     sub: string;
     email: string;
     fullName: string;
-    emailVerified: boolean;
     allowCreate?: boolean;
 }) => {
-    const { provider, sub, email, fullName, emailVerified, allowCreate = true } = params;
+    const { provider, sub, email, fullName, allowCreate = true } = params;
     const subColumn = provider === 'google' ? 'google_sub' : 'apple_sub';
     const normalizedEmail = email.toLowerCase().trim();
 
@@ -185,7 +185,7 @@ const upsertSocialUser = async (params: {
             referralCode,
             sub,
             provider,
-            emailVerified === true,
+            false, // is_verified siempre FALSE — deben completar verificación INE desde el perfil
         ]
     );
 
@@ -238,7 +238,6 @@ export const googleAuth = async (req: Request, res: Response): Promise<void> => 
             sub: payload.sub,
             email: payload.email,
             fullName: payload.name || '',
-            emailVerified: payload.email_verified === true,
             allowCreate: false,
         });
 
@@ -378,7 +377,6 @@ export const appleAuth = async (req: Request, res: Response): Promise<void> => {
             sub,
             email: effectiveEmail,
             fullName: fullName || '',
-            emailVerified: payload.email_verified === true || payload.email_verified === 'true',
             allowCreate: true,
         });
 

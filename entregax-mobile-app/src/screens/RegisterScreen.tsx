@@ -23,6 +23,8 @@ import {
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { api } from '../services/api';
 import { useTranslation } from 'react-i18next';
+import SocialAuthButtons from '../components/SocialAuthButtons';
+import { setSecure } from '../services/secureStorage';
 
 // Colores de marca
 const ORANGE = '#F05A28';
@@ -179,6 +181,26 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSocialSuccess = async (user: any, access: any) => {
+    const userData = {
+      id: user.id,
+      name: user.name || user.full_name,
+      email: user.email,
+      boxId: user.boxId || user.box_id,
+      role: user.role,
+      phone: user.phone,
+      authProvider: user.authProvider || null,
+      isVerified: user.isVerified,
+      verificationStatus: user.verificationStatus,
+    };
+    const token = access.token;
+    try {
+      await setSecure('token', token);
+      await setSecure('user', JSON.stringify(userData));
+    } catch { /* ignore */ }
+    navigation.replace('Home', { user: userData, token });
   };
 
   return (
@@ -385,6 +407,14 @@ export default function RegisterScreen({ navigation }: RegisterScreenProps) {
               </HelperText>
             )}
           </View>
+
+          {/* Registro con Google / Apple */}
+          <SocialAuthButtons
+            onSuccess={({ user, access }: { user: any; access: any }) => handleSocialSuccess(user, access)}
+            onError={(msg: string) => Alert.alert('Error', msg)}
+            onNotRegistered={undefined}
+            disabled={loading}
+          />
 
           {/* Botón de Registro */}
           <Button
