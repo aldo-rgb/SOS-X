@@ -101,13 +101,14 @@ export default function ServiceInventoryPage() {
     fetchAbortRef.current = false;
     setExFetching(true);
     setExProgress(0);
-    // Para PO Box USA: la API de EntregaX usa guia_origen (tracking del courier UPS/FedEx),
-    // no el número interno US-... Guardamos resultado bajo guia (clave de la fila).
-    const entries = rows
+    // Para PO Box: intenta primero con guia_origen (carrier tracking UPS/FedEx),
+    // si falla intenta con guia (US-...). Para el resto usa guia directamente.
+    const entries: { storeKey: string; queryKey: string; fallbackKey?: string }[] = rows
       .filter(r => r.guia)
       .map(r => ({
         storeKey: r.guia,
-        queryKey: service === 'pobox_usa' ? (r.guia_origen || r.guia) : r.guia,
+        queryKey: service === 'pobox_usa' && r.guia_origen ? r.guia_origen : r.guia,
+        fallbackKey: service === 'pobox_usa' && r.guia_origen ? r.guia : undefined,
       }));
     const BATCH = 5;
     let done = 0;
@@ -119,11 +120,17 @@ export default function ServiceInventoryPage() {
         batch.forEach(e => { next[e.storeKey] = { state: 'loading' }; });
         return next;
       });
-      await Promise.all(batch.map(async ({ storeKey, queryKey }) => {
+      await Promise.all(batch.map(async ({ storeKey, queryKey, fallbackKey }) => {
+        const tryQuery = async (key: string) => {
+          const r = await api.get(`/national/payment-query/${encodeURIComponent(key)}`);
+          if (r.data?.status === 'success') return r.data.data;
+          return null;
+        };
         try {
-          const r = await api.get(`/national/payment-query/${encodeURIComponent(queryKey)}`);
-          if (r.data?.status === 'success') {
-            const d = r.data.data;
+          let d = await tryQuery(queryKey);
+          // Si no encontró datos y hay fallback (PO Box: guia_origen falló → intenta guia US-)
+          if (!d && fallbackKey) d = await tryQuery(fallbackKey);
+          if (d) {
             const historial = d.historial || [];
             const lastH = historial[historial.length - 1];
             setExData(prev => ({
