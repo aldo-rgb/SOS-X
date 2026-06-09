@@ -128,6 +128,7 @@ const PANEL_TO_LOCATION: Record<string, string> = {
     'ops_scanner': 'scanner_unificado',
     'ops_inventory': 'inventario_sucursal',
     'ops_relabeling': 'reetiquetado',
+    'ops_service_inventory': 'service_inventory',
 };
 
 export default function WarehouseHubPage({ users = [] }: Props) {
@@ -219,8 +220,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 setUserRole(role);
             }
 
-            // Si es super_admin, mostrar todos los paneles
-            if (role === 'super_admin') {
+            // Super admin y roles gerenciales: mostrar todos los paneles
+            if (['super_admin', 'admin', 'director', 'branch_manager'].includes(role)) {
                 setLocations(ALL_LOCATIONS);
                 setLoading(false);
                 return;
