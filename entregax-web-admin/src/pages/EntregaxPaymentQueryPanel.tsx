@@ -26,6 +26,9 @@ interface Movimiento {
 interface Waybill {
   guia_ingreso?: string;
   guia_unica?: string;
+  guia_salida?: string;
+  guia_usa?: string;
+  paqueteria?: string;
   cliente?: string;
   estado?: string;
   direccion_entrega?: {
@@ -286,7 +289,7 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
                 📋 Instrucciones de Envío
               </Typography>
               <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 1.5 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 1.5 }}>
                   {result.waybill.estado && (
                     <Box>
                       <Typography variant="caption" color="text.secondary">Estado actual</Typography>
@@ -297,6 +300,40 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
                     <Box>
                       <Typography variant="caption" color="text.secondary">Cliente</Typography>
                       <Typography fontWeight={700}>{result.waybill.cliente}</Typography>
+                    </Box>
+                  )}
+                  {result.waybill.paqueteria && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Paquetería</Typography>
+                      <Typography fontWeight={700}>{result.waybill.paqueteria}</Typography>
+                    </Box>
+                  )}
+                  {result.waybill.guia_salida && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Guía de salida</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography fontWeight={700} fontFamily="monospace">{result.waybill.guia_salida}</Typography>
+                        <Tooltip title="Copiar">
+                          <IconButton size="small" onClick={() => navigator.clipboard.writeText(result.waybill!.guia_salida!)}>
+                            <ContentCopyIcon sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
+                    </Box>
+                  )}
+                  {(result.waybill.guia_usa || result.waybill.guia_ingreso) && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Guía USA</Typography>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                        <Typography fontWeight={700} fontFamily="monospace">
+                          {result.waybill.guia_usa || result.waybill.guia_ingreso}
+                        </Typography>
+                        <Tooltip title="Copiar">
+                          <IconButton size="small" onClick={() => navigator.clipboard.writeText(result.waybill!.guia_usa || result.waybill!.guia_ingreso || '')}>
+                            <ContentCopyIcon sx={{ fontSize: 14 }} />
+                          </IconButton>
+                        </Tooltip>
+                      </Box>
                     </Box>
                   )}
                   {result.waybill.direccion_entrega && (() => {
