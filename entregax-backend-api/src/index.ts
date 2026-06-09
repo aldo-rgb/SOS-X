@@ -2918,13 +2918,20 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'dhl') {
-      // DHL Monterrey: tabla dhl_shipments (inbound_tracking, box_id, status)
+      // DHL Monterrey: tabla dhl_shipments
+      // inbound_tracking a veces es JJD (guía hija); el número de 10 dígitos es la guía principal
       const params: any[] = [];
       let where = '1=1';
-      if (search) { params.push(`%${search}%`); where += ` AND (d.inbound_tracking ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
+      if (search) { params.push(`%${search}%`); where += ` AND (d.inbound_tracking ILIKE $${params.length} OR d.secondary_tracking ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(d.inspected_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(d.inspected_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
-      const q = `SELECT d.inbound_tracking AS guia, d.secondary_tracking AS guia_origen,
+      const q = `SELECT
+                        -- Si inbound_tracking empieza con JJD, el número real es secondary_tracking
+                        CASE WHEN d.inbound_tracking LIKE 'JJD%' THEN COALESCE(d.secondary_tracking, d.inbound_tracking)
+                             ELSE d.inbound_tracking END AS guia,
+                        -- guia_hija: el JJD si está en inbound, o secondary si inbound es el número real
+                        CASE WHEN d.inbound_tracking LIKE 'JJD%' THEN d.inbound_tracking
+                             ELSE d.secondary_tracking END AS guia_origen,
                         d.inspected_at AS received_at, d.updated_at,
                         COALESCE(d.status, 'received_mty') AS status,
                         u.box_id AS box_id, u.full_name AS cliente_nombre,

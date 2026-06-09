@@ -133,7 +133,7 @@ export default function ServiceInventoryPage() {
           <TableHead>
             <TableRow>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>GUÍA</TableCell>
-              <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>GUÍA ORIGEN</TableCell>
+              <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>{service === 'dhl' ? 'GUÍA HIJA' : 'GUÍA ORIGEN'}</TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>CLIENTE</TableCell>
               {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa') && (
                 <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>PAQUETERÍA / GUÍA SALIDA</TableCell>
