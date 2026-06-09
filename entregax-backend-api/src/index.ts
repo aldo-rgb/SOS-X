@@ -2873,26 +2873,31 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'pobox_usa') {
+      // PO Box: algunos paquetes tienen user_id NULL pero sí tienen p.box_id
+      // JOIN doble: primero por user_id, luego por box_id como fallback
+      const PB_JOIN = `LEFT JOIN users u ON p.user_id = u.id OR (p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id) = UPPER(u.box_id))
+                       LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id) = UPPER(lc.box_id) AND u.id IS NULL`;
       const params: any[] = [];
       let where = `p.service_type = 'POBOX_USA'`;
-      if (search) { params.push(`%${search}%`); params.push(search); where += ` AND (p.tracking_internal ILIKE $${params.length-1} OR p.tracking_provider ILIKE $${params.length-1} OR UPPER(u.box_id) = UPPER($${params.length}) OR u.full_name ILIKE $${params.length-1})`; }
+      if (search) { params.push(`%${search}%`); params.push(search); where += ` AND (p.tracking_internal ILIKE $${params.length-1} OR p.tracking_provider ILIKE $${params.length-1} OR UPPER(COALESCE(u.box_id, lc.box_id, p.box_id)) = UPPER($${params.length}) OR COALESCE(u.full_name, lc.full_name) ILIKE $${params.length-1})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
       const q = `SELECT p.tracking_internal AS guia,
                         COALESCE(NULLIF(p.tracking_provider,''), p.international_tracking) AS guia_origen,
                         p.origin_carrier AS guia_origen_carrier,
                         p.received_at, p.updated_at, p.status,
-                        u.box_id AS box_id,
-                        u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
+                        COALESCE(u.box_id, lc.box_id, p.box_id) AS box_id,
+                        COALESCE(u.full_name, lc.full_name) AS cliente_nombre,
+                        p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
                         COALESCE(p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
-                   FROM packages p ${JOIN_USERS}
+                   FROM packages p ${PB_JOIN}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
       const r = await pool.query(q, params);
       rows = r.rows;
-      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${JOIN_USERS} WHERE ${where}`, params.slice(0,-2));
+      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${PB_JOIN} WHERE ${where}`, params.slice(0,-2));
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'maritimo') {
