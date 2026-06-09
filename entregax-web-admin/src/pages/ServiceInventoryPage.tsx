@@ -101,28 +101,34 @@ export default function ServiceInventoryPage() {
     fetchAbortRef.current = false;
     setExFetching(true);
     setExProgress(0);
-    const guias = rows.map(r => r.guia).filter(Boolean);
+    // Para PO Box USA: la API de EntregaX usa guia_origen (tracking del courier UPS/FedEx),
+    // no el número interno US-... Guardamos resultado bajo guia (clave de la fila).
+    const entries = rows
+      .filter(r => r.guia)
+      .map(r => ({
+        storeKey: r.guia,
+        queryKey: service === 'pobox_usa' ? (r.guia_origen || r.guia) : r.guia,
+      }));
     const BATCH = 5;
     let done = 0;
-    for (let i = 0; i < guias.length; i += BATCH) {
+    for (let i = 0; i < entries.length; i += BATCH) {
       if (fetchAbortRef.current) break;
-      const batch = guias.slice(i, i + BATCH);
-      // Mark loading
+      const batch = entries.slice(i, i + BATCH);
       setExData(prev => {
         const next = { ...prev };
-        batch.forEach(g => { next[g] = { state: 'loading' }; });
+        batch.forEach(e => { next[e.storeKey] = { state: 'loading' }; });
         return next;
       });
-      await Promise.all(batch.map(async (guia) => {
+      await Promise.all(batch.map(async ({ storeKey, queryKey }) => {
         try {
-          const r = await api.get(`/national/payment-query/${encodeURIComponent(guia)}`);
+          const r = await api.get(`/national/payment-query/${encodeURIComponent(queryKey)}`);
           if (r.data?.status === 'success') {
             const d = r.data.data;
             const historial = d.historial || [];
             const lastH = historial[historial.length - 1];
             setExData(prev => ({
               ...prev,
-              [guia]: {
+              [storeKey]: {
                 state: 'done',
                 hasPago: (d.pagos || []).length > 0,
                 hasInstrucciones: !!d.waybill,
@@ -132,17 +138,17 @@ export default function ServiceInventoryPage() {
               },
             }));
           } else {
-            setExData(prev => ({ ...prev, [guia]: { state: 'error' } }));
+            setExData(prev => ({ ...prev, [storeKey]: { state: 'error' } }));
           }
         } catch {
-          setExData(prev => ({ ...prev, [guia]: { state: 'error' } }));
+          setExData(prev => ({ ...prev, [storeKey]: { state: 'error' } }));
         }
       }));
       done += batch.length;
-      setExProgress(Math.round((done / guias.length) * 100));
+      setExProgress(Math.round((done / entries.length) * 100));
     }
     setExFetching(false);
-  }, [rows]);
+  }, [rows, service]);
 
   return (
     <Box>
