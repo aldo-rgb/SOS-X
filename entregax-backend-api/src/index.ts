@@ -12254,13 +12254,24 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
           } catch { /* ignore */ }
         }
         if (altPayments || altHistory || altWaybill) {
+          const altWbMsg = (altWaybill as any)?.status === 'success' ? (altWaybill as any).message : null;
+          if (altWbMsg?.guia_usa && !altWbMsg.guia_ingreso) {
+            const r = await pool.query(
+              `SELECT COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia
+               FROM packages p
+               WHERE UPPER(p.tracking_provider) = UPPER($1) OR UPPER(p.international_tracking) = UPPER($1)
+               LIMIT 1`,
+              [altWbMsg.guia_usa]
+            ).catch(() => ({ rows: [] as any[] }));
+            if (r.rows[0]?.guia) altWbMsg.guia_ingreso = r.rows[0].guia;
+          }
           return (res as any).json({
             status: 'success',
             data: {
               ctz: altCtz || altGuideRaw,
               pagos: (altPayments as any)?.data?.pagos || [],
               historial: (altHistory as any)?.data || [],
-              waybill: (altWaybill as any)?.status === 'success' ? (altWaybill as any).message : null,
+              waybill: altWbMsg,
             },
           });
         }
@@ -12274,13 +12285,26 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
       return (res as any).status(404).json(fallback);
     }
 
+    // Si el waybill tiene guia_usa, usarla para buscar la guía interna en nuestra DB
+    const waybillMsg = (waybill as any)?.status === 'success' ? (waybill as any).message : null;
+    if (waybillMsg?.guia_usa && !waybillMsg.guia_ingreso) {
+      const r = await pool.query(
+        `SELECT COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia
+         FROM packages p
+         WHERE UPPER(p.tracking_provider) = UPPER($1) OR UPPER(p.international_tracking) = UPPER($1)
+         LIMIT 1`,
+        [waybillMsg.guia_usa]
+      ).catch(() => ({ rows: [] as any[] }));
+      if (r.rows[0]?.guia) waybillMsg.guia_ingreso = r.rows[0].guia;
+    }
+
     return (res as any).json({
       status: 'success',
       data: {
         ctz: ctzFromPayments || guide,
         pagos: (payments as any)?.data?.pagos || [],
         historial: (history as any)?.data || [],
-        waybill: (waybill as any)?.status === 'success' ? (waybill as any).message : null,
+        waybill: waybillMsg,
       },
     });
   } catch (err: any) {

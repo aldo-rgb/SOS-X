@@ -198,8 +198,8 @@ export default function ServiceInventoryPage() {
                 hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
                 hasInstrucciones: d.waybill?.instrucciones === '1',
                 guiaSalida: d.waybill?.guiasalida || undefined,
-                // Para PO Box: ctz es el USS-... interno que EntregaX asignó, diferente al carrier tracking consultado
-                guiaIngreso: (d.ctz && d.ctz !== queryKey ? d.ctz : undefined) || d.waybill?.guia_ingreso || d.waybill?.guia_usa || undefined,
+                // guia_ingreso viene del backend enriquecido: guia_usa del waybill → lookup en packages → guía interna US-...
+                guiaIngreso: d.waybill?.guia_ingreso || (d.ctz && d.ctz !== queryKey ? d.ctz : undefined) || undefined,
                 paqueteria: d.waybill?.paqueteria && d.waybill.paqueteria !== '0' ? d.waybill.paqueteria : undefined,
                 lastStatus: lastH?.estado || undefined,
                 direccionEntrega: d.waybill?.direccion_entrega || undefined,
