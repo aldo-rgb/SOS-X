@@ -10,6 +10,7 @@ import RefreshIcon from '@mui/icons-material/Refresh';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
+import SyncIcon from '@mui/icons-material/Sync';
 import api from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -72,6 +73,7 @@ export default function ServiceInventoryPage() {
   const [exFetching, setExFetching] = useState(false);
   const [exProgress, setExProgress] = useState(0);
   const fetchAbortRef = useRef(false);
+  const [syncState, setSyncState] = useState<Record<string, 'idle' | 'syncing' | 'done' | 'error'>>({});
 
   const fmt = (d?: string | null) =>
     d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
@@ -93,8 +95,44 @@ export default function ServiceInventoryPage() {
     finally { setLoading(false); }
   }, [service, page, rowsPerPage, search, dateFrom, dateTo]);
 
-  useEffect(() => { setPage(0); setExData({}); }, [service]);
-  useEffect(() => { load(); setExData({}); }, [load]);
+  useEffect(() => { setPage(0); setExData({}); setSyncState({}); }, [service]);
+  useEffect(() => { load(); setExData({}); setSyncState({}); }, [load]);
+
+  // Determina si una fila necesita sincronización (EntregaX tiene más que nuestro sistema)
+  const needsSync = (row: PackageRow, ex: EntregaxRow | undefined): boolean => {
+    if (!ex || ex.state !== 'done') return false;
+    return (!!ex.hasPago && !row.costing_paid) || (!!ex.hasInstrucciones && !row.has_instructions);
+  };
+
+  const syncRow = async (row: PackageRow) => {
+    const ex = exData[row.guia];
+    if (!ex || ex.state !== 'done') return;
+    setSyncState(prev => ({ ...prev, [row.guia]: 'syncing' }));
+    try {
+      await api.post('/packages/sync-from-entregax', {
+        guia: row.guia,
+        service,
+        hasPago: ex.hasPago && !row.costing_paid,
+        hasInstrucciones: ex.hasInstrucciones && !row.has_instructions,
+        paqueteria: ex.paqueteria,
+        guia_salida: ex.guiaSalida,
+      });
+      // Actualiza la fila localmente para reflejar el sync
+      setRows(prev => prev.map(r => {
+        if (r.guia !== row.guia) return r;
+        return {
+          ...r,
+          costing_paid: r.costing_paid || (ex.hasPago ?? false),
+          has_instructions: r.has_instructions || (ex.hasInstrucciones ?? false),
+          paqueteria: r.paqueteria || ex.paqueteria,
+          guia_salida: r.guia_salida || ex.guiaSalida,
+        };
+      }));
+      setSyncState(prev => ({ ...prev, [row.guia]: 'done' }));
+    } catch {
+      setSyncState(prev => ({ ...prev, [row.guia]: 'error' }));
+    }
+  };
 
   const fetchEntregax = useCallback(async () => {
     if (rows.length === 0) return;
@@ -244,6 +282,7 @@ export default function ServiceInventoryPage() {
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }} align="center">PAGO / INST.</TableCell>
               <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }} align="center">ENTREGAX</TableCell>
               <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }}>STATUS ENTREGAX</TableCell>
+              <TableCell sx={{ bgcolor: '#2E7D32', color: '#fff', fontWeight: 700 }} align="center">SINC.</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -328,8 +367,14 @@ export default function ServiceInventoryPage() {
                     <TableCell align="center" colSpan={2}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
                   );
                   if (ex.state === 'error') return (
-                    <TableCell align="center" colSpan={2}><Typography variant="caption" color="error">Sin datos</Typography></TableCell>
+                    <>
+                      <TableCell align="center" colSpan={2}><Typography variant="caption" color="error">Sin datos</Typography></TableCell>
+                      <TableCell align="center"><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
+                    </>
                   );
+                  // EntregaX data loaded — render columns + sync
+                  const desynced = needsSync(r, ex);
+                  const sState = syncState[r.guia] || 'idle';
                   return (
                     <>
                       <TableCell align="center">
@@ -362,6 +407,29 @@ export default function ServiceInventoryPage() {
                           <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>{ex.lastStatus}</Typography>
                         ) : (
                           <Typography variant="caption" color="text.disabled">—</Typography>
+                        )}
+                      </TableCell>
+                      {/* SINC. column */}
+                      <TableCell align="center">
+                        {sState === 'syncing' ? (
+                          <CircularProgress size={16} />
+                        ) : sState === 'done' ? (
+                          <Chip label="✅ Sincronizado" size="small" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontSize: '0.65rem' }} />
+                        ) : sState === 'error' ? (
+                          <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>Error</Typography>
+                        ) : desynced ? (
+                          <Tooltip title={`EntregaX tiene ${ex.hasPago && !r.costing_paid ? 'pago' : ''}${ex.hasPago && !r.costing_paid && ex.hasInstrucciones && !r.has_instructions ? ' e ' : ''}${ex.hasInstrucciones && !r.has_instructions ? 'instrucciones' : ''} que nuestro sistema no refleja`}>
+                            <Button
+                              size="small" variant="outlined"
+                              onClick={() => syncRow(r)}
+                              startIcon={<SyncIcon sx={{ fontSize: 13 }} />}
+                              sx={{ fontSize: '0.62rem', py: 0.25, px: 0.75, borderColor: '#F05A28', color: '#F05A28', '&:hover': { bgcolor: '#FFF3E0' } }}
+                            >
+                              Sincronizar
+                            </Button>
+                          </Tooltip>
+                        ) : (
+                          <Chip label="✅ Sync" size="small" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 600, fontSize: '0.62rem' }} />
                         )}
                       </TableCell>
                     </>

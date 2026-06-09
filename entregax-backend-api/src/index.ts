@@ -12231,6 +12231,66 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
   }
 });
 
+// POST /api/packages/sync-from-entregax — sincroniza pago e instrucciones desde EntregaX a nuestro sistema
+app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+  try {
+    const { guia, service, hasPago, hasInstrucciones, paqueteria, guia_salida } = req.body as {
+      guia: string; service: string;
+      hasPago: boolean; hasInstrucciones: boolean;
+      paqueteria?: string; guia_salida?: string;
+    };
+    if (!guia || !service) return (res as any).status(400).json({ error: 'guia y service son requeridos' });
+
+    const syncedFields: string[] = [];
+
+    if (service === 'maritimo') {
+      const updates: string[] = [];
+      const params: any[] = [];
+      if (hasPago) { updates.push(`payment_status = 'paid'`); syncedFields.push('pago'); }
+      if (hasInstrucciones && guia_salida) {
+        params.push(paqueteria || null); updates.push(`national_carrier = $${params.length}`);
+        params.push(guia_salida);       updates.push(`national_tracking = $${params.length}`);
+        syncedFields.push('instrucciones');
+      }
+      if (updates.length > 0) {
+        params.push(guia);
+        await pool.query(
+          `UPDATE maritime_orders SET ${updates.join(', ')}, updated_at = NOW() WHERE ordersn = $${params.length}`,
+          params
+        );
+      }
+    } else {
+      const updates: string[] = [];
+      const params: any[] = [];
+      if (hasPago) {
+        updates.push(`costing_paid = TRUE`);
+        updates.push(`client_paid = TRUE`);
+        updates.push(`payment_status = 'paid'`);
+        syncedFields.push('pago');
+      }
+      if (hasInstrucciones && guia_salida) {
+        params.push(paqueteria || null); updates.push(`national_carrier = $${params.length}`);
+        params.push(guia_salida);       updates.push(`national_tracking = $${params.length}`);
+        syncedFields.push('instrucciones');
+      }
+      if (updates.length > 0) {
+        params.push(guia);
+        await pool.query(
+          `UPDATE packages SET ${updates.join(', ')}, updated_at = NOW()
+           WHERE tracking_internal = $${params.length} OR child_no = $${params.length}`,
+          params
+        );
+      }
+    }
+
+    console.log(`[sync-entregax] guia=${guia} service=${service} synced=${syncedFields.join(',')}`);
+    return (res as any).json({ success: true, synced: syncedFields });
+  } catch (err: any) {
+    console.error('[sync-entregax]', err.message);
+    return (res as any).status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/admin/system/external-sync-toggle — habilita/deshabilita sincronización EX
 app.post('/api/admin/system/external-sync-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
   try {
