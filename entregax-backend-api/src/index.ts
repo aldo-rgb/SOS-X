@@ -12209,17 +12209,25 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
       ? await waybillRes.value.json().catch(() => null)
       : null;
 
-    // Si el waybill falló pero payments devolvió un ctz diferente al guide original
-    // (p.ej. se consultó con tracking UPS 1Z... pero el waybill necesita el USS-...),
-    // reintentar waybill con el ctz interno.
     const ctzFromPayments: string | undefined = (payments as any)?.data?.ctz;
-    if (!waybill && ctzFromPayments && ctzFromPayments !== rawGuide) {
-      const ctzEncoded = encodeURIComponent(ctzFromPayments);
-      const ctzTipo = inferTipo(ctzFromPayments);
-      try {
-        const retryRes = await fetch(`${BASE}/get-waybill/${ctzTipo}/${ctzEncoded}`, { headers: H });
-        if (retryRes.ok) waybill = await retryRes.json().catch(() => null);
-      } catch { /* ignore retry failure */ }
+    const paymentsGuias: any[] = (payments as any)?.data?.guias || [];
+
+    // Para PO Box (carrier tracking): buscar en guias[] la entrada donde guia_usa === rawGuide
+    // para extraer el guia_unica específico de ese paquete.
+    const matchedGuia = paymentsGuias.find(
+      (g: any) => g.guia_usa && g.guia_usa.toUpperCase() === rawGuide.toUpperCase()
+    );
+    const guiaUnica: string | undefined = matchedGuia?.guia_unica;
+
+    // Si el waybill falló, reintentar con guia_unica (paso 2 para PO Box) o con ctz
+    if (!waybill) {
+      const retryKey = guiaUnica || (ctzFromPayments !== rawGuide ? ctzFromPayments : undefined);
+      if (retryKey) {
+        try {
+          const retryRes = await fetch(`${BASE}/get-waybill/${inferTipo(retryKey)}/${encodeURIComponent(retryKey)}`, { headers: H });
+          if (retryRes.ok) waybill = await retryRes.json().catch(() => null);
+        } catch { /* ignore */ }
+      }
     }
 
     // Si todo falló y el guide parece ser un carrier tracking (UPS 1Z..., FedEx, etc.),
@@ -12279,7 +12287,8 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
       status: 'success',
       data: {
         ctz: ctzFromPayments || guide,
-        guias: (payments as any)?.data?.guias || [],
+        guia_unica: guiaUnica,
+        guias: paymentsGuias,
         pagos: (payments as any)?.data?.pagos || [],
         historial: (history as any)?.data || [],
         waybill: (waybill as any)?.status === 'success' ? (waybill as any).message : null,

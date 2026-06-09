@@ -152,13 +152,13 @@ export default function ServiceInventoryPage() {
     fetchAbortRef.current = false;
     setExFetching(true);
     setExProgress(0);
-    // Para PO Box: usar guia interna (tracking_internal = US-73-...) como query key,
-    // porque sistemaentregax.com indexa por ese formato, no por carrier tracking.
+    // Para PO Box: consultar por guia_origen (carrier tracking) → el backend extrae guia_unica
+    // haciendo match en guias[].guia_usa y luego consulta el waybill con guia_unica.
     const entries: { storeKey: string; queryKey: string }[] = rows
       .filter(r => r.guia)
       .map(r => ({
         storeKey: r.guia,
-        queryKey: r.guia,
+        queryKey: service === 'pobox_usa' && r.guia_origen ? r.guia_origen : r.guia,
       }));
     const BATCH = 5;
     let done = 0;
@@ -181,8 +181,8 @@ export default function ServiceInventoryPage() {
           if (d) {
             const historial = d.historial || [];
             const lastH = historial[historial.length - 1];
-            // guia_unica viene del waybill (PO Box) o del payments guias[] (otros)
-            const guiaUnica = d.waybill?.guia_unica || d.guias?.[0]?.guia_unica || undefined;
+            // guia_unica: backend lo extrae de guias[].guia_usa match con el carrier tracking
+            const guiaUnica = d.guia_unica || d.waybill?.guia_unica || d.guias?.[0]?.guia_unica || undefined;
             setExData(prev => ({
               ...prev,
               [storeKey]: {
