@@ -375,20 +375,19 @@ export default function ServiceInventoryPage() {
                 {/* ENTREGAX column */}
                 {(() => {
                   const ex = exData[r.guia];
+                  // ENTREGAX + STATUS ENTREGAX + (GUÍA ORIGEN EX si pobox) + SINC.
+                  const exColSpan = service === 'pobox_usa' ? 4 : 3;
                   if (!ex || ex.state === 'idle') return (
-                    <TableCell align="center" colSpan={2}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
+                    <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
                   );
                   if (ex.state === 'loading') return (
-                    <TableCell align="center" colSpan={2}><CircularProgress size={14} /></TableCell>
+                    <TableCell align="center" colSpan={exColSpan}><CircularProgress size={14} /></TableCell>
                   );
                   if (ex.state === 'notfound') return (
-                    <TableCell align="center" colSpan={2}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
+                    <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
                   );
                   if (ex.state === 'error') return (
-                    <>
-                      <TableCell align="center" colSpan={2}><Typography variant="caption" color="error">Sin datos</Typography></TableCell>
-                      <TableCell align="center"><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
-                    </>
+                    <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="error">Sin datos</Typography></TableCell>
                   );
                   // EntregaX data loaded — render columns + sync
                   const desynced = needsSync(r, ex);
