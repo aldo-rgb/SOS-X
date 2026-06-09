@@ -11881,10 +11881,37 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
     if (!enabled) return (res as any).status(503).json({ error: 'Consulta de pagos desactivada por administrador' });
 
     const guide = encodeURIComponent(String(req.params.guide));
-    const upstream = `https://sistemaentregax.com/api/quotes/get-payments/${guide}`;
-    const r = await fetch(upstream, { headers: { 'Accept': 'application/json' } });
-    const data = await r.json();
-    return (res as any).status(r.status).json(data);
+    const BASE = 'https://sistemaentregax.com/api/quotes';
+    const H = { 'Accept': 'application/json' };
+
+    const [paymentsRes, historyRes] = await Promise.allSettled([
+      fetch(`${BASE}/get-payments/${guide}`, { headers: H }),
+      fetch(`${BASE}/history-guide/${guide}`, { headers: H }),
+    ]);
+
+    const payments = paymentsRes.status === 'fulfilled' && paymentsRes.value.ok
+      ? await paymentsRes.value.json().catch(() => null)
+      : null;
+    const history = historyRes.status === 'fulfilled' && historyRes.value.ok
+      ? await historyRes.value.json().catch(() => null)
+      : null;
+
+    if (!payments && !history) {
+      // Ninguno respondió — devolver el error del primero
+      const fallback = paymentsRes.status === 'fulfilled'
+        ? await paymentsRes.value.json().catch(() => ({ error: 'Sin datos' }))
+        : { error: 'No se pudo contactar a sistemaentregax.com' };
+      return (res as any).status(404).json(fallback);
+    }
+
+    return (res as any).json({
+      status: 'success',
+      data: {
+        ctz: payments?.data?.ctz || guide,
+        pagos: payments?.data?.pagos || [],
+        historial: history?.data || [],
+      },
+    });
   } catch (err: any) {
     console.error('[PAYMENT-QUERY]', err.message);
     return (res as any).status(502).json({ error: 'No se pudo contactar a sistemaentregax.com' });

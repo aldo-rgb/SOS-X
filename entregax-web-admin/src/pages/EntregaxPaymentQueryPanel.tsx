@@ -17,9 +17,16 @@ interface Pago {
   comprobante_url?: string;
 }
 
+interface Movimiento {
+  guia: string;
+  estado: string;
+  fecha: string;
+}
+
 interface QueryResult {
   ctz: string;
   pagos: Pago[];
+  historial: Movimiento[];
 }
 
 interface Props {
@@ -193,6 +200,51 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
                 </Typography>
               </Box>
             </Paper>
+          )}
+
+          {/* Historial de movimientos */}
+          {result.historial && result.historial.length > 0 && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                Historial de Movimientos ({result.historial.length})
+              </Typography>
+              <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.900' }}>
+                      <TableCell sx={{ color: '#fff' }}><strong>#</strong></TableCell>
+                      <TableCell sx={{ color: '#fff' }}><strong>Estado</strong></TableCell>
+                      <TableCell sx={{ color: '#fff' }}><strong>Fecha</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {result.historial.map((m, i) => (
+                      <TableRow key={i} hover>
+                        <TableCell>
+                          <Chip label={i + 1} size="small" sx={{ bgcolor: '#f0f0f0' }} />
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            label={m.estado}
+                            size="small"
+                            sx={{
+                              bgcolor: i === result.historial.length - 1 ? '#E8F5E9' : '#F3F4F6',
+                              color: i === result.historial.length - 1 ? '#2E7D32' : '#374151',
+                              fontWeight: i === result.historial.length - 1 ? 700 : 400,
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" color="text.secondary">
+                            {m.fecha ? new Date(m.fecha).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—'}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Paper>
+            </Box>
           )}
         </Box>
       )}
