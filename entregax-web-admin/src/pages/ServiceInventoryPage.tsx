@@ -50,7 +50,7 @@ interface PackageRow {
 }
 
 interface EntregaxRow {
-  state: 'idle' | 'loading' | 'done' | 'error';
+  state: 'idle' | 'loading' | 'done' | 'notfound' | 'error';
   hasPago?: boolean;
   hasInstrucciones?: boolean;
   guiaSalida?: string;
@@ -121,16 +121,22 @@ export default function ServiceInventoryPage() {
         return next;
       });
       await Promise.all(batch.map(async ({ storeKey, queryKey, fallbackKey }) => {
-        const tryQuery = async (key: string) => {
-          const r = await api.get(`/national/payment-query/${encodeURIComponent(key)}`);
-          if (r.data?.status === 'success') return r.data.data;
-          return null;
+        const tryQuery = async (key: string): Promise<{ data: any; notfound: boolean }> => {
+          try {
+            const r = await api.get(`/national/payment-query/${encodeURIComponent(key)}`);
+            if (r.data?.status === 'success') return { data: r.data.data, notfound: false };
+            return { data: null, notfound: false };
+          } catch (err: any) {
+            const is404 = err?.response?.status === 404;
+            return { data: null, notfound: is404 };
+          }
         };
         try {
-          let d = await tryQuery(queryKey);
-          // Si no encontró datos y hay fallback (PO Box: guia_origen falló → intenta guia US-)
-          if (!d && fallbackKey) d = await tryQuery(fallbackKey);
-          if (d) {
+          let result = await tryQuery(queryKey);
+          // Fallback para PO Box: si guia_origen no encontró, intenta con guia US-
+          if (!result.data && fallbackKey) result = await tryQuery(fallbackKey);
+          if (result.data) {
+            const d = result.data;
             const historial = d.historial || [];
             const lastH = historial[historial.length - 1];
             setExData(prev => ({
@@ -145,7 +151,9 @@ export default function ServiceInventoryPage() {
               },
             }));
           } else {
-            setExData(prev => ({ ...prev, [storeKey]: { state: 'error' } }));
+            // 404 = no registrado en EntregaX (normal para paquetes nuevos)
+            // otro error = fallo real
+            setExData(prev => ({ ...prev, [storeKey]: { state: result.notfound ? 'notfound' : 'error' } }));
           }
         } catch {
           setExData(prev => ({ ...prev, [storeKey]: { state: 'error' } }));
@@ -315,6 +323,9 @@ export default function ServiceInventoryPage() {
                   );
                   if (ex.state === 'loading') return (
                     <TableCell align="center" colSpan={2}><CircularProgress size={14} /></TableCell>
+                  );
+                  if (ex.state === 'notfound') return (
+                    <TableCell align="center" colSpan={2}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
                   );
                   if (ex.state === 'error') return (
                     <TableCell align="center" colSpan={2}><Typography variant="caption" color="error">Sin datos</Typography></TableCell>
