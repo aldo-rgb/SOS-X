@@ -6440,7 +6440,7 @@ export default function DashboardClient() {
                     { id: 'maritimo', Icon: BoatIcon, nombre: 'Marítimo China', desc: '45-60 días' },
                     { id: 'aereo', Icon: FlightIcon, nombre: 'Aéreo China', desc: '10-15 días' },
                     { id: 'pobox', Icon: PostOfficeIcon, nombre: 'PO Box USA', desc: '5-10 días' },
-                    { id: 'dhl', Icon: TruckIcon, nombre: 'DHL Nacional', desc: '1-3 días' },
+                    { id: 'dhl', Icon: TruckIcon, nombre: 'Despacho Aduanal MTY', desc: '1-3 días' },
                   ].map((svc) => {
                     const selected = quoteService === svc.id;
                     return (
@@ -7332,7 +7332,7 @@ export default function DashboardClient() {
                               <TableRow hover sx={{ cursor: 'help' }}>
                                 <TableCell>
                                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <TruckIcon sx={{ color: '#FFCC00' }} /> DHL Nacional
+                                    <TruckIcon sx={{ color: '#FFCC00' }} /> Despacho Aduanal MTY
                                   </Box>
                                 </TableCell>
                                 <TableCell>1-3 días</TableCell>
