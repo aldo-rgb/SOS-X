@@ -2826,13 +2826,25 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       const params: any[] = [];
       let where = isExpress
         ? `(p.service_type = 'tdi_express' OR (p.service_type = 'AIR_CHN_MX' AND p.air_source = 'tdi_express'))`
-        : `(p.service_type = 'AIR_CHN_MX' AND (p.air_source IS NULL OR p.air_source NOT IN ('tdi_express','extraction_express')))`;
+        : `(p.service_type = 'AIR_CHN_MX')`;
 
       if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.international_tracking ILIKE $${params.length} OR p.box_id ILIKE $${params.length})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
 
-      const q = `SELECT p.tracking_internal AS guia, p.international_tracking AS guia_origen,
+      // child_no contiene la guía AIR completa (AIR2608808pOYsr-001)
+      // tracking_internal contiene la guía corta (CN-OYsr-001)
+      if (search) {
+        // también buscar en child_no
+        const last = params.length;
+        where = where.replace(
+          `AND (p.tracking_internal ILIKE $${last} OR p.international_tracking ILIKE $${last} OR p.box_id ILIKE $${last})`,
+          `AND (p.tracking_internal ILIKE $${last} OR p.child_no ILIKE $${last} OR p.international_tracking ILIKE $${last} OR p.box_id ILIKE $${last})`
+        );
+      }
+      const q = `SELECT COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia,
+                        p.tracking_internal AS guia_corta,
+                        p.international_tracking AS guia_origen,
                         p.received_at, p.updated_at, p.status, p.box_id,
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida
@@ -2864,40 +2876,42 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'maritimo') {
+      // Marítimo China: paquetes en tabla packages con service_type='china_sea' (LOG...)
       const params: any[] = [];
-      let where = '1=1';
-      if (search) { params.push(`%${search}%`); where += ` AND (ms.log_number ILIKE $${params.length} OR ms.shipping_mark ILIKE $${params.length})`; }
-      if (dateFrom) { params.push(dateFrom); where += ` AND DATE(ms.created_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
-      if (dateTo)   { params.push(dateTo);   where += ` AND DATE(ms.created_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
-      const q = `SELECT ms.log_number AS guia, ms.shipping_mark AS guia_origen,
-                        ms.created_at AS received_at, ms.updated_at, ms.status,
-                        u.box_id, u.full_name AS cliente_nombre,
-                        NULL AS paqueteria, NULL AS guia_salida
-                   FROM maritime_shipments ms LEFT JOIN users u ON ms.user_id = u.id
-                  WHERE ${where} ORDER BY ms.created_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
+      let where = `p.service_type = 'china_sea'`;
+      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
+      if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
+      if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
+      const q = `SELECT p.tracking_internal AS guia, p.international_tracking AS guia_origen,
+                        p.received_at, p.updated_at, p.status, p.box_id,
+                        u.full_name AS cliente_nombre,
+                        p.national_carrier AS paqueteria, p.national_tracking AS guia_salida
+                   FROM packages p LEFT JOIN users u ON p.user_id = u.id
+                  WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
       const r = await pool.query(q, params);
       rows = r.rows;
-      const cr = await pool.query(`SELECT COUNT(*) FROM maritime_shipments ms WHERE ${where}`, params.slice(0,-2));
+      const cr = await pool.query(`SELECT COUNT(*) FROM packages p LEFT JOIN users u ON p.user_id = u.id WHERE ${where}`, params.slice(0,-2));
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'dhl') {
+      // DHL Monterrey: tabla dhl_shipments (inbound_tracking, box_id, status)
       const params: any[] = [];
       let where = '1=1';
-      if (search) { params.push(`%${search}%`); where += ` AND (d.tracking_number ILIKE $${params.length} OR d.client_name ILIKE $${params.length})`; }
-      if (dateFrom) { params.push(dateFrom); where += ` AND DATE(d.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
-      if (dateTo)   { params.push(dateTo);   where += ` AND DATE(d.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
-      const q = `SELECT d.tracking_number AS guia, NULL AS guia_origen,
-                        d.received_at, d.released_at AS updated_at,
-                        COALESCE(d.status, 'received') AS status,
-                        NULL AS box_id, d.client_name AS cliente_nombre,
-                        NULL AS paqueteria, NULL AS guia_salida
-                   FROM dhl_packages d
-                  WHERE ${where} ORDER BY d.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
+      if (search) { params.push(`%${search}%`); where += ` AND (d.inbound_tracking ILIKE $${params.length} OR d.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
+      if (dateFrom) { params.push(dateFrom); where += ` AND DATE(d.inspected_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
+      if (dateTo)   { params.push(dateTo);   where += ` AND DATE(d.inspected_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
+      const q = `SELECT d.inbound_tracking AS guia, d.secondary_tracking AS guia_origen,
+                        d.inspected_at AS received_at, d.updated_at,
+                        COALESCE(d.status, 'received_mty') AS status,
+                        d.box_id, u.full_name AS cliente_nombre,
+                        d.national_carrier AS paqueteria, d.national_tracking AS guia_salida
+                   FROM dhl_shipments d LEFT JOIN users u ON d.user_id = u.id
+                  WHERE ${where} ORDER BY d.inspected_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
       const r = await pool.query(q, params);
       rows = r.rows;
-      const cr = await pool.query(`SELECT COUNT(*) FROM dhl_packages d WHERE ${where}`, params.slice(0,-2));
+      const cr = await pool.query(`SELECT COUNT(*) FROM dhl_shipments d LEFT JOIN users u ON d.user_id = u.id WHERE ${where}`, params.slice(0,-2));
       total = parseInt(cr.rows[0].count);
     }
 
@@ -3907,6 +3921,74 @@ app.get('/api/packages/track/:tracking', authenticateToken, getPackageByTracking
 
 // Historial de movimientos por tracking (cualquier usuario autenticado con permiso)
 app.get('/api/packages/track/:tracking/movements', authenticateToken, getPackageMovementsByTracking);
+
+// Fotos / evidencias de MoJie (China Air) por tracking. Sólo el dueño del
+// paquete o staff con permiso pueden ver. Lee `evidence_urls` de la tabla
+// `china_receipts` asociada al paquete.
+app.get('/api/packages/track/:tracking/photos', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const tracking = String(req.params.tracking || '').trim();
+    if (!tracking) {
+      res.status(400).json({ success: false, error: 'Tracking requerido' });
+      return;
+    }
+    const upper = tracking.toUpperCase();
+    const compact = upper.replace(/[^A-Z0-9]/g, '');
+    const userId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
+    const isStaff = role && role !== 'client';
+
+    // Buscar el paquete (acepta tracking_internal, tracking_provider, child_no)
+    const pkgRes = await pool.query(
+      `SELECT p.id, p.user_id, p.china_receipt_id, p.tracking_internal, p.child_no
+       FROM packages p
+       WHERE UPPER(p.tracking_internal) = $1
+          OR UPPER(COALESCE(p.tracking_provider,'')) = $1
+          OR UPPER(COALESCE(p.child_no,'')) = $1
+          OR REGEXP_REPLACE(UPPER(COALESCE(p.tracking_internal,'')), '[^A-Z0-9]', '', 'g') = $2
+          OR REGEXP_REPLACE(UPPER(COALESCE(p.child_no,'')), '[^A-Z0-9]', '', 'g') = $2
+       ORDER BY p.id DESC
+       LIMIT 1`,
+      [upper, compact]
+    );
+    const pkg = pkgRes.rows[0];
+    if (!pkg) {
+      res.status(404).json({ success: false, error: 'Paquete no encontrado' });
+      return;
+    }
+    // Autorización: el dueño o staff
+    if (!isStaff && pkg.user_id && Number(pkg.user_id) !== Number(userId)) {
+      res.status(403).json({ success: false, error: 'No autorizado para ver este paquete' });
+      return;
+    }
+    // Resolver fotos: primero por china_receipt_id directo; si no, por prefijo
+    // del child_no (guías master virtual donde el paquete no tiene FK).
+    let photos: string[] = [];
+    if (pkg.china_receipt_id) {
+      const r = await pool.query(
+        'SELECT evidence_urls FROM china_receipts WHERE id = $1',
+        [pkg.china_receipt_id]
+      );
+      photos = r.rows[0]?.evidence_urls || [];
+    }
+    if ((!photos || photos.length === 0) && pkg.tracking_internal) {
+      // Master virtual: "AIR2630456Qydeh-001" → buscar receipt con fno = "AIR2630456Qydeh"
+      const fnoCandidate = String(pkg.tracking_internal).toUpperCase().replace(/-\d{1,4}$/, '');
+      const r = await pool.query(
+        `SELECT evidence_urls FROM china_receipts
+         WHERE UPPER(fno) = $1
+            OR REGEXP_REPLACE(UPPER(fno), '[^A-Z0-9]', '', 'g') = $2
+         LIMIT 1`,
+        [fnoCandidate, fnoCandidate.replace(/[^A-Z0-9]/g, '')]
+      );
+      photos = r.rows[0]?.evidence_urls || [];
+    }
+    res.json({ success: true, photos: Array.isArray(photos) ? photos : [] });
+  } catch (err: any) {
+    console.error('[photos] error:', err?.message);
+    res.status(500).json({ success: false, error: 'Error al cargar fotos' });
+  }
+});
 
 // Paquetes de un cliente específico (Staff o superior)
 app.get('/api/packages/client/:boxId', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), getPackagesByClient);

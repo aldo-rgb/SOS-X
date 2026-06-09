@@ -32,6 +32,7 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }
 
 interface PackageRow {
   guia: string;
+  guia_corta?: string;
   guia_origen?: string;
   received_at: string;
   updated_at?: string;
@@ -149,6 +150,9 @@ export default function ServiceInventoryPage() {
                     <Typography variant="body2" fontWeight={700} fontFamily="monospace">{r.guia || '—'}</Typography>
                     {r.guia && <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(r.guia)}><ContentCopyIcon sx={{ fontSize: 13 }} /></IconButton></Tooltip>}
                   </Box>
+                  {r.guia_corta && r.guia_corta !== r.guia && (
+                    <Typography variant="caption" color="text.secondary" fontFamily="monospace">{r.guia_corta}</Typography>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Typography variant="caption" fontFamily="monospace" color="text.secondary">{r.guia_origen || '—'}</Typography>
