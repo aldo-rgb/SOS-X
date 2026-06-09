@@ -2866,7 +2866,9 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.international_tracking ILIKE $${params.length} OR p.box_id ILIKE $${params.length})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
-      const q = `SELECT p.tracking_internal AS guia, p.international_tracking AS guia_origen,
+      const q = `SELECT p.tracking_internal AS guia,
+                        COALESCE(NULLIF(p.tracking_provider,''), p.international_tracking) AS guia_origen,
+                        p.origin_carrier AS guia_origen_carrier,
                         p.received_at, p.updated_at, p.status,
                         u.box_id AS box_id,
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,

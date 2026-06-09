@@ -36,6 +36,7 @@ interface PackageRow {
   guia: string;
   guia_corta?: string;
   guia_origen?: string;
+  guia_origen_carrier?: string;
   received_at: string;
   updated_at?: string;
   status: string;
@@ -160,7 +161,12 @@ export default function ServiceInventoryPage() {
                   )}
                 </TableCell>
                 <TableCell>
-                  <Typography variant="caption" fontFamily="monospace" color="text.secondary">{r.guia_origen || '—'}</Typography>
+                  {r.guia_origen
+                    ? <>
+                        <Typography variant="caption" fontFamily="monospace" color="text.secondary" display="block">{r.guia_origen}</Typography>
+                        {r.guia_origen_carrier && <Typography variant="caption" sx={{ color: '#888', fontSize: '0.65rem' }}>{r.guia_origen_carrier}</Typography>}
+                      </>
+                    : <Typography variant="caption" color="text.disabled">—</Typography>}
                 </TableCell>
                 <TableCell>
                   <Typography variant="body2" fontWeight={600}>{r.box_id || '—'}</Typography>
