@@ -2896,25 +2896,25 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'maritimo') {
-      // Marítimo China: paquetes en tabla packages con service_type='china_sea' (LOG...)
+      // Marítimo China: tabla maritime_orders (ordersn = LOG...), NO packages
       const params: any[] = [];
-      let where = `p.service_type = 'china_sea'`;
-      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
-      if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
-      if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
-      const q = `SELECT p.tracking_internal AS guia, p.international_tracking AS guia_origen,
-                        p.received_at, p.updated_at, p.status,
-                        u.box_id AS box_id,
+      let where = `1=1`;
+      if (search) { params.push(`%${search}%`); where += ` AND (mo.ordersn ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length} OR mo.shipping_mark ILIKE $${params.length})`; }
+      if (dateFrom) { params.push(dateFrom); where += ` AND DATE(mo.created_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
+      if (dateTo)   { params.push(dateTo);   where += ` AND DATE(mo.created_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
+      const q = `SELECT mo.ordersn AS guia, NULL AS guia_origen,
+                        mo.created_at AS received_at, mo.updated_at, mo.status,
+                        COALESCE(u.box_id, mo.shipping_mark) AS box_id,
                         u.full_name AS cliente_nombre,
-                        p.national_carrier AS paqueteria, p.national_tracking AS guia_salida,
-                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
-                        (p.delivery_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
-                   FROM packages p ${JOIN_USERS}
-                  WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
+                        mo.national_carrier AS paqueteria, mo.national_tracking AS guia_salida,
+                        (mo.payment_status = 'paid') AS costing_paid,
+                        (mo.delivery_address_id IS NOT NULL OR mo.national_tracking IS NOT NULL) AS has_instructions
+                   FROM maritime_orders mo LEFT JOIN users u ON mo.user_id = u.id
+                  WHERE ${where} ORDER BY mo.created_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
       const r = await pool.query(q, params);
       rows = r.rows;
-      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${JOIN_USERS} WHERE ${where}`, params.slice(0,-2));
+      const cr = await pool.query(`SELECT COUNT(*) FROM maritime_orders mo LEFT JOIN users u ON mo.user_id = u.id WHERE ${where}`, params.slice(0,-2));
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'dhl') {
