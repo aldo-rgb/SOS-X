@@ -86,6 +86,11 @@ export default function ServiceInventoryPage() {
   const [exProgress, setExProgress] = useState(0);
   const fetchAbortRef = useRef(false);
   const [syncState, setSyncState] = useState<Record<string, 'idle' | 'syncing' | 'done' | 'error'>>({});
+  // PO Box: guia_unica descubierta via carrier tracking (paso 1 separado)
+  const [usGuias, setUsGuias] = useState<Record<string, { state: 'idle'|'loading'|'done'|'notfound'|'error'; guia_unica?: string }>>({});
+  const [usFetching, setUsFetching] = useState(false);
+  const [usProgress, setUsProgress] = useState(0);
+  const usAbortRef = useRef(false);
 
   const fmt = (d?: string | null) =>
     d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
@@ -107,8 +112,8 @@ export default function ServiceInventoryPage() {
     finally { setLoading(false); }
   }, [service, page, rowsPerPage, search, dateFrom, dateTo]);
 
-  useEffect(() => { setPage(0); setExData({}); setSyncState({}); }, [service]);
-  useEffect(() => { load(); setExData({}); setSyncState({}); }, [load]);
+  useEffect(() => { setPage(0); setExData({}); setSyncState({}); setUsGuias({}); }, [service]);
+  useEffect(() => { load(); setExData({}); setSyncState({}); setUsGuias({}); }, [load]);
 
   // Determina si una fila necesita sincronización (EntregaX tiene más que nuestro sistema)
   const needsSync = (row: PackageRow, ex: EntregaxRow | undefined): boolean => {
@@ -147,18 +152,58 @@ export default function ServiceInventoryPage() {
     }
   };
 
+  // Solo para PO Box: consulta guia_origen para descubrir guia_unica de cada paquete
+  const fetchGuiaUS = useCallback(async () => {
+    if (service !== 'pobox_usa' || rows.length === 0) return;
+    usAbortRef.current = false;
+    setUsFetching(true);
+    setUsProgress(0);
+    const entries = rows.filter(r => r.guia_origen).map(r => ({ storeKey: r.guia, queryKey: r.guia_origen! }));
+    const BATCH = 5;
+    let done = 0;
+    for (let i = 0; i < entries.length; i += BATCH) {
+      if (usAbortRef.current) break;
+      const batch = entries.slice(i, i + BATCH);
+      setUsGuias(prev => {
+        const next = { ...prev };
+        batch.forEach(e => { next[e.storeKey] = { state: 'loading' }; });
+        return next;
+      });
+      await Promise.all(batch.map(async ({ storeKey, queryKey }) => {
+        try {
+          const res = await api.get(`/national/payment-query/${encodeURIComponent(queryKey)}`).catch((err: any) => {
+            return { data: null, _notfound: err?.response?.status === 404 } as any;
+          });
+          const d = res?.data?.status === 'success' ? res.data.data : null;
+          if (d?.guia_unica) {
+            setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'done', guia_unica: d.guia_unica } }));
+          } else {
+            setUsGuias(prev => ({ ...prev, [storeKey]: { state: res?._notfound ? 'notfound' : 'error' } }));
+          }
+        } catch {
+          setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'error' } }));
+        }
+      }));
+      done += batch.length;
+      setUsProgress(Math.round((done / entries.length) * 100));
+    }
+    setUsFetching(false);
+  }, [rows, service]);
+
   const fetchEntregax = useCallback(async () => {
     if (rows.length === 0) return;
     fetchAbortRef.current = false;
     setExFetching(true);
     setExProgress(0);
-    // Para PO Box: consultar por guia_origen (carrier tracking) → el backend extrae guia_unica
-    // haciendo match en guias[].guia_usa y luego consulta el waybill con guia_unica.
+    // Para PO Box: si ya se hizo "Consultar Guia US" usa guia_unica directamente,
+    // si no, usa guia_origen para que el backend haga el match.
     const entries: { storeKey: string; queryKey: string }[] = rows
       .filter(r => r.guia)
       .map(r => ({
         storeKey: r.guia,
-        queryKey: service === 'pobox_usa' && r.guia_origen ? r.guia_origen : r.guia,
+        queryKey: service === 'pobox_usa'
+          ? (usGuias[r.guia]?.guia_unica || r.guia_origen || r.guia)
+          : r.guia,
       }));
     const BATCH = 5;
     let done = 0;
@@ -208,7 +253,7 @@ export default function ServiceInventoryPage() {
       setExProgress(Math.round((done / entries.length) * 100));
     }
     setExFetching(false);
-  }, [rows, service]);
+  }, [rows, service, usGuias]);
 
   return (
     <Box>
@@ -249,6 +294,16 @@ export default function ServiceInventoryPage() {
           <Tooltip title="Recargar">
             <IconButton size="small" onClick={load}><RefreshIcon fontSize="small" /></IconButton>
           </Tooltip>
+          {service === 'pobox_usa' && (
+            <Button
+              variant="outlined" size="small"
+              onClick={() => { if (usFetching) { usAbortRef.current = true; } else { fetchGuiaUS(); } }}
+              startIcon={usFetching ? <CircularProgress size={14} /> : <LocalShippingIcon fontSize="small" />}
+              sx={{ borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#F3E5F5' }, whiteSpace: 'nowrap' }}
+            >
+              {usFetching ? `Guia US ${usProgress}%` : 'Consultar Guia US'}
+            </Button>
+          )}
           <Button
             variant="outlined" size="small"
             onClick={() => { if (exFetching) { fetchAbortRef.current = true; } else { fetchEntregax(); } }}
@@ -263,6 +318,12 @@ export default function ServiceInventoryPage() {
         </Box>
       </Paper>
 
+      {usFetching && (
+        <Box sx={{ mb: 1 }}>
+          <LinearProgress variant="determinate" value={usProgress} sx={{ height: 4, borderRadius: 2, bgcolor: '#F3E5F5', '& .MuiLinearProgress-bar': { bgcolor: '#7B1FA2' } }} />
+          <Typography variant="caption" color="text.secondary">Consultando Guia US… {usProgress}%</Typography>
+        </Box>
+      )}
       {exFetching && (
         <Box sx={{ mb: 1 }}>
           <LinearProgress variant="determinate" value={exProgress} sx={{ height: 4, borderRadius: 2, bgcolor: '#E3F2FD', '& .MuiLinearProgress-bar': { bgcolor: '#1565C0' } }} />
@@ -290,6 +351,7 @@ export default function ServiceInventoryPage() {
               <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }} align="center">ENTREGAX</TableCell>
               <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }}>STATUS ENTREGAX</TableCell>
               {service === 'pobox_usa' && <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }}>GUÍA ORIGEN (EX)</TableCell>}
+              {service === 'pobox_usa' && <TableCell sx={{ bgcolor: '#7B1FA2', color: '#fff', fontWeight: 700 }}>GUÍA US</TableCell>}
               <TableCell sx={{ bgcolor: '#2E7D32', color: '#fff', fontWeight: 700 }} align="center">SINC.</TableCell>
             </TableRow>
           </TableHead>
@@ -366,6 +428,7 @@ export default function ServiceInventoryPage() {
                 {(() => {
                   const ex = exData[r.guia];
                   // ENTREGAX + STATUS ENTREGAX + (GUÍA ORIGEN EX si pobox) + SINC.
+                  // PO Box: ENTREGAX + STATUS ENTREGAX + GUÍA ORIGEN (EX) + SINC. = 4 (GUÍA US es columna independiente)
                   const exColSpan = service === 'pobox_usa' ? 4 : 3;
                   if (!ex || ex.state === 'idle') return (
                     <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
@@ -451,6 +514,26 @@ export default function ServiceInventoryPage() {
                         )}
                       </TableCell>
                     </>
+                  );
+                })()}
+                {/* GUÍA US — columna independiente, poblada por "Consultar Guia US" */}
+                {service === 'pobox_usa' && (() => {
+                  const us = usGuias[r.guia];
+                  return (
+                    <TableCell>
+                      {us?.state === 'loading' ? (
+                        <CircularProgress size={12} sx={{ color: '#7B1FA2' }} />
+                      ) : us?.guia_unica ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.7rem', color: '#7B1FA2', fontWeight: 600 }}>{us.guia_unica}</Typography>
+                          <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(us.guia_unica!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
+                        </Box>
+                      ) : us?.state === 'error' ? (
+                        <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>Error</Typography>
+                      ) : (
+                        <Typography variant="caption" color="text.disabled">—</Typography>
+                      )}
+                    </TableCell>
                   );
                 })()}
               </TableRow>
