@@ -2850,7 +2850,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
                         COALESCE(p.costing_paid, FALSE) AS costing_paid,
-                        (p.delivery_address_id IS NOT NULL) AS has_instructions
+                        (p.delivery_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
                    FROM packages p LEFT JOIN users u ON p.user_id = u.id
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
@@ -2874,7 +2874,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
                         COALESCE(p.costing_paid, FALSE) AS costing_paid,
-                        (p.delivery_address_id IS NOT NULL) AS has_instructions
+                        (p.delivery_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
                    FROM packages p LEFT JOIN users u ON p.user_id = u.id
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
@@ -2896,7 +2896,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.full_name AS cliente_nombre,
                         p.national_carrier AS paqueteria, p.national_tracking AS guia_salida,
                         COALESCE(p.costing_paid, FALSE) AS costing_paid,
-                        (p.delivery_address_id IS NOT NULL) AS has_instructions
+                        (p.delivery_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
                    FROM packages p LEFT JOIN users u ON p.user_id = u.id
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
