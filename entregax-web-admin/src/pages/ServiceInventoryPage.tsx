@@ -50,6 +50,16 @@ interface PackageRow {
   has_instructions?: boolean;
 }
 
+interface DireccionEntregax {
+  quienrecibe?: string;
+  calle?: string;
+  numeroext?: string;
+  colonia?: string;
+  cp?: string;
+  estado?: string;
+  pais?: string;
+}
+
 interface EntregaxRow {
   state: 'idle' | 'loading' | 'done' | 'notfound' | 'error';
   hasPago?: boolean;
@@ -57,6 +67,7 @@ interface EntregaxRow {
   guiaSalida?: string;
   paqueteria?: string;
   lastStatus?: string;
+  direccionEntrega?: DireccionEntregax;
 }
 
 export default function ServiceInventoryPage() {
@@ -116,6 +127,7 @@ export default function ServiceInventoryPage() {
         hasInstrucciones: ex.hasInstrucciones && !row.has_instructions,
         paqueteria: ex.paqueteria,
         guia_salida: ex.guiaSalida,
+        direccion_entrega: ex.direccionEntrega,
       });
       // Actualiza la fila localmente para reflejar el sync
       setRows(prev => prev.map(r => {
@@ -186,6 +198,7 @@ export default function ServiceInventoryPage() {
                 guiaSalida: d.waybill?.guia_salida || undefined,
                 paqueteria: d.waybill?.paqueteria || undefined,
                 lastStatus: lastH?.estado || undefined,
+                direccionEntrega: d.waybill?.direccion_entrega || undefined,
               },
             }));
           } else {

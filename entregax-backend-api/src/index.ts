@@ -12231,17 +12231,37 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
   }
 });
 
-// POST /api/packages/sync-from-entregax — sincroniza pago e instrucciones desde EntregaX a nuestro sistema
+// POST /api/packages/sync-from-entregax — sincroniza pago, instrucciones y dirección desde EntregaX
 app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
   try {
-    const { guia, service, hasPago, hasInstrucciones, paqueteria, guia_salida } = req.body as {
+    const { guia, service, hasPago, hasInstrucciones, paqueteria, guia_salida, direccion_entrega } = req.body as {
       guia: string; service: string;
       hasPago: boolean; hasInstrucciones: boolean;
       paqueteria?: string; guia_salida?: string;
+      direccion_entrega?: {
+        quienrecibe?: string; calle?: string; numeroext?: string;
+        colonia?: string; cp?: string; estado?: string; pais?: string;
+      };
     };
     if (!guia || !service) return (res as any).status(400).json({ error: 'guia y service son requeridos' });
 
     const syncedFields: string[] = [];
+
+    // Helper: crea dirección en addresses y devuelve su id
+    const upsertAddress = async (userId: number | null): Promise<number | null> => {
+      if (!userId || !direccion_entrega) return null;
+      const { quienrecibe, calle, numeroext, colonia, cp, estado } = direccion_entrega;
+      if (!calle && !cp) return null; // dirección vacía, no creamos nada
+      const r = await pool.query(
+        `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number,
+                                neighborhood, zip_code, state, is_default)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
+         RETURNING id`,
+        [userId, `EntregaX Sync · ${guia}`, quienrecibe || null, calle || null,
+         numeroext || null, colonia || null, cp || null, estado || null]
+      );
+      return r.rows[0]?.id ?? null;
+    };
 
     if (service === 'maritimo') {
       const updates: string[] = [];
@@ -12250,6 +12270,10 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
       if (hasInstrucciones && guia_salida) {
         params.push(paqueteria || null); updates.push(`national_carrier = $${params.length}`);
         params.push(guia_salida);       updates.push(`national_tracking = $${params.length}`);
+        // Crear y linkear dirección
+        const moRes = await pool.query(`SELECT user_id FROM maritime_orders WHERE ordersn = $1 LIMIT 1`, [guia]);
+        const addrId = await upsertAddress(moRes.rows[0]?.user_id);
+        if (addrId) { params.push(addrId); updates.push(`delivery_address_id = $${params.length}`); }
         syncedFields.push('instrucciones');
       }
       if (updates.length > 0) {
@@ -12271,6 +12295,12 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
       if (hasInstrucciones && guia_salida) {
         params.push(paqueteria || null); updates.push(`national_carrier = $${params.length}`);
         params.push(guia_salida);       updates.push(`national_tracking = $${params.length}`);
+        // Crear y linkear dirección
+        const pkgRes = await pool.query(
+          `SELECT user_id FROM packages WHERE tracking_internal = $1 OR child_no = $1 LIMIT 1`, [guia]
+        );
+        const addrId = await upsertAddress(pkgRes.rows[0]?.user_id);
+        if (addrId) { params.push(addrId); updates.push(`delivery_address_id = $${params.length}`); }
         syncedFields.push('instrucciones');
       }
       if (updates.length > 0) {
