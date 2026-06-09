@@ -65,6 +65,7 @@ interface EntregaxRow {
   hasPago?: boolean;
   hasInstrucciones?: boolean;
   guiaSalida?: string;
+  guiaIngreso?: string;
   paqueteria?: string;
   lastStatus?: string;
   direccionEntrega?: DireccionEntregax;
@@ -198,6 +199,7 @@ export default function ServiceInventoryPage() {
                 hasPago: (d.pagos || []).length > 0,
                 hasInstrucciones: !!d.waybill || statusImpliesInstructions,
                 guiaSalida: d.waybill?.guia_salida || undefined,
+                guiaIngreso: d.waybill?.guia_ingreso || d.waybill?.guia_usa || undefined,
                 paqueteria: d.waybill?.paqueteria || undefined,
                 lastStatus: lastH?.estado || undefined,
                 direccionEntrega: d.waybill?.direccion_entrega || undefined,
@@ -297,6 +299,7 @@ export default function ServiceInventoryPage() {
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }} align="center">PAGO / INST.</TableCell>
               <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }} align="center">ENTREGAX</TableCell>
               <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }}>STATUS ENTREGAX</TableCell>
+              {service === 'pobox_usa' && <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }}>GUÍA ORIGEN (EX)</TableCell>}
               <TableCell sx={{ bgcolor: '#2E7D32', color: '#fff', fontWeight: 700 }} align="center">SINC.</TableCell>
             </TableRow>
           </TableHead>
@@ -424,6 +427,17 @@ export default function ServiceInventoryPage() {
                           <Typography variant="caption" color="text.disabled">—</Typography>
                         )}
                       </TableCell>
+                      {/* GUÍA ORIGEN EntregaX — solo PO Box */}
+                      {service === 'pobox_usa' && (
+                        <TableCell>
+                          {ex.guiaIngreso ? (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.7rem' }}>{ex.guiaIngreso}</Typography>
+                              <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(ex.guiaIngreso!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
+                            </Box>
+                          ) : <Typography variant="caption" color="text.disabled">—</Typography>}
+                        </TableCell>
+                      )}
                       {/* SINC. column */}
                       <TableCell align="center">
                         {sState === 'syncing' ? (
