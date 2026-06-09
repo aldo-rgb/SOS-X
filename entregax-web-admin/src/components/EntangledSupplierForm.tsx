@@ -7,6 +7,7 @@
 import { Grid, MenuItem, TextField, Button, Stack, Typography, Box } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import { useTranslation } from 'react-i18next';
+import api from '../services/api';
 
 export interface SupplierFormData {
   id?: number;
@@ -274,8 +275,19 @@ export default function EntangledSupplierForm({
               />
             </Button>
             {value.foto_url && (
-              <Button size="small" href={value.foto_url} target="_blank" rel="noopener" sx={{ color: '#4ade80' }}>
-                {t('entangled.suppliers.viewPhoto', 'Ver archivo')}
+              <Button
+                size="small"
+                sx={{ color: '#4ade80' }}
+                onClick={async () => {
+                  try {
+                    const r = await api.get('/uploads/signed-url', { params: { url: value.foto_url } });
+                    window.open(r.data.signedUrl || value.foto_url, '_blank', 'noopener');
+                  } catch {
+                    window.open(value.foto_url, '_blank', 'noopener');
+                  }
+                }}
+              >
+                {t('entangled.suppliers.viewPhoto', 'Ver foto')}
               </Button>
             )}
           </Stack>

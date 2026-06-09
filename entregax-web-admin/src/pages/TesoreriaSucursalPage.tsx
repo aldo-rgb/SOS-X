@@ -206,6 +206,16 @@ const TesoreriaSucursalPage: React.FC = () => {
   const [billeteraDialogOpen, setBilleteraDialogOpen] = useState(false);
   const [evidenciaDialogOpen, setEvidenciaDialogOpen] = useState(false);
   const [evidenciaUrl, setEvidenciaUrl] = useState('');
+
+  const openEvidencia = async (url: string) => {
+    try {
+      const r = await api.get('/uploads/signed-url', { params: { url } });
+      setEvidenciaUrl(r.data.signedUrl || url);
+    } catch {
+      setEvidenciaUrl(url);
+    }
+    setEvidenciaDialogOpen(true);
+  };
   
   // 💳 Estado para modal de detalles de pago
   const [detallesPagoDialogOpen, setDetallesPagoDialogOpen] = useState(false);
@@ -1156,7 +1166,7 @@ const TesoreriaSucursalPage: React.FC = () => {
                           {mov.evidencia_url ? (
                             <IconButton 
                               size="small" 
-                              onClick={() => { setEvidenciaUrl(mov.evidencia_url); setEvidenciaDialogOpen(true); }}
+                              onClick={() => openEvidencia(mov.evidencia_url)}
                             >
                               <ViewIcon color="primary" />
                             </IconButton>
@@ -1443,7 +1453,7 @@ const TesoreriaSucursalPage: React.FC = () => {
                       </Typography>
                       <IconButton 
                         size="small" 
-                        onClick={() => { setEvidenciaUrl(movimientoForm.evidencia_url); setEvidenciaDialogOpen(true); }}
+                        onClick={() => openEvidencia(movimientoForm.evidencia_url)}
                       >
                         <ViewIcon />
                       </IconButton>

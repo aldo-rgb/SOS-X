@@ -11145,17 +11145,32 @@ app.post('/api/uploads/evidence', authenticateToken, evidenceUpload.single('file
       res.status(400).json({ message: 'No se proporcionó archivo' });
       return;
     }
-    
+
     const timestamp = Date.now();
     const ext = req.file.originalname.split('.').pop() || 'jpg';
     const key = `tesoreria/evidencias/${timestamp}_${req.user?.userId || 0}.${ext}`;
-    
+
     const url = await uploadToS3(req.file.buffer, key, req.file.mimetype);
-    
+
     res.json({ url, key });
   } catch (error) {
     console.error('Error uploading evidence:', error);
     res.status(500).json({ message: 'Error al subir evidencia' });
+  }
+});
+
+// GET /api/uploads/signed-url?url=... — genera una pre-signed URL temporal para ver archivos privados de S3
+app.get('/api/uploads/signed-url', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const rawUrl = String(req.query.url || '');
+    if (!rawUrl) return (res as any).status(400).json({ error: 'Falta parámetro url' });
+    const { signS3UrlIfNeeded } = await import('./s3Service');
+    const signed = await signS3UrlIfNeeded(rawUrl, 3600);
+    if (!signed) return (res as any).status(400).json({ error: 'URL inválida' });
+    return (res as any).json({ signedUrl: signed });
+  } catch (err: any) {
+    console.error('[signed-url]', err.message);
+    return (res as any).status(500).json({ error: 'No se pudo generar la URL firmada' });
   }
 });
 
