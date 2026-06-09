@@ -133,9 +133,11 @@ export default function ServiceInventoryPage() {
           <TableHead>
             <TableRow>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>GUÍA</TableCell>
-              <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>{service === 'dhl' ? 'GUÍA HIJA' : 'GUÍA ORIGEN'}</TableCell>
+              {service !== 'maritimo' && (
+                <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>{service === 'dhl' ? 'GUÍA HIJA' : 'GUÍA ORIGEN'}</TableCell>
+              )}
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>CLIENTE</TableCell>
-              {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa') && (
+              {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
                 <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>PAQUETERÍA / GUÍA SALIDA</TableCell>
               )}
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>FECHA INGRESO</TableCell>
@@ -146,9 +148,9 @@ export default function ServiceInventoryPage() {
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={service === 'maritimo' ? 7 : 8} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
             ) : rows.length === 0 ? (
-              <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4, color: '#999' }}>Sin resultados</TableCell></TableRow>
+              <TableRow><TableCell colSpan={service === 'maritimo' ? 7 : 8} align="center" sx={{ py: 4, color: '#999' }}>Sin resultados</TableCell></TableRow>
             ) : rows.map((r, i) => (
               <TableRow key={i} hover>
                 <TableCell>
@@ -160,19 +162,21 @@ export default function ServiceInventoryPage() {
                     <Typography variant="caption" color="text.secondary" fontFamily="monospace">{r.guia_corta}</Typography>
                   )}
                 </TableCell>
-                <TableCell>
-                  {r.guia_origen
-                    ? <>
-                        <Typography variant="caption" fontFamily="monospace" color="text.secondary" display="block">{r.guia_origen}</Typography>
-                        {r.guia_origen_carrier && <Typography variant="caption" sx={{ color: '#888', fontSize: '0.65rem' }}>{r.guia_origen_carrier}</Typography>}
-                      </>
-                    : <Typography variant="caption" color="text.disabled">—</Typography>}
-                </TableCell>
+                {service !== 'maritimo' && (
+                  <TableCell>
+                    {r.guia_origen
+                      ? <>
+                          <Typography variant="caption" fontFamily="monospace" color="text.secondary" display="block">{r.guia_origen}</Typography>
+                          {r.guia_origen_carrier && <Typography variant="caption" sx={{ color: '#888', fontSize: '0.65rem' }}>{r.guia_origen_carrier}</Typography>}
+                        </>
+                      : <Typography variant="caption" color="text.disabled">—</Typography>}
+                  </TableCell>
+                )}
                 <TableCell>
                   <Typography variant="body2" fontWeight={600}>{r.box_id || '—'}</Typography>
                   {r.cliente_nombre && <Typography variant="caption" color="text.secondary" display="block">{r.cliente_nombre}</Typography>}
                 </TableCell>
-                {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa') && (
+                {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
                   <TableCell>
                     {r.paqueteria && <Typography variant="caption" display="block" fontWeight={600}>{r.paqueteria}</Typography>}
                     {r.guia_salida && (
