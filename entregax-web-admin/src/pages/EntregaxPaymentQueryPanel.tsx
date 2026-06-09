@@ -42,8 +42,15 @@ interface Waybill {
   };
 }
 
+interface Guia {
+  guia: string;
+  guia_unica: string;
+  guia_usa?: string;
+}
+
 interface QueryResult {
   ctz: string;
+  guias: Guia[];
   pagos: Pago[];
   historial: Movimiento[];
   waybill: Waybill | null;
@@ -198,6 +205,46 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
               </Typography>
             </Box>
           </Paper>
+
+          {/* Guías asociadas */}
+          {result.guias && result.guias.length > 0 && (
+            <Box sx={{ mb: 2 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                Guías EntregaX ({result.guias.length})
+              </Typography>
+              <Paper variant="outlined" sx={{ borderRadius: 2 }}>
+                <Table size="small">
+                  <TableHead>
+                    <TableRow sx={{ bgcolor: 'grey.100' }}>
+                      <TableCell><strong>Guía Única</strong></TableCell>
+                      <TableCell><strong>Guía USA (Carrier)</strong></TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {result.guias.map((g, i) => (
+                      <TableRow key={i} hover>
+                        <TableCell>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                            <Typography fontFamily="monospace" fontSize="0.8rem">{g.guia_unica}</Typography>
+                            <Tooltip title="Copiar">
+                              <IconButton size="small" onClick={() => navigator.clipboard.writeText(g.guia_unica)}>
+                                <ContentCopyIcon sx={{ fontSize: 13 }} />
+                              </IconButton>
+                            </Tooltip>
+                          </Box>
+                        </TableCell>
+                        <TableCell>
+                          <Typography fontFamily="monospace" fontSize="0.8rem" color="text.secondary">
+                            {g.guia_usa || '—'}
+                          </Typography>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </Paper>
+            </Box>
+          )}
 
           {/* Tabla de pagos */}
           <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>

@@ -152,14 +152,13 @@ export default function ServiceInventoryPage() {
     fetchAbortRef.current = false;
     setExFetching(true);
     setExProgress(0);
-    // Para PO Box: intenta primero con guia_origen (carrier tracking UPS/FedEx),
-    // si falla intenta con guia (US-...). Para el resto usa guia directamente.
-    const entries: { storeKey: string; queryKey: string; fallbackKey?: string }[] = rows
+    // Para PO Box: usar guia interna (tracking_internal = US-73-...) como query key,
+    // porque sistemaentregax.com indexa por ese formato, no por carrier tracking.
+    const entries: { storeKey: string; queryKey: string }[] = rows
       .filter(r => r.guia)
       .map(r => ({
         storeKey: r.guia,
-        queryKey: service === 'pobox_usa' && r.guia_origen ? r.guia_origen : r.guia,
-        fallbackKey: service === 'pobox_usa' && r.guia_origen ? r.guia : undefined,
+        queryKey: r.guia,
       }));
     const BATCH = 5;
     let done = 0;
@@ -171,44 +170,35 @@ export default function ServiceInventoryPage() {
         batch.forEach(e => { next[e.storeKey] = { state: 'loading' }; });
         return next;
       });
-      await Promise.all(batch.map(async ({ storeKey, queryKey, fallbackKey }) => {
-        const tryQuery = async (key: string): Promise<{ data: any; notfound: boolean }> => {
-          try {
-            const r = await api.get(`/national/payment-query/${encodeURIComponent(key)}`);
-            if (r.data?.status === 'success') return { data: r.data.data, notfound: false };
-            return { data: null, notfound: false };
-          } catch (err: any) {
-            const is404 = err?.response?.status === 404;
-            return { data: null, notfound: is404 };
-          }
-        };
+      await Promise.all(batch.map(async ({ storeKey, queryKey }) => {
         try {
-          let result = await tryQuery(queryKey);
-          // Fallback para PO Box: si guia_origen no encontró, intenta con guia US-
-          if (!result.data && fallbackKey) result = await tryQuery(fallbackKey);
-          if (result.data) {
-            const d = result.data;
+          const res = await api.get(`/national/payment-query/${encodeURIComponent(queryKey)}`).catch((err: any) => {
+            const is404 = err?.response?.status === 404;
+            return { data: null, _notfound: is404 } as any;
+          });
+          const d = res?.data?.status === 'success' ? res.data.data : null;
+          const notfound = res?._notfound ?? false;
+          if (d) {
             const historial = d.historial || [];
             const lastH = historial[historial.length - 1];
-            // API usa: instrucciones="1"/"0", pagado="1"/"0", guiasalida (sin _)
+            // guia_unica viene del waybill (PO Box) o del payments guias[] (otros)
+            const guiaUnica = d.waybill?.guia_unica || d.guias?.[0]?.guia_unica || undefined;
             setExData(prev => ({
               ...prev,
               [storeKey]: {
                 state: 'done',
                 hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
-                hasInstrucciones: d.waybill?.instrucciones === '1',
-                guiaSalida: d.waybill?.guiasalida || undefined,
-                // guia_ingreso viene del backend enriquecido: guia_usa del waybill → lookup en packages → guía interna US-...
-                guiaIngreso: d.waybill?.guia_ingreso || (d.ctz && d.ctz !== queryKey ? d.ctz : undefined) || undefined,
+                // PO Box: instrucciones = tiene dirección de entrega; otros: campo instrucciones="1"
+                hasInstrucciones: d.waybill?.instrucciones === '1' || !!d.waybill?.direccion_entrega,
+                guiaSalida: d.waybill?.guiasalida || d.waybill?.guia_salida || undefined,
+                guiaIngreso: guiaUnica,
                 paqueteria: d.waybill?.paqueteria && d.waybill.paqueteria !== '0' ? d.waybill.paqueteria : undefined,
-                lastStatus: lastH?.estado || undefined,
+                lastStatus: d.waybill?.estado || lastH?.estado || undefined,
                 direccionEntrega: d.waybill?.direccion_entrega || undefined,
               },
             }));
           } else {
-            // 404 = no registrado en EntregaX (normal para paquetes nuevos)
-            // otro error = fallo real
-            setExData(prev => ({ ...prev, [storeKey]: { state: result.notfound ? 'notfound' : 'error' } }));
+            setExData(prev => ({ ...prev, [storeKey]: { state: notfound ? 'notfound' : 'error' } }));
           }
         } catch {
           setExData(prev => ({ ...prev, [storeKey]: { state: 'error' } }));
