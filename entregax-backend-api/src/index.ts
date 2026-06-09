@@ -11880,13 +11880,28 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
     const enabled = cfg.rows[0]?.config_value?.enabled === true;
     if (!enabled) return (res as any).status(503).json({ error: 'Consulta de pagos desactivada por administrador' });
 
-    const guide = encodeURIComponent(String(req.params.guide));
+    const rawGuide = String(req.params.guide);
+    const guide = encodeURIComponent(rawGuide);
     const BASE = 'https://sistemaentregax.com/api/quotes';
     const H = { 'Accept': 'application/json' };
 
-    const [paymentsRes, historyRes] = await Promise.allSettled([
+    // Detectar tipo de servicio por prefijo de guía
+    const inferTipo = (g: string): string => {
+      const u = g.toUpperCase();
+      if (u.startsWith('US-') || u.startsWith('USS')) return 'usa';
+      if (u.startsWith('AIR')) return 'tdi';
+      if (u.startsWith('TDX') || u.startsWith('TDI-EXPRES') || u.startsWith('TDIX')) return 'tdi-express';
+      if (u.startsWith('DHL')) return 'dhl';
+      if (u.startsWith('LOG') || u.startsWith('FCL') || u.startsWith('SEA')) return 'maritimo';
+      if (u.startsWith('FDX') || u.startsWith('FEDEX')) return 'fedex';
+      return 'usa';
+    };
+    const tipo = inferTipo(rawGuide);
+
+    const [paymentsRes, historyRes, waybillRes] = await Promise.allSettled([
       fetch(`${BASE}/get-payments/${guide}`, { headers: H }),
       fetch(`${BASE}/history-guide/${guide}`, { headers: H }),
+      fetch(`${BASE}/get-waybill/${tipo}/${guide}`, { headers: H }),
     ]);
 
     const payments = paymentsRes.status === 'fulfilled' && paymentsRes.value.ok
@@ -11895,9 +11910,11 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
     const history = historyRes.status === 'fulfilled' && historyRes.value.ok
       ? await historyRes.value.json().catch(() => null)
       : null;
+    const waybill = waybillRes.status === 'fulfilled' && waybillRes.value.ok
+      ? await waybillRes.value.json().catch(() => null)
+      : null;
 
-    if (!payments && !history) {
-      // Ninguno respondió — devolver el error del primero
+    if (!payments && !history && !waybill) {
       const fallback = paymentsRes.status === 'fulfilled'
         ? await paymentsRes.value.json().catch(() => ({ error: 'Sin datos' }))
         : { error: 'No se pudo contactar a sistemaentregax.com' };
@@ -11910,6 +11927,7 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
         ctz: payments?.data?.ctz || guide,
         pagos: payments?.data?.pagos || [],
         historial: history?.data || [],
+        waybill: waybill?.status === 'success' ? waybill.message : null,
       },
     });
   } catch (err: any) {

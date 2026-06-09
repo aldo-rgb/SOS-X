@@ -23,10 +23,27 @@ interface Movimiento {
   fecha: string;
 }
 
+interface Waybill {
+  guia_ingreso?: string;
+  guia_unica?: string;
+  cliente?: string;
+  estado?: string;
+  direccion_entrega?: {
+    quienrecibe?: string;
+    calle?: string;
+    numeroext?: string;
+    colonia?: string;
+    cp?: string;
+    estado?: string;
+    pais?: string;
+  };
+}
+
 interface QueryResult {
   ctz: string;
   pagos: Pago[];
   historial: Movimiento[];
+  waybill: Waybill | null;
 }
 
 interface Props {
@@ -65,6 +82,12 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
     ? result.pagos.length === 0
       ? { label: 'Sin pagos registrados', color: '#F59E0B', bg: '#FEF3C7', icon: '⏳' }
       : { label: 'Con pagos registrados', color: '#047857', bg: '#ECFDF5', icon: '✅' }
+    : null;
+
+  const instruccionesStatus = result
+    ? result.waybill
+      ? { label: 'Con instrucciones de envío', color: '#1565C0', bg: '#E3F2FD', icon: '📋' }
+      : { label: 'Sin instrucciones', color: '#9E9E9E', bg: '#F5F5F5', icon: '📋' }
     : null;
 
   return (
@@ -129,15 +152,25 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
                 </Tooltip>
               </Box>
             </Box>
-            {/* Estado inferido */}
-            {statusInferido && (
-              <Box sx={{ px: 1.5, py: 0.75, borderRadius: 2, bgcolor: statusInferido.bg, display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                <Typography sx={{ fontSize: 16 }}>{statusInferido.icon}</Typography>
-                <Typography variant="body2" fontWeight={700} sx={{ color: statusInferido.color }}>
-                  {statusInferido.label}
-                </Typography>
-              </Box>
-            )}
+            {/* Badges de estado */}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              {statusInferido && (
+                <Box sx={{ px: 1.5, py: 0.5, borderRadius: 2, bgcolor: statusInferido.bg, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Typography sx={{ fontSize: 14 }}>{statusInferido.icon}</Typography>
+                  <Typography variant="body2" fontWeight={700} sx={{ color: statusInferido.color }}>
+                    {statusInferido.label}
+                  </Typography>
+                </Box>
+              )}
+              {instruccionesStatus && (
+                <Box sx={{ px: 1.5, py: 0.5, borderRadius: 2, bgcolor: instruccionesStatus.bg, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Typography sx={{ fontSize: 14 }}>{instruccionesStatus.icon}</Typography>
+                  <Typography variant="body2" fontWeight={700} sx={{ color: instruccionesStatus.color }}>
+                    {instruccionesStatus.label}
+                  </Typography>
+                </Box>
+              )}
+            </Box>
             <Box sx={{ textAlign: 'right' }}>
               <Typography variant="caption" color="text.secondary">Total Pagado</Typography>
               <Typography variant="h6" fontWeight={700} color="success.main">
@@ -243,6 +276,53 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
                     ))}
                   </TableBody>
                 </Table>
+              </Paper>
+            </Box>
+          )}
+          {/* Instrucciones de envío / waybill */}
+          {result.waybill && (
+            <Box sx={{ mt: 3 }}>
+              <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                📋 Instrucciones de Envío
+              </Typography>
+              <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 1.5 }}>
+                  {result.waybill.estado && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Estado actual</Typography>
+                      <Typography fontWeight={700}>{result.waybill.estado}</Typography>
+                    </Box>
+                  )}
+                  {result.waybill.cliente && (
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Cliente</Typography>
+                      <Typography fontWeight={700}>{result.waybill.cliente}</Typography>
+                    </Box>
+                  )}
+                  {result.waybill.direccion_entrega && (() => {
+                    const d = result.waybill!.direccion_entrega!;
+                    return (
+                      <>
+                        {d.quienrecibe && (
+                          <Box>
+                            <Typography variant="caption" color="text.secondary">Quien recibe</Typography>
+                            <Typography fontWeight={700}>{d.quienrecibe}</Typography>
+                          </Box>
+                        )}
+                        <Box sx={{ gridColumn: '1 / -1' }}>
+                          <Typography variant="caption" color="text.secondary">Dirección de entrega</Typography>
+                          <Typography fontWeight={600}>
+                            {[d.calle, d.numeroext].filter(Boolean).join(' ')}
+                            {d.colonia ? `, Col. ${d.colonia}` : ''}
+                            {d.cp ? `, C.P. ${d.cp}` : ''}
+                            {d.estado ? `, ${d.estado}` : ''}
+                            {d.pais ? `, ${d.pais}` : ''}
+                          </Typography>
+                        </Box>
+                      </>
+                    );
+                  })()}
+                </Box>
               </Paper>
             </Box>
           )}
