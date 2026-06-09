@@ -54,6 +54,11 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
   };
 
   const totalPagado = result?.pagos.reduce((acc, p) => acc + parseFloat(p.cantidad || '0'), 0) ?? 0;
+  const statusInferido = result
+    ? result.pagos.length === 0
+      ? { label: 'Sin pagos registrados', color: '#F59E0B', bg: '#FEF3C7', icon: '⏳' }
+      : { label: 'Con pagos registrados', color: '#047857', bg: '#ECFDF5', icon: '✅' }
+    : null;
 
   return (
     <Box>
@@ -117,6 +122,15 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
                 </Tooltip>
               </Box>
             </Box>
+            {/* Estado inferido */}
+            {statusInferido && (
+              <Box sx={{ px: 1.5, py: 0.75, borderRadius: 2, bgcolor: statusInferido.bg, display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Typography sx={{ fontSize: 16 }}>{statusInferido.icon}</Typography>
+                <Typography variant="body2" fontWeight={700} sx={{ color: statusInferido.color }}>
+                  {statusInferido.label}
+                </Typography>
+              </Box>
+            )}
             <Box sx={{ textAlign: 'right' }}>
               <Typography variant="caption" color="text.secondary">Total Pagado</Typography>
               <Typography variant="h6" fontWeight={700} color="success.main">
