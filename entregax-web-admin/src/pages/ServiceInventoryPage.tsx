@@ -189,12 +189,11 @@ export default function ServiceInventoryPage() {
             const d = result.data;
             const historial = d.historial || [];
             const lastH = historial[historial.length - 1];
+            const SENT_KEYWORDS = ['enviado', 'destino', 'entregado', 'delivered', 'sent', 'final', 'ruta'];
+            const statusImpliesInstructions = !!(lastH?.estado && SENT_KEYWORDS.some(k => lastH.estado.toLowerCase().includes(k)));
             setExData(prev => ({
               ...prev,
               [storeKey]: {
-                // Si el historial indica que fue enviado/entregado, inferir instrucciones aunque waybill esté vacío
-                const SENT_KEYWORDS = ['enviado', 'destino', 'entregado', 'delivered', 'sent', 'final', 'ruta'];
-                const statusImpliesInstructions = !!(lastH?.estado && SENT_KEYWORDS.some(k => lastH.estado.toLowerCase().includes(k)));
                 state: 'done',
                 hasPago: (d.pagos || []).length > 0,
                 hasInstrucciones: !!d.waybill || statusImpliesInstructions,
