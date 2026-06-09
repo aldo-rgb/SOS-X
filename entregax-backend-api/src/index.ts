@@ -12222,6 +12222,51 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
       } catch { /* ignore retry failure */ }
     }
 
+    // Si todo falló y el guide parece ser un carrier tracking (UPS 1Z..., FedEx, etc.),
+    // buscar guía interna en nuestra DB y reintentar con esa.
+    let altGuideRaw: string | null = null;
+    const isKnownEntregaxPrefix = /^(US[S\-]|AIR|TDX|TDIX|TDI[\-]|DHL|LOG|FCL|SEA|FDX|FEDEX)/i.test(rawGuide);
+    if (!payments && !history && !waybill && !isKnownEntregaxPrefix) {
+      const dbLookup = await pool.query(
+        `SELECT COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia
+         FROM packages p
+         WHERE UPPER(p.tracking_provider) = UPPER($1) OR UPPER(p.international_tracking) = UPPER($1)
+         LIMIT 1`,
+        [rawGuide]
+      ).catch(() => ({ rows: [] as any[] }));
+      if (dbLookup.rows.length > 0 && dbLookup.rows[0].guia) {
+        altGuideRaw = dbLookup.rows[0].guia as string;
+        const altEnc = encodeURIComponent(altGuideRaw);
+        const altTipo = inferTipo(altGuideRaw);
+        const [altPay, altHist, altWb] = await Promise.allSettled([
+          fetch(`${BASE}/get-payments/${altEnc}`, { headers: H }),
+          fetch(`${BASE}/history-guide/${altEnc}`, { headers: H }),
+          fetch(`${BASE}/get-waybill/${altTipo}/${altEnc}`, { headers: H }),
+        ]);
+        const altPayments = altPay.status === 'fulfilled' && altPay.value.ok ? await altPay.value.json().catch(() => null) : null;
+        const altHistory = altHist.status === 'fulfilled' && altHist.value.ok ? await altHist.value.json().catch(() => null) : null;
+        let altWaybill = altWb.status === 'fulfilled' && altWb.value.ok ? await altWb.value.json().catch(() => null) : null;
+        const altCtz: string | undefined = (altPayments as any)?.data?.ctz;
+        if (!altWaybill && altCtz && altCtz !== altGuideRaw) {
+          try {
+            const r2 = await fetch(`${BASE}/get-waybill/${inferTipo(altCtz)}/${encodeURIComponent(altCtz)}`, { headers: H });
+            if (r2.ok) altWaybill = await r2.json().catch(() => null);
+          } catch { /* ignore */ }
+        }
+        if (altPayments || altHistory || altWaybill) {
+          return (res as any).json({
+            status: 'success',
+            data: {
+              ctz: altCtz || altGuideRaw,
+              pagos: (altPayments as any)?.data?.pagos || [],
+              historial: (altHistory as any)?.data || [],
+              waybill: (altWaybill as any)?.status === 'success' ? (altWaybill as any).message : null,
+            },
+          });
+        }
+      }
+    }
+
     if (!payments && !history && !waybill) {
       const fallback = paymentsRes.status === 'fulfilled'
         ? await paymentsRes.value.json().catch(() => ({ error: 'Sin datos' }))
