@@ -9,6 +9,8 @@ import { Request, Response } from 'express';
 import { Pool } from 'pg';
 import OpenAI from 'openai';
 import * as XLSX from 'xlsx';
+import { sendPushToRole } from './pushService';
+import { createCustomNotification } from './notificationController';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
@@ -1865,11 +1867,22 @@ export async function saveAirTariffs(req: AuthRequest, res: Response) {
     }
 
     // Upsert each tariff type (price 0 => is_active = false)
+    let genericPriceChanged = false;
+    let newGenericPrice = 0;
     if (tariffs && typeof tariffs === 'object') {
       for (const type of ['L', 'G', 'S', 'F']) {
         if (tariffs[type] !== undefined) {
           const price = parseFloat(tariffs[type]) || 0;
           const isActive = price > 0;
+          if (type === 'G' && isActive) {
+            // Check previous generic price
+            const prevG = await pool.query(
+              `SELECT price_per_kg FROM air_tariffs WHERE route_id = $1 AND tariff_type = 'G' LIMIT 1`,
+              [route_id]
+            );
+            const prevGPrice = parseFloat(prevG.rows[0]?.price_per_kg || '0');
+            if (price !== prevGPrice) { genericPriceChanged = true; newGenericPrice = price; }
+          }
           await pool.query(`
             INSERT INTO air_tariffs (route_id, tariff_type, price_per_kg, is_active, updated_at)
             VALUES ($1, $2, $3, $4, NOW())
@@ -1877,6 +1890,33 @@ export async function saveAirTariffs(req: AuthRequest, res: Response) {
             DO UPDATE SET price_per_kg = $3, is_active = $4, updated_at = NOW()
           `, [route_id, type, price, isActive]);
         }
+      }
+    }
+
+    // Notificar a asesores y sub_asesores cuando cambia el Precio Genérico
+    if (genericPriceChanged && newGenericPrice > 0) {
+      try {
+        const routeRes = await pool.query(`SELECT code, name FROM air_routes WHERE id = $1`, [route_id]);
+        const routeCode = routeRes.rows[0]?.code || '';
+        const isExpress = routeCode === 'TDI-EXPRES';
+        const serviceLabel = isExpress ? 'TDI Express' : 'TDI Aéreo';
+        const emoji = isExpress ? '🚀' : '✈️';
+        const title = `${emoji} Nuevo precio ${serviceLabel}`;
+        const body = `Precio Genérico actualizado: $${newGenericPrice.toFixed(2)} USD/kg`;
+
+        // Push notification a asesores y sub_asesores
+        await sendPushToRole(['asesor', 'sub_asesor'], { title, body, data: { service: isExpress ? 'tdi_express' : 'tdi_aereo', price: String(newGenericPrice) } });
+
+        // In-app notification (notifications table)
+        const usersRes = await pool.query(
+          `SELECT id FROM users WHERE role IN ('asesor', 'sub_asesor') AND is_active = TRUE`
+        );
+        for (const u of usersRes.rows) {
+          await createCustomNotification(u.id, title, body, 'info', isExpress ? 'rocket' : 'airplane', { service: isExpress ? 'tdi_express' : 'tdi_aereo', price: newGenericPrice }).catch(() => {});
+        }
+        console.log(`📣 [AIR-TARIFFS] Notificación enviada a asesores/sub_asesores: ${title}`);
+      } catch (notifErr: any) {
+        console.error('[AIR-TARIFFS] Error enviando notificación:', notifErr.message);
       }
     }
 
