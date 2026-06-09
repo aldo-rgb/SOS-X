@@ -738,7 +738,7 @@ export default function DashboardBranchManager() {
                   <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     {ent ? (
                       <RateCard
-                        title="Tipo de cambio · ENTANGLED"
+                        title="Tipo de cambio · Envío de Dinero"
                         main={`$${Number(ent.tipo_cambio_usd).toFixed(4)} MXN / USD`}
                         secondary={`${ent.provider || ent.code || 'Proveedor'} · RMB ${Number(ent.tipo_cambio_rmb).toFixed(4)}`}
                         updatedAt={ent.updated_at}
@@ -748,7 +748,7 @@ export default function DashboardBranchManager() {
                       />
                     ) : (
                       <RateCard
-                        title="Tipo de cambio · ENTANGLED"
+                        title="Tipo de cambio · Envío de Dinero"
                         main="Sin proveedor activo"
                         updatedAt={null}
                         hoursSince={null}
@@ -761,7 +761,7 @@ export default function DashboardBranchManager() {
                   <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                     {pob ? (
                       <RateCard
-                        title="Tipo de cambio · PO Box USA"
+                        title="Tipo de cambio · EntregaX"
                         main={`$${Number(pob.tipo_cambio_final).toFixed(4)} MXN / USD`}
                         secondary={
                           pob.ultimo_tc_api !== null
@@ -775,7 +775,7 @@ export default function DashboardBranchManager() {
                       />
                     ) : (
                       <RateCard
-                        title="Tipo de cambio · PO Box USA"
+                        title="Tipo de cambio · EntregaX"
                         main="Sin configurar"
                         updatedAt={null}
                         hoursSince={null}
