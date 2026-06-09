@@ -12205,9 +12205,22 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
     const history = historyRes.status === 'fulfilled' && historyRes.value.ok
       ? await historyRes.value.json().catch(() => null)
       : null;
-    const waybill = waybillRes.status === 'fulfilled' && waybillRes.value.ok
+    let waybill = waybillRes.status === 'fulfilled' && waybillRes.value.ok
       ? await waybillRes.value.json().catch(() => null)
       : null;
+
+    // Si el waybill falló pero payments devolvió un ctz diferente al guide original
+    // (p.ej. se consultó con tracking UPS 1Z... pero el waybill necesita el USS-...),
+    // reintentar waybill con el ctz interno.
+    const ctzFromPayments: string | undefined = (payments as any)?.data?.ctz;
+    if (!waybill && ctzFromPayments && ctzFromPayments !== rawGuide) {
+      const ctzEncoded = encodeURIComponent(ctzFromPayments);
+      const ctzTipo = inferTipo(ctzFromPayments);
+      try {
+        const retryRes = await fetch(`${BASE}/get-waybill/${ctzTipo}/${ctzEncoded}`, { headers: H });
+        if (retryRes.ok) waybill = await retryRes.json().catch(() => null);
+      } catch { /* ignore retry failure */ }
+    }
 
     if (!payments && !history && !waybill) {
       const fallback = paymentsRes.status === 'fulfilled'
@@ -12219,7 +12232,7 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
     return (res as any).json({
       status: 'success',
       data: {
-        ctz: (payments as any)?.data?.ctz || guide,
+        ctz: ctzFromPayments || guide,
         pagos: (payments as any)?.data?.pagos || [],
         historial: (history as any)?.data || [],
         waybill: (waybill as any)?.status === 'success' ? (waybill as any).message : null,
