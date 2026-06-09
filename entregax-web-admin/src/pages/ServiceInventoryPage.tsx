@@ -127,7 +127,7 @@ export default function ServiceInventoryPage() {
         hasPago: ex.hasPago && !row.costing_paid,
         hasInstrucciones: ex.hasInstrucciones && !row.has_instructions,
         paqueteria: ex.paqueteria,
-        guia_salida: ex.guiaSalida,
+        guia_salida: ex.guiaSalida || undefined,
         direccion_entrega: ex.direccionEntrega,
       });
       // Actualiza la fila localmente para reflejar el sync
@@ -190,17 +190,16 @@ export default function ServiceInventoryPage() {
             const d = result.data;
             const historial = d.historial || [];
             const lastH = historial[historial.length - 1];
-            const SENT_KEYWORDS = ['enviado', 'destino', 'entregado', 'delivered', 'sent', 'final', 'ruta'];
-            const statusImpliesInstructions = !!(lastH?.estado && SENT_KEYWORDS.some(k => lastH.estado.toLowerCase().includes(k)));
+            // API usa: instrucciones="1"/"0", pagado="1"/"0", guiasalida (sin _)
             setExData(prev => ({
               ...prev,
               [storeKey]: {
                 state: 'done',
-                hasPago: (d.pagos || []).length > 0,
-                hasInstrucciones: !!d.waybill || statusImpliesInstructions,
-                guiaSalida: d.waybill?.guia_salida || undefined,
+                hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
+                hasInstrucciones: d.waybill?.instrucciones === '1',
+                guiaSalida: d.waybill?.guiasalida || undefined,
                 guiaIngreso: d.waybill?.guia_ingreso || d.waybill?.guia_usa || undefined,
-                paqueteria: d.waybill?.paqueteria || undefined,
+                paqueteria: d.waybill?.paqueteria && d.waybill.paqueteria !== '0' ? d.waybill.paqueteria : undefined,
                 lastStatus: lastH?.estado || undefined,
                 direccionEntrega: d.waybill?.direccion_entrega || undefined,
               },
