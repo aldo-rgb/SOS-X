@@ -234,6 +234,12 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   // Tick de 1s eliminado — sólo lo usaba formatElapsed para el
   // cronómetro verde "Procesando..." que ya quitamos.
 
+  // Cuenta bancaria para pago sin factura (obtenida de /api/entangled/asignacion en step 4)
+  const [sinFacturaCuenta, setSinFacturaCuenta] = useState<{
+    loading: boolean;
+    cuenta?: { banco?: string; titular?: string; cuenta?: string; clabe?: string; moneda?: string };
+  } | null>(null);
+
   // Dashboard state
   const [viewMode, setViewMode] = useState<'dashboard' | 'wizard'>('dashboard');
   const [calcMonto, setCalcMonto] = useState('');
@@ -539,6 +545,36 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     return () => { if (claveDebounceRef.current) clearTimeout(claveDebounceRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conceptos, token, quote?.tipo_cambio, monto, divisa, requiereFactura, rfc, razon, regimen, cp, uso, email, benefName]);
+
+  // Para pago sin factura: obtener cuenta bancaria asignada al entrar al step 4
+  useEffect(() => {
+    if (wizardStep !== 4 || requiereFactura || !quote || !monto) return;
+    if (sinFacturaCuenta?.cuenta) return; // ya tenemos datos
+    setSinFacturaCuenta({ loading: true });
+    fetch(`${API_URL}/api/entangled/asignacion`, {
+      method: 'POST',
+      headers: { ...authHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        servicio: 'pago_sin_factura',
+        cliente_final: { razon_social: 'SIN' },
+        monto_destino: Number(monto),
+        divisa_destino: divisa,
+        tc_cliente_final: Math.round(quote.tipo_cambio * 10000) / 10000,
+        comision_cliente_final_porcentaje: Math.round(quote.porcentaje_compra * 100) / 100,
+      }),
+    })
+      .then(r => r.json())
+      .then(d => {
+        const cb = d.cuenta_bancaria
+          || d.empresa?.cuenta_bancaria
+          || d.empresas_asignadas?.[0]?.cuenta_bancaria
+          || d.asignacion?.cuenta_bancaria
+          || d.raw?.cuenta_bancaria;
+        setSinFacturaCuenta(cb ? { loading: false, cuenta: cb } : null);
+      })
+      .catch(() => setSinFacturaCuenta(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizardStep, requiereFactura, selectedProviderId]);
 
   const defaultProvider = providers.find(x => x.is_default) || providers[0] || null;
 
@@ -2210,6 +2246,40 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
                         </View>
                       )}
                       {!!cb.sucursal && <Text style={styles.quoteLine}>Sucursal: <Text style={styles.quoteVal}>{cb.sucursal}</Text></Text>}
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
+
+            {/* Cuenta bancaria para pago sin factura */}
+            {!requiereFactura && (() => {
+              if (sinFacturaCuenta?.loading) return (
+                <View style={{ marginTop: 8, padding: 10, backgroundColor: '#0a0a0a', borderRadius: 8, borderWidth: 1, borderColor: ORANGE }}>
+                  <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700' }}>💳 CUENTA DE ENVÍO...</Text>
+                </View>
+              );
+              const cb = sinFacturaCuenta?.cuenta;
+              if (!cb) return null;
+              return (
+                <View style={{ marginTop: 8, padding: 10, backgroundColor: '#0a0a0a', borderRadius: 8, borderWidth: 1, borderColor: ORANGE }}>
+                  <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700', letterSpacing: 0.4, marginBottom: 6 }}>💳 DEPOSITAR / TRANSFERIR A:</Text>
+                  {!!cb.banco && <Text style={styles.quoteLine}>Banco: <Text style={styles.quoteVal}>{cb.banco}{cb.moneda ? ` (${cb.moneda})` : ''}</Text></Text>}
+                  {!!cb.titular && <Text style={styles.quoteLine}>Titular: <Text style={styles.quoteVal}>{cb.titular}</Text></Text>}
+                  {!!cb.cuenta && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.quoteLine}>Cuenta: <Text style={[styles.quoteVal, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{cb.cuenta}</Text></Text>
+                      <TouchableOpacity onPress={async () => { await Clipboard.setStringAsync(String(cb.cuenta)); }}>
+                        <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700' }}>Copiar</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                  {!!cb.clabe && (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Text style={styles.quoteLine}>CLABE: <Text style={[styles.quoteVal, { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' }]}>{cb.clabe}</Text></Text>
+                      <TouchableOpacity onPress={async () => { await Clipboard.setStringAsync(String(cb.clabe)); }}>
+                        <Text style={{ color: ORANGE, fontSize: 11, fontWeight: '700' }}>Copiar</Text>
+                      </TouchableOpacity>
                     </View>
                   )}
                 </View>
