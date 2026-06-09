@@ -2821,10 +2821,13 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
     let rows: any[] = [];
     let total = 0;
 
+    const JOIN_USERS = `LEFT JOIN users u ON p.user_id = u.id`;
+    const JOIN_USERS_DHL = `LEFT JOIN users u ON d.user_id = u.id`;
+
     if (service === 'tdi_aereo') {
       const params: any[] = [];
       let where = `(p.service_type = 'AIR_CHN_MX')`;
-      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.child_no ILIKE $${params.length} OR p.international_tracking ILIKE $${params.length} OR p.box_id ILIKE $${params.length})`; }
+      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.child_no ILIKE $${params.length} OR p.international_tracking ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
       // child_no = guía AIR completa (AIR2608808pOYsr-001), tracking_internal = guía corta (CN-OYsr-001)
@@ -2837,19 +2840,18 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         p.national_tracking AS guia_salida,
                         COALESCE(p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
-                   FROM packages p LEFT JOIN users u ON p.user_id = u.id
+                   FROM packages p ${JOIN_USERS}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
       const r = await pool.query(q, params);
       rows = r.rows;
-      const cq = `SELECT COUNT(*) FROM packages p WHERE ${where}`;
-      const cr = await pool.query(cq, params.slice(0, -2));
+      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${JOIN_USERS} WHERE ${where}`, params.slice(0, -2));
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'tdi_express') {
       const params: any[] = [];
       let where = `(p.service_type = 'tdi_express' OR (p.service_type = 'AIR_CHN_MX' AND p.air_source = 'tdi_express'))`;
-      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.international_tracking ILIKE $${params.length} OR p.box_id ILIKE $${params.length})`; }
+      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.international_tracking ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
       // Para TDI Express: tracking_internal ES la guía principal (TDX-...), child_no no aplica
@@ -2862,19 +2864,18 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         p.national_tracking AS guia_salida,
                         COALESCE(p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
-                   FROM packages p LEFT JOIN users u ON p.user_id = u.id
+                   FROM packages p ${JOIN_USERS}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
       const r = await pool.query(q, params);
       rows = r.rows;
-      const cq = `SELECT COUNT(*) FROM packages p WHERE ${where}`;
-      const cr = await pool.query(cq, params.slice(0, -2));
+      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${JOIN_USERS} WHERE ${where}`, params.slice(0, -2));
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'pobox_usa') {
       const params: any[] = [];
       let where = `p.service_type = 'POBOX_USA'`;
-      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.international_tracking ILIKE $${params.length} OR p.box_id ILIKE $${params.length})`; }
+      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.tracking_provider ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
       const q = `SELECT p.tracking_internal AS guia,
@@ -2886,19 +2887,19 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         p.national_tracking AS guia_salida,
                         COALESCE(p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
-                   FROM packages p LEFT JOIN users u ON p.user_id = u.id
+                   FROM packages p ${JOIN_USERS}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
       const r = await pool.query(q, params);
       rows = r.rows;
-      const cr = await pool.query(`SELECT COUNT(*) FROM packages p WHERE ${where}`, params.slice(0,-2));
+      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${JOIN_USERS} WHERE ${where}`, params.slice(0,-2));
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'maritimo') {
       // Marítimo China: paquetes en tabla packages con service_type='china_sea' (LOG...)
       const params: any[] = [];
       let where = `p.service_type = 'china_sea'`;
-      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
+      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
       const q = `SELECT p.tracking_internal AS guia, p.international_tracking AS guia_origen,
@@ -2908,19 +2909,19 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         p.national_carrier AS paqueteria, p.national_tracking AS guia_salida,
                         COALESCE(p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
-                   FROM packages p LEFT JOIN users u ON p.user_id = u.id
+                   FROM packages p ${JOIN_USERS}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
       const r = await pool.query(q, params);
       rows = r.rows;
-      const cr = await pool.query(`SELECT COUNT(*) FROM packages p LEFT JOIN users u ON p.user_id = u.id WHERE ${where}`, params.slice(0,-2));
+      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${JOIN_USERS} WHERE ${where}`, params.slice(0,-2));
       total = parseInt(cr.rows[0].count);
 
     } else if (service === 'dhl') {
       // DHL Monterrey: tabla dhl_shipments (inbound_tracking, box_id, status)
       const params: any[] = [];
       let where = '1=1';
-      if (search) { params.push(`%${search}%`); where += ` AND (d.inbound_tracking ILIKE $${params.length} OR d.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
+      if (search) { params.push(`%${search}%`); where += ` AND (d.inbound_tracking ILIKE $${params.length} OR u.box_id ILIKE $${params.length} OR u.full_name ILIKE $${params.length})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(d.inspected_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(d.inspected_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
       const q = `SELECT d.inbound_tracking AS guia, d.secondary_tracking AS guia_origen,
