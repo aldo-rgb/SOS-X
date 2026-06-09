@@ -76,8 +76,6 @@ export default function ServiceInventoryPage() {
   useEffect(() => { setPage(0); }, [service]);
   useEffect(() => { load(); }, [load]);
 
-  const svcMeta = SERVICES.find(s => s.key === service)!;
-
   return (
     <Box>
       <Typography variant="h6" fontWeight={700} gutterBottom>
