@@ -146,7 +146,12 @@ export default function EntangledAdminTab() {
                     {conFactura ? (
                       <Chip size="small" label="Facturado" color="primary" />
                     ) : (
-                      <Typography variant="caption" color="text.disabled">—</Typography>
+                      <Chip
+                        size="small"
+                        label="Sin Factura"
+                        variant="outlined"
+                        sx={{ borderColor: '#FF6600', color: '#FF6600', fontWeight: 700 }}
+                      />
                     )}
                   </TableCell>
                   <TableCell>
@@ -154,8 +159,21 @@ export default function EntangledAdminTab() {
                     <Typography variant="caption" color="text.secondary">{r.cf_email || r.user_email}</Typography>
                   </TableCell>
                   <TableCell>
-                    <Typography variant="body2" fontWeight="bold">{r.cf_rfc}</Typography>
-                    <Typography variant="caption" color="text.secondary">{r.cf_razon_social}</Typography>
+                    {conFactura ? (
+                      <>
+                        <Typography variant="body2" fontWeight="bold">{r.cf_rfc}</Typography>
+                        <Typography variant="caption" color="text.secondary">{r.cf_razon_social}</Typography>
+                      </>
+                    ) : (
+                      <>
+                        <Typography variant="caption" color="text.disabled" sx={{ fontStyle: 'italic' }}>
+                          Sin RFC
+                        </Typography>
+                        <Typography variant="body2" fontWeight="bold">
+                          {(r as any).op_beneficiario_nombre || r.cf_razon_social || '—'}
+                        </Typography>
+                      </>
+                    )}
                   </TableCell>
                   <TableCell align="right">
                     <Typography fontWeight="bold">{Number(r.op_monto).toLocaleString()}</Typography>
@@ -168,12 +186,39 @@ export default function EntangledAdminTab() {
                   <TableCell align="center">
                     {(() => {
                       const start = r.comprobante_subido_at ? new Date(r.comprobante_subido_at) : null;
-                      if (!start) return <Typography variant="caption" color="text.disabled">—</Typography>;
+                      if (!start) {
+                        // Aún no sube comprobante: mostrar el estado real en lugar de "—" (invisible).
+                        // Esto evita que solicitudes legitimamente recién creadas (sobre todo sin factura)
+                        // parezcan no existir en el listado admin.
+                        const created = r.created_at ? new Date(r.created_at) : null;
+                        if (!created) {
+                          return <Chip size="small" label="Esperando comprobante" variant="outlined" color="warning" sx={{ fontWeight: 700 }} />;
+                        }
+                        const ageMs = Math.max(0, Date.now() - created.getTime());
+                        const ageH = Math.floor(ageMs / 3_600_000);
+                        const label = ageH < 1
+                          ? 'Esperando comprobante'
+                          : ageH < 24
+                            ? `Esperando comprobante · ${ageH}h`
+                            : `Esperando comprobante · ${Math.floor(ageH / 24)}d`;
+                        return (
+                          <Chip
+                            size="small"
+                            label={label}
+                            variant="outlined"
+                            color={ageH >= 48 ? 'error' : ageH >= 24 ? 'warning' : 'default'}
+                            sx={{ fontWeight: 700 }}
+                          />
+                        );
+                      }
                       const facturaAt = r.factura_emitida_at ? new Date(r.factura_emitida_at) : null;
                       const pagoAt = r.proveedor_pagado_at ? new Date(r.proveedor_pagado_at) : null;
-                      const completo = !!facturaAt && !!pagoAt;
+                      // Si la solicitud es "sin factura", basta con que esté pagada por el proveedor.
+                      const completo = conFactura
+                        ? (!!facturaAt && !!pagoAt)
+                        : !!pagoAt;
                       const endTs = completo
-                        ? Math.max(facturaAt!.getTime(), pagoAt!.getTime())
+                        ? Math.max(facturaAt?.getTime() ?? 0, pagoAt?.getTime() ?? 0)
                         : Date.now();
                       const elapsedMs = Math.max(0, endTs - start.getTime());
                       const days = Math.floor(elapsedMs / 86_400_000);
