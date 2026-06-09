@@ -5842,6 +5842,86 @@ app.put('/api/gex/auto-config', authenticateToken, async (req: AuthRequest, res:
 // ========== PANEL DEL ASESOR (self-service) ==========
 app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
 app.get('/api/advisor/packages', authenticateToken, getAdvisorPackages);
+
+// KPIs en vivo para el widget del dashboard del asesor:
+//   - precio_tdi_aereo_usd / precio_tdi_express_usd: USD/kg ruta Genérico (G) actual
+//   - tc_envio_dinero (entangled / XPAY): TC actual del proveedor por defecto
+//   - tc_operativo: tipo_cambio_final del servicio pobox_usa en exchange_rate_config
+app.get('/api/advisor/rates', authenticateToken, async (req: Request, res: Response) => {
+  try {
+    const role = (req as any).user?.role || '';
+    const advisorRoles = ['advisor', 'sub_advisor', 'asesor', 'asesor_lider'];
+    if (!advisorRoles.includes(role)) {
+      res.status(403).json({ success: false, error: 'Solo para asesores' });
+      return;
+    }
+
+    // 1. Precio por kg TDI Aéreo (G + markup 8)
+    let precioTdiAereo: number | null = null;
+    try {
+      const r = await pool.query(
+        `SELECT cost_per_kg_usd FROM air_routes
+         WHERE is_active = true AND code <> 'TDI-EXPRES'
+         ORDER BY id ASC LIMIT 1`
+      );
+      const cost = parseFloat(r.rows[0]?.cost_per_kg_usd || '0');
+      if (cost > 0) precioTdiAereo = cost + 8;
+    } catch { /* opcional */ }
+
+    // 2. Precio por kg TDI Express (G + markup 8 sobre ruta TDI-EXPRES)
+    let precioTdiExpress: number | null = null;
+    try {
+      const r = await pool.query(
+        `SELECT cost_per_kg_usd FROM air_routes
+         WHERE is_active = true AND code = 'TDI-EXPRES' LIMIT 1`
+      );
+      const cost = parseFloat(r.rows[0]?.cost_per_kg_usd || '0');
+      if (cost > 0) precioTdiExpress = cost + 8;
+    } catch { /* opcional */ }
+
+    // 3. TC Envío de dinero (Entangled / XPAY) — usa el proveedor activo por defecto
+    let tcEnvioDinero: number | null = null;
+    try {
+      const r = await pool.query(
+        `SELECT COALESCE(tipo_cambio_usd, 0)::float AS tc
+         FROM entangled_providers
+         WHERE COALESCE(is_active, true) = true
+         ORDER BY (is_default DESC NULLS LAST), id ASC
+         LIMIT 1`
+      );
+      const v = parseFloat(r.rows[0]?.tc || '0');
+      if (v > 0) tcEnvioDinero = v;
+    } catch { /* opcional */ }
+
+    // 4. TC Operativo (PO Box USA)
+    let tcOperativo: number | null = null;
+    try {
+      const r = await pool.query(
+        `SELECT COALESCE(tipo_cambio_final, COALESCE(tipo_cambio_manual, ultimo_tc_api, 0) + COALESCE(sobreprecio, 0))::float AS tc
+         FROM exchange_rate_config
+         WHERE servicio = 'pobox_usa' AND estado = TRUE
+         LIMIT 1`
+      );
+      const v = parseFloat(r.rows[0]?.tc || '0');
+      if (v > 0) tcOperativo = v;
+    } catch { /* opcional */ }
+
+    res.json({
+      success: true,
+      rates: {
+        precio_tdi_aereo_usd: precioTdiAereo,
+        precio_tdi_express_usd: precioTdiExpress,
+        tc_envio_dinero: tcEnvioDinero,
+        tc_operativo: tcOperativo,
+      },
+      fetched_at: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error('[advisor/rates] error:', err?.message);
+    res.status(500).json({ success: false, error: 'Error al cargar tarifas' });
+  }
+});
+
 app.get('/api/advisor/clients', authenticateToken, getAdvisorClients);
 app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWallet);
 app.get('/api/advisor/clients/:clientId/addresses', authenticateToken, getAdvisorClientAddresses);
