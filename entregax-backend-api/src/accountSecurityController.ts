@@ -14,7 +14,7 @@ import { Request, Response } from 'express';
 import bcrypt from 'bcrypt';
 import { pool } from './db';
 import { sendEmail } from './emailService';
-import { sendTemplate } from './whatsappService';
+import { sendTemplate, sendVerificationCodeWhatsapp } from './whatsappService';
 
 const COOLDOWN_DAYS = 30;
 const CODE_EXPIRY_MIN = 10;
@@ -106,11 +106,7 @@ export const send2FACode = async (req: Request, res: Response): Promise<any> => 
 
   try {
     const code = await generate2FACode(uid);
-    const r = await sendTemplate({
-      to: user.phone,
-      template: process.env.WHATSAPP_OTP_TEMPLATE || 'autenticacion_entregax',
-      parameters: [code],
-    });
+    const r = await sendVerificationCodeWhatsapp({ phone: user.phone, code });
     if (!r.ok && !r.skipped) {
       console.error('[2FA send-code] WhatsApp error:', r.error);
       return res.status(502).json({ error: 'No se pudo enviar el código por WhatsApp' });
