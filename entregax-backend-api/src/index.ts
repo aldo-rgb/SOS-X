@@ -2838,7 +2838,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.box_id AS box_id,
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
-                        (COALESCE(p.costing_paid, FALSE) OR COALESCE(p.client_paid, FALSE) OR p.payment_status = 'paid') AS costing_paid,
+                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
                    FROM packages p ${JOIN_USERS}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
@@ -2862,7 +2862,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.box_id AS box_id,
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
-                        (COALESCE(p.costing_paid, FALSE) OR COALESCE(p.client_paid, FALSE) OR p.payment_status = 'paid') AS costing_paid,
+                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
                    FROM packages p ${JOIN_USERS}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
@@ -2885,7 +2885,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.box_id AS box_id,
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
-                        (COALESCE(p.costing_paid, FALSE) OR COALESCE(p.client_paid, FALSE) OR p.payment_status = 'paid') AS costing_paid,
+                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
                    FROM packages p ${JOIN_USERS}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
