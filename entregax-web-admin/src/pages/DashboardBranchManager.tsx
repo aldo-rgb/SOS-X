@@ -130,8 +130,10 @@ export default function DashboardBranchManager() {
     entangled: any | null;
     pobox: any | null;
     tdi_air: any | null;
+    tdi_express: any | null;
     stale_hours_threshold: number;
   } | null>(null);
+  const [staleNotifSent, setStaleNotifSent] = useState<Set<string>>(new Set());
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
   // Abandonos listos para proceso (firmados por cliente)
@@ -237,7 +239,7 @@ export default function DashboardBranchManager() {
   const canSeePartialReceptions = ['super_admin', 'admin', 'director', 'customer_service'].includes(userRole);
 
   // Widget "Verificaciones Pendientes" solo para Director / Admin / Super Admin
-  const canSeeVerifications = ['super_admin', 'admin', 'director'].includes(userRole);
+  const canSeeVerifications = ['super_admin', 'admin', 'director', 'customer_service', 'soporte_tecnico'].includes(userRole);
 
   const loadDelayedCount = async () => {
     try {
@@ -293,9 +295,20 @@ export default function DashboardBranchManager() {
   const loadSystemRates = async () => {
     try {
       const res = await api.get('/dashboard/system-rates');
-      if (res.data) setSystemRates(res.data);
+      if (res.data) {
+        setSystemRates(res.data);
+        // Notificar a customer_service/soporte_tecnico si TDI está desactualizado
+        const staleSvc: string[] = [];
+        if (res.data.tdi_air?.stale) staleSvc.push('tdi_air');
+        if (res.data.tdi_express?.stale) staleSvc.push('tdi_express');
+        for (const svc of staleSvc) {
+          if (!staleNotifSent.has(svc)) {
+            api.post('/dashboard/notify-stale-rates', { service: svc }).catch(() => {});
+            setStaleNotifSent(prev => new Set([...prev, svc]));
+          }
+        }
+      }
     } catch (err) {
-      // Silenciar: roles sin nivel DIRECTOR no tienen acceso
       console.debug('No se pudieron cargar system rates:', err);
     }
   };
@@ -604,7 +617,7 @@ export default function DashboardBranchManager() {
       )}
 
       {/* === Sección: Tipos de cambio y costos (monitor de APIs) === */}
-      {systemRates && ['super_admin', 'admin', 'director'].includes(userRole) && (
+      {systemRates && ['super_admin', 'admin', 'director', 'customer_service', 'soporte_tecnico'].includes(userRole) && (
         <>
           <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
             <Box sx={{ width: 4, height: 18, bgcolor: '#F05A28', borderRadius: 1 }} />
@@ -718,6 +731,7 @@ export default function DashboardBranchManager() {
               const ent = systemRates.entangled;
               const pob = systemRates.pobox;
               const tdi = systemRates.tdi_air;
+              const tdiExp = systemRates.tdi_express;
 
               return (
                 <>
@@ -805,6 +819,44 @@ export default function DashboardBranchManager() {
                     ) : (
                       <RateCard
                         title="Precio Genérico / kg · TDI Aéreo"
+                        main="Sin ruta activa"
+                        updatedAt={null}
+                        hoursSince={null}
+                        stale={true}
+                        staleLabel="Actualizar"
+                        icon={<TrendingUpIcon sx={{ fontSize: 22 }} />}
+                      />
+                    )}
+                  </Grid>
+
+                  {/* TDI Express */}
+                  <Grid size={{ xs: 12, sm: 6, md: 4 }}>
+                    {tdiExp ? (
+                      <RateCard
+                        title="Precio Genérico / kg · TDI Express"
+                        main={`$${Number(tdiExp.price_generic_usd ?? (Number(tdiExp.cost_per_kg_usd) + 8)).toFixed(2)} USD / kg`}
+                        secondary={(() => {
+                          const AIRPORT_ALIAS: Record<string, string> = { NLU: 'AIFA', MEX: 'AICM' };
+                          const aliasOf = (code?: string | null) => code ? (AIRPORT_ALIAS[String(code).toUpperCase()] || String(code).toUpperCase()) : '';
+                          const orig = tdiExp.origin_city || aliasOf(tdiExp.origin_airport);
+                          const dest = tdiExp.destination_city || aliasOf(tdiExp.destination_airport);
+                          const route = (orig && dest) ? `${orig} → ${dest}` : (tdiExp.route_name || 'Ruta Express');
+                          const oa = aliasOf(tdiExp.origin_airport); const da = aliasOf(tdiExp.destination_airport);
+                          const airports = [oa, da].filter(Boolean).join('–');
+                          const routeStr = airports ? `${route} (${airports})` : route;
+                          const fx = tdiExp.tipo_cambio_final !== null && tdiExp.tipo_cambio_final !== undefined
+                            ? ` · TC $${Number(tdiExp.tipo_cambio_final).toFixed(4)} MXN` : '';
+                          return `${routeStr} · costo $${Number(tdiExp.cost_per_kg_usd).toFixed(2)}${fx}`;
+                        })()}
+                        updatedAt={tdiExp.updated_at}
+                        hoursSince={tdiExp.hours_since_update}
+                        stale={tdiExp.hours_since_update !== null && tdiExp.hours_since_update !== undefined && tdiExp.hours_since_update >= 168}
+                        staleLabel="Actualizar"
+                        icon={<TrendingUpIcon sx={{ fontSize: 22 }} />}
+                      />
+                    ) : (
+                      <RateCard
+                        title="Precio Genérico / kg · TDI Express"
                         main="Sin ruta activa"
                         updatedAt={null}
                         hoursSince={null}

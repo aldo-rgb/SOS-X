@@ -2644,11 +2644,11 @@ app.get('/api/dashboard/counter-staff', authenticateToken, requireMinLevel(ROLES
 //   - Costo por kilo TDI Aéreo (air_routes activo, no TDI-EXPRES)
 // Se usa en el dashboard de admin/super_admin/director para detectar si una
 // API de tipo de cambio o de costos dejó de actualizarse.
-app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.DIRECTOR), async (_req: AuthRequest, res: Response) => {
+app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (_req: AuthRequest, res: Response) => {
   try {
     const STALE_HOURS = 24; // > 24h sin actualizar => "sin cambios" / posible API caída
 
-    const [entangledRes, poboxRes, tdiRes, tdiFxRes] = await Promise.all([
+    const [entangledRes, poboxRes, tdiRes, tdiFxRes, tdiExpressRes] = await Promise.all([
       pool.query(
         `SELECT name, code, tipo_cambio_usd, tipo_cambio_rmb, updated_at
            FROM entangled_providers
@@ -2681,6 +2681,19 @@ app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.
           WHERE servicio = 'tdi' AND estado = TRUE
           LIMIT 1`
       ),
+      pool.query(
+        `SELECT r.code, r.name, r.origin_airport, r.destination_airport,
+                r.origin_city, r.destination_city,
+                r.cost_per_kg_usd, r.updated_at,
+                (SELECT t.price_per_kg FROM air_tariffs t
+                  WHERE t.route_id = r.id AND t.tariff_type = 'G' AND t.is_active = true
+                    AND t.price_per_kg > 0
+                  ORDER BY t.id DESC LIMIT 1) AS price_generic_usd
+           FROM air_routes r
+          WHERE r.is_active = true AND r.code = 'TDI-EXPRES'
+          ORDER BY r.id ASC
+          LIMIT 1`
+      ),
     ]);
 
     const hoursSince = (d: any): number | null => {
@@ -2694,10 +2707,12 @@ app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.
     const pobox = poboxRes.rows[0] || null;
     const tdi = tdiRes.rows[0] || null;
     const tdiFx = tdiFxRes.rows[0] || null;
+    const tdiExpress = tdiExpressRes.rows[0] || null;
 
     const entH = hoursSince(entangled?.updated_at);
     const poboxH = hoursSince(pobox?.ultima_actualizacion);
     const tdiH = hoursSince(tdi?.updated_at);
+    const tdiExpressH = hoursSince(tdiExpress?.updated_at);
 
     return res.json({
       stale_hours_threshold: STALE_HOURS,
@@ -2731,8 +2746,6 @@ app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.
             origin_city: tdi.origin_city || null,
             destination_city: tdi.destination_city || null,
             cost_per_kg_usd: Number(tdi.cost_per_kg_usd),
-            // Precio de venta tarifa Genérico (G). Si no hay registro en air_tariffs
-            // se calcula como costo + $8 USD (fórmula por defecto del módulo aéreo).
             price_generic_usd: tdi.price_generic_usd !== null && tdi.price_generic_usd !== undefined
               ? Number(tdi.price_generic_usd)
               : Number(tdi.cost_per_kg_usd) + 8,
@@ -2742,10 +2755,55 @@ app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.
             stale: tdiH === null ? true : tdiH > STALE_HOURS,
           }
         : null,
+      tdi_express: tdiExpress
+        ? {
+            route_code: tdiExpress.code,
+            route_name: tdiExpress.name,
+            origin_airport: tdiExpress.origin_airport || null,
+            destination_airport: tdiExpress.destination_airport || null,
+            origin_city: tdiExpress.origin_city || null,
+            destination_city: tdiExpress.destination_city || null,
+            cost_per_kg_usd: Number(tdiExpress.cost_per_kg_usd),
+            price_generic_usd: tdiExpress.price_generic_usd !== null && tdiExpress.price_generic_usd !== undefined
+              ? Number(tdiExpress.price_generic_usd)
+              : Number(tdiExpress.cost_per_kg_usd) + 8,
+            tipo_cambio_final: tdiFx ? Number(tdiFx.tipo_cambio_final) : null,
+            updated_at: tdiExpress.updated_at,
+            hours_since_update: tdiExpressH,
+            stale: tdiExpressH === null ? true : tdiExpressH > STALE_HOURS,
+          }
+        : null,
     });
   } catch (err) {
     console.error('[dashboard/system-rates]', err);
     return res.status(500).json({ error: 'Error consultando tipos de cambio del sistema' });
+  }
+});
+
+// POST /api/dashboard/notify-stale-rates — notifica a customer_service y soporte_tecnico cuando TDI aéreo está desactualizado
+app.post('/api/dashboard/notify-stale-rates', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const { service } = req.body as { service: string };
+    const label = service === 'tdi_express' ? 'TDI Express' : 'TDI Aéreo';
+    const msg = `⚠️ El precio ${label} necesita actualizarse. Accede al panel de tarifas para actualizar el costo por kg.`;
+
+    const usersRes = await pool.query(
+      `SELECT id FROM users WHERE role IN ('customer_service', 'soporte_tecnico') AND is_active = TRUE`
+    );
+    if (usersRes.rows.length === 0) return (res as any).json({ sent: 0 });
+
+    for (const u of usersRes.rows) {
+      await pool.query(
+        `INSERT INTO notifications (user_id, type, title, message, data)
+         VALUES ($1, 'system_alert', 'Tarifa desactualizada', $2, $3)
+         ON CONFLICT DO NOTHING`,
+        [u.id, msg, JSON.stringify({ service, action: 'update_rate' })]
+      ).catch(() => {});
+    }
+    return (res as any).json({ sent: usersRes.rows.length });
+  } catch (err: any) {
+    console.error('[notify-stale-rates]', err.message);
+    return (res as any).status(500).json({ error: err.message });
   }
 });
 
