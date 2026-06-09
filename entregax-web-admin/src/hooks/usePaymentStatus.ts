@@ -20,6 +20,7 @@ interface PaymentStatusCache {
   require_label_to_load: boolean;
   require_instructions_to_load_pobox: boolean;
   external_sync_enabled: boolean;
+  entregax_payment_query_enabled: boolean;
   cajito_enabled: boolean;
   cajito_avatar_url: string | null;
   entregax_full_black_url: string | null;
@@ -41,6 +42,7 @@ const FALLBACK: PaymentStatusCache = {
   require_label_to_load: true,
   require_instructions_to_load_pobox: false,
   external_sync_enabled: true,
+  entregax_payment_query_enabled: false,
   cajito_enabled: false,
   cajito_avatar_url: null,
   entregax_full_black_url: null,
@@ -102,6 +104,7 @@ export function usePaymentStatus() {
             require_label_to_load: data.require_label_to_load !== false,
             require_instructions_to_load_pobox: data.require_instructions_to_load_pobox === true,
             external_sync_enabled: data.external_sync_enabled !== false,
+            entregax_payment_query_enabled: data.entregax_payment_query_enabled === true,
             cajito_enabled: data.cajito_enabled === true,
             cajito_avatar_url: typeof data.cajito_avatar_url === 'string' ? data.cajito_avatar_url : null,
             entregax_full_black_url: typeof data.entregax_full_black_url === 'string' ? data.entregax_full_black_url : null,
@@ -136,6 +139,7 @@ export function usePaymentStatus() {
     requireLabelToLoad: status.require_label_to_load,
     requireInstructionsToLoadPobox: status.require_instructions_to_load_pobox,
     externalSyncEnabled: status.external_sync_enabled,
+    entregaxPaymentQueryEnabled: status.entregax_payment_query_enabled,
     cajitoEnabled: status.cajito_enabled,
     cajitoAvatarUrl: status.cajito_avatar_url,
     entregaxFullBlackUrl: status.entregax_full_black_url,
@@ -203,6 +207,11 @@ export async function toggleExternalSync(enabled: boolean): Promise<void> {
 }
 
 /** Habilita o deshabilita el asistente IA Cajito (solo Super Admin) */
+export async function toggleEntregaxPaymentQuery(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/entregax-payment-query-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
 export async function toggleCajito(enabled: boolean): Promise<void> {
   await api.post('/admin/system/cajito-toggle', { enabled });
   invalidatePaymentStatusCache();

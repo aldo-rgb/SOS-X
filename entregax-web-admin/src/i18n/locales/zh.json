@@ -698,7 +698,8 @@
       "paquete_express": "Paquete Express API",
       "dhl_rates": "DHL费率",
       "dhl_operations": "DHL操作",
-      "carrier_options": "物流选项"
+      "carrier_options": "物流选项",
+      "payment_query": "付款查询"
     },
     "moduleFeatures": {
       "clients": {

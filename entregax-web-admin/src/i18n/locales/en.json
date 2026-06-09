@@ -740,7 +740,8 @@
       "demora_control": "Demurrage Control",
       "pobox_rates": "PO Box Rates",
       "carrier_options": "Carrier Options",
-      "pobox_consolidaciones": "Consolidations"
+      "pobox_consolidaciones": "Consolidations",
+      "payment_query": "Payment Query"
     },
     "moduleFeatures": {
       "clients": {

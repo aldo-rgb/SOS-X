@@ -85,6 +85,8 @@ import DemurrageControlPanel from './DemurrageControlPanel';
 import FCLManagementPage from './FCLManagementPage';
 import AirManagementPage from './AirManagementPage';
 import CajoManagementPage from './CajoManagementPage';
+import EntregaxPaymentQueryPanel from './EntregaxPaymentQueryPanel';
+import { usePaymentStatus } from '../hooks/usePaymentStatus';
 import {
     UploadFile as UploadIcon,
     AccountBalanceWallet as WalletIcon,
@@ -218,6 +220,7 @@ const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
         { key: 'invoicing', status: 'active' },
         { key: 'instructions', status: 'active' },
         { key: 'carrier_options', status: 'active' },
+        { key: 'payment_query', status: 'active' },
         { key: 'coverage', status: 'pending' },
         { key: 'reports', status: 'pending' },
     ],
@@ -244,6 +247,7 @@ const PANEL_TO_SERVICE: Record<string, string> = {
 
 export default function AdminHubPage({ users = [], loading = false, onRefresh, panelPermissions = {}, permissionsReady = false }: Props) {
     const { t } = useTranslation();
+    const { entregaxPaymentQueryEnabled } = usePaymentStatus();
 
     const getModuleLabel = (moduleKey: string, serviceKey?: string | null): string => {
         if (moduleKey === 'costing' && serviceKey === 'china_sea') return 'Costeo Marítimo';
@@ -965,6 +969,19 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                         />
                     </Box>
                     <PaqueteExpressPage />
+                </Box>
+            );
+        }
+
+        // Panel Consulta Pagos EntregaX.com - solo mx_national
+        if (selectedModule === 'payment_query' && selectedService === 'mx_national') {
+            return (
+                <Box>
+                    <Box sx={{ mb: 2, display: 'flex', gap: 1 }}>
+                        <Chip label={t('panels.backToAdmin')} onClick={() => { setSelectedService(null); setSelectedModule(null); }} sx={{ cursor: 'pointer' }} />
+                        <Chip label={`← ${t(`panels.services.${selectedService}.title`)}`} onClick={() => setSelectedModule(null)} sx={{ cursor: 'pointer' }} color="primary" variant="outlined" />
+                    </Box>
+                    <EntregaxPaymentQueryPanel enabled={entregaxPaymentQueryEnabled} />
                 </Box>
             );
         }

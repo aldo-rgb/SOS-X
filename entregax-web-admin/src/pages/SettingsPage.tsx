@@ -38,7 +38,7 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import SyncIcon from '@mui/icons-material/Sync';
 import { Switch, FormControlLabel, CircularProgress, Stack } from '@mui/material';
-import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleCajito, toggleMaintenanceMode, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, toggleXPay, toggleEntregaxPayments, toggleGEX, toggleAdvisorInstructions, toggleRequirePaymentToLoad, toggleRequireLabelToLoad, toggleRequireInstructionsToLoadPobox, toggleExternalSync, toggleEntregaxPaymentQuery, toggleCajito, toggleMaintenanceMode, invalidatePaymentStatusCache } from '../hooks/usePaymentStatus';
 import BrandAssetsManager from '../components/BrandAssetsManager';
 import CommissionRatesTable from '../components/CommissionRatesTable';
 import CajitoAuditDialog from '../components/CajitoAuditDialog';
@@ -86,7 +86,7 @@ export default function SettingsPage() {
         try { return JSON.parse(localStorage.getItem('user') || '{}'); } catch { return {}; }
     })();
     const isSuperAdmin = currentUser?.role === 'super_admin';
-    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, cajitoEnabled, maintenanceMode, loading: paymentsStatusLoading } = usePaymentStatus();
+    const { xpayEnabled, entregaxPaymentsEnabled, entregaxPaymentsByService, gexEnabled, advisorInstructionsEnabled, requirePaymentToLoad, requireLabelToLoad, requireInstructionsToLoadPobox, externalSyncEnabled, entregaxPaymentQueryEnabled, cajitoEnabled, maintenanceMode, loading: paymentsStatusLoading } = usePaymentStatus();
     const [togglingXpay, setTogglingXpay] = useState(false);
     const [togglingEntregax, setTogglingEntregax] = useState(false);
     const [togglingGex, setTogglingGex] = useState(false);
@@ -106,6 +106,8 @@ export default function SettingsPage() {
     const [localReqInstrPobox, setLocalReqInstrPobox] = useState<boolean | null>(null);
     const [togglingExternalSync, setTogglingExternalSync] = useState(false);
     const [localExternalSync, setLocalExternalSync] = useState<boolean | null>(null);
+    const [togglingPaymentQuery, setTogglingPaymentQuery] = useState(false);
+    const [localPaymentQuery, setLocalPaymentQuery] = useState<boolean | null>(null);
     const [togglingCajito, setTogglingCajito] = useState(false);
     const [cajitoAuditOpen, setCajitoAuditOpen] = useState(false);
     const [localCajito, setLocalCajito] = useState<boolean | null>(null);
@@ -127,6 +129,7 @@ export default function SettingsPage() {
             setLocalReqLabel(requireLabelToLoad);
             setLocalReqInstrPobox(requireInstructionsToLoadPobox);
             setLocalExternalSync(externalSyncEnabled);
+            setLocalPaymentQuery(entregaxPaymentQueryEnabled);
             setLocalCajito(cajitoEnabled);
             setLocalMaintenance(maintenanceMode);
         }
@@ -267,6 +270,22 @@ export default function SettingsPage() {
             setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar el estado de sincronización', severity: 'error' });
         } finally {
             setTogglingExternalSync(false);
+        }
+    };
+
+    const handleTogglePaymentQuery = async (checked: boolean) => {
+        setTogglingPaymentQuery(true);
+        const prev = localPaymentQuery;
+        setLocalPaymentQuery(checked);
+        try {
+            await toggleEntregaxPaymentQuery(checked);
+            invalidatePaymentStatusCache();
+            setSnackbar({ open: true, message: `Consulta de pagos ${checked ? 'activada' : 'desactivada'} correctamente`, severity: 'success' });
+        } catch (err: any) {
+            setLocalPaymentQuery(prev);
+            setSnackbar({ open: true, message: err?.response?.data?.error || 'No se pudo cambiar el estado', severity: 'error' });
+        } finally {
+            setTogglingPaymentQuery(false);
         }
     };
 
@@ -850,6 +869,36 @@ export default function SettingsPage() {
                                             />
                                         }
                                         label={togglingExternalSync ? '...' : (localExternalSync ? 'Activado' : 'Desactivado')}
+                                        labelPlacement="start"
+                                        sx={{ m: 0 }}
+                                    />
+                                )}
+                            </Paper>
+
+                            {/* Toggle Consulta Pagos sistemaentregax.com */}
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                    <Typography variant="subtitle1" fontWeight={600}>
+                                        💳 Consulta de Pagos — sistemaentregax.com
+                                    </Typography>
+                                    <Typography variant="body2" color="text.secondary">
+                                        Habilita el módulo "Consulta Pagos" en el panel Nacional México.
+                                        Permite consultar pagos e historial de movimientos por cotización o guía.
+                                    </Typography>
+                                </Box>
+                                {paymentsStatusLoading || localPaymentQuery === null ? (
+                                    <CircularProgress size={20} />
+                                ) : (
+                                    <FormControlLabel
+                                        control={
+                                            <Switch
+                                                checked={!!localPaymentQuery}
+                                                onChange={(e) => handleTogglePaymentQuery(e.target.checked)}
+                                                disabled={togglingPaymentQuery}
+                                                color="success"
+                                            />
+                                        }
+                                        label={togglingPaymentQuery ? '...' : (localPaymentQuery ? 'Activado' : 'Desactivado')}
                                         labelPlacement="start"
                                         sx={{ m: 0 }}
                                     />

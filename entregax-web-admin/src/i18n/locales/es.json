@@ -785,7 +785,8 @@
       "demora_control": "Control de Demoras",
       "pobox_rates": "Tarifas PO Box",
       "carrier_options": "Paqueterías",
-      "pobox_consolidaciones": "Consolidaciones"
+      "pobox_consolidaciones": "Consolidaciones",
+      "payment_query": "Consulta Pagos"
     },
     "moduleFeatures": {
       "clients": {

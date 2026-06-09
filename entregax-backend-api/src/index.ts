@@ -11496,7 +11496,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     const r = await pool.query(
       `SELECT config_key, config_value
        FROM system_configurations
-       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode')
+       WHERE config_key IN ('payments_enabled', 'xpay_enabled', 'entregax_payments_enabled', 'gex_enabled', 'advisor_instructions_enabled', 'require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox', 'external_sync_enabled', 'cajito_enabled', 'maintenance_mode', 'entregax_payment_query_enabled')
          AND is_active = TRUE`
     );
     const byKey: Record<string, any> = {};
@@ -11557,6 +11557,11 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       ? byKey['external_sync_enabled']?.enabled !== false
       : true; // fallback activo si nunca se ha configurado
 
+    // entregax_payment_query_enabled: habilita consulta de pagos vía sistemaentregax.com
+    const entregaxPaymentQueryEnabled = byKey['entregax_payment_query_enabled'] !== undefined
+      ? byKey['entregax_payment_query_enabled']?.enabled === true
+      : false;
+
     // cajito_enabled: habilita el asistente de IA "Cajito" (Claude). OFF por defecto.
     const cajitoEnabled = byKey['cajito_enabled'] !== undefined
       ? byKey['cajito_enabled']?.enabled === true
@@ -11594,6 +11599,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       require_label_to_load: requireLabelToLoad,
       require_instructions_to_load_pobox: requireInstructionsToLoadPobox,
       external_sync_enabled: externalSyncEnabled,
+      entregax_payment_query_enabled: entregaxPaymentQueryEnabled,
       cajito_enabled: cajitoEnabled,
       cajito_avatar_url: cajitoAvatarUrl,
       entregax_full_black_url: entregaxFullBlackUrl,
@@ -11782,6 +11788,45 @@ app.post('/api/admin/system/require-instructions-to-load-pobox-toggle', authenti
   } catch (err: any) {
     console.error('[REQUIRE-INSTRUCTIONS-POBOX-TOGGLE]', err.message);
     res.status(500).json({ error: 'Error al actualizar requisito de instrucciones para PO Box' });
+  }
+});
+
+// POST /api/admin/system/entregax-payment-query-toggle — habilita/deshabilita consulta pagos sistemaentregax.com
+app.post('/api/admin/system/entregax-payment-query-toggle', authenticateToken, requireRole('super_admin'), async (req: AuthRequest, res: Response) => {
+  try {
+    const enabled = req.body?.enabled === true;
+    const userId = req.user?.userId || null;
+    await pool.query(
+      `INSERT INTO system_configurations (config_key, config_value, description, is_active)
+       VALUES ('entregax_payment_query_enabled', $1::jsonb, 'Habilita consulta de pagos vía sistemaentregax.com desde el panel Nacional México', TRUE)
+       ON CONFLICT (config_key) DO UPDATE
+         SET config_value = $1::jsonb, updated_at = NOW(), updated_by = $2`,
+      [JSON.stringify({ enabled }), userId]
+    );
+    res.json({ success: true, entregax_payment_query_enabled: enabled });
+  } catch (err: any) {
+    console.error('[PAYMENT-QUERY-TOGGLE]', err.message);
+    res.status(500).json({ error: 'Error al actualizar estado' });
+  }
+});
+
+// GET /api/national/payment-query/:guide — proxy a sistemaentregax.com (requiere toggle activo)
+app.get('/api/national/payment-query/:guide', authenticateToken, async (req: AuthRequest, res: Response) => {
+  try {
+    const cfg = await pool.query(
+      `SELECT config_value FROM system_configurations WHERE config_key = 'entregax_payment_query_enabled' AND is_active = TRUE`
+    );
+    const enabled = cfg.rows[0]?.config_value?.enabled === true;
+    if (!enabled) return (res as any).status(503).json({ error: 'Consulta de pagos desactivada por administrador' });
+
+    const guide = encodeURIComponent(String(req.params.guide));
+    const upstream = `https://sistemaentregax.com/api/quotes/get-payments/${guide}`;
+    const r = await fetch(upstream, { headers: { 'Accept': 'application/json' } });
+    const data = await r.json();
+    return (res as any).status(r.status).json(data);
+  } catch (err: any) {
+    console.error('[PAYMENT-QUERY]', err.message);
+    return (res as any).status(502).json({ error: 'No se pudo contactar a sistemaentregax.com' });
   }
 });
 
