@@ -326,10 +326,12 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
 };
 
 // ============ LOGIN ============
-// Acepta tres formatos de identificador en el campo "email":
-//   1. Correo electrónico   (cualquier string con @)
-//   2. Número de cliente    (box_id, ej. "S1", "S1234")
-//   3. Teléfono verificado  (phone_verified = true) — sólo dígitos
+// Acepta cuatro formatos de identificador en el campo "email":
+//   1. Correo electrónico         (cualquier string con @)
+//   2. Número de cliente          (box_id, ej. "S1", "S1234")
+//   3. Teléfono verificado        (phone_verified = true) — sólo dígitos
+//   4. Código de asesor / sub-asesor  (referral_code, ej. "ALDO-6251")
+//      — sólo para roles advisor / sub_advisor (no clientes).
 //
 // El parámetro sigue llamándose "email" en el body para no romper la app
 // móvil ni el web admin existente. Acepta también `identifier` por
@@ -346,13 +348,17 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
         }
 
         // 1. Detectar tipo de identificador y construir query.
-        //    - Con '@' → email (case-insensitive)
-        //    - Sólo dígitos (≥ 7) → teléfono verificado
-        //    - Cualquier otra cosa → box_id (case-insensitive)
+        //    - Con '@'                         → email (case-insensitive)
+        //    - Sólo dígitos (≥ 7)              → teléfono verificado
+        //    - Contiene guión + letras+dígitos → referral_code de asesor (case-insensitive)
+        //    - Cualquier otra cosa             → box_id (case-insensitive)
         const isEmail = rawIdentifier.includes('@');
         const phoneOnly = rawIdentifier.replace(/[\s\-+()]/g, '');
         const isPhone = !isEmail && /^\d{7,15}$/.test(phoneOnly);
-        const looksLikeBoxId = !isEmail && !isPhone;
+        // Códigos de asesor: letras seguidas opcionalmente de "-NNNN".
+        // Soportamos ambos formatos: "ALDO-6251" y "ALDO6251".
+        const isReferralCode = !isEmail && !isPhone
+            && /^[A-Za-z]{2,}[A-Za-z0-9-]+$/.test(rawIdentifier);
 
         let userQuery;
         if (isEmail) {
@@ -362,7 +368,6 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
             );
         } else if (isPhone) {
             // Sólo permitimos login por teléfono si está VERIFICADO.
-            // Comparamos quitando + / espacios / guiones para tolerar formatos.
             userQuery = await pool.query(
                 `SELECT * FROM users
                  WHERE phone_verified = true
@@ -370,13 +375,33 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
                  LIMIT 1`,
                 [phoneOnly]
             );
-        } else if (looksLikeBoxId) {
+        } else if (isReferralCode) {
+            // Login con código de asesor: sólo permitido para advisor / sub_advisor.
+            // Normalizamos quitando guión para tolerar "ALDO-6251" ↔ "ALDO6251".
+            const codeUpper = rawIdentifier.toUpperCase();
+            const codeNoDash = codeUpper.replace(/-/g, '');
+            userQuery = await pool.query(
+                `SELECT * FROM users
+                 WHERE role IN ('advisor', 'sub_advisor', 'asesor', 'asesor_lider')
+                   AND (
+                     UPPER(referral_code) = $1
+                     OR REPLACE(UPPER(referral_code), '-', '') = $2
+                   )
+                 LIMIT 1`,
+                [codeUpper, codeNoDash]
+            );
+            // Si no aparece como asesor, caemos al match por box_id como fallback.
+            if (userQuery.rows.length === 0) {
+                userQuery = await pool.query(
+                    'SELECT * FROM users WHERE UPPER(box_id) = UPPER($1) LIMIT 1',
+                    [rawIdentifier]
+                );
+            }
+        } else {
             userQuery = await pool.query(
                 'SELECT * FROM users WHERE UPPER(box_id) = UPPER($1) LIMIT 1',
                 [rawIdentifier]
             );
-        } else {
-            userQuery = { rows: [] } as any;
         }
 
         if (userQuery.rows.length === 0) {

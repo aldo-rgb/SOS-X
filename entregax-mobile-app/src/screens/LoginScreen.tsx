@@ -55,8 +55,8 @@ const LOGIN_T = {
   es: {
     welcome: 'Bienvenido',
     subtitle: 'Tu suite inteligente',
-    instruction: 'Ingresa con tu correo, número de cliente o teléfono',
-    emailLabel: 'Correo, N° de cliente o teléfono',
+    instruction: 'Ingresa con tu correo, número de cliente, teléfono o código de asesor',
+    emailLabel: 'Correo, cliente, teléfono o código',
     passwordLabel: 'Contraseña',
     loginBtn: 'Ingresar',
     loggingIn: 'Ingresando...',
@@ -76,8 +76,8 @@ const LOGIN_T = {
   en: {
     welcome: 'Welcome',
     subtitle: 'Your smart suite',
-    instruction: 'Sign in with email, customer number or phone',
-    emailLabel: 'Email, customer # or phone',
+    instruction: 'Sign in with email, customer number, phone or advisor code',
+    emailLabel: 'Email, customer #, phone or code',
     passwordLabel: 'Password',
     loginBtn: 'Sign In',
     loggingIn: 'Signing in...',
@@ -97,8 +97,8 @@ const LOGIN_T = {
   zh: {
     welcome: '欢迎',
     subtitle: '您的智能平台',
-    instruction: '使用邮箱、客户号或电话登录',
-    emailLabel: '邮箱、客户号或电话',
+    instruction: '使用邮箱、客户号、电话或顾问代码登录',
+    emailLabel: '邮箱 / 客户号 / 电话 / 代码',
     passwordLabel: '密码',
     loginBtn: '登录',
     loggingIn: '登录中...',

@@ -71,14 +71,22 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [unreadNotif, setUnreadNotif]   = useState(0);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(user.profilePhotoUrl || null);
   const [showQrModal, setShowQrModal]   = useState(false);
+  // 📊 KPIs (tarifas y TC) para asesores
+  const [rates, setRates] = useState<{
+    precio_tdi_aereo_usd: number | null;
+    precio_tdi_express_usd: number | null;
+    tc_envio_dinero: number | null;
+    tc_operativo: number | null;
+  } | null>(null);
 
   const loadDashboard = useCallback(async () => {
     try {
       setError(null);
-      const [dashRes, photoRes, notifRes] = await Promise.allSettled([
+      const [dashRes, photoRes, notifRes, ratesRes] = await Promise.allSettled([
         fetch(`${API_URL}/api/advisor/dashboard`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/auth/profile-photo`, { headers: { Authorization: `Bearer ${token}` } }),
         fetch(`${API_URL}/api/notifications/unread-count`, { headers: { Authorization: `Bearer ${token}` } }),
+        fetch(`${API_URL}/api/advisor/rates`, { headers: { Authorization: `Bearer ${token}` } }),
       ]);
       if (dashRes.status === 'fulfilled' && dashRes.value.ok) {
         const dashData = await dashRes.value.json();
@@ -94,6 +102,10 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
       if (notifRes.status === 'fulfilled' && notifRes.value.ok) {
         const nd = await notifRes.value.json();
         setUnreadNotif(nd.count || nd.unread || 0);
+      }
+      if (ratesRes.status === 'fulfilled' && ratesRes.value.ok) {
+        const rd = await ratesRes.value.json();
+        if (rd?.success && rd.rates) setRates(rd.rates);
       }
     } catch (err: any) {
       console.error('Error loading advisor dashboard:', err);
@@ -338,6 +350,57 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           </TouchableOpacity>
         </Modal>
 
+        {/* 📊 Widget de KPIs en vivo (tarifas y tipos de cambio) */}
+        {rates && (
+          <View style={s.kpiCard}>
+            <View style={s.kpiHeader}>
+              <Ionicons name="trending-up" size={14} color={ORANGE} />
+              <Text style={s.kpiHeaderText}>Tarifas y TC en vivo</Text>
+            </View>
+            <View style={s.kpiGrid}>
+              <View style={s.kpiItem}>
+                <Text style={s.kpiLabel}>TDI Aéreo</Text>
+                <Text style={s.kpiValue}>
+                  {rates.precio_tdi_aereo_usd != null
+                    ? `$${rates.precio_tdi_aereo_usd.toFixed(2)}`
+                    : '—'}
+                </Text>
+                <Text style={s.kpiUnit}>USD/kg</Text>
+              </View>
+              <View style={s.kpiDivider} />
+              <View style={s.kpiItem}>
+                <Text style={s.kpiLabel}>TDI Express</Text>
+                <Text style={s.kpiValue}>
+                  {rates.precio_tdi_express_usd != null
+                    ? `$${rates.precio_tdi_express_usd.toFixed(2)}`
+                    : '—'}
+                </Text>
+                <Text style={s.kpiUnit}>USD/kg</Text>
+              </View>
+              <View style={s.kpiDivider} />
+              <View style={s.kpiItem}>
+                <Text style={s.kpiLabel}>TC Envío $</Text>
+                <Text style={s.kpiValue}>
+                  {rates.tc_envio_dinero != null
+                    ? `$${rates.tc_envio_dinero.toFixed(2)}`
+                    : '—'}
+                </Text>
+                <Text style={s.kpiUnit}>MXN/USD</Text>
+              </View>
+              <View style={s.kpiDivider} />
+              <View style={s.kpiItem}>
+                <Text style={s.kpiLabel}>TC Operativo</Text>
+                <Text style={s.kpiValue}>
+                  {rates.tc_operativo != null
+                    ? `$${rates.tc_operativo.toFixed(2)}`
+                    : '—'}
+                </Text>
+                <Text style={s.kpiUnit}>MXN/USD</Text>
+              </View>
+            </View>
+          </View>
+        )}
+
         {/* Embarques */}
         <View style={s.sectionHeader}>
           <View style={s.sectionBar} />
@@ -553,6 +616,38 @@ const s = StyleSheet.create({
   qrClose:     { marginTop: 8, backgroundColor: ORANGE, borderRadius: 8, paddingHorizontal: 32, paddingVertical: 10 },
   qrCloseText: { color: '#fff', fontWeight: '700', fontSize: 14 },
   heroCodeBtnOutlineText: { color: ORANGE, fontSize: 12, fontWeight: '700' },
+
+  // 📊 KPI widget — Tarifas y TC en vivo
+  kpiCard: {
+    marginHorizontal: 16,
+    marginTop: 14,
+    backgroundColor: CARD_BG,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#EEEEEE',
+    paddingTop: 10,
+    paddingBottom: 12,
+    paddingHorizontal: 6,
+    elevation: 1,
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 2,
+  },
+  kpiHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 8,
+    paddingHorizontal: 10,
+  },
+  kpiHeaderText: { fontSize: 11, fontWeight: '700', color: ORANGE, letterSpacing: 0.8 },
+  kpiGrid: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  kpiItem: { flex: 1, alignItems: 'center', paddingHorizontal: 4 },
+  kpiLabel: { fontSize: 10, fontWeight: '600', color: SUBTEXT, marginBottom: 2, textAlign: 'center' },
+  kpiValue: { fontSize: 16, fontWeight: '800', color: TEXT, letterSpacing: -0.3 },
+  kpiUnit: { fontSize: 9, color: '#999', marginTop: 1 },
+  kpiDivider: { width: 1, height: 32, backgroundColor: '#EEEEEE' },
 
 
   // Section header

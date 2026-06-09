@@ -18,6 +18,7 @@ import {
   ToastAndroid,
   Platform,
   Alert,
+  Image,
 } from 'react-native';
 import {
   Appbar,
@@ -96,6 +97,13 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
   const [movementsLoading, setMovementsLoading] = useState(false);
   const [movementsError, setMovementsError] = useState<string | null>(null);
   const [movements, setMovements] = useState<any[]>([]);
+
+  // 📷 Fotos / evidencias de MoJie (China Air)
+  const [photosOpen, setPhotosOpen] = useState(false);
+  const [photosLoading, setPhotosLoading] = useState(false);
+  const [photosError, setPhotosError] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [photoZoom, setPhotoZoom] = useState<string | null>(null);
 
   const normalizeMaritimeId = (id: number) => (id >= 100000 ? id - 100000 : id);
 
@@ -317,6 +325,38 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
     }
   };
 
+  // 📷 Cargar fotos de MoJie
+  const openPhotos = async () => {
+    try {
+      setPhotosOpen(true);
+      setPhotosLoading(true);
+      setPhotosError(null);
+
+      const tracking = String(currentPkg?.tracking_internal || '').trim();
+      if (!tracking) {
+        setPhotosError('No se encontró tracking para consultar fotos');
+        setPhotos([]);
+        return;
+      }
+      const response = await fetch(
+        `${API_URL}/api/packages/track/${encodeURIComponent(tracking)}/photos`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await response.json();
+      if (!response.ok || !data?.success) {
+        setPhotosError(data?.error || 'No se pudieron cargar las fotos');
+        setPhotos([]);
+        return;
+      }
+      setPhotos(Array.isArray(data.photos) ? data.photos : []);
+    } catch (error: any) {
+      setPhotosError(error?.message || 'Error de conexión');
+      setPhotos([]);
+    } finally {
+      setPhotosLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -391,11 +431,28 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
                 mode="outlined"
                 onPress={openMovements}
                 style={styles.movementsButton}
+                contentStyle={styles.compactBtnContent}
+                labelStyle={styles.compactBtnLabel}
                 textColor={SEA_COLOR}
                 icon="timeline-text"
+                compact
               >
                 {TT.viewMovements}
               </Button>
+              {(currentPkg?.shipment_type === 'china_air' || currentPkg?.shipment_type === 'tdi_express') && (
+                <Button
+                  mode="outlined"
+                  onPress={openPhotos}
+                  style={styles.movementsButton}
+                  contentStyle={styles.compactBtnContent}
+                  labelStyle={styles.compactBtnLabel}
+                  textColor={SEA_COLOR}
+                  icon="image-multiple"
+                  compact
+                >
+                  {lang === 'zh' ? '照片' : lang === 'en' ? 'Photos' : 'Fotos'}
+                </Button>
+              )}
             </View>
             
             <Divider style={styles.divider} />
@@ -884,6 +941,94 @@ export default function MaritimeDetailScreen({ navigation, route }: Props) {
           </View>
         </Modal>
 
+        {/* 📷 Modal: Fotos de MoJie */}
+        <Modal
+          visible={photosOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => { setPhotosOpen(false); setPhotoZoom(null); }}
+        >
+          <View style={styles.movementsOverlay}>
+            <View style={styles.movementsModal}>
+              <View style={styles.movementsHeader}>
+                <Text style={styles.movementsTitle}>
+                  {lang === 'zh' ? '货物照片' : lang === 'en' ? 'Shipment Photos' : 'Fotos del Embarque'}
+                </Text>
+                <TouchableOpacity onPress={() => { setPhotosOpen(false); setPhotoZoom(null); }}>
+                  <MaterialCommunityIcons name="close" size={24} color="#666" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.movementsTrackingBox}>
+                <Text style={styles.movementsTrackingLabel}>Tracking</Text>
+                <Text style={styles.movementsTrackingValue}>{currentPkg?.tracking_internal}</Text>
+              </View>
+
+              {photosLoading && (
+                <View style={styles.movementsLoadingWrap}>
+                  <ActivityIndicator color={SEA_COLOR} />
+                </View>
+              )}
+
+              {!photosLoading && photosError && (
+                <View style={styles.movementsErrorWrap}>
+                  <Text style={styles.movementsErrorText}>❌ {photosError}</Text>
+                </View>
+              )}
+
+              {!photosLoading && !photosError && (
+                <ScrollView style={styles.movementsList} showsVerticalScrollIndicator={false}>
+                  {photos.length === 0 ? (
+                    <Text style={styles.movementsEmptyText}>
+                      {lang === 'zh' ? '暂无照片' : lang === 'en' ? 'No photos available' : 'Aún no hay fotos disponibles para este embarque.'}
+                    </Text>
+                  ) : (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                      {photos.map((url, idx) => (
+                        <TouchableOpacity
+                          key={`${url}-${idx}`}
+                          activeOpacity={0.85}
+                          onPress={() => setPhotoZoom(url)}
+                          style={{
+                            width: '48%',
+                            aspectRatio: 1,
+                            borderRadius: 8,
+                            overflow: 'hidden',
+                            backgroundColor: '#eee',
+                          }}
+                        >
+                          <Image source={{ uri: url }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
+
+        {/* 🔍 Visor de foto en grande */}
+        <Modal
+          visible={!!photoZoom}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPhotoZoom(null)}
+        >
+          <TouchableOpacity
+            activeOpacity={1}
+            onPress={() => setPhotoZoom(null)}
+            style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', alignItems: 'center' }}
+          >
+            {!!photoZoom && (
+              <Image source={{ uri: photoZoom }} style={{ width: '100%', height: '80%' }} resizeMode="contain" />
+            )}
+            <View style={{ position: 'absolute', top: 40, right: 20 }}>
+              <MaterialCommunityIcons name="close-circle" size={36} color="white" />
+            </View>
+          </TouchableOpacity>
+        </Modal>
+
         <View style={styles.bottomSpacer} />
       </ScrollView>
     </View>
@@ -958,11 +1103,24 @@ const styles = StyleSheet.create({
   },
   headerButtonsRow: {
     marginTop: 10,
-    alignItems: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
   },
   movementsButton: {
     borderColor: SEA_COLOR,
-    borderRadius: 10,
+    borderRadius: 8,
+  },
+  compactBtnContent: {
+    height: 32,
+    paddingHorizontal: 6,
+  },
+  compactBtnLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginVertical: 0,
+    letterSpacing: 0,
   },
   divider: {
     marginVertical: 8,

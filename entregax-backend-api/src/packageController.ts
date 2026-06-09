@@ -3481,13 +3481,22 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
         // Combinar todos los tipos
         // ✈️ TDI Express — envíos de la ruta TDI-EXPRES capturados para este cliente.
         // Se exponen como shipment_type 'tdi_express' para que aparezcan bajo el filtro Aéreo.
+        //
+        // Trae:
+        //   - Masters (is_master=true) con sus hijas agregadas en captured_boxes.
+        //   - Packages individuales (master_id IS NULL AND is_master=false) — TDX
+        //     creadas de forma suelta desde admin, sin embarque multi-caja.
+        //
+        // Excluye las hijas que ya están agrupadas bajo un master (master_id IS NOT NULL),
+        // para no duplicar visualmente la entrada.
         let tdiExpressPackages: any[] = [];
         try {
             const tdiRes = await pool.query(`
                 SELECT m.*,
                     (SELECT COUNT(*) FROM packages c WHERE c.master_id = m.id) AS captured_boxes
                 FROM packages m
-                WHERE m.air_source = 'tdi_express' AND m.is_master = true
+                WHERE m.air_source = 'tdi_express'
+                  AND (m.is_master = true OR m.master_id IS NULL)
                   AND (m.user_id = $1 OR ($2::text IS NOT NULL AND UPPER(m.box_id) = UPPER($2::text)))
                 ORDER BY m.created_at DESC
             `, [userId, userBoxId]);
