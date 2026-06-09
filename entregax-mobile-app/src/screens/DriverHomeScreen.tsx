@@ -382,7 +382,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     },
     {
       id: 'load',
-      title: isMonitoreo ? 'Iniciar Monitoreo' : 'Entrega Local',
+      title: isMonitoreo ? 'Iniciar Monitoreo' : 'Salidas Locales',
       subtitle: isMonitoreo
         ? `${stats.pendingToLoad} contenedores en ruta`
         : `${stats.pendingToLoad} paquetes pendientes`,
@@ -614,7 +614,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
             >
               <MaterialIcons name="local-post-office" size={28} color="#F05A28" />
               <Text style={[styles.statNumber, { color: '#F05A28' }]}>{stats.paqueteriaCount}</Text>
-              <Text style={styles.statLabel}>Envío Paquetería</Text>
+              <Text style={styles.statLabel}>Salidas Paqueterías</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.statCard}
@@ -1003,7 +1003,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
                     ? pendingCarrier.carrier.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
                     : paqueteriaView === 'package_list' && selectedCarrierGroup
                       ? selectedCarrierGroup.carrier.replace(/_/g, ' ').replace(/\b\w/g, (l: string) => l.toUpperCase())
-                      : 'Envío Paquetería'}
+                      : 'Salidas Paqueterías'}
                 </Text>
                 <View style={{ backgroundColor: '#F05A28', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 2 }}>
                   <Text style={{ color: '#fff', fontWeight: '700', fontSize: 12 }}>
