@@ -335,9 +335,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
   const [conceptoSearchError, setConceptoSearchError] = useState<string | null>(null);
   useEffect(() => {
     const q = conceptoSearchInput.trim();
-    // Si está vacío o el usuario ya escribió un código numérico completo,
-    // no buscamos en catálogo (probablemente lo va a pegar como texto).
-    if (q.length < 2 || /^\d{6,10}$/.test(q)) {
+    // Solo omitir búsqueda si está vacío o es exactamente un código SAT de 8 dígitos ya completo
+    if (q.length < 2 || /^\d{8}$/.test(q)) {
       setConceptoOptions([]);
       setConceptoSearching(false);
       setConceptoSearchError(null);
