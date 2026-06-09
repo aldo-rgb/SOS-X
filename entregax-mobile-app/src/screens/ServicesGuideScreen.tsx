@@ -86,6 +86,9 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ServicesGuide'>;
 export default function ServicesGuideScreen({ navigation, route }: Props) {
   const { user, token } = route.params;
   const { t } = useTranslation();
+  const { i18n } = useTranslation();
+  const uiLang = i18n.language as 'es' | 'en' | 'zh';
+  const L = (es: string, en: string, zh: string) => uiLang === 'zh' ? zh : uiLang === 'en' ? en : es;
   const sg = (k: string) => (t as any)(`servicesGuide.${k}`, { defaultValue: k });
 
   const SERVICES_I18N: ServiceCard[] = [
@@ -274,7 +277,7 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
 
         {/* Beneficios */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Ventajas del servicio</Text>
+          <Text style={styles.sectionTitle}>{L('Ventajas del servicio','Service Benefits','服务优势')}</Text>
           {svc.benefits.map((b, i) => (
             <Text key={i} style={styles.benefitRow}>{b}</Text>
           ))}
@@ -282,7 +285,7 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
 
         {/* Ideal para */}
         <View style={[styles.idealBox, { borderLeftColor: svc.accentColor }]}>
-          <Text style={styles.idealLabel}>Ideal para</Text>
+          <Text style={styles.idealLabel}>{L('IDEAL PARA','IDEAL FOR','适合用途')}</Text>
           <Text style={styles.idealText}>{svc.idealFor}</Text>
         </View>
 
@@ -290,13 +293,13 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
         {loading ? (
           <View style={styles.loadingBox}>
             <ActivityIndicator color={svc.accentColor} size="large" />
-            <Text style={styles.loadingText}>Cargando dirección…</Text>
+            <Text style={styles.loadingText}>{L('Cargando dirección…','Loading address…','正在加载地址…')}</Text>
           </View>
         ) : serviceInfo?.addresses && serviceInfo.addresses.length > 0 ? (
           serviceInfo.addresses.map((addr, idx) => (
             <View key={idx} style={styles.section}>
-              <Text style={styles.sectionTitle}>📍 Tu dirección de envío</Text>
-              <Text style={styles.addrSubtitle}>Personalizada con tu número de cliente <Text style={{ fontWeight: '700' }}>{user.boxId}</Text></Text>
+              <Text style={styles.sectionTitle}>📍 {L('Tu dirección de envío','Your Shipping Address','您的发货地址')}</Text>
+              <Text style={styles.addrSubtitle}>{L('Personalizada con tu número de cliente','Customized with your customer number','根据您的客户编号定制')} <Text style={{ fontWeight: '700' }}>{user.boxId}</Text></Text>
               <View style={[styles.addrBox, { borderLeftColor: svc.accentColor }]}>
                 <Text style={styles.addrText}>{getPersonalizedAddress(addr)}</Text>
               </View>
@@ -306,14 +309,14 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
                   onPress={() => handleCopy(addr)}
                 >
                   <Ionicons name={copied ? 'checkmark' : 'copy'} size={16} color="#fff" />
-                  <Text style={styles.btnPrimaryText}>{copied ? '¡Copiado!' : 'Copiar todo'}</Text>
+                  <Text style={styles.btnPrimaryText}>{copied ? L('¡Copiado!','Copied!','已复制！') : L('Copiar todo','Copy All','复制全部')}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.btnOutline, { borderColor: svc.accentColor }]}
                   onPress={() => handleShare(addr)}
                 >
                   <Ionicons name="share-social" size={16} color={svc.accentColor} />
-                  <Text style={[styles.btnOutlineText, { color: svc.accentColor }]}>Compartir</Text>
+                  <Text style={[styles.btnOutlineText, { color: svc.accentColor }]}>{L('Compartir','Share','分享')}</Text>
                 </TouchableOpacity>
               </View>
               {addr.business_hours && (
@@ -327,8 +330,8 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
         ) : (
           !loading && (
             <View style={styles.section}>
-              <Text style={styles.sectionTitle}>📍 Dirección de envío</Text>
-              <Text style={styles.noInfoText}>Contacta a tu asesor para obtener la dirección actualizada de este servicio.</Text>
+              <Text style={styles.sectionTitle}>📍 {L('Dirección de envío','Shipping Address','发货地址')}</Text>
+              <Text style={styles.noInfoText}>{L('Contacta a tu asesor para obtener la dirección actualizada de este servicio.','Contact your advisor to get the updated address for this service.','请联系您的顾问获取此服务的最新地址。')}</Text>
             </View>
           )
         )}

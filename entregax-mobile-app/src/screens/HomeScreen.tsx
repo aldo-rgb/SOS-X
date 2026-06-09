@@ -178,16 +178,21 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // Sin emojis: el Chip ya pinta su propio Icon arriba (ferry, airplane,
     // truck-fast, etc.). Mantener el emoji en el texto produce un doble
     // ícono ("🚢 🚢 Ya Zarpó").
+    const L = (es: string, en: string, zh: string) =>
+      uiLang === 'zh' ? zh : uiLang === 'en' ? en : es;
+
     if (shipmentType === 'maritime' || shipmentType === 'fcl') {
       const maritimeLabels: Record<string, string> = {
-        received_china: 'Recibido CEDIS GZ CHINA',
-        in_transit: 'Ya Zarpó',
-        at_port: 'En Puerto',
-        customs_mx: 'Aduana México',
-        in_transit_mx: 'En Ruta a CEDIS',
-        received_cedis: 'En CEDIS',
-        ready_pickup: 'Listo para Recoger',
-        delivered: 'Entregado',
+        received_china:      L('Recibido en China, Shenzhen',    'Received in China, Shenzhen',     '已在中国深圳收货'),
+        in_transit:          L('Ya Zarpó',                       'Departed',                        '已起航'),
+        at_port:             L('En Puerto',                      'At Port',                         '到达港口'),
+        customs_mx:          L('Aduana México',                  'Mexico Customs',                  '墨西哥海关'),
+        in_transit_mx:       L('En Ruta a CEDIS',                'In Transit to Warehouse',         '运往仓库途中'),
+        received_cedis:      L('En CEDIS',                       'At Warehouse',                    '在仓库'),
+        customs_cleared:     L('Liberado de Aduana',             'Customs Cleared',                 '清关完成'),
+        in_transit_transfer: L('En Tránsito',                    'In Transit',                      '运输中'),
+        ready_pickup:        L('Listo para Recoger',             'Ready for Pickup',                '可取货'),
+        delivered:           L('Entregado',                      'Delivered',                       '已送达'),
       };
       return maritimeLabels[status] || status;
     }
@@ -195,14 +200,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // ✈️🇨🇳 Labels para TDI Aéreo China
     if (shipmentType === 'china_air') {
       const chinaAirLabels: Record<string, string> = {
-        received_origin: 'En Bodega China',
-        in_transit: 'En Tránsito',
-        at_customs: 'En Aduana',
-        customs_mx: 'Aduana México',
-        in_transit_mx: 'En Ruta a CEDIS',
-        received_cedis: 'En CEDIS',
-        ready_pickup: 'Listo para Recoger',
-        delivered: 'Entregado',
+        received_origin:     L('En Bodega China',                'In China Warehouse',              '在中国仓库'),
+        in_transit:          L('En Tránsito',                    'In Transit',                      '运输中'),
+        at_customs:          L('En Aduana',                      'At Customs',                      '在海关'),
+        customs_mx:          L('Aduana México',                  'Mexico Customs',                  '墨西哥海关'),
+        in_transit_mx:       L('En Ruta a CEDIS',                'In Transit to Warehouse',         '运往仓库途中'),
+        received_cedis:      L('En CEDIS',                       'At Warehouse',                    '在仓库'),
+        customs_cleared:     L('Liberado de Aduana',             'Customs Cleared',                 '清关完成'),
+        in_transit_transfer: L('En Tránsito',                    'In Transit',                      '运输中'),
+        ready_pickup:        L('Listo para Recoger',             'Ready for Pickup',                '可取货'),
+        delivered:           L('Entregado',                      'Delivered',                       '已送达'),
       };
       return chinaAirLabels[status] || status;
     }
@@ -210,12 +217,13 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // 🛫 Labels para TDI Express (ruta aérea China → MTY)
     if (shipmentType === 'tdi_express') {
       const tdiLabels: Record<string, string> = {
-        received_china: 'Recibido en China',
-        in_transit: 'En Tránsito',
-        received_mty: 'Recibido en MTY',
-        dispatched_national: 'En Reenvío Nacional',
-        ready_pickup: 'Listo para Recoger',
-        delivered: 'Entregado',
+        received_china:      L('Recibido en China, Guangzhou',   'Received in China, Guangzhou',    '已在中国广州收货'),
+        in_transit:          L('En Tránsito',                    'In Transit',                      '运输中'),
+        in_transit_transfer: L('En Tránsito',                    'In Transit',                      '运输中'),
+        received_mty:        L('Recibido en México, Monterrey',  'Received in Mexico, Monterrey',   '已在墨西哥蒙特雷收货'),
+        dispatched_national: L('En Reenvío Nacional',            'National Reshipping',             '国内转运'),
+        ready_pickup:        L('Listo para Recoger',             'Ready for Pickup',                '可取货'),
+        delivered:           L('Entregado',                      'Delivered',                       '已送达'),
       };
       return tdiLabels[status] || status;
     }
@@ -223,30 +231,26 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     // 🚚 Labels para DHL Express
     if (shipmentType === 'dhl') {
       const dhlLabels: Record<string, string> = {
-        received_mty: 'Cedis MTY',
-        in_transit: 'En Tránsito',
-        out_for_delivery: 'En ruta de entrega',
-        delivered: 'Entregado',
+        received_mty:    L('Recibido en México, Monterrey NL',   'Received in Mexico, Monterrey',   '已在墨西哥蒙特雷收货'),
+        in_transit:      L('En Tránsito',                        'In Transit',                      '运输中'),
+        out_for_delivery:L('En Ruta de Entrega',                 'Out for Delivery',                '派送中'),
+        delivered:       L('Entregado',                          'Delivered',                       '已送达'),
       };
       return dhlLabels[status] || status;
     }
-    
-    // Labels para PO Box USA (terrestre)
-    // Sin emojis en el texto: el Chip ya pinta su propio Icon arriba
-    // (truck-fast / package-variant / etc.). Tener el emoji EN el texto
-    // mostraba dos íconos seguidos en la misma línea ("🚚 🚚 En Tránsito").
+
     const statusLabels: Record<string, string> = {
-      received: t('status.inWarehouse'),
-      in_transit: `${t('status.inTransit')} a MTY`,
-      processing: t('status.processing'),
-      shipped: t('status.shipped'),
-      ready_pickup: 'Pick Up',
-      delivered: t('status.delivered'),
-      pending: t('status.pending'),
-      received_mty: 'Recibido en MTY',
-      out_for_delivery: 'En ruta de entrega',
-      en_ruta_entrega: 'En ruta de entrega',
-      reempacado: 'Reempacado',
+      received:         t('status.inWarehouse'),
+      in_transit:       uiLang === 'zh' ? '运往蒙特雷途中' : uiLang === 'en' ? 'In Transit to MTY' : `${t('status.inTransit')} a MTY`,
+      processing:       t('status.processing'),
+      shipped:          t('status.shipped'),
+      ready_pickup:     L('Pick Up',                             'Pick Up',                         '可取货'),
+      delivered:        t('status.delivered'),
+      pending:          t('status.pending'),
+      received_mty:     L('Recibido en MTY',                    'Received in Monterrey',            '已在蒙特雷收货'),
+      out_for_delivery: L('En Ruta de Entrega',                 'Out for Delivery',                 '派送中'),
+      en_ruta_entrega:  L('En Ruta de Entrega',                 'Out for Delivery',                 '派送中'),
+      reempacado:       L('Reempacado',                         'Repackaged',                       '重新包装'),
     };
     return statusLabels[status] || status;
   };
@@ -824,17 +828,21 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
 
   // 🚚 Función para obtener el nombre amigable del carrier
   const getCarrierName = (carrierID: string): string => {
+    const LL = (es: string, en: string, zh: string) =>
+      uiLang === 'zh' ? zh : uiLang === 'en' ? en : es;
     const carrierMap: Record<string, string> = {
-      'paquete_express': 'Paquete Express',
-      'paquete_express_pc': 'Paquete Express (Por Cobrar)',
-      'entregax_local': 'Entregax Local',
-      'entregax_local_cdmx': 'Entregax Local CDMX',
-      'entregax_local_mty': 'Entregax Local MTY',
-      'fedex': 'FedEx',
-      'estafeta': 'Estafeta',
-      'dhl': 'DHL',
-      'ups': 'UPS',
-      'pickup_hidalgo': 'Recoger en Sucursal',
+      'paquete_express':       'Paquete Express',
+      'paquete_express_pc':    LL('Paquete Express (Por Cobrar)', 'Paquete Express (COD)', '快递包裹(到付)'),
+      'entregax_local':        'Entregax Local',
+      'entregax_local_cdmx':   'Entregax Local CDMX',
+      'entregax_local_mty':    'Entregax Local MTY',
+      'fedex': 'FedEx', 'estafeta': 'Estafeta', 'dhl': 'DHL', 'ups': 'UPS',
+      'pickup_hidalgo':        LL('Recoger en Sucursal', 'Branch Pickup', '在门店取货'),
+      'Marítimo China':        LL('Marítimo China',       'Maritime China',  '中国海运'),
+      'maritime':              LL('Marítimo China',       'Maritime China',  '中国海运'),
+      'Aéreo China':           LL('Aéreo China',          'Air China',       '中国空运'),
+      'china_air':             LL('Aéreo China',          'Air China',       '中国空运'),
+      'tdi_express':           LL('TDI Express',          'TDI Express',     'TDI快递'),
     };
     return carrierMap[carrierID] || carrierID;
   };
@@ -1179,7 +1187,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       {hasDeliveryInstructions && (
                         <View style={styles.deliveryAssignedBadge}>
                           <Icon source="clipboard-check" size={12} color="#D97706" />
-                          <Text style={styles.deliveryAssignedText}>Instrucciones</Text>
+                          <Text style={styles.deliveryAssignedText}>{uiLang === 'zh' ? '指示' : uiLang === 'en' ? 'Instructions' : 'Instrucciones'}</Text>
                         </View>
                       )}
                       {/* 🏷️ Etiquetado: el chip aparece cuando la guía
@@ -1190,20 +1198,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       {(!!(item as any).national_label_url || !!(item as any).national_tracking || !!(item as any).skydropx_label_id || !!(item as any).dhl_awb) && (
                         <View style={styles.labeledBadge}>
                           <Icon source="printer-check" size={12} color={ORANGE} />
-                          <Text style={styles.labeledBadgeText}>Etiquetado</Text>
+                          <Text style={styles.labeledBadgeText}>{uiLang === 'zh' ? '已贴标' : uiLang === 'en' ? 'Labeled' : 'Etiquetado'}</Text>
                         </View>
                       )}
                       {/* 💳 Orden de pago pendiente expandido */}
                       {hasPendingPaymentOrder && !isPaid && (
                         <View style={styles.pendingPaymentBadge}>
                           <Icon source="cash" size={12} color="#F59E0B" />
-                          <Text style={styles.pendingPaymentBadgeText}>Orden de Pago</Text>
+                          <Text style={styles.pendingPaymentBadgeText}>{uiLang === 'zh' ? '待付款' : uiLang === 'en' ? 'Payment Order' : 'Orden de Pago'}</Text>
                         </View>
                       )}
                       <View style={isPaid ? styles.paidBadge : styles.unpaidBadge}>
                         <Icon source={isPaid ? "check-circle" : "credit-card"} size={12} color={isPaid ? "#10B981" : ORANGE} />
                         <Text style={isPaid ? styles.paidBadgeText : styles.unpaidBadgeText}>
-                          {isPaid ? 'Pagado' : 'Pagar'}
+                          {isPaid
+                            ? (uiLang === 'zh' ? '已付款' : uiLang === 'en' ? 'Paid' : 'Pagado')
+                            : (uiLang === 'zh' ? '去付款' : uiLang === 'en' ? 'Pay' : 'Pagar')}
                         </Text>
                       </View>
                     </View>

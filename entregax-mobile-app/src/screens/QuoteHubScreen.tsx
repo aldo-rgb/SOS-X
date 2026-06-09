@@ -96,7 +96,9 @@ const formatUsd = (n: number | string | undefined | null): string => {
 
 export default function QuoteHubScreen({ navigation, route }: Props) {
   const { user, token } = route.params;
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
+  const uiLang = i18n.language as 'es' | 'en' | 'zh';
+  const L = (es: string, en: string, zh: string) => uiLang === 'zh' ? zh : uiLang === 'en' ? en : es;
   const qt = (k: string) => (t as any)(`quoteHub.${k}`, { defaultValue: k });
 
   const SERVICES_I18N: ServiceMeta[] = [
@@ -531,25 +533,25 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
       {/* Selector tipo Marítimo (paridad con web): Por volumen vs FCL 40 pies */}
       {selectedService?.key === 'maritime' && (
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Tipo de servicio marítimo</Text>
+          <Text style={styles.label}>{L('Tipo de servicio marítimo','Maritime Service Type','海运服务类型')}</Text>
           <View style={styles.chipRow}>
             <TouchableOpacity
               style={[styles.chip, maritimeMode === 'volumen' && styles.chipActive]}
               onPress={() => setMaritimeMode('volumen')}
             >
-              <Text style={[styles.chipText, maritimeMode === 'volumen' && styles.chipTextActive]}>📦 Por volumen (m³)</Text>
+              <Text style={[styles.chipText, maritimeMode === 'volumen' && styles.chipTextActive]}>📦 {L('Por volumen (m³)','By Volume (m³)','按体积(m³)')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.chip, maritimeMode === 'fcl_40' && styles.chipActive]}
               onPress={() => setMaritimeMode('fcl_40')}
             >
-              <Text style={[styles.chipText, maritimeMode === 'fcl_40' && styles.chipTextActive]}>🚢 FCL 40 pies</Text>
+              <Text style={[styles.chipText, maritimeMode === 'fcl_40' && styles.chipTextActive]}>🚢 {L('FCL 40 pies','FCL 40 ft','40尺整箱')}</Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.helpText}>
             {maritimeMode === 'volumen'
-              ? 'Cotiza por metros cúbicos. Ideal para volúmenes mixtos.'
-              : 'Contenedor completo de 40 pies (~66 m³). Cotiza por contenedor.'}
+              ? L('Cotiza por metros cúbicos. Ideal para volúmenes mixtos.','Quote by cubic meters. Ideal for mixed volumes.','按立方米报价，适合混合货物。')
+              : L('Contenedor completo de 40 pies (~66 m³). Cotiza por contenedor.','Full 40-ft container (~66 m³). Quote per container.','40尺整箱(约66m³)，按集装箱报价。')}
           </Text>
         </View>
       )}
@@ -557,11 +559,11 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
       {/* Selector Aéreo / Express (solo para air_china) */}
       {selectedService?.key === 'air_china' && (
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Tipo de servicio aéreo</Text>
+          <Text style={styles.label}>{L('Tipo de servicio aéreo','Air Service Type','空运服务类型')}</Text>
           <View style={{ flexDirection: 'row', gap: 10 }}>
             {([
-              { key: 'tdi_aereo' as const, label: '✈️ Aéreo', eta: '10-15 días' },
-              { key: 'tdi_express' as const, label: '🚀 Express', eta: '7-10 días' },
+              { key: 'tdi_aereo' as const, label: `✈️ ${L('Aéreo','Air','空运')}`, eta: '10-15 días' },
+              { key: 'tdi_express' as const, label: `🚀 Express`, eta: '7-10 días' },
             ]).map(opt => (
               <TouchableOpacity
                 key={opt.key}
@@ -584,7 +586,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
       {/* Peso (kg) — oculto para FCL 40 */}
       {!(selectedService?.key === 'maritime' && maritimeMode === 'fcl_40') && (
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Peso (kg){selectedService?.key === 'maritime' ? ' · opcional' : ''}</Text>
+          <Text style={styles.label}>{L('Peso (kg)','Weight (kg)','重量(kg)')}{selectedService?.key === 'maritime' ? ` · ${L('opcional','optional','可选')}` : ''}</Text>
           <TextInput
             style={styles.input}
             placeholder="0.00"
@@ -598,7 +600,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
       {selectedService?.key === 'maritime' && maritimeMode === 'volumen' ? (
         <>
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Metros cúbicos (CBM · m³)</Text>
+            <Text style={styles.label}>{L('Metros cúbicos (CBM · m³)','Cubic Meters (CBM · m³)','立方米(CBM · m³)')}</Text>
             <TextInput
               style={styles.input}
               placeholder="0.000"
@@ -606,30 +608,30 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               onChangeText={setCbmM3}
               keyboardType="decimal-pad"
             />
-            <Text style={styles.helpText}>Si lo conoces, omite las dimensiones.</Text>
+            <Text style={styles.helpText}>{L('Si lo conoces, omite las dimensiones.','If known, skip the dimensions.','如果已知，可省略尺寸。')}</Text>
           </View>
           <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Dimensiones (cm) · opcional</Text>
+            <Text style={styles.label}>{L('Dimensiones (cm) · opcional','Dimensions (cm) · optional','尺寸(cm) · 可选')}</Text>
             <View style={styles.dimensionsRow}>
-              <TextInput style={[styles.input, styles.dimInput]} placeholder="Largo" value={lengthCm} onChangeText={setLengthCm} keyboardType="decimal-pad" />
+              <TextInput style={[styles.input, styles.dimInput]} placeholder={L('Largo','Length','长')} value={lengthCm} onChangeText={setLengthCm} keyboardType="decimal-pad" />
               <Text style={styles.dimX}>×</Text>
-              <TextInput style={[styles.input, styles.dimInput]} placeholder="Ancho" value={widthCm} onChangeText={setWidthCm} keyboardType="decimal-pad" />
+              <TextInput style={[styles.input, styles.dimInput]} placeholder={L('Ancho','Width','宽')} value={widthCm} onChangeText={setWidthCm} keyboardType="decimal-pad" />
               <Text style={styles.dimX}>×</Text>
-              <TextInput style={[styles.input, styles.dimInput]} placeholder="Alto" value={heightCm} onChangeText={setHeightCm} keyboardType="decimal-pad" />
+              <TextInput style={[styles.input, styles.dimInput]} placeholder={L('Alto','Height','高')} value={heightCm} onChangeText={setHeightCm} keyboardType="decimal-pad" />
             </View>
           </View>
         </>
       ) : selectedService?.key === 'maritime' && maritimeMode === 'fcl_40' ? null : (
         <View style={styles.fieldGroup}>
           <Text style={styles.label}>
-            Medidas (cm){selectedService?.key === 'air_china' ? ' · opcional' : ''}
+            {L('Medidas (cm)','Dimensions (cm)','尺寸(cm)')}{selectedService?.key === 'air_china' ? ` · ${L('opcional','optional','可选')}` : ''}
           </Text>
           <View style={styles.dimensionsRow}>
-            <TextInput style={[styles.input, styles.dimInput]} placeholder="Largo" value={lengthCm} onChangeText={setLengthCm} keyboardType="decimal-pad" />
+            <TextInput style={[styles.input, styles.dimInput]} placeholder={L('Largo','Length','长')} value={lengthCm} onChangeText={setLengthCm} keyboardType="decimal-pad" />
             <Text style={styles.dimX}>×</Text>
-            <TextInput style={[styles.input, styles.dimInput]} placeholder="Ancho" value={widthCm} onChangeText={setWidthCm} keyboardType="decimal-pad" />
+            <TextInput style={[styles.input, styles.dimInput]} placeholder={L('Ancho','Width','宽')} value={widthCm} onChangeText={setWidthCm} keyboardType="decimal-pad" />
             <Text style={styles.dimX}>×</Text>
-            <TextInput style={[styles.input, styles.dimInput]} placeholder="Alto" value={heightCm} onChangeText={setHeightCm} keyboardType="decimal-pad" />
+            <TextInput style={[styles.input, styles.dimInput]} placeholder={L('Alto','Height','高')} value={heightCm} onChangeText={setHeightCm} keyboardType="decimal-pad" />
           </View>
           {selectedService?.key === 'air_china' && parseFloat(weightKg) > 0 && (parseFloat(lengthCm) <= 0 || parseFloat(widthCm) <= 0 || parseFloat(heightCm) <= 0) && (
             <View style={[styles.disclaimerBox, { marginTop: 8, marginBottom: 0 }]}>
@@ -649,7 +651,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     if (selectedService.key === 'pobox') {
       return (
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Cantidad de cajas</Text>
+          <Text style={styles.label}>{L('Cantidad de cajas','Number of Boxes','箱数')}</Text>
           <TextInput
             style={styles.input}
             placeholder="1"
@@ -663,7 +665,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
     if (selectedService.key === 'dhl') {
       return (
         <View style={styles.fieldGroup}>
-          <Text style={styles.label}>Cantidad de paquetes</Text>
+          <Text style={styles.label}>{L('Cantidad de paquetes','Number of Packages','包裹数量')}</Text>
           <TextInput
             style={styles.input}
             placeholder="1"
@@ -679,7 +681,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         <>
           <View style={styles.fieldGroup}>
             <Text style={styles.label}>
-              {maritimeMode === 'fcl_40' ? 'Cantidad de contenedores' : 'Cantidad de paquetes'}
+              {maritimeMode === 'fcl_40' ? L('Cantidad de contenedores','Number of Containers','集装箱数量') : L('Cantidad de paquetes','Number of Packages','包裹数量')}
             </Text>
             <TextInput
               style={styles.input}
@@ -866,7 +868,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
           activeOpacity={0.7}
         >
           <MaterialCommunityIcons name="information-outline" size={18} color={BLACK} />
-          <Text style={styles.infoToggleText}>¿Cómo se cotiza este servicio?</Text>
+          <Text style={styles.infoToggleText}>{L('¿Cómo se cotiza este servicio?','How is this service quoted?','如何计算此服务报价？')}</Text>
           <Ionicons
             name={showPricingInfo ? 'chevron-up' : 'chevron-down'}
             size={18}
@@ -899,7 +901,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
           <Text style={styles.serviceSubtitle}>{selectedService?.subtitle}</Text>
         </View>
         <TouchableOpacity onPress={() => setStep(0)}>
-          <Text style={styles.changeLink}>Cambiar</Text>
+          <Text style={styles.changeLink}>{L('Cambiar','Change','更换')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -916,8 +918,8 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
             </View>
           </View>
           <View style={{ flex: 1, marginLeft: 8 }}>
-            <Text style={styles.gexTitle}>Garantía Extendida</Text>
-            <Text style={styles.gexSub}>5% del valor declarado + $625 MXN fijos</Text>
+            <Text style={styles.gexTitle}>{L('Garantía Extendida','Extended Warranty','延保服务')}</Text>
+            <Text style={styles.gexSub}>{L('5% del valor declarado + $625 MXN fijos','5% of declared value + $625 MXN fixed','申报价值的5% + 625比索固定费')}</Text>
           </View>
           <Switch
             value={includeGex}
@@ -928,7 +930,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         </View>
         {includeGex && (
           <View style={[styles.fieldGroup, { marginTop: 8 }]}>
-            <Text style={styles.label}>Valor declarado ({declaredCurrency})</Text>
+            <Text style={styles.label}>{L(`Valor declarado (${declaredCurrency})`,`Declared Value (${declaredCurrency})`,`申报价值(${declaredCurrency})`)}</Text>
             {/* Toggle MXN/USD */}
             <View style={{ flexDirection: 'row', marginBottom: 6, borderRadius: 8, borderWidth: 1, borderColor: '#DDD', overflow: 'hidden', alignSelf: 'flex-start' }}>
               {(['MXN', 'USD'] as const).map(c => (
@@ -969,7 +971,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
       <View style={styles.disclaimerBox}>
         <MaterialCommunityIcons name="alert-circle-outline" size={18} color="#b26a00" />
         <Text style={styles.disclaimerText}>
-          ⚠️ Los precios mostrados son referenciales y pueden variar según el tipo de mercancía (genérico, articulos medicos, sensibles, etc.). El precio final se confirma al evaluar tu envío.
+          {L('⚠️ Los precios mostrados son referenciales y pueden variar según el tipo de mercancía (genérico, artículos médicos, sensibles, etc.). El precio final se confirma al evaluar tu envío.','⚠️ Displayed prices are estimates and may vary by cargo type (generic, medical, sensitive, etc.). Final price is confirmed upon shipment review.','⚠️ 显示的价格仅供参考，可能因货物类型（普通、医疗、敏感等）而有所不同。最终价格在评估您的货物后确认。')}
         </Text>
       </View>
 
@@ -981,7 +983,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         {loading ? <ActivityIndicator color="#fff" /> : (
           <>
             <MaterialCommunityIcons name="calculator-variant" size={20} color="#fff" />
-            <Text style={styles.primaryBtnText}>Cotizar</Text>
+            <Text style={styles.primaryBtnText}>{L('Cotizar','Get Quote','报价')}</Text>
           </>
         )}
       </TouchableOpacity>
