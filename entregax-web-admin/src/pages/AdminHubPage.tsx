@@ -162,6 +162,7 @@ const MODULE_ICONS: Record<string, React.ReactElement> = {
     demora_control: <AccessTimeIcon />,
     suppliers: <BranchIcon />,
     carrier_options: <LocalShippingIcon />,
+    payment_query: <ApiIcon />,
 };
 
 const SERVICE_MODULES: Record<string, { key: string; status: string }[]> = {
@@ -247,7 +248,7 @@ const PANEL_TO_SERVICE: Record<string, string> = {
 
 export default function AdminHubPage({ users = [], loading = false, onRefresh, panelPermissions = {}, permissionsReady = false }: Props) {
     const { t } = useTranslation();
-    const { entregaxPaymentQueryEnabled } = usePaymentStatus();
+    const { entregaxPaymentQueryEnabled, entregaxXOnlyUrl } = usePaymentStatus();
 
     const getModuleLabel = (moduleKey: string, serviceKey?: string | null): string => {
         if (moduleKey === 'costing' && serviceKey === 'china_sea') return 'Costeo Marítimo';
@@ -1548,7 +1549,9 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
                                                     '& svg': { fontSize: 22 },
                                                 }}
                                             >
-                                                {MODULE_ICONS[module.key]}
+                                                {module.key === 'payment_query' && entregaxXOnlyUrl
+                                                    ? <img src={entregaxXOnlyUrl} alt="EntregaX" style={{ width: 22, height: 22, objectFit: 'contain' }} />
+                                                    : MODULE_ICONS[module.key]}
                                             </Box>
                                             <Box sx={{ flex: 1, minWidth: 0 }}>
                                                 <Typography sx={{ fontWeight: 700, fontSize: 15, color: '#1A1A1A', mb: 0.5 }}>

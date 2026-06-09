@@ -786,7 +786,7 @@
       "pobox_rates": "Tarifas PO Box",
       "carrier_options": "Paqueterías",
       "pobox_consolidaciones": "Consolidaciones",
-      "payment_query": "Consulta Pagos"
+      "payment_query": "Consulta de Pagos EntregaX"
     },
     "moduleFeatures": {
       "clients": {

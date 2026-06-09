@@ -11633,16 +11633,18 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
     // cajito_avatar_url + entregax_full_black_url: imágenes activas de brand_assets
     let cajitoAvatarUrl: string | null = null;
     let entregaxFullBlackUrl: string | null = null;
+    let entregaxXOnlyUrl: string | null = null;
     try {
       const av = await pool.query(
         `SELECT slot, url, storage_key FROM brand_assets
-         WHERE slot IN ('cajito_avatar', 'entregax_full_black') AND is_active = TRUE
+         WHERE slot IN ('cajito_avatar', 'entregax_full_black', 'entregax_x_only') AND is_active = TRUE
          ORDER BY slot ASC, created_at DESC`
       );
       for (const row of av.rows) {
         const signed = await resolveAssetUrl(row);
         if (row.slot === 'cajito_avatar') cajitoAvatarUrl = signed;
         if (row.slot === 'entregax_full_black') entregaxFullBlackUrl = signed;
+        if (row.slot === 'entregax_x_only') entregaxXOnlyUrl = signed;
       }
     } catch { /* tabla aún no creada */ }
 
@@ -11661,6 +11663,7 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
       cajito_enabled: cajitoEnabled,
       cajito_avatar_url: cajitoAvatarUrl,
       entregax_full_black_url: entregaxFullBlackUrl,
+      entregax_x_only_url: entregaxXOnlyUrl,
       maintenance_mode: maintenanceMode,
     });
   } catch (_e) {
