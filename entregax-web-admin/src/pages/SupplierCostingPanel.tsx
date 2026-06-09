@@ -160,6 +160,7 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
     const [dateFrom, setDateFrom] = useState<string>('');
     const [dateTo, setDateTo] = useState<string>('');
     const [showPaidFilter, setShowPaidFilter] = useState<'all' | 'paid' | 'unpaid'>('unpaid');
+    const [trackingFilter, setTrackingFilter] = useState<string>('');
 
     // Selección para pago
     const [selectedPackages, setSelectedPackages] = useState<number[]>([]);
@@ -534,15 +535,15 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                 {/* Filtros */}
                 <Paper sx={{ p: 2, mb: 2 }}>
                     <Grid container spacing={2} alignItems="center">
-                        <Grid size={{ xs: 12, sm: 3 }}>
+                        <Grid size={{ xs: 12, sm: 2.5 }}>
                             <TextField label="Desde" type="date" fullWidth size="small" value={dateFrom}
                                 onChange={(e) => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
                         </Grid>
-                        <Grid size={{ xs: 12, sm: 3 }}>
+                        <Grid size={{ xs: 12, sm: 2.5 }}>
                             <TextField label="Hasta" type="date" fullWidth size="small" value={dateTo}
                                 onChange={(e) => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} />
                         </Grid>
-                        <Grid size={{ xs: 12, sm: 3 }}>
+                        <Grid size={{ xs: 12, sm: 2.5 }}>
                             <FormControl fullWidth size="small">
                                 <InputLabel>Estado</InputLabel>
                                 <Select value={showPaidFilter} label="Estado" onChange={(e) => setShowPaidFilter(e.target.value as 'all' | 'paid' | 'unpaid')}>
@@ -552,7 +553,18 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                 </Select>
                             </FormControl>
                         </Grid>
-                        <Grid size={{ xs: 12, sm: 3 }}>
+                        <Grid size={{ xs: 12, sm: 2.5 }}>
+                            <TextField
+                                label="Número de guía"
+                                fullWidth
+                                size="small"
+                                value={trackingFilter}
+                                onChange={(e) => setTrackingFilter(e.target.value.trim())}
+                                placeholder="US-123456789"
+                                InputLabelProps={{ shrink: true }}
+                            />
+                        </Grid>
+                        <Grid size={{ xs: 12, sm: 2 }}>
                             <Button variant="contained" fullWidth startIcon={<FilterIcon />} onClick={loadPackages}>Filtrar</Button>
                         </Grid>
                     </Grid>
@@ -583,7 +595,9 @@ export default function SupplierCostingPanel({ supplier, onBack }: SupplierCosti
                                 </TableRow>
                             </TableHead>
                             <TableBody>
-                                {packages.map((pkg) => (
+                                {packages.filter(pkg =>
+                                    !trackingFilter || (pkg.tracking || '').toLowerCase().includes(trackingFilter.toLowerCase())
+                                ).map((pkg) => (
                                     <TableRow key={pkg.id} hover sx={{ bgcolor: pkg.costing_paid ? 'success.50' : 'inherit' }}>
                                         <TableCell>
                                             <Typography variant="body2" fontWeight="medium">{pkg.tracking}</Typography>
