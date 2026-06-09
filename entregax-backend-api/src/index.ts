@@ -2821,29 +2821,40 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
     let rows: any[] = [];
     let total = 0;
 
-    if (service === 'tdi_aereo' || service === 'tdi_express') {
-      const isExpress = service === 'tdi_express';
+    if (service === 'tdi_aereo') {
       const params: any[] = [];
-      let where = isExpress
-        ? `(p.service_type = 'tdi_express' OR (p.service_type = 'AIR_CHN_MX' AND p.air_source = 'tdi_express'))`
-        : `(p.service_type = 'AIR_CHN_MX')`;
+      let where = `(p.service_type = 'AIR_CHN_MX')`;
+      if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.child_no ILIKE $${params.length} OR p.international_tracking ILIKE $${params.length} OR p.box_id ILIKE $${params.length})`; }
+      if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
+      if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
+      // child_no = guía AIR completa (AIR2608808pOYsr-001), tracking_internal = guía corta (CN-OYsr-001)
+      const q = `SELECT COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia,
+                        p.tracking_internal AS guia_corta,
+                        p.international_tracking AS guia_origen,
+                        p.received_at, p.updated_at, p.status,
+                        u.box_id AS box_id,
+                        u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
+                        p.national_tracking AS guia_salida,
+                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
+                        (p.delivery_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
+                   FROM packages p LEFT JOIN users u ON p.user_id = u.id
+                  WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
+      params.push(limit, offset);
+      const r = await pool.query(q, params);
+      rows = r.rows;
+      const cq = `SELECT COUNT(*) FROM packages p WHERE ${where}`;
+      const cr = await pool.query(cq, params.slice(0, -2));
+      total = parseInt(cr.rows[0].count);
 
+    } else if (service === 'tdi_express') {
+      const params: any[] = [];
+      let where = `(p.service_type = 'tdi_express' OR (p.service_type = 'AIR_CHN_MX' AND p.air_source = 'tdi_express'))`;
       if (search) { params.push(`%${search}%`); where += ` AND (p.tracking_internal ILIKE $${params.length} OR p.international_tracking ILIKE $${params.length} OR p.box_id ILIKE $${params.length})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
-
-      // child_no contiene la guía AIR completa (AIR2608808pOYsr-001)
-      // tracking_internal contiene la guía corta (CN-OYsr-001)
-      if (search) {
-        // también buscar en child_no
-        const last = params.length;
-        where = where.replace(
-          `AND (p.tracking_internal ILIKE $${last} OR p.international_tracking ILIKE $${last} OR p.box_id ILIKE $${last})`,
-          `AND (p.tracking_internal ILIKE $${last} OR p.child_no ILIKE $${last} OR p.international_tracking ILIKE $${last} OR p.box_id ILIKE $${last})`
-        );
-      }
-      const q = `SELECT COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia,
-                        p.tracking_internal AS guia_corta,
+      // Para TDI Express: tracking_internal ES la guía principal (TDX-...), child_no no aplica
+      const q = `SELECT p.tracking_internal AS guia,
+                        NULL AS guia_corta,
                         p.international_tracking AS guia_origen,
                         p.received_at, p.updated_at, p.status,
                         u.box_id AS box_id,
