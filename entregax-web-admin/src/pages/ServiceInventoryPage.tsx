@@ -7,6 +7,8 @@ import {
 import SearchIcon from '@mui/icons-material/Search';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import api from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -41,6 +43,8 @@ interface PackageRow {
   cliente_nombre?: string;
   paqueteria?: string;
   guia_salida?: string;
+  costing_paid?: boolean;
+  has_instructions?: boolean;
 }
 
 export default function ServiceInventoryPage() {
@@ -136,13 +140,14 @@ export default function ServiceInventoryPage() {
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>FECHA INGRESO</TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>ÚLTIMO MOVIMIENTO</TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>ÚLTIMO STATUS</TableCell>
+              <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }} align="center">PAGO / INST.</TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
             ) : rows.length === 0 ? (
-              <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4, color: '#999' }}>Sin resultados</TableCell></TableRow>
+              <TableRow><TableCell colSpan={8} align="center" sx={{ py: 4, color: '#999' }}>Sin resultados</TableCell></TableRow>
             ) : rows.map((r, i) => (
               <TableRow key={i} hover>
                 <TableCell>
@@ -176,6 +181,30 @@ export default function ServiceInventoryPage() {
                 <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
                 <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
                 <TableCell>{statusChip(r.status)}</TableCell>
+                <TableCell align="center">
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+                    <Tooltip title={r.costing_paid ? 'Pago registrado' : 'Sin pago registrado'}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                        {r.costing_paid
+                          ? <CheckCircleIcon sx={{ fontSize: 16, color: '#2E7D32' }} />
+                          : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
+                        <Typography variant="caption" sx={{ color: r.costing_paid ? '#2E7D32' : '#9E9E9E', fontSize: '0.65rem', lineHeight: 1 }}>
+                          Pago
+                        </Typography>
+                      </Box>
+                    </Tooltip>
+                    <Tooltip title={r.has_instructions ? 'Con instrucciones de envío' : 'Sin instrucciones'}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                        {r.has_instructions
+                          ? <CheckCircleIcon sx={{ fontSize: 16, color: '#1565C0' }} />
+                          : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
+                        <Typography variant="caption" sx={{ color: r.has_instructions ? '#1565C0' : '#9E9E9E', fontSize: '0.65rem', lineHeight: 1 }}>
+                          Inst.
+                        </Typography>
+                      </Box>
+                    </Tooltip>
+                  </Box>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>

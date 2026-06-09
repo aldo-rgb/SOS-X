@@ -2847,7 +2847,9 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         p.international_tracking AS guia_origen,
                         p.received_at, p.updated_at, p.status, p.box_id,
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
-                        p.national_tracking AS guia_salida
+                        p.national_tracking AS guia_salida,
+                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
+                        (p.delivery_address_id IS NOT NULL) AS has_instructions
                    FROM packages p LEFT JOIN users u ON p.user_id = u.id
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
@@ -2866,7 +2868,9 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       const q = `SELECT p.tracking_internal AS guia, p.international_tracking AS guia_origen,
                         p.received_at, p.updated_at, p.status, p.box_id,
                         u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
-                        p.national_tracking AS guia_salida
+                        p.national_tracking AS guia_salida,
+                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
+                        (p.delivery_address_id IS NOT NULL) AS has_instructions
                    FROM packages p LEFT JOIN users u ON p.user_id = u.id
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
@@ -2885,7 +2889,9 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       const q = `SELECT p.tracking_internal AS guia, p.international_tracking AS guia_origen,
                         p.received_at, p.updated_at, p.status, p.box_id,
                         u.full_name AS cliente_nombre,
-                        p.national_carrier AS paqueteria, p.national_tracking AS guia_salida
+                        p.national_carrier AS paqueteria, p.national_tracking AS guia_salida,
+                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
+                        (p.delivery_address_id IS NOT NULL) AS has_instructions
                    FROM packages p LEFT JOIN users u ON p.user_id = u.id
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
@@ -2905,7 +2911,9 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         d.inspected_at AS received_at, d.updated_at,
                         COALESCE(d.status, 'received_mty') AS status,
                         d.box_id, u.full_name AS cliente_nombre,
-                        d.national_carrier AS paqueteria, d.national_tracking AS guia_salida
+                        d.national_carrier AS paqueteria, d.national_tracking AS guia_salida,
+                        (d.cost_payment_status = 'paid') AS costing_paid,
+                        (d.national_tracking IS NOT NULL) AS has_instructions
                    FROM dhl_shipments d LEFT JOIN users u ON d.user_id = u.id
                   WHERE ${where} ORDER BY d.inspected_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
