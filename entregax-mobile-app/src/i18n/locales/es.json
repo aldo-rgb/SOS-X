@@ -171,7 +171,14 @@
     "profileInReviewMsg": "Tu documentación está siendo revisada. No podrás solicitar envíos hasta que sea aprobada.",
     "understood": "Entendido",
     "actionNotAllowed": "Acción no permitida",
-    "actionNotAllowedMsg": "Tu perfil debe estar verificado para solicitar envíos."
+    "actionNotAllowedMsg": "Tu perfil debe estar verificado para solicitar envíos.",
+    "cotizar": "Cotizar",
+    "send": "Enviar",
+    "change": "Cambiar",
+    "filterAir": "Aéreo",
+    "filterMaritime": "Marítimo",
+    "filterTerrestrial": "Terrestre",
+    "filterCustoms": "Despacho"
   },
   "packages": {
     "title": "Mis Paquetes",
@@ -657,6 +664,97 @@
       "contact_support": "Contactar a soporte",
       "wait": "Estamos validando…",
       "already_paid": "Ver detalle"
+    }
+  },
+  "quoteHub": {
+    "title": "Cotizar Envío",
+    "selectService": "¿Qué servicio quieres cotizar?",
+    "selectServiceHint": "Cada servicio tiene su propia fórmula de cálculo.",
+    "howToSend": "¿Cómo enviar con",
+    "refRates": "Tarifas de Referencia",
+    "updated": "Actualizado",
+    "service": "SERVICIO",
+    "time": "TIEMPO",
+    "price": "PRECIO",
+    "services": {
+      "pobox": {
+        "title": "Terrestre USA a México",
+        "subtitle": "USA → México",
+        "desc": "Traslado de Estados Unidos desde 1 caja de zapatos hasta 1 contenedor completo"
+      },
+      "air_china": {
+        "title": "Aéreo China",
+        "subtitle": "Aéreo China → México",
+        "desc": "Envío aéreo costo por kilo"
+      },
+      "maritime": {
+        "title": "Marítimo China",
+        "subtitle": "Marítimo China → México",
+        "desc": "Envía desde 1 caja hasta 1 contenedor completo"
+      },
+      "dhl": {
+        "title": "Trámite Aduanal Monterrey",
+        "subtitle": "Despacho Aduanal",
+        "desc": "Envía desde cualquier parte del mundo."
+      }
+    }
+  },
+  "servicesGuide": {
+    "title": "Nuestros Servicios",
+    "heading": "¿Cómo quieres enviar?",
+    "subheading": "Selecciona un servicio para ver la dirección y las instrucciones de envío.",
+    "notSure": "¿No sabes cuál elegir?",
+    "notSureDesc": "Contacta a tu asesor y te ayudamos a encontrar la mejor opción.",
+    "requestAdvisory": "Solicitar Asesoría",
+    "services": {
+      "china_air": {
+        "name": "Aéreo China",
+        "tagline": "Velocidad sin límites desde China",
+        "timeframe": "10-15 días",
+        "idealFor": "Muestras, productos urgentes, electrónicos pequeños",
+        "benefits": [
+          "✈️ Llegada en 10-15 días",
+          "📦 Ideal para muestras y urgentes",
+          "💰 Precio competitivo por kg",
+          "🛡️ Seguimiento en tiempo real"
+        ]
+      },
+      "china_sea": {
+        "name": "Marítimo China",
+        "tagline": "El mejor precio para volumen",
+        "timeframe": "45-60 días",
+        "idealFor": "Compras mayoristas, inventario, productos no urgentes",
+        "benefits": [
+          "🚢 Contenedor compartido (LCL)",
+          "📦 Desde 1 caja",
+          "💵 Costo por Metro Cúbico ultra competitivo",
+          "🔒 Consolidación segura"
+        ]
+      },
+      "mx_cedis": {
+        "name": "Trámite Aduanal Monterrey",
+        "tagline": "Despacho aduanal sin complicaciones",
+        "timeframe": "1-3 días",
+        "idealFor": "Paquetes internacionales, liberación en MTY",
+        "benefits": [
+          "✅ Liberación en 24-48 hrs",
+          "📋 Sin trámites complicados",
+          "🏪 Recibe en tu domicilio",
+          "💳 Pago simplificado"
+        ]
+      },
+      "usa_pobox": {
+        "name": "Terrestre USA a México",
+        "tagline": "Tu dirección en Estados Unidos",
+        "timeframe": "5-10 días",
+        "idealFor": "Compras online USA, consolidación de paquetes",
+        "benefits": [
+          "🇺🇸 Dirección física en Texas",
+          "📦 Consolida múltiples paquetes",
+          "💰 Ahorra en envíos combinados",
+          "🛒 Compra en Amazon, eBay, etc."
+        ]
+      }
     }
   }
 }

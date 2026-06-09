@@ -32,6 +32,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { API_URL } from '../services/api';
+import { useTranslation } from 'react-i18next';
 
 const ORANGE = '#F05A28';
 const RED = '#C1272D';
@@ -95,6 +96,15 @@ const formatUsd = (n: number | string | undefined | null): string => {
 
 export default function QuoteHubScreen({ navigation, route }: Props) {
   const { user, token } = route.params;
+  const { t } = useTranslation();
+  const qt = (k: string) => (t as any)(`quoteHub.${k}`, { defaultValue: k });
+
+  const SERVICES_I18N: ServiceMeta[] = [
+    { key: 'pobox'     as ServiceKey, title: qt('services.pobox.title'),     subtitle: qt('services.pobox.subtitle'),     description: qt('services.pobox.desc'),     icon: 'package-variant', emoji: '🇺🇸', endpoint: '/api/quotes/pobox',       eta: '5-10 días'  },
+    { key: 'air_china' as ServiceKey, title: qt('services.air_china.title'), subtitle: qt('services.air_china.subtitle'), description: qt('services.air_china.desc'), icon: 'airplane',        emoji: '🇨🇳', endpoint: '/api/quotes/air-china',   eta: '10-15 días' },
+    { key: 'maritime'  as ServiceKey, title: qt('services.maritime.title'),  subtitle: qt('services.maritime.subtitle'),  description: qt('services.maritime.desc'),  icon: 'ferry',           emoji: '🇨🇳', endpoint: '/api/maritime/calculate', eta: '45-60 días' },
+    { key: 'dhl'       as ServiceKey, title: qt('services.dhl.title'),       subtitle: qt('services.dhl.subtitle'),       description: qt('services.dhl.desc'),       icon: 'truck-fast',      emoji: '🌍', endpoint: '/api/public/quote',       eta: '1-3 días'   },
+  ];
   const insets = useSafeAreaInsets();
   const [step, setStep] = useState<0 | 1 | 2>(0);
   const [service, setService] = useState<ServiceKey | null>(null);
@@ -401,10 +411,10 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
 
   const renderStep0 = () => (
     <ScrollView contentContainerStyle={styles.stepBody} keyboardShouldPersistTaps="handled">
-      <Text style={styles.stepTitle}>¿Qué servicio quieres cotizar?</Text>
-      <Text style={styles.stepHint}>Cada servicio tiene su propia fórmula de cálculo.</Text>
+      <Text style={styles.stepTitle}>{qt('selectService')}</Text>
+      <Text style={styles.stepHint}>{qt('selectServiceHint')}</Text>
 
-      {SERVICES.map((s, idx) => (
+      {SERVICES_I18N.map((s, idx) => (
         <View key={s.key}>
           <TouchableOpacity
             style={[styles.serviceCard, service === s.key && styles.serviceCardActive]}
@@ -436,7 +446,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
               }}
             >
               <MaterialCommunityIcons name="help-circle-outline" size={20} color="#FF6B35" />
-              <Text style={{ color: '#FF6B35', fontWeight: '700', fontSize: 14 }}>¿Cómo enviar con</Text>
+              <Text style={{ color: '#FF6B35', fontWeight: '700', fontSize: 14 }}>{qt('howToSend')}</Text>
               <Image
                 source={require('../../assets/logo-negro.png')}
                 style={{ height: 25, width: 123, resizeMode: 'contain' }}
@@ -453,7 +463,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
         <View style={[styles.refTableWrap, { marginTop: 18 }]}>
           <View style={styles.refTableHeaderBar}>
             <MaterialCommunityIcons name="tag-multiple-outline" size={18} color="#fff" />
-            <Text style={styles.refTableHeaderTitle}>Tarifas de Referencia</Text>
+            <Text style={styles.refTableHeaderTitle}>{qt('refRates')}</Text>
             {ratesAgeDays !== null && ratesAgeDays > 10 && (
               <View style={styles.staleChip}>
                 <MaterialCommunityIcons name="alert-outline" size={11} color="#7a4f00" />
@@ -463,7 +473,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
             {ratesAgeDays !== null && ratesAgeDays <= 10 && (
               <View style={styles.freshChip}>
                 <MaterialCommunityIcons name="check-circle" size={11} color="#1b5e20" />
-                <Text style={styles.freshChipTxt}>Actualizado</Text>
+                <Text style={styles.freshChipTxt}>{qt('updated')}</Text>
               </View>
             )}
           </View>
@@ -1159,7 +1169,7 @@ export default function QuoteHubScreen({ navigation, route }: Props) {
             style={{ width: 18, height: 18, marginRight: 6 }}
             resizeMode="contain"
           />
-          <Text style={styles.headerTitle}>Cotizar Envío</Text>
+          <Text style={styles.headerTitle}>{qt('title')}</Text>
         </View>
         <View style={{ width: 34 }} />
       </View>

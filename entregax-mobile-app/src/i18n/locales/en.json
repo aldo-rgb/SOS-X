@@ -173,7 +173,14 @@
     "profileInReviewMsg": "Your documentation is being reviewed. You cannot request shipments until it is approved.",
     "understood": "Got it",
     "actionNotAllowed": "Action Not Allowed",
-    "actionNotAllowedMsg": "Your profile must be verified to request shipments."
+    "actionNotAllowedMsg": "Your profile must be verified to request shipments.",
+    "cotizar": "Quote",
+    "send": "Send",
+    "change": "Change",
+    "filterAir": "Air",
+    "filterMaritime": "Maritime",
+    "filterTerrestrial": "Ground",
+    "filterCustoms": "Customs"
   },
   "packages": {
     "title": "My Packages",
@@ -659,6 +666,97 @@
       "contact_support": "Contact support",
       "wait": "Validating…",
       "already_paid": "View detail"
+    }
+  },
+  "quoteHub": {
+    "title": "Get a Quote",
+    "selectService": "Which service do you want to quote?",
+    "selectServiceHint": "Each service has its own pricing formula.",
+    "howToSend": "How to ship with",
+    "refRates": "Reference Rates",
+    "updated": "Updated",
+    "service": "SERVICE",
+    "time": "TIME",
+    "price": "PRICE",
+    "services": {
+      "pobox": {
+        "title": "Ground USA to Mexico",
+        "subtitle": "USA → Mexico",
+        "desc": "Shipping from the US from 1 shoebox to a full container"
+      },
+      "air_china": {
+        "title": "Air China",
+        "subtitle": "Air China → Mexico",
+        "desc": "Air freight priced per kg"
+      },
+      "maritime": {
+        "title": "Maritime China",
+        "subtitle": "Maritime China → Mexico",
+        "desc": "Ship from 1 box to a full container"
+      },
+      "dhl": {
+        "title": "Customs Clearance Monterrey",
+        "subtitle": "Customs Clearance",
+        "desc": "Ship from anywhere in the world."
+      }
+    }
+  },
+  "servicesGuide": {
+    "title": "Our Services",
+    "heading": "How do you want to ship?",
+    "subheading": "Select a service to see the address and shipping instructions.",
+    "notSure": "Not sure which to choose?",
+    "notSureDesc": "Contact your advisor and we'll help you find the best option.",
+    "requestAdvisory": "Request Advisory",
+    "services": {
+      "china_air": {
+        "name": "Air China",
+        "tagline": "Speed without limits from China",
+        "timeframe": "10-15 days",
+        "idealFor": "Samples, urgent products, small electronics",
+        "benefits": [
+          "✈️ Arrives in 10-15 days",
+          "📦 Ideal for samples and urgent items",
+          "💰 Competitive price per kg",
+          "🛡️ Real-time tracking"
+        ]
+      },
+      "china_sea": {
+        "name": "Maritime China",
+        "tagline": "Best price for volume",
+        "timeframe": "45-60 days",
+        "idealFor": "Wholesale purchases, inventory, non-urgent products",
+        "benefits": [
+          "🚢 Shared container (LCL)",
+          "📦 From 1 box",
+          "💵 Ultra competitive cost per CBM",
+          "🔒 Secure consolidation"
+        ]
+      },
+      "mx_cedis": {
+        "name": "Customs Clearance Monterrey",
+        "tagline": "Customs clearance without hassle",
+        "timeframe": "1-3 days",
+        "idealFor": "International packages, clearance in MTY",
+        "benefits": [
+          "✅ Clearance in 24-48 hrs",
+          "📋 No complicated paperwork",
+          "🏪 Receive at your door",
+          "💳 Simplified payment"
+        ]
+      },
+      "usa_pobox": {
+        "name": "Ground USA to Mexico",
+        "tagline": "Your address in the United States",
+        "timeframe": "5-10 days",
+        "idealFor": "Online shopping USA, package consolidation",
+        "benefits": [
+          "🇺🇸 Physical address in Texas",
+          "📦 Consolidate multiple packages",
+          "💰 Save on combined shipments",
+          "🛒 Buy on Amazon, eBay, etc."
+        ]
+      }
     }
   }
 }

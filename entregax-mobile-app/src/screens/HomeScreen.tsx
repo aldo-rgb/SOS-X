@@ -2269,7 +2269,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               }}
             >
               <Ionicons name="calculator-outline" size={16} color={ORANGE} />
-              <Text style={styles.requestShipmentText}>Cotizar</Text>
+              <Text style={styles.requestShipmentText}>{t('home.cotizar')}</Text>
             </TouchableOpacity>
             {/* 🚀 Botón ¿Cómo enviar? o Cambiar Método */}
             <TouchableOpacity
@@ -2308,8 +2308,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               )}
               <Text style={styles.requestShipmentText}>
                 {selectedIds.length > 0 && packages.some(p => selectedIds.includes(p.id) && p.status === 'ready_pickup')
-                  ? 'Cambiar'
-                  : 'Enviar'}
+                  ? t('home.change')
+                  : t('home.send')}
               </Text>
             </TouchableOpacity>
           </View>
@@ -2672,7 +2672,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 }}
               >
                 <Text style={styles.filterIcon}>🇨🇳</Text>
-                <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>Aéreo</Text>
+                <Text style={[styles.filterText, serviceFilter === 'air' && styles.filterTextActive]}>{t('home.filterAir')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'maritime' && styles.filterChipActive]}
@@ -2682,7 +2682,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 }}
               >
                 <Text style={styles.filterIcon}>🇨🇳</Text>
-                <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>Marítimo</Text>
+                <Text style={[styles.filterText, serviceFilter === 'maritime' && styles.filterTextActive]}>{t('home.filterMaritime')}</Text>
               </Pressable>
               <Pressable
                 style={[styles.filterChip, serviceFilter === 'usa' && styles.filterChipActive]}
@@ -2692,7 +2692,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 }}
               >
                 <Text style={styles.filterIcon}>🇺🇸</Text>
-                <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>Terrestre</Text>
+                <Text style={[styles.filterText, serviceFilter === 'usa' && styles.filterTextActive]}>{t('home.filterTerrestrial')}</Text>
               </Pressable>
               {serviceCounts.dhl > 0 && (
                 <Pressable
@@ -2703,7 +2703,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                   }}
                 >
                   <Text style={styles.filterIcon}>🌍</Text>
-                  <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>Despacho</Text>
+                  <Text style={[styles.filterText, serviceFilter === 'dhl' && styles.filterTextActive]}>{t('home.filterCustoms')}</Text>
                 </Pressable>
               )}
             </ScrollView>

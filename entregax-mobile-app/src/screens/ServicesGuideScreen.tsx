@@ -15,6 +15,7 @@ import { Appbar } from 'react-native-paper';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { api } from '../services/api';
+import { useTranslation } from 'react-i18next';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111';
@@ -72,77 +73,28 @@ interface ServiceCard {
   accentColor: string;
 }
 
-const SERVICES: ServiceCard[] = [
-  {
-    id: 'china_air',
-    name: 'Aéreo China',
-    emoji: '🇨🇳',
-    tagline: 'Velocidad sin límites desde China',
-    timeframe: '10-15 días',
-    idealFor: 'Muestras, productos urgentes, electrónicos pequeños',
-    benefits: [
-      '✈️ Llegada en 10-15 días',
-      '📦 Ideal para muestras y urgentes',
-      '💰 Precio competitivo por kg',
-      '🛡️ Seguimiento en tiempo real',
-    ],
-    serviceType: 'china_air',
-    accentColor: '#1565C0',
-  },
-  {
-    id: 'china_sea',
-    name: 'Marítimo China',
-    emoji: '🇨🇳',
-    tagline: 'El mejor precio para volumen',
-    timeframe: '45-60 días',
-    idealFor: 'Compras mayoristas, inventario, productos no urgentes',
-    benefits: [
-      '🚢 Contenedor compartido (LCL)',
-      '📦 Desde 1 caja',
-      '💵 Costo por Metro Cubico ultra competitivo',
-      '🔒 Consolidación segura',
-    ],
-    serviceType: 'china_sea',
-    accentColor: '#00695C',
-  },
-  {
-    id: 'mx_cedis',
-    name: 'Trámite Aduanal Monterrey',
-    emoji: '🌍',
-    tagline: 'Despacho aduanal sin complicaciones',
-    timeframe: '1-3 días',
-    idealFor: 'Paquetes DHL internacionales, liberación en MTY',
-    benefits: [
-      '✅ Liberación en 24-48 hrs',
-      '📋 Sin trámites complicados',
-      '🏪 Recibe en nuestro CEDIS MTY',
-      '💳 Pago contra entrega disponible',
-    ],
-    serviceType: 'mx_cedis',
-    accentColor: '#2E7D32',
-  },
-  {
-    id: 'usa_pobox',
-    name: 'Terrestre USA a México',
-    emoji: '🇺🇸',
-    tagline: 'Tu dirección en Estados Unidos',
-    timeframe: '5-10 días',
-    idealFor: 'Compras online USA, consolidación de paquetes',
-    benefits: [
-      '🇺🇸 Dirección física en Texas',
-      '📦 Consolida múltiples paquetes',
-      '💰 Ahorra en envíos combinados',
-      '🛒 Compra en Amazon, eBay, etc.',
-    ],
-    serviceType: 'usa_pobox',
-    accentColor: '#6A1B9A',
-  },
-];
+// Static accent colors (not translated)
+const SERVICE_ACCENTS: Record<string, string> = {
+  china_air: '#1565C0',
+  china_sea: '#00695C',
+  mx_cedis:  '#2E7D32',
+  usa_pobox: '#6A1B9A',
+};
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ServicesGuide'>;
 
 export default function ServicesGuideScreen({ navigation, route }: Props) {
   const { user, token } = route.params;
+  const { t } = useTranslation();
+  const sg = (k: string) => (t as any)(`servicesGuide.${k}`, { defaultValue: k });
+
+  const SERVICES_I18N: ServiceCard[] = [
+    { id: 'china_air', name: sg('services.china_air.name'), emoji: '🇨🇳', tagline: sg('services.china_air.tagline'), timeframe: sg('services.china_air.timeframe'), idealFor: sg('services.china_air.idealFor'), benefits: (t as any)('servicesGuide.services.china_air.benefits', { returnObjects: true }) as string[], serviceType: 'china_air', accentColor: SERVICE_ACCENTS.china_air },
+    { id: 'china_sea', name: sg('services.china_sea.name'), emoji: '🇨🇳', tagline: sg('services.china_sea.tagline'), timeframe: sg('services.china_sea.timeframe'), idealFor: sg('services.china_sea.idealFor'), benefits: (t as any)('servicesGuide.services.china_sea.benefits', { returnObjects: true }) as string[], serviceType: 'china_sea', accentColor: SERVICE_ACCENTS.china_sea },
+    { id: 'mx_cedis', name: sg('services.mx_cedis.name'), emoji: '🌍', tagline: sg('services.mx_cedis.tagline'), timeframe: sg('services.mx_cedis.timeframe'), idealFor: sg('services.mx_cedis.idealFor'), benefits: (t as any)('servicesGuide.services.mx_cedis.benefits', { returnObjects: true }) as string[], serviceType: 'mx_cedis', accentColor: SERVICE_ACCENTS.mx_cedis },
+    { id: 'usa_pobox', name: sg('services.usa_pobox.name'), emoji: '🇺🇸', tagline: sg('services.usa_pobox.tagline'), timeframe: sg('services.usa_pobox.timeframe'), idealFor: sg('services.usa_pobox.idealFor'), benefits: (t as any)('servicesGuide.services.usa_pobox.benefits', { returnObjects: true }) as string[], serviceType: 'usa_pobox', accentColor: SERVICE_ACCENTS.usa_pobox },
+  ];
+
   const [step, setStep] = useState<0 | 1>(0);
   const [selected, setSelected] = useState<ServiceCard | null>(null);
   const [serviceInfo, setServiceInfo] = useState<ServiceApiInfo | null>(null);
@@ -251,14 +203,14 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
       <View style={styles.container}>
         <Appbar.Header style={styles.header}>
           <Appbar.BackAction onPress={() => navigation.goBack()} color="#fff" />
-          <Appbar.Content title="Nuestros Servicios" titleStyle={styles.headerTitle} />
+          <Appbar.Content title={sg('title')} titleStyle={styles.headerTitle} />
         </Appbar.Header>
 
         <ScrollView contentContainerStyle={styles.scrollBody} showsVerticalScrollIndicator={false}>
-          <Text style={styles.stepTitle}>¿Cómo quieres enviar?</Text>
-          <Text style={styles.stepHint}>Selecciona un servicio para ver la dirección y las instrucciones de envío.</Text>
+          <Text style={styles.stepTitle}>{sg('heading')}</Text>
+          <Text style={styles.stepHint}>{sg('subheading')}</Text>
 
-          {SERVICES.map((s) => (
+          {SERVICES_I18N.map((s) => (
             <TouchableOpacity
               key={s.id}
               style={styles.serviceCard}
@@ -281,14 +233,14 @@ export default function ServicesGuideScreen({ navigation, route }: Props) {
           ))}
 
           <View style={styles.advisorBox}>
-            <Text style={styles.advisorTitle}>¿No sabes cuál elegir?</Text>
-            <Text style={styles.advisorText}>Contacta a tu asesor y te ayudamos a encontrar la mejor opción.</Text>
+            <Text style={styles.advisorTitle}>{sg('notSure')}</Text>
+            <Text style={styles.advisorText}>{sg('notSureDesc')}</Text>
             <TouchableOpacity
               style={styles.advisorBtn}
               onPress={() => navigation.navigate('RequestAdvisor', { user, token })}
             >
               <Ionicons name="headset" size={18} color={ORANGE} />
-              <Text style={styles.advisorBtnText}>Solicitar Asesoría</Text>
+              <Text style={styles.advisorBtnText}>{sg('requestAdvisory')}</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>

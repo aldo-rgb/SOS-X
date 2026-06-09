@@ -173,7 +173,14 @@
     "profileInReviewMsg": "您的文件正在审核中。审核通过前无法申请发货。",
     "understood": "我知道了",
     "actionNotAllowed": "操作不允许",
-    "actionNotAllowedMsg": "您的资料必须通过验证才能申请发货。"
+    "actionNotAllowedMsg": "您的资料必须通过验证才能申请发货。",
+    "cotizar": "报价",
+    "send": "发货",
+    "change": "更改",
+    "filterAir": "空运",
+    "filterMaritime": "海运",
+    "filterTerrestrial": "陆运",
+    "filterCustoms": "清关"
   },
   "packages": {
     "title": "我的包裹",
@@ -657,6 +664,97 @@
       "contact_support": "联系支持",
       "wait": "正在验证…",
       "already_paid": "查看详情"
+    }
+  },
+  "quoteHub": {
+    "title": "获取报价",
+    "selectService": "您想报价哪种服务？",
+    "selectServiceHint": "每种服务都有其自己的计价公式。",
+    "howToSend": "如何通过",
+    "refRates": "参考价格",
+    "updated": "已更新",
+    "service": "服务",
+    "time": "时间",
+    "price": "价格",
+    "services": {
+      "pobox": {
+        "title": "美国至墨西哥陆运",
+        "subtitle": "美国 → 墨西哥",
+        "desc": "从一个鞋盒到整个集装箱的美国运输"
+      },
+      "air_china": {
+        "title": "中国空运",
+        "subtitle": "中国空运 → 墨西哥",
+        "desc": "按公斤计费的空运服务"
+      },
+      "maritime": {
+        "title": "中国海运",
+        "subtitle": "中国海运 → 墨西哥",
+        "desc": "从1箱到整个集装箱"
+      },
+      "dhl": {
+        "title": "蒙特雷清关服务",
+        "subtitle": "海关清关",
+        "desc": "从世界各地发货。"
+      }
+    }
+  },
+  "servicesGuide": {
+    "title": "我们的服务",
+    "heading": "您想如何发货？",
+    "subheading": "选择服务以查看地址和运输说明。",
+    "notSure": "不确定选哪个？",
+    "notSureDesc": "联系您的顾问，我们帮您找到最佳选择。",
+    "requestAdvisory": "申请咨询",
+    "services": {
+      "china_air": {
+        "name": "中国空运",
+        "tagline": "来自中国的极速物流",
+        "timeframe": "10-15天",
+        "idealFor": "样品、紧急产品、小型电子产品",
+        "benefits": [
+          "✈️ 10-15天到达",
+          "📦 适合样品和紧急货物",
+          "💰 按公斤计费具竞争力",
+          "🛡️ 实时追踪"
+        ]
+      },
+      "china_sea": {
+        "name": "中国海运",
+        "tagline": "大批量的最优价格",
+        "timeframe": "45-60天",
+        "idealFor": "批发采购、库存、非紧急产品",
+        "benefits": [
+          "🚢 共享集装箱(LCL)",
+          "📦 从1箱起",
+          "💵 超具竞争力的立方米价格",
+          "🔒 安全拼箱"
+        ]
+      },
+      "mx_cedis": {
+        "name": "蒙特雷清关服务",
+        "tagline": "轻松完成海关清关",
+        "timeframe": "1-3天",
+        "idealFor": "国际包裹，在MTY清关",
+        "benefits": [
+          "✅ 24-48小时清关",
+          "📋 无繁琐手续",
+          "🏪 送货上门",
+          "💳 简化付款"
+        ]
+      },
+      "usa_pobox": {
+        "name": "美国至墨西哥陆运",
+        "tagline": "您在美国的地址",
+        "timeframe": "5-10天",
+        "idealFor": "美国网购、包裹合并",
+        "benefits": [
+          "🇺🇸 德克萨斯州实体地址",
+          "📦 合并多个包裹",
+          "💰 合并运输省钱",
+          "🛒 在Amazon、eBay等购买"
+        ]
+      }
     }
   }
 }
