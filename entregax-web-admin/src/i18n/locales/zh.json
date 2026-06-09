@@ -592,6 +592,10 @@
       "mx_national": {
         "title": "墨西哥国内",
         "subtitle": "国内运输"
+      },
+      "service_inventory": {
+        "title": "按服务类型的库存",
+        "subtitle": "按服务类型查看货物历史"
       }
     },
     "newPackage": "新包裹",

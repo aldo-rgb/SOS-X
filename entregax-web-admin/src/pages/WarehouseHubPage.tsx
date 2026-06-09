@@ -220,8 +220,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                 setUserRole(role);
             }
 
-            // Super admin y roles gerenciales: mostrar todos los paneles
-            if (['super_admin', 'admin', 'director', 'branch_manager'].includes(role)) {
+            // Si es super_admin, mostrar todos los paneles
+            if (role === 'super_admin') {
                 setLocations(ALL_LOCATIONS);
                 setLoading(false);
                 return;
