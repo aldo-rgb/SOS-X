@@ -35,6 +35,7 @@ import UnifiedWarehousePanel from './UnifiedWarehousePanel';
 import BranchInventoryPage from './BranchInventoryPage';
 import POBoxHubPage from './POBoxHubPage';
 import RelabelingModulePage from './RelabelingModulePage';
+import ServiceInventoryPage from './ServiceInventoryPage';
 import ChinaAirHubPage from './ChinaAirHubPage';
 import ChinaSeaHubPage from './ChinaSeaHubPage';
 
@@ -104,6 +105,13 @@ const WAREHOUSE_PANELS = {
         flag: '🏷️',
         component: 'relabeling',
     },
+    service_inventory: {
+        icon: <InventoryIcon sx={{ fontSize: 48 }} />,
+        color: '#0288D1',
+        bgGradient: 'linear-gradient(135deg, #01579B 0%, #0288D1 100%)',
+        flag: '📋',
+        component: 'serviceInventory',
+    },
 };
 
 interface Props {
@@ -134,6 +142,7 @@ export default function WarehouseHubPage({ users = [] }: Props) {
         { code: 'scanner_unificado', name: 'Escáner Multi-Sucursal', services: ['scanner'] },
         { code: 'inventario_sucursal', name: 'Inventario Sucursal', services: ['inventory'] },
         { code: 'reetiquetado', name: 'Módulo de Reetiquetado', services: ['reprint'] },
+        { code: 'service_inventory', name: 'Inventario por Servicio', services: ['inventory'] },
     ];
     
     const [locations, setLocations] = useState<WarehouseLocation[]>([]);
@@ -381,6 +390,8 @@ export default function WarehouseHubPage({ users = [] }: Props) {
                         branchId={inventoryBranchId}
                         showBranchSelector={!lockInventoryBranch}
                     />
+                ) : selectedPanel === 'service_inventory' ? (
+                    <ServiceInventoryPage />
                 ) : selectedPanel === 'reetiquetado' ? (
                     <RelabelingModulePage onBack={handleBackToHub} />
                 ) : (
