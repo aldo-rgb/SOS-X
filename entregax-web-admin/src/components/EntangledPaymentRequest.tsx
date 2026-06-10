@@ -442,6 +442,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     operationSnapshot?: { divisa: string; monto: number; servicio: string; requiere_factura: boolean; rfc?: string; razon_social?: string } | null;
     beneficiarioSnapshot?: { nombre: string; nombre_chino?: string; cuenta?: string; iban?: string; banco?: string; swift?: string; aba?: string } | null;
     empresas_asignadas?: Array<{ clave_prodserv?: string; empresa?: string; monto?: number; divisa?: string; cuenta_bancaria?: any }>;
+    sinFacturaCuenta?: { banco?: string; titular?: string; cuenta?: string; clabe?: string; moneda?: string } | null;
     entangled_transaccion_id?: string;
   } | null>(null);
   const [instructionsOpen, setInstructionsOpen] = useState(false);
@@ -1422,12 +1423,13 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     // Panel completo con borde fino
     const renderPanel = (title: string, fillRows: () => void) => {
       panelStart(title);
-      const startY = y - 5;
+      const startY = y;
+      y += 8; // padding superior antes del primer row
       fillRows();
-      const endY = y;
+      const endY = y + 4; // padding inferior
       doc.setDrawColor(...C_BORDER);
       doc.setLineWidth(0.6);
-      doc.roundedRect(margin, startY, innerW, endY - startY + 3, 4, 4, 'D');
+      doc.roundedRect(margin, startY, innerW, endY - startY, 4, 4, 'D');
       y = endY + 8;
     };
 
@@ -1474,6 +1476,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
     // ─────── PANEL: DEPOSITAR / TRANSFERIR A ───────
     const empresas = data.empresas_asignadas || [];
     const provSnap = data.providerSnapshot;
+    const sinFacturaCb = data.sinFacturaCuenta;
 
     if (empresas.length > 0) {
       renderPanel('Depositar / Transferir a', () => {
@@ -1494,6 +1497,13 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           if (emp.clave_prodserv) panelRow('Clave(s) SAT', String(emp.clave_prodserv), { mono: true });
           if (idx < empresas.length - 1) y += 6;
         });
+      });
+    } else if (sinFacturaCb && (sinFacturaCb.banco || sinFacturaCb.clabe || sinFacturaCb.cuenta)) {
+      renderPanel('Depositar / Transferir a', () => {
+        if (sinFacturaCb.titular) panelRow('Titular', sinFacturaCb.titular, { emphasize: true });
+        if (sinFacturaCb.banco) panelRow('Banco', `${sinFacturaCb.banco}${sinFacturaCb.moneda ? `  (${sinFacturaCb.moneda})` : ''}`);
+        if (sinFacturaCb.clabe) panelRow('CLABE', sinFacturaCb.clabe, { mono: true });
+        if (sinFacturaCb.cuenta) panelRow('Cuenta', sinFacturaCb.cuenta, { mono: true });
       });
     } else if (provSnap && provSnap.bank_accounts.length > 0) {
       const all = provSnap.bank_accounts;
@@ -1825,6 +1835,7 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         operationSnapshot,
         beneficiarioSnapshot,
         empresas_asignadas: empresasAsignadas,
+        sinFacturaCuenta: !requiereFactura ? (asignacion?.cuenta_bancaria || null) : null,
         entangled_transaccion_id: res.data?.entangled_transaccion_id || res.data?.request?.entangled_transaccion_id,
       });
       setInstructionsOpen(true);
