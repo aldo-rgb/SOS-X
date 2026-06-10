@@ -1791,8 +1791,9 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         quote,
       }));
 
+      // No fijar Content-Type manualmente: axios lo setea con boundary correcto para FormData
       const res = await axios.post(`${API_URL}/api/entangled/payment-requests`, fd, {
-        headers: { ...authHeader, 'Content-Type': 'multipart/form-data' },
+        headers: authHeader,
       });
 
       setDialogOpen(false);
