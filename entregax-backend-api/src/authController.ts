@@ -330,7 +330,7 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
 //   1. Correo electrónico         (cualquier string con @)
 //   2. Número de cliente          (box_id, ej. "S1", "S1234")
 //   3. Teléfono verificado        (phone_verified = true) — sólo dígitos
-//   4. Código de asesor / sub-asesor  (referral_code, ej. "ALDO-6251")
+//   4. Código de asesor / sub-asesor  (referral_code, ej. "LRDO-6241")
 //      — sólo para roles advisor / sub_advisor (no clientes).
 //
 // El parámetro sigue llamándose "email" en el body para no romper la app

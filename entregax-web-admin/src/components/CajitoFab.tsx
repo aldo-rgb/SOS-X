@@ -69,6 +69,17 @@ export default function CajitoFab() {
   });
   const listRef = useRef<HTMLDivElement | null>(null);
 
+  // 📍 Posición vertical persistente del FAB. El usuario puede arrastrarlo
+  // arriba/abajo; guardamos en localStorage para que se mantenga entre sesiones.
+  // bottom = distancia desde el borde inferior de la ventana en px.
+  const FAB_POS_KEY = 'cajito.fab.bottom';
+  const [fabBottom, setFabBottom] = useState<number>(() => {
+    const raw = localStorage.getItem(FAB_POS_KEY);
+    const n = raw ? parseInt(raw, 10) : NaN;
+    return Number.isFinite(n) && n >= 8 ? n : 24;
+  });
+  const draggingRef = useRef<{ startY: number; startBottom: number; moved: boolean } | null>(null);
+
   const user = getCurrentUser();
   const isSuperAdmin = user?.role === 'super_admin';
 
@@ -153,17 +164,69 @@ export default function CajitoFab() {
     setMessages([]);
   };
 
+  // Drag handlers — arrastre vertical del FAB. Si el cursor se movió < 5px
+  // entre pointerdown y pointerup, lo consideramos un click y abrimos/cerramos
+  // el chat. Si se movió más, sólo guardamos la nueva posición.
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    draggingRef.current = {
+      startY: e.clientY,
+      startBottom: fabBottom,
+      moved: false,
+    };
+    try { (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = draggingRef.current;
+    if (!drag) return;
+    const dy = drag.startY - e.clientY; // arrastrar hacia arriba ⇒ bottom mayor
+    if (Math.abs(dy) > 4) drag.moved = true;
+    const next = Math.max(
+      8,
+      Math.min(window.innerHeight - 110, drag.startBottom + dy)
+    );
+    setFabBottom(next);
+  };
+  const onPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = draggingRef.current;
+    draggingRef.current = null;
+    try { (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+    if (!drag) return;
+    if (drag.moved) {
+      localStorage.setItem(FAB_POS_KEY, String(fabBottom));
+    } else {
+      setOpen((v) => !v);
+    }
+  };
+
   return (
     <>
-      {/* === Botón flotante (anillo naranja) === */}
-      <Tooltip title={open ? 'Cerrar Cajito' : 'Hablar con Cajito'} placement="left">
+      {/* === Botón flotante arrastrable (anillo naranja) ===
+          Usamos un Box wrapper con position:fixed y los pointer events.
+          El Fab interno es visual sólo (pointerEvents:none) para que el
+          drag funcione siempre, sin que MUI intercepte con ripple/tooltip. */}
+      <Box
+        title={open ? 'Cerrar Cajito' : 'Hablar con Cajito (arrastra para mover)'}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        sx={{
+          position: 'fixed',
+          bottom: fabBottom,
+          right: 24,
+          zIndex: 1300,
+          width: 90,
+          height: 90,
+          borderRadius: '50%',
+          cursor: 'grab',
+          touchAction: 'none',
+          userSelect: 'none',
+          '&:active': { cursor: 'grabbing' },
+        }}
+      >
         <Fab
-          onClick={() => setOpen((v) => !v)}
+          component="div"
           sx={{
-            position: 'fixed',
-            bottom: 24,
-            right: 24,
-            zIndex: 1300,
             width: 90,
             height: 90,
             background: avatar ? 'transparent' : CAJITO_GRADIENT,
@@ -172,11 +235,10 @@ export default function CajitoFab() {
             border: avatar ? `3px solid ${CAJITO_RING}` : 'none',
             overflow: 'hidden',
             p: 0,
+            pointerEvents: 'none', // los pointer events los maneja el Box padre
             '&:hover': {
-              transform: 'scale(1.05)',
               boxShadow: `0 12px 32px ${CAJITO_SHADOW}`,
             },
-            transition: 'transform 0.2s, box-shadow 0.2s',
           }}
         >
           {avatar ? (
@@ -191,7 +253,7 @@ export default function CajitoFab() {
             <SmartToyIcon sx={{ fontSize: 42 }} />
           )}
         </Fab>
-      </Tooltip>
+      </Box>
 
       {/* === Panel de chat (no modal: deja seguir trabajando) === */}
       <Slide direction="up" in={open} mountOnEnter unmountOnExit>

@@ -1443,6 +1443,57 @@ app.use(express.text({ limit: bodyLimit, type: ['text/plain', 'text/html'] })); 
 // Servir archivos estáticos de uploads
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
+// ── TESTER USERS ─────────────────────────────────────────────────────────────
+// Usuarios "tester": inmunes a todos los toggles globales del Sistema de Pagos
+// y al modo mantenimiento. Útil para validar funcionalidad en producción
+// mientras el resto del sistema esté apagado para clientes reales.
+// Se puede ampliar vía env var TESTER_EMAILS (CSV).
+const TESTER_EMAILS = new Set<string>(
+  [
+    'aldocampos@entregax.com',
+    'aldocampos@grupolsd.com',
+    ...((process.env.TESTER_EMAILS || '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)),
+  ].map(e => e.toLowerCase())
+);
+
+export function isTesterEmail(email?: string | null): boolean {
+  return !!email && TESTER_EMAILS.has(String(email).toLowerCase().trim());
+}
+
+/**
+ * Decodifica el JWT del request (Authorization: Bearer o cookie 'token')
+ * sin lanzar excepción. Devuelve null si no hay token válido.
+ */
+function decodeRequestJwt(req: Request): { userId?: number; email?: string; role?: string } | null {
+  try {
+    const auth = req.headers.authorization;
+    let token: string | null = (auth && auth.startsWith('Bearer ')) ? auth.slice(7) : null;
+    if (!token) {
+      const cookieToken = (req as any).cookies?.token;
+      if (cookieToken) token = cookieToken;
+    }
+    if (!token) return null;
+    return jsonwebtokenLib.verify(token, process.env.JWT_SECRET || 'fallback_secret') as any;
+  } catch {
+    return null;
+  }
+}
+
+/** True si el request viene de un usuario tester (por JWT). */
+async function isTesterRequest(req: Request): Promise<boolean> {
+  const decoded = decodeRequestJwt(req);
+  if (!decoded) return false;
+  if (isTesterEmail(decoded.email)) return true;
+  // Fallback: si el JWT no trae email (poco probable), consultar DB.
+  if (decoded.userId) {
+    try {
+      const r = await pool.query('SELECT email FROM users WHERE id = $1 LIMIT 1', [decoded.userId]);
+      return isTesterEmail(r.rows[0]?.email);
+    } catch { return false; }
+  }
+  return false;
+}
+
 // ── MAINTENANCE MODE ─────────────────────────────────────────────────────────
 let _maintenanceCache: { enabled: boolean; ts: number } | null = null;
 const MAINTENANCE_CACHE_TTL_MS = 10_000;
@@ -1474,12 +1525,12 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
   const maintenance = await isMaintenanceModeEnabled();
   if (!maintenance) return next();
 
-  const auth = req.headers.authorization;
-  if (auth?.startsWith('Bearer ')) {
-    try {
-      const decoded = jsonwebtokenLib.verify(auth.slice(7), process.env.JWT_SECRET || 'fallback_secret') as any;
-      if (decoded?.role === 'super_admin' || decoded?.role === 'admin') return next();
-    } catch { /* token inválido o expirado */ }
+  const decoded = decodeRequestJwt(req);
+  if (decoded) {
+    // Admins/super_admins siempre pueden entrar
+    if (decoded.role === 'super_admin' || decoded.role === 'admin') return next();
+    // Usuarios tester: inmunes al modo mantenimiento
+    if (isTesterEmail(decoded.email)) return next();
   }
   res.status(503).json({ error: 'Sistema en mantenimiento. Por favor intenta de nuevo más tarde.', maintenance: true });
 });
@@ -11916,7 +11967,10 @@ async function runOneShotResetJesusCampos() {
 // ============================================================
 
 // GET /api/system/payment-status — público (sin auth), devuelve estado de cada sistema de pago
-app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
+// Si el request trae JWT de un usuario tester (TESTER_EMAILS), se devuelven todos
+// los toggles forzados a ENABLED y maintenance_mode = false para que el usuario sea
+// inmune a apagones globales del Sistema de Pagos.
+app.get('/api/system/payment-status', async (req: Request, res: Response) => {
   try {
     const r = await pool.query(
       `SELECT config_key, config_value
@@ -12019,6 +12073,36 @@ app.get('/api/system/payment-status', async (_req: Request, res: Response) => {
         if (row.slot === 'entregax_x_only') entregaxXOnlyUrl = signed;
       }
     } catch { /* tabla aún no creada */ }
+
+    // ── TESTER OVERRIDE ─────────────────────────────────────────────────────
+    // Si el request viene de un usuario tester, devolvemos el "modo libre":
+    // todos los flujos de pago/instrucciones activos y sin mantenimiento.
+    // Las UIs (mobile + web) leen este endpoint para decidir si mostrar/ocultar
+    // botones de pago, GEX, orden de pago, instrucciones, etc.
+    const tester = await isTesterRequest(req);
+    if (tester) {
+      res.json({
+        payments_enabled: true,
+        xpay_enabled: true,
+        entregax_payments_enabled: true,
+        entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
+        gex_enabled: true,
+        advisor_instructions_enabled: true,
+        advisor_payment_order_enabled: true,
+        require_payment_to_load: requirePaymentToLoad,
+        require_label_to_load: requireLabelToLoad,
+        require_instructions_to_load_pobox: requireInstructionsToLoadPobox,
+        external_sync_enabled: externalSyncEnabled,
+        entregax_payment_query_enabled: entregaxPaymentQueryEnabled,
+        cajito_enabled: cajitoEnabled,
+        cajito_avatar_url: cajitoAvatarUrl,
+        entregax_full_black_url: entregaxFullBlackUrl,
+        entregax_x_only_url: entregaxXOnlyUrl,
+        maintenance_mode: false,
+        tester_mode: true,
+      });
+      return;
+    }
 
     res.json({
       payments_enabled: paymentsEnabled,

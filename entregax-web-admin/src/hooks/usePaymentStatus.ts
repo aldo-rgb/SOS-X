@@ -87,7 +87,16 @@ export function usePaymentStatus() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/system/payment-status`);
+        // Enviar JWT si existe en localStorage → permite que el backend
+        // identifique usuarios tester y devuelva el modo libre (inmune a
+        // los toggles globales del Sistema de Pagos).
+        const token = (() => {
+          try { return localStorage.getItem('token'); } catch { return null; }
+        })();
+        const res = await fetch(`${API_URL}/api/system/payment-status`, {
+          credentials: 'include', // permite que la cookie HttpOnly también viaje
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
         if (!res.ok) throw new Error('status error');
         const data = await res.json();
         if (!cancelled) {

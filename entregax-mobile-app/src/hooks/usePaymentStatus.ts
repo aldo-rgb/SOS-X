@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { API_URL } from '../services/api';
+import { getSecure } from '../services/secureStorage';
 
 export type EntregaxServiceKey = 'pobox' | 'maritimo' | 'aereo' | 'dhl';
 
@@ -45,7 +46,12 @@ export function usePaymentStatus() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(`${API_URL}/api/system/payment-status`);
+        // Enviar JWT si existe → permite que el backend reconozca usuarios
+        // tester y devuelva el modo libre (inmune a toggles globales).
+        const token = await getSecure('token').catch(() => null);
+        const res = await fetch(`${API_URL}/api/system/payment-status`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        });
         if (!res.ok) throw new Error('err');
         const data = await res.json();
         if (!cancelled) {

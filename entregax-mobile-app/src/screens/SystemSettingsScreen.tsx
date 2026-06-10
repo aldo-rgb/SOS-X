@@ -67,7 +67,9 @@ export default function SystemSettingsScreen({ navigation, route }: Props) {
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/system/payment-status`);
+      const res = await fetch(`${API_URL}/api/system/payment-status`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       const data = await res.json();
       const bs = data.entregax_payments_by_service || {};
       setState({
@@ -94,7 +96,7 @@ export default function SystemSettingsScreen({ navigation, route }: Props) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [token]);
 
   useEffect(() => { load(); }, [load]);
 

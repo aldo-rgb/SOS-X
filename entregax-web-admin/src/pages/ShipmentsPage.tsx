@@ -1307,8 +1307,10 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
       return;
     }
 
-    // Determinar si es PO BOX para no incluir QR
-    const hideQR = warehouseLocation === 'usa_pobox';
+    // Etiquetas de PO Box ahora incluyen también el QR (mismo dato que el código
+    // de barras: tracking sin guiones). Se quita el flag hideQR para PO Box;
+    // el QR queda visible en todas las etiquetas.
+    const hideQR = false;
 
     try {
     // Mapeo de ciudades a códigos cortos para mostrar grande
@@ -1556,11 +1558,13 @@ export default function ShipmentsPage({ users, warehouseLocation, openWizardOnMo
         // Generar códigos de barras
         ${labelsToPrint.map((label, i) => `JsBarcode("#barcode-${i}", "${label.tracking.replace(/-/g, '')}", { format: "CODE128", width: 2.4, height: 80, displayValue: false, margin: 0 });`).join('')}
         
-        // Generar códigos QR (más grandes) - Solo si no es PO BOX
+        // Generar códigos QR — contiene el MISMO valor que el barcode
+        // (tracking sin guiones), para que escanear cualquiera de los dos
+        // dé el mismo resultado al sistema.
         ${!hideQR ? labelsToPrint.map((label, i) => `
           (function() {
             var qr = qrcode(0, 'M');
-            qr.addData('https://app.entregax.com/track/${label.tracking}');
+            qr.addData('${label.tracking.replace(/-/g, '')}');
             qr.make();
             document.getElementById('qr-${i}').innerHTML = qr.createSvgTag({ cellSize: 2, margin: 0 });
           })();

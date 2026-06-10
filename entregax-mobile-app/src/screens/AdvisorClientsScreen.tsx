@@ -195,11 +195,13 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   useEffect(() => { setLoading(true); loadClients(true); }, [search, filter]);
 
   useEffect(() => {
-    fetch(`${API_URL}/api/system/payment-status`)
+    fetch(`${API_URL}/api/system/payment-status`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+    })
       .then(r => r.json())
       .then(d => setInstrEnabled(d.advisor_instructions_enabled !== false))
       .catch(() => {});
-  }, []);
+  }, [token]);
 
   const onRefresh = () => { setRefreshing(true); setPage(1); loadClients(true); };
   const loadMore = () => { if (!loading && hasMore) { setPage(prev => prev + 1); loadClients(); } };
