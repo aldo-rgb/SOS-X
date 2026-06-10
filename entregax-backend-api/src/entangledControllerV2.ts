@@ -471,13 +471,15 @@ export const createPaymentRequestV2 = async (
       [userId]
     );
     const u = userRow.rows[0];
-    if (u?.phone) {
+    if (!u?.phone) {
+      console.warn(`[XPAY WA] Usuario ${userId} no tiene teléfono registrado — omitiendo WhatsApp de confirmación`);
+    } else {
       const tc = Number(tcClienteFinal) || 0;
       const totalMxn = tc > 0
         ? (monto * tc * (1 + commission.porcentaje / 100)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
         : '—';
-      // Cuenta de depósito: primera empresa asignada (con factura) o cuenta_bancaria del payload (sin factura)
-      const cb: any = (empresasFinales[0]?.cuenta_bancaria) || (body.cuenta_bancaria_sin_factura) || {};
+      const cb: any = (empresasFinales[0]?.cuenta_bancaria) || {};
+      console.log(`[XPAY WA] Enviando confirmación a ${u.phone} ref=${referenciaPago} banco=${cb.banco || '?'}`);
       void sendXPayConfirmation({
         phone: u.phone,
         nombre: u.full_name || '',
@@ -491,7 +493,7 @@ export const createPaymentRequestV2 = async (
       });
     }
   } catch (waErr) {
-    console.warn('[ENTANGLED v2] No se pudo enviar WhatsApp de confirmación:', waErr);
+    console.warn('[XPAY WA] Error enviando WhatsApp de confirmación:', waErr);
   }
 
   return res.status(201).json({
