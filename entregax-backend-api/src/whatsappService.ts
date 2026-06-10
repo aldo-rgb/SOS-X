@@ -569,7 +569,7 @@ export const sendXPayConfirmation = async (params: {
         await sendTemplate({
             to: params.phone,
             template: templateName,
-            languageCode: 'es_MX',
+            languageCode: 'es',   // plantilla registrada como Spanish (SPA)
             parameters: [
                 firstName,
                 params.montoUsd,
@@ -621,7 +621,7 @@ export const sendXPayPagoConfirmado = async (params: {
         await sendTemplate({
             to: params.phone,
             template: templateName,
-            languageCode: 'es_MX',
+            languageCode: 'es',   // plantilla registrada como Spanish (SPA)
             parameters: [
                 firstName,
                 params.referencia,
