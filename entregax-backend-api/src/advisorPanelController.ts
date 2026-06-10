@@ -655,10 +655,12 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         u.id, u.full_name, u.box_id, u.phone
     `;
 
-    // Dynamic filters per sub-query — received_mty/ready_pickup aplica a todos los tipos
+    // Dynamic filters per sub-query
     const extraAllTransit = ["'received_mty'", "'ready_pickup'"];
+    // Marítimo tiene statuses adicionales: consolidated (Ya Zarpó), at_port (Arribo), shipped
+    const extraMarTransit = [...extraAllTransit, "'consolidated'", "'at_port'", "'shipped'"];
     let pkgWhere = buildFilterSQL('p.status', 'p.saldo_pendiente', 'p.monto_pagado', "p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')", extraAllTransit);
-    let marWhere = buildFilterSQL('mo.status', 'mo.saldo_pendiente', 'mo.monto_pagado', 'mo.delivery_address_id IS NULL', extraAllTransit);
+    let marWhere = buildFilterSQL('mo.status', 'mo.saldo_pendiente', 'mo.monto_pagado', 'mo.delivery_address_id IS NULL', extraMarTransit);
     let dhlWhere = buildFilterSQL('ds.status', 'ds.saldo_pendiente', 'ds.monto_pagado', 'ds.delivery_address_id IS NULL', extraAllTransit);
 
     // Client filter
@@ -738,7 +740,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     const statsSQL = `
       SELECT 
         COUNT(*) as total,
-        COUNT(CASE WHEN status IN ('in_transit','received_china','received','customs','received_mty') THEN 1 END) as in_transit,
+        COUNT(CASE WHEN status IN ('in_transit','received_china','received','customs','received_mty','consolidated','at_port','shipped') THEN 1 END) as in_transit,
         COUNT(CASE WHEN COALESCE(monto, 0) > 0 AND client_paid = false THEN 1 END) as awaiting_payment,
         COUNT(CASE WHEN has_instructions = false AND status != 'delivered' THEN 1 END) as missing_instructions,
         COUNT(CASE WHEN status = 'ready_pickup' THEN 1 END) as ready_pickup,
