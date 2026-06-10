@@ -340,7 +340,7 @@ export const updateAdvisorPaymentOrderStatus = async (req: Request, res: Respons
 
     // Fetch current order to check if transition is allowed
     const current = await pool.query(
-      `SELECT id, status, pobox_payment_id, payment_reference FROM advisor_payment_orders WHERE id=$1 AND advisor_id=$2`,
+      `SELECT id, status, pobox_payment_id, payment_reference, package_uids FROM advisor_payment_orders WHERE id=$1 AND advisor_id=$2`,
       [id, aid]
     );
     if (!current.rows.length) return res.status(404).json({ error: 'Orden no encontrada' });
@@ -368,6 +368,49 @@ export const updateAdvisorPaymentOrderStatus = async (req: Request, res: Respons
         `UPDATE pobox_payments SET status=$1 WHERE id=$2`,
         [poboxStatus, poboxPaymentId]
       ).catch(() => {});
+    }
+
+    // When marked pagado: update individual guide payment status in each table
+    if (status === 'pagado') {
+      try {
+        const rawUids = current.rows[0].package_uids;
+        const uids: string[] = Array.isArray(rawUids)
+          ? rawUids
+          : (typeof rawUids === 'string' ? JSON.parse(rawUids) : []);
+
+        const pkgIds: number[] = [];
+        const marIds: number[] = [];
+        const dhlIds: number[] = [];
+
+        for (const uid of uids) {
+          const parts = String(uid).split('-');
+          const prefix = parts[0];
+          const numId = parseInt(parts[1] ?? '');
+          if (isNaN(numId)) continue;
+          if (prefix === 'PKG')      pkgIds.push(numId);
+          else if (prefix === 'MAR') marIds.push(numId);
+          else if (prefix === 'DHL') dhlIds.push(numId);
+        }
+
+        if (pkgIds.length > 0) {
+          await pool.query(
+            `UPDATE packages SET client_paid=TRUE, client_paid_at=CURRENT_TIMESTAMP, saldo_pendiente=0, payment_status='paid' WHERE id=ANY($1)`,
+            [pkgIds]
+          ).catch(() => {});
+        }
+        if (dhlIds.length > 0) {
+          await pool.query(
+            `UPDATE dhl_shipments SET paid_at=CURRENT_TIMESTAMP, monto_pagado=COALESCE(total_cost_mxn, saldo_pendiente, 0) WHERE id=ANY($1) AND paid_at IS NULL`,
+            [dhlIds]
+          ).catch(() => {});
+        }
+        if (marIds.length > 0) {
+          await pool.query(
+            `UPDATE maritime_orders SET payment_status='paid', client_paid_at=CURRENT_TIMESTAMP WHERE id=ANY($1)`,
+            [marIds]
+          ).catch(() => {});
+        }
+      } catch { /* non-critical */ }
     }
 
     // When cancelling, also remove from cobranza dashboard

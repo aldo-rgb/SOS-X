@@ -7658,6 +7658,41 @@ app.post('/api/admin/finance/confirm-payment', authenticateToken, requireMinLeve
             `, [packageIds]);
           }
 
+          // 2b. Si la orden vino de un advisor_payment_order, actualizar DHL / marítimo también
+          try {
+            const apoRes = await client.query(
+              `SELECT package_uids FROM advisor_payment_orders WHERE pobox_payment_id=$1 LIMIT 1`,
+              [poboxPay.id]
+            );
+            if (apoRes.rows.length > 0) {
+              const rawUids = apoRes.rows[0].package_uids;
+              const uids: string[] = Array.isArray(rawUids)
+                ? rawUids
+                : (typeof rawUids === 'string' ? JSON.parse(rawUids) : []);
+              const dhlIds: number[] = [];
+              const marIds: number[] = [];
+              for (const uid of uids) {
+                const parts = String(uid).split('-');
+                const numId = parseInt(parts[1] ?? '');
+                if (isNaN(numId)) continue;
+                if (parts[0] === 'DHL') dhlIds.push(numId);
+                else if (parts[0] === 'MAR') marIds.push(numId);
+              }
+              if (dhlIds.length > 0) {
+                await client.query(
+                  `UPDATE dhl_shipments SET paid_at=CURRENT_TIMESTAMP, monto_pagado=COALESCE(total_cost_mxn, saldo_pendiente, 0) WHERE id=ANY($1) AND paid_at IS NULL`,
+                  [dhlIds]
+                );
+              }
+              if (marIds.length > 0) {
+                await client.query(
+                  `UPDATE maritime_orders SET payment_status='paid', client_paid_at=CURRENT_TIMESTAMP WHERE id=ANY($1)`,
+                  [marIds]
+                );
+              }
+            }
+          } catch { /* non-critical */ }
+
           // 3. Aprobar todos los vouchers pendientes de esta orden
           await client.query(`
             UPDATE payment_vouchers SET
