@@ -341,6 +341,9 @@ export default function DashboardAdvisor() {
   const [verifyWizardOpen, setVerifyWizardOpen] = useState(false);
   const [termsDialogOpen, setTermsDialogOpen] = useState(false);
 
+  // Tarifas y TC en vivo
+  const [liveRates, setLiveRates] = useState<{ precio_tdi_aereo_usd: number | null; precio_tdi_express_usd: number | null; tc_envio_dinero: number | null } | null>(null);
+
   // Guías sin identificar (dashboard widget)
   const [unidentifiedPkgs, setUnidentifiedPkgs] = useState<any[]>([]);
   const [unidentifiedLoading, setUnidentifiedLoading] = useState(false);
@@ -579,6 +582,9 @@ export default function DashboardAdvisor() {
     fetchDashboard();
     fetchNotifPrefs();
     fetchUnidentified();
+    api.get('/advisor/rates').then(r => {
+      if (r.data?.success) setLiveRates(r.data.rates);
+    }).catch(() => {});
   }, [fetchDashboard]);
 
   const fetchUnidentified = async () => {
@@ -1226,6 +1232,36 @@ export default function DashboardAdvisor() {
               )}
             </Typography>
           </Paper>
+
+          {/* Tarifas y TC en vivo */}
+          {liveRates && (
+            <Paper sx={{ p: isMobile ? 1.5 : 2, mb: isMobile ? 2 : 3, borderRadius: 2, border: '1px solid #F3E5D0' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
+                <Box sx={{ width: 3, height: 16, bgcolor: '#F05A28', borderRadius: 1 }} />
+                <Typography sx={{ fontWeight: 800, fontSize: '0.75rem', color: '#F05A28', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+                  Tarifas y TC en vivo
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: isMobile ? 1.5 : 3, flexWrap: 'wrap' }}>
+                {[
+                  { label: 'TDI Aéreo', value: liveRates.precio_tdi_aereo_usd, unit: 'USD/kg' },
+                  { label: 'TDI Express', value: liveRates.precio_tdi_express_usd, unit: 'USD/kg' },
+                  { label: 'TC Envío $', value: liveRates.tc_envio_dinero, unit: 'MXN/USD' },
+                ].map((item, i, arr) => (
+                  <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: isMobile ? 1.5 : 3 }}>
+                    <Box>
+                      <Typography sx={{ fontSize: '0.68rem', color: '#94A3B8', fontWeight: 600, letterSpacing: 0.3 }}>{item.label}</Typography>
+                      <Typography sx={{ fontWeight: 900, fontSize: isMobile ? '1.1rem' : '1.3rem', color: '#0F172A', lineHeight: 1.2 }}>
+                        {item.value != null ? `$${item.value.toFixed(2)}` : '—'}
+                      </Typography>
+                      <Typography sx={{ fontSize: '0.65rem', color: '#94A3B8' }}>{item.unit}</Typography>
+                    </Box>
+                    {i < arr.length - 1 && <Box sx={{ width: 1, height: 36, bgcolor: '#E2E8F0', flexShrink: 0 }} />}
+                  </Box>
+                ))}
+              </Box>
+            </Paper>
+          )}
 
           {/* KPI Cards - 2x2 grid on mobile */}
           <Grid container spacing={isMobile ? 1 : 2} sx={{ mb: isMobile ? 2 : 3 }}>
