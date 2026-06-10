@@ -586,6 +586,54 @@ export const sendXPayConfirmation = async (params: {
     }
 };
 
+/**
+ * Notificación al cliente: ENTANGLED confirmó el pago al proveedor.
+ * El cliente ya puede ver su comprobante en X-Pay.
+ * Plantilla: "xpay_pago_confirmado"  (UTILITY, es_MX)
+ *
+ * Body sugerido para aprobar en Meta:
+ * ————————————————————————————————————————
+ * ✅ ¡Hola {{1}}! Tu pago XPay fue procesado exitosamente.
+ *
+ * 📋 Referencia: *{{2}}*
+ * 💵 Monto enviado: {{3}}
+ * 🏢 Beneficiario: {{4}}
+ *
+ * Puedes consultar el comprobante de pago directamente en X-Pay → "Últimos envíos".
+ *
+ * Gracias por confiar en EntregaX 🙌
+ * ————————————————————————————————————————
+ *   {{1}} = nombre del cliente (first name)
+ *   {{2}} = referencia de pago (ej. "XP600876")
+ *   {{3}} = monto enviado (ej. "$10,010.00 USD")
+ *   {{4}} = beneficiario / destino
+ */
+export const sendXPayPagoConfirmado = async (params: {
+    phone: string;
+    nombre: string;
+    referencia: string;
+    monto: string;
+    beneficiario: string;
+}): Promise<void> => {
+    const templateName = process.env.WHATSAPP_XPAY_PAID_TEMPLATE || 'xpay_pago_confirmado';
+    const firstName = params.nombre.split(' ')[0] ?? params.nombre;
+    try {
+        await sendTemplate({
+            to: params.phone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [
+                firstName,
+                params.referencia,
+                params.monto || '—',
+                params.beneficiario || '—',
+            ],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] Error enviando confirmación de pago XPay:', e);
+    }
+};
+
 export const whatsappStatus = (): { enabled: boolean; phoneNumberId: string | null } => {
     return {
         enabled: isEnabled(),
