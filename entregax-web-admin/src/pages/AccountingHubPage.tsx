@@ -2488,7 +2488,6 @@ function PendingStampTab({ emitter }: { emitter: Emitter }) {
 // ============================================================
 function BankMovementsTab({ emitter }: { emitter: Emitter }) {
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
   const [movs, setMovs] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [links, setLinks] = useState<any[]>([]);
@@ -2519,24 +2518,6 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [emitter.id]);
-
-  const handleSync = async () => {
-    setSyncing(true);
-    setError(null);
-    try {
-      const r = await api.post(`/accounting/${emitter.id}/bank-movements/sync`, { days_back: 90 });
-      const newCount = r.data?.new_count ?? 0;
-      const hasTwofa = links.some((l: any) => l.twofa_required);
-      if (newCount === 0 && hasTwofa) {
-        setError('No se descargaron movimientos nuevos. El banco requiere re-autenticación 2FA: ve a Administración → Empresas → Syncfy y haz clic en "Sincronizar todo".');
-      }
-      await load();
-    } catch (e: any) {
-      setError(e.response?.data?.error || 'Error sincronizando');
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const matchChip = (s: string) => {
     if (s === 'matched') return <Chip size="small" label="Conciliado" sx={{ bgcolor: '#16a34a', color: 'white' }} />;

@@ -269,7 +269,7 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
   const [_loadingSavedEntries, setLoadingSavedEntries] = useState(false);
   const [_savedEntriesCount, setSavedEntriesCount] = useState<number | null>(null);
   const [belvoSyncing, setBelvoSyncing] = useState(false);
-  const [syncfySyncing, setSyncfySyncing] = useState(false);
+
 
   // Parser BBVA
   const parseBBVA = (text: string): EstadoCuentaRow[] => {
@@ -442,23 +442,6 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
     }
     return Object.entries(refMap).map(([ref, entries]) => ({ ref, entries }));
   };
-
-  const handleSyncfySync = async () => {
-    const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;
-    if (!empresaFilt) return;
-    setSyncfySyncing(true);
-    try {
-      const res = await api.post('/admin/syncfy/sync', { emitter_id: empresaFilt.id, days_back: 90 });
-      const inserted = res.data.new_count ?? res.data.inserted ?? 0;
-      setSnackbar({ open: true, message: `✅ Sync completado: ${inserted} movimientos nuevos descargados`, severity: 'success' });
-      await loadSavedBankEntries();
-    } catch (err: any) {
-      setSnackbar({ open: true, message: '❌ Error en sync: ' + (err.response?.data?.error || err.message), severity: 'error' });
-    } finally {
-      setSyncfySyncing(false);
-    }
-  };
-
 
   const loadSavedBankEntries = async () => {
     const empresaFilt = filterServicio !== 'all' ? getEmpresaAsignada(data?.empresas || [], filterServicio) : null;

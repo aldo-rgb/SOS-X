@@ -171,7 +171,6 @@ export default function FiscalPage() {
   const [syncfyLinks, setSyncfyLinks] = useState<any[]>([]);
   const [syncfyLoading, setSyncfyLoading] = useState(false);
   const [syncfyStats, setSyncfyStats] = useState<any>(null);
-  const [syncingSyncfy, setSyncingSyncfy] = useState<number | null>(null);
   const [syncfyWidgetVisible, setSyncfyWidgetVisible] = useState(false);
   const [syncfyWidgetInstance, setSyncfyWidgetInstance] = useState<any>(null);
   const [syncfyAwaitingQR, setSyncfyAwaitingQR] = useState(false); // esperando confirmación async de BBVA QR
@@ -799,127 +798,6 @@ export default function FiscalPage() {
         severity: 'error',
       });
     }
-  };
-
-  const doSyncfySync = async () => {
-    if (!selectedEmpresaSyncfy) return;
-    setSyncingSyncfy(-1);
-    try {
-      const res = await axios.post(
-        `${API_URL}/admin/syncfy/sync`,
-        { emitter_id: selectedEmpresaSyncfy.id, days_back: 90 },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      setSnackbar({
-        open: true,
-        message: `✅ Sincronizado: ${res.data.new_count || 0} nuevas, ${res.data.matched_count || 0} conciliadas`,
-        severity: 'success',
-      });
-      handleOpenSyncfyModal(selectedEmpresaSyncfy);
-    } catch (error: any) {
-      setSnackbar({ open: true, message: error.response?.data?.error || 'Error sincronizando', severity: 'error' });
-    } finally {
-      setSyncingSyncfy(null);
-    }
-  };
-
-  // Para bancos con 2FA: abre el widget con id_credential para re-autenticar,
-  // luego dispara el sync automáticamente al completar.
-  const handleRefreshCredentialForSync = async (credential: any) => {
-    if (!selectedEmpresaSyncfy) return;
-    try {
-      const widgetRes = await axios.post(
-        `${API_URL}/admin/syncfy/widget-token`,
-        { emitter_id: selectedEmpresaSyncfy.id },
-        { headers: { Authorization: `Bearer ${getToken()}` } }
-      );
-      const { token } = widgetRes.data;
-      if (!token) {
-        setSnackbar({ open: true, message: 'No se recibió token de Syncfy', severity: 'error' });
-        return;
-      }
-      if (syncfyWidgetInstance && typeof syncfyWidgetInstance.destroy === 'function') {
-        try { syncfyWidgetInstance.destroy(); } catch { /* noop */ }
-        setSyncfyWidgetInstance(null);
-      }
-      setOpenSyncfyModal(false);
-      setSyncfyWidgetVisible(true);
-      setTimeout(async () => {
-        try {
-          const container = syncfyWidgetContainerRef.current;
-          if (!container) {
-            setSnackbar({ open: true, message: 'Contenedor del widget no disponible', severity: 'error' });
-            setSyncfyWidgetVisible(false);
-            return;
-          }
-          container.innerHTML = '';
-          const mountNode = document.createElement('div');
-          mountNode.id = 'syncfy-widget-mount';
-          container.appendChild(mountNode);
-          container.appendChild(document.createElement('span'));
-          const mod = await import('@syncfy/authentication-widget');
-          const SyncfyWidget: any = (mod as any).default || mod;
-          const widget: any = new SyncfyWidget({
-            token,
-            element: '#syncfy-widget-mount',
-            config: {
-              locale: 'es',
-              entrypoint: { country: 'MX', siteOrganizationType: '56cf4f5b784806cf028b4568' },
-              navigation: { displayStatusInToast: true },
-            },
-          });
-          // setEntrypointUpdateCredential pone el widget en modo "actualizar credencial existente"
-          if (typeof widget.setEntrypointUpdateCredential === 'function') {
-            widget.setEntrypointUpdateCredential(credential.id_credential);
-          }
-          if (typeof widget.open === 'function') { try { widget.open(); } catch { /* noop */ } }
-          if (typeof widget.on === 'function') {
-            const onSuccess = async () => {
-              setSyncfyWidgetVisible(false);
-              await doSyncfySync();
-            };
-            widget.on('credential-created', onSuccess);
-            widget.on('credentials', onSuccess);
-            widget.on('success', onSuccess);
-            widget.on('auth_success', onSuccess);
-            widget.on('updated', onSuccess);
-            widget.on('error', async (err: any) => {
-              if (err?.id_credential) { await onSuccess(); }
-              else {
-                setSnackbar({ open: true, message: 'Error en widget Syncfy', severity: 'error' });
-                setSyncfyWidgetVisible(false);
-                handleOpenSyncfyModal(selectedEmpresaSyncfy);
-              }
-            });
-            widget.on('exit', () => {
-              setSyncfyWidgetVisible(false);
-              handleOpenSyncfyModal(selectedEmpresaSyncfy);
-            });
-          }
-          setSyncfyWidgetInstance(widget);
-        } catch (err: any) {
-          setSnackbar({ open: true, message: `Error montando widget: ${err.message || err}`, severity: 'error' });
-          setSyncfyWidgetVisible(false);
-          handleOpenSyncfyModal(selectedEmpresaSyncfy);
-        }
-      }, 250);
-    } catch (error: any) {
-      setSnackbar({
-        open: true,
-        message: error.response?.data?.error || `Error iniciando widget: ${error.response?.status || 'sin respuesta'}`,
-        severity: 'error',
-      });
-    }
-  };
-
-  const handleSyncSyncfy = async () => {
-    if (!selectedEmpresaSyncfy) return;
-    const twofaLink = syncfyLinks.find((l: any) => l.twofa_required);
-    if (twofaLink) {
-      await handleRefreshCredentialForSync(twofaLink);
-      return;
-    }
-    await doSyncfySync();
   };
 
   const handleDeleteSyncfyCred = async (credId: number) => {
