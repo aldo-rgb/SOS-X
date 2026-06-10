@@ -127,14 +127,12 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
     // Embarques en tránsito de sus clientes (packages + maritime + DHL)
     const shipmentsRes = await pool.query(`
       SELECT
-        SUM(in_transit)        AS total_in_transit,
-        SUM(awaiting_payment)  AS awaiting_payment,
-        SUM(missing_instr)     AS missing_instructions
+        SUM(in_transit)   AS total_in_transit,
+        SUM(missing_instr) AS missing_instructions
       FROM (
         -- packages (AIR, POBOX, TDI) — excluye hijos
         SELECT
           COUNT(*) FILTER (WHERE p.status::text IN ('in_transit','received_china','received','customs','ready_pickup','received_mty')) AS in_transit,
-          COUNT(*) FILTER (WHERE COALESCE(p.saldo_pendiente,0) > 0) AS awaiting_payment,
           COUNT(*) FILTER (WHERE p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')
                              AND p.status::text NOT IN ('delivered','lost','returned_to_warehouse')) AS missing_instr
         FROM packages p
@@ -148,7 +146,6 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         -- maritime_orders
         SELECT
           COUNT(*) FILTER (WHERE mo.status IN ('in_transit','received_china','received','customs','consolidated','at_port')) AS in_transit,
-          COUNT(*) FILTER (WHERE COALESCE(mo.saldo_pendiente,0) > 0) AS awaiting_payment,
           COUNT(*) FILTER (WHERE mo.delivery_address_id IS NULL AND mo.status NOT IN ('delivered')) AS missing_instr
         FROM maritime_orders mo
         JOIN users u ON mo.user_id = u.id
@@ -160,13 +157,20 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         -- dhl_shipments
         SELECT
           COUNT(*) FILTER (WHERE ds.status IN ('in_transit','received_mty','ready_pickup')) AS in_transit,
-          COUNT(*) FILTER (WHERE COALESCE(ds.saldo_pendiente,0) > 0) AS awaiting_payment,
           COUNT(*) FILTER (WHERE ds.delivery_address_id IS NULL AND ds.status NOT IN ('delivered')) AS missing_instr
         FROM dhl_shipments ds
         JOIN users u ON ds.user_id = u.id
         WHERE u.role = 'client'
           AND (u.advisor_id = $1 OR u.referred_by_id = $1)
       ) t
+    `, [advisorId]);
+
+    // Órdenes de pago pendientes del asesor
+    const pendingOrdersRes = await pool.query(`
+      SELECT COUNT(*) AS pending_orders
+      FROM advisor_payment_orders
+      WHERE advisor_id = $1
+        AND status = 'pendiente'
     `, [advisorId]);
 
     // Guías sin cliente: user_id IS NULL y sin casillero asignado (box_id vacío)
@@ -243,7 +247,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       },
       shipments: {
         inTransit: parseInt(shipmentsRes.rows[0]?.total_in_transit) || 0,
-        awaitingPayment: parseInt(shipmentsRes.rows[0]?.awaiting_payment) || 0,
+        awaitingPayment: parseInt(pendingOrdersRes.rows[0]?.pending_orders) || 0,
         missingInstructions: parseInt(shipmentsRes.rows[0]?.missing_instructions) || 0,
         unidentifiedPackages: parseInt(unidentifiedRes.rows[0]?.total) || 0,
       },
@@ -564,7 +568,20 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
          WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_carrier_icon,
         (SELECT addr.alias FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_name,
         (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_city,
-        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_recipient
+        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = p.assigned_address_id LIMIT 1) as delivery_address_recipient,
+        (CASE WHEN COALESCE(p.is_master, false)
+              THEN (SELECT array_agg(c.tracking_internal ORDER BY c.id) FROM packages c WHERE c.master_id = p.id)
+              ELSE NULL END)::text[] as child_trackings,
+        COALESCE(
+          (SELECT COALESCE(apo.payment_reference, apo.folio) FROM advisor_payment_orders apo
+           LEFT JOIN pobox_payments pp2 ON pp2.id = apo.pobox_payment_id
+           WHERE apo.status NOT IN ('cancelado','pagado')
+             AND (apo.pobox_payment_id IS NULL OR pp2.status NOT IN ('cancelled','expired'))
+             AND apo.package_uids ? ('PKG-' || p.id::text) LIMIT 1),
+          (SELECT pp.payment_reference FROM pobox_payments pp
+           WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
+             AND pp.package_ids @> jsonb_build_array(p.id) LIMIT 1)
+        ) AS in_payment_order_ref
       FROM packages p
       JOIN users u ON (
         p.user_id = u.id
@@ -579,7 +596,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         'MAR-' || mo.id::text as uid,
         mo.id, mo.ordersn as tracking, mo.ship_number as international_tracking, mo.bl_number as child_no,
         mo.status, 'SEA_CHN_MX' as service_type,
-        COALESCE(mo.assigned_cost_mxn, mo.saldo_pendiente, 0) as monto,
+        COALESCE(NULLIF(mo.assigned_cost_mxn,0), NULLIF(mo.saldo_pendiente,0), 0) as monto,
         CASE WHEN COALESCE(mo.saldo_pendiente, 0) = 0 AND COALESCE(mo.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
         mo.paid_at as paid_at,
         mo.created_at,
@@ -599,7 +616,18 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
          WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_carrier_icon,
         (SELECT addr.alias FROM addresses addr WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_address_name,
         (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_address_city,
-        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_address_recipient
+        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = mo.delivery_address_id LIMIT 1) as delivery_address_recipient,
+        NULL::text[] as child_trackings,
+        COALESCE(
+          (SELECT COALESCE(apo.payment_reference, apo.folio) FROM advisor_payment_orders apo
+           LEFT JOIN pobox_payments pp2 ON pp2.id = apo.pobox_payment_id
+           WHERE apo.status NOT IN ('cancelado','pagado')
+             AND (apo.pobox_payment_id IS NULL OR pp2.status NOT IN ('cancelled','expired'))
+             AND apo.package_uids ? ('MAR-' || mo.id::text) LIMIT 1),
+          (SELECT pp.payment_reference FROM pobox_payments pp
+           WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
+             AND pp.package_ids @> jsonb_build_array(mo.id) LIMIT 1)
+        ) AS in_payment_order_ref
       FROM maritime_orders mo
       JOIN users u ON mo.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -620,7 +648,10 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         NULL::text as child_no,
         (array_agg(ds.status ORDER BY ds.id DESC))[1] as status,
         'AA_DHL' as service_type,
-        SUM(COALESCE(ds.total_cost_mxn, ds.saldo_pendiente, ds.import_cost_mxn, 0)) as monto,
+        SUM(COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
+            NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
+            + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
+            ) as monto,
         CASE WHEN SUM(COALESCE(ds.saldo_pendiente, ds.import_cost_mxn, 0)) = 0
              AND SUM(COALESCE(ds.monto_pagado, 0)) > 0 THEN true ELSE false END as client_paid,
         MIN(ds.paid_at) as paid_at,
@@ -641,7 +672,18 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
          WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_carrier_icon,
         (SELECT addr.alias FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_name,
         (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_city,
-        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_recipient
+        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_recipient,
+        array_agg(ds.inbound_tracking ORDER BY ds.id)::text[] as child_trackings,
+        COALESCE(
+          (SELECT COALESCE(apo.payment_reference, apo.folio) FROM advisor_payment_orders apo
+           LEFT JOIN pobox_payments pp2 ON pp2.id = apo.pobox_payment_id
+           WHERE apo.status NOT IN ('cancelado','pagado')
+             AND (apo.pobox_payment_id IS NULL OR pp2.status NOT IN ('cancelled','expired'))
+             AND apo.package_uids ? ('DHL-' || MIN(ds.id)::text) LIMIT 1),
+          (SELECT pp.payment_reference FROM pobox_payments pp
+           WHERE pp.status NOT IN ('cancelled','expired','paid','completed')
+             AND pp.package_ids @> jsonb_build_array(MIN(ds.id)) LIMIT 1)
+        ) AS in_payment_order_ref
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
@@ -657,10 +699,12 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
 
     // Dynamic filters per sub-query
     const extraAllTransit = ["'received_mty'", "'ready_pickup'"];
-    // Marítimo tiene statuses adicionales: consolidated (Ya Zarpó), at_port (Arribo), shipped
-    const extraMarTransit = [...extraAllTransit, "'consolidated'", "'at_port'", "'shipped'"];
     let pkgWhere = buildFilterSQL('p.status', 'p.saldo_pendiente', 'p.monto_pagado', "p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')", extraAllTransit);
-    let marWhere = buildFilterSQL('mo.status', 'mo.saldo_pendiente', 'mo.monto_pagado', 'mo.delivery_address_id IS NULL', extraMarTransit);
+    // Marítimo: para in_transit mostrar TODO lo que no esté entregado — evita tener que enumerar
+    // cada posible status (consolidated, at_port, shipped, dispatched, processing, received_mty…)
+    let marWhere = filter === 'in_transit'
+      ? ` AND mo.status NOT IN ('delivered')`
+      : buildFilterSQL('mo.status', 'mo.saldo_pendiente', 'mo.monto_pagado', 'mo.delivery_address_id IS NULL', extraAllTransit);
     let dhlWhere = buildFilterSQL('ds.status', 'ds.saldo_pendiente', 'ds.monto_pagado', 'ds.delivery_address_id IS NULL', extraAllTransit);
 
     // Client filter
@@ -786,6 +830,8 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         deliveryAddressName: s.delivery_address_name || null,
         deliveryAddressCity: s.delivery_address_city || null,
         deliveryAddressRecipient: s.delivery_address_recipient || null,
+        childTrackings: Array.isArray(s.child_trackings) ? s.child_trackings : [],
+        inPaymentOrderRef: s.in_payment_order_ref || null,
       })),
       stats: {
         total: parseInt(statsRes.rows[0]?.total) || 0,

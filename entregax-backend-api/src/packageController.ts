@@ -2983,6 +2983,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
             
             return {
                 id: pkg.id,
+                payment_source_id: pkg.id,
                 tracking_internal: displayTracking,
                 tracking_provider: pkg.tracking_provider,
                 description: pkg.description || null,
@@ -3092,6 +3093,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
 
         const maritimePackages = maritimeResult.rows.map(pkg => ({
             id: pkg.id + 100000, // Offset para evitar colisión de IDs
+            payment_source_id: pkg.id,
             tracking_internal: pkg.ordersn,
             tracking_provider: pkg.ship_number || pkg.bl_number || null,
             description: pkg.goods_name || 'Envío Marítimo',
@@ -3281,6 +3283,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 || null;
             return ({
             id: pkg.id + 200000, // Offset para evitar colisión de IDs
+            payment_source_id: pkg.id,
             tracking_internal: pkg.fno,
             tracking_provider: pkg.international_tracking || null,
             description: `Aéreo China - ${pkg.total_qty || 1} cajas`,
@@ -3334,7 +3337,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
 
         // 4. Paquetes DHL (dhl_shipments)
         const dhlResult = await pool.query(`
-            SELECT ds.*, u.full_name, u.box_id
+            SELECT ds.*, u.full_name, u.box_id,
+              CASE WHEN ds.has_gex THEN
+                COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0)
+              ELSE 0 END as gex_cost
             FROM dhl_shipments ds
             LEFT JOIN users u ON ds.user_id = u.id
             WHERE ds.user_id = $1
@@ -3358,6 +3364,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
 
             return {
                 id: pkg.id + 300000, // Offset para evitar colisión de IDs
+                payment_source_id: pkg.id,
                 tracking_internal: pkg.secondary_tracking || pkg.inbound_tracking,
                 dhl_child_tracking: pkg.secondary_tracking ? pkg.inbound_tracking : null,
                 tracking_provider: pkg.national_tracking || null,
@@ -3394,14 +3401,30 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 national_cost_mxn: pkg.national_cost_mxn ? parseFloat(pkg.national_cost_mxn) : null,
                 total_cost_mxn: pkg.total_cost_mxn ? parseFloat(pkg.total_cost_mxn) : null,
                 paid_at: pkg.paid_at,
-                // Costos para módulo cliente
-                national_shipping_cost: pkg.national_cost_mxn ? parseFloat(pkg.national_cost_mxn) : 0,
-                assigned_cost_mxn: pkg.total_cost_mxn ? parseFloat(pkg.total_cost_mxn) : 0,
-                saldo_pendiente: pkg.saldo_pendiente ? parseFloat(pkg.saldo_pendiente) : 0,
+                // Costos para módulo cliente — GEX incluido en assigned/saldo para consistencia
+                national_shipping_cost: 0, // ya está dentro de total_cost_mxn
+                assigned_cost_mxn: (() => {
+                    const gex = parseFloat(pkg.gex_cost) || 0;
+                    if (pkg.total_cost_mxn) return parseFloat(pkg.total_cost_mxn) + gex;
+                    const imp = parseFloat(pkg.import_cost_mxn) || 0;
+                    const tax = parseFloat(pkg.import_tax_mxn) || 0;
+                    const nat = parseFloat(pkg.national_cost_mxn) || 0;
+                    return imp + tax + nat + gex;
+                })(),
+                saldo_pendiente: (() => {
+                    const gex = parseFloat(pkg.gex_cost) || 0;
+                    const imp = parseFloat(pkg.import_cost_mxn) || 0;
+                    const tax = parseFloat(pkg.import_tax_mxn) || 0;
+                    const nat = parseFloat(pkg.national_cost_mxn) || 0;
+                    const base = pkg.total_cost_mxn ? parseFloat(pkg.total_cost_mxn) : (imp + tax + nat);
+                    const paid = parseFloat(pkg.monto_pagado) || 0;
+                    return Math.max(0, base + gex - paid);
+                })(),
                 monto_pagado: pkg.monto_pagado ? parseFloat(pkg.monto_pagado) : 0,
-                // GEX
+                // GEX — ya en assigned_cost_mxn; gex_total_cost=0 evita doble conteo
                 has_gex: pkg.has_gex || false,
                 gex_folio: pkg.gex_folio || null,
+                gex_total_cost: 0,
                 // Instrucciones de entrega
                 delivery_address_id: pkg.delivery_address_id || null,
                 has_delivery_instructions: !!pkg.delivery_address_id,

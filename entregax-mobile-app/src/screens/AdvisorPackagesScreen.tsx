@@ -53,6 +53,9 @@ interface Shipment {
   is_unidentified?: boolean;
   carrier_tracking?: string | null;
   carrier_name?: string | null;
+  international_tracking?: string | null;
+  child_trackings?: string[];
+  in_payment_order_ref?: string | null;
 }
 
 interface AdvisorClient {
@@ -142,6 +145,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
   // Bulk selection context for the modal
   const [instrBulkShipments, setInstrBulkShipments] = useState<Shipment[]>([]);
 
+  // Payment order creation
+  const [paymentOrderLoading, setPaymentOrderLoading] = useState(false);
+  const [paymentOrderResult, setPaymentOrderResult] = useState<any>(null);
+
   // Price estimate & COD documents
   const [instrPriceEstimate, setInstrPriceEstimate] = useState<{ price: number; perBox: number; boxes: number; days: string } | null>(null);
   const [instrPriceLoading, setInstrPriceLoading] = useState(false);
@@ -152,12 +159,19 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
 
   const activeFilterCount = [serviceFilter, paymentFilter, instructionsFilter].filter(v => v !== 'all').length + (unidentifiedFilter ? 1 : 0);
 
-  const filteredShipments = clientSearch.trim()
+  const filteredShipments = (clientSearch.trim()
     ? shipments.filter(s => {
         const q = clientSearch.toLowerCase();
         return s.client_name.toLowerCase().includes(q) || s.client_box_id.toLowerCase().includes(q);
       })
-    : shipments;
+    : shipments
+  ).sort((a, b) => {
+    // Items in a payment order go to the bottom
+    const aInOrder = !!a.in_payment_order_ref;
+    const bInOrder = !!b.in_payment_order_ref;
+    if (aInOrder === bInOrder) return 0;
+    return aInOrder ? 1 : -1;
+  });
 
   const buildUrl = useCallback(() => {
     let url = `${API_URL}/api/advisor/shipments?page=1&limit=50`;
@@ -197,6 +211,9 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
         is_unidentified: s.is_unidentified ?? false,
         carrier_tracking: s.carrier_tracking ?? null,
         carrier_name: s.carrier_name ?? null,
+        international_tracking: s.internationalTracking ?? s.international_tracking ?? null,
+        child_trackings: Array.isArray(s.childTrackings) ? s.childTrackings : [],
+        in_payment_order_ref: s.in_payment_order_ref ?? s.inPaymentOrderRef ?? null,
       }));
       setShipments(list);
     } catch (e) {
@@ -241,6 +258,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
 
   const handleLongPress = (item: Shipment) => {
     if (selectionMode) return;
+    if (item.in_payment_order_ref) return;
     setSelectionMode(true);
     setSelectedUids([item.uid]);
     setSelectionServiceType(item.service_type);
@@ -256,6 +274,7 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       });
       return;
     }
+    if (item.in_payment_order_ref) return; // blocked — already in an order
     if (selectedUids.includes(item.uid)) {
       const next = selectedUids.filter(u => u !== item.uid);
       setSelectedUids(next);
@@ -499,28 +518,58 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       item.status === 'delivered' ? '#4CAF50' :
       item.status === 'customs' ? '#FF9800' : '#9E9E9E';
     const isSelected = selectedUids.includes(item.uid);
+    const inOrder = !!item.in_payment_order_ref;
+
+    // For DHL: show 10-digit secondary_tracking; for others: show tracking_number
+    const isDHL = item.service_type === 'AA_DHL';
+    const displayTracking = isDHL && item.international_tracking
+      ? item.international_tracking
+      : (item.tracking_number || item.uid);
+    // JJD tracking shown as secondary for DHL single shipments
+    const secondaryJJD = isDHL && item.international_tracking && item.tracking_number
+      ? item.tracking_number
+      : null;
+
+    const isMasterWithChildren = item.children_count > 0;
+    // For DHL master: children_count = total JJD count; for pkg master: children_count + 1
+    const boxCount = isDHL ? item.children_count : item.children_count + 1;
+    const childTrackings = item.child_trackings ?? [];
 
     return (
       <TouchableOpacity
-        activeOpacity={0.75}
+        activeOpacity={inOrder ? 1 : 0.75}
         onPress={() => handleCardPress(item)}
         onLongPress={() => handleLongPress(item)}
-        style={[styles.card, isSelected && styles.cardSelected]}
+        style={[styles.card, isSelected && styles.cardSelected, inOrder && { backgroundColor: '#FFF8F0', borderColor: '#FFCCBC', borderWidth: 1, opacity: 0.85 }]}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           {selectionMode && (
             <View style={styles.checkboxArea}>
-              <Ionicons
-                name={isSelected ? 'checkbox' : 'square-outline'}
-                size={24}
-                color={isSelected ? ORANGE : '#bbb'}
-              />
+              {inOrder ? (
+                <Ionicons name="lock-closed" size={20} color="#FFAB40" />
+              ) : (
+                <Ionicons
+                  name={isSelected ? 'checkbox' : 'square-outline'}
+                  size={24}
+                  color={isSelected ? ORANGE : '#bbb'}
+                />
+              )}
             </View>
           )}
           <View style={{ flex: 1 }}>
             <View style={styles.cardHeader}>
-              <Text style={styles.tracking} numberOfLines={1}>{item.tracking_number || item.uid}</Text>
+              <View style={{ flex: 1, marginRight: 8 }}>
+                <Text style={styles.tracking} numberOfLines={1}>{displayTracking}</Text>
+                {secondaryJJD && (
+                  <Text style={{ fontSize: 10, color: '#999', fontFamily: 'monospace' }} numberOfLines={1}>{secondaryJJD}</Text>
+                )}
+              </View>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                {isMasterWithChildren && (
+                  <View style={{ backgroundColor: '#E3F2FD', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                    <Text style={{ color: '#1565C0', fontSize: 10, fontWeight: '700' }}>{boxCount} cajas</Text>
+                  </View>
+                )}
                 <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
                   <Text style={[styles.statusText, { color: statusColor }]}>
                     {STATUS_LABELS[item.status] || item.status}
@@ -559,7 +608,22 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                 )}
               </View>
             </View>
+            {inOrder && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 2, marginBottom: 1 }}>
+                <Ionicons name="lock-closed-outline" size={10} color="#E65100" style={{ marginRight: 3 }} />
+                <Text style={{ fontSize: 10, color: '#E65100', fontWeight: '700' }}>En orden: {item.in_payment_order_ref}</Text>
+              </View>
+            )}
             {item.goods_name ? <Text style={styles.goodsName}>{item.goods_name}</Text> : null}
+            {childTrackings.length > 0 && (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4, marginBottom: 2 }}>
+                {childTrackings.map((t, i) => (
+                  <View key={i} style={{ backgroundColor: '#F5F5F5', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#E0E0E0' }}>
+                    <Text style={{ fontSize: 10, color: '#555', fontFamily: 'monospace' }}>{t}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
             <View style={styles.cardFooter}>
               {item.is_unidentified ? (
                 <Text style={[styles.clientName, { color: '#7B1FA2' }]} numberOfLines={1}>
@@ -685,19 +749,93 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
               <Ionicons name="close" size={18} color="#666" />
               <Text style={styles.selectionCancelText}>Cancelar</Text>
             </TouchableOpacity>
-            <Text style={styles.selectionCount}>
-              {selectedUids.length} seleccionado{selectedUids.length !== 1 ? 's' : ''}
-            </Text>
+            <View style={{ flex: 1, alignItems: 'center', gap: 2 }}>
+              <Text style={styles.selectionCount}>
+                {selectedUids.length} seleccionado{selectedUids.length !== 1 ? 's' : ''}
+              </Text>
+              <TouchableOpacity
+                onPress={() => {
+                  const selectable = filteredShipments.filter(s => !s.in_payment_order_ref);
+                  const uniqueTypes = [...new Set(selectable.map(s => s.service_type))];
+                  const doSelectAll = (type: string) => {
+                    const ofType = selectable.filter(s => s.service_type === type);
+                    setSelectedUids(ofType.map(s => s.uid));
+                    setSelectionServiceType(type);
+                  };
+                  if (uniqueTypes.length <= 1) {
+                    doSelectAll(uniqueTypes[0] ?? '');
+                    return;
+                  }
+                  const SERVICE_LABELS: Record<string, string> = {
+                    AIR_CHN_MX: '✈️ Aéreo China',
+                    SEA_CHN_MX: '🚢 Marítimo',
+                    FCL_CHN_MX: '🚢 Marítimo FCL',
+                    AA_DHL: '📦 DHL MTY',
+                    POBOX_USA: '📮 PO Box USA',
+                    TDI_EXPRESS: '🚚 TDI Express',
+                  };
+                  Alert.alert(
+                    '¿Qué servicio seleccionar?',
+                    'Los paquetes deben ser del mismo tipo de servicio para generar una orden de pago.',
+                    [
+                      ...uniqueTypes.map(type => ({
+                        text: `${SERVICE_LABELS[type] || type} (${selectable.filter(s => s.service_type === type).length})`,
+                        onPress: () => doSelectAll(type),
+                      })),
+                      { text: 'Cancelar', style: 'cancel' as const },
+                    ]
+                  );
+                }}
+              >
+                <Text style={{ fontSize: 11, color: ORANGE, fontWeight: '700' }}>
+                  Seleccionar todos ({filteredShipments.filter(s => !s.in_payment_order_ref).length})
+                </Text>
+              </TouchableOpacity>
+            </View>
             {instrEnabled && selectedUids.length > 0 && (
               allHaveInstructions ? (
                 <TouchableOpacity
-                  style={[styles.selectionActionBtn, { backgroundColor: ORANGE }]}
-                  onPress={() => {
-                    const uids = selectedUids.join(',');
-                    navigation.navigate('AdvisorQuotesScreen' as any, { user: route.params.user, token, preselectedUids: uids });
+                  style={[styles.selectionActionBtn, { backgroundColor: ORANGE, opacity: paymentOrderLoading ? 0.6 : 1 }]}
+                  disabled={paymentOrderLoading}
+                  onPress={async () => {
+                    const selected = shipments.filter(s => selectedUids.includes(s.uid));
+                    if (!selected.length) return;
+                    const first = selected[0];
+                    const totalMxn = selected.reduce((sum, s) => sum + (s.saldo_pendiente || 0), 0);
+                    if (totalMxn <= 0) {
+                      Alert.alert('Sin monto', 'Las guías seleccionadas no tienen monto registrado. Asigna un monto antes de generar la orden.');
+                      return;
+                    }
+                    setPaymentOrderLoading(true);
+                    try {
+                      const res = await fetch(`${API_URL}/api/advisor/payment-orders`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({
+                          client_id: first.client_id,
+                          client_name: first.client_name,
+                          client_box_id: first.client_box_id,
+                          package_uids: selected.map(s => s.uid),
+                          trackings: selected.map(s => s.tracking_number).filter(Boolean),
+                          total_mxn: totalMxn,
+                        }),
+                      });
+                      const data = await res.json();
+                      if (!res.ok) throw new Error(data.error || 'Error al crear orden');
+                      setPaymentOrderResult(data);
+                      setSelectionMode(false);
+                      setSelectedUids([]);
+                    } catch (e: any) {
+                      Alert.alert('Error', e.message || 'No se pudo crear la orden de pago');
+                    } finally {
+                      setPaymentOrderLoading(false);
+                    }
                   }}
                 >
-                  <Ionicons name="cash-outline" size={14} color="#fff" style={{ marginRight: 4 }} />
+                  {paymentOrderLoading
+                    ? <ActivityIndicator size="small" color="#fff" style={{ marginRight: 4 }} />
+                    : <Ionicons name="cash-outline" size={14} color="#fff" style={{ marginRight: 4 }} />
+                  }
                   <Text style={styles.selectionActionText}>Generar Orden de Pago</Text>
                 </TouchableOpacity>
               ) : (
@@ -1148,6 +1286,73 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
               </View>
             </>
           )}
+        </View>
+      </Modal>
+
+      {/* ─── Modal: Orden de Pago Creada ─── */}
+      <Modal
+        visible={!!paymentOrderResult}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPaymentOrderResult(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'center', alignItems: 'center', padding: 20 }}>
+          <View style={{ backgroundColor: '#fff', borderRadius: 16, width: '100%', maxWidth: 420, overflow: 'hidden' }}>
+            {/* Header */}
+            <View style={{ backgroundColor: '#2e7d32', paddingVertical: 16, paddingHorizontal: 20, alignItems: 'center' }}>
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>✅ Orden de Pago Creada</Text>
+            </View>
+            <ScrollView style={{ maxHeight: 420 }} contentContainerStyle={{ padding: 20 }}>
+              {/* Reference */}
+              <View style={{ backgroundColor: '#FFF8F5', borderWidth: 1, borderColor: '#F05A28', borderRadius: 10, padding: 14, alignItems: 'center', marginBottom: 14 }}>
+                <Text style={{ color: '#888', fontSize: 12, marginBottom: 4 }}>Referencia de pago</Text>
+                <Text style={{ color: ORANGE, fontWeight: '800', fontSize: 20, fontFamily: 'monospace' }}>
+                  {paymentOrderResult?.payment_reference}
+                </Text>
+              </View>
+              {/* Bank info */}
+              {paymentOrderResult?.bank_info && (
+                <View style={{ backgroundColor: '#E3F2FD', borderRadius: 10, padding: 14, marginBottom: 14 }}>
+                  <Text style={{ fontWeight: '700', color: '#1565C0', fontSize: 13, marginBottom: 8 }}>🏦 Datos bancarios</Text>
+                  {[
+                    { label: 'Banco', value: paymentOrderResult.bank_info.banco },
+                    { label: 'CLABE', value: paymentOrderResult.bank_info.clabe },
+                    { label: 'Beneficiario', value: paymentOrderResult.bank_info.beneficiario },
+                    { label: 'Concepto', value: paymentOrderResult.bank_info.concepto },
+                  ].map(row => (
+                    <View key={row.label} style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                      <Text style={{ color: '#555', fontSize: 12 }}>{row.label}</Text>
+                      <Text style={{ color: '#111', fontWeight: '600', fontSize: 12, flex: 1, textAlign: 'right' }}>{row.value || '—'}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+              {/* Client & Amount */}
+              <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+                <View style={{ flex: 1, backgroundColor: '#F5F5F5', borderRadius: 10, padding: 12 }}>
+                  <Text style={{ color: '#888', fontSize: 11 }}>Cliente</Text>
+                  <Text style={{ fontWeight: '700', fontSize: 13 }} numberOfLines={2}>{paymentOrderResult?.client_name || '—'}</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: '#F5F5F5', borderRadius: 10, padding: 12 }}>
+                  <Text style={{ color: '#888', fontSize: 11 }}>Monto</Text>
+                  <Text style={{ fontWeight: '700', fontSize: 13, color: '#2e7d32' }}>
+                    ${Number(paymentOrderResult?.total_mxn || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                  </Text>
+                </View>
+              </View>
+              <Text style={{ color: '#888', fontSize: 11, textAlign: 'center' }}>
+                Esta orden ya aparece en la app del cliente en "Mis Cuentas por Pagar".
+              </Text>
+            </ScrollView>
+            <View style={{ padding: 16, borderTopWidth: 1, borderTopColor: '#EEE' }}>
+              <TouchableOpacity
+                style={{ backgroundColor: '#2e7d32', borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
+                onPress={() => setPaymentOrderResult(null)}
+              >
+                <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Entendido</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </SafeAreaView>

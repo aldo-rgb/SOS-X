@@ -178,7 +178,8 @@ import {
   setDefaultPaymentMethod,
   getAdvisorClientAddresses,
   setAdvisorClientDefaultForService,
-  createAdvisorClientAddress
+  createAdvisorClientAddress,
+  deleteAdvisorClientAddress
 } from './addressController';
 import {
   getCommissionRates,
@@ -3455,7 +3456,10 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
             ELSE ds.status
           END as status_label,
           'CEDIS MTY' as fecha_estimada,
-          COALESCE(ds.import_cost_usd, 0) as monto,
+          COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
+            NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
+            + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
+            as monto,
           CASE WHEN ds.paid_at IS NOT NULL THEN true ELSE false END as client_paid,
           ds.delivery_address_id,
           NULL as assigned_address_id,
@@ -3471,19 +3475,28 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
             ELSE NULL
           END as dimensions,
           ds.product_type,
-          ds.saldo_pendiente,
+          GREATEST(0,
+            COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
+              NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
+            + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
+            - COALESCE(ds.monto_pagado, 0)
+          ) as saldo_pendiente,
           ds.monto_pagado,
           ds.import_cost_usd as dhl_sale_price_usd,
-          'USD' as monto_currency,
+          'MXN' as monto_currency,
           CASE WHEN ds.delivery_address_id IS NOT NULL THEN true ELSE false END as has_delivery_instructions,
           false as needs_instructions,
           ds.national_carrier,
-          ds.national_cost_mxn as national_shipping_cost,
+          NULL::numeric as national_shipping_cost,
           ds.national_tracking,
           ds.import_cost_usd as declared_value,
           COALESCE(ds.import_tax_mxn, 0) as import_tax_mxn,
           ds.exchange_rate,
-          (SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1) as gex_total_cost
+          NULL::numeric as gex_total_cost,
+          COALESCE(ds.total_cost_mxn, ds.saldo_pendiente,
+            NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
+            + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
+            as assigned_cost_mxn
         FROM dhl_shipments ds
         WHERE (ds.user_id = $1 OR ds.box_id = $2)
           AND ds.status NOT IN ('delivered', 'cancelled')
@@ -6029,6 +6042,7 @@ app.get('/api/advisor/clients/:clientId/wallet', authenticateToken, getClientWal
 app.get('/api/advisor/clients/:clientId/addresses', authenticateToken, getAdvisorClientAddresses);
 app.post('/api/advisor/clients/:clientId/addresses', authenticateToken, createAdvisorClientAddress);
 app.put('/api/advisor/clients/:clientId/addresses/:addressId/default-for-service', authenticateToken, setAdvisorClientDefaultForService);
+app.delete('/api/advisor/clients/:clientId/addresses/:addressId', authenticateToken, deleteAdvisorClientAddress);
 app.put('/api/advisor/shipments/:uid/instructions', authenticateToken, uploadDeliveryDocs, assignAdvisorShipmentInstructions);
 app.put('/api/advisor/packages/:packageId/assign-client', authenticateToken, assignClientToPackage);
 
@@ -8324,7 +8338,13 @@ app.get('/api/admin/finance/pending-payments', authenticateToken, requireMinLeve
     const { service_type, branch_id, limit = 50 } = req.query;
 
     // 1. Obtener pagos de openpay_webhook_logs
-    let whereClause1 = "WHERE owl.estatus_procesamiento = 'pending_payment'";
+    // Exclude entries whose linked pobox_payments record is cancelled
+    let whereClause1 = `WHERE owl.estatus_procesamiento = 'pending_payment'
+      AND NOT EXISTS (
+        SELECT 1 FROM pobox_payments _pp
+        WHERE _pp.payment_reference = owl.transaction_id
+          AND _pp.status = 'cancelled'
+      )`;
     const params1: any[] = [];
     let paramIndex1 = 1;
 
@@ -11341,6 +11361,127 @@ app.get('/api/cs/descuentos/stats', authenticateToken, getDiscountStats);
 app.post('/api/cs/descuentos/:id/resolver', authenticateToken, resolveDiscountRequest);
 app.get('/api/firma-abandono/:token', getDocumentoAbandono); // Público
 app.post('/api/firma-abandono/:token', firmarDocumentoAbandono); // Público
+
+// Guías sin instrucciones por tipo de servicio (para Asignar Cliente en Centro de Soporte)
+app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), async (_req: AuthRequest, res: Response) => {
+  try {
+    const [pobox, tdi, aereo, maritimo, dhl, fcl] = await Promise.all([
+      // PO Box USA
+      pool.query(`
+        SELECT
+          p.tracking_internal AS tracking,
+          p.box_id,
+          u.full_name AS client_name,
+          p.status,
+          p.created_at
+        FROM packages p
+        LEFT JOIN users u ON u.id = p.user_id
+        WHERE p.service_type = 'POBOX_USA'
+          AND p.status NOT IN ('delivered', 'cancelled', 'lost')
+          AND p.delivery_address_id IS NULL
+          AND p.assigned_address_id IS NULL
+          AND p.national_tracking IS NULL
+        ORDER BY p.created_at DESC
+        LIMIT 200
+      `),
+      // TDI Express
+      pool.query(`
+        SELECT
+          p.tracking_internal AS tracking,
+          p.box_id,
+          u.full_name AS client_name,
+          p.status,
+          p.created_at
+        FROM packages p
+        LEFT JOIN users u ON u.id = p.user_id
+        WHERE p.service_type = 'TDI_EXPRESS'
+          AND p.status NOT IN ('delivered', 'cancelled', 'lost')
+          AND p.delivery_address_id IS NULL
+          AND p.assigned_address_id IS NULL
+          AND p.national_tracking IS NULL
+        ORDER BY p.created_at DESC
+        LIMIT 200
+      `),
+      // Aéreo Chino
+      pool.query(`
+        SELECT
+          cr.fno AS tracking,
+          u.box_id,
+          u.full_name AS client_name,
+          cr.status,
+          cr.created_at
+        FROM china_receipts cr
+        LEFT JOIN users u ON u.id = cr.user_id
+        WHERE cr.status NOT IN ('delivered', 'cancelled')
+          AND cr.delivery_address_id IS NULL
+          AND (cr.delivery_instructions IS NULL OR cr.delivery_instructions = '')
+        ORDER BY cr.created_at DESC
+        LIMIT 200
+      `),
+      // Marítimo China (LCL)
+      pool.query(`
+        SELECT
+          mo.ordersn AS tracking,
+          u.box_id,
+          u.full_name AS client_name,
+          mo.status,
+          mo.created_at
+        FROM maritime_orders mo
+        LEFT JOIN users u ON u.id = mo.user_id
+        WHERE mo.status NOT IN ('delivered', 'cancelled')
+          AND mo.delivery_address_id IS NULL
+          AND (mo.national_tracking IS NULL OR mo.national_tracking = '')
+        ORDER BY mo.created_at DESC
+        LIMIT 200
+      `),
+      // DHL Monterrey
+      pool.query(`
+        SELECT
+          COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking,
+          u.box_id,
+          u.full_name AS client_name,
+          ds.status,
+          ds.created_at
+        FROM dhl_shipments ds
+        LEFT JOIN users u ON u.id = ds.user_id
+        WHERE ds.status NOT IN ('delivered', 'cancelled')
+          AND ds.delivery_address_id IS NULL
+        ORDER BY ds.created_at DESC
+        LIMIT 200
+      `),
+      // FCL Contenedores
+      pool.query(`
+        SELECT
+          COALESCE(c.container_number, c.bl_number, c.reference_code::text) AS tracking,
+          COALESCE(lc.box_id, u.box_id) AS box_id,
+          COALESCE(lc.full_name, u.full_name) AS client_name,
+          c.status,
+          c.created_at
+        FROM containers c
+        LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
+        LEFT JOIN users u ON u.id = c.client_user_id
+        WHERE c.status NOT IN ('delivered', 'cancelled')
+          AND c.delivery_address_id IS NULL
+        ORDER BY c.created_at DESC
+        LIMIT 200
+      `),
+    ]);
+
+    res.json({
+      services: [
+        { serviceType: 'POBOX_USA', label: 'PO Box USA', guides: pobox.rows },
+        { serviceType: 'TDI_EXPRESS', label: 'TDI Express', guides: tdi.rows },
+        { serviceType: 'AIR_CHN_MX', label: 'Aéreo Chino', guides: aereo.rows },
+        { serviceType: 'SEA_CHN_MX', label: 'Marítimo China', guides: maritimo.rows },
+        { serviceType: 'AA_DHL', label: 'DHL Monterrey', guides: dhl.rows },
+        { serviceType: 'FCL_CHN_MX', label: 'FCL Contenedores', guides: fcl.rows },
+      ],
+    });
+  } catch (err: any) {
+    console.error('[CS-NO-INSTRUCTIONS]', err.message);
+    res.status(500).json({ error: 'Error al obtener guías sin instrucciones' });
+  }
+});
 
 // ============================================
 // DOCUMENTOS LEGALES - Super Admin

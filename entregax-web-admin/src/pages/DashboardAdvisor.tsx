@@ -108,9 +108,12 @@ import {
   ListAlt as ListAltIcon,
   HelpOutline as UnidentifiedIcon,
   PersonAdd as AssignIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  Download as DownloadIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
-import { usePaymentStatus } from '../hooks/usePaymentStatus';
+import { usePaymentStatus, mapServiceKey } from '../hooks/usePaymentStatus';
 import AdvisorVerificationWizard from '../components/AdvisorVerificationWizard';
 import AdvisorTermsSignatureDialog from '../components/AdvisorTermsSignatureDialog';
 import AdvisorQuoteRequestModal from '../components/AdvisorQuoteRequestModal';
@@ -205,6 +208,7 @@ interface AdvisorShipment {
   deliveryAddressName: string | null;
   deliveryAddressCity: string | null;
   deliveryAddressRecipient: string | null;
+  inPaymentOrderRef: string | null;
 }
 
 interface ShipmentStats {
@@ -333,7 +337,7 @@ export default function DashboardAdvisor() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const isTablet = useMediaQuery(theme.breakpoints.down('md'));
-  const { advisorInstructionsEnabled, advisorPaymentOrderEnabled } = usePaymentStatus();
+  const { advisorInstructionsEnabled, advisorPaymentOrderEnabled, entregaxPaymentsByService } = usePaymentStatus();
 
   // ─── State ───
   const [activeTab, setActiveTab] = useState(0);
@@ -386,6 +390,7 @@ export default function DashboardAdvisor() {
   // Órdenes de Pago
   const [paymentOrders, setPaymentOrders] = useState<any[]>([]);
   const [paymentOrdersLoading, setPaymentOrdersLoading] = useState(false);
+  const [expandedOrderIds, setExpandedOrderIds] = useState<Set<string>>(new Set());
   const [newOrderOpen, setNewOrderOpen] = useState(false);
   const [newOrderShipments, setNewOrderShipments] = useState<AdvisorShipment[]>([]);
   const [newOrderShipmentsLoading, setNewOrderShipmentsLoading] = useState(false);
@@ -393,8 +398,11 @@ export default function DashboardAdvisor() {
   const [newOrderClientId, setNewOrderClientId] = useState<string>('all');
   const [newOrderServiceFilter, setNewOrderServiceFilter] = useState<string>('all');
   const [newOrderNotes, setNewOrderNotes] = useState('');
+  const [newOrderManualTotal, setNewOrderManualTotal] = useState<string>('');
+  const [newOrderSearch, setNewOrderSearch] = useState('');
   const [newOrderSaving, setNewOrderSaving] = useState(false);
   const [successOrderData, setSuccessOrderData] = useState<any>(null);
+  const [cancelConfirmOrderId, setCancelConfirmOrderId] = useState<number | null>(null);
 
   // Assign instructions dialog
   const [instrDialogOpen, setInstrDialogOpen] = useState(false);
@@ -436,6 +444,7 @@ export default function DashboardAdvisor() {
   const [addressCarrierConfig, setAddressCarrierConfig] = useState<Record<string, string>>({});
   const [addressSaving, setAddressSaving] = useState(false);
   const [carriersCache, setCarriersCache] = useState<Record<string, any[]>>({});
+  const [deleteAddressConfirm, setDeleteAddressConfirm] = useState<number | null>(null);
 
   // New address form (advisor adding address for client)
   const [newAddrOpen, setNewAddrOpen] = useState(false);
@@ -603,7 +612,8 @@ export default function DashboardAdvisor() {
     try {
       const selected = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid));
       const first = selected[0];
-      const total = selected.reduce((sum, s) => sum + (s.amount || 0), 0);
+      const autoTotal = selected.reduce((sum, s) => sum + (s.amount || 0), 0);
+      const total = autoTotal > 0 ? autoTotal : (parseFloat(newOrderManualTotal) || 0);
       const res = await api.post('/advisor/payment-orders', {
         client_id: first?.clientId,
         client_name: first?.clientName,
@@ -616,6 +626,7 @@ export default function DashboardAdvisor() {
       setNewOrderOpen(false);
       setNewOrderSelectedUids(new Set());
       setNewOrderNotes('');
+      setNewOrderManualTotal('');
       setNewOrderClientId('');
       setSuccessOrderData({ ...res.data, client_name: first?.clientName, total_mxn: total });
       fetchPaymentOrders();
@@ -1036,6 +1047,18 @@ export default function DashboardAdvisor() {
       setSnackbar({ open: true, message: 'Error al guardar', severity: 'error' });
     } finally {
       setAddressSaving(false);
+    }
+  };
+
+  const handleDeleteAddress = async (addressId: number) => {
+    if (!addressesClient) return;
+    try {
+      await api.delete(`/advisor/clients/${addressesClient.id}/addresses/${addressId}`);
+      setClientAddresses(prev => prev.filter(a => a.id !== addressId));
+      setDeleteAddressConfirm(null);
+      setSnackbar({ open: true, message: 'Dirección eliminada', severity: 'success' });
+    } catch (err: any) {
+      setSnackbar({ open: true, message: err?.response?.data?.error || 'Error al eliminar dirección', severity: 'error' });
     }
   };
 
@@ -2155,6 +2178,27 @@ export default function DashboardAdvisor() {
     },
     [selectedUids, selectionLockService, selectionLockClientId]
   );
+
+  // ── Nueva Orden: servicio bloqueado según primer paquete seleccionado ──────
+  const newOrderLockServiceType = useMemo(
+    () => newOrderSelectedUids.size > 0
+      ? (newOrderShipments.find(s => newOrderSelectedUids.has(s.uid))?.serviceType ?? null)
+      : null,
+    [newOrderSelectedUids, newOrderShipments]
+  );
+  const serviceTypeToFilterKey = (st: string | null): string => {
+    if (!st) return 'all';
+    if (/tdi.?express/i.test(st) || st === 'TDI_EXPRESS') return 'tdi_express';
+    if (/dhl/i.test(st) || st === 'AA_DHL') return 'dhl';
+    if (/air_chn/i.test(st) || st === 'AIR_CHN_MX') return 'air';
+    if (/sea_chn/i.test(st) || st === 'SEA_CHN_MX') return 'sea';
+    if (/pobox/i.test(st) || st === 'POBOX_USA') return 'pobox';
+    return 'all';
+  };
+  // Filtro efectivo: usa el lock si hay selección, si no el manual
+  const newOrderEffectiveFilter = newOrderLockServiceType
+    ? serviceTypeToFilterKey(newOrderLockServiceType)
+    : newOrderServiceFilter;
   const toggleSelect = useCallback((uid: string) => {
     setSelectedUids(prev => {
       const next = new Set(prev);
@@ -2572,7 +2616,7 @@ export default function DashboardAdvisor() {
             <Button
               variant="contained"
               startIcon={<span>💳</span>}
-              onClick={() => { setNewOrderOpen(true); setNewOrderClientId(''); setNewOrderServiceFilter('all'); setNewOrderSelectedUids(new Set()); setNewOrderShipments([]); }}
+              onClick={() => { setNewOrderOpen(true); setNewOrderClientId(''); setNewOrderServiceFilter('all'); setNewOrderSearch(''); setNewOrderSelectedUids(new Set()); setNewOrderShipments([]); }}
               sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C94A1E' }, fontWeight: 700, borderRadius: 2 }}
             >
               Nueva Orden de Pago
@@ -2587,7 +2631,7 @@ export default function DashboardAdvisor() {
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: '#111' }}>
-                <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Folio / Ref</TableCell>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Referencia</TableCell>
                 <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Cliente</TableCell>
                 <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Guías</TableCell>
                 <TableCell sx={{ color: '#fff', fontWeight: 700 }} align="right">Monto</TableCell>
@@ -2611,86 +2655,253 @@ export default function DashboardAdvisor() {
               )}
               {paymentOrders.map((op) => {
                 const trackings: string[] = op.trackings || [];
+                const uids: string[] = op.package_uids || [];
+                const guideList = trackings.length > 0 ? trackings : uids;
+                const rowKey = `${op.created_by}-${op.id}`;
+                const isExpanded = expandedOrderIds.has(rowKey);
                 const st = STATUS_OP[op.status] ?? { label: op.status, color: 'default' as const };
                 const isClientCreated = op.created_by === 'client';
                 const isPending = op.status === 'pendiente' || op.status === 'pending' || op.status === 'pending_payment';
+                const ref = op.payment_reference || `#${op.id}`;
+
+                const downloadPDF = async () => {
+                  // Fetch guide details
+                  let shipDetails: any[] = [];
+                  if (op.client_id && uids.length > 0) {
+                    try {
+                      const res = await api.get('/advisor/shipments', { params: { clientId: op.client_id, limit: 200 } });
+                      const uidSet = new Set(uids);
+                      shipDetails = (res.data.shipments || []).filter((s: any) => uidSet.has(s.uid));
+                    } catch { /* fallback to trackings only */ }
+                  }
+
+                  const { jsPDF } = await import('jspdf');
+                  const doc = new jsPDF({ format: 'a4', unit: 'mm' });
+                  const W = 210; const PAD = 14;
+                  const C = { orange: [240,90,40] as [number,number,number], dark:[17,17,17] as [number,number,number], white:[255,255,255] as [number,number,number], gray:[100,100,100] as [number,number,number], lightgray:[245,245,245] as [number,number,number], blue:[239,246,255] as [number,number,number], blueborder:[191,219,254] as [number,number,number] };
+
+                  // ── HEADER ──────────────────────────────────────────────
+                  doc.setFillColor(...C.dark); doc.rect(0,0,W,30,'F');
+                  doc.setFillColor(...C.orange); doc.rect(0,30,W,3,'F');
+                  doc.setTextColor(...C.white); doc.setFont('helvetica','bold'); doc.setFontSize(18);
+                  doc.text('EntregaX', PAD, 14);
+                  doc.setFont('helvetica','normal'); doc.setFontSize(9); doc.setTextColor(180,180,180);
+                  doc.text('Paquetería Internacional', PAD, 20);
+                  doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(...C.white);
+                  doc.text('ORDEN DE PAGO', W - PAD, 14, { align: 'right' });
+                  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(200,200,200);
+                  doc.text(new Date().toLocaleDateString('es-MX',{day:'2-digit',month:'long',year:'numeric'}), W-PAD, 20, { align:'right' });
+
+                  let y = 42;
+
+                  // ── RESUMEN ORDEN ────────────────────────────────────────
+                  doc.setFillColor(...C.lightgray); doc.roundedRect(PAD, y, W-PAD*2, 34, 2,2,'F');
+                  doc.setDrawColor(220,220,220); doc.roundedRect(PAD, y, W-PAD*2, 34, 2,2,'S');
+                  const field = (lbl: string, val: string, lx: number, vx: number, vy: number, bold=false, orange=false) => {
+                    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(...C.gray);
+                    doc.text(lbl, lx, vy);
+                    doc.setFont('helvetica', bold?'bold':'normal'); doc.setFontSize(8.5);
+                    doc.setTextColor(...(orange ? C.orange : C.dark));
+                    doc.text(val, vx, vy+5);
+                  };
+                  field('Referencia de pago', ref, PAD+4, PAD+4, y+7, true, true);
+                  field('Cliente', op.client_name||'—', PAD+4, PAD+4, y+20);
+                  field('Estado', st.label, 100, 100, y+7);
+                  field('Monto total', op.total_mxn?`$${Number(op.total_mxn).toLocaleString('es-MX',{minimumFractionDigits:2})} MXN`:'—', 100, 100, y+20, true);
+                  field('Fecha', new Date(op.created_at).toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'}), 155, 155, y+7);
+                  field('Cliente Box ID', op.client_box_id||'—', 155, 155, y+20);
+                  y += 42;
+
+                  // ── DATOS BANCARIOS ─────────────────────────────────────
+                  const bi = op.bank_info || {};
+                  const hasBankData = bi.clabe || bi.banco || op.bank_clabe;
+                  if (hasBankData) {
+                    doc.setFillColor(...C.blue); doc.roundedRect(PAD, y, W-PAD*2, 36, 2,2,'F');
+                    doc.setDrawColor(...C.blueborder); doc.roundedRect(PAD, y, W-PAD*2, 36, 2,2,'S');
+                    doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(29,78,216);
+                    doc.text('DATOS PARA TRANSFERENCIA BANCARIA', PAD+4, y+7);
+                    field('Banco', bi.banco||op.bank_name||'—', PAD+4, PAD+4, y+13);
+                    field('Beneficiario', bi.beneficiario||op.beneficiario||'—', 90, 90, y+13);
+                    field('CLABE interbancaria', bi.clabe||op.bank_clabe||'—', PAD+4, PAD+4, y+26, true);
+                    field('Concepto / Referencia', bi.concepto||ref, 90, 90, y+26, true, true);
+                    y += 44;
+                  }
+
+                  // ── TABLA DE GUÍAS ──────────────────────────────────────
+                  doc.setFont('helvetica','bold'); doc.setFontSize(9); doc.setTextColor(...C.dark);
+                  doc.text('Detalle de guías incluidas', PAD, y); y += 5;
+
+                  // Table header
+                  const cols = { num:PAD, trk:PAD+8, desc:PAD+50, svc:PAD+95, dims:PAD+115, kg:PAD+140, carrier:PAD+153, amt:W-PAD };
+                  doc.setFillColor(...C.dark); doc.rect(PAD, y, W-PAD*2, 7, 'F');
+                  doc.setFont('helvetica','bold'); doc.setFontSize(6.5); doc.setTextColor(...C.white);
+                  doc.text('#', cols.num+1, y+4.5);
+                  doc.text('TRACKING / GUÍA', cols.trk, y+4.5);
+                  doc.text('DESCRIPCIÓN', cols.desc, y+4.5);
+                  doc.text('SERVICIO', cols.svc, y+4.5);
+                  doc.text('MEDIDAS', cols.dims, y+4.5);
+                  doc.text('KG', cols.kg, y+4.5);
+                  doc.text('PAQUETERÍA', cols.carrier, y+4.5);
+                  doc.text('MONTO', cols.amt, y+4.5, { align:'right' });
+                  y += 7;
+
+                  const SVC_LABEL: Record<string,string> = { SEA_CHN_MX:'Marítimo', AIR_CHN_MX:'Aéreo China', POBOX_USA:'PO Box USA', AA_DHL:'DHL MTY', TDI_EXPRESS:'TDI Express' };
+
+                  const rows = shipDetails.length > 0 ? shipDetails : guideList.map((g,i) => ({ uid: uids[i]||'', tracking: g, description:'', serviceType:'', weight:0, lengthCm:0, widthCm:0, heightCm:0, deliveryCarrierName:'', amount:0 }));
+                  let subtotal = 0;
+
+                  rows.forEach((s: any, idx: number) => {
+                    if (y > 265) { doc.addPage(); y = 20; }
+                    const even = idx % 2 === 0;
+                    doc.setFillColor(even?249:255, even?249:255, even?249:255);
+                    doc.rect(PAD, y, W-PAD*2, 8, 'F');
+                    doc.setDrawColor(230,230,230); doc.line(PAD, y+8, W-PAD, y+8);
+
+                    doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(...C.dark);
+                    doc.text(`${idx+1}`, cols.num+1, y+5);
+                    doc.setFont('helvetica','bold'); doc.setFontSize(6.5);
+                    doc.text(String(s.tracking||guideList[idx]||'—').substring(0,22), cols.trk, y+5);
+                    doc.setFont('helvetica','normal');
+                    doc.text(String(s.description||'—').substring(0,18), cols.desc, y+5);
+                    doc.text(SVC_LABEL[s.serviceType]||s.serviceType||'—', cols.svc, y+5);
+                    const dims = (s.lengthCm>0||s.widthCm>0||s.heightCm>0) ? `${s.lengthCm}×${s.widthCm}×${s.heightCm}` : '—';
+                    doc.text(dims, cols.dims, y+5);
+                    doc.text(s.weight>0?`${s.weight}`:' —', cols.kg, y+5);
+                    doc.text(String(s.deliveryCarrierName||'—').substring(0,12), cols.carrier, y+5);
+                    const amt = s.amount || 0;
+                    subtotal += amt;
+                    doc.setFont('helvetica', amt>0?'bold':'normal');
+                    doc.setTextColor(...(amt>0 ? C.orange : C.gray));
+                    doc.text(amt>0?`$${amt.toLocaleString('es-MX',{minimumFractionDigits:2})}`:'—', cols.amt, y+5, { align:'right' });
+                    y += 8;
+                  });
+
+                  // Total row
+                  doc.setFillColor(...C.dark); doc.rect(PAD, y, W-PAD*2, 9, 'F');
+                  doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(...C.white);
+                  doc.text('TOTAL A PAGAR', cols.trk, y+6);
+                  doc.setTextColor(...C.orange);
+                  const totalAmt = op.total_mxn ? Number(op.total_mxn) : subtotal;
+                  doc.text(`$${totalAmt.toLocaleString('es-MX',{minimumFractionDigits:2})} MXN`, cols.amt, y+6, { align:'right' });
+                  y += 16;
+
+                  // ── FOOTER ──────────────────────────────────────────────
+                  doc.setFillColor(...C.lightgray); doc.rect(0, 282, W, 15, 'F');
+                  doc.setFillColor(...C.orange); doc.rect(0, 282, W, 1.5, 'F');
+                  doc.setFont('helvetica','normal'); doc.setFontSize(6.5); doc.setTextColor(...C.gray);
+                  doc.text('EntregaX Paquetería · www.entregax.app · Este documento tiene validez como orden de cobro oficial.', PAD, 288);
+                  doc.text(`Generado el ${new Date().toLocaleString('es-MX')}`, PAD, 292);
+                  doc.text(`Ref: ${ref}`, W-PAD, 292, { align:'right' });
+
+                  doc.save(`OrdenPago-${ref}.pdf`);
+                };
+
                 return (
-                  <TableRow key={`${op.created_by}-${op.id}`} hover>
-                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem' }}>
-                      <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem' }}>
-                        {op.folio || op.payment_reference || `#${op.id}`}
-                      </Typography>
-                      {op.payment_reference && op.folio && (
-                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                          {op.payment_reference}
+                  <>
+                    <TableRow key={rowKey} hover sx={{ '& td': { borderBottom: isExpanded ? 'none' : undefined } }}>
+                      <TableCell>
+                        <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.82rem', color: '#F05A28' }}>
+                          {ref}
                         </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" fontWeight={600}>{op.client_name || '—'}</Typography>
-                      <Typography variant="caption" color="text.secondary">{op.client_box_id}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      {trackings.length > 0 ? (
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxWidth: 300 }}>
-                          {trackings.slice(0, 3).map((t, i) => (
-                            <Chip key={i} label={t} size="small" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', maxWidth: 140 }} />
-                          ))}
-                          {trackings.length > 3 && <Chip label={`+${trackings.length - 3} más`} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />}
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={600}>{op.client_name || '—'}</Typography>
+                        <Typography variant="caption" color="text.secondary">{op.client_box_id}</Typography>
+                      </TableCell>
+                      <TableCell>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Typography variant="caption" color="text.secondary">
+                            {guideList.length} guía{guideList.length !== 1 ? 's' : ''}
+                          </Typography>
+                          {guideList.length > 0 && (
+                            <IconButton size="small" onClick={() => setExpandedOrderIds(prev => {
+                              const next = new Set(prev);
+                              next.has(rowKey) ? next.delete(rowKey) : next.add(rowKey);
+                              return next;
+                            })}>
+                              {isExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            </IconButton>
+                          )}
                         </Box>
-                      ) : (
+                      </TableCell>
+                      <TableCell align="right">
+                        {op.total_mxn
+                          ? <Typography fontWeight={700} color="warning.main">${Number(op.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                          : <Typography color="text.disabled">—</Typography>}
+                      </TableCell>
+                      <TableCell align="center">
+                        <Chip label={st.label} color={st.color as any} size="small" sx={{ fontWeight: 700, fontSize: '0.7rem' }} />
+                      </TableCell>
+                      <TableCell align="center">
+                        <Chip
+                          label={isClientCreated ? 'Cliente' : 'Asesor'}
+                          size="small" variant="outlined"
+                          sx={{ fontSize: '0.65rem', borderColor: isClientCreated ? '#0288d1' : '#F05A28', color: isClientCreated ? '#0288d1' : '#F05A28' }}
+                        />
+                      </TableCell>
+                      <TableCell>
                         <Typography variant="caption" color="text.secondary">
-                          {(op.package_uids || []).length} guía(s)
+                          {new Date(op.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
                         </Typography>
-                      )}
-                    </TableCell>
-                    <TableCell align="right">
-                      {op.total_mxn
-                        ? <Typography fontWeight={700} color="warning.main">${Number(op.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
-                        : <Typography color="text.disabled">—</Typography>}
-                    </TableCell>
-                    <TableCell align="center">
-                      <Chip label={st.label} color={st.color as any} size="small" sx={{ fontWeight: 700, fontSize: '0.7rem' }} />
-                    </TableCell>
-                    <TableCell align="center">
-                      <Chip
-                        label={isClientCreated ? 'Cliente' : 'Asesor'}
-                        size="small"
-                        variant="outlined"
-                        sx={{ fontSize: '0.65rem', borderColor: isClientCreated ? '#0288d1' : '#F05A28', color: isClientCreated ? '#0288d1' : '#F05A28' }}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="caption" color="text.secondary">
-                        {new Date(op.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
-                      </Typography>
-                    </TableCell>
-                    <TableCell align="center">
-                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                        {isPending && !isClientCreated && (
-                          <Tooltip title="Marcar como pagado">
-                            <IconButton size="small" color="success" onClick={async () => {
-                              await api.put(`/advisor/payment-orders/${op.id}/status`, { status: 'pagado' });
-                              fetchPaymentOrders();
+                      </TableCell>
+                      <TableCell align="center">
+                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                          <Tooltip title="Compartir por WhatsApp">
+                            <IconButton size="small" sx={{ color: '#25D366' }} onClick={() => {
+                              const ref   = op.payment_reference || op.folio || '—';
+                              const name  = (op.client_name || '').split(' ')[0];
+                              const mxn   = Number(op.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 });
+                              const lines = [
+                                `Hola ${name}! 👋`,
+                                '',
+                                `Tienes una orden de pago pendiente en *EntregaX*.`,
+                                '',
+                                `💰 Monto: *$${mxn} MXN*`,
+                                `📋 Referencia: *${ref}*`,
+                                '',
+                                `Abre la app EntregaX → *Mis Pagos* para ver el desglose y realizar tu pago. 💳`,
+                                '',
+                                `📱 Si no tienes la app descárgala aquí:`,
+                                `iOS → https://apps.apple.com/mx/app/entregax/id6443608707`,
+                                `Android → https://play.google.com/store/apps/details?id=com.entregax.mobile`,
+                              ];
+                              window.open(`https://wa.me/?text=${encodeURIComponent(lines.join('\n'))}`, '_blank');
                             }}>
-                              <CheckIcon fontSize="small" />
+                              <WhatsAppIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                        )}
-                        {isPending && !isClientCreated && (
-                          <Tooltip title="Cancelar orden">
-                            <IconButton size="small" color="error" onClick={async () => {
-                              if (!window.confirm('¿Cancelar esta orden?')) return;
-                              await api.delete(`/advisor/payment-orders/${op.id}`);
-                              fetchPaymentOrders();
-                            }}>
-                              <CloseIcon fontSize="small" />
+                          <Tooltip title="Descargar orden PDF">
+                            <IconButton size="small" onClick={downloadPDF}>
+                              <DownloadIcon fontSize="small" />
                             </IconButton>
                           </Tooltip>
-                        )}
-                      </Box>
-                    </TableCell>
-                  </TableRow>
+                          {isPending && !isClientCreated && (
+                            <Tooltip title="Cancelar orden">
+                              <IconButton size="small" color="error" onClick={() => setCancelConfirmOrderId(op.id)}>
+                                <CloseIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
+                      </TableCell>
+                    </TableRow>
+                    {isExpanded && (
+                      <TableRow key={`${rowKey}-exp`}>
+                        <TableCell colSpan={8} sx={{ pt: 0, pb: 1, bgcolor: '#FAFAFA' }}>
+                          <Box sx={{ px: 2, pb: 1 }}>
+                            <Typography variant="caption" color="text.secondary" fontWeight={600} sx={{ mb: 0.5, display: 'block' }}>
+                              Guías en esta orden:
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                              {guideList.map((g, i) => (
+                                <Chip key={i} label={g} size="small" sx={{ fontFamily: 'monospace', fontSize: '0.65rem' }} />
+                              ))}
+                            </Box>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </>
                 );
               })}
             </TableBody>
@@ -2716,21 +2927,50 @@ export default function DashboardAdvisor() {
                   {clients.map(c => <MenuItem key={c.id} value={String(c.id)}>{c.fullName} ({c.boxId})</MenuItem>)}
                 </Select>
               </FormControl>
-              <FormControl size="small" sx={{ flex: 1 }}>
+              <FormControl size="small" sx={{ flex: 1 }} disabled={!!newOrderLockServiceType}>
                 <InputLabel>Servicio</InputLabel>
-                <Select value={newOrderServiceFilter} label="Servicio" onChange={(e) => {
-                  setNewOrderServiceFilter(e.target.value);
-                  setNewOrderSelectedUids(new Set());
-                }}>
+                <Select
+                  value={newOrderEffectiveFilter}
+                  label="Servicio"
+                  onChange={(e) => {
+                    setNewOrderServiceFilter(e.target.value);
+                    setNewOrderSelectedUids(new Set());
+                  }}
+                  renderValue={(v) => {
+                    if (newOrderLockServiceType) {
+                      const labels: Record<string, string> = {
+                        tdi_express: '🔒 TDX / TDI Express',
+                        dhl:         '🔒 DHL',
+                        air:         '🔒 TDI Aéreo',
+                        sea:         '🔒 Marítimo',
+                        pobox:       '🔒 PO Box USA',
+                      };
+                      return labels[v as string] ?? `🔒 ${v}`;
+                    }
+                    const labels: Record<string, string> = {
+                      all: 'Todos', tdi_express: 'TDX / TDI Express',
+                      dhl: 'DHL', air: 'TDI Aéreo', sea: 'Marítimo', pobox: 'PO Box USA',
+                    };
+                    return labels[v as string] ?? v;
+                  }}
+                >
                   <MenuItem value="all">Todos</MenuItem>
-                  <MenuItem value="tdi_express">TDX / TDI Express</MenuItem>
-                  <MenuItem value="dhl">DHL</MenuItem>
-                  <MenuItem value="air">TDI Aéreo</MenuItem>
-                  <MenuItem value="sea">Marítimo</MenuItem>
-                  <MenuItem value="pobox">PO Box USA</MenuItem>
+                  {entregaxPaymentsByService.pobox    && <MenuItem value="pobox">PO Box USA</MenuItem>}
+                  {entregaxPaymentsByService.aereo    && <MenuItem value="tdi_express">TDX / TDI Express</MenuItem>}
+                  {entregaxPaymentsByService.aereo    && <MenuItem value="air">TDI Aéreo</MenuItem>}
+                  {entregaxPaymentsByService.maritimo && <MenuItem value="sea">Marítimo</MenuItem>}
+                  {entregaxPaymentsByService.dhl      && <MenuItem value="dhl">DHL</MenuItem>}
                 </Select>
               </FormControl>
             </Box>
+
+            <TextField
+              size="small" fullWidth placeholder="Buscar por número de guía..."
+              value={newOrderSearch}
+              onChange={e => setNewOrderSearch(e.target.value)}
+              sx={{ mb: 1 }}
+              InputProps={{ startAdornment: <span style={{ marginRight: 6, color: '#888' }}>🔍</span> }}
+            />
 
             <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
               Guías en tránsito del cliente. Solo se pueden seleccionar las que tienen instrucciones asignadas (✅). Deben ser del mismo servicio.
@@ -2751,9 +2991,30 @@ export default function DashboardAdvisor() {
                 sea:         st => /sea_chn/i.test(st) || st === 'SEA_CHN_MX',
                 pobox:       st => /pobox/i.test(st) || st === 'POBOX_USA',
               };
-              const filteredShipments = newOrderServiceFilter === 'all'
-                ? newOrderShipments
-                : newOrderShipments.filter(s => SERVICE_MATCH[newOrderServiceFilter]?.(s.serviceType || '') ?? true);
+              const searchTerm = newOrderSearch.trim().toLowerCase();
+              const filteredShipments = newOrderShipments
+                .filter(s => {
+                  if (s.clientPaid) return false; // exclude already-paid
+                  // Exclude services with payments disabled
+                  const payKey = mapServiceKey(s.serviceType);
+                  if (payKey && !entregaxPaymentsByService[payKey]) return false;
+                  if (newOrderEffectiveFilter !== 'all' && !(SERVICE_MATCH[newOrderEffectiveFilter]?.(s.serviceType || '') ?? true)) return false;
+                  if (searchTerm && !(
+                    (s.tracking || '').toLowerCase().includes(searchTerm) ||
+                    (s.internationalTracking || '').toLowerCase().includes(searchTerm)
+                  )) return false;
+                  return true;
+                })
+                .sort((a, b) => {
+                  const rank = (s: typeof a) => {
+                    if (s.inPaymentOrderRef) return 5;                                      // ya en orden → bottom
+                    if ((s.amount || 0) === 0 && s.serviceType === 'SEA_CHN_MX') return 4; // pdte clasificación
+                    if ((s.amount || 0) === 0) return 3;                                    // no monto
+                    if (!s.hasInstructions) return 2;                                       // sin instrucciones
+                    return 0;                                                               // selectable → top
+                  };
+                  return rank(a) - rank(b);
+                });
 
               const lockedFirst = newOrderSelectedUids.size > 0
                 ? newOrderShipments.find(x => newOrderSelectedUids.has(x.uid))
@@ -2776,15 +3037,16 @@ export default function DashboardAdvisor() {
                       <TableRow>
                         <TableCell padding="checkbox">
                           <Checkbox size="small"
-                            indeterminate={newOrderSelectedUids.size > 0 && filteredShipments.some(s => !newOrderSelectedUids.has(s.uid))}
-                            checked={filteredShipments.length > 0 && filteredShipments.every(s => newOrderSelectedUids.has(s.uid))}
+                            indeterminate={newOrderSelectedUids.size > 0 && filteredShipments.some(s => (s.amount || 0) > 0 && s.hasInstructions && !newOrderSelectedUids.has(s.uid))}
+                            checked={filteredShipments.some(s => (s.amount || 0) > 0 && s.hasInstructions) && filteredShipments.filter(s => (s.amount || 0) > 0 && s.hasInstructions).every(s => newOrderSelectedUids.has(s.uid))}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                const first = filteredShipments[0];
+                                const first = filteredShipments.find(s => (s.amount || 0) > 0 && s.hasInstructions);
                                 const toSel = filteredShipments.filter(s =>
-                                  (lockClientId == null || s.clientId === lockClientId) &&
-                                  (lockServiceType == null || s.serviceType === lockServiceType) ||
-                                  (s.clientId === first?.clientId && s.serviceType === first?.serviceType)
+                                  (s.amount || 0) > 0 && s.hasInstructions &&
+                                  ((lockClientId == null || s.clientId === lockClientId) &&
+                                   (lockServiceType == null || s.serviceType === lockServiceType) ||
+                                   (s.clientId === first?.clientId && s.serviceType === first?.serviceType))
                                 );
                                 setNewOrderSelectedUids(new Set(toSel.map(s => s.uid)));
                               } else setNewOrderSelectedUids(new Set());
@@ -2805,10 +3067,19 @@ export default function DashboardAdvisor() {
                       )}
                       {filteredShipments.map(s => {
                         const hasInstr    = !!s.hasInstructions;
+                        const hasAmount   = (s.amount || 0) > 0;
+                        const isPdteClasif = !hasAmount && s.serviceType === 'SEA_CHN_MX';
                         const sameClient  = lockClientId == null || s.clientId === lockClientId;
                         const sameService = lockServiceType == null || s.serviceType === lockServiceType;
-                        const canSelect   = hasInstr && sameClient && sameService;
-                        const disabledReason = !hasInstr
+                        const inOrder     = !!s.inPaymentOrderRef;
+                        const canSelect   = !inOrder && hasInstr && hasAmount && sameClient && sameService;
+                        const disabledReason = inOrder
+                          ? `Ya incluida en orden ${s.inPaymentOrderRef}`
+                          : isPdteClasif
+                          ? 'Pdte. de clasificación — sin monto asignado'
+                          : !hasAmount
+                          ? 'Sin monto registrado — no seleccionable'
+                          : !hasInstr
                           ? '⚠️ Asigna instrucciones de entrega primero'
                           : !sameClient ? 'Solo guías del mismo cliente'
                           : !sameService ? 'No se pueden mezclar servicios diferentes'
@@ -2816,7 +3087,7 @@ export default function DashboardAdvisor() {
                         return (
                           <TableRow key={s.uid} hover={canSelect} selected={newOrderSelectedUids.has(s.uid)}
                             sx={{
-                              bgcolor: !hasInstr ? '#FFFBF2' : undefined,
+                              bgcolor: inOrder ? '#FFF3E0' : isPdteClasif ? '#F5F0FF' : !hasInstr ? '#FFFBF2' : undefined,
                               opacity: (sameClient && sameService) ? 1 : 0.35,
                               cursor: canSelect ? 'pointer' : 'default',
                             }}
@@ -2843,15 +3114,37 @@ export default function DashboardAdvisor() {
                               {s.serviceType === 'AA_DHL' && s.internationalTracking && s.tracking && s.tracking !== s.internationalTracking && (
                                 <Typography variant="caption" color="text.secondary" fontFamily="monospace">{s.tracking}</Typography>
                               )}
-                              {!hasInstr && (
-                                <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.3 }}>
-                                  ⚠️ Sin instrucciones — no seleccionable
+                              {inOrder && (
+                                <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 700 }}>
+                                  🔒 En orden: {s.inPaymentOrderRef}
+                                </Typography>
+                              )}
+                              {!inOrder && isPdteClasif && (
+                                <Typography variant="caption" sx={{ color: '#6A1B9A', fontWeight: 600 }}>
+                                  ⏳ Pdte. de clasificación
+                                </Typography>
+                              )}
+                              {!inOrder && !isPdteClasif && !hasAmount && (
+                                <Typography variant="caption" sx={{ color: '#888', fontWeight: 600 }}>
+                                  Sin monto — no seleccionable
+                                </Typography>
+                              )}
+                              {!inOrder && hasAmount && !hasInstr && (
+                                <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 600 }}>
+                                  ⚠️ Sin instrucciones
                                 </Typography>
                               )}
                             </TableCell>
                             <TableCell><Typography variant="body2">{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
                             <TableCell><Chip label={serviceLabel(s.serviceType || '')} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} /></TableCell>
-                            <TableCell align="right">{s.amount > 0 ? <Typography variant="body2" fontWeight={700} color="warning.main">${s.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography> : <Typography color="text.disabled">—</Typography>}</TableCell>
+                            <TableCell align="right">
+                              {hasAmount
+                                ? <Typography variant="body2" fontWeight={700} color="warning.main">${s.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                                : isPdteClasif
+                                  ? <Chip label="Pdte. Clasif." size="small" sx={{ fontSize: '0.6rem', bgcolor: '#EDE7F6', color: '#6A1B9A', fontWeight: 700 }} />
+                                  : <Typography color="text.disabled">—</Typography>
+                              }
+                            </TableCell>
                           </TableRow>
                         );
                       })}
@@ -2861,14 +3154,31 @@ export default function DashboardAdvisor() {
               );
             })()}
 
-            {newOrderSelectedUids.size > 0 && (
-              <Paper sx={{ mt: 1.5, p: 1.5, bgcolor: '#FFF7ED', border: '1px solid #FDBA74', borderRadius: 2 }}>
-                <Typography variant="body2" fontWeight={700} color="#C2410C">
-                  {newOrderSelectedUids.size} guía{newOrderSelectedUids.size !== 1 ? 's' : ''} seleccionada{newOrderSelectedUids.size !== 1 ? 's' : ''} ·{' '}
-                  Total: ${newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid)).reduce((sum, s) => sum + (s.amount || 0), 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
-                </Typography>
-              </Paper>
-            )}
+            {newOrderSelectedUids.size > 0 && (() => {
+              const autoTotal = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid)).reduce((sum, s) => sum + (s.amount || 0), 0);
+              const manualVal = parseFloat(newOrderManualTotal) || 0;
+              const displayTotal = autoTotal > 0 ? autoTotal : manualVal;
+              return (
+                <Paper sx={{ mt: 1.5, p: 1.5, bgcolor: '#FFF7ED', border: '1px solid #FDBA74', borderRadius: 2 }}>
+                  <Typography variant="body2" fontWeight={700} color="#C2410C">
+                    {newOrderSelectedUids.size} guía{newOrderSelectedUids.size !== 1 ? 's' : ''} seleccionada{newOrderSelectedUids.size !== 1 ? 's' : ''}
+                    {displayTotal > 0 && ` · Total: $${displayTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN`}
+                  </Typography>
+                  {autoTotal === 0 && (
+                    <TextField
+                      label="Monto total a cobrar (MXN) *"
+                      size="small" fullWidth type="number"
+                      value={newOrderManualTotal}
+                      onChange={e => setNewOrderManualTotal(e.target.value)}
+                      sx={{ mt: 1 }}
+                      placeholder="Ej. 5000.00"
+                      helperText="Las guías no tienen monto registrado — ingresa el total a cobrar"
+                      inputProps={{ min: 0.01, step: '0.01' }}
+                    />
+                  )}
+                </Paper>
+              );
+            })()}
 
             <TextField
               label="Notas (opcional)"
@@ -2900,9 +3210,7 @@ export default function DashboardAdvisor() {
             <DialogContent sx={{ pt: 2.5 }}>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                 <Box sx={{ bgcolor: '#F3F4F6', borderRadius: 2, p: 2 }}>
-                  <Typography variant="body2" color="text.secondary" gutterBottom>Folio</Typography>
-                  <Typography fontWeight={800} sx={{ fontFamily: 'monospace', fontSize: '1rem' }}>{successOrderData.folio}</Typography>
-                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Referencia de pago</Typography>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>Referencia de pago</Typography>
                   <Typography fontWeight={700} sx={{ fontFamily: 'monospace', color: '#F05A28', fontSize: '0.95rem' }}>
                     {successOrderData.payment_reference}
                   </Typography>
@@ -2961,6 +3269,46 @@ export default function DashboardAdvisor() {
               sx={{ bgcolor: '#2e7d32', '&:hover': { bgcolor: '#1b5e20' }, fontWeight: 700, borderRadius: 2 }}
             >
               Entendido
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* ── Dialog: Confirmar cancelación ── */}
+        <Dialog
+          open={cancelConfirmOrderId !== null}
+          onClose={() => setCancelConfirmOrderId(null)}
+          maxWidth="xs"
+          fullWidth
+          PaperProps={{ sx: { borderRadius: 3 } }}
+        >
+          <DialogTitle sx={{ fontWeight: 700, pb: 1 }}>
+            Cancelar orden de pago
+          </DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" color="text.secondary">
+              ¿Estás seguro de que deseas cancelar esta orden? Esta acción no se puede deshacer y el cliente dejará de ver la orden en su app.
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+            <Button
+              variant="outlined"
+              onClick={() => setCancelConfirmOrderId(null)}
+              sx={{ borderRadius: 2, textTransform: 'none' }}
+            >
+              No, conservar
+            </Button>
+            <Button
+              variant="contained"
+              color="error"
+              sx={{ borderRadius: 2, textTransform: 'none', fontWeight: 700 }}
+              onClick={async () => {
+                const id = cancelConfirmOrderId;
+                setCancelConfirmOrderId(null);
+                await api.delete(`/advisor/payment-orders/${id}`);
+                fetchPaymentOrders();
+              }}
+            >
+              Sí, cancelar
             </Button>
           </DialogActions>
         </Dialog>
@@ -5499,7 +5847,7 @@ export default function DashboardAdvisor() {
       {/* ─── Dialog: Direcciones del Cliente ─── */}
       <Dialog
         open={addressesModalOpen}
-        onClose={() => { setAddressesModalOpen(false); setEditingAddress(null); }}
+        onClose={() => { setAddressesModalOpen(false); setEditingAddress(null); setDeleteAddressConfirm(null); }}
         maxWidth="sm"
         fullWidth
       >
@@ -5555,18 +5903,39 @@ export default function DashboardAdvisor() {
                             </Box>
                           )}
                         </Box>
-                        {advisorInstructionsEnabled && (
-                          <Button
-                            size="small"
-                            variant={isEditing ? 'contained' : 'outlined'}
-                            onClick={() => isEditing ? setEditingAddress(null) : handleEditAddress(addr)}
-                            sx={{ ml: 1, textTransform: 'none', fontSize: '0.7rem',
-                              ...(isEditing ? { bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6a1b9a' } } : { borderColor: '#7B1FA2', color: '#7B1FA2' })
-                            }}
-                          >
-                            {isEditing ? 'Cancelar' : 'Editar'}
-                          </Button>
-                        )}
+                        <Box sx={{ display: 'flex', gap: 0.5, ml: 1 }}>
+                          {advisorInstructionsEnabled && (
+                            <Button
+                              size="small"
+                              variant={isEditing ? 'contained' : 'outlined'}
+                              onClick={() => isEditing ? setEditingAddress(null) : handleEditAddress(addr)}
+                              sx={{ textTransform: 'none', fontSize: '0.7rem',
+                                ...(isEditing ? { bgcolor: '#7B1FA2', '&:hover': { bgcolor: '#6a1b9a' } } : { borderColor: '#7B1FA2', color: '#7B1FA2' })
+                              }}
+                            >
+                              {isEditing ? 'Cancelar' : 'Editar'}
+                            </Button>
+                          )}
+                          {(addr.created_by_advisor_id === null || addr.created_by_advisor_id === undefined || Number(addr.created_by_advisor_id) === Number(dashboardData?.advisor?.id)) && (
+                            deleteAddressConfirm === addr.id ? (
+                              <Box sx={{ display: 'flex', gap: 0.5 }}>
+                                <Button size="small" variant="contained" color="error" onClick={() => handleDeleteAddress(addr.id)}
+                                  sx={{ textTransform: 'none', fontSize: '0.7rem' }}>
+                                  Confirmar
+                                </Button>
+                                <Button size="small" variant="outlined" onClick={() => setDeleteAddressConfirm(null)}
+                                  sx={{ textTransform: 'none', fontSize: '0.7rem' }}>
+                                  No
+                                </Button>
+                              </Box>
+                            ) : (
+                              <Button size="small" variant="outlined" color="error" onClick={() => setDeleteAddressConfirm(addr.id)}
+                                sx={{ textTransform: 'none', fontSize: '0.7rem' }}>
+                                Eliminar
+                              </Button>
+                            )
+                          )}
+                        </Box>
                       </Box>
 
                       {isEditing && (

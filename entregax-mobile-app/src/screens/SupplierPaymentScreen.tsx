@@ -740,6 +740,32 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
       if (!requiereFactura && sinFacturaCuenta?.cuenta) {
         fd.append('cuenta_bancaria_sin_factura', JSON.stringify(sinFacturaCuenta.cuenta));
       }
+      // instructions_snapshot — el backend lo usa para reconstruir los datos del
+      // beneficiario cuando envía la solicitud a ENTANGLED al subir el comprobante.
+      // Sin esto, ENTANGLED recibe la solicitud sin datos de cuenta ni facturación.
+      fd.append('instructions_snapshot', JSON.stringify({
+        beneficiarioSnapshot: {
+          nombre:         benefName,
+          nombre_chino:   benefNameZh || '',
+          cuenta:         benefAccount,
+          iban:           benefIban || '',
+          banco:          benefBankName,
+          banco_direccion: benefBankAddress || '',
+          swift:          benefSwift || '',
+          aba:            benefAba || '',
+          direccion:      benefAddress || '',
+        },
+        operationSnapshot: {
+          divisa,
+          monto:            parseFloat(monto) || 0,
+          servicio:         requiereFactura ? 'pago_con_factura' : 'pago_sin_factura',
+          requiere_factura: requiereFactura,
+          rfc:              requiereFactura ? rfc : undefined,
+          razon_social:     requiereFactura ? razon : undefined,
+        },
+        providerSnapshot: null,
+        quote: quote || null,
+      }));
       // NO se envía comprobante aquí: la solicitud queda en estado 'pendiente'
       // y el comprobante se sube después desde Últimos envíos.
 

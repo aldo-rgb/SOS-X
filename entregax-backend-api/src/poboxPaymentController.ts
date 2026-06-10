@@ -114,6 +114,16 @@ const checkDuplicatePackagesInOrders = async (packageIds: number[], userId: numb
               AND status IN ('pending', 'pending_payment')
               AND created_at < NOW() - INTERVAL '30 minutes'
         `, [userId]);
+        // Sync advisor_payment_orders linked to these now-cancelled pobox_payments
+        await pool.query(`
+            UPDATE advisor_payment_orders apo
+            SET status = 'cancelado', updated_at = NOW()
+            FROM pobox_payments pp
+            WHERE apo.pobox_payment_id = pp.id
+              AND pp.user_id = $1
+              AND pp.status = 'cancelled'
+              AND apo.status NOT IN ('cancelado', 'pagado')
+        `, [userId]);
     } catch (cleanupErr) {
         console.warn('⚠️ No se pudieron limpiar órdenes pendientes antiguas:', cleanupErr);
     }

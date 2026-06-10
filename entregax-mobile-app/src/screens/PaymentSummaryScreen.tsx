@@ -198,12 +198,21 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
     return `PB-${userId}-${timestamp}`;
   };
 
+  // Navegar a órdenes de pago cuando los paquetes ya están en una orden
+  const goToPaymentOrders = () => {
+    navigation.navigate('MyPayments' as any, { user, token, initialTab: 'orders' });
+  };
+
+  const isDuplicateError = (err: string) =>
+    err === 'Todos los paquetes ya están en otra orden de pago' ||
+    err === 'Paquetes ya en orden de pago';
+
   // ============ PAGO CON TARJETA (OpenPay) ============
   const startCardPayment = async () => {
     setLoading(true);
     try {
-      const packageIds = packages.map(p => p.id);
-      
+      const packageIds = packages.map(p => (p as any).payment_source_id ?? p.id);
+
       const res = await fetch(`${API_URL}/api/pobox/payment/openpay/create`, {
         method: 'POST',
         headers: {
@@ -226,6 +235,8 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
 
       if (data.success && data.approvalUrl) {
         setApprovalUrl(data.approvalUrl);
+      } else if (isDuplicateError(data.error)) {
+        goToPaymentOrders();
       } else {
         Alert.alert('Error', data.error || 'No se pudo iniciar el pago con tarjeta');
       }
@@ -241,7 +252,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   const startPayPalPayment = async () => {
     setLoading(true);
     try {
-      const packageIds = packages.map(p => p.id);
+      const packageIds = packages.map(p => (p as any).payment_source_id ?? p.id);
       
       const res = await fetch(`${API_URL}/api/pobox/payment/create`, {
         method: 'POST',
@@ -264,6 +275,8 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
       if (data.success && data.approvalUrl) {
         setPaypalOrderId(data.orderId);
         setApprovalUrl(data.approvalUrl);
+      } else if (isDuplicateError(data.error)) {
+        goToPaymentOrders();
       } else {
         Alert.alert('Error', data.error || 'No se pudo iniciar el pago');
       }
@@ -279,7 +292,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
   const startCashPayment = async () => {
     setLoading(true);
     try {
-      const packageIds = packages.map(p => p.id);
+      const packageIds = packages.map(p => (p as any).payment_source_id ?? p.id);
       const reference = generatePaymentReference();
       
       // Obtener el branch_id del primer paquete si existe
@@ -313,20 +326,10 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
           setBranchInfo(data.branchInfo);
         }
         setShowCashInstructions(true);
+      } else if (isDuplicateError(data.error)) {
+        goToPaymentOrders();
       } else {
-        // Si el error es por paquetes duplicados, ofrecer ir a órdenes de pago
-        if (data.error === 'Paquetes ya en orden de pago') {
-          Alert.alert(
-            '📦 Paquetes ya en Orden de Pago',
-            data.message || 'Algunos paquetes ya están en una orden de pago pendiente.',
-            [
-              { text: 'OK', style: 'cancel' },
-              { text: 'Ver Orden de Pago', onPress: () => navigation.navigate('MyPayments' as any, { user, token, initialTab: 'orders' }) }
-            ]
-          );
-        } else {
-          Alert.alert('Error', data.error || 'No se pudo generar la orden de pago');
-        }
+        Alert.alert('Error', data.error || 'No se pudo generar la orden de pago');
       }
     } catch (error) {
       console.error('Error creating cash payment:', error);

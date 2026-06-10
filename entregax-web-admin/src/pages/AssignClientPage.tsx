@@ -12,10 +12,12 @@ import {
     Button,
     Chip,
     CircularProgress,
+    Collapse,
     Dialog,
     DialogActions,
     DialogContent,
     DialogTitle,
+    Divider,
     IconButton,
     InputAdornment,
     Paper,
@@ -37,6 +39,9 @@ import {
     Search as SearchIcon,
     Person as PersonIcon,
     Close as CloseIcon,
+    ExpandMore as ExpandMoreIcon,
+    ExpandLess as ExpandLessIcon,
+    Warning as WarningIcon,
 } from '@mui/icons-material';
 import axios from 'axios';
 
@@ -67,6 +72,20 @@ interface ClientResult {
     phone: string | null;
 }
 
+interface NoInstructionsGuide {
+    tracking: string;
+    box_id: string | null;
+    client_name: string | null;
+    status: string;
+    created_at: string;
+}
+
+interface ServiceSection {
+    serviceType: string;
+    label: string;
+    guides: NoInstructionsGuide[];
+}
+
 interface Props {
     onBack: () => void;
 }
@@ -78,6 +97,19 @@ const STATUS_COLORS: Record<string, string> = {
     received_mty: '#2E7D32',
     ready_pickup: '#0097A7',
     shipped: '#7B1FA2',
+    received_china: '#5C6BC0',
+    in_warehouse: '#00897B',
+    pending_payment: '#E65100',
+    paid: '#2E7D32',
+};
+
+const SERVICE_ICONS: Record<string, string> = {
+    POBOX_USA: '📮',
+    TDI_EXPRESS: '✈️',
+    AIR_CHN_MX: '✈️',
+    SEA_CHN_MX: '🚢',
+    AA_DHL: '📦',
+    FCL_CHN_MX: '🏗️',
 };
 
 function authHeaders() {
@@ -103,6 +135,125 @@ function daysColor(days: number): string {
     return '#2E7D32';
 }
 
+// ─── Section: Guías sin instrucciones ───────────────────────────────────────
+
+function NoInstructionsSection({ section }: { section: ServiceSection }) {
+    const [open, setOpen] = useState(true);
+    const [search, setSearch] = useState('');
+
+    const filtered = useMemo(() => {
+        const term = search.trim().toLowerCase();
+        if (!term) return section.guides;
+        return section.guides.filter(g => {
+            const hay = [g.tracking, g.box_id, g.client_name].filter(Boolean).join(' ').toLowerCase();
+            return hay.includes(term);
+        });
+    }, [section.guides, search]);
+
+    const icon = SERVICE_ICONS[section.serviceType] || '📋';
+    const hasGuides = section.guides.length > 0;
+
+    return (
+        <Paper sx={{ mb: 2 }}>
+            <Stack
+                direction="row"
+                alignItems="center"
+                spacing={1}
+                sx={{ px: 2, py: 1.5, cursor: 'pointer', borderBottom: open ? '1px solid #eee' : 'none' }}
+                onClick={() => setOpen(o => !o)}
+            >
+                <Typography variant="h6" sx={{ fontWeight: 700, flex: 1 }}>
+                    {icon} {section.label}
+                </Typography>
+                <Chip
+                    label={hasGuides ? `${section.guides.length} sin instrucciones` : 'Al día ✓'}
+                    size="small"
+                    icon={hasGuides ? <WarningIcon /> : undefined}
+                    sx={{
+                        bgcolor: hasGuides ? '#FFF3E0' : '#E8F5E9',
+                        color: hasGuides ? ORANGE : '#2E7D32',
+                        fontWeight: 700,
+                        border: `1px solid ${hasGuides ? ORANGE : '#2E7D32'}`,
+                    }}
+                />
+                {open ? <ExpandLessIcon /> : <ExpandMoreIcon />}
+            </Stack>
+            <Collapse in={open}>
+                {section.guides.length === 0 ? (
+                    <Box sx={{ py: 2, textAlign: 'center' }}>
+                        <Typography color="text.secondary">🎉 Todas las guías tienen instrucciones</Typography>
+                    </Box>
+                ) : (
+                    <>
+                        <Box sx={{ px: 2, py: 1 }}>
+                            <TextField
+                                size="small"
+                                fullWidth
+                                placeholder="Buscar por guía, casillero o cliente…"
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                InputProps={{
+                                    startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment>,
+                                }}
+                            />
+                        </Box>
+                        <TableContainer>
+                            <Table size="small">
+                                <TableHead>
+                                    <TableRow>
+                                        <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Guía / Tracking</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Casillero</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Cliente</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Estado</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Creado</TableCell>
+                                    </TableRow>
+                                </TableHead>
+                                <TableBody>
+                                    {filtered.slice(0, 100).map((g, idx) => {
+                                        const stColor = STATUS_COLORS[g.status] || '#757575';
+                                        return (
+                                            <TableRow key={idx} hover>
+                                                <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE, fontSize: '0.8rem' }}>
+                                                    {g.tracking || '—'}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {g.box_id ? (
+                                                        <Chip label={g.box_id} size="small" sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700, fontSize: '0.75rem' }} />
+                                                    ) : <Typography variant="caption" color="text.disabled">—</Typography>}
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Typography variant="body2" noWrap sx={{ maxWidth: 200 }}>
+                                                        {g.client_name || <span style={{ color: '#999' }}>Sin asignar</span>}
+                                                    </Typography>
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Chip label={g.status} size="small" sx={{ bgcolor: stColor, color: '#FFF', fontWeight: 600, fontSize: '0.7rem' }} />
+                                                </TableCell>
+                                                <TableCell>
+                                                    <Typography variant="caption">{formatDate(g.created_at)}</Typography>
+                                                </TableCell>
+                                            </TableRow>
+                                        );
+                                    })}
+                                    {filtered.length > 100 && (
+                                        <TableRow>
+                                            <TableCell colSpan={5} sx={{ textAlign: 'center', color: 'text.secondary', py: 1 }}>
+                                                … y {filtered.length - 100} más
+                                            </TableCell>
+                                        </TableRow>
+                                    )}
+                                </TableBody>
+                            </Table>
+                        </TableContainer>
+                    </>
+                )}
+            </Collapse>
+        </Paper>
+    );
+}
+
+// ─── Main Page ───────────────────────────────────────────────────────────────
+
 export default function AssignClientPage({ onBack }: Props) {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -110,6 +261,9 @@ export default function AssignClientPage({ onBack }: Props) {
     const [search, setSearch] = useState('');
     const [page, setPage] = useState(0);
     const [pageSize, setPageSize] = useState(50);
+
+    const [noInstructionsServices, setNoInstructionsServices] = useState<ServiceSection[]>([]);
+    const [loadingInstructions, setLoadingInstructions] = useState(false);
 
     // Dialog asignación
     const [assignTarget, setAssignTarget] = useState<UnassignedPackage | null>(null);
@@ -131,7 +285,17 @@ export default function AssignClientPage({ onBack }: Props) {
         } finally { setLoading(false); }
     }, []);
 
-    useEffect(() => { load(); }, [load]);
+    const loadNoInstructions = useCallback(async () => {
+        setLoadingInstructions(true);
+        try {
+            const res = await axios.get(`${API_URL}/api/cs/no-instructions`, { headers: authHeaders() });
+            setNoInstructionsServices(res.data.services || []);
+        } catch (e) {
+            console.error('Error loading no-instructions:', e);
+        } finally { setLoadingInstructions(false); }
+    }, []);
+
+    useEffect(() => { load(); loadNoInstructions(); }, [load, loadNoInstructions]);
 
     const filtered = useMemo(() => {
         const term = search.trim().toLowerCase();
@@ -192,7 +356,6 @@ export default function AssignClientPage({ onBack }: Props) {
                 { headers: authHeaders() }
             );
             setAssignSuccess(res.data?.message || `Cliente asignado: ${client.fullName}`);
-            // Quitar el paquete de la lista local
             setPackages((prev) => prev.filter((p) => p.id !== assignTarget.id));
             setTimeout(closeAssign, 800);
         } catch (e) {
@@ -214,16 +377,23 @@ export default function AssignClientPage({ onBack }: Props) {
         return { total, urgent, mid, recent };
     }, [packages]);
 
+    const handleRefreshAll = () => { load(); loadNoInstructions(); };
+
     return (
         <Box sx={{ p: 3, maxWidth: 1500, mx: 'auto' }}>
-            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 3 }}>
                 <IconButton onClick={onBack} size="small"><ArrowBackIcon /></IconButton>
                 <AssignmentIcon sx={{ color: ORANGE }} />
                 <Typography variant="h5" sx={{ fontWeight: 700, color: ORANGE, flex: 1 }}>
-                    Asignar Cliente · Paquetes sin asignar
+                    Asignar Cliente · Centro de Soporte
                 </Typography>
-                <IconButton onClick={load} size="small"><RefreshIcon /></IconButton>
+                <IconButton onClick={handleRefreshAll} size="small"><RefreshIcon /></IconButton>
             </Stack>
+
+            {/* ─── Sección 1: Paquetes sin asignar ─────────────────────────── */}
+            <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, color: BLACK }}>
+                📦 Paquetes sin asignar
+            </Typography>
 
             <Stack direction="row" spacing={2} sx={{ mb: 2, flexWrap: 'wrap' }}>
                 <StatCard label="Total sin cliente" value={stats.total} color={BLACK} />
@@ -247,7 +417,7 @@ export default function AssignClientPage({ onBack }: Props) {
 
             {error && <Alert severity="error" sx={{ mb: 2 }} onClose={() => setError(null)}>{error}</Alert>}
 
-            <Paper>
+            <Paper sx={{ mb: 4 }}>
                 {loading && (
                     <Box sx={{ textAlign: 'center', py: 3 }}><CircularProgress sx={{ color: ORANGE }} /></Box>
                 )}
@@ -357,6 +527,19 @@ export default function AssignClientPage({ onBack }: Props) {
                     labelRowsPerPage="Filas por página"
                 />
             </Paper>
+
+            {/* ─── Sección 2+: Guías sin instrucciones por servicio ─────────── */}
+            <Divider sx={{ mb: 3 }} />
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 2 }}>
+                <Typography variant="h6" sx={{ fontWeight: 700, color: BLACK, flex: 1 }}>
+                    🗺️ Guías sin instrucciones de entrega por servicio
+                </Typography>
+                {loadingInstructions && <CircularProgress size={20} sx={{ color: ORANGE }} />}
+            </Stack>
+
+            {noInstructionsServices.map(section => (
+                <NoInstructionsSection key={section.serviceType} section={section} />
+            ))}
 
             {/* Dialog asignación */}
             <Dialog open={!!assignTarget} onClose={closeAssign} maxWidth="sm" fullWidth>

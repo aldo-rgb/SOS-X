@@ -112,8 +112,23 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
         pp.user_id AS client_id,
         u.full_name AS client_name,
         u.box_id AS client_box_id,
-        '[]'::jsonb AS package_uids,
-        '[]'::jsonb AS trackings,
+        COALESCE(pp.package_ids, '[]'::jsonb) AS package_uids,
+        (
+          SELECT COALESCE(jsonb_agg(tr.val), '[]'::jsonb)
+          FROM (
+            SELECT COALESCE(p.tracking_internal, p.id::text) AS val
+              FROM packages p
+             WHERE p.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+            UNION ALL
+            SELECT COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS val
+              FROM dhl_shipments ds
+             WHERE ds.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+            UNION ALL
+            SELECT mo.ordersn AS val
+              FROM maritime_orders mo
+             WHERE mo.id = ANY(SELECT jsonb_array_elements_text(COALESCE(pp.package_ids,'[]'))::int)
+          ) tr WHERE tr.val IS NOT NULL
+        ) AS trackings,
         NULL AS notes,
         pp.amount AS total_mxn,
         CASE pp.status
@@ -129,7 +144,7 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
       FROM pobox_payments pp
       JOIN users u ON u.id = pp.user_id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1)
-        AND pp.status NOT IN ('cancelled','expired')
+        AND pp.status NOT IN ('expired')
         AND pp.id NOT IN (
           SELECT pobox_payment_id
           FROM advisor_payment_orders
@@ -323,6 +338,19 @@ export const updateAdvisorPaymentOrderStatus = async (req: Request, res: Respons
     const allowed = ['pendiente', 'en_proceso', 'pagado', 'cancelado'];
     if (!allowed.includes(status)) return res.status(400).json({ error: 'Estado inválido' });
 
+    // Fetch current order to check if transition is allowed
+    const current = await pool.query(
+      `SELECT id, status, pobox_payment_id, payment_reference FROM advisor_payment_orders WHERE id=$1 AND advisor_id=$2`,
+      [id, aid]
+    );
+    if (!current.rows.length) return res.status(404).json({ error: 'Orden no encontrada' });
+
+    const currentStatus = current.rows[0].status;
+    // Prevent cancelling already-approved orders
+    if (status === 'cancelado' && currentStatus === 'pagado') {
+      return res.status(400).json({ error: 'No se puede cancelar una orden ya pagada/aprobada.' });
+    }
+
     const r = await pool.query(
       `UPDATE advisor_payment_orders SET status=$1, updated_at=NOW()
        WHERE id=$2 AND advisor_id=$3 RETURNING *`,
@@ -330,13 +358,24 @@ export const updateAdvisorPaymentOrderStatus = async (req: Request, res: Respons
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Orden no encontrada' });
 
-    // Sync to pobox_payments if linked
     const poboxPaymentId = r.rows[0].pobox_payment_id;
+    const paymentReference = r.rows[0].payment_reference;
     const poboxStatus = toPobox[status];
+
+    // Sync to pobox_payments if linked
     if (poboxPaymentId && poboxStatus) {
       await pool.query(
         `UPDATE pobox_payments SET status=$1 WHERE id=$2`,
         [poboxStatus, poboxPaymentId]
+      ).catch(() => {});
+    }
+
+    // When cancelling, also remove from cobranza dashboard
+    if (status === 'cancelado' && paymentReference) {
+      await pool.query(
+        `UPDATE openpay_webhook_logs SET estatus_procesamiento='cancelled'
+         WHERE transaction_id=$1 AND estatus_procesamiento='pending_payment'`,
+        [paymentReference]
       ).catch(() => {});
     }
 
@@ -353,18 +392,37 @@ export const deleteAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     const aid = advisorId(req);
     if (!aid) return res.status(401).json({ error: 'No autenticado' });
     const { id } = req.params;
+    // Pre-check to give better error if already paid
+    const check = await pool.query(
+      `SELECT status FROM advisor_payment_orders WHERE id=$1 AND advisor_id=$2`,
+      [id, aid]
+    );
+    if (!check.rows.length) return res.status(404).json({ error: 'Orden no encontrada' });
+    if (check.rows[0].status === 'pagado') {
+      return res.status(400).json({ error: 'No se puede cancelar una orden ya pagada/aprobada.' });
+    }
+
     const r = await pool.query(
-      `DELETE FROM advisor_payment_orders WHERE id=$1 AND advisor_id=$2 AND status='pendiente' RETURNING id, pobox_payment_id`,
+      `UPDATE advisor_payment_orders SET status='cancelado', updated_at=NOW()
+       WHERE id=$1 AND advisor_id=$2 AND status='pendiente'
+       RETURNING id, pobox_payment_id, payment_reference`,
       [id, aid]
     );
     if (!r.rows.length) return res.status(404).json({ error: 'Orden no encontrada o no cancelable' });
 
-    // Cancel the linked pobox_payments record so client doesn't see a ghost order
-    const poboxPaymentId = r.rows[0].pobox_payment_id;
+    // Cancel linked pobox_payments and remove from cobranza dashboard
+    const { pobox_payment_id: poboxPaymentId, payment_reference: paymentRef } = r.rows[0];
     if (poboxPaymentId) {
       await pool.query(
         `UPDATE pobox_payments SET status='cancelled' WHERE id=$1 AND status IN ('pending','pending_payment')`,
         [poboxPaymentId]
+      ).catch(() => {});
+    }
+    if (paymentRef) {
+      await pool.query(
+        `UPDATE openpay_webhook_logs SET estatus_procesamiento='cancelled'
+         WHERE transaction_id=$1 AND estatus_procesamiento='pending_payment'`,
+        [paymentRef]
       ).catch(() => {});
     }
 

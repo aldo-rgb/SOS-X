@@ -737,31 +737,74 @@ export default function SettingsPage() {
                                 )}
                             </Paper>
 
-                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
-                                <Box sx={{ flex: 1, minWidth: 0 }}>
-                                    <Typography variant="subtitle1" fontWeight={600}>
-                                        💳 Orden de Pago (Panel Asesor)
-                                    </Typography>
-                                    <Typography variant="body2" color="text.secondary">
-                                        Controla si los asesores pueden generar órdenes de pago. Si se desactiva, el botón "Generar Orden de Pago" desaparece en la app móvil y el tab "Orden de Pago" se oculta en el panel web.
-                                    </Typography>
+                            <Paper variant="outlined" sx={{ p: 2, borderRadius: 2 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2 }}>
+                                    <Box sx={{ flex: 1, minWidth: 0 }}>
+                                        <Typography variant="subtitle1" fontWeight={600}>
+                                            💳 Orden de Pago (Panel Asesor)
+                                        </Typography>
+                                        <Typography variant="body2" color="text.secondary">
+                                            Controla si los asesores pueden generar órdenes de pago. Si se desactiva, el botón "Generar Orden de Pago" desaparece en la app móvil y el tab "Orden de Pago" se oculta en el panel web.
+                                        </Typography>
+                                    </Box>
+                                    {paymentsStatusLoading || localAdvisorPaymentOrder === null ? (
+                                        <CircularProgress size={20} />
+                                    ) : (
+                                        <FormControlLabel
+                                            control={
+                                                <Switch
+                                                    checked={!!localAdvisorPaymentOrder}
+                                                    onChange={(e) => handleToggleAdvisorPaymentOrder(e.target.checked)}
+                                                    disabled={togglingAdvisorPaymentOrder}
+                                                    color="success"
+                                                />
+                                            }
+                                            label={togglingAdvisorPaymentOrder ? '...' : (localAdvisorPaymentOrder ? 'Activado' : 'Desactivado')}
+                                            labelPlacement="start"
+                                            sx={{ m: 0 }}
+                                        />
+                                    )}
                                 </Box>
-                                {paymentsStatusLoading || localAdvisorPaymentOrder === null ? (
-                                    <CircularProgress size={20} />
-                                ) : (
-                                    <FormControlLabel
-                                        control={
-                                            <Switch
-                                                checked={!!localAdvisorPaymentOrder}
-                                                onChange={(e) => handleToggleAdvisorPaymentOrder(e.target.checked)}
-                                                disabled={togglingAdvisorPaymentOrder}
-                                                color="success"
-                                            />
-                                        }
-                                        label={togglingAdvisorPaymentOrder ? '...' : (localAdvisorPaymentOrder ? 'Activado' : 'Desactivado')}
-                                        labelPlacement="start"
-                                        sx={{ m: 0 }}
-                                    />
+
+                                {/* Sub-toggles por servicio — mismos que Pagos EntregaX */}
+                                {!paymentsStatusLoading && localEntregaxByService && (
+                                    <Box sx={{ mt: 2, pt: 2, borderTop: '1px dashed', borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 1 }}>
+                                        <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
+                                            Habilitar órdenes de pago por tipo de servicio (master debe estar activado):
+                                        </Typography>
+                                        {([
+                                            { key: 'pobox',    label: '📮 PO Box USA',       desc: 'Asesor puede generar órdenes de pago para paquetes PO Box USA.' },
+                                            { key: 'maritimo', label: '🚢 Marítimo China',   desc: 'Asesor puede generar órdenes para embarques marítimos consolidados.' },
+                                            { key: 'aereo',    label: '✈️ Aéreo China',      desc: 'Asesor puede generar órdenes para envíos aéreos (TDI / Express).' },
+                                            { key: 'dhl',      label: '📦 DHL Monterrey',    desc: 'Asesor puede generar órdenes para guías DHL nacionales.' },
+                                        ] as const).map(svc => (
+                                            <Box key={svc.key} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 2, pl: 1 }}>
+                                                <Box sx={{ flex: 1, minWidth: 0 }}>
+                                                    <Typography variant="body2" fontWeight={600}>{svc.label}</Typography>
+                                                    <Typography variant="caption" color="text.secondary">{svc.desc}</Typography>
+                                                </Box>
+                                                <FormControlLabel
+                                                    control={
+                                                        <Switch
+                                                            size="small"
+                                                            checked={!!localEntregaxByService[svc.key]}
+                                                            onChange={(e) => handleToggleEntregaxService(svc.key, e.target.checked)}
+                                                            disabled={togglingEntregaxService === svc.key || !localAdvisorPaymentOrder}
+                                                            color="success"
+                                                        />
+                                                    }
+                                                    label={togglingEntregaxService === svc.key ? '...' : (localEntregaxByService[svc.key] ? 'On' : 'Off')}
+                                                    labelPlacement="start"
+                                                    sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: 12, color: 'text.secondary', minWidth: 28 } }}
+                                                />
+                                            </Box>
+                                        ))}
+                                        {!localAdvisorPaymentOrder && (
+                                            <Typography variant="caption" color="warning.main" sx={{ mt: 0.5 }}>
+                                                ⚠️ El master switch está desactivado: los asesores no pueden generar órdenes de pago.
+                                            </Typography>
+                                        )}
+                                    </Box>
                                 )}
                             </Paper>
                         </Stack>
