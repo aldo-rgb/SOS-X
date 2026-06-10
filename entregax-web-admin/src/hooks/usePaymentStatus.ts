@@ -16,6 +16,7 @@ interface PaymentStatusCache {
   entregax_payments_by_service: { pobox: boolean; maritimo: boolean; aereo: boolean; dhl: boolean };
   gex_enabled: boolean;
   advisor_instructions_enabled: boolean;
+  advisor_payment_order_enabled: boolean;
   require_payment_to_load: boolean;
   require_label_to_load: boolean;
   require_instructions_to_load_pobox: boolean;
@@ -39,6 +40,7 @@ const FALLBACK: PaymentStatusCache = {
   entregax_payments_by_service: { pobox: true, maritimo: true, aereo: true, dhl: true },
   gex_enabled: true,
   advisor_instructions_enabled: true,
+  advisor_payment_order_enabled: true,
   require_payment_to_load: true,
   require_label_to_load: true,
   require_instructions_to_load_pobox: false,
@@ -102,6 +104,7 @@ export function usePaymentStatus() {
             },
             gex_enabled: data.gex_enabled !== false,
             advisor_instructions_enabled: data.advisor_instructions_enabled !== false,
+            advisor_payment_order_enabled: data.advisor_payment_order_enabled !== false,
             require_payment_to_load: data.require_payment_to_load !== false,
             require_label_to_load: data.require_label_to_load !== false,
             require_instructions_to_load_pobox: data.require_instructions_to_load_pobox === true,
@@ -138,6 +141,7 @@ export function usePaymentStatus() {
     },
     gexEnabled: status.gex_enabled,
     advisorInstructionsEnabled: status.advisor_instructions_enabled,
+    advisorPaymentOrderEnabled: status.advisor_payment_order_enabled,
     requirePaymentToLoad: status.require_payment_to_load,
     requireLabelToLoad: status.require_label_to_load,
     requireInstructionsToLoadPobox: status.require_instructions_to_load_pobox,
@@ -176,6 +180,12 @@ export async function toggleEntregaxPayments(payload: boolean | { enabled?: bool
 /** Actualiza el estado de contratación de GEX (solo Super Admin) */
 export async function toggleGEX(enabled: boolean): Promise<void> {
   await api.post('/admin/system/gex-toggle', { enabled });
+  invalidatePaymentStatusCache();
+}
+
+/** Controla visibilidad de la función Orden de Pago en app móvil y web (solo Super Admin) */
+export async function toggleAdvisorPaymentOrder(enabled: boolean): Promise<void> {
+  await api.post('/admin/system/advisor-payment-order-toggle', { enabled });
   invalidatePaymentStatusCache();
 }
 

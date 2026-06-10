@@ -333,7 +333,7 @@ export default function DashboardAdvisor() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'));
   const isTablet = useMediaQuery(theme.breakpoints.down('md'));
-  const { advisorInstructionsEnabled } = usePaymentStatus();
+  const { advisorInstructionsEnabled, advisorPaymentOrderEnabled } = usePaymentStatus();
 
   // ─── State ───
   const [activeTab, setActiveTab] = useState(0);
@@ -733,9 +733,10 @@ export default function DashboardAdvisor() {
     if (activeTab === 1) fetchClients();
   }, [activeTab, fetchClients]);
 
-  // Load clients for the dropdown when switching to shipments tab
+  // Load data on tab change — use tabConfig id to avoid hardcoded index issues
   useEffect(() => {
-    if (activeTab === 2) {
+    const tid = tabConfig[activeTab]?.id;
+    if (tid === 'instructions') {
       fetchShipments();
       if (clients.length === 0) {
         api.get('/advisor/clients', { params: { limit: 500 } })
@@ -743,7 +744,7 @@ export default function DashboardAdvisor() {
           .catch(() => {});
       }
     }
-    if (activeTab === 3) {
+    if (tid === 'payment_order') {
       fetchPaymentOrders();
       if (clients.length === 0) {
         api.get('/advisor/clients', { params: { limit: 500 } })
@@ -751,16 +752,18 @@ export default function DashboardAdvisor() {
           .catch(() => {});
       }
     }
-  }, [activeTab, fetchShipments, fetchPaymentOrders]);
+  }, [activeTab, tabConfig, fetchShipments, fetchPaymentOrders]);
 
   useEffect(() => {
-    if (activeTab === 4) fetchCommissions();
-  }, [activeTab, fetchCommissions]);
+    const tid = tabConfig[activeTab]?.id;
+    if (tid === 'commissions') fetchCommissions();
+  }, [activeTab, tabConfig, fetchCommissions]);
 
   useEffect(() => {
-    if (activeTab === 6 || activeTab === 7) fetchAdvisorTickets();
-    if (activeTab === 7) fetchFormalQuotesList();
-  }, [activeTab]);
+    const tid = tabConfig[activeTab]?.id;
+    if (tid === 'tickets' || tid === 'quotes') fetchAdvisorTickets();
+    if (tid === 'quotes') fetchFormalQuotesList();
+  }, [activeTab, tabConfig]);
 
   // Carga inicial de tickets para mostrar puntos de notificación en pestañas
   useEffect(() => {
@@ -769,8 +772,9 @@ export default function DashboardAdvisor() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 8) fetchTeam();
-  }, [activeTab]);
+    const tid = tabConfig[activeTab]?.id;
+    if (tid === 'team') fetchTeam();
+  }, [activeTab, tabConfig]);
 
   const fetchTeam = async () => {
     setTeamLoading(true);
@@ -2325,15 +2329,24 @@ export default function DashboardAdvisor() {
                   </TableCell>
                   <TableCell>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                      <Typography variant="body2" fontWeight={600}>{s.tracking || s.internationalTracking || `#${s.id}`}</Typography>
+                      <Typography variant="body2" fontWeight={600}>
+                        {s.serviceType === 'AA_DHL'
+                          ? (s.internationalTracking || s.tracking || `#${s.id}`)
+                          : (s.tracking || s.internationalTracking || `#${s.id}`)}
+                      </Typography>
                       {s.isMaster && s.childrenCount > 0 && (
                         <Chip label={`${s.childrenCount} guías`} size="small" color="info" variant="outlined" sx={{ fontSize: '0.65rem', height: 20 }} icon={<UnfoldMoreIcon sx={{ fontSize: 14 }} />} />
                       )}
                     </Box>
-                    {s.childNo && <Typography variant="caption" color="text.secondary">{s.childNo}</Typography>}
+                    {s.serviceType === 'AA_DHL' && s.tracking && (
+                      <Typography variant="caption" color="text.secondary" fontFamily="monospace">{s.tracking}</Typography>
+                    )}
+                    {s.serviceType !== 'AA_DHL' && s.childNo && (
+                      <Typography variant="caption" color="text.secondary">{s.childNo}</Typography>
+                    )}
                   </TableCell>
                   <TableCell>
-                    {s.internationalTracking ? (
+                    {s.serviceType !== 'AA_DHL' && s.internationalTracking ? (
                       <Typography variant="body2" fontFamily="monospace" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
                         {s.internationalTracking}
                       </Typography>
@@ -2352,7 +2365,7 @@ export default function DashboardAdvisor() {
                       size="small" 
                       variant="outlined"
                       label={
-                        s.serviceType === 'AIR_CHN_MX' ? '✈️ Aéreo' :
+                        s.serviceType === 'AIR_CHN_MX' ? '✈️ TDI Aéreo' :
                         s.serviceType === 'SEA_CHN_MX' ? '🚢 Marítimo' :
                         s.serviceType === 'AA_DHL' ? '📦 DHL' :
                         s.serviceType === 'POBOX_USA' ? '📮 POBox' :
@@ -2503,14 +2516,16 @@ export default function DashboardAdvisor() {
               Gestiona las órdenes de pago de tus clientes para servicio de paquetería
             </Typography>
           </Box>
-          <Button
-            variant="contained"
-            startIcon={<span>💳</span>}
-            onClick={() => { setNewOrderOpen(true); setNewOrderClientId(''); setNewOrderServiceFilter('all'); setNewOrderSelectedUids(new Set()); setNewOrderShipments([]); }}
-            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C94A1E' }, fontWeight: 700, borderRadius: 2 }}
-          >
-            Nueva Orden de Pago
-          </Button>
+          {advisorPaymentOrderEnabled && (
+            <Button
+              variant="contained"
+              startIcon={<span>💳</span>}
+              onClick={() => { setNewOrderOpen(true); setNewOrderClientId(''); setNewOrderServiceFilter('all'); setNewOrderSelectedUids(new Set()); setNewOrderShipments([]); }}
+              sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C94A1E' }, fontWeight: 700, borderRadius: 2 }}
+            >
+              Nueva Orden de Pago
+            </Button>
+          )}
         </Box>
 
         {paymentOrdersLoading && <LinearProgress sx={{ mb: 1 }} />}
@@ -2632,7 +2647,7 @@ export default function DashboardAdvisor() {
                   <MenuItem value="all">Todos</MenuItem>
                   <MenuItem value="tdi_express">TDX / TDI Express</MenuItem>
                   <MenuItem value="dhl">DHL</MenuItem>
-                  <MenuItem value="air">Aéreo China</MenuItem>
+                  <MenuItem value="air">TDI Aéreo</MenuItem>
                   <MenuItem value="sea">Marítimo</MenuItem>
                   <MenuItem value="pobox">PO Box USA</MenuItem>
                 </Select>
@@ -2671,7 +2686,7 @@ export default function DashboardAdvisor() {
               const serviceLabel = (st: string) =>
                 /tdi.?express/i.test(st) || st === 'tdi_express' ? '🚚 TDX'
                 : /dhl/i.test(st) || st === 'AA_DHL'             ? '📦 DHL'
-                : /air_chn/i.test(st) || st === 'AIR_CHN_MX'    ? '✈️ Aéreo'
+                : /air_chn/i.test(st) || st === 'AIR_CHN_MX'    ? '✈️ TDI Aéreo'
                 : /sea_chn/i.test(st) || st === 'SEA_CHN_MX'    ? '🚢 Mar.'
                 : /pobox/i.test(st)   || st === 'POBOX_USA'      ? '📮 POBox'
                 : st;
@@ -4345,20 +4360,20 @@ export default function DashboardAdvisor() {
     );
 
     const tabs = [
-      { label: isMobile ? 'Inicio' : t('advisor.tabDashboard'), icon: <DashboardIcon />, shortLabel: 'Inicio' },
-      { label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: dotIcon(<PeopleIcon />, hasNewClients), shortLabel: 'Clientes' },
-      { label: isMobile ? 'Envíos' : t('advisor.tabShipments'), icon: <ShippingIcon />, shortLabel: 'Envíos' },
-      { label: isMobile ? 'Pago' : 'Orden de Pago', icon: <MoneyIcon sx={{ color: 'inherit' }} />, shortLabel: 'Pago' },
-      { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
-      { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
-      { label: isMobile ? 'Tickets' : 'Tickets', icon: dotIcon(<TicketIcon />, hasTicketResponses), shortLabel: 'Tickets' },
-      { label: isMobile ? 'Cotiz.' : 'Cotizaciones', icon: dotIcon(<QuoteIcon />, hasPendingQuotes), shortLabel: 'Cotizaciones' },
+      { id: 'dashboard',    label: isMobile ? 'Inicio' : t('advisor.tabDashboard'), icon: <DashboardIcon />, shortLabel: 'Inicio' },
+      { id: 'clients',      label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: dotIcon(<PeopleIcon />, hasNewClients), shortLabel: 'Clientes' },
+      { id: 'instructions', label: 'Instrucciones', icon: <ShippingIcon />, shortLabel: 'Instrucciones' },
+      ...(advisorPaymentOrderEnabled ? [{ id: 'payment_order', label: isMobile ? 'Pago' : 'Orden de Pago', icon: <MoneyIcon sx={{ color: 'inherit' }} />, shortLabel: 'Pago' }] : []),
+      { id: 'commissions',  label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
+      { id: 'tools',        label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
+      { id: 'tickets',      label: isMobile ? 'Tickets' : 'Tickets', icon: dotIcon(<TicketIcon />, hasTicketResponses), shortLabel: 'Tickets' },
+      { id: 'quotes',       label: isMobile ? 'Cotiz.' : 'Cotizaciones', icon: dotIcon(<QuoteIcon />, hasPendingQuotes), shortLabel: 'Cotizaciones' },
       ...(dashboardData && dashboardData.subAdvisors > 0
-        ? [{ label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' }]
+        ? [{ id: 'team', label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' }]
         : []),
     ];
     return tabs;
-  }, [t, isMobile, dashboardData, advisorTickets]);
+  }, [t, isMobile, dashboardData, advisorTickets, advisorPaymentOrderEnabled]);
 
   // ─── GATE: Verificación + Aviso de privacidad firmado ───
   const onboardingComplete = !!(
@@ -4510,13 +4525,13 @@ export default function DashboardAdvisor() {
         </Typography>
         <IconButton 
           onClick={() => {
+            const tid = tabConfig[activeTab]?.id;
             fetchDashboard();
-            if (activeTab === 1) fetchClients();
-            if (activeTab === 2 || activeTab === 3) fetchShipments();
-            if (activeTab === 4) fetchCommissions();
-            if (activeTab === 6) fetchAdvisorTickets();
-            if (activeTab === 7) fetchAdvisorTickets();
-            if (activeTab === 8) fetchTeam();
+            if (tid === 'clients') fetchClients();
+            if (tid === 'instructions' || tid === 'payment_order') fetchShipments();
+            if (tid === 'commissions') fetchCommissions();
+            if (tid === 'tickets' || tid === 'quotes') fetchAdvisorTickets();
+            if (tid === 'team') fetchTeam();
           }}
           size={isMobile ? 'small' : 'medium'}
         >
@@ -4549,17 +4564,22 @@ export default function DashboardAdvisor() {
       )}
 
       {/* Tab Content */}
-      <Box sx={{ minHeight: isMobile ? 'calc(100vh - 180px)' : 'auto' }}>
-        {activeTab === 0 && renderDashboard()}
-        {activeTab === 1 && renderClients()}
-        {activeTab === 2 && renderShipments()}
-        {activeTab === 3 && renderOrdenDePago()}
-        {activeTab === 4 && renderCommissions()}
-        {activeTab === 5 && renderTools()}
-        {activeTab === 6 && renderTickets()}
-        {activeTab === 7 && renderQuotes()}
-        {activeTab === 8 && renderTeam()}
-      </Box>
+      {(() => {
+        const tid = tabConfig[activeTab]?.id;
+        return (
+          <Box sx={{ minHeight: isMobile ? 'calc(100vh - 180px)' : 'auto' }}>
+            {tid === 'dashboard'    && renderDashboard()}
+            {tid === 'clients'     && renderClients()}
+            {tid === 'instructions'&& renderShipments()}
+            {tid === 'payment_order'&&renderOrdenDePago()}
+            {tid === 'commissions' && renderCommissions()}
+            {tid === 'tools'       && renderTools()}
+            {tid === 'tickets'     && renderTickets()}
+            {tid === 'quotes'      && renderQuotes()}
+            {tid === 'team'        && renderTeam()}
+          </Box>
+        );
+      })()}
 
       {/* Bottom Navigation - Mobile Only */}
       {isMobile && (
