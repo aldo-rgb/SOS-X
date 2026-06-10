@@ -264,6 +264,7 @@ const CajaChicaPage: React.FC = () => {
   const [refPagoData, setRefPagoData] = useState<any | null>(null);
   const [refPagoLoading, setRefPagoLoading] = useState(false);
   const [refPagoProcesando, setRefPagoProcesando] = useState(false);
+  const [refPagoList, setRefPagoList] = useState<any[]>([]);
   // Referencias de pago
   const [refModalOpen, setRefModalOpen] = useState(false);
   const [referencias, setReferencias] = useState<any[]>([]);
@@ -853,8 +854,19 @@ const CajaChicaPage: React.FC = () => {
 
   // Enviar reporte por WhatsApp (texto resumen, abre wa.me)
   // Pago múltiple de consolidaciones seleccionadas
-  const handleIniciarPagoMultiple = () => {
-    setRefPagoInput(''); setRefPagoData(null); setRefPagoOpen(true);
+  const handleIniciarPagoMultiple = async () => {
+    setRefPagoInput(''); setRefPagoData(null); setRefPagoList([]); setRefPagoOpen(true);
+    if (!pagoProveedorSel) return;
+    setRefPagoLoading(true);
+    try {
+      const r = await api.get('/pobox/payment-references', { params: { supplier_id: pagoProveedorSel.id } });
+      const all: any[] = r.data.references || [];
+      setRefPagoList(all.filter((x: any) => x.status !== 'pagada'));
+    } catch {
+      setSnackbar({ open: true, message: 'Error cargando referencias pendientes', severity: 'error' });
+    } finally {
+      setRefPagoLoading(false);
+    }
   };
 
   const handleBuscarRef = async () => {
@@ -2429,89 +2441,79 @@ const CajaChicaPage: React.FC = () => {
       </Dialog>
 
       {/* ── Diálogo: Pago por Referencia ──────────────────────── */}
-      <Dialog open={refPagoOpen} onClose={() => !refPagoProcesando && (setRefPagoOpen(false), setRefPagoData(null), setRefPagoInput(''))} maxWidth="sm" fullWidth>
+      <Dialog open={refPagoOpen} onClose={() => !refPagoProcesando && (setRefPagoOpen(false), setRefPagoData(null), setRefPagoInput(''), setRefPagoList([]))} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'warning.main', color: 'white' }}>
-          <PaymentIcon /> Pago por Referencia — {pagoProveedorSel?.name}
+          <PaymentIcon /> Seleccionar Referencia a Pagar — {pagoProveedorSel?.name}
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
-          {/* Paso 1: Buscar */}
-          <Typography variant="subtitle2" fontWeight="bold" gutterBottom>1. Ingresa el número de referencia</Typography>
-          <Box display="flex" gap={1} mb={2}>
-            <TextField
-              fullWidth size="small"
-              label="Número de referencia"
-              placeholder="Ej: 1  (o REF-1)"
-              value={refPagoInput}
-              onChange={e => setRefPagoInput(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleBuscarRef()}
-              disabled={refPagoLoading || refPagoProcesando}
-            />
-            <Button variant="contained" color="warning" onClick={handleBuscarRef}
-              disabled={!refPagoInput.trim() || refPagoLoading || refPagoProcesando}
-              startIcon={refPagoLoading ? <CircularProgress size={16} color="inherit" /> : <SearchIcon />}
-              sx={{ minWidth: 100 }}>
-              Buscar
-            </Button>
-          </Box>
-
-          {/* Paso 2: Mostrar detalles de la referencia encontrada */}
-          {refPagoData && (
+          {refPagoLoading ? (
+            <Box display="flex" justifyContent="center" py={4}><CircularProgress color="warning" /></Box>
+          ) : refPagoList.length === 0 ? (
+            <Alert severity="info">No hay referencias pendientes de pago para este proveedor.</Alert>
+          ) : (
             <Box>
-              <Divider sx={{ mb: 2 }} />
-              <Typography variant="subtitle2" fontWeight="bold" gutterBottom>2. Detalles de la referencia</Typography>
-
-              {refPagoData.status === 'pagada' ? (
-                <Alert severity="warning" sx={{ mb: 2 }}>
-                  Esta referencia ya fue pagada el {new Date(refPagoData.paid_at).toLocaleString('es-MX')}. No se puede pagar dos veces.
-                </Alert>
-              ) : (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  Se marcará el pago de <strong>{(refPagoData.consolidation_ids || []).length}</strong> consolidación(es) y se registrará el egreso en Caja CC.
-                </Alert>
-              )}
-
-              <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-                <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
-                  <Typography fontWeight="bold" fontSize={18} color="warning.dark">REF-{refPagoData.id}</Typography>
-                  <Chip label={refPagoData.status === 'pagada' ? '✅ Pagada' : '⏳ Pendiente'} color={refPagoData.status === 'pagada' ? 'success' : 'warning'} size="small" />
-                </Box>
-                <Typography variant="body2" color="text.secondary" mb={1}>
-                  Proveedor: <strong>{refPagoData.supplier_name || pagoProveedorSel?.name}</strong>
-                  &nbsp;·&nbsp; Creada: {new Date(refPagoData.created_at).toLocaleDateString('es-MX')}
-                </Typography>
-                <Box display="flex" gap={0.5} flexWrap="wrap" mb={2}>
-                  {(refPagoData.consolidation_ids || []).map((id: number) => (
-                    <Chip key={id} label={`#${id}`} size="small" variant="outlined" color="primary" />
-                  ))}
-                </Box>
-                <Divider sx={{ mb: 1.5 }} />
-                <Grid container spacing={2}>
-                  <Grid size={{ xs: 4 }}>
-                    <Typography variant="caption" color="text.secondary">Guías</Typography>
-                    <Typography variant="h6" fontWeight="bold">{refPagoData.packages_count || 0}</Typography>
-                  </Grid>
-                  <Grid size={{ xs: 4 }}>
-                    <Typography variant="caption" color="text.secondary">Total USD</Typography>
-                    <Typography variant="h6" fontWeight="bold" color="success.dark">${Number(refPagoData.total_usd || 0).toFixed(2)}</Typography>
-                  </Grid>
-                  <Grid size={{ xs: 4 }}>
-                    <Typography variant="caption" color="text.secondary">Total MXN</Typography>
-                    <Typography variant="h6" fontWeight="bold" color="primary.dark">{formatCurrency(Number(refPagoData.total_mxn || 0))}</Typography>
-                  </Grid>
-                </Grid>
-              </Paper>
+              <Typography variant="subtitle2" color="text.secondary" mb={1.5}>
+                Selecciona la referencia que deseas pagar:
+              </Typography>
+              {refPagoList.map((ref) => {
+                const isSelected = refPagoData?.id === ref.id;
+                return (
+                  <Paper
+                    key={ref.id}
+                    variant="outlined"
+                    onClick={() => setRefPagoData(isSelected ? null : ref)}
+                    sx={{
+                      p: 2, mb: 1.5, cursor: 'pointer',
+                      borderColor: isSelected ? 'warning.main' : 'divider',
+                      borderWidth: isSelected ? 2 : 1,
+                      bgcolor: isSelected ? 'rgba(237,108,2,0.07)' : 'background.paper',
+                      '&:hover': { borderColor: 'warning.main', bgcolor: 'rgba(237,108,2,0.07)' },
+                      transition: 'border-color 0.15s, background-color 0.15s',
+                    }}
+                  >
+                    <Box display="flex" justifyContent="space-between" alignItems="center" mb={0.5}>
+                      <Typography fontWeight="bold" color="warning.dark">REF-{ref.id}</Typography>
+                      <Chip label="⏳ Pendiente" color="warning" size="small" />
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      Creada: {new Date(ref.created_at).toLocaleDateString('es-MX')}
+                      &nbsp;·&nbsp; {(ref.consolidation_ids || []).length} consolidación(es)
+                    </Typography>
+                    <Box display="flex" gap={2} mt={1}>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Guías</Typography>
+                        <Typography fontWeight="bold" fontSize={14}>{ref.packages_count || 0}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Total USD</Typography>
+                        <Typography fontWeight="bold" fontSize={14} color="success.dark">${Number(ref.total_usd || 0).toFixed(2)}</Typography>
+                      </Box>
+                      <Box>
+                        <Typography variant="caption" color="text.secondary">Total MXN</Typography>
+                        <Typography fontWeight="bold" fontSize={14} color="primary.dark">{formatCurrency(Number(ref.total_mxn || 0))}</Typography>
+                      </Box>
+                    </Box>
+                  </Paper>
+                );
+              })}
             </Box>
+          )}
+
+          {refPagoData && (
+            <Alert severity="info" sx={{ mt: 1 }}>
+              Se marcará el pago de <strong>{(refPagoData.consolidation_ids || []).length}</strong> consolidación(es) por <strong>{formatCurrency(Number(refPagoData.total_mxn || 0))}</strong> y se registrará el egreso en Caja CC.
+            </Alert>
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => { setRefPagoOpen(false); setRefPagoData(null); setRefPagoInput(''); }} disabled={refPagoProcesando}>
+          <Button onClick={() => { setRefPagoOpen(false); setRefPagoData(null); setRefPagoInput(''); setRefPagoList([]); }} disabled={refPagoProcesando}>
             Cancelar
           </Button>
           <Button
             variant="contained" color="warning"
             startIcon={refPagoProcesando ? <CircularProgress size={16} color="inherit" /> : <PaymentIcon />}
             onClick={handleConfirmarRefPago}
-            disabled={!refPagoData || refPagoData.status === 'pagada' || refPagoProcesando}
+            disabled={!refPagoData || refPagoProcesando}
           >
             {refPagoProcesando ? 'Procesando...' : `Confirmar Pago REF-${refPagoData?.id ?? ''}`}
           </Button>
