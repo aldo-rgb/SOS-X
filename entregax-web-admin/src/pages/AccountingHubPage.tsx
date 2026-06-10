@@ -37,6 +37,7 @@ import ArchiveIcon from '@mui/icons-material/Archive';
 import EmailIcon from '@mui/icons-material/Email';
 import SaveIcon from '@mui/icons-material/Save';
 import axios from 'axios';
+import SyncfyRefreshButton from '../components/SyncfyRefreshButton';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111111';
@@ -2597,15 +2598,17 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           sx={{ flex: 1, minWidth: 200 }}
         />
         <Button variant="outlined" onClick={load} sx={{ borderColor: BLACK, color: BLACK }}>Aplicar</Button>
-        <Button
-          variant="contained"
-          startIcon={syncing ? <CircularProgress size={16} sx={{ color: 'white' }} /> : <SyncIcon />}
-          onClick={handleSync}
-          disabled={syncing || links.length === 0}
+        <SyncfyRefreshButton
+          emitterId={emitter.id}
+          disabled={links.length === 0}
           sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94e1f' } }}
-        >
-          {syncing ? 'Sincronizando...' : 'Sincronizar'}
-        </Button>
+          onSuccess={async ({ new_count }) => {
+            if (new_count === 0 && links.some((l: any) => l.twofa_required)) {
+              setError('No se descargaron movimientos nuevos. El banco puede requerir re-autenticación 2FA.');
+            }
+            await load();
+          }}
+        />
       </Stack>
 
       {loading ? (

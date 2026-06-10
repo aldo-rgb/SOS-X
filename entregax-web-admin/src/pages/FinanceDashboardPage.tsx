@@ -72,6 +72,7 @@ import {
 } from 'recharts';
 import api from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import SyncfyRefreshButton from '../components/SyncfyRefreshButton';
 
 const ORANGE = '#F05A28';
 const BLACK = '#111';
@@ -1864,17 +1865,16 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   {empresaFiltrada.syncfy_last_sync && (
                     <span>Última sync: {new Date(empresaFiltrada.syncfy_last_sync).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                   )}
-                  <Button
+                  <SyncfyRefreshButton
+                    emitterId={empresaFiltrada.id}
                     size="small"
-                    variant="contained"
                     color="success"
-                    onClick={handleSyncfySync}
-                    disabled={syncfySyncing}
-                    startIcon={syncfySyncing ? <CircularProgress size={14} color="inherit" /> : <Refresh />}
                     sx={{ ml: 1 }}
-                  >
-                    {syncfySyncing ? 'Sincronizando...' : 'Sincronizar'}
-                  </Button>
+                    onSuccess={async ({ new_count, matched_count }) => {
+                      setSnackbar({ open: true, message: `✅ Sincronizado: ${new_count} nuevas, ${matched_count} conciliadas`, severity: 'success' });
+                      await loadSavedBankEntries();
+                    }}
+                  />
                 </Box>
               </Alert>
             ) : empresaFiltrada?.belvo_connected ? (

@@ -25,6 +25,7 @@ import LinkIcon from '@mui/icons-material/Link';
 import LinkOffIcon from '@mui/icons-material/LinkOff';
 import SyncIcon from '@mui/icons-material/Sync';
 import DeleteIcon from '@mui/icons-material/Delete';
+import SyncfyRefreshButton from '../components/SyncfyRefreshButton';
 
 const API_URL = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api` : 'http://localhost:3001/api';
 // URL pública del backend para mostrar en webhooks (Facturama, Openpay, etc.) que deben ser
@@ -2126,14 +2127,16 @@ export default function FiscalPage() {
                 <Box sx={{ mb: 3 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                     <Typography variant="subtitle2" fontWeight="bold">Bancos Conectados</Typography>
-                    <Button
-                      size="small"
-                      startIcon={syncingSyncfy === -1 ? <CircularProgress size={14} /> : <SyncIcon />}
-                      onClick={handleSyncSyncfy}
-                      disabled={syncingSyncfy !== null}
-                    >
-                      Sincronizar todo
-                    </Button>
+                    <SyncfyRefreshButton
+                      emitterId={selectedEmpresaSyncfy!.id}
+                      label="Sincronizar todo"
+                      variant="text"
+                      color="primary"
+                      onSuccess={({ new_count, matched_count }) => {
+                        setSnackbar({ open: true, message: `✅ Sincronizado: ${new_count} nuevas, ${matched_count} conciliadas`, severity: 'success' });
+                        handleOpenSyncfyModal(selectedEmpresaSyncfy!);
+                      }}
+                    />
                   </Box>
                   {syncfyLinks.map((link: any) => (
                     <Box key={link.id} sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', p: 1.5, mb: 1, bgcolor: 'grey.50', borderRadius: 2, border: '1px solid', borderColor: 'grey.200' }}>
