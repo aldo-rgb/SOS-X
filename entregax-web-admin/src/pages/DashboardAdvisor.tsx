@@ -733,6 +733,49 @@ export default function DashboardAdvisor() {
     if (activeTab === 1) fetchClients();
   }, [activeTab, fetchClients]);
 
+  const tabConfig = useMemo(() => {
+    // Indicadores tipo punto naranja en pestañas
+    const hasNewClients = (dashboardData?.clients?.new7d || 0) > 0;
+    const isActiveStatus = (s: string) => s !== 'resolved' && s !== 'closed';
+    const ticketsNonQuote = advisorTickets.filter(t => t.category !== 'quote' && t.category !== 'quote_request');
+    const ticketsQuote = advisorTickets.filter(t => t.category === 'quote' || t.category === 'quote_request');
+    // sender_type del backend: 'agent' (asesor/admin) | 'client' | 'system'.
+    // Consideramos "atendido por asesor" cualquier valor distinto de 'client'.
+    const isClientSender = (s?: string | null) => s === 'client';
+    const hasTicketResponses = ticketsNonQuote.some(t => isActiveStatus(t.status) && isClientSender(t.last_sender));
+    // Solo mostrar punto naranja en Cotizaciones cuando la pelota esté del lado del asesor
+    // (último mensaje del cliente, aún no cotizado / sin respuesta). Si el último ya es del asesor
+    // (agent/system tras generar la cotización), se considera atendida.
+    const hasPendingQuotes = ticketsQuote.some(t => isActiveStatus(t.status) && (!t.last_sender || isClientSender(t.last_sender)));
+
+    const dotIcon = (icon: React.ReactNode, show: boolean) => (
+      <Badge
+        variant="dot"
+        invisible={!show}
+        overlap="circular"
+        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{ '& .MuiBadge-badge': { bgcolor: '#F05A28', boxShadow: '0 0 0 2px #fff' } }}
+      >
+        {icon}
+      </Badge>
+    );
+
+    const tabs = [
+      { id: 'dashboard',    label: isMobile ? 'Inicio' : t('advisor.tabDashboard'), icon: <DashboardIcon />, shortLabel: 'Inicio' },
+      { id: 'clients',      label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: dotIcon(<PeopleIcon />, hasNewClients), shortLabel: 'Clientes' },
+      { id: 'instructions', label: 'Instrucciones', icon: <ShippingIcon />, shortLabel: 'Instrucciones' },
+      ...(advisorPaymentOrderEnabled ? [{ id: 'payment_order', label: isMobile ? 'Pago' : 'Orden de Pago', icon: <MoneyIcon sx={{ color: 'inherit' }} />, shortLabel: 'Pago' }] : []),
+      { id: 'commissions',  label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
+      { id: 'tools',        label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
+      { id: 'tickets',      label: isMobile ? 'Tickets' : 'Tickets', icon: dotIcon(<TicketIcon />, hasTicketResponses), shortLabel: 'Tickets' },
+      { id: 'quotes',       label: isMobile ? 'Cotiz.' : 'Cotizaciones', icon: dotIcon(<QuoteIcon />, hasPendingQuotes), shortLabel: 'Cotizaciones' },
+      ...(dashboardData && dashboardData.subAdvisors > 0
+        ? [{ id: 'team', label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' }]
+        : []),
+    ];
+    return tabs;
+  }, [t, isMobile, dashboardData, advisorTickets, advisorPaymentOrderEnabled]);
+
   // Load data on tab change — use tabConfig id to avoid hardcoded index issues
   useEffect(() => {
     const tid = tabConfig[activeTab]?.id;
@@ -4344,52 +4387,7 @@ export default function DashboardAdvisor() {
     );
   };
 
-  // ════════════════════════════════════
-  // MAIN RENDER
-  // ════════════════════════════════════
 
-  const tabConfig = useMemo(() => {
-    // Indicadores tipo punto naranja en pestañas
-    const hasNewClients = (dashboardData?.clients?.new7d || 0) > 0;
-    const isActiveStatus = (s: string) => s !== 'resolved' && s !== 'closed';
-    const ticketsNonQuote = advisorTickets.filter(t => t.category !== 'quote' && t.category !== 'quote_request');
-    const ticketsQuote = advisorTickets.filter(t => t.category === 'quote' || t.category === 'quote_request');
-    // sender_type del backend: 'agent' (asesor/admin) | 'client' | 'system'.
-    // Consideramos "atendido por asesor" cualquier valor distinto de 'client'.
-    const isClientSender = (s?: string | null) => s === 'client';
-    const hasTicketResponses = ticketsNonQuote.some(t => isActiveStatus(t.status) && isClientSender(t.last_sender));
-    // Solo mostrar punto naranja en Cotizaciones cuando la pelota esté del lado del asesor
-    // (último mensaje del cliente, aún no cotizado / sin respuesta). Si el último ya es del asesor
-    // (agent/system tras generar la cotización), se considera atendida.
-    const hasPendingQuotes = ticketsQuote.some(t => isActiveStatus(t.status) && (!t.last_sender || isClientSender(t.last_sender)));
-
-    const dotIcon = (icon: React.ReactNode, show: boolean) => (
-      <Badge
-        variant="dot"
-        invisible={!show}
-        overlap="circular"
-        anchorOrigin={{ vertical: 'top', horizontal: 'right' }}
-        sx={{ '& .MuiBadge-badge': { bgcolor: '#F05A28', boxShadow: '0 0 0 2px #fff' } }}
-      >
-        {icon}
-      </Badge>
-    );
-
-    const tabs = [
-      { id: 'dashboard',    label: isMobile ? 'Inicio' : t('advisor.tabDashboard'), icon: <DashboardIcon />, shortLabel: 'Inicio' },
-      { id: 'clients',      label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: dotIcon(<PeopleIcon />, hasNewClients), shortLabel: 'Clientes' },
-      { id: 'instructions', label: 'Instrucciones', icon: <ShippingIcon />, shortLabel: 'Instrucciones' },
-      ...(advisorPaymentOrderEnabled ? [{ id: 'payment_order', label: isMobile ? 'Pago' : 'Orden de Pago', icon: <MoneyIcon sx={{ color: 'inherit' }} />, shortLabel: 'Pago' }] : []),
-      { id: 'commissions',  label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
-      { id: 'tools',        label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
-      { id: 'tickets',      label: isMobile ? 'Tickets' : 'Tickets', icon: dotIcon(<TicketIcon />, hasTicketResponses), shortLabel: 'Tickets' },
-      { id: 'quotes',       label: isMobile ? 'Cotiz.' : 'Cotizaciones', icon: dotIcon(<QuoteIcon />, hasPendingQuotes), shortLabel: 'Cotizaciones' },
-      ...(dashboardData && dashboardData.subAdvisors > 0
-        ? [{ id: 'team', label: isMobile ? 'Equipo' : 'Mi Equipo', icon: <PeopleIcon />, shortLabel: 'Equipo' }]
-        : []),
-    ];
-    return tabs;
-  }, [t, isMobile, dashboardData, advisorTickets, advisorPaymentOrderEnabled]);
 
   // ─── GATE: Verificación + Aviso de privacidad firmado ───
   const onboardingComplete = !!(
