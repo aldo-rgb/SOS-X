@@ -5042,8 +5042,16 @@ const entangledRequestUpload = multer({
 // Cliente final (v2: multipart con comprobante)
 app.post(
   '/api/entangled/payment-requests',
+  (req: Request, _res: Response, next: any) => {
+    console.error(`[XPAY ROUTE] POST /api/entangled/payment-requests origin=${req.headers.origin} ct=${req.headers['content-type']}`);
+    next();
+  },
   authenticateToken,
   entangledRequestUpload.single('comprobante'),
+  (err: any, _req: Request, _res: Response, next: any) => {
+    console.error('[XPAY MULTER ERROR]', err?.message || err);
+    next(err);
+  },
   createEntangledRequestV2
 );
 app.get('/api/entangled/payment-requests/me', authenticateToken, getMyEntangledRequests);
