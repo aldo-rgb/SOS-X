@@ -68,7 +68,6 @@ import {
   VerifiedUser as VerifiedIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
-  Check as CheckIcon,
   HourglassEmpty as PendingIcon,
   Edit as EditIcon,
   Save as SaveIcon,

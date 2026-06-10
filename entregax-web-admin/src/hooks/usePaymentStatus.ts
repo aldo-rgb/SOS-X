@@ -67,9 +67,10 @@ export function mapServiceKey(servicio?: string | null): EntregaxServiceKey | nu
   if (s.includes('marít') || s.includes('marit') || s.includes('maritime')
       || s.startsWith('sea_') || s.startsWith('fcl_')
       || s === 'china_sea' || s === 'sea' || s === 'fcl') return 'maritimo';
-  // Aéreo China
+  // Aéreo China (incluye TDI Express)
   if (s.includes('aére') || s.includes('aere') || s.includes('aereo')
-      || s.startsWith('air_') || s === 'china_air' || s === 'air') return 'aereo';
+      || s.startsWith('air_') || s === 'china_air' || s === 'air'
+      || s.includes('tdi') || s === 'tdi_express') return 'aereo';
   return null;
 }
 
