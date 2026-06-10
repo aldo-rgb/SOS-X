@@ -1237,28 +1237,32 @@ export default function DashboardAdvisor() {
 
           {/* Tarifas y TC en vivo */}
           {liveRates && (
-            <Paper sx={{ p: isMobile ? 1.5 : 2, mb: isMobile ? 2 : 3, borderRadius: 2, border: '1px solid #F3E5D0' }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
-                <Box sx={{ width: 3, height: 16, bgcolor: '#F05A28', borderRadius: 1 }} />
-                <Typography sx={{ fontWeight: 800, fontSize: '0.75rem', color: '#F05A28', letterSpacing: 0.5, textTransform: 'uppercase' }}>
+            <Paper elevation={0} sx={{ mb: isMobile ? 2 : 3, borderRadius: 2.5, border: '1px solid #F0E8E0', overflow: 'hidden' }}>
+              {/* Header strip */}
+              <Box sx={{ px: 2, py: 1, background: 'linear-gradient(135deg, #F05A28 0%, #C94A1E 100%)', display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'rgba(255,255,255,0.7)', animation: 'pulse 2s infinite' }} />
+                <Typography sx={{ fontWeight: 800, fontSize: '0.72rem', color: '#fff', letterSpacing: 1, textTransform: 'uppercase' }}>
                   Tarifas y TC en vivo
                 </Typography>
               </Box>
-              <Box sx={{ display: 'flex', gap: isMobile ? 1.5 : 3, flexWrap: 'wrap' }}>
+              {/* Values */}
+              <Box sx={{ display: 'grid', gridTemplateColumns: `repeat(${isMobile ? 2 : 3}, 1fr)`, px: 2, py: 1.5 }}>
                 {[
-                  { label: 'TDI Aéreo', value: liveRates.precio_tdi_aereo_usd, unit: 'USD/kg' },
-                  { label: 'TDI Express', value: liveRates.precio_tdi_express_usd, unit: 'USD/kg' },
-                  { label: 'TC Envío $', value: liveRates.tc_envio_dinero, unit: 'MXN/USD' },
-                ].map((item, i, arr) => (
-                  <Box key={item.label} sx={{ display: 'flex', alignItems: 'center', gap: isMobile ? 1.5 : 3 }}>
-                    <Box>
-                      <Typography sx={{ fontSize: '0.68rem', color: '#94A3B8', fontWeight: 600, letterSpacing: 0.3 }}>{item.label}</Typography>
-                      <Typography sx={{ fontWeight: 900, fontSize: isMobile ? '1.1rem' : '1.3rem', color: '#0F172A', lineHeight: 1.2 }}>
-                        {item.value != null ? `$${item.value.toFixed(2)}` : '—'}
-                      </Typography>
-                      <Typography sx={{ fontSize: '0.65rem', color: '#94A3B8' }}>{item.unit}</Typography>
-                    </Box>
-                    {i < arr.length - 1 && <Box sx={{ width: 1, height: 36, bgcolor: '#E2E8F0', flexShrink: 0 }} />}
+                  { label: 'TDI Aéreo', value: liveRates.precio_tdi_aereo_usd, unit: 'USD / kg', icon: '✈️' },
+                  { label: 'TDI Express', value: liveRates.precio_tdi_express_usd, unit: 'USD / kg', icon: '🚚' },
+                  { label: 'TC Envío $', value: liveRates.tc_envio_dinero, unit: 'MXN / USD', icon: '💱' },
+                ].map((item, i) => (
+                  <Box key={item.label} sx={{
+                    px: 1.5, py: 1,
+                    borderLeft: i > 0 ? '1px solid #F0E8E0' : 'none',
+                  }}>
+                    <Typography sx={{ fontSize: '0.68rem', color: '#94A3B8', fontWeight: 600, mb: 0.25 }}>
+                      {item.icon} {item.label}
+                    </Typography>
+                    <Typography sx={{ fontWeight: 900, fontSize: isMobile ? '1.15rem' : '1.35rem', color: item.value != null ? '#0F172A' : '#CBD5E1', lineHeight: 1.1 }}>
+                      {item.value != null ? `$${item.value.toFixed(2)}` : '—'}
+                    </Typography>
+                    <Typography sx={{ fontSize: '0.63rem', color: '#B0BEC5', mt: 0.25 }}>{item.unit}</Typography>
                   </Box>
                 ))}
               </Box>
