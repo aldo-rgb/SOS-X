@@ -5937,7 +5937,7 @@ app.get('/api/advisor/rates', authenticateToken, async (req: Request, res: Respo
         `SELECT (COALESCE(tipo_cambio_usd, 0) + COALESCE(override_tipo_cambio_usd, 0))::float AS tc
          FROM entangled_providers
          WHERE COALESCE(is_active, true) = true
-         ORDER BY (is_default DESC NULLS LAST), id ASC
+         ORDER BY is_default DESC NULLS LAST, id ASC
          LIMIT 1`
       );
       const v = parseFloat(r.rows[0]?.tc || '0');
