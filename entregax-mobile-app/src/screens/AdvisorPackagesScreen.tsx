@@ -535,12 +535,26 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
                       <Ionicons name="person-add" size={14} color="#9C27B0" />
                     </TouchableOpacity>
                   ) : instrEnabled ? (
-                    <TouchableOpacity
-                      style={[styles.pencilBtn, { backgroundColor: item.has_instructions ? '#E8F5E9' : '#FFF3E0' }]}
-                      onPress={() => openInstrModal(item)}
-                    >
-                      <Ionicons name="pencil" size={14} color={item.has_instructions ? GREEN : '#FF9800'} />
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: 'row', gap: 5 }}>
+                      <TouchableOpacity
+                        style={[styles.pencilBtn, { backgroundColor: item.has_instructions ? '#E8F5E9' : '#FFF3E0' }]}
+                        onPress={() => openInstrModal(item)}
+                      >
+                        <Ionicons name="pencil" size={14} color={item.has_instructions ? GREEN : '#FF9800'} />
+                      </TouchableOpacity>
+                      {item.has_instructions && (
+                        <TouchableOpacity
+                          style={[styles.pencilBtn, { backgroundColor: '#FFF3E0' }]}
+                          onPress={() => {
+                            setSelectionMode(true);
+                            setSelectedUids([item.uid]);
+                            setSelectionServiceType(item.service_type);
+                          }}
+                        >
+                          <Ionicons name="cash-outline" size={14} color={ORANGE} />
+                        </TouchableOpacity>
+                      )}
+                    </View>
                   ) : null
                 )}
               </View>
@@ -662,30 +676,47 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
       )}
 
       {/* ─── Selection action bar ─── */}
-      {selectionMode && (
-        <View style={styles.selectionBar}>
-          <TouchableOpacity onPress={cancelSelection} style={styles.selectionCancelBtn}>
-            <Ionicons name="close" size={18} color="#666" />
-            <Text style={styles.selectionCancelText}>Cancelar</Text>
-          </TouchableOpacity>
-          <Text style={styles.selectionCount}>
-            {selectedUids.length} seleccionado{selectedUids.length !== 1 ? 's' : ''}
-          </Text>
-          {instrEnabled && selectedUids.length > 0 && (
-            <TouchableOpacity
-              style={styles.selectionActionBtn}
-              onPress={() => {
-                const bulk = shipments.filter(s => selectedUids.includes(s.uid));
-                const first = bulk[0];
-                if (first) openInstrModal(first, bulk);
-              }}
-            >
-              <Ionicons name="pencil-outline" size={14} color="#fff" style={{ marginRight: 4 }} />
-              <Text style={styles.selectionActionText}>Asignar instrucciones</Text>
+      {selectionMode && (() => {
+        const selectedShipments = shipments.filter(s => selectedUids.includes(s.uid));
+        const allHaveInstructions = selectedUids.length > 0 && selectedShipments.every(s => s.has_instructions);
+        return (
+          <View style={styles.selectionBar}>
+            <TouchableOpacity onPress={cancelSelection} style={styles.selectionCancelBtn}>
+              <Ionicons name="close" size={18} color="#666" />
+              <Text style={styles.selectionCancelText}>Cancelar</Text>
             </TouchableOpacity>
-          )}
-        </View>
-      )}
+            <Text style={styles.selectionCount}>
+              {selectedUids.length} seleccionado{selectedUids.length !== 1 ? 's' : ''}
+            </Text>
+            {instrEnabled && selectedUids.length > 0 && (
+              allHaveInstructions ? (
+                <TouchableOpacity
+                  style={[styles.selectionActionBtn, { backgroundColor: ORANGE }]}
+                  onPress={() => {
+                    const uids = selectedUids.join(',');
+                    navigation.navigate('AdvisorQuotesScreen' as any, { user: route.params.user, token, preselectedUids: uids });
+                  }}
+                >
+                  <Ionicons name="cash-outline" size={14} color="#fff" style={{ marginRight: 4 }} />
+                  <Text style={styles.selectionActionText}>Generar Orden de Pago</Text>
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={styles.selectionActionBtn}
+                  onPress={() => {
+                    const bulk = shipments.filter(s => selectedUids.includes(s.uid));
+                    const first = bulk[0];
+                    if (first) openInstrModal(first, bulk);
+                  }}
+                >
+                  <Ionicons name="pencil-outline" size={14} color="#fff" style={{ marginRight: 4 }} />
+                  <Text style={styles.selectionActionText}>Asignar instrucciones</Text>
+                </TouchableOpacity>
+              )
+            )}
+          </View>
+        );
+      })()}
 
       {/* ─── Filter Modal ─── */}
       <Modal
