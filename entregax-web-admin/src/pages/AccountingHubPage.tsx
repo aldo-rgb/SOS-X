@@ -2523,7 +2523,12 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
     setSyncing(true);
     setError(null);
     try {
-      await api.post(`/accounting/${emitter.id}/bank-movements/sync`, { days_back: 90 });
+      const r = await api.post(`/accounting/${emitter.id}/bank-movements/sync`, { days_back: 90 });
+      const newCount = r.data?.new_count ?? 0;
+      const hasTwofa = links.some((l: any) => l.twofa_required);
+      if (newCount === 0 && hasTwofa) {
+        setError('No se descargaron movimientos nuevos. El banco requiere re-autenticación 2FA: ve a Administración → Empresas → Syncfy y haz clic en "Sincronizar todo".');
+      }
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || 'Error sincronizando');
