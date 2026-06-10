@@ -20,6 +20,7 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool } from './db';
+import { sendXPayConfirmation } from './whatsappService';
 import {
   sendSolicitudPago,
   uploadComprobanteToTransaccion,
@@ -461,6 +462,36 @@ export const createPaymentRequestV2 = async (
         RETURNING *`,
       [comprobanteUrl, requestId]
     )).rows[0];
+  }
+
+  // Enviar WhatsApp de confirmación al cliente (fire-and-forget)
+  try {
+    const userRow = await pool.query(
+      `SELECT full_name, phone FROM users WHERE id = $1 LIMIT 1`,
+      [userId]
+    );
+    const u = userRow.rows[0];
+    if (u?.phone) {
+      const tc = Number(tcClienteFinal) || 0;
+      const totalMxn = tc > 0
+        ? (monto * tc * (1 + commission.porcentaje / 100)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+        : '—';
+      // Cuenta de depósito: primera empresa asignada (con factura) o cuenta_bancaria del payload (sin factura)
+      const cb: any = (empresasFinales[0]?.cuenta_bancaria) || (body.cuenta_bancaria_sin_factura) || {};
+      void sendXPayConfirmation({
+        phone: u.phone,
+        nombre: u.full_name || '',
+        montoUsd: `$${Number(monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${divisa}`,
+        totalMxn: `$${totalMxn}`,
+        beneficiario: String(body.beneficiario_nombre || ''),
+        banco: cb.banco || cb.bank || '',
+        cuenta: cb.cuenta || cb.account || cb.numero_cuenta || '',
+        clabe: cb.clabe || cb.CLABE || '',
+        referencia: referenciaPago,
+      });
+    }
+  } catch (waErr) {
+    console.warn('[ENTANGLED v2] No se pudo enviar WhatsApp de confirmación:', waErr);
   }
 
   return res.status(201).json({

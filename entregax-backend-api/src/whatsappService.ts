@@ -521,6 +521,71 @@ export const sendEnvioCancelado = async (phone: string, nombre: string, tracking
     }
 };
 
+/**
+ * Confirmación de operación XPay al cliente.
+ * Plantilla: "xpay_confirmacion"  (UTILITY, es_MX)
+ *
+ * Body sugerido para aprobar en Meta:
+ * ————————————————————————————————————————
+ * ✅ ¡Hola {{1}}! Tu operación XPay fue recibida.
+ *
+ * 💵 Monto a enviar: {{2}}
+ * 💰 Total a depositar: {{3}} MXN
+ * 🏢 Beneficiario: {{4}}
+ *
+ * 🏦 *Datos de depósito:*
+ * Banco: {{5}}
+ * Cuenta: {{6}}
+ * CLABE: {{7}}
+ *
+ * 📌 Referencia: *{{8}}*
+ * Incluye esta referencia en el concepto de tu transferencia.
+ *
+ * Una vez realizado el depósito, sube tu comprobante desde "Últimos envíos".
+ * ————————————————————————————————————————
+ *   {{1}} = nombre del cliente (first name)
+ *   {{2}} = monto divisa (ej. "$10,010.00 USD")
+ *   {{3}} = total MXN (ej. "$190,375.97")
+ *   {{4}} = beneficiario / destino
+ *   {{5}} = banco de depósito
+ *   {{6}} = número de cuenta
+ *   {{7}} = CLABE
+ *   {{8}} = referencia de pago (ej. "XP600876")
+ */
+export const sendXPayConfirmation = async (params: {
+    phone: string;
+    nombre: string;
+    montoUsd: string;
+    totalMxn: string;
+    beneficiario: string;
+    banco: string;
+    cuenta: string;
+    clabe: string;
+    referencia: string;
+}): Promise<void> => {
+    const templateName = process.env.WHATSAPP_XPAY_CONFIRM_TEMPLATE || 'xpay_confirmacion';
+    const firstName = params.nombre.split(' ')[0] ?? params.nombre;
+    try {
+        await sendTemplate({
+            to: params.phone,
+            template: templateName,
+            languageCode: 'es_MX',
+            parameters: [
+                firstName,
+                params.montoUsd,
+                params.totalMxn,
+                params.beneficiario || '—',
+                params.banco || '—',
+                params.cuenta || '—',
+                params.clabe || '—',
+                params.referencia,
+            ],
+        });
+    } catch (e) {
+        console.error('[WHATSAPP] Error enviando confirmación XPay:', e);
+    }
+};
+
 export const whatsappStatus = (): { enabled: boolean; phoneNumberId: string | null } => {
     return {
         enabled: isEnabled(),
