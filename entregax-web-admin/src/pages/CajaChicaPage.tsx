@@ -869,22 +869,6 @@ const CajaChicaPage: React.FC = () => {
     }
   };
 
-  const handleBuscarRef = async () => {
-    const raw = refPagoInput.trim().replace(/^REF-?/i, '');
-    const id = Number(raw);
-    if (!id) { setSnackbar({ open: true, message: 'Ingresa un número de referencia válido (ej: 1)', severity: 'warning' }); return; }
-    setRefPagoLoading(true); setRefPagoData(null);
-    try {
-      const r = await api.get(`/pobox/payment-references`, { params: { supplier_id: pagoProveedorSel?.id } });
-      const refs: any[] = r.data.references || [];
-      const found = refs.find((x: any) => x.id === id);
-      if (!found) { setSnackbar({ open: true, message: `REF-${id} no encontrada para este proveedor`, severity: 'error' }); }
-      else if (found.status === 'pagada') { setSnackbar({ open: true, message: `REF-${id} ya fue pagada el ${new Date(found.paid_at).toLocaleString('es-MX')}`, severity: 'warning' }); setRefPagoData(found); }
-      else { setRefPagoData(found); }
-    } catch { setSnackbar({ open: true, message: 'Error buscando referencia', severity: 'error' }); }
-    finally { setRefPagoLoading(false); }
-  };
-
   const handleConfirmarRefPago = async () => {
     if (!refPagoData) return;
     setRefPagoProcesando(true);
