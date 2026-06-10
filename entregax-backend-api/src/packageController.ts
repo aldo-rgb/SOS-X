@@ -2879,6 +2879,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 WHERE (p.user_id = $1 OR ($2 IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM($2))))
                   AND (p.is_master = true OR p.master_id IS NULL)
                   AND COALESCE(p.air_source, '') <> 'tdi_express'
+                  AND LOWER(COALESCE(p.service_type, '')) <> 'tdi_express'
                 ORDER BY p.id
             ) sub
             ORDER BY created_at DESC
@@ -3495,7 +3496,7 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 SELECT m.*,
                     (SELECT COUNT(*) FROM packages c WHERE c.master_id = m.id) AS captured_boxes
                 FROM packages m
-                WHERE m.air_source = 'tdi_express'
+                WHERE (m.air_source = 'tdi_express' OR LOWER(COALESCE(m.service_type, '')) = 'tdi_express')
                   AND (m.is_master = true OR m.master_id IS NULL)
                   AND (m.user_id = $1 OR ($2::text IS NOT NULL AND UPPER(m.box_id) = UPPER($2::text)))
                 ORDER BY m.created_at DESC
