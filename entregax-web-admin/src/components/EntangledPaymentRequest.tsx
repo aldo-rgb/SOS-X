@@ -1779,8 +1779,10 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
         cuenta: supplierForm.numero_cuenta,
         iban: supplierForm.iban,
         banco: supplierForm.banco_nombre,
+        banco_direccion: supplierForm.banco_direccion,
         swift: supplierForm.swift_bic,
         aba: supplierForm.aba_routing,
+        direccion: supplierForm.direccion_beneficiario,
       };
       fd.append('instructions_snapshot', JSON.stringify({
         providerSnapshot,

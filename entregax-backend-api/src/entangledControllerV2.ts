@@ -657,6 +657,24 @@ export async function sendPendingRequestToEntangled(
     };
   }
 
+  // Reconstruir notas con datos del beneficiario desde instructions_snapshot
+  const snap = reqRow.instructions_snapshot && typeof reqRow.instructions_snapshot === 'object'
+    ? reqRow.instructions_snapshot as any : null;
+  const benefSnap = snap?.beneficiarioSnapshot || null;
+  const notasObj: any = { proveedor_envio: {} };
+  if (benefSnap) {
+    notasObj.proveedor_envio = {
+      nombre_beneficiario: benefSnap.nombre || reqRow.op_beneficiario_nombre || '',
+      nombre_chino: benefSnap.nombre_chino || '',
+      numero_cuenta: benefSnap.cuenta || '',
+      iban: benefSnap.iban || '',
+      banco_nombre: benefSnap.banco || '',
+      swift_bic: benefSnap.swift || '',
+      aba_routing: benefSnap.aba || '',
+      direccion_beneficiario: benefSnap.direccion || '',
+    };
+  }
+
   const payload: EntangledSolicitudPayloadV2 = {
     servicio,
     comision_cliente_final_porcentaje: Number(
@@ -677,6 +695,7 @@ export async function sendPendingRequestToEntangled(
           }
         : { razon_social: reqRow.cf_razon_social },
     referencia_xpay: reqRow.referencia_pago,
+    notas: JSON.stringify(notasObj),
   };
   if (servicio === 'pago_con_factura') {
     payload.conceptos = conceptos as any[];
