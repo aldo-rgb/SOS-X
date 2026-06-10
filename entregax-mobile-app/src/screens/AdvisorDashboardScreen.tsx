@@ -387,16 +387,6 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                 </Text>
                 <Text style={s.kpiUnit}>MXN/USD</Text>
               </View>
-              <View style={s.kpiDivider} />
-              <View style={s.kpiItem}>
-                <Text style={s.kpiLabel}>TC Operativo</Text>
-                <Text style={s.kpiValue}>
-                  {rates.tc_operativo != null
-                    ? `$${rates.tc_operativo.toFixed(2)}`
-                    : '—'}
-                </Text>
-                <Text style={s.kpiUnit}>MXN/USD</Text>
-              </View>
             </View>
           </View>
         )}

@@ -179,6 +179,9 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     porcentaje_compra: number | string; costo_operacion_usd: number | string;
     bank_accounts: Array<{ currency: string; bank: string; holder: string; account: string; clabe: string; reference: string }>;
     is_default: boolean;
+    has_override_usd?: boolean;
+    has_override_rmb?: boolean;
+    last_synced_at?: string;
   };
 
   const [providers, setProviders] = useState<EntProviderPub[]>([]);
@@ -1374,6 +1377,11 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
             ${currentRate.toFixed(4)}
           </Text>
           <Text style={{ color: TEXT_MUTED, fontSize: 12 }}>MXN/{chartTab.toUpperCase()}</Text>
+          {defaultProvider && ((chartTab === 'usd' && defaultProvider.has_override_usd) || (chartTab === 'rmb' && defaultProvider.has_override_rmb)) && (
+            <View style={{ paddingHorizontal: 5, paddingVertical: 2, borderRadius: 4, backgroundColor: '#FFF7ED', borderWidth: 1, borderColor: '#FDBA74' }}>
+              <Text style={{ color: '#C2410C', fontSize: 10, fontWeight: '800', letterSpacing: 0.5 }}>OV</Text>
+            </View>
+          )}
           <View style={[styles.deltaBadge, {
             backgroundColor: rateDelta >= 0 ? 'rgba(74,222,128,0.12)' : 'rgba(239,68,68,0.12)',
             borderColor: rateDelta >= 0 ? 'rgba(74,222,128,0.25)' : 'rgba(239,68,68,0.25)',

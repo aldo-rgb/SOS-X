@@ -650,8 +650,9 @@ export default function DashboardBranchManager() {
                 stale: boolean;
                 icon: React.ReactNode;
                 staleLabel?: string;
+                hasOverride?: boolean;
               }) => {
-                const { title, main, secondary, updatedAt, hoursSince, stale, icon, staleLabel } = props;
+                const { title, main, secondary, updatedAt, hoursSince, stale, icon, staleLabel, hasOverride } = props;
                 const borderColor = stale ? '#FCA5A5' : '#E5E7EB';
                 const accent = stale ? '#DC2626' : '#F05A28';
                 return (
@@ -683,9 +684,16 @@ export default function DashboardBranchManager() {
                         <Typography variant="caption" sx={{ color: '#64748B', fontWeight: 600, letterSpacing: 0.3, textTransform: 'uppercase', fontSize: '0.7rem' }}>
                           {title}
                         </Typography>
-                        <Typography sx={{ color: '#0F172A', fontWeight: 700, fontSize: '1.6rem', lineHeight: 1.15, mt: 0.5 }}>
-                          {main}
-                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.75, mt: 0.5 }}>
+                          <Typography sx={{ color: '#0F172A', fontWeight: 700, fontSize: '1.6rem', lineHeight: 1.15 }}>
+                            {main}
+                          </Typography>
+                          {hasOverride && (
+                            <Box sx={{ px: 0.6, py: 0.15, borderRadius: 1, bgcolor: '#FFF7ED', border: '1px solid #FDBA74', fontSize: '0.65rem', fontWeight: 800, color: '#C2410C', letterSpacing: 0.5, flexShrink: 0 }}>
+                              OV
+                            </Box>
+                          )}
+                        </Box>
                         {secondary && (
                           <Typography variant="caption" sx={{ color: '#64748B', display: 'block', mt: 0.25 }}>
                             {secondary}
@@ -740,11 +748,11 @@ export default function DashboardBranchManager() {
                       <RateCard
                         title="Tipo de cambio · Envío de Dinero"
                         main={`$${Number(ent.tipo_cambio_usd).toFixed(4)} MXN / USD`}
-                        secondary={`${ent.provider || ent.code || 'Proveedor'} · RMB ${Number(ent.tipo_cambio_rmb).toFixed(4)}`}
                         updatedAt={ent.updated_at}
                         hoursSince={ent.hours_since_update}
                         stale={ent.stale}
                         icon={<CurrencyExchangeIcon sx={{ fontSize: 22 }} />}
+                        hasOverride={!!(ent.has_override_usd || ent.has_override_rmb)}
                       />
                     ) : (
                       <RateCard
@@ -763,11 +771,6 @@ export default function DashboardBranchManager() {
                       <RateCard
                         title="Tipo de cambio · EntregaX"
                         main={`$${Number(pob.tipo_cambio_final).toFixed(4)} MXN / USD`}
-                        secondary={
-                          pob.ultimo_tc_api !== null
-                            ? `API base $${Number(pob.ultimo_tc_api).toFixed(4)} · sobreprecio ${pob.sobreprecio ?? 0}`
-                            : 'Sin lectura previa del API'
-                        }
                         updatedAt={pob.updated_at}
                         hoursSince={pob.hours_since_update}
                         stale={pob.stale}
@@ -791,11 +794,7 @@ export default function DashboardBranchManager() {
                         title="Precio Genérico / kg · TDI Aéreo"
                         main={`$${Number(tdi.price_generic_usd ?? (Number(tdi.cost_per_kg_usd) + 8)).toFixed(2)} USD / kg`}
                         secondary={(() => {
-                          // Alias amigables para aeropuertos conocidos
-                          const AIRPORT_ALIAS: Record<string, string> = {
-                            NLU: 'AIFA',
-                            MEX: 'AICM',
-                          };
+                          const AIRPORT_ALIAS: Record<string, string> = { NLU: 'AIFA', MEX: 'AICM' };
                           const aliasOf = (code?: string | null) =>
                             code ? (AIRPORT_ALIAS[String(code).toUpperCase()] || String(code).toUpperCase()) : '';
                           const orig = tdi.origin_city || aliasOf(tdi.origin_airport);
@@ -804,11 +803,7 @@ export default function DashboardBranchManager() {
                           const oa = aliasOf(tdi.origin_airport);
                           const da = aliasOf(tdi.destination_airport);
                           const airports = [oa, da].filter(Boolean).join('–');
-                          const routeStr = airports ? `${route} (${airports})` : route;
-                          const fx = tdi.tipo_cambio_final !== null && tdi.tipo_cambio_final !== undefined
-                            ? ` · TC $${Number(tdi.tipo_cambio_final).toFixed(4)} MXN`
-                            : '';
-                          return `${routeStr} · costo $${Number(tdi.cost_per_kg_usd).toFixed(2)}${fx}`;
+                          return airports ? `${route} (${airports})` : route;
                         })()}
                         updatedAt={tdi.updated_at}
                         hoursSince={tdi.hours_since_update}
@@ -841,12 +836,10 @@ export default function DashboardBranchManager() {
                           const orig = tdiExp.origin_city || aliasOf(tdiExp.origin_airport);
                           const dest = tdiExp.destination_city || aliasOf(tdiExp.destination_airport);
                           const route = (orig && dest) ? `${orig} → ${dest}` : (tdiExp.route_name || 'Ruta Express');
-                          const oa = aliasOf(tdiExp.origin_airport); const da = aliasOf(tdiExp.destination_airport);
+                          const oa = aliasOf(tdiExp.origin_airport);
+                          const da = aliasOf(tdiExp.destination_airport);
                           const airports = [oa, da].filter(Boolean).join('–');
-                          const routeStr = airports ? `${route} (${airports})` : route;
-                          const fx = tdiExp.tipo_cambio_final !== null && tdiExp.tipo_cambio_final !== undefined
-                            ? ` · TC $${Number(tdiExp.tipo_cambio_final).toFixed(4)} MXN` : '';
-                          return `${routeStr} · costo $${Number(tdiExp.cost_per_kg_usd).toFixed(2)}${fx}`;
+                          return airports ? `${route} (${airports})` : route;
                         })()}
                         updatedAt={tdiExp.updated_at}
                         hoursSince={tdiExp.hours_since_update}

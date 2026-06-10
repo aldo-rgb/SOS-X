@@ -1288,6 +1288,9 @@ export const listActiveProvidersPublic = async (_req: Request, res: Response): P
         COALESCE(cancellation_fee_usd, 1) AS cancellation_fee_usd,
         COALESCE(costo_operacion_usd, 0) as base_costo,
         COALESCE(override_costo_operacion_usd, 0) as override_costo,
+        (override_tipo_cambio_usd IS NOT NULL AND override_tipo_cambio_usd <> 0) AS has_override_usd,
+        (override_tipo_cambio_rmb IS NOT NULL AND override_tipo_cambio_rmb <> 0) AS has_override_rmb,
+        last_synced_at,
         bank_accounts, is_default, sort_order
        FROM entangled_providers WHERE is_active = true
        ORDER BY is_default DESC, sort_order ASC, id ASC`

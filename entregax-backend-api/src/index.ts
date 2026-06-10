@@ -2650,7 +2650,12 @@ app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.
 
     const [entangledRes, poboxRes, tdiRes, tdiFxRes, tdiExpressRes] = await Promise.all([
       pool.query(
-        `SELECT name, code, tipo_cambio_usd, tipo_cambio_rmb, updated_at
+        `SELECT name, code,
+                (tipo_cambio_usd + COALESCE(override_tipo_cambio_usd, 0)) AS tipo_cambio_usd,
+                (tipo_cambio_rmb + COALESCE(override_tipo_cambio_rmb, 0)) AS tipo_cambio_rmb,
+                (override_tipo_cambio_usd IS NOT NULL AND override_tipo_cambio_usd <> 0) AS has_override_usd,
+                (override_tipo_cambio_rmb IS NOT NULL AND override_tipo_cambio_rmb <> 0) AS has_override_rmb,
+                updated_at
            FROM entangled_providers
           WHERE is_active = true
           ORDER BY is_default DESC, sort_order ASC, id ASC
@@ -2719,9 +2724,12 @@ app.get('/api/dashboard/system-rates', authenticateToken, requireMinLevel(ROLES.
       entangled: entangled
         ? {
             provider: entangled.name,
+            name: entangled.name,
             code: entangled.code,
             tipo_cambio_usd: Number(entangled.tipo_cambio_usd),
             tipo_cambio_rmb: Number(entangled.tipo_cambio_rmb),
+            has_override_usd: !!entangled.has_override_usd,
+            has_override_rmb: !!entangled.has_override_rmb,
             updated_at: entangled.updated_at,
             hours_since_update: entH,
             stale: entH === null ? true : entH > STALE_HOURS,
@@ -5922,11 +5930,11 @@ app.get('/api/advisor/rates', authenticateToken, async (req: Request, res: Respo
       if (cost > 0) precioTdiExpress = cost + 8;
     } catch { /* opcional */ }
 
-    // 3. TC Envío de dinero (Entangled / XPAY) — usa el proveedor activo por defecto
+    // 3. TC Envío de dinero (Entangled / XPAY) — precio efectivo = base + override
     let tcEnvioDinero: number | null = null;
     try {
       const r = await pool.query(
-        `SELECT COALESCE(tipo_cambio_usd, 0)::float AS tc
+        `SELECT (COALESCE(tipo_cambio_usd, 0) + COALESCE(override_tipo_cambio_usd, 0))::float AS tc
          FROM entangled_providers
          WHERE COALESCE(is_active, true) = true
          ORDER BY (is_default DESC NULLS LAST), id ASC
