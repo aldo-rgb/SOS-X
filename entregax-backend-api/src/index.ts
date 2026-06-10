@@ -5042,30 +5042,8 @@ const entangledRequestUpload = multer({
 // Cliente final (v2: multipart con comprobante)
 app.post(
   '/api/entangled/payment-requests',
-  (req: Request, _res: Response, next: any) => {
-    console.error(`[XPAY ROUTE] POST origin=${req.headers.origin} ct=${req.headers['content-type']} auth=${String(req.headers.authorization || '').slice(0, 20)}`);
-    next();
-  },
-  (req: Request, res: Response, next: any) => {
-    // Wrapper de authenticateToken con logging
-    const origJson = res.json.bind(res);
-    (res as any).json = (body: any) => {
-      if (res.statusCode === 401 || res.statusCode === 403) {
-        console.error(`[XPAY AUTH FAIL] status=${res.statusCode} body=${JSON.stringify(body)}`);
-      }
-      return origJson(body);
-    };
-    authenticateToken(req, res, (err?: any) => {
-      if (err) { console.error('[XPAY AUTH ERR]', err?.message || err); return next(err); }
-      console.error(`[XPAY AUTH OK] userId=${(req as any).user?.userId}`);
-      next();
-    });
-  },
+  authenticateToken,
   entangledRequestUpload.single('comprobante'),
-  (err: any, _req: Request, _res: Response, next: any) => {
-    console.error('[XPAY MULTER ERROR]', err?.message || err);
-    next(err);
-  },
   createEntangledRequestV2
 );
 app.get('/api/entangled/payment-requests/me', authenticateToken, getMyEntangledRequests);

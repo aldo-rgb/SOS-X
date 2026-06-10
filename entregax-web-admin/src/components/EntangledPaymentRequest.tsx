@@ -1717,6 +1717,10 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       fd.append('servicio', requiereFactura ? 'pago_con_factura' : 'pago_sin_factura');
       fd.append('monto_usd', String(Number(form.monto)));
       fd.append('divisa', form.divisa_destino);
+      // Para pago_sin_factura: enviar cuenta de depósito (obtenida de /asignacion en step 4)
+      if (!requiereFactura && asignacion?.cuenta_bancaria) {
+        fd.append('cuenta_bancaria_sin_factura', JSON.stringify(asignacion.cuenta_bancaria));
+      }
       // Tipo de cambio que XPAY le cobra al cliente final (ENTANGLED lo exige)
       if (quote?.tipo_cambio) {
         fd.append('tc_cliente_final', String(quote.tipo_cambio));

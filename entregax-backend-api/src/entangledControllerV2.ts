@@ -105,7 +105,6 @@ export const createPaymentRequestV2 = async (
   res: Response
 ): Promise<any> => {
   const userId = getAuthUserId(req);
-  console.log(`[XPAY CREATE] userId=${userId} body.servicio=${req.body?.servicio} body.monto=${req.body?.monto_usd ?? req.body?.monto}`);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
   // Comprobante OPCIONAL: si no se envía, la solicitud queda en estado
@@ -336,6 +335,11 @@ export const createPaymentRequestV2 = async (
   // podemos cumplir ninguno de los dos, así que dejamos la solicitud local en
   // 'esperando_comprobante' y la enviaremos cuando el cliente suba el archivo.
   if (!hasFile) {
+    // cuenta_bancaria_sin_factura: el frontend puede mandarlo en body para incluirlo en el WhatsApp
+    const cuentaSinFactura: any = (() => {
+      try { return body.cuenta_bancaria_sin_factura ? JSON.parse(String(body.cuenta_bancaria_sin_factura)) : {}; }
+      catch { return {}; }
+    })();
     await pool.query(
       `UPDATE entangled_payment_requests
           SET estatus_global = 'esperando_comprobante',
@@ -344,6 +348,33 @@ export const createPaymentRequestV2 = async (
         WHERE id = $2`,
       [JSON.stringify([]), requestId]
     );
+    // WhatsApp xpay_confirmacion — debe enviarse aquí porque pago_sin_factura no adjunta comprobante al crear
+    try {
+      const userRow = await pool.query(`SELECT full_name, phone FROM users WHERE id = $1 LIMIT 1`, [userId]);
+      const u = userRow.rows[0];
+      if (u?.phone) {
+        const tc = Number(tcClienteFinal) || 0;
+        const totalMxn = tc > 0
+          ? (monto * tc * (1 + commission.porcentaje / 100)).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+          : '—';
+        console.log(`[XPAY WA] Enviando xpay_confirmacion a ${u.phone} ref=${referenciaPago}`);
+        void sendXPayConfirmation({
+          phone: u.phone,
+          nombre: u.full_name || '',
+          montoUsd: `$${Number(monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${divisa}`,
+          totalMxn: `$${totalMxn}`,
+          beneficiario: String(body.beneficiario_nombre || ''),
+          banco: cuentaSinFactura.banco || '',
+          cuenta: cuentaSinFactura.cuenta || '',
+          clabe: cuentaSinFactura.clabe || '',
+          referencia: referenciaPago,
+        });
+      } else {
+        console.warn(`[XPAY WA] Usuario ${userId} sin teléfono para xpay_confirmacion`);
+      }
+    } catch (waErr) {
+      console.warn('[XPAY WA] Error xpay_confirmacion:', waErr);
+    }
     return res.status(201).json({
       message: 'Solicitud creada. Sube el comprobante de pago para enviarla a ENTANGLED.',
       request_id: requestId,
