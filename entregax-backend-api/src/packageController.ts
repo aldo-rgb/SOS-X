@@ -3428,6 +3428,10 @@ export const getMyPackages = async (req: Request, res: Response): Promise<void> 
                 // Instrucciones de entrega
                 delivery_address_id: pkg.delivery_address_id || null,
                 has_delivery_instructions: !!pkg.delivery_address_id,
+                // Estado de pago
+                clientPaid: !!pkg.paid_at,
+                paymentStatus: pkg.paid_at ? 'paid' : null,
+                clientPaidAt: pkg.paid_at || null,
             };
         });
 

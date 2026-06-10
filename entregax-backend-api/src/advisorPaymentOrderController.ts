@@ -400,7 +400,7 @@ export const updateAdvisorPaymentOrderStatus = async (req: Request, res: Respons
         }
         if (dhlIds.length > 0) {
           await pool.query(
-            `UPDATE dhl_shipments SET paid_at=CURRENT_TIMESTAMP, monto_pagado=COALESCE(total_cost_mxn, saldo_pendiente, 0), saldo_pendiente=0 WHERE id=ANY($1) AND paid_at IS NULL`,
+            `UPDATE dhl_shipments SET paid_at=CURRENT_TIMESTAMP, cost_payment_status='paid', monto_pagado=COALESCE(total_cost_mxn, saldo_pendiente, 0), saldo_pendiente=0 WHERE id=ANY($1) AND paid_at IS NULL`,
             [dhlIds]
           ).catch(() => {});
         }

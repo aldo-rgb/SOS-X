@@ -784,7 +784,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     const statsSQL = `
       SELECT 
         COUNT(*) as total,
-        COUNT(CASE WHEN status IN ('in_transit','received_china','received','customs','received_mty','consolidated','at_port','shipped') THEN 1 END) as in_transit,
+        COUNT(CASE WHEN status IN ('in_transit','received_china','received','customs','received_mty','consolidated','at_port','shipped') AND client_paid = false THEN 1 END) as in_transit,
         COUNT(CASE WHEN COALESCE(monto, 0) > 0 AND client_paid = false THEN 1 END) as awaiting_payment,
         COUNT(CASE WHEN has_instructions = false AND status != 'delivered' THEN 1 END) as missing_instructions,
         COUNT(CASE WHEN status = 'ready_pickup' THEN 1 END) as ready_pickup,
