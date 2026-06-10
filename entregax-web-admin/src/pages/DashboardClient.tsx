@@ -883,6 +883,11 @@ export default function DashboardClient() {
       if (envioFromChildren > 0) envioMXN = envioFromChildren;
     }
 
+    // Fallback para servicios sin monto explícito (DHL, etc.): leer directamente desde DB
+    if (envioMXN === 0) {
+      envioMXN = Number(pkg.saldo_pendiente) || Number(pkg.assigned_cost_mxn) || 0;
+    }
+
     const gexFromChildren = included.reduce((sum, g) => sum + (Number(g.gex_total_cost) || 0), 0);
     const paqFromChildren = included.reduce((sum, g) => sum + (Number(g.national_shipping_cost) || 0), 0);
 
@@ -3201,18 +3206,6 @@ export default function DashboardClient() {
         return;
       }
 
-      // 🚫 No permitir mezclar guías con etiqueta impresa con guías sin etiqueta:
-      // las primeras solo pueden pagarse, las segundas pueden cambiar instrucciones.
-      if (currentSelected && hasPrintedLabel(currentSelected) !== hasPrintedLabel(pkg)) {
-        setSnackbar({
-          open: true,
-          message: hasPrintedLabel(currentSelected)
-            ? '⚠️ No puedes mezclar guías con etiqueta impresa con guías sin etiqueta. Deselecciónalas primero.'
-            : '⚠️ Esta guía ya tiene etiqueta de paquetería impresa. Deselecciona las guías sin etiqueta para continuar.',
-          severity: 'warning'
-        });
-        return;
-      }
     }
     
     // Si es un master virtual de hermanas AIR, seleccionamos/deseleccionamos

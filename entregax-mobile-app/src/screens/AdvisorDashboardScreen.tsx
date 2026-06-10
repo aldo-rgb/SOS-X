@@ -516,6 +516,8 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
               onPress={() =>
                 st.filter === 'in_transit'
                   ? openTransitClientPicker()
+                  : st.filter === 'awaiting_payment'
+                  ? navigation.navigate('AdvisorPaymentOrders', { user, token })
                   : navigation.navigate('AdvisorPackages', { user, token, filter: st.filter })
               }
             >

@@ -53,6 +53,7 @@ interface ClientAddress {
   zip_code: string;
   is_default: boolean;
   default_for_service: string | null;
+  created_by_advisor_id?: number | null;
 }
 
 export default function AdvisorClientsScreen({ navigation, route }: any) {
@@ -76,6 +77,7 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
   const [editingAddrId, setEditingAddrId] = useState<number | null>(null);
   const [editingServices, setEditingServices] = useState<string[]>([]);
   const [addrSaving, setAddrSaving] = useState(false);
+  const [deleteAddrConfirm, setDeleteAddrConfirm] = useState<number | null>(null);
 
   // New address form
   const [showNewAddrForm, setShowNewAddrForm] = useState(false);
@@ -231,6 +233,22 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
       ? addr.default_for_service.split(',').map(s => s.trim()).filter(Boolean)
       : [];
     setEditingServices(services);
+  };
+
+  const handleDeleteAddress = async (addrId: number) => {
+    if (!addrClient) return;
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/clients/${addrClient.id}/addresses/${addrId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const data = await res.json();
+      if (!res.ok) { Alert.alert('Error', data.error || 'No se pudo eliminar'); return; }
+      setAddrList(prev => prev.filter(a => a.id !== addrId));
+      setDeleteAddrConfirm(null);
+    } catch {
+      Alert.alert('Error', 'No se pudo eliminar la dirección');
+    }
   };
 
   const toggleService = (value: string) => {
@@ -429,7 +447,7 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
                   <Text style={{ color: '#fff', fontSize: 13, fontWeight: '600' }}>Agregar</Text>
                 </TouchableOpacity>
               )}
-              <TouchableOpacity onPress={() => { setShowNewAddrForm(false); setAddrModal(false); }} style={styles.modalClose}>
+              <TouchableOpacity onPress={() => { setShowNewAddrForm(false); setAddrModal(false); setDeleteAddrConfirm(null); }} style={styles.modalClose}>
                 <Ionicons name="close" size={24} color="#fff" />
               </TouchableOpacity>
             </View>
@@ -491,14 +509,41 @@ export default function AdvisorClientsScreen({ navigation, route }: any) {
                           </View>
                         )}
                       </View>
-                      {instrEnabled && (
-                        <TouchableOpacity
-                          style={[styles.editBtn, isEditing && { backgroundColor: '#7B1FA2' }]}
-                          onPress={() => isEditing ? setEditingAddrId(null) : startEditAddress(addr)}
-                        >
-                          <Ionicons name={isEditing ? 'close' : 'pencil'} size={16} color={isEditing ? '#fff' : PURPLE} />
-                        </TouchableOpacity>
-                      )}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        {instrEnabled && (
+                          <TouchableOpacity
+                            style={[styles.editBtn, isEditing && { backgroundColor: '#7B1FA2' }]}
+                            onPress={() => isEditing ? setEditingAddrId(null) : startEditAddress(addr)}
+                          >
+                            <Ionicons name={isEditing ? 'close' : 'pencil'} size={16} color={isEditing ? '#fff' : PURPLE} />
+                          </TouchableOpacity>
+                        )}
+                        {(addr.created_by_advisor_id == null || Number(addr.created_by_advisor_id) === Number(user.id)) && (
+                          deleteAddrConfirm === addr.id ? (
+                            <View style={{ flexDirection: 'row', gap: 4 }}>
+                              <TouchableOpacity
+                                style={{ backgroundColor: '#D32F2F', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 }}
+                                onPress={() => handleDeleteAddress(addr.id)}
+                              >
+                                <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700' }}>Sí, borrar</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={{ backgroundColor: '#eee', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 }}
+                                onPress={() => setDeleteAddrConfirm(null)}
+                              >
+                                <Text style={{ color: '#333', fontSize: 11 }}>No</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              style={[styles.editBtn, { borderColor: '#D32F2F' }]}
+                              onPress={() => setDeleteAddrConfirm(addr.id)}
+                            >
+                              <Ionicons name="trash-outline" size={16} color="#D32F2F" />
+                            </TouchableOpacity>
+                          )
+                        )}
+                      </View>
                     </View>
 
                     {isEditing && (

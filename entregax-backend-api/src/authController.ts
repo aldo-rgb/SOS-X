@@ -377,7 +377,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
             );
         } else if (isReferralCode) {
             // Login con código de asesor: sólo permitido para advisor / sub_advisor.
-            // Normalizamos quitando guión para tolerar "ALDO-6251" ↔ "ALDO6251".
+            // Normalizamos quitando guión para tolerar "o" ↔ "ALDO6251".
             const codeUpper = rawIdentifier.toUpperCase();
             const codeNoDash = codeUpper.replace(/-/g, '');
             userQuery = await pool.query(

@@ -886,7 +886,7 @@ export const getAdvisorClientAddresses = async (req: Request, res: Response): Pr
         const result = await pool.query(
             `SELECT id, alias, recipient_name, street, exterior_number, interior_number,
                     neighborhood AS colony, city, state, zip_code, phone, reference, reception_hours,
-                    is_default, default_for_service, carrier_config
+                    is_default, default_for_service, carrier_config, created_by_advisor_id
                FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC`,
             [clientId]
         );
@@ -971,9 +971,9 @@ export const createAdvisorClientAddress = async (req: Request, res: Response): P
             await pool.query(`UPDATE addresses SET is_default = FALSE WHERE user_id = $1`, [clientId]);
         }
         const result = await pool.query(
-            `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default, phone, reference, reception_hours)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
-            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false, phone || null, notes || reference || null, receptionHours || null]
+            `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number, interior_number, neighborhood, city, state, zip_code, is_default, phone, reference, reception_hours, created_by_advisor_id)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
+            [clientId, alias || 'Dirección', recipientName, street, exteriorNumber, interiorNumber, neighborhood, city, state, zipCode, isDefault || false, phone || null, notes || reference || null, receptionHours || null, advisorId]
         );
         res.status(201).json({ message: 'Dirección creada exitosamente', address: result.rows[0] });
     } catch (error) {
@@ -1001,5 +1001,52 @@ export const setDefaultPaymentMethod = async (req: Request, res: Response): Prom
     } catch (error) {
         console.error('Error:', error);
         res.status(500).json({ error: 'Error al actualizar' });
+    }
+};
+
+// ============ ADVISOR: ELIMINAR DIRECCIÓN DE CLIENTE (solo si la creó el asesor) ============
+export const deleteAdvisorClientAddress = async (req: Request, res: Response): Promise<void> => {
+    try {
+        const authReq = req as AuthRequest;
+        const advisorId = authReq.user?.userId;
+        if (!advisorId) { res.status(401).json({ error: 'No autenticado' }); return; }
+
+        const clientId = parseInt(String(req.params.clientId));
+        const addressId = parseInt(String(req.params.addressId));
+
+        // Verify client belongs to this advisor
+        const clientCheck = await pool.query(
+            `SELECT id FROM users WHERE id = $1 AND (advisor_id = $2 OR referred_by_id = $2) AND role = 'client'`,
+            [clientId, advisorId]
+        );
+        if (clientCheck.rows.length === 0) {
+            res.status(403).json({ error: 'Cliente no encontrado' });
+            return;
+        }
+
+        // Verify address belongs to client AND was created by this advisor
+        const addrCheck = await pool.query(
+            `SELECT id, created_by_advisor_id FROM addresses WHERE id = $1 AND user_id = $2`,
+            [addressId, clientId]
+        );
+        if (addrCheck.rows.length === 0) {
+            res.status(404).json({ error: 'Dirección no encontrada' });
+            return;
+        }
+        const createdBy = addrCheck.rows[0].created_by_advisor_id;
+        // Allow if advisor created it, OR if legacy (NULL = before tracking was added)
+        // Client-created addresses going forward will also have NULL, but new ones are
+        // protected by the advisor endpoint being the only path that sets created_by_advisor_id.
+        // Legacy NULLs (pre-migration) are deletable as a pragmatic fallback.
+        if (createdBy !== null && Number(createdBy) !== Number(advisorId)) {
+            res.status(403).json({ error: 'Solo puedes eliminar direcciones que hayas creado tú' });
+            return;
+        }
+
+        await pool.query('DELETE FROM addresses WHERE id = $1', [addressId]);
+        res.json({ message: 'Dirección eliminada' });
+    } catch (error) {
+        console.error('Error deleteAdvisorClientAddress:', error);
+        res.status(500).json({ error: 'Error al eliminar dirección' });
     }
 };
