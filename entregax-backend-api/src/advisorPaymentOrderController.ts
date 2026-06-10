@@ -94,7 +94,7 @@ export const listAdvisorPaymentOrders = async (req: Request, res: Response): Pro
       FROM advisor_payment_orders apo
       LEFT JOIN LATERAL (
         SELECT p2.status, p2.payment_reference,
-               fe.bank_clabe, fe.bank_name, fe.legal_name AS beneficiario
+               fe.bank_clabe, fe.bank_name, fe.business_name AS beneficiario
         FROM pobox_payments p2
         LEFT JOIN service_company_config scc ON scc.service_type = COALESCE(apo.service_type_cfg,'POBOX_USA') AND scc.is_active = TRUE
         LEFT JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
@@ -210,7 +210,8 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
     let empresaId: number | null = null;
     try {
       const cRes = await pool.query(
-        `SELECT fe.id AS empresa_id, fe.alias AS company_name, fe.legal_name,
+        `SELECT fe.id AS empresa_id, fe.alias AS company_name,
+                fe.business_name AS legal_name,
                 fe.bank_name, fe.bank_clabe, fe.bank_account
          FROM service_company_config scc
          JOIN fiscal_emitters fe ON fe.id = scc.emitter_id
@@ -252,13 +253,14 @@ export const createAdvisorPaymentOrder = async (req: Request, res: Response): Pr
         INSERT INTO openpay_webhook_logs (
           transaction_id, empresa_id, user_id, monto_recibido, monto_neto,
           concepto, fecha_pago, estatus_procesamiento, service_type,
-          payment_method, payload_json
-        ) VALUES ($1,$2,$3,$4,$4,$5,CURRENT_TIMESTAMP,'pending_payment',$6,'cash',$7)
+          payment_method, payload_json, branch_id
+        ) VALUES ($1,$2,$3,$4,$4,$5,CURRENT_TIMESTAMP,'pending_payment',$8,'cash',$6,$7)
       `, [
         paymentRef, empresaId, client_id, Number(total_mxn),
         `Orden asesor - ${allPackageIds.length} guía(s): ${trackingStr}`,
-        serviceTypeForConfig,
         JSON.stringify({ packageIds: allPackageIds, pobox_payment_id: poboxPaymentId, trackings: trackings || [] }),
+        null,
+        serviceTypeForConfig,
       ]);
     } catch { /* non-critical */ }
 
