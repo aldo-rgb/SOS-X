@@ -13,6 +13,7 @@ import {
   Modal,
   StatusBar,
   Image,
+  TextInput,
 } from 'react-native';
 import { Text, Avatar, ActivityIndicator, Chip, Divider } from 'react-native-paper';
 import { Ionicons } from '@expo/vector-icons';
@@ -71,6 +72,13 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [unreadNotif, setUnreadNotif]   = useState(0);
   const [profilePhoto, setProfilePhoto] = useState<string | null>(user.profilePhotoUrl || null);
   const [showQrModal, setShowQrModal]   = useState(false);
+
+  // Modal selector de cliente (En Tránsito)
+  const [showTransitModal, setShowTransitModal]     = useState(false);
+  const [transitClientsLoading, setTransitClientsLoading] = useState(false);
+  const [transitClients, setTransitClients]         = useState<{ id: number; name: string; boxId: string }[]>([]);
+  const [transitClientSearch, setTransitClientSearch] = useState('');
+
   // 📊 KPIs (tarifas y TC) para asesores
   const [rates, setRates] = useState<{
     precio_tdi_aereo_usd: number | null;
@@ -133,6 +141,32 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   }, [token, user, navigation]);
 
   const onRefresh = () => { setRefreshing(true); loadDashboard(); };
+
+  const openTransitClientPicker = async () => {
+    setTransitClientSearch('');
+    setShowTransitModal(true);
+    setTransitClientsLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/shipments?filter=in_transit&limit=500`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      const seen = new Set<number>();
+      const clients: { id: number; name: string; boxId: string }[] = [];
+      for (const s of json.shipments || []) {
+        if (s.client_id && !seen.has(s.client_id)) {
+          seen.add(s.client_id);
+          clients.push({ id: s.client_id, name: s.client_name || '—', boxId: s.client_box_id || '' });
+        }
+      }
+      clients.sort((a, b) => a.name.localeCompare(b.name));
+      setTransitClients(clients);
+    } catch {
+      setTransitClients([]);
+    } finally {
+      setTransitClientsLoading(false);
+    }
+  };
 
   const copyReferralCode = () => {
     if (data?.advisor.referralCode) {
@@ -350,6 +384,79 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           </TouchableOpacity>
         </Modal>
 
+        {/* ── Modal selector de cliente (En Tránsito) ── */}
+        <Modal visible={showTransitModal} transparent animationType="slide" onRequestClose={() => setShowTransitModal(false)}>
+          <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+            <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, maxHeight: '80%' }}>
+              {/* Handle */}
+              <View style={{ alignItems: 'center', paddingTop: 10, paddingBottom: 4 }}>
+                <View style={{ width: 40, height: 4, borderRadius: 2, backgroundColor: '#DDD' }} />
+              </View>
+              {/* Header */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12, paddingTop: 4 }}>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 17, fontWeight: '800', color: BLACK }}>Embarques en Tránsito</Text>
+                  <Text style={{ fontSize: 12, color: '#888', marginTop: 2 }}>Selecciona un cliente</Text>
+                </View>
+                <TouchableOpacity onPress={() => setShowTransitModal(false)} style={{ padding: 6 }}>
+                  <Ionicons name="close" size={22} color="#666" />
+                </TouchableOpacity>
+              </View>
+              {/* Search */}
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 10, backgroundColor: '#F4F4F6', borderRadius: 10, paddingHorizontal: 10, height: 40 }}>
+                <Ionicons name="search-outline" size={16} color="#999" />
+                <TextInput
+                  style={{ flex: 1, marginLeft: 8, fontSize: 14, color: BLACK }}
+                  placeholder="Buscar cliente..."
+                  placeholderTextColor="#BBB"
+                  value={transitClientSearch}
+                  onChangeText={setTransitClientSearch}
+                />
+              </View>
+              {/* List */}
+              {transitClientsLoading ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <ActivityIndicator size="small" color={ORANGE} />
+                  <Text style={{ color: '#999', marginTop: 10, fontSize: 13 }}>Cargando clientes...</Text>
+                </View>
+              ) : transitClients.length === 0 ? (
+                <View style={{ paddingVertical: 40, alignItems: 'center' }}>
+                  <Ionicons name="airplane-outline" size={40} color="#DDD" />
+                  <Text style={{ color: '#999', marginTop: 10, fontSize: 13 }}>Sin embarques en tránsito</Text>
+                </View>
+              ) : (
+                <ScrollView keyboardShouldPersistTaps="handled" style={{ paddingHorizontal: 16 }} contentContainerStyle={{ paddingBottom: 24 }}>
+                  {transitClients
+                    .filter(c => {
+                      const q = transitClientSearch.toLowerCase();
+                      return !q || c.name.toLowerCase().includes(q) || c.boxId.toLowerCase().includes(q);
+                    })
+                    .map(c => (
+                      <TouchableOpacity
+                        key={c.id}
+                        style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: '#F0F0F0' }}
+                        onPress={() => {
+                          setShowTransitModal(false);
+                          navigation.navigate('AdvisorPackages', { user, token, filter: 'in_transit', clientId: c.id, clientName: c.name });
+                        }}
+                      >
+                        <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: ORANGE + '20', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+                          <Text style={{ fontSize: 14, fontWeight: '800', color: ORANGE }}>{c.name.charAt(0).toUpperCase()}</Text>
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={{ fontSize: 14, fontWeight: '700', color: BLACK }}>{c.name}</Text>
+                          {c.boxId ? <Text style={{ fontSize: 12, color: '#888', marginTop: 1 }}>{c.boxId}</Text> : null}
+                        </View>
+                        <Ionicons name="chevron-forward" size={16} color="#CCC" />
+                      </TouchableOpacity>
+                    ))
+                  }
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
+
         {/* 📊 Widget de KPIs en vivo (tarifas y tipos de cambio) */}
         {rates && (
           <View style={s.kpiCard}>
@@ -401,7 +508,11 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             <TouchableOpacity
               key={i}
               style={[s.shipCard, st.accent && s.shipCardAccent]}
-              onPress={() => navigation.navigate('AdvisorPackages', { user, token, filter: st.filter })}
+              onPress={() =>
+                st.filter === 'in_transit'
+                  ? openTransitClientPicker()
+                  : navigation.navigate('AdvisorPackages', { user, token, filter: st.filter })
+              }
             >
               <View style={[s.shipCardBar, { backgroundColor: ORANGE }]} />
               <View style={[s.shipIcon, { backgroundColor: st.color + '22' }]}>

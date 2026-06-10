@@ -93,7 +93,7 @@ function getInitialFilters(filter: string) {
 }
 
 export default function AdvisorPackagesScreen({ navigation, route }: any) {
-  const { token, filter: routeFilter } = route.params;
+  const { token, filter: routeFilter, clientId, clientName } = route.params;
   const config = FILTER_CONFIG[routeFilter] || FILTER_CONFIG.in_transit;
   const statusFilter = routeFilter === 'in_transit' ? 'in_transit' : undefined;
   const initFilters = getInitialFilters(routeFilter);
@@ -166,8 +166,9 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
     if (instructionsFilter !== 'all') url += `&instructions=${instructionsFilter}`;
     if (serviceFilter !== 'all') url += `&serviceType=${serviceFilter}`;
     if (unidentifiedFilter) url += `&unidentified=true`;
+    if (clientId) url += `&clientId=${clientId}`;
     return url;
-  }, [statusFilter, paymentFilter, instructionsFilter, serviceFilter, unidentifiedFilter]);
+  }, [statusFilter, paymentFilter, instructionsFilter, serviceFilter, unidentifiedFilter, clientId]);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
@@ -581,7 +582,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           <Ionicons name="arrow-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Ionicons name={config.icon as any} size={20} color="#fff" style={{ marginLeft: 4 }} />
-        <Text style={styles.headerTitle}>{config.title}</Text>
+        <View style={{ flex: 1, marginLeft: 6 }}>
+          <Text style={styles.headerTitle} numberOfLines={1}>{config.title}</Text>
+          {clientName ? <Text style={{ color: 'rgba(255,255,255,0.75)', fontSize: 11, fontWeight: '600' }} numberOfLines={1}>{clientName}</Text> : null}
+        </View>
         <View style={styles.countBadge}>
           <Text style={styles.countText}>{shipments.length}</Text>
         </View>
@@ -1129,7 +1133,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 12,
   },
-  headerTitle: { color: '#fff', fontWeight: '700', fontSize: 16, marginLeft: 8, flex: 1 },
+  headerTitle: { color: '#fff', fontWeight: '700', fontSize: 16 },
   countBadge: { backgroundColor: ORANGE, borderRadius: 12, paddingHorizontal: 10, paddingVertical: 2 },
   countText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   filterBtn: { marginLeft: 10, padding: 6, position: 'relative' },

@@ -124,17 +124,49 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         AND u.created_at < NOW() - INTERVAL '7 days'
     `, [advisorId]);
 
-    // Embarques en tránsito de sus clientes
+    // Embarques en tránsito de sus clientes (packages + maritime + DHL)
     const shipmentsRes = await pool.query(`
-      SELECT 
-        COUNT(*) as total_in_transit,
-        COUNT(CASE WHEN COALESCE(p.saldo_pendiente, 0) > 0 THEN 1 END) as awaiting_payment,
-        COUNT(CASE WHEN p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar') THEN 1 END) as missing_instructions
-      FROM packages p
-      JOIN users u ON p.user_id = u.id
-      WHERE u.role = 'client'
-        AND (u.advisor_id = $1 OR u.referred_by_id = $1)
-        AND p.status::text IN ('in_transit', 'received_china', 'received', 'customs', 'ready_pickup')
+      SELECT
+        SUM(in_transit)        AS total_in_transit,
+        SUM(awaiting_payment)  AS awaiting_payment,
+        SUM(missing_instr)     AS missing_instructions
+      FROM (
+        -- packages (AIR, POBOX, TDI) — excluye hijos
+        SELECT
+          COUNT(*) FILTER (WHERE p.status::text IN ('in_transit','received_china','received','customs','ready_pickup')) AS in_transit,
+          COUNT(*) FILTER (WHERE COALESCE(p.saldo_pendiente,0) > 0) AS awaiting_payment,
+          COUNT(*) FILTER (WHERE p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')
+                             AND p.status::text NOT IN ('delivered','lost','returned_to_warehouse')) AS missing_instr
+        FROM packages p
+        JOIN users u ON (p.user_id = u.id OR (p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(TRIM(p.box_id)) = UPPER(TRIM(u.box_id))))
+        WHERE u.role = 'client'
+          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+          AND p.master_id IS NULL
+
+        UNION ALL
+
+        -- maritime_orders
+        SELECT
+          COUNT(*) FILTER (WHERE mo.status IN ('in_transit','received_china','received','customs','consolidated','at_port')) AS in_transit,
+          COUNT(*) FILTER (WHERE COALESCE(mo.saldo_pendiente,0) > 0) AS awaiting_payment,
+          COUNT(*) FILTER (WHERE mo.delivery_address_id IS NULL AND mo.status NOT IN ('delivered')) AS missing_instr
+        FROM maritime_orders mo
+        JOIN users u ON mo.user_id = u.id
+        WHERE u.role = 'client'
+          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+
+        UNION ALL
+
+        -- dhl_shipments
+        SELECT
+          COUNT(*) FILTER (WHERE ds.status IN ('in_transit','received_mty')) AS in_transit,
+          COUNT(*) FILTER (WHERE COALESCE(ds.saldo_pendiente,0) > 0) AS awaiting_payment,
+          COUNT(*) FILTER (WHERE ds.delivery_address_id IS NULL AND ds.status NOT IN ('delivered')) AS missing_instr
+        FROM dhl_shipments ds
+        JOIN users u ON ds.user_id = u.id
+        WHERE u.role = 'client'
+          AND (u.advisor_id = $1 OR u.referred_by_id = $1)
+      ) t
     `, [advisorId]);
 
     // Guías sin cliente: user_id IS NULL y sin casillero asignado (box_id vacío)
