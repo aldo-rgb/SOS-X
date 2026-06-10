@@ -2800,7 +2800,14 @@ export default function DashboardAdvisor() {
                               </Tooltip>
                             </TableCell>
                             <TableCell>
-                              <Typography sx={{ fontFamily: 'monospace', fontSize: '0.78rem', fontWeight: 600 }}>{s.tracking || s.uid}</Typography>
+                              <Typography sx={{ fontFamily: 'monospace', fontSize: '0.78rem', fontWeight: 600 }}>
+                                {s.serviceType === 'AA_DHL'
+                                  ? (s.internationalTracking || s.tracking || s.uid)
+                                  : (s.tracking || s.internationalTracking || s.uid)}
+                              </Typography>
+                              {s.serviceType === 'AA_DHL' && s.internationalTracking && s.tracking && s.tracking !== s.internationalTracking && (
+                                <Typography variant="caption" color="text.secondary" fontFamily="monospace">{s.tracking}</Typography>
+                              )}
                               {!hasInstr && (
                                 <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.3 }}>
                                   ⚠️ Sin instrucciones — no seleccionable
