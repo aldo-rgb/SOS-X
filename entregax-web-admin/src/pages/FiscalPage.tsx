@@ -863,14 +863,14 @@ export default function FiscalPage() {
             element: '#syncfy-widget-mount',
             config: {
               locale: 'es',
-              entrypoint: {
-                country: 'MX',
-                siteOrganizationType: '56cf4f5b784806cf028b4568',
-                id_credential: credential.id_credential,
-              },
+              entrypoint: { country: 'MX', siteOrganizationType: '56cf4f5b784806cf028b4568' },
               navigation: { displayStatusInToast: true },
             },
           });
+          // setEntrypointUpdateCredential pone el widget en modo "actualizar credencial existente"
+          if (typeof widget.setEntrypointUpdateCredential === 'function') {
+            widget.setEntrypointUpdateCredential(credential.id_credential);
+          }
           if (typeof widget.open === 'function') { try { widget.open(); } catch { /* noop */ } }
           if (typeof widget.on === 'function') {
             const onSuccess = async () => {
