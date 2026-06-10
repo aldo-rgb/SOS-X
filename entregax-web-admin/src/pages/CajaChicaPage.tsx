@@ -1774,6 +1774,24 @@ const CajaChicaPage: React.FC = () => {
                     }}
                     onClick={() => {
                       if (!svc.enabled) return;
+                      if (svc.key === 'pobox') {
+                        // Abrir lista de referencias pendientes directamente
+                        setPagoProveedorDialogOpen(false);
+                        setRefPagoData(null);
+                        setRefPagoList([]);
+                        setRefPagoOpen(true);
+                        setRefPagoLoading(true);
+                        api.get('/pobox/payment-references')
+                          .then((r) => {
+                            const all: any[] = r.data.references || [];
+                            setRefPagoList(all.filter((x: any) => x.status !== 'pagada'));
+                          })
+                          .catch(() => {
+                            setSnackbar({ open: true, message: 'Error cargando referencias pendientes', severity: 'error' });
+                          })
+                          .finally(() => setRefPagoLoading(false));
+                        return;
+                      }
                       setPagoServicioSel(svc.key);
                       setPagoWizardStep('supplier');
                       fetchProveedoresPago();
@@ -2426,7 +2444,7 @@ const CajaChicaPage: React.FC = () => {
       {/* ── Diálogo: Pago por Referencia ──────────────────────── */}
       <Dialog open={refPagoOpen} onClose={() => !refPagoProcesando && (setRefPagoOpen(false), setRefPagoData(null), setRefPagoList([]))} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'warning.main', color: 'white' }}>
-          <PaymentIcon /> Seleccionar Referencia a Pagar — {pagoProveedorSel?.name}
+          <PaymentIcon /> Referencias PO Box USA — Pendientes de Pago
         </DialogTitle>
         <DialogContent sx={{ mt: 2 }}>
           {refPagoLoading ? (
