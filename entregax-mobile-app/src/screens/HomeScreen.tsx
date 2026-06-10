@@ -2603,8 +2603,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           
           // Filtro por tipo de servicio
           if (serviceFilter === null) return true;
-          // Aéreo: TDI China Air
-          if (serviceFilter === 'air') return pkg.shipment_type === 'china_air';
+          // Aéreo: TDI China Air + TDI Express
+          if (serviceFilter === 'air') return pkg.shipment_type === 'china_air' || pkg.shipment_type === 'tdi_express';
           // Marítimo: LCL (maritime) + FCL (fcl)
           if (serviceFilter === 'maritime') return pkg.shipment_type === 'maritime' || pkg.shipment_type === 'fcl';
           // DHL: Solo paquetes DHL Monterrey
