@@ -79,7 +79,9 @@ const escapeZpl = (s: string) => (s || '').replace(/[\^~]/g, ' ');
  *   - Header con fecha (esquina superior derecha)
  *   - Tracking grande
  *   - "X de N" si es hija
- *   - QR a https://app.entregax.com/track/{tracking}
+ *   - QR con el tracking exacto (ej. US-5429233729-0001) — sin URL,
+ *     para que escanearlo arroje exactamente la guía y se pueda buscar
+ *     directo en el sistema interno.
  *   - Code128 con tracking sin guiones
  *   - PO Box del cliente en grande
  *   - Peso / dimensiones
@@ -99,7 +101,10 @@ export function generateZPL(label: LabelData): string {
     const weight = label.weight ? `Peso: ${label.weight} kg` : '';
     const dims = label.dimensions ? `Dim: ${escapeZpl(label.dimensions)}` : '';
     const desc = escapeZpl(label.description || 'Hidalgo TX');
-    const trackingUrl = `https://app.entregax.com/track/${tracking}`;
+    // QR con el tracking EXACTO (no URL) — al escanearlo en cualquier punto
+    // del flujo (almacén, control de salidas, mostrador) devuelve la guía
+    // tal cual está en la BD.
+    const qrPayload = tracking;
 
     // 4"x6" @ 203dpi = 812 x 1218 dots
     return `^XA
@@ -116,7 +121,7 @@ ${label.isMaster ? '^FO0,90^GB812,50,50,B,0^FS\n^FO50,98^A0N,38,38^FR^FDGUIA MAS
 ^FO40,225^A0N,32,32^FD${boxIndicator}^FS
 ${masterRef ? `^FO40,265^A0N,24,24^FD${masterRef}^FS` : ''}
 
-^FO40,310^BQN,2,7^FDLA,${trackingUrl}^FS
+^FO40,310^BQN,2,7^FDLA,${qrPayload}^FS
 ^FO340,310^BY3,3,140^BCN,140,N,N,N^FD${trackingNoDash}^FS
 ^FO340,455^A0N,26,26^FD${trackingNoDash}^FS
 

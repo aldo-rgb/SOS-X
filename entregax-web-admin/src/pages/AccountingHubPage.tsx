@@ -2523,7 +2523,7 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
     setSyncing(true);
     setError(null);
     try {
-      await api.post(`/accounting/${emitter.id}/bank-movements/sync`, { days_back: 7 });
+      await api.post(`/accounting/${emitter.id}/bank-movements/sync`, { days_back: 90 });
       await load();
     } catch (e: any) {
       setError(e.response?.data?.error || 'Error sincronizando');

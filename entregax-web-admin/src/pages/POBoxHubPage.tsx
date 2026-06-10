@@ -767,8 +767,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
         if (bulkPhotoMode === 'now' && newBox.dbId) {
             await waitForPhotoCapture(newBox.dbId);
         }
-        // Imprimir la etiqueta de este bloque en un solo archivo - SIN QR para recepción PO BOX
-        await printAllLabelsAtOnce([label], true);
+        // Imprimir la etiqueta de este bloque en un solo archivo - CON QR
+        // (el QR contiene el tracking exacto, ej. US-5429233729-0001)
+        await printAllLabelsAtOnce([label], false);
         const totalAfter = bulkBoxes.length + 1;
         setSnackbar({ open: true, message: `🖨️ Etiqueta enviada a impresión — ${totalAfter}${expected > 0 ? `/${expected}` : ''}`, severity: 'success' });
         // Si ya se completó el total esperado, mostrar diálogo de confirmación con el resumen
@@ -838,8 +839,9 @@ export default function POBoxHubPage({ users = [], onBack, openBulkReceiveOnMoun
             return;
         }
         setBulkError('');
-        // Imprimir TODAS las etiquetas de este bloque en un solo archivo (multi-página) - SIN QR para recepción PO BOX
-        if (batchLabels.length > 0) await printAllLabelsAtOnce(batchLabels, true);
+        // Imprimir TODAS las etiquetas de este bloque en un solo archivo (multi-página) - CON QR
+        // (el QR de cada etiqueta contiene su tracking exacto, ej. US-5429233729-0001)
+        if (batchLabels.length > 0) await printAllLabelsAtOnce(batchLabels, false);
         setSnackbar({ open: true, message: `🖨️ ${batchLabels.length} etiqueta(s) enviada(s) a impresión en un solo archivo`, severity: 'success' });
         // Si ya se completó el total esperado, mostrar diálogo de confirmación con el resumen
         const expectedTotal = parseInt(bulkExpectedBoxes) || 0;
