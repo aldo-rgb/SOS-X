@@ -105,6 +105,7 @@ export const createPaymentRequestV2 = async (
   res: Response
 ): Promise<any> => {
   const userId = getAuthUserId(req);
+  console.log(`[XPAY CREATE] userId=${userId} body.servicio=${req.body?.servicio} body.monto=${req.body?.monto_usd ?? req.body?.monto}`);
   if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
   // Comprobante OPCIONAL: si no se envía, la solicitud queda en estado
