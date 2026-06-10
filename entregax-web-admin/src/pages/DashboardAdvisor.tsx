@@ -589,7 +589,7 @@ export default function DashboardAdvisor() {
   const fetchNewOrderShipments = useCallback(async (clientId?: string) => {
     setNewOrderShipmentsLoading(true);
     try {
-      const params: any = { filter: 'in_transit', limit: 100, instructions: 'yes' };
+      const params: any = { filter: 'in_transit', limit: 200 };
       if (clientId && clientId !== 'all') params.clientId = clientId;
       const res = await api.get('/advisor/shipments', { params });
       setNewOrderShipments(res.data.shipments || []);
@@ -2655,7 +2655,7 @@ export default function DashboardAdvisor() {
             </Box>
 
             <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-              Solo se muestran guías en tránsito con instrucciones asignadas. Deben ser del mismo cliente y mismo servicio.
+              Guías en tránsito del cliente. Solo se pueden seleccionar las que tienen instrucciones asignadas (✅). Deben ser del mismo servicio.
             </Typography>
 
             {!newOrderClientId ? (
@@ -2722,17 +2722,26 @@ export default function DashboardAdvisor() {
                     <TableBody>
                       {filteredShipments.length === 0 && (
                         <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3 }}>
-                          <Typography color="text.secondary" variant="caption">No hay guías con instrucciones en tránsito</Typography>
+                          <Typography color="text.secondary" variant="caption">No hay guías en tránsito para este cliente</Typography>
                         </TableCell></TableRow>
                       )}
                       {filteredShipments.map(s => {
+                        const hasInstr    = !!s.hasInstructions;
                         const sameClient  = lockClientId == null || s.clientId === lockClientId;
                         const sameService = lockServiceType == null || s.serviceType === lockServiceType;
-                        const canSelect   = sameClient && sameService;
-                        const disabledReason = !sameClient ? 'Solo guías del mismo cliente' : !sameService ? 'No se pueden mezclar servicios diferentes' : '';
+                        const canSelect   = hasInstr && sameClient && sameService;
+                        const disabledReason = !hasInstr
+                          ? '⚠️ Asigna instrucciones de entrega primero'
+                          : !sameClient ? 'Solo guías del mismo cliente'
+                          : !sameService ? 'No se pueden mezclar servicios diferentes'
+                          : '';
                         return (
-                          <TableRow key={s.uid} hover selected={newOrderSelectedUids.has(s.uid)}
-                            sx={{ opacity: canSelect ? 1 : 0.35, cursor: canSelect ? 'pointer' : 'not-allowed' }}
+                          <TableRow key={s.uid} hover={canSelect} selected={newOrderSelectedUids.has(s.uid)}
+                            sx={{
+                              bgcolor: !hasInstr ? '#FFFBF2' : undefined,
+                              opacity: (sameClient && sameService) ? 1 : 0.35,
+                              cursor: canSelect ? 'pointer' : 'default',
+                            }}
                             onClick={() => {
                               if (!canSelect) return;
                               setNewOrderSelectedUids(prev => {
@@ -2747,7 +2756,14 @@ export default function DashboardAdvisor() {
                                 <span><Checkbox size="small" checked={newOrderSelectedUids.has(s.uid)} disabled={!canSelect} /></span>
                               </Tooltip>
                             </TableCell>
-                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.78rem', fontWeight: 600 }}>{s.tracking || s.uid}</TableCell>
+                            <TableCell>
+                              <Typography sx={{ fontFamily: 'monospace', fontSize: '0.78rem', fontWeight: 600 }}>{s.tracking || s.uid}</Typography>
+                              {!hasInstr && (
+                                <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                                  ⚠️ Sin instrucciones — no seleccionable
+                                </Typography>
+                              )}
+                            </TableCell>
                             <TableCell><Typography variant="body2">{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
                             <TableCell><Chip label={serviceLabel(s.serviceType || '')} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} /></TableCell>
                             <TableCell align="right">{s.amount > 0 ? <Typography variant="body2" fontWeight={700} color="warning.main">${s.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography> : <Typography color="text.disabled">—</Typography>}</TableCell>
