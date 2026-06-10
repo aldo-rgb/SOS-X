@@ -11440,116 +11440,85 @@ app.post('/api/firma-abandono/:token', firmarDocumentoAbandono); // Público
 // Guías sin instrucciones por tipo de servicio (para Asignar Cliente en Centro de Soporte)
 app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUSTOMER_SERVICE), async (_req: AuthRequest, res: Response) => {
   try {
+    const safeQuery = async (sql: string) => {
+      try { return (await pool.query(sql)).rows; } catch { return []; }
+    };
+
     const [pobox, tdi, aereo, maritimo, dhl, fcl] = await Promise.all([
       // PO Box USA
-      pool.query(`
-        SELECT
-          p.tracking_internal AS tracking,
-          p.box_id,
-          u.full_name AS client_name,
-          p.status,
-          p.created_at
-        FROM packages p
-        LEFT JOIN users u ON u.id = p.user_id
+      safeQuery(`
+        SELECT p.tracking_internal AS tracking, p.box_id,
+          u.full_name AS client_name, p.status, p.created_at
+        FROM packages p LEFT JOIN users u ON u.id = p.user_id
         WHERE p.service_type = 'POBOX_USA'
           AND p.status NOT IN ('delivered', 'cancelled', 'lost')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
           AND p.national_tracking IS NULL
-        ORDER BY p.created_at DESC
-        LIMIT 200
+        ORDER BY p.created_at DESC LIMIT 200
       `),
       // TDI Express
-      pool.query(`
-        SELECT
-          p.tracking_internal AS tracking,
-          p.box_id,
-          u.full_name AS client_name,
-          p.status,
-          p.created_at
-        FROM packages p
-        LEFT JOIN users u ON u.id = p.user_id
+      safeQuery(`
+        SELECT p.tracking_internal AS tracking, p.box_id,
+          u.full_name AS client_name, p.status, p.created_at
+        FROM packages p LEFT JOIN users u ON u.id = p.user_id
         WHERE p.service_type = 'TDI_EXPRESS'
           AND p.status NOT IN ('delivered', 'cancelled', 'lost')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
           AND p.national_tracking IS NULL
-        ORDER BY p.created_at DESC
-        LIMIT 200
+        ORDER BY p.created_at DESC LIMIT 200
       `),
-      // Aéreo Chino
-      pool.query(`
-        SELECT
-          cr.fno AS tracking,
-          u.box_id,
-          u.full_name AS client_name,
-          cr.status,
-          cr.created_at
-        FROM china_receipts cr
-        LEFT JOIN users u ON u.id = cr.user_id
+      // Aéreo Chino — china_receipts usa national_tracking (no tiene delivery_address_id)
+      safeQuery(`
+        SELECT cr.fno AS tracking, u.box_id,
+          u.full_name AS client_name, cr.status, cr.created_at
+        FROM china_receipts cr LEFT JOIN users u ON u.id = cr.user_id
         WHERE cr.status NOT IN ('delivered', 'cancelled')
-          AND cr.delivery_address_id IS NULL
-          AND (cr.delivery_instructions IS NULL OR cr.delivery_instructions = '')
-        ORDER BY cr.created_at DESC
-        LIMIT 200
+          AND (cr.national_tracking IS NULL OR cr.national_tracking = '')
+        ORDER BY cr.created_at DESC LIMIT 200
       `),
       // Marítimo China (LCL)
-      pool.query(`
-        SELECT
-          mo.ordersn AS tracking,
-          u.box_id,
-          u.full_name AS client_name,
-          mo.status,
-          mo.created_at
-        FROM maritime_orders mo
-        LEFT JOIN users u ON u.id = mo.user_id
+      safeQuery(`
+        SELECT mo.ordersn AS tracking, u.box_id,
+          u.full_name AS client_name, mo.status, mo.created_at
+        FROM maritime_orders mo LEFT JOIN users u ON u.id = mo.user_id
         WHERE mo.status NOT IN ('delivered', 'cancelled')
           AND mo.delivery_address_id IS NULL
           AND (mo.national_tracking IS NULL OR mo.national_tracking = '')
-        ORDER BY mo.created_at DESC
-        LIMIT 200
+        ORDER BY mo.created_at DESC LIMIT 200
       `),
       // DHL Monterrey
-      pool.query(`
-        SELECT
-          COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking,
-          u.box_id,
-          u.full_name AS client_name,
-          ds.status,
-          ds.created_at
-        FROM dhl_shipments ds
-        LEFT JOIN users u ON u.id = ds.user_id
+      safeQuery(`
+        SELECT COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking,
+          u.box_id, u.full_name AS client_name, ds.status, ds.created_at
+        FROM dhl_shipments ds LEFT JOIN users u ON u.id = ds.user_id
         WHERE ds.status NOT IN ('delivered', 'cancelled')
           AND ds.delivery_address_id IS NULL
-        ORDER BY ds.created_at DESC
-        LIMIT 200
+        ORDER BY ds.created_at DESC LIMIT 200
       `),
       // FCL Contenedores
-      pool.query(`
-        SELECT
-          COALESCE(c.container_number, c.bl_number, c.reference_code::text) AS tracking,
+      safeQuery(`
+        SELECT COALESCE(c.container_number, c.bl_number, c.reference_code::text) AS tracking,
           COALESCE(lc.box_id, u.box_id) AS box_id,
-          COALESCE(lc.full_name, u.full_name) AS client_name,
-          c.status,
-          c.created_at
+          COALESCE(lc.full_name, u.full_name) AS client_name, c.status, c.created_at
         FROM containers c
         LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
         LEFT JOIN users u ON u.id = c.client_user_id
         WHERE c.status NOT IN ('delivered', 'cancelled')
           AND c.delivery_address_id IS NULL
-        ORDER BY c.created_at DESC
-        LIMIT 200
+        ORDER BY c.created_at DESC LIMIT 200
       `),
     ]);
 
     res.json({
       services: [
-        { serviceType: 'POBOX_USA', label: 'PO Box USA', guides: pobox.rows },
-        { serviceType: 'TDI_EXPRESS', label: 'TDI Express', guides: tdi.rows },
-        { serviceType: 'AIR_CHN_MX', label: 'Aéreo Chino', guides: aereo.rows },
-        { serviceType: 'SEA_CHN_MX', label: 'Marítimo China', guides: maritimo.rows },
-        { serviceType: 'AA_DHL', label: 'DHL Monterrey', guides: dhl.rows },
-        { serviceType: 'FCL_CHN_MX', label: 'FCL Contenedores', guides: fcl.rows },
+        { serviceType: 'POBOX_USA', label: 'PO Box USA', guides: pobox },
+        { serviceType: 'TDI_EXPRESS', label: 'TDI Express', guides: tdi },
+        { serviceType: 'AIR_CHN_MX', label: 'Aéreo Chino', guides: aereo },
+        { serviceType: 'SEA_CHN_MX', label: 'Marítimo China', guides: maritimo },
+        { serviceType: 'AA_DHL', label: 'DHL Monterrey', guides: dhl },
+        { serviceType: 'FCL_CHN_MX', label: 'FCL Contenedores', guides: fcl },
       ],
     });
   } catch (err: any) {
