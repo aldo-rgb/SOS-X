@@ -2381,7 +2381,7 @@ export default function DashboardAdvisor() {
                         <Chip label={`${s.childrenCount} guías`} size="small" color="info" variant="outlined" sx={{ fontSize: '0.65rem', height: 20 }} icon={<UnfoldMoreIcon sx={{ fontSize: 14 }} />} />
                       )}
                     </Box>
-                    {s.serviceType === 'AA_DHL' && s.tracking && (
+                    {s.serviceType === 'AA_DHL' && s.internationalTracking && s.tracking && s.tracking !== s.internationalTracking && (
                       <Typography variant="caption" color="text.secondary" fontFamily="monospace">{s.tracking}</Typography>
                     )}
                     {s.serviceType !== 'AA_DHL' && s.childNo && (
