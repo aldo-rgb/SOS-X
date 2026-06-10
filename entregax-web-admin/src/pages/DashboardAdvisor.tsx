@@ -2473,8 +2473,7 @@ export default function DashboardAdvisor() {
               onClick={() => {
                 const uids = Array.from(selectedUids);
                 const sel = shipments.filter(s => uids.includes(s.uid));
-                const trackings = sel.map(s => s.trackingNumber || s.uid).join(', ');
-                Alert.alert?.('');
+                const trackings = sel.map(s => s.tracking || s.uid).join(', ');
                 window.alert(`Orden de Pago para:\n${trackings}\n\nFuncionalidad de cotización próximamente.`);
               }}
               sx={{ bgcolor: '#fff', color: '#F05A28', fontWeight: 800, '&:hover': { bgcolor: '#fff3ee' } }}
@@ -2533,7 +2532,7 @@ export default function DashboardAdvisor() {
                     </Tooltip>
                   </TableCell>
                   <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600 }}>
-                    {s.trackingNumber || s.uid}
+                    {s.tracking || s.uid}
                     {s.childrenCount > 0 && <Chip label={`${s.childrenCount + 1} cajas`} size="small" sx={{ ml: 1, fontSize: '0.65rem' }} />}
                   </TableCell>
                   <TableCell><Typography variant="body2" fontWeight={600}>{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
