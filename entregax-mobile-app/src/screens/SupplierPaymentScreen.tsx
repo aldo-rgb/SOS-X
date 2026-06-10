@@ -222,6 +222,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     benefIban: string;
     benefSwift: string;
     benefAba: string;
+    sinFacturaCuentaSnap?: { banco?: string; titular?: string; cuenta?: string; clabe?: string; moneda?: string } | null;
   };
   const [lastFormSnapshot, setLastFormSnapshot] = useState<FormSnapshot | null>(null);
 
@@ -761,6 +762,7 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
           total: quote?.monto_mxn_total || 0,
           benefName, benefNameZh, benefBankName, benefAccount,
           benefIban, benefSwift, benefAba,
+          sinFacturaCuentaSnap: !requiereFactura ? (sinFacturaCuenta?.cuenta || null) : null,
         });
         setSuccessModalVisible(true);
         setMonto(''); setConceptos('');
@@ -924,6 +926,8 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         </div>
       ` : '';
 
+      // Para pago sin factura: usar sinFacturaCuentaSnap del snapshot
+      const sinFacturaCb = snap?.sinFacturaCuentaSnap;
       const depositarRows = empresas.length > 0 ? empresas.map((emp) => {
         const cb: any = emp.cuenta_bancaria || {};
         const banco = cb.banco || cb.bank || '';
@@ -940,7 +944,14 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         if (sucursal) rows.push(`<tr><td class="lbl">Sucursal</td><td>${esc(sucursal)}</td></tr>`);
         if (emp.clave_prodserv) rows.push(`<tr><td class="lbl">Clave(s) SAT</td><td class="mono">${esc(emp.clave_prodserv)}</td></tr>`);
         return rows.join('');
-      }).join('<tr><td colspan="2" style="height:6px;border:0;"></td></tr>') : '';
+      }).join('<tr><td colspan="2" style="height:6px;border:0;"></td></tr>') : sinFacturaCb ? (() => {
+        const rows: string[] = [];
+        if (sinFacturaCb.titular) rows.push(`<tr><td class="lbl">Titular</td><td><b>${esc(sinFacturaCb.titular)}</b></td></tr>`);
+        if (sinFacturaCb.banco) rows.push(`<tr><td class="lbl">Banco</td><td>${esc(sinFacturaCb.banco)}${sinFacturaCb.moneda ? ` (${esc(sinFacturaCb.moneda)})` : ''}</td></tr>`);
+        if (sinFacturaCb.clabe) rows.push(`<tr><td class="lbl">CLABE</td><td class="mono">${esc(sinFacturaCb.clabe)}</td></tr>`);
+        if (sinFacturaCb.cuenta) rows.push(`<tr><td class="lbl">Cuenta</td><td class="mono">${esc(sinFacturaCb.cuenta)}</td></tr>`);
+        return rows.join('');
+      })() : '';
 
       const benefRows: string[] = [];
       if (benefSnap?.nombre) {
