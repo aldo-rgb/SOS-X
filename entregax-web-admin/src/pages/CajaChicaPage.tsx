@@ -1773,7 +1773,8 @@ const CajaChicaPage: React.FC = () => {
                       borderColor: 'divider',
                     }}
                     onClick={() => {
-                      if (svc.key === 'pobox') {
+                      const key = svc.key;
+                      if (key === 'pobox') {
                         // Abrir lista de referencias pendientes directamente
                         setPagoProveedorDialogOpen(false);
                         setRefPagoData(null);
@@ -1792,7 +1793,7 @@ const CajaChicaPage: React.FC = () => {
                         return;
                       }
                       if (!svc.enabled) return;
-                      setPagoServicioSel(svc.key);
+                      setPagoServicioSel(key);
                       setPagoWizardStep('supplier');
                       fetchProveedoresPago();
                     }}
