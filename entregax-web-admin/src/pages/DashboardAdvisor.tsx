@@ -543,12 +543,13 @@ export default function DashboardAdvisor() {
     }
   }, [clientPage, clientSearch, clientFilter]);
 
-  const fetchShipments = useCallback(async () => {
+  const fetchShipments = useCallback(async (overrideFilter?: string) => {
     try {
       setShipmentsLoading(true);
-      const params: any = { page: shipmentPage + 1, limit: 25 };
+      const params: any = { page: shipmentPage + 1, limit: 50 };
       if (shipmentSearch) params.search = shipmentSearch;
-      if (shipmentFilter !== 'all') params.filter = shipmentFilter;
+      const activeFilter = overrideFilter ?? shipmentFilter;
+      if (activeFilter !== 'all') params.filter = activeFilter;
       if (shipmentClientId !== 'all') params.clientId = shipmentClientId;
       if (shipmentServiceType !== 'all') params.serviceType = shipmentServiceType;
       if (shipmentPaymentFilter !== 'all') params.payment = shipmentPaymentFilter;
@@ -677,9 +678,10 @@ export default function DashboardAdvisor() {
 
   // Load clients for the dropdown when switching to shipments tab
   useEffect(() => {
-    if (activeTab === 2) {
+    if (activeTab === 2 || activeTab === 3) {
+      // Tab 3 (Orden de Pago) defaults to in_transit
+      if (activeTab === 3 && shipmentFilter === 'all') setShipmentFilter('in_transit');
       fetchShipments();
-      // Also fetch ALL clients for the filter dropdown (no pagination)
       if (clients.length === 0) {
         api.get('/advisor/clients', { params: { limit: 500 } })
           .then(res => { setClients(res.data.clients); setClientsTotal(res.data.total); })
@@ -689,12 +691,12 @@ export default function DashboardAdvisor() {
   }, [activeTab, fetchShipments]);
 
   useEffect(() => {
-    if (activeTab === 3) fetchCommissions();
+    if (activeTab === 4) fetchCommissions();
   }, [activeTab, fetchCommissions]);
 
   useEffect(() => {
-    if (activeTab === 5 || activeTab === 6) fetchAdvisorTickets();
-    if (activeTab === 6) fetchFormalQuotesList();
+    if (activeTab === 6 || activeTab === 7) fetchAdvisorTickets();
+    if (activeTab === 7) fetchFormalQuotesList();
   }, [activeTab]);
 
   // Carga inicial de tickets para mostrar puntos de notificación en pestañas
@@ -704,7 +706,7 @@ export default function DashboardAdvisor() {
   }, []);
 
   useEffect(() => {
-    if (activeTab === 7) fetchTeam();
+    if (activeTab === 8) fetchTeam();
   }, [activeTab]);
 
   const fetchTeam = async () => {
@@ -2088,10 +2090,32 @@ export default function DashboardAdvisor() {
               <MenuItem value="all">Todos</MenuItem>
               <MenuItem value="AIR_CHN_MX">✈️ Aéreo China</MenuItem>
               <MenuItem value="SEA_CHN_MX">🚢 Marítimo</MenuItem>
-              <MenuItem value="AA_DHL">📦 DHL Monty</MenuItem>
+              <MenuItem value="AA_DHL">📦 DHL MTY</MenuItem>
               <MenuItem value="POBOX_USA">📮 PO Box USA</MenuItem>
+              <MenuItem value="TDI_EXPRESS">🚚 TDI Express</MenuItem>
             </Select>
           </FormControl>
+        </Box>
+
+        {/* Status filter */}
+        <Box sx={{ display: 'flex', gap: 1, mb: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ mr: 0.5 }}>Estado:</Typography>
+          {[
+            { key: 'all',               label: 'Todos' },
+            { key: 'in_transit',        label: '✈️ En Tránsito' },
+            { key: 'ready_pickup',      label: '📦 Listo para recoger' },
+            { key: 'delivered',         label: '✅ Entregados' },
+          ].map(opt => (
+            <Chip
+              key={opt.key}
+              label={opt.label}
+              size="small"
+              onClick={() => { setShipmentFilter(opt.key); setShipmentPage(0); }}
+              variant={shipmentFilter === opt.key ? 'filled' : 'outlined'}
+              color={shipmentFilter === opt.key ? 'primary' : 'default'}
+              sx={{ cursor: 'pointer' }}
+            />
+          ))}
         </Box>
 
         {/* Payment + Instructions filters */}
@@ -2383,16 +2407,170 @@ export default function DashboardAdvisor() {
           count={shipmentsTotal}
           page={shipmentPage}
           onPageChange={(_, p) => setShipmentPage(p)}
-          rowsPerPage={25}
-          rowsPerPageOptions={[25]}
-          labelDisplayedRows={({ from, to, count }) => `${from}-${to} / ${count}`}
+          rowsPerPage={50}
+          rowsPerPageOptions={[50]}
+          labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
         />
       </Box>
     </Fade>
   );
 
   // ════════════════════════════════════
-  // TAB 3: MIS COMISIONES
+  // TAB 3: ORDEN DE PAGO
+  // ════════════════════════════════════
+  const renderOrdenDePago = () => (
+    <Fade in timeout={400}>
+      <Box>
+        <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
+          <TextField
+            placeholder="Buscar por tracking, nombre..."
+            size="small"
+            value={shipmentSearch}
+            onChange={(e) => { setShipmentSearch(e.target.value); setShipmentPage(0); }}
+            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
+            sx={{ minWidth: 260 }}
+          />
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Cliente</InputLabel>
+            <Select value={shipmentClientId} label="Cliente" onChange={(e) => { setShipmentClientId(e.target.value); setShipmentPage(0); }}>
+              <MenuItem value="all">Todos los clientes</MenuItem>
+              {clients.map(c => <MenuItem key={c.id} value={String(c.id)}>{c.fullName} ({c.boxId})</MenuItem>)}
+            </Select>
+          </FormControl>
+          <FormControl size="small" sx={{ minWidth: 160 }}>
+            <InputLabel>Servicio</InputLabel>
+            <Select value={shipmentServiceType} label="Servicio" onChange={(e) => { setShipmentServiceType(e.target.value); setShipmentPage(0); }}>
+              <MenuItem value="all">Todos</MenuItem>
+              <MenuItem value="AIR_CHN_MX">✈️ Aéreo China</MenuItem>
+              <MenuItem value="SEA_CHN_MX">🚢 Marítimo</MenuItem>
+              <MenuItem value="AA_DHL">📦 DHL MTY</MenuItem>
+              <MenuItem value="POBOX_USA">📮 PO Box USA</MenuItem>
+              <MenuItem value="TDI_EXPRESS">🚚 TDI Express</MenuItem>
+            </Select>
+          </FormControl>
+        </Box>
+
+        {shipmentsLoading && <LinearProgress sx={{ mb: 1 }} />}
+
+        {/* Barra de acción: Crear Orden de Pago */}
+        {selectedUids.size > 0 ? (
+          <Paper elevation={3} sx={{ display: 'flex', alignItems: 'center', gap: 2, p: '10px 16px', mb: 1.5, borderRadius: 2, bgcolor: '#F05A28', color: '#fff' }}>
+            <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>
+              {selectedUids.size} guía{selectedUids.size !== 1 ? 's' : ''} seleccionada{selectedUids.size !== 1 ? 's' : ''}
+              {selectionLockService && (
+                <Chip label={
+                  selectionLockService === 'AIR_CHN_MX' ? '✈️ Aéreo' :
+                  selectionLockService === 'SEA_CHN_MX' ? '🚢 Marítimo' :
+                  selectionLockService === 'AA_DHL' ? '📦 DHL' :
+                  selectionLockService === 'POBOX_USA' ? '📮 POBox' :
+                  selectionLockService === 'TDI_EXPRESS' ? '🚚 TDI' :
+                  selectionLockService
+                } size="small" sx={{ ml: 1, bgcolor: 'rgba(255,255,255,0.25)', color: '#fff', fontSize: '0.7rem' }} />
+              )}
+            </Typography>
+            <Button
+              size="small" variant="contained"
+              onClick={() => {
+                const uids = Array.from(selectedUids);
+                const sel = shipments.filter(s => uids.includes(s.uid));
+                const trackings = sel.map(s => s.trackingNumber || s.uid).join(', ');
+                Alert.alert?.('');
+                window.alert(`Orden de Pago para:\n${trackings}\n\nFuncionalidad de cotización próximamente.`);
+              }}
+              sx={{ bgcolor: '#fff', color: '#F05A28', fontWeight: 800, '&:hover': { bgcolor: '#fff3ee' } }}
+            >
+              💳 Crear Orden de Pago ({selectedUids.size})
+            </Button>
+            <IconButton size="small" onClick={clearSelection} sx={{ color: '#fff' }}><CloseIcon fontSize="small" /></IconButton>
+          </Paper>
+        ) : (
+          <Paper sx={{ p: 1.5, mb: 1.5, borderRadius: 2, bgcolor: '#FFF7ED', border: '1px solid #FDBA74' }}>
+            <Typography variant="caption" sx={{ color: '#C2410C', fontWeight: 600 }}>
+              💡 Selecciona las guías del mismo cliente y servicio para generar una Orden de Pago
+            </Typography>
+          </Paper>
+        )}
+
+        <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
+          <Table size="small">
+            <TableHead>
+              <TableRow>
+                <TableCell padding="checkbox" sx={{ width: 40 }}>
+                  <Checkbox
+                    size="small"
+                    indeterminate={selectedUids.size > 0 && shipments.filter(s => canSelectShipment(s)).some(s => !selectedUids.has(s.uid))}
+                    checked={shipments.length > 0 && shipments.filter(s => canSelectShipment(s)).every(s => selectedUids.has(s.uid))}
+                    onChange={(e) => {
+                      if (e.target.checked) {
+                        const toSelect = selectedUids.size === 0
+                          ? shipments.filter(s => s.serviceType === shipments[0]?.serviceType && s.clientId === shipments[0]?.clientId)
+                          : shipments.filter(s => canSelectShipment(s));
+                        setSelectedUids(prev => { const next = new Set(prev); toSelect.forEach(s => next.add(s.uid)); return next; });
+                      } else clearSelection();
+                    }}
+                  />
+                </TableCell>
+                <TableCell>Tracking</TableCell>
+                <TableCell>Cliente</TableCell>
+                <TableCell align="center">Estado</TableCell>
+                <TableCell>Servicio</TableCell>
+                <TableCell align="right">Monto</TableCell>
+                <TableCell>Fecha</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {shipments.length === 0 && !shipmentsLoading && (
+                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4 }}><Typography color="text.secondary">No hay envíos en tránsito.</Typography></TableCell></TableRow>
+              )}
+              {shipments.map((s) => (
+                <TableRow key={s.uid} hover selected={selectedUids.has(s.uid)}
+                  sx={{ opacity: canSelectShipment(s) ? 1 : 0.45, cursor: 'pointer' }}
+                  onClick={() => canSelectShipment(s) && toggleSelect(s.uid)}
+                >
+                  <TableCell padding="checkbox">
+                    <Tooltip title={!canSelectShipment(s) ? 'Solo guías del mismo servicio y cliente' : ''}>
+                      <span><Checkbox size="small" checked={selectedUids.has(s.uid)} disabled={!canSelectShipment(s)} onChange={() => toggleSelect(s.uid)} /></span>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600 }}>
+                    {s.trackingNumber || s.uid}
+                    {s.childrenCount > 0 && <Chip label={`${s.childrenCount + 1} cajas`} size="small" sx={{ ml: 1, fontSize: '0.65rem' }} />}
+                  </TableCell>
+                  <TableCell><Typography variant="body2" fontWeight={600}>{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
+                  <TableCell align="center">
+                    <Chip label={s.status} size="small"
+                      color={['delivered'].includes(s.status) ? 'success' : ['customs','in_transit','received_china'].includes(s.status) ? 'info' : 'default'}
+                      sx={{ fontSize: '0.7rem' }}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Chip label={
+                      s.serviceType === 'AIR_CHN_MX' ? '✈️ Aéreo' : s.serviceType === 'SEA_CHN_MX' ? '🚢 Marítimo' :
+                      s.serviceType === 'AA_DHL' ? '📦 DHL' : s.serviceType === 'POBOX_USA' ? '📮 POBox' :
+                      s.serviceType === 'TDI_EXPRESS' ? '🚚 TDI' : s.serviceType
+                    } size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
+                  </TableCell>
+                  <TableCell align="right">
+                    {s.amount > 0 ? <Typography variant="body2" fontWeight={700} color="warning.main">${s.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography> : <Typography color="text.disabled">—</Typography>}
+                  </TableCell>
+                  <TableCell><Typography variant="caption" color="text.secondary">{new Date(s.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</Typography></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+
+        <TablePagination
+          component="div" count={shipmentsTotal} page={shipmentPage}
+          onPageChange={(_, p) => setShipmentPage(p)} rowsPerPage={50} rowsPerPageOptions={[50]}
+          labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
+        />
+      </Box>
+    </Fade>
+  );
+
+  // ════════════════════════════════════
+  // TAB 4: MIS COMISIONES
   // ════════════════════════════════════
 
   const renderCommissions = () => {
@@ -3961,6 +4139,7 @@ export default function DashboardAdvisor() {
       { label: isMobile ? 'Inicio' : t('advisor.tabDashboard'), icon: <DashboardIcon />, shortLabel: 'Inicio' },
       { label: isMobile ? 'Clientes' : t('advisor.tabClients'), icon: dotIcon(<PeopleIcon />, hasNewClients), shortLabel: 'Clientes' },
       { label: isMobile ? 'Envíos' : t('advisor.tabShipments'), icon: <ShippingIcon />, shortLabel: 'Envíos' },
+      { label: isMobile ? 'Pago' : 'Orden de Pago', icon: <MoneyIcon sx={{ color: 'inherit' }} />, shortLabel: 'Pago' },
       { label: isMobile ? '$' : t('advisor.tabCommissions'), icon: <MoneyIcon />, shortLabel: 'Comisiones' },
       { label: isMobile ? 'Más' : t('advisor.tabTools'), icon: <ToolsIcon />, shortLabel: 'Herramientas' },
       { label: isMobile ? 'Tickets' : 'Tickets', icon: dotIcon(<TicketIcon />, hasTicketResponses), shortLabel: 'Tickets' },
@@ -4124,11 +4303,11 @@ export default function DashboardAdvisor() {
           onClick={() => {
             fetchDashboard();
             if (activeTab === 1) fetchClients();
-            if (activeTab === 2) fetchShipments();
-            if (activeTab === 3) fetchCommissions();
-            if (activeTab === 5) fetchAdvisorTickets();
+            if (activeTab === 2 || activeTab === 3) fetchShipments();
+            if (activeTab === 4) fetchCommissions();
             if (activeTab === 6) fetchAdvisorTickets();
-            if (activeTab === 7) fetchTeam();
+            if (activeTab === 7) fetchAdvisorTickets();
+            if (activeTab === 8) fetchTeam();
           }}
           size={isMobile ? 'small' : 'medium'}
         >
@@ -4165,11 +4344,12 @@ export default function DashboardAdvisor() {
         {activeTab === 0 && renderDashboard()}
         {activeTab === 1 && renderClients()}
         {activeTab === 2 && renderShipments()}
-        {activeTab === 3 && renderCommissions()}
-        {activeTab === 4 && renderTools()}
-        {activeTab === 5 && renderTickets()}
-        {activeTab === 6 && renderQuotes()}
-        {activeTab === 7 && renderTeam()}
+        {activeTab === 3 && renderOrdenDePago()}
+        {activeTab === 4 && renderCommissions()}
+        {activeTab === 5 && renderTools()}
+        {activeTab === 6 && renderTickets()}
+        {activeTab === 7 && renderQuotes()}
+        {activeTab === 8 && renderTeam()}
       </Box>
 
       {/* Bottom Navigation - Mobile Only */}
