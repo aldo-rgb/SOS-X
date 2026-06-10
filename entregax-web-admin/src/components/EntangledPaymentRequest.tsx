@@ -1717,6 +1717,9 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
       fd.append('servicio', requiereFactura ? 'pago_con_factura' : 'pago_sin_factura');
       fd.append('monto_usd', String(Number(form.monto)));
       fd.append('divisa', form.divisa_destino);
+      if (supplierForm.nombre_beneficiario) {
+        fd.append('beneficiario_nombre', supplierForm.nombre_beneficiario);
+      }
       // Para pago_sin_factura: enviar cuenta de depósito (obtenida de /asignacion en step 4)
       if (!requiereFactura && asignacion?.cuenta_bancaria) {
         fd.append('cuenta_bancaria_sin_factura', JSON.stringify(asignacion.cuenta_bancaria));

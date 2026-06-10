@@ -733,6 +733,10 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
         fd.append('conceptos', JSON.stringify(conceptosArr));
       }
       if (notas) fd.append('notas', notas);
+      // Para pago sin factura: mandar cuenta de depósito para incluirla en WhatsApp de confirmación
+      if (!requiereFactura && sinFacturaCuenta?.cuenta) {
+        fd.append('cuenta_bancaria_sin_factura', JSON.stringify(sinFacturaCuenta.cuenta));
+      }
       // NO se envía comprobante aquí: la solicitud queda en estado 'pendiente'
       // y el comprobante se sube después desde Últimos envíos.
 
