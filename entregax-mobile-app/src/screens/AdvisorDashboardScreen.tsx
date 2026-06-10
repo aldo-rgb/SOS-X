@@ -154,9 +154,14 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
       const seen = new Set<number>();
       const clients: { id: number; name: string; boxId: string }[] = [];
       for (const s of json.shipments || []) {
-        if (s.client_id && !seen.has(s.client_id)) {
-          seen.add(s.client_id);
-          clients.push({ id: s.client_id, name: s.client_name || '—', boxId: s.client_box_id || '' });
+        const cId = s.clientId ?? s.client_id;
+        if (cId && !seen.has(cId)) {
+          seen.add(cId);
+          clients.push({
+            id: cId,
+            name: s.clientName ?? s.client_name ?? '—',
+            boxId: s.clientBoxId ?? s.client_box_id ?? '',
+          });
         }
       }
       clients.sort((a, b) => a.name.localeCompare(b.name));
