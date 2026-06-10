@@ -133,7 +133,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       FROM (
         -- packages (AIR, POBOX, TDI) — excluye hijos
         SELECT
-          COUNT(*) FILTER (WHERE p.status::text IN ('in_transit','received_china','received','customs','ready_pickup')) AS in_transit,
+          COUNT(*) FILTER (WHERE p.status::text IN ('in_transit','received_china','received','customs','ready_pickup','received_mty')) AS in_transit,
           COUNT(*) FILTER (WHERE COALESCE(p.saldo_pendiente,0) > 0) AS awaiting_payment,
           COUNT(*) FILTER (WHERE p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')
                              AND p.status::text NOT IN ('delivered','lost','returned_to_warehouse')) AS missing_instr
@@ -159,7 +159,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
 
         -- dhl_shipments
         SELECT
-          COUNT(*) FILTER (WHERE ds.status IN ('in_transit','received_mty')) AS in_transit,
+          COUNT(*) FILTER (WHERE ds.status IN ('in_transit','received_mty','ready_pickup')) AS in_transit,
           COUNT(*) FILTER (WHERE COALESCE(ds.saldo_pendiente,0) > 0) AS awaiting_payment,
           COUNT(*) FILTER (WHERE ds.delivery_address_id IS NULL AND ds.status NOT IN ('delivered')) AS missing_instr
         FROM dhl_shipments ds
@@ -637,10 +637,11 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
     `;
 
-    // Dynamic filters per sub-query
-    let pkgWhere = buildFilterSQL('p.status', 'p.saldo_pendiente', 'p.monto_pagado', "p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')");
-    let marWhere = buildFilterSQL('mo.status', 'mo.saldo_pendiente', 'mo.monto_pagado', 'mo.delivery_address_id IS NULL');
-    let dhlWhere = buildFilterSQL('ds.status', 'ds.saldo_pendiente', 'ds.monto_pagado', 'ds.delivery_address_id IS NULL', ["'received_mty'"]);
+    // Dynamic filters per sub-query — received_mty/ready_pickup aplica a todos los tipos
+    const extraAllTransit = ["'received_mty'", "'ready_pickup'"];
+    let pkgWhere = buildFilterSQL('p.status', 'p.saldo_pendiente', 'p.monto_pagado', "p.assigned_address_id IS NULL AND (p.destination_address IS NULL OR p.destination_address = 'Pendiente de asignar')", extraAllTransit);
+    let marWhere = buildFilterSQL('mo.status', 'mo.saldo_pendiente', 'mo.monto_pagado', 'mo.delivery_address_id IS NULL', extraAllTransit);
+    let dhlWhere = buildFilterSQL('ds.status', 'ds.saldo_pendiente', 'ds.monto_pagado', 'ds.delivery_address_id IS NULL', extraAllTransit);
 
     // Client filter
     const params: any[] = [advisorId];
