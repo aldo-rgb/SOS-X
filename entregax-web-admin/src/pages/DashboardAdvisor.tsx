@@ -391,6 +391,7 @@ export default function DashboardAdvisor() {
   const [newOrderShipmentsLoading, setNewOrderShipmentsLoading] = useState(false);
   const [newOrderSelectedUids, setNewOrderSelectedUids] = useState<Set<string>>(new Set());
   const [newOrderClientId, setNewOrderClientId] = useState<string>('all');
+  const [newOrderServiceFilter, setNewOrderServiceFilter] = useState<string>('all');
   const [newOrderNotes, setNewOrderNotes] = useState('');
   const [newOrderSaving, setNewOrderSaving] = useState(false);
 
@@ -2505,7 +2506,7 @@ export default function DashboardAdvisor() {
           <Button
             variant="contained"
             startIcon={<span>💳</span>}
-            onClick={() => { setNewOrderOpen(true); setNewOrderClientId('all'); setNewOrderSelectedUids(new Set()); fetchNewOrderShipments(); }}
+            onClick={() => { setNewOrderOpen(true); setNewOrderClientId(''); setNewOrderServiceFilter('all'); setNewOrderSelectedUids(new Set()); setNewOrderShipments([]); }}
             sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C94A1E' }, fontWeight: 700, borderRadius: 2 }}
           >
             Nueva Orden de Pago
@@ -2609,90 +2610,140 @@ export default function DashboardAdvisor() {
             💳 Nueva Orden de Pago
           </DialogTitle>
           <DialogContent sx={{ pt: 2 }}>
-            {/* Client selector */}
-            <FormControl size="small" fullWidth sx={{ mb: 2, mt: 1 }}>
-              <InputLabel>Filtrar por cliente</InputLabel>
-              <Select value={newOrderClientId} label="Filtrar por cliente" onChange={(e) => {
-                setNewOrderClientId(e.target.value);
-                setNewOrderSelectedUids(new Set());
-                fetchNewOrderShipments(e.target.value);
-              }}>
-                <MenuItem value="all">Todos los clientes</MenuItem>
-                {clients.map(c => <MenuItem key={c.id} value={String(c.id)}>{c.fullName} ({c.boxId})</MenuItem>)}
-              </Select>
-            </FormControl>
+            {/* Filtros: cliente + servicio */}
+            <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5, mt: 1 }}>
+              <FormControl size="small" sx={{ flex: 2 }} required>
+                <InputLabel>Seleccionar cliente *</InputLabel>
+                <Select value={newOrderClientId} label="Seleccionar cliente *" displayEmpty onChange={(e) => {
+                  setNewOrderClientId(e.target.value);
+                  setNewOrderSelectedUids(new Set());
+                  if (e.target.value) fetchNewOrderShipments(e.target.value);
+                  else setNewOrderShipments([]);
+                }}>
+                  {clients.map(c => <MenuItem key={c.id} value={String(c.id)}>{c.fullName} ({c.boxId})</MenuItem>)}
+                </Select>
+              </FormControl>
+              <FormControl size="small" sx={{ flex: 1 }}>
+                <InputLabel>Servicio</InputLabel>
+                <Select value={newOrderServiceFilter} label="Servicio" onChange={(e) => {
+                  setNewOrderServiceFilter(e.target.value);
+                  setNewOrderSelectedUids(new Set());
+                }}>
+                  <MenuItem value="all">Todos</MenuItem>
+                  <MenuItem value="tdi_express">TDX / TDI Express</MenuItem>
+                  <MenuItem value="dhl">DHL</MenuItem>
+                  <MenuItem value="air">Aéreo China</MenuItem>
+                  <MenuItem value="sea">Marítimo</MenuItem>
+                  <MenuItem value="pobox">PO Box USA</MenuItem>
+                </Select>
+              </FormControl>
+            </Box>
 
             <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
-              Solo se muestran guías en tránsito con instrucciones asignadas. Selecciona guías del mismo cliente.
+              Solo se muestran guías en tránsito con instrucciones asignadas. Deben ser del mismo cliente y mismo servicio.
             </Typography>
 
-            {newOrderShipmentsLoading ? (
+            {!newOrderClientId ? (
+              <Box sx={{ py: 5, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, border: '1px dashed #E0E0E0', borderRadius: 2 }}>
+                <Typography fontSize="2rem">👤</Typography>
+                <Typography variant="body2" color="text.secondary">Selecciona un cliente para ver sus guías</Typography>
+              </Box>
+            ) : newOrderShipmentsLoading ? (
               <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress size={28} /></Box>
-            ) : (
-              <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: 340, overflow: 'auto' }}>
-                <Table size="small" stickyHeader>
-                  <TableHead>
-                    <TableRow>
-                      <TableCell padding="checkbox">
-                        <Checkbox size="small"
-                          indeterminate={newOrderSelectedUids.size > 0 && newOrderShipments.some(s => !newOrderSelectedUids.has(s.uid))}
-                          checked={newOrderShipments.length > 0 && newOrderShipments.every(s => newOrderSelectedUids.has(s.uid))}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              const first = newOrderShipments[0];
-                              const toSel = newOrderSelectedUids.size === 0
-                                ? newOrderShipments.filter(s => s.clientId === first?.clientId)
-                                : newOrderShipments;
-                              setNewOrderSelectedUids(new Set(toSel.map(s => s.uid)));
-                            } else setNewOrderSelectedUids(new Set());
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell>Tracking</TableCell>
-                      <TableCell>Cliente</TableCell>
-                      <TableCell>Servicio</TableCell>
-                      <TableCell align="right">Monto</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {newOrderShipments.length === 0 && (
-                      <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3 }}>
-                        <Typography color="text.secondary" variant="caption">No hay guías con instrucciones en tránsito</Typography>
-                      </TableCell></TableRow>
-                    )}
-                    {newOrderShipments.map(s => {
-                      const lockClientId = newOrderSelectedUids.size > 0
-                        ? newOrderShipments.find(x => newOrderSelectedUids.has(x.uid))?.clientId
-                        : null;
-                      const canSelect = lockClientId == null || s.clientId === lockClientId;
-                      return (
-                        <TableRow key={s.uid} hover selected={newOrderSelectedUids.has(s.uid)}
-                          sx={{ opacity: canSelect ? 1 : 0.4, cursor: canSelect ? 'pointer' : 'not-allowed' }}
-                          onClick={() => {
-                            if (!canSelect) return;
-                            setNewOrderSelectedUids(prev => {
-                              const next = new Set(prev);
-                              if (next.has(s.uid)) next.delete(s.uid); else next.add(s.uid);
-                              return next;
-                            });
-                          }}
-                        >
-                          <TableCell padding="checkbox">
-                            <Tooltip title={!canSelect ? 'Solo guías del mismo cliente' : ''}>
-                              <span><Checkbox size="small" checked={newOrderSelectedUids.has(s.uid)} disabled={!canSelect} /></span>
-                            </Tooltip>
-                          </TableCell>
-                          <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.78rem', fontWeight: 600 }}>{s.tracking || s.uid}</TableCell>
-                          <TableCell><Typography variant="body2">{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
-                          <TableCell><Chip label={s.serviceType === 'AIR_CHN_MX' ? '✈️ Aéreo' : s.serviceType === 'SEA_CHN_MX' ? '🚢 Mar.' : s.serviceType === 'AA_DHL' ? '📦 DHL' : s.serviceType === 'POBOX_USA' ? '📮 POBox' : s.serviceType === 'TDI_EXPRESS' ? '🚚 TDI' : s.serviceType} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} /></TableCell>
-                          <TableCell align="right">{s.amount > 0 ? <Typography variant="body2" fontWeight={700} color="warning.main">${s.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography> : <Typography color="text.disabled">—</Typography>}</TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
+            ) : (() => {
+              const SERVICE_MATCH: Record<string, (st: string) => boolean> = {
+                tdi_express: st => /tdi.?express/i.test(st) || st === 'tdi_express',
+                dhl:         st => /dhl/i.test(st) || st === 'AA_DHL',
+                air:         st => /air_chn/i.test(st) || st === 'AIR_CHN_MX',
+                sea:         st => /sea_chn/i.test(st) || st === 'SEA_CHN_MX',
+                pobox:       st => /pobox/i.test(st) || st === 'POBOX_USA',
+              };
+              const filteredShipments = newOrderServiceFilter === 'all'
+                ? newOrderShipments
+                : newOrderShipments.filter(s => SERVICE_MATCH[newOrderServiceFilter]?.(s.serviceType || '') ?? true);
+
+              const lockedFirst = newOrderSelectedUids.size > 0
+                ? newOrderShipments.find(x => newOrderSelectedUids.has(x.uid))
+                : null;
+              const lockClientId  = lockedFirst?.clientId ?? null;
+              const lockServiceType = lockedFirst?.serviceType ?? null;
+
+              const serviceLabel = (st: string) =>
+                /tdi.?express/i.test(st) || st === 'tdi_express' ? '🚚 TDX'
+                : /dhl/i.test(st) || st === 'AA_DHL'             ? '📦 DHL'
+                : /air_chn/i.test(st) || st === 'AIR_CHN_MX'    ? '✈️ Aéreo'
+                : /sea_chn/i.test(st) || st === 'SEA_CHN_MX'    ? '🚢 Mar.'
+                : /pobox/i.test(st)   || st === 'POBOX_USA'      ? '📮 POBox'
+                : st;
+
+              return (
+                <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: 340, overflow: 'auto' }}>
+                  <Table size="small" stickyHeader>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell padding="checkbox">
+                          <Checkbox size="small"
+                            indeterminate={newOrderSelectedUids.size > 0 && filteredShipments.some(s => !newOrderSelectedUids.has(s.uid))}
+                            checked={filteredShipments.length > 0 && filteredShipments.every(s => newOrderSelectedUids.has(s.uid))}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                const first = filteredShipments[0];
+                                const toSel = filteredShipments.filter(s =>
+                                  (lockClientId == null || s.clientId === lockClientId) &&
+                                  (lockServiceType == null || s.serviceType === lockServiceType) ||
+                                  (s.clientId === first?.clientId && s.serviceType === first?.serviceType)
+                                );
+                                setNewOrderSelectedUids(new Set(toSel.map(s => s.uid)));
+                              } else setNewOrderSelectedUids(new Set());
+                            }}
+                          />
+                        </TableCell>
+                        <TableCell>Tracking</TableCell>
+                        <TableCell>Cliente</TableCell>
+                        <TableCell>Servicio</TableCell>
+                        <TableCell align="right">Monto</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {filteredShipments.length === 0 && (
+                        <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3 }}>
+                          <Typography color="text.secondary" variant="caption">No hay guías con instrucciones en tránsito</Typography>
+                        </TableCell></TableRow>
+                      )}
+                      {filteredShipments.map(s => {
+                        const sameClient  = lockClientId == null || s.clientId === lockClientId;
+                        const sameService = lockServiceType == null || s.serviceType === lockServiceType;
+                        const canSelect   = sameClient && sameService;
+                        const disabledReason = !sameClient ? 'Solo guías del mismo cliente' : !sameService ? 'No se pueden mezclar servicios diferentes' : '';
+                        return (
+                          <TableRow key={s.uid} hover selected={newOrderSelectedUids.has(s.uid)}
+                            sx={{ opacity: canSelect ? 1 : 0.35, cursor: canSelect ? 'pointer' : 'not-allowed' }}
+                            onClick={() => {
+                              if (!canSelect) return;
+                              setNewOrderSelectedUids(prev => {
+                                const next = new Set(prev);
+                                if (next.has(s.uid)) next.delete(s.uid); else next.add(s.uid);
+                                return next;
+                              });
+                            }}
+                          >
+                            <TableCell padding="checkbox">
+                              <Tooltip title={disabledReason}>
+                                <span><Checkbox size="small" checked={newOrderSelectedUids.has(s.uid)} disabled={!canSelect} /></span>
+                              </Tooltip>
+                            </TableCell>
+                            <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.78rem', fontWeight: 600 }}>{s.tracking || s.uid}</TableCell>
+                            <TableCell><Typography variant="body2">{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
+                            <TableCell><Chip label={serviceLabel(s.serviceType || '')} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} /></TableCell>
+                            <TableCell align="right">{s.amount > 0 ? <Typography variant="body2" fontWeight={700} color="warning.main">${s.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography> : <Typography color="text.disabled">—</Typography>}</TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              );
+            })()}
 
             {newOrderSelectedUids.size > 0 && (
               <Paper sx={{ mt: 1.5, p: 1.5, bgcolor: '#FFF7ED', border: '1px solid #FDBA74', borderRadius: 2 }}>
