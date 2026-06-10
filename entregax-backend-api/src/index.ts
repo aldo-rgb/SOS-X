@@ -5097,7 +5097,15 @@ app.get('/api/admin/entangled/suppliers-db/:cuenta', authenticateToken, requireM
 app.post('/api/entangled/payment-requests/:id/upload-proof', authenticateToken, uploadEntangledProof);
 // Subida de comprobante como archivo (multipart/form-data)
 const entangledProofUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
-app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateToken, entangledProofUpload.single('comprobante'), async (req: AuthRequest, res: Response) => {
+// Wrapper que captura errores de multer (p.ej. sin boundary, archivo muy grande)
+// y los convierte en respuestas JSON con CORS headers correctos.
+const handleMulterError = (err: any, req: Request, res: Response, next: any) => {
+  if (err && (err.code === 'LIMIT_FILE_SIZE' || err.name === 'MulterError')) {
+    return res.status(400).json({ error: err.message || 'Error al procesar el archivo' });
+  }
+  next(err);
+};
+app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateToken, entangledProofUpload.single('comprobante'), handleMulterError, async (req: AuthRequest, res: Response) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No se recibió archivo' });
     const id = Number(req.params.id);

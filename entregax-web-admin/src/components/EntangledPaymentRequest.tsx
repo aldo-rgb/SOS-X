@@ -1143,10 +1143,11 @@ export default function EntangledPaymentRequest({ hideHeader = false }: Props) {
           fd.append('tc_cliente_final', String(fallbackTc));
         }
       }
+      // No fijar Content-Type manualmente: axios lo setea con el boundary correcto para FormData
       const res = await axios.post(
         `${API_URL}/api/entangled/payment-requests/${uploadModal.requestId}/upload-proof-file`,
         fd,
-        { headers: { ...authHeader, 'Content-Type': 'multipart/form-data' } }
+        { headers: authHeader }
       );
       const sentToEntangled = !!res.data?.request?.entangled_transaccion_id;
       setUploadModal(s => ({
