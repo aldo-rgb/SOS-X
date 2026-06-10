@@ -1375,7 +1375,8 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                                a.interior_number as addr_int, a.neighborhood as addr_neighborhood,
                                a.city as addr_city, a.state as addr_state,
                                a.zip_code as addr_zip, a.phone as addr_phone,
-                               a.reference as addr_reference, a.carrier_config as addr_carrier_config
+                               a.reference as addr_reference, a.carrier_config as addr_carrier_config,
+                               ds.paid_at, ds.cost_payment_status, ds.total_cost_mxn, ds.saldo_pendiente, ds.monto_pagado
                         FROM dhl_shipments ds
                         LEFT JOIN users u ON ds.user_id = u.id
                         LEFT JOIN addresses a ON ds.delivery_address_id = a.id
@@ -1541,9 +1542,9 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                             height: activeBox?.height ?? null,
                             captured: !!activeBox,
                         } : null,
-                        paymentStatus: null,
-                        clientPaid: false,
-                        clientPaidAt: null,
+                        paymentStatus: (fallbackKind === 'dhl' && fallbackRow.paid_at) ? 'paid' : null,
+                        clientPaid: fallbackKind === 'dhl' ? !!fallbackRow.paid_at : false,
+                        clientPaidAt: (fallbackKind === 'dhl' ? fallbackRow.paid_at : null) || null,
                         totalCost: null,
                         poboxCostUsd: null,
                         assignedAddress: fallbackRow.delivery_address_id ? {
