@@ -260,7 +260,6 @@ const CajaChicaPage: React.FC = () => {
   const [selectedConsolidaciones, setSelectedConsolidaciones] = useState<Set<number>>(new Set());
   // Pago por Referencia (nuevo flujo unificado)
   const [refPagoOpen, setRefPagoOpen] = useState(false);
-  const [refPagoInput, setRefPagoInput] = useState('');
   const [refPagoData, setRefPagoData] = useState<any | null>(null);
   const [refPagoLoading, setRefPagoLoading] = useState(false);
   const [refPagoProcesando, setRefPagoProcesando] = useState(false);
@@ -466,7 +465,7 @@ const CajaChicaPage: React.FC = () => {
 
   // Iniciar pago de consolidación
   const handleIniciarPagoConsolidacion = (_consolidacion: ConsolidacionPendiente) => {
-    setRefPagoInput(''); setRefPagoData(null); setRefPagoOpen(true);
+    setRefPagoData(null); setRefPagoOpen(true);
   };
 
   // Toggle selección de consolidación
@@ -855,7 +854,7 @@ const CajaChicaPage: React.FC = () => {
   // Enviar reporte por WhatsApp (texto resumen, abre wa.me)
   // Pago múltiple de consolidaciones seleccionadas
   const handleIniciarPagoMultiple = async () => {
-    setRefPagoInput(''); setRefPagoData(null); setRefPagoList([]); setRefPagoOpen(true);
+    setRefPagoData(null); setRefPagoList([]); setRefPagoOpen(true);
     if (!pagoProveedorSel) return;
     setRefPagoLoading(true);
     try {
@@ -876,7 +875,7 @@ const CajaChicaPage: React.FC = () => {
       const r = await api.post(`/pobox/payment-references/${refPagoData.id}/pay`);
       const data = r.data || {};
       setSnackbar({ open: true, message: `✅ REF-${refPagoData.id} pagada · ${data.packages_updated || 0} paquetes · ${formatCurrency(Number(data.total_monto || refPagoData.total_mxn || 0))}`, severity: 'success' });
-      setRefPagoOpen(false); setRefPagoData(null); setRefPagoInput('');
+      setRefPagoOpen(false); setRefPagoData(null); setRefPagoList([]);
       setSelectedConsolidaciones(new Set());
       fetchConsolidacionesPendientes();
       loadData();
@@ -2425,7 +2424,7 @@ const CajaChicaPage: React.FC = () => {
       </Dialog>
 
       {/* ── Diálogo: Pago por Referencia ──────────────────────── */}
-      <Dialog open={refPagoOpen} onClose={() => !refPagoProcesando && (setRefPagoOpen(false), setRefPagoData(null), setRefPagoInput(''), setRefPagoList([]))} maxWidth="sm" fullWidth>
+      <Dialog open={refPagoOpen} onClose={() => !refPagoProcesando && (setRefPagoOpen(false), setRefPagoData(null), setRefPagoList([]))} maxWidth="sm" fullWidth>
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, bgcolor: 'warning.main', color: 'white' }}>
           <PaymentIcon /> Seleccionar Referencia a Pagar — {pagoProveedorSel?.name}
         </DialogTitle>
@@ -2490,7 +2489,7 @@ const CajaChicaPage: React.FC = () => {
           )}
         </DialogContent>
         <DialogActions sx={{ p: 2 }}>
-          <Button onClick={() => { setRefPagoOpen(false); setRefPagoData(null); setRefPagoInput(''); setRefPagoList([]); }} disabled={refPagoProcesando}>
+          <Button onClick={() => { setRefPagoOpen(false); setRefPagoData(null); setRefPagoList([]); }} disabled={refPagoProcesando}>
             Cancelar
           </Button>
           <Button

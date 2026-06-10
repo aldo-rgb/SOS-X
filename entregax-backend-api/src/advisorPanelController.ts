@@ -652,8 +652,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
             NULLIF(COALESCE(ds.import_cost_mxn,0) + COALESCE(ds.import_tax_mxn,0) + COALESCE(ds.national_cost_mxn,0), 0), 0)
             + CASE WHEN ds.has_gex THEN COALESCE((SELECT w.total_cost_mxn FROM warranties w WHERE w.gex_folio = ds.gex_folio LIMIT 1), 0) ELSE 0 END
             ) as monto,
-        CASE WHEN SUM(COALESCE(ds.saldo_pendiente, ds.import_cost_mxn, 0)) = 0
-             AND SUM(COALESCE(ds.monto_pagado, 0)) > 0 THEN true ELSE false END as client_paid,
+        CASE WHEN MIN(ds.paid_at) IS NOT NULL THEN true ELSE false END as client_paid,
         MIN(ds.paid_at) as paid_at,
         MIN(ds.created_at) as created_at,
         u.id as client_id, u.full_name as client_name, u.box_id as client_box_id, u.phone as client_phone,
@@ -760,6 +759,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
 
     // Outer filters on computed columns (client_paid, has_instructions, client_box_id)
     const outerConditions: string[] = [];
+    if (filter === 'in_transit') outerConditions.push('client_paid = false');
     if (payment === 'paid')    outerConditions.push('client_paid = true');
     if (payment === 'pending') outerConditions.push('client_paid = false AND monto > 0');
     if (instructions === 'yes') outerConditions.push('has_instructions = true');
