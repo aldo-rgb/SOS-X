@@ -68,6 +68,7 @@ import {
   VerifiedUser as VerifiedIcon,
   Warning as WarningIcon,
   CheckCircle as CheckCircleIcon,
+  Check as CheckIcon,
   HourglassEmpty as PendingIcon,
   Edit as EditIcon,
   Save as SaveIcon,
@@ -382,6 +383,17 @@ export default function DashboardAdvisor() {
   const [shipmentInstructionsFilter, setShipmentInstructionsFilter] = useState<string>('all');
   const [selectedUids, setSelectedUids] = useState<Set<string>>(new Set());
 
+  // Órdenes de Pago
+  const [paymentOrders, setPaymentOrders] = useState<any[]>([]);
+  const [paymentOrdersLoading, setPaymentOrdersLoading] = useState(false);
+  const [newOrderOpen, setNewOrderOpen] = useState(false);
+  const [newOrderShipments, setNewOrderShipments] = useState<AdvisorShipment[]>([]);
+  const [newOrderShipmentsLoading, setNewOrderShipmentsLoading] = useState(false);
+  const [newOrderSelectedUids, setNewOrderSelectedUids] = useState<Set<string>>(new Set());
+  const [newOrderClientId, setNewOrderClientId] = useState<string>('all');
+  const [newOrderNotes, setNewOrderNotes] = useState('');
+  const [newOrderSaving, setNewOrderSaving] = useState(false);
+
   // Assign instructions dialog
   const [instrDialogOpen, setInstrDialogOpen] = useState(false);
   const [instrShipment, setInstrShipment] = useState<AdvisorShipment | null>(null);
@@ -565,6 +577,50 @@ export default function DashboardAdvisor() {
     }
   }, [shipmentPage, shipmentSearch, shipmentFilter, shipmentClientId, shipmentServiceType, shipmentPaymentFilter, shipmentInstructionsFilter]);
 
+  const fetchPaymentOrders = useCallback(async () => {
+    setPaymentOrdersLoading(true);
+    try {
+      const res = await api.get('/advisor/payment-orders');
+      setPaymentOrders(res.data || []);
+    } catch { /* silent */ } finally { setPaymentOrdersLoading(false); }
+  }, []);
+
+  const fetchNewOrderShipments = useCallback(async (clientId?: string) => {
+    setNewOrderShipmentsLoading(true);
+    try {
+      const params: any = { filter: 'in_transit', limit: 100, instructions: 'yes' };
+      if (clientId && clientId !== 'all') params.clientId = clientId;
+      const res = await api.get('/advisor/shipments', { params });
+      setNewOrderShipments(res.data.shipments || []);
+    } catch { /* silent */ } finally { setNewOrderShipmentsLoading(false); }
+  }, []);
+
+  const handleCreatePaymentOrder = async () => {
+    if (newOrderSelectedUids.size === 0) return;
+    setNewOrderSaving(true);
+    try {
+      const selected = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid));
+      const first = selected[0];
+      const total = selected.reduce((sum, s) => sum + (s.amount || 0), 0);
+      await api.post('/advisor/payment-orders', {
+        client_id: first?.clientId,
+        client_name: first?.clientName,
+        client_box_id: first?.clientBoxId,
+        package_uids: Array.from(newOrderSelectedUids),
+        trackings: selected.map(s => s.tracking || s.uid),
+        notes: newOrderNotes || null,
+        total_mxn: total > 0 ? total : null,
+      });
+      setNewOrderOpen(false);
+      setNewOrderSelectedUids(new Set());
+      setNewOrderNotes('');
+      setNewOrderClientId('all');
+      fetchPaymentOrders();
+    } catch (e: any) {
+      alert(e?.response?.data?.error || 'Error al crear la orden');
+    } finally { setNewOrderSaving(false); }
+  };
+
   const fetchCommissions = useCallback(async () => {
     try {
       setCommissionsLoading(true);
@@ -678,9 +734,7 @@ export default function DashboardAdvisor() {
 
   // Load clients for the dropdown when switching to shipments tab
   useEffect(() => {
-    if (activeTab === 2 || activeTab === 3) {
-      // Tab 3 (Orden de Pago) defaults to in_transit
-      if (activeTab === 3 && shipmentFilter === 'all') setShipmentFilter('in_transit');
+    if (activeTab === 2) {
       fetchShipments();
       if (clients.length === 0) {
         api.get('/advisor/clients', { params: { limit: 500 } })
@@ -688,7 +742,15 @@ export default function DashboardAdvisor() {
           .catch(() => {});
       }
     }
-  }, [activeTab, fetchShipments]);
+    if (activeTab === 3) {
+      fetchPaymentOrders();
+      if (clients.length === 0) {
+        api.get('/advisor/clients', { params: { limit: 500 } })
+          .then(res => { setClients(res.data.clients); setClientsTotal(res.data.total); })
+          .catch(() => {});
+      }
+    }
+  }, [activeTab, fetchShipments, fetchPaymentOrders]);
 
   useEffect(() => {
     if (activeTab === 4) fetchCommissions();
@@ -2422,152 +2484,245 @@ export default function DashboardAdvisor() {
   // ════════════════════════════════════
   // TAB 3: ORDEN DE PAGO
   // ════════════════════════════════════
+  const STATUS_OP: Record<string, { label: string; color: 'default'|'warning'|'success'|'error' }> = {
+    pendiente:   { label: 'Pendiente',   color: 'warning' },
+    en_proceso:  { label: 'En proceso',  color: 'default' },
+    pagado:      { label: 'Pagado',      color: 'success' },
+    cancelado:   { label: 'Cancelado',   color: 'error' },
+  };
+
   const renderOrdenDePago = () => (
     <Fade in timeout={400}>
       <Box>
-        <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap', alignItems: 'center' }}>
-          <TextField
-            placeholder="Buscar por tracking, nombre..."
-            size="small"
-            value={shipmentSearch}
-            onChange={(e) => { setShipmentSearch(e.target.value); setShipmentPage(0); }}
-            InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon /></InputAdornment> }}
-            sx={{ minWidth: 260 }}
-          />
-          <FormControl size="small" sx={{ minWidth: 200 }}>
-            <InputLabel>Cliente</InputLabel>
-            <Select value={shipmentClientId} label="Cliente" onChange={(e) => { setShipmentClientId(e.target.value); setShipmentPage(0); }}>
-              <MenuItem value="all">Todos los clientes</MenuItem>
-              {clients.map(c => <MenuItem key={c.id} value={String(c.id)}>{c.fullName} ({c.boxId})</MenuItem>)}
-            </Select>
-          </FormControl>
-          <FormControl size="small" sx={{ minWidth: 160 }}>
-            <InputLabel>Servicio</InputLabel>
-            <Select value={shipmentServiceType} label="Servicio" onChange={(e) => { setShipmentServiceType(e.target.value); setShipmentPage(0); }}>
-              <MenuItem value="all">Todos</MenuItem>
-              <MenuItem value="AIR_CHN_MX">✈️ Aéreo China</MenuItem>
-              <MenuItem value="SEA_CHN_MX">🚢 Marítimo</MenuItem>
-              <MenuItem value="AA_DHL">📦 DHL MTY</MenuItem>
-              <MenuItem value="POBOX_USA">📮 PO Box USA</MenuItem>
-              <MenuItem value="TDI_EXPRESS">🚚 TDI Express</MenuItem>
-            </Select>
-          </FormControl>
+        {/* Header row */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2 }}>
+          <Box>
+            <Typography variant="h6" fontWeight={800}>Órdenes de Pago</Typography>
+            <Typography variant="caption" color="text.secondary">
+              Gestiona las órdenes de pago de tus clientes para servicio de paquetería
+            </Typography>
+          </Box>
+          <Button
+            variant="contained"
+            startIcon={<span>💳</span>}
+            onClick={() => { setNewOrderOpen(true); setNewOrderClientId('all'); setNewOrderSelectedUids(new Set()); fetchNewOrderShipments(); }}
+            sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C94A1E' }, fontWeight: 700, borderRadius: 2 }}
+          >
+            Nueva Orden de Pago
+          </Button>
         </Box>
 
-        {shipmentsLoading && <LinearProgress sx={{ mb: 1 }} />}
+        {paymentOrdersLoading && <LinearProgress sx={{ mb: 1 }} />}
 
-        {/* Barra de acción: Crear Orden de Pago */}
-        {selectedUids.size > 0 ? (
-          <Paper elevation={3} sx={{ display: 'flex', alignItems: 'center', gap: 2, p: '10px 16px', mb: 1.5, borderRadius: 2, bgcolor: '#F05A28', color: '#fff' }}>
-            <Typography variant="body2" fontWeight={700} sx={{ flex: 1 }}>
-              {selectedUids.size} guía{selectedUids.size !== 1 ? 's' : ''} seleccionada{selectedUids.size !== 1 ? 's' : ''}
-              {selectionLockService && (
-                <Chip label={
-                  selectionLockService === 'AIR_CHN_MX' ? '✈️ Aéreo' :
-                  selectionLockService === 'SEA_CHN_MX' ? '🚢 Marítimo' :
-                  selectionLockService === 'AA_DHL' ? '📦 DHL' :
-                  selectionLockService === 'POBOX_USA' ? '📮 POBox' :
-                  selectionLockService === 'TDI_EXPRESS' ? '🚚 TDI' :
-                  selectionLockService
-                } size="small" sx={{ ml: 1, bgcolor: 'rgba(255,255,255,0.25)', color: '#fff', fontSize: '0.7rem' }} />
-              )}
-            </Typography>
-            <Button
-              size="small" variant="contained"
-              onClick={() => {
-                const uids = Array.from(selectedUids);
-                const sel = shipments.filter(s => uids.includes(s.uid));
-                const trackings = sel.map(s => s.tracking || s.uid).join(', ');
-                window.alert(`Orden de Pago para:\n${trackings}\n\nFuncionalidad de cotización próximamente.`);
-              }}
-              sx={{ bgcolor: '#fff', color: '#F05A28', fontWeight: 800, '&:hover': { bgcolor: '#fff3ee' } }}
-            >
-              💳 Crear Orden de Pago ({selectedUids.size})
-            </Button>
-            <IconButton size="small" onClick={clearSelection} sx={{ color: '#fff' }}><CloseIcon fontSize="small" /></IconButton>
-          </Paper>
-        ) : (
-          <Paper sx={{ p: 1.5, mb: 1.5, borderRadius: 2, bgcolor: '#FFF7ED', border: '1px solid #FDBA74' }}>
-            <Typography variant="caption" sx={{ color: '#C2410C', fontWeight: 600 }}>
-              💡 Selecciona las guías del mismo cliente y servicio para generar una Orden de Pago
-            </Typography>
-          </Paper>
-        )}
-
+        {/* Orders table */}
         <TableContainer component={Paper} sx={{ borderRadius: 2 }}>
           <Table size="small">
             <TableHead>
-              <TableRow>
-                <TableCell padding="checkbox" sx={{ width: 40 }}>
-                  <Checkbox
-                    size="small"
-                    indeterminate={selectedUids.size > 0 && shipments.filter(s => canSelectShipment(s)).some(s => !selectedUids.has(s.uid))}
-                    checked={shipments.length > 0 && shipments.filter(s => canSelectShipment(s)).every(s => selectedUids.has(s.uid))}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        const toSelect = selectedUids.size === 0
-                          ? shipments.filter(s => s.serviceType === shipments[0]?.serviceType && s.clientId === shipments[0]?.clientId)
-                          : shipments.filter(s => canSelectShipment(s));
-                        setSelectedUids(prev => { const next = new Set(prev); toSelect.forEach(s => next.add(s.uid)); return next; });
-                      } else clearSelection();
-                    }}
-                  />
-                </TableCell>
-                <TableCell>Tracking</TableCell>
-                <TableCell>Cliente</TableCell>
-                <TableCell align="center">Estado</TableCell>
-                <TableCell>Servicio</TableCell>
-                <TableCell align="right">Monto</TableCell>
-                <TableCell>Fecha</TableCell>
+              <TableRow sx={{ bgcolor: '#111' }}>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Folio</TableCell>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Cliente</TableCell>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Guías</TableCell>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }} align="right">Monto</TableCell>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }} align="center">Estado</TableCell>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Fecha</TableCell>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }} align="center">Acciones</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {shipments.length === 0 && !shipmentsLoading && (
-                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 4 }}><Typography color="text.secondary">No hay envíos en tránsito.</Typography></TableCell></TableRow>
-              )}
-              {shipments.map((s) => (
-                <TableRow key={s.uid} hover selected={selectedUids.has(s.uid)}
-                  sx={{ opacity: canSelectShipment(s) ? 1 : 0.45, cursor: 'pointer' }}
-                  onClick={() => canSelectShipment(s) && toggleSelect(s.uid)}
-                >
-                  <TableCell padding="checkbox">
-                    <Tooltip title={!canSelectShipment(s) ? 'Solo guías del mismo servicio y cliente' : ''}>
-                      <span><Checkbox size="small" checked={selectedUids.has(s.uid)} disabled={!canSelectShipment(s)} onChange={() => toggleSelect(s.uid)} /></span>
-                    </Tooltip>
+              {paymentOrders.length === 0 && !paymentOrdersLoading && (
+                <TableRow>
+                  <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
+                      <Typography fontSize="2rem">💳</Typography>
+                      <Typography variant="body2">No hay órdenes de pago aún</Typography>
+                      <Typography variant="caption">Haz clic en "Nueva Orden de Pago" para crear una</Typography>
+                    </Box>
                   </TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.8rem', fontWeight: 600 }}>
-                    {s.tracking || s.uid}
-                    {s.childrenCount > 0 && <Chip label={`${s.childrenCount + 1} cajas`} size="small" sx={{ ml: 1, fontSize: '0.65rem' }} />}
-                  </TableCell>
-                  <TableCell><Typography variant="body2" fontWeight={600}>{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
-                  <TableCell align="center">
-                    <Chip label={s.status} size="small"
-                      color={['delivered'].includes(s.status) ? 'success' : ['customs','in_transit','received_china'].includes(s.status) ? 'info' : 'default'}
-                      sx={{ fontSize: '0.7rem' }}
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={
-                      s.serviceType === 'AIR_CHN_MX' ? '✈️ Aéreo' : s.serviceType === 'SEA_CHN_MX' ? '🚢 Marítimo' :
-                      s.serviceType === 'AA_DHL' ? '📦 DHL' : s.serviceType === 'POBOX_USA' ? '📮 POBox' :
-                      s.serviceType === 'TDI_EXPRESS' ? '🚚 TDI' : s.serviceType
-                    } size="small" variant="outlined" sx={{ fontSize: '0.7rem' }} />
-                  </TableCell>
-                  <TableCell align="right">
-                    {s.amount > 0 ? <Typography variant="body2" fontWeight={700} color="warning.main">${s.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography> : <Typography color="text.disabled">—</Typography>}
-                  </TableCell>
-                  <TableCell><Typography variant="caption" color="text.secondary">{new Date(s.createdAt).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</Typography></TableCell>
                 </TableRow>
-              ))}
+              )}
+              {paymentOrders.map((op) => {
+                const trackings: string[] = op.trackings || [];
+                const st = STATUS_OP[op.status] ?? { label: op.status, color: 'default' as const };
+                return (
+                  <TableRow key={op.id} hover>
+                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem' }}>{op.folio}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight={600}>{op.client_name || '—'}</Typography>
+                      <Typography variant="caption" color="text.secondary">{op.client_box_id}</Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxWidth: 300 }}>
+                        {trackings.slice(0, 3).map((t, i) => (
+                          <Chip key={i} label={t} size="small" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', maxWidth: 140 }} />
+                        ))}
+                        {trackings.length > 3 && <Chip label={`+${trackings.length - 3} más`} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />}
+                      </Box>
+                    </TableCell>
+                    <TableCell align="right">
+                      {op.total_mxn
+                        ? <Typography fontWeight={700} color="warning.main">${Number(op.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography>
+                        : <Typography color="text.disabled">—</Typography>}
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip label={st.label} color={st.color} size="small" sx={{ fontWeight: 700, fontSize: '0.7rem' }} />
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="caption" color="text.secondary">
+                        {new Date(op.created_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}
+                      </Typography>
+                    </TableCell>
+                    <TableCell align="center">
+                      <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                        {op.status === 'pendiente' && (
+                          <Tooltip title="Marcar como pagado">
+                            <IconButton size="small" color="success" onClick={async () => {
+                              await api.put(`/advisor/payment-orders/${op.id}/status`, { status: 'pagado' });
+                              fetchPaymentOrders();
+                            }}>
+                              <CheckIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                        {op.status === 'pendiente' && (
+                          <Tooltip title="Cancelar orden">
+                            <IconButton size="small" color="error" onClick={async () => {
+                              if (!window.confirm('¿Cancelar esta orden?')) return;
+                              await api.delete(`/advisor/payment-orders/${op.id}`);
+                              fetchPaymentOrders();
+                            }}>
+                              <CloseIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </TableContainer>
 
-        <TablePagination
-          component="div" count={shipmentsTotal} page={shipmentPage}
-          onPageChange={(_, p) => setShipmentPage(p)} rowsPerPage={50} rowsPerPageOptions={[50]}
-          labelDisplayedRows={({ from, to, count }) => `${from}-${to} de ${count}`}
-        />
+        {/* ── Dialog: Nueva Orden de Pago ── */}
+        <Dialog open={newOrderOpen} onClose={() => setNewOrderOpen(false)} maxWidth="md" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+          <DialogTitle sx={{ bgcolor: '#F05A28', color: '#fff', fontWeight: 800 }}>
+            💳 Nueva Orden de Pago
+          </DialogTitle>
+          <DialogContent sx={{ pt: 2 }}>
+            {/* Client selector */}
+            <FormControl size="small" fullWidth sx={{ mb: 2, mt: 1 }}>
+              <InputLabel>Filtrar por cliente</InputLabel>
+              <Select value={newOrderClientId} label="Filtrar por cliente" onChange={(e) => {
+                setNewOrderClientId(e.target.value);
+                setNewOrderSelectedUids(new Set());
+                fetchNewOrderShipments(e.target.value);
+              }}>
+                <MenuItem value="all">Todos los clientes</MenuItem>
+                {clients.map(c => <MenuItem key={c.id} value={String(c.id)}>{c.fullName} ({c.boxId})</MenuItem>)}
+              </Select>
+            </FormControl>
+
+            <Typography variant="caption" color="text.secondary" sx={{ mb: 1, display: 'block' }}>
+              Solo se muestran guías en tránsito con instrucciones asignadas. Selecciona guías del mismo cliente.
+            </Typography>
+
+            {newOrderShipmentsLoading ? (
+              <Box sx={{ py: 4, display: 'flex', justifyContent: 'center' }}><CircularProgress size={28} /></Box>
+            ) : (
+              <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2, maxHeight: 340, overflow: 'auto' }}>
+                <Table size="small" stickyHeader>
+                  <TableHead>
+                    <TableRow>
+                      <TableCell padding="checkbox">
+                        <Checkbox size="small"
+                          indeterminate={newOrderSelectedUids.size > 0 && newOrderShipments.some(s => !newOrderSelectedUids.has(s.uid))}
+                          checked={newOrderShipments.length > 0 && newOrderShipments.every(s => newOrderSelectedUids.has(s.uid))}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              const first = newOrderShipments[0];
+                              const toSel = newOrderSelectedUids.size === 0
+                                ? newOrderShipments.filter(s => s.clientId === first?.clientId)
+                                : newOrderShipments;
+                              setNewOrderSelectedUids(new Set(toSel.map(s => s.uid)));
+                            } else setNewOrderSelectedUids(new Set());
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell>Tracking</TableCell>
+                      <TableCell>Cliente</TableCell>
+                      <TableCell>Servicio</TableCell>
+                      <TableCell align="right">Monto</TableCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
+                    {newOrderShipments.length === 0 && (
+                      <TableRow><TableCell colSpan={5} align="center" sx={{ py: 3 }}>
+                        <Typography color="text.secondary" variant="caption">No hay guías con instrucciones en tránsito</Typography>
+                      </TableCell></TableRow>
+                    )}
+                    {newOrderShipments.map(s => {
+                      const lockClientId = newOrderSelectedUids.size > 0
+                        ? newOrderShipments.find(x => newOrderSelectedUids.has(x.uid))?.clientId
+                        : null;
+                      const canSelect = lockClientId == null || s.clientId === lockClientId;
+                      return (
+                        <TableRow key={s.uid} hover selected={newOrderSelectedUids.has(s.uid)}
+                          sx={{ opacity: canSelect ? 1 : 0.4, cursor: canSelect ? 'pointer' : 'not-allowed' }}
+                          onClick={() => {
+                            if (!canSelect) return;
+                            setNewOrderSelectedUids(prev => {
+                              const next = new Set(prev);
+                              if (next.has(s.uid)) next.delete(s.uid); else next.add(s.uid);
+                              return next;
+                            });
+                          }}
+                        >
+                          <TableCell padding="checkbox">
+                            <Tooltip title={!canSelect ? 'Solo guías del mismo cliente' : ''}>
+                              <span><Checkbox size="small" checked={newOrderSelectedUids.has(s.uid)} disabled={!canSelect} /></span>
+                            </Tooltip>
+                          </TableCell>
+                          <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.78rem', fontWeight: 600 }}>{s.tracking || s.uid}</TableCell>
+                          <TableCell><Typography variant="body2">{s.clientName}</Typography><Typography variant="caption" color="text.secondary">{s.clientBoxId}</Typography></TableCell>
+                          <TableCell><Chip label={s.serviceType === 'AIR_CHN_MX' ? '✈️ Aéreo' : s.serviceType === 'SEA_CHN_MX' ? '🚢 Mar.' : s.serviceType === 'AA_DHL' ? '📦 DHL' : s.serviceType === 'POBOX_USA' ? '📮 POBox' : s.serviceType === 'TDI_EXPRESS' ? '🚚 TDI' : s.serviceType} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} /></TableCell>
+                          <TableCell align="right">{s.amount > 0 ? <Typography variant="body2" fontWeight={700} color="warning.main">${s.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</Typography> : <Typography color="text.disabled">—</Typography>}</TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </TableContainer>
+            )}
+
+            {newOrderSelectedUids.size > 0 && (
+              <Paper sx={{ mt: 1.5, p: 1.5, bgcolor: '#FFF7ED', border: '1px solid #FDBA74', borderRadius: 2 }}>
+                <Typography variant="body2" fontWeight={700} color="#C2410C">
+                  {newOrderSelectedUids.size} guía{newOrderSelectedUids.size !== 1 ? 's' : ''} seleccionada{newOrderSelectedUids.size !== 1 ? 's' : ''} ·{' '}
+                  Total: ${newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid)).reduce((sum, s) => sum + (s.amount || 0), 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                </Typography>
+              </Paper>
+            )}
+
+            <TextField
+              label="Notas (opcional)"
+              size="small" fullWidth multiline rows={2}
+              value={newOrderNotes}
+              onChange={e => setNewOrderNotes(e.target.value)}
+              sx={{ mt: 2 }}
+              placeholder="Instrucciones especiales, referencia, etc."
+            />
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2, gap: 1 }}>
+            <Button onClick={() => setNewOrderOpen(false)} variant="outlined" sx={{ borderRadius: 2 }}>Cancelar</Button>
+            <Button
+              variant="contained" disabled={newOrderSelectedUids.size === 0 || newOrderSaving}
+              onClick={handleCreatePaymentOrder}
+              sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C94A1E' }, fontWeight: 700, borderRadius: 2, minWidth: 160 }}
+            >
+              {newOrderSaving ? <CircularProgress size={18} color="inherit" /> : `Crear Orden (${newOrderSelectedUids.size} guías)`}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </Box>
     </Fade>
   );

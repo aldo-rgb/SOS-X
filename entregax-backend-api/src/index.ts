@@ -5987,6 +5987,12 @@ app.get('/api/advisor/formal-quotes', authenticateToken, listAdvisorFormalQuotes
 app.post('/api/advisor/formal-quotes', authenticateToken, createAdvisorFormalQuote);
 app.get('/api/advisor/formal-quotes/:id/pdf', authenticateToken, getAdvisorFormalQuotePdfUrl);
 app.post('/api/advisor/quote-requests', authenticateToken, uploadAdvisorQuoteFiles, createAdvisorQuoteRequest);
+
+import { listAdvisorPaymentOrders, createAdvisorPaymentOrder, updateAdvisorPaymentOrderStatus, deleteAdvisorPaymentOrder } from './advisorPaymentOrderController';
+app.get('/api/advisor/payment-orders', authenticateToken, listAdvisorPaymentOrders);
+app.post('/api/advisor/payment-orders', authenticateToken, createAdvisorPaymentOrder);
+app.put('/api/advisor/payment-orders/:id/status', authenticateToken, updateAdvisorPaymentOrderStatus);
+app.delete('/api/advisor/payment-orders/:id', authenticateToken, deleteAdvisorPaymentOrder);
 app.post('/api/advisor/clients/:clientId/notes', authenticateToken, saveAdvisorNote);
 app.get('/api/advisor/shipment/:uid', authenticateToken, getAdvisorShipmentDetail);
 app.get('/api/advisor/shipments', authenticateToken, getAdvisorShipments);
