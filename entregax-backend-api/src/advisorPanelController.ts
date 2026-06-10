@@ -606,35 +606,53 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
     `;
 
     // 3) dhl_shipments (AA_DHL)
+    // Group JJD child guides by their 10-digit master (secondary_tracking).
+    // Multiple JJDs sharing the same secondary_tracking become one master row.
     const dhlSelect = `
-      SELECT 
-        'DHL-' || ds.id::text as uid,
-        ds.id, ds.inbound_tracking as tracking, ds.national_tracking as international_tracking, ds.box_id as child_no,
-        ds.status, 'AA_DHL' as service_type,
-        COALESCE(ds.total_cost_mxn, ds.saldo_pendiente, ds.import_cost_mxn, 0) as monto,
-        CASE WHEN COALESCE(ds.saldo_pendiente, ds.import_cost_mxn, 0) = 0 AND COALESCE(ds.monto_pagado, 0) > 0 THEN true ELSE false END as client_paid,
-        ds.paid_at as paid_at,
-        ds.created_at,
+      SELECT
+        'DHL-' || MIN(ds.id)::text as uid,
+        MIN(ds.id) as id,
+        CASE WHEN COUNT(*) > 1 THEN NULL
+             ELSE MIN(ds.inbound_tracking) END as tracking,
+        CASE WHEN MIN(ds.inbound_tracking) LIKE 'JJD%'
+             THEN COALESCE(MIN(NULLIF(ds.secondary_tracking, '')), MIN(ds.inbound_tracking))
+             ELSE NULL END as international_tracking,
+        NULL::text as child_no,
+        (array_agg(ds.status ORDER BY ds.id DESC))[1] as status,
+        'AA_DHL' as service_type,
+        SUM(COALESCE(ds.total_cost_mxn, ds.saldo_pendiente, ds.import_cost_mxn, 0)) as monto,
+        CASE WHEN SUM(COALESCE(ds.saldo_pendiente, ds.import_cost_mxn, 0)) = 0
+             AND SUM(COALESCE(ds.monto_pagado, 0)) > 0 THEN true ELSE false END as client_paid,
+        MIN(ds.paid_at) as paid_at,
+        MIN(ds.created_at) as created_at,
         u.id as client_id, u.full_name as client_name, u.box_id as client_box_id, u.phone as client_phone,
-        CASE WHEN ds.delivery_address_id IS NOT NULL THEN true ELSE false END as has_instructions,
-        false as is_master,
-        0 as children_count,
-        COALESCE(ds.has_gex, false) as has_gex,
-        COALESCE(ds.weight_kg, 0) as weight,
-        COALESCE(ds.length_cm, 0) as length_cm,
-        COALESCE(ds.width_cm, 0) as width_cm,
-        COALESCE(ds.height_cm, 0) as height_cm,
-        ds.description as description,
+        BOOL_AND(ds.delivery_address_id IS NOT NULL) as has_instructions,
+        CASE WHEN COUNT(*) > 1 THEN true ELSE false END as is_master,
+        COUNT(*)::int as children_count,
+        BOOL_OR(COALESCE(ds.has_gex, false)) as has_gex,
+        SUM(COALESCE(ds.weight_kg, 0)) as weight,
+        MAX(COALESCE(ds.length_cm, 0)) as length_cm,
+        MAX(COALESCE(ds.width_cm, 0)) as width_cm,
+        MAX(COALESCE(ds.height_cm, 0)) as height_cm,
+        (array_agg(ds.description ORDER BY ds.id DESC))[1] as description,
         (SELECT cso.name FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key = addr.carrier_config->>'dhl'
-         WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_carrier_name,
+         WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_carrier_name,
         (SELECT cso.icon FROM addresses addr JOIN carrier_service_options cso ON cso.carrier_key = addr.carrier_config->>'dhl'
-         WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_carrier_icon,
-        (SELECT addr.alias FROM addresses addr WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_address_name,
-        (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_address_city,
-        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = ds.delivery_address_id LIMIT 1) as delivery_address_recipient
+         WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_carrier_icon,
+        (SELECT addr.alias FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_name,
+        (SELECT addr.city || ', ' || addr.state FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_city,
+        (SELECT addr.recipient_name FROM addresses addr WHERE addr.id = MIN(ds.delivery_address_id) LIMIT 1) as delivery_address_recipient
       FROM dhl_shipments ds
       JOIN users u ON ds.user_id = u.id
       WHERE (u.advisor_id = $1 OR u.referred_by_id = $1) AND u.role = 'client'
+    `;
+    // GROUP BY master tracking key — appended after dhlWhere so filters apply before grouping
+    const dhlGroupBy = `
+      GROUP BY
+        CASE WHEN ds.inbound_tracking LIKE 'JJD%'
+             THEN COALESCE(NULLIF(ds.secondary_tracking, ''), ds.inbound_tracking)
+             ELSE ds.inbound_tracking END,
+        u.id, u.full_name, u.box_id, u.phone
     `;
 
     // Dynamic filters per sub-query — received_mty/ready_pickup aplica a todos los tipos
@@ -660,7 +678,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       const searchParam = `$${paramIdx}`;
       pkgWhere += ` AND (p.tracking_internal ILIKE ${searchParam} OR p.international_tracking ILIKE ${searchParam} OR u.full_name ILIKE ${searchParam} OR u.box_id ILIKE ${searchParam})`;
       marWhere += ` AND (mo.ordersn ILIKE ${searchParam} OR mo.ship_number ILIKE ${searchParam} OR u.full_name ILIKE ${searchParam} OR u.box_id ILIKE ${searchParam})`;
-      dhlWhere += ` AND (ds.inbound_tracking ILIKE ${searchParam} OR ds.national_tracking ILIKE ${searchParam} OR u.full_name ILIKE ${searchParam} OR u.box_id ILIKE ${searchParam})`;
+      dhlWhere += ` AND (ds.inbound_tracking ILIKE ${searchParam} OR ds.secondary_tracking ILIKE ${searchParam} OR ds.national_tracking ILIKE ${searchParam} OR u.full_name ILIKE ${searchParam} OR u.box_id ILIKE ${searchParam})`;
       params.push(`%${search}%`);
       paramIdx++;
     }
@@ -672,12 +690,12 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
       unionParts = [
         `${pkgSelect} ${pkgWhere}`,
         `${marSelect} ${marWhere}`,
-        `${dhlSelect} ${dhlWhere}`,
+        `${dhlSelect} ${dhlWhere} ${dhlGroupBy}`,
       ];
     } else if (serviceType === 'SEA_CHN_MX') {
       unionParts = [`${marSelect} ${marWhere}`];
     } else if (serviceType === 'AA_DHL') {
-      unionParts = [`${dhlSelect} ${dhlWhere}`];
+      unionParts = [`${dhlSelect} ${dhlWhere} ${dhlGroupBy}`];
     } else if (serviceType === 'TDI_EXPRESS') {
       // TDI packages: service_type stored lowercase, also identified by air_source
       // Include child packages (don't enforce master_id IS NULL)
@@ -730,7 +748,7 @@ export const getAdvisorShipments = async (req: Request, res: Response): Promise<
         UNION ALL
         ${marSelect}
         UNION ALL
-        ${dhlSelect}
+        ${dhlSelect} ${dhlGroupBy}
       ) all_shipments
     `;
     const statsRes = await pool.query(statsSQL, [advisorId]);
