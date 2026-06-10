@@ -5155,6 +5155,36 @@ app.post('/api/entangled/payment-requests/:id/upload-proof-file', authenticateTo
       [id, url]
     );
 
+    // Enviar xpay_pago_confirmado al cliente cuando sube su comprobante (fire-and-forget)
+    try {
+      const { sendXPayPagoConfirmado } = await import('./whatsappService');
+      const waRow = await dbPool.query(
+        `SELECT u.full_name, u.phone,
+                epr.referencia_pago, epr.op_monto, epr.op_divisa_destino,
+                epr.op_beneficiario_nombre
+           FROM entangled_payment_requests epr
+           JOIN users u ON u.id = epr.user_id
+          WHERE epr.id = $1 LIMIT 1`,
+        [id]
+      );
+      const wu = waRow.rows[0];
+      if (wu?.phone) {
+        const montoFmt = `$${Number(wu.op_monto || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${wu.op_divisa_destino || 'USD'}`;
+        console.log(`[XPAY WA] Enviando xpay_pago_confirmado a ${wu.phone} ref=${wu.referencia_pago}`);
+        void sendXPayPagoConfirmado({
+          phone: wu.phone,
+          nombre: wu.full_name || '',
+          referencia: wu.referencia_pago || '',
+          monto: montoFmt,
+          beneficiario: wu.op_beneficiario_nombre || '',
+        });
+      } else {
+        console.warn(`[XPAY WA] Usuario sin teléfono para xpay_pago_confirmado, solicitud ${id}`);
+      }
+    } catch (waErr) {
+      console.warn('[XPAY WA] Error enviando xpay_pago_confirmado:', waErr);
+    }
+
     // 2) Si la solicitud aún NO ha sido enviada a ENTANGLED (no tiene
     //    transaccion_id), este es el momento de enviarla con el comprobante.
     if (!owner.rows[0].entangled_transaccion_id) {

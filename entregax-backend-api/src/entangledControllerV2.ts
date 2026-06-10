@@ -20,7 +20,7 @@
 import { Request, Response } from 'express';
 import crypto from 'crypto';
 import { pool } from './db';
-import { sendXPayConfirmation, sendXPayPagoConfirmado } from './whatsappService';
+import { sendXPayConfirmation } from './whatsappService';
 import {
   sendSolicitudPago,
   uploadComprobanteToTransaccion,
@@ -1482,35 +1482,6 @@ export const webhookPagoProveedorV2 = async (
     );
 
     await logWebhook(transaccionId, evento, payload, requestId);
-
-    // Notificar al cliente por WhatsApp si el pago fue confirmado
-    if (estatus === 'completado') {
-      try {
-        const userRow = await pool.query(
-          `SELECT u.full_name, u.phone,
-                  epr.referencia_pago, epr.op_monto, epr.op_divisa_destino,
-                  epr.op_beneficiario_nombre
-             FROM entangled_payment_requests epr
-             JOIN users u ON u.id = epr.user_id
-            WHERE epr.id = $1 LIMIT 1`,
-          [requestId]
-        );
-        const u = userRow.rows[0];
-        if (u?.phone) {
-          const montoFmt = `$${Number(u.op_monto || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} ${u.op_divisa_destino || 'USD'}`;
-          void sendXPayPagoConfirmado({
-            phone: u.phone,
-            nombre: u.full_name || '',
-            referencia: u.referencia_pago || '',
-            monto: montoFmt,
-            beneficiario: u.op_beneficiario_nombre || '',
-          });
-        }
-      } catch (waErr) {
-        console.warn('[ENTANGLED v2] No se pudo enviar WhatsApp pago confirmado:', waErr);
-      }
-    }
-
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error('[ENTANGLED v2] webhookPagoProveedor error:', err);
