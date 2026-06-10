@@ -394,6 +394,7 @@ export default function DashboardAdvisor() {
   const [newOrderServiceFilter, setNewOrderServiceFilter] = useState<string>('all');
   const [newOrderNotes, setNewOrderNotes] = useState('');
   const [newOrderSaving, setNewOrderSaving] = useState(false);
+  const [successOrderData, setSuccessOrderData] = useState<any>(null);
 
   // Assign instructions dialog
   const [instrDialogOpen, setInstrDialogOpen] = useState(false);
@@ -603,19 +604,20 @@ export default function DashboardAdvisor() {
       const selected = newOrderShipments.filter(s => newOrderSelectedUids.has(s.uid));
       const first = selected[0];
       const total = selected.reduce((sum, s) => sum + (s.amount || 0), 0);
-      await api.post('/advisor/payment-orders', {
+      const res = await api.post('/advisor/payment-orders', {
         client_id: first?.clientId,
         client_name: first?.clientName,
         client_box_id: first?.clientBoxId,
         package_uids: Array.from(newOrderSelectedUids),
-        trackings: selected.map(s => s.tracking || s.uid),
+        trackings: selected.map(s => s.internationalTracking || s.tracking || s.uid),
         notes: newOrderNotes || null,
         total_mxn: total > 0 ? total : null,
       });
       setNewOrderOpen(false);
       setNewOrderSelectedUids(new Set());
       setNewOrderNotes('');
-      setNewOrderClientId('all');
+      setNewOrderClientId('');
+      setSuccessOrderData({ ...res.data, client_name: first?.clientName, total_mxn: total });
       fetchPaymentOrders();
     } catch (e: any) {
       alert(e?.response?.data?.error || 'Error al crear la orden');
@@ -2541,11 +2543,18 @@ export default function DashboardAdvisor() {
   // ════════════════════════════════════
   // TAB 3: ORDEN DE PAGO
   // ════════════════════════════════════
-  const STATUS_OP: Record<string, { label: string; color: 'default'|'warning'|'success'|'error' }> = {
-    pendiente:   { label: 'Pendiente',   color: 'warning' },
-    en_proceso:  { label: 'En proceso',  color: 'default' },
-    pagado:      { label: 'Pagado',      color: 'success' },
-    cancelado:   { label: 'Cancelado',   color: 'error' },
+  const STATUS_OP: Record<string, { label: string; color: 'default'|'warning'|'success'|'error'|'info' }> = {
+    pendiente:          { label: 'Pendiente',    color: 'warning' },
+    en_proceso:         { label: 'En proceso',   color: 'info'    },
+    pagado:             { label: 'Pagado',       color: 'success' },
+    cancelado:          { label: 'Cancelado',    color: 'error'   },
+    pending:            { label: 'Pendiente',    color: 'warning' },
+    pending_payment:    { label: 'Pendiente',    color: 'warning' },
+    vouchers_submitted: { label: 'Comprobante',  color: 'info'    },
+    vouchers_partial:   { label: 'Parcial',      color: 'info'    },
+    completed:          { label: 'Pagado',       color: 'success' },
+    paid:               { label: 'Pagado',       color: 'success' },
+    expired:            { label: 'Expirado',     color: 'error'   },
   };
 
   const renderOrdenDePago = () => (
@@ -2578,11 +2587,12 @@ export default function DashboardAdvisor() {
           <Table size="small">
             <TableHead>
               <TableRow sx={{ bgcolor: '#111' }}>
-                <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Folio</TableCell>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Folio / Ref</TableCell>
                 <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Cliente</TableCell>
                 <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Guías</TableCell>
                 <TableCell sx={{ color: '#fff', fontWeight: 700 }} align="right">Monto</TableCell>
                 <TableCell sx={{ color: '#fff', fontWeight: 700 }} align="center">Estado</TableCell>
+                <TableCell sx={{ color: '#fff', fontWeight: 700 }} align="center">Origen</TableCell>
                 <TableCell sx={{ color: '#fff', fontWeight: 700 }}>Fecha</TableCell>
                 <TableCell sx={{ color: '#fff', fontWeight: 700 }} align="center">Acciones</TableCell>
               </TableRow>
@@ -2590,7 +2600,7 @@ export default function DashboardAdvisor() {
             <TableBody>
               {paymentOrders.length === 0 && !paymentOrdersLoading && (
                 <TableRow>
-                  <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
+                  <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
                     <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1, color: 'text.secondary' }}>
                       <Typography fontSize="2rem">💳</Typography>
                       <Typography variant="body2">No hay órdenes de pago aún</Typography>
@@ -2602,20 +2612,37 @@ export default function DashboardAdvisor() {
               {paymentOrders.map((op) => {
                 const trackings: string[] = op.trackings || [];
                 const st = STATUS_OP[op.status] ?? { label: op.status, color: 'default' as const };
+                const isClientCreated = op.created_by === 'client';
+                const isPending = op.status === 'pendiente' || op.status === 'pending' || op.status === 'pending_payment';
                 return (
-                  <TableRow key={op.id} hover>
-                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem' }}>{op.folio}</TableCell>
+                  <TableRow key={`${op.created_by}-${op.id}`} hover>
+                    <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem' }}>
+                      <Typography sx={{ fontFamily: 'monospace', fontWeight: 700, fontSize: '0.8rem' }}>
+                        {op.folio || op.payment_reference || `#${op.id}`}
+                      </Typography>
+                      {op.payment_reference && op.folio && (
+                        <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
+                          {op.payment_reference}
+                        </Typography>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <Typography variant="body2" fontWeight={600}>{op.client_name || '—'}</Typography>
                       <Typography variant="caption" color="text.secondary">{op.client_box_id}</Typography>
                     </TableCell>
                     <TableCell>
-                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxWidth: 300 }}>
-                        {trackings.slice(0, 3).map((t, i) => (
-                          <Chip key={i} label={t} size="small" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', maxWidth: 140 }} />
-                        ))}
-                        {trackings.length > 3 && <Chip label={`+${trackings.length - 3} más`} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />}
-                      </Box>
+                      {trackings.length > 0 ? (
+                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, maxWidth: 300 }}>
+                          {trackings.slice(0, 3).map((t, i) => (
+                            <Chip key={i} label={t} size="small" sx={{ fontFamily: 'monospace', fontSize: '0.65rem', maxWidth: 140 }} />
+                          ))}
+                          {trackings.length > 3 && <Chip label={`+${trackings.length - 3} más`} size="small" variant="outlined" sx={{ fontSize: '0.65rem' }} />}
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">
+                          {(op.package_uids || []).length} guía(s)
+                        </Typography>
+                      )}
                     </TableCell>
                     <TableCell align="right">
                       {op.total_mxn
@@ -2623,7 +2650,15 @@ export default function DashboardAdvisor() {
                         : <Typography color="text.disabled">—</Typography>}
                     </TableCell>
                     <TableCell align="center">
-                      <Chip label={st.label} color={st.color} size="small" sx={{ fontWeight: 700, fontSize: '0.7rem' }} />
+                      <Chip label={st.label} color={st.color as any} size="small" sx={{ fontWeight: 700, fontSize: '0.7rem' }} />
+                    </TableCell>
+                    <TableCell align="center">
+                      <Chip
+                        label={isClientCreated ? 'Cliente' : 'Asesor'}
+                        size="small"
+                        variant="outlined"
+                        sx={{ fontSize: '0.65rem', borderColor: isClientCreated ? '#0288d1' : '#F05A28', color: isClientCreated ? '#0288d1' : '#F05A28' }}
+                      />
                     </TableCell>
                     <TableCell>
                       <Typography variant="caption" color="text.secondary">
@@ -2632,7 +2667,7 @@ export default function DashboardAdvisor() {
                     </TableCell>
                     <TableCell align="center">
                       <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                        {op.status === 'pendiente' && (
+                        {isPending && !isClientCreated && (
                           <Tooltip title="Marcar como pagado">
                             <IconButton size="small" color="success" onClick={async () => {
                               await api.put(`/advisor/payment-orders/${op.id}/status`, { status: 'pagado' });
@@ -2642,7 +2677,7 @@ export default function DashboardAdvisor() {
                             </IconButton>
                           </Tooltip>
                         )}
-                        {op.status === 'pendiente' && (
+                        {isPending && !isClientCreated && (
                           <Tooltip title="Cancelar orden">
                             <IconButton size="small" color="error" onClick={async () => {
                               if (!window.confirm('¿Cancelar esta orden?')) return;
@@ -2852,6 +2887,80 @@ export default function DashboardAdvisor() {
               sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C94A1E' }, fontWeight: 700, borderRadius: 2, minWidth: 160 }}
             >
               {newOrderSaving ? <CircularProgress size={18} color="inherit" /> : `Crear Orden (${newOrderSelectedUids.size} guías)`}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* ── Dialog: Orden Creada Exitosamente ── */}
+        <Dialog open={!!successOrderData} onClose={() => setSuccessOrderData(null)} maxWidth="sm" fullWidth PaperProps={{ sx: { borderRadius: 3 } }}>
+          <DialogTitle sx={{ bgcolor: '#2e7d32', color: '#fff', fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+            ✅ Orden de Pago Creada
+          </DialogTitle>
+          {successOrderData && (
+            <DialogContent sx={{ pt: 2.5 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <Box sx={{ bgcolor: '#F3F4F6', borderRadius: 2, p: 2 }}>
+                  <Typography variant="body2" color="text.secondary" gutterBottom>Folio</Typography>
+                  <Typography fontWeight={800} sx={{ fontFamily: 'monospace', fontSize: '1rem' }}>{successOrderData.folio}</Typography>
+                  <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>Referencia de pago</Typography>
+                  <Typography fontWeight={700} sx={{ fontFamily: 'monospace', color: '#F05A28', fontSize: '0.95rem' }}>
+                    {successOrderData.payment_reference}
+                  </Typography>
+                </Box>
+
+                <Box sx={{ bgcolor: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 2, p: 2 }}>
+                  <Typography variant="body2" fontWeight={700} color="#1D4ED8" gutterBottom>Datos bancarios para el cliente</Typography>
+                  {successOrderData.bank_info ? (
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="caption" color="text.secondary">Banco</Typography>
+                        <Typography variant="body2" fontWeight={600}>{successOrderData.bank_info.banco}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="caption" color="text.secondary">CLABE</Typography>
+                        <Typography variant="body2" fontWeight={700} sx={{ fontFamily: 'monospace' }}>{successOrderData.bank_info.clabe}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="caption" color="text.secondary">Beneficiario</Typography>
+                        <Typography variant="body2" fontWeight={600}>{successOrderData.bank_info.beneficiario}</Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <Typography variant="caption" color="text.secondary">Concepto</Typography>
+                        <Typography variant="body2" fontWeight={700} color="#F05A28" sx={{ fontFamily: 'monospace' }}>{successOrderData.bank_info.concepto}</Typography>
+                      </Box>
+                    </Box>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">Sin información bancaria configurada</Typography>
+                  )}
+                </Box>
+
+                <Box sx={{ bgcolor: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 2, p: 2 }}>
+                  <Typography variant="body2" fontWeight={700} color="#166534" gutterBottom>Resumen</Typography>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="caption" color="text.secondary">Cliente</Typography>
+                    <Typography variant="body2" fontWeight={600}>{successOrderData.client_name}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography variant="caption" color="text.secondary">Monto total</Typography>
+                    <Typography variant="body2" fontWeight={800} color="success.main">
+                      ${Number(successOrderData.total_mxn).toLocaleString('es-MX', { minimumFractionDigits: 2 })} MXN
+                    </Typography>
+                  </Box>
+                </Box>
+
+                <Typography variant="caption" color="text.secondary" sx={{ textAlign: 'center' }}>
+                  Esta orden ya aparece en la app del cliente en "Mis Cuentas por Pagar".
+                </Typography>
+              </Box>
+            </DialogContent>
+          )}
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button
+              variant="contained"
+              onClick={() => setSuccessOrderData(null)}
+              sx={{ bgcolor: '#2e7d32', '&:hover': { bgcolor: '#1b5e20' }, fontWeight: 700, borderRadius: 2 }}
+            >
+              Entendido
             </Button>
           </DialogActions>
         </Dialog>
