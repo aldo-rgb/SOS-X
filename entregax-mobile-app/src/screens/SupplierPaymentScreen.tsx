@@ -268,14 +268,29 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     } catch {}
   }, [token]);
 
+  // Comisiones XPAY → Cliente final (configuradas en el admin)
+  const [clientCommissionCfg, setClientCommissionCfg] = useState<{
+    pago_con_factura: { comision_porcentaje: number };
+    pago_sin_factura: { comision_porcentaje: number };
+  } | null>(null);
+
   const loadPricing = useCallback(async () => {
     try {
-      const res = await fetch(`${API_URL}/api/entangled/providers`, { headers: authHeaders });
-      const data = await res.json();
-      const list: EntProviderPub[] = Array.isArray(data) ? data : [];
-      setProviders(list);
-      const def = list.find(x => x.is_default) || list[0] || null;
-      if (def && !selectedProviderId) setSelectedProviderId(def.id);
+      const [provRes, cfgRes] = await Promise.allSettled([
+        fetch(`${API_URL}/api/entangled/providers`, { headers: authHeaders }),
+        fetch(`${API_URL}/api/entangled/service-config`, { headers: authHeaders }),
+      ]);
+      if (provRes.status === 'fulfilled') {
+        const data = await provRes.value.json();
+        const list: EntProviderPub[] = Array.isArray(data) ? data : [];
+        setProviders(list);
+        const def = list.find(x => x.is_default) || list[0] || null;
+        if (def && !selectedProviderId) setSelectedProviderId(def.id);
+      }
+      if (cfgRes.status === 'fulfilled' && cfgRes.value.ok) {
+        const cfg = await cfgRes.value.json();
+        if (cfg?.pago_con_factura && cfg?.pago_sin_factura) setClientCommissionCfg(cfg);
+      }
     } catch {}
   }, [token, selectedProviderId]);
 
@@ -451,11 +466,17 @@ export default function SupplierPaymentScreen({ route, navigation }: any) {
     if (!pricing || !m || m <= 0) return null;
     const tc = divisa === 'RMB' ? pricing.tipo_cambio_rmb : pricing.tipo_cambio_usd;
     const base = m * tc;
-    const comision = base * (pricing.porcentaje_compra / 100);
+    // Usar comisión de la config XPAY→Cliente final; fallback al % del proveedor
+    const clientPct = clientCommissionCfg
+      ? Number(requiereFactura
+          ? clientCommissionCfg.pago_con_factura.comision_porcentaje
+          : clientCommissionCfg.pago_sin_factura.comision_porcentaje)
+      : pricing.porcentaje_compra;
+    const comision = base * (clientPct / 100);
     const costoOpMxn = (pricing.costo_operacion_usd || 0) * tc;
     const total = base + comision + costoOpMxn;
     return {
-      tipo_cambio: tc, porcentaje_compra: pricing.porcentaje_compra,
+      tipo_cambio: tc, porcentaje_compra: clientPct,
       costo_operacion_usd: pricing.costo_operacion_usd,
       monto_mxn_base: base, monto_mxn_comision: comision,
       monto_mxn_costo_op: costoOpMxn, monto_mxn_total: total,
