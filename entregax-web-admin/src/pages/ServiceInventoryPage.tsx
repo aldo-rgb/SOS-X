@@ -166,9 +166,9 @@ export default function ServiceInventoryPage() {
   };
 
   // Determina si una fila necesita sincronización (EntregaX tiene más que nuestro sistema)
+  // El mismatch (⚠️) solo advierte, NO bloquea — EntregaX es fuente de verdad para guia/paquetería
   const needsSync = (row: PackageRow, ex: EntregaxRow | undefined): boolean => {
     if (!ex || ex.state !== 'done') return false;
-    if (getExMismatches(row, ex).length > 0) return false; // carrier/guia mismatch → no sync
     if (!!ex.hasPago && !row.costing_paid) return true;
     // EntregaX tiene guía de salida que nuestro sistema no tiene o es diferente
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
