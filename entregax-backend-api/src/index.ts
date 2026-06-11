@@ -12791,7 +12791,8 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
       status: 'success',
       data: {
         ctz: ctzFromPayments || guide,
-        guia_unica: guiaUnica,
+        // guiaUnica viene de pagos (guias[]); si no hay pagos, usar el del waybill
+        guia_unica: guiaUnica || waybillMsg?.guia_unica || undefined,
         guias: paymentsGuias,
         pagos: (payments as any)?.data?.pagos || [],
         historial: (history as any)?.data || [],

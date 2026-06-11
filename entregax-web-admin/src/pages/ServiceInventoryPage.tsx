@@ -312,10 +312,14 @@ export default function ServiceInventoryPage() {
         try {
           const res = await api.get(`/national/payment-query/${encodeURIComponent(queryKey)}`).catch((err: any) => ({ data: null, _notfound: err?.response?.status === 404 } as any));
           const d = res?.data?.status === 'success' ? res.data.data : null;
-          if (d?.guia_unica) {
-            setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'done', guia_unica: d.guia_unica } }));
-            setCachedUs(storeKey, d.guia_unica);
-            api.post('/packages/save-guia-us', { tracking_internal: storeKey, guia_unica: d.guia_unica }).catch(() => {});
+          const derivedGuia = d?.guia_unica || d?.waybill?.guia_unica || d?.guias?.[0]?.guia_unica;
+          if (derivedGuia) {
+            setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'done', guia_unica: derivedGuia } }));
+            setCachedUs(storeKey, derivedGuia);
+            api.post('/packages/save-guia-us', { tracking_internal: storeKey, guia_unica: derivedGuia }).catch(() => {});
+          } else if (d) {
+            // Datos de EntregaX encontrados pero sin guia_unica asignada — no es error
+            setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'notfound' } }));
           } else {
             setUsGuias(prev => ({ ...prev, [storeKey]: { state: res?._notfound ? 'notfound' : 'error' } }));
           }
