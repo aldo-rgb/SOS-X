@@ -454,7 +454,7 @@ export const loginUser = async (req: Request, res: Response): Promise<void> => {
                 role: user.role,
                 phone: user.phone,
                 rfc: user.rfc || null,
-                isVerified: user.is_verified || false,
+                isVerified: user.is_verified === true || ['verified', 'approved'].includes((user.verification_status || '').toLowerCase()),
                 verificationStatus: user.verification_status || 'not_started',
                 phoneVerified: user.phone_verified === true,
                 // 👷 Campo para onboarding de empleados

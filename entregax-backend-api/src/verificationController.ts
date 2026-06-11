@@ -350,8 +350,9 @@ export const getVerificationStatus = async (req: Request, res: Response): Promis
 
         const user = result.rows[0];
 
+        const statusOk = ['verified', 'approved'].includes((user.verification_status || '').toLowerCase());
         res.json({
-            isVerified: user.is_verified || false,
+            isVerified: user.is_verified === true || statusOk,
             status: user.verification_status || 'not_started',
             verificationStatus: user.verification_status,
             hasAddress: user.has_address,
