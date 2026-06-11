@@ -2594,9 +2594,11 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           color="primary"
           skipWidget
           sx={{ borderColor: ORANGE, color: ORANGE }}
-          onSuccess={async ({ new_count, matched_count }) => {
+          onSuccess={async ({ new_count, matched_count, credential_warning }) => {
             setError(null);
-            if (new_count === 0) {
+            if (credential_warning) {
+              setError(`⚠️ ${credential_warning}`);
+            } else if (new_count === 0) {
               setError(`Sin movimientos nuevos. Conciliados: ${matched_count}.`);
             }
             await load();
@@ -2607,8 +2609,10 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           disabled={links.length === 0}
           label="Sincronizar (re-autenticar)"
           sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94e1f' } }}
-          onSuccess={async ({ new_count }) => {
-            if (new_count === 0 && links.some((l: any) => l.twofa_required)) {
+          onSuccess={async ({ new_count, credential_warning }) => {
+            if (credential_warning) {
+              setError(`⚠️ ${credential_warning}`);
+            } else if (new_count === 0 && links.some((l: any) => l.twofa_required)) {
               setError('No se descargaron movimientos nuevos. El banco puede requerir re-autenticación 2FA.');
             }
             await load();

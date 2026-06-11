@@ -18,7 +18,7 @@ import api from '../services/api';
 
 interface Props {
   emitterId: number;
-  onSuccess?: (result: { new_count: number; matched_count: number }) => void;
+  onSuccess?: (result: { new_count: number; matched_count: number; credential_warning?: string; credential_status?: number }) => void;
   label?: string;
   size?: 'small' | 'medium' | 'large';
   variant?: 'contained' | 'outlined' | 'text';
@@ -54,7 +54,12 @@ export default function SyncfyRefreshButton({
     setLoading(true);
     try {
       const res = await api.post('/admin/syncfy/sync', { emitter_id: emitterId, days_back: 90 });
-      onSuccess?.({ new_count: res.data.new_count ?? 0, matched_count: res.data.matched_count ?? 0 });
+      onSuccess?.({
+        new_count: res.data.new_count ?? 0,
+        matched_count: res.data.matched_count ?? 0,
+        credential_warning: res.data.credential_warning,
+        credential_status: res.data.credential_status,
+      });
     } catch (err: any) {
       console.error('[SyncfyRefreshButton] sync error:', err.message);
     } finally {

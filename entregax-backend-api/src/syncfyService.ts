@@ -235,14 +235,31 @@ export async function deleteCredential(dbCredentialId: number): Promise<boolean>
 }
 
 // --------------- FETCH TRANSACTIONS --------------------------
-export async function fetchTransactionsRemote(idUser: string, daysBack: number): Promise<any[]> {
+// Códigos de estado Syncfy que indican problemas de autenticación
+const SYNCFY_AUTH_ERRORS: Record<number, string> = {
+  401: 'Credenciales inválidas en el banco',
+  403: 'Acceso denegado por el banco',
+  408: 'Tiempo de espera agotado al conectar con el banco',
+  409: 'La sesión bancaria expiró, re-autentica',
+  410: 'Token 2FA requerido — usa el botón Sincronizar (re-autenticar)',
+  411: 'Token 2FA inválido o expirado — vuelve a usar Sincronizar (re-autenticar) e ingresa el código inmediatamente',
+  500: 'Error interno del banco',
+  503: 'Servicio bancario no disponible temporalmente',
+};
+
+export async function fetchTransactionsRemote(
+  idUser: string,
+  daysBack: number,
+): Promise<{ txs: any[]; credentialStatus: number | undefined; credentialWarning: string | undefined }> {
   const effectiveDays = Math.max(daysBack, 730);
   const sinceUnix = Math.floor((Date.now() - effectiveDays * 86400000) / 1000);
 
   const sessionToken = await createSessionToken(idUser);
   const client = getSessionClient(sessionToken);
 
-  // Diagnóstico: revisar estado de credenciales (job status)
+  // Revisar estado de credenciales — detectar problemas de 2FA/auth
+  let credentialStatus: number | undefined;
+  let credentialWarning: string | undefined;
   try {
     const appClient = getAppClient();
     const credResp = await appClient.get(`${SYNCFY_PATHS.credentials}?id_user=${encodeURIComponent(idUser)}`);
@@ -250,7 +267,12 @@ export async function fetchTransactionsRemote(idUser: string, daysBack: number):
     console.warn(`[Syncfy] credentials: count=${Array.isArray(creds) ? creds.length : 'N/A'}`);
     if (Array.isArray(creds)) {
       creds.forEach((c: any) => {
+        const code = Number(c.code);
         console.warn(`[Syncfy] credential id=${c.id_credential} site=${c.site?.name || c.id_site} status=${c.code} dt_refresh=${c.dt_refresh} next_refresh=${c.dt_next_refresh}`);
+        if (code >= 400 && (!credentialStatus || code > credentialStatus)) {
+          credentialStatus = code;
+          credentialWarning = SYNCFY_AUTH_ERRORS[code] || `Error de credencial bancaria (código ${code})`;
+        }
       });
     }
   } catch (ce: any) {
@@ -280,9 +302,9 @@ export async function fetchTransactionsRemote(idUser: string, daysBack: number):
       const resp2 = await client.get(`${SYNCFY_PATHS.transactions}?id_user=${encodeURIComponent(idUser)}`);
       const txs2 = resp2.data?.response || resp2.data || [];
       console.warn(`[Syncfy] sin filtro: txs=${Array.isArray(txs2) ? txs2.length : typeof txs2} sample=${JSON.stringify(txs2[0] || null).slice(0, 200)}`);
-      return txs2;
+      return { txs: txs2, credentialStatus, credentialWarning };
     }
-    return txs;
+    return { txs, credentialStatus, credentialWarning };
   } catch (err: any) {
     const status = err.response?.status;
     const body = JSON.stringify(err.response?.data || err.message || '').slice(0, 300);
@@ -469,8 +491,8 @@ export async function syncEmitter(emitterId: number, daysBack: number = 7): Prom
   )).rows[0].n;
   if (credCount === 0) throw new Error('Esta empresa no tiene bancos conectados en Syncfy.');
 
-  const txs = await fetchTransactionsRemote(idUser, daysBack);
-  console.log(`🏦 Syncfy: ${txs.length} tx recibidas para emitter ${emitterId} (${daysBack}d)`);
+  const { txs, credentialStatus, credentialWarning } = await fetchTransactionsRemote(idUser, daysBack);
+  console.log(`🏦 Syncfy: ${txs.length} tx recibidas para emitter ${emitterId} (${daysBack}d) credStatus=${credentialStatus}`);
   const result = await processTransactions(emitterId, txs);
 
   try {
@@ -479,7 +501,7 @@ export async function syncEmitter(emitterId: number, daysBack: number = 7): Prom
       [emitterId]
     );
   } catch { /* columna puede no existir en instancias antiguas */ }
-  return result;
+  return { ...result, credential_status: credentialStatus, credential_warning: credentialWarning };
 }
 
 export async function syncAllEmitters(daysBack: number = 3): Promise<any[]> {
