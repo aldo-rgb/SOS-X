@@ -12767,10 +12767,14 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
       const updates: string[] = [];
       const params: any[] = [];
       if (hasPago) { updates.push(`payment_status = 'paid'`); syncedFields.push('pago'); }
-      if (hasInstrucciones && guia_salida) {
+      if (guia_salida) {
+        // EntregaX tiene guía de salida → actualizar carrier + tracking (sin inyectar dirección)
         params.push(paqueteria || null); updates.push(`national_carrier = $${params.length}`);
         params.push(guia_salida);       updates.push(`national_tracking = $${params.length}`);
-        // Crear y linkear dirección
+        syncedFields.push('guia_salida');
+      } else if (hasInstrucciones) {
+        // Sin guía de salida → inyectar dirección de EntregaX + paquetería
+        if (paqueteria) { params.push(paqueteria); updates.push(`national_carrier = $${params.length}`); }
         const moRes = await pool.query(`SELECT user_id FROM maritime_orders WHERE ordersn = $1 LIMIT 1`, [guia]);
         const addrId = await upsertAddress(moRes.rows[0]?.user_id);
         if (addrId) { params.push(addrId); updates.push(`delivery_address_id = $${params.length}`); }
@@ -12792,10 +12796,14 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
         updates.push(`payment_status = 'paid'`);
         syncedFields.push('pago');
       }
-      if (hasInstrucciones && guia_salida) {
+      if (guia_salida) {
+        // EntregaX tiene guía de salida → actualizar carrier + tracking (sin inyectar dirección)
         params.push(paqueteria || null); updates.push(`national_carrier = $${params.length}`);
         params.push(guia_salida);       updates.push(`national_tracking = $${params.length}`);
-        // Crear y linkear dirección
+        syncedFields.push('guia_salida');
+      } else if (hasInstrucciones) {
+        // Sin guía de salida → inyectar dirección de EntregaX + paquetería
+        if (paqueteria) { params.push(paqueteria); updates.push(`national_carrier = $${params.length}`); }
         const pkgRes = await pool.query(
           `SELECT user_id FROM packages WHERE tracking_internal = $1 OR child_no = $1 LIMIT 1`, [guia]
         );

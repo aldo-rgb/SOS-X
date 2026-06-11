@@ -159,22 +159,30 @@ export default function ServiceInventoryPage() {
   const needsSync = (row: PackageRow, ex: EntregaxRow | undefined): boolean => {
     if (!ex || ex.state !== 'done') return false;
     if (getExMismatches(row, ex).length > 0) return false; // carrier/guia mismatch → no sync
-    return (!!ex.hasPago && !row.costing_paid) || (!!ex.hasInstrucciones && !row.has_instructions);
+    if (!!ex.hasPago && !row.costing_paid) return true;
+    // EntregaX tiene guía de salida que nuestro sistema no tiene o es diferente
+    if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
+    // EntregaX tiene instrucciones pero sin guía de salida → inyectar dirección
+    if (!ex.guiaSalida && !!ex.hasInstrucciones && !row.has_instructions) return true;
+    return false;
   };
 
   const syncRow = async (row: PackageRow) => {
     const ex = exData[row.guia];
     if (!ex || ex.state !== 'done') return;
     setSyncState(prev => ({ ...prev, [row.guia]: 'syncing' }));
+    const hasGuiaSalida = !!ex.guiaSalida;
     try {
       await api.post('/packages/sync-from-entregax', {
         guia: row.guia,
         service,
         hasPago: ex.hasPago && !row.costing_paid,
-        hasInstrucciones: ex.hasInstrucciones && !row.has_instructions,
+        // Inyectar instrucciones/dirección solo cuando EntregaX no tiene guía de salida aún
+        hasInstrucciones: !hasGuiaSalida && !!ex.hasInstrucciones && !row.has_instructions,
         paqueteria: ex.paqueteria,
-        guia_salida: ex.guiaSalida || undefined,
-        direccion_entrega: ex.direccionEntrega,
+        guia_salida: hasGuiaSalida ? ex.guiaSalida : undefined,
+        // Dirección solo cuando no hay guía de salida (paquete aún no enviado)
+        direccion_entrega: !hasGuiaSalida ? ex.direccionEntrega : undefined,
       });
       // Actualiza la fila localmente para reflejar el sync
       setRows(prev => prev.map(r => {
@@ -182,9 +190,9 @@ export default function ServiceInventoryPage() {
         return {
           ...r,
           costing_paid: r.costing_paid || (ex.hasPago ?? false),
-          has_instructions: r.has_instructions || (ex.hasInstrucciones ?? false),
-          paqueteria: r.paqueteria || ex.paqueteria,
-          guia_salida: r.guia_salida || ex.guiaSalida,
+          has_instructions: r.has_instructions || !!ex.hasInstrucciones || hasGuiaSalida,
+          paqueteria: ex.paqueteria || r.paqueteria,
+          guia_salida: ex.guiaSalida || r.guia_salida,
         };
       }));
       setSyncState(prev => ({ ...prev, [row.guia]: 'done' }));
