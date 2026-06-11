@@ -245,9 +245,9 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return false;
     if (!!ex.hasPago && !row.costing_paid) return true;
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
-    if (!ex.guiaSalida && !!ex.hasInstrucciones && !row.has_instructions) return true;
+    if (!!ex.hasInstrucciones && !row.has_instructions) return true;
     const mappedStatus = mapExStatusToInternal(ex);
-    if (mappedStatus && mappedStatus !== row.status) return true;
+    if (mappedStatus && mappedStatus !== row.status && !(row.status === 'received_mty' && mappedStatus === 'shipped')) return true;
     return false;
   };
 
@@ -256,16 +256,20 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return;
     setSyncState(prev => ({ ...prev, [row.guia]: 'syncing' }));
     const hasGuiaSalida = !!ex.guiaSalida;
+    const shouldInjectInstrucciones = !!ex.hasInstrucciones && !row.has_instructions;
     const mappedStatus = mapExStatusToInternal(ex);
-    const newStatus = mappedStatus && mappedStatus !== row.status ? mappedStatus : undefined;
+    // No cambiar recibido en MTY → enviado (el paquete sigue en nuestro almacén)
+    const newStatus = mappedStatus && mappedStatus !== row.status
+      && !(row.status === 'received_mty' && mappedStatus === 'shipped')
+      ? mappedStatus : undefined;
     try {
       await api.post('/packages/sync-from-entregax', {
         guia: row.guia, service,
         hasPago: ex.hasPago && !row.costing_paid,
-        hasInstrucciones: !hasGuiaSalida && !!ex.hasInstrucciones && !row.has_instructions,
+        hasInstrucciones: shouldInjectInstrucciones,
         paqueteria: !row.has_instructions ? ex.paqueteria : undefined,
         guia_salida: hasGuiaSalida ? ex.guiaSalida : undefined,
-        direccion_entrega: !hasGuiaSalida && !row.has_instructions ? ex.direccionEntrega : undefined,
+        direccion_entrega: shouldInjectInstrucciones ? ex.direccionEntrega : undefined,
         newStatus,
       });
       setRows(prev => prev.map(r => {

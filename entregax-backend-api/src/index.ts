@@ -12849,13 +12849,16 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
         syncedFields.push('pago');
       }
       if (guia_salida) {
-        // EntregaX tiene guía de salida → actualizar carrier + tracking (sin inyectar dirección)
+        // EntregaX tiene guía de salida → actualizar carrier + tracking
         params.push(paqueteria || null); updates.push(`national_carrier = $${params.length}`);
         params.push(guia_salida);       updates.push(`national_tracking = $${params.length}`);
         syncedFields.push('guia_salida');
-      } else if (hasInstrucciones) {
-        // Sin guía de salida → inyectar dirección de EntregaX + paquetería
-        if (paqueteria) { params.push(paqueteria); updates.push(`national_carrier = $${params.length}`); }
+      } else if (paqueteria) {
+        // Sin guía de salida pero hay paquetería → actualizar carrier
+        params.push(paqueteria); updates.push(`national_carrier = $${params.length}`);
+      }
+      if (hasInstrucciones) {
+        // Inyectar dirección de EntregaX independientemente de si hay guía de salida
         const pkgRes = await pool.query(
           `SELECT user_id FROM packages WHERE tracking_internal = $1 OR child_no = $1 LIMIT 1`, [guia]
         );
