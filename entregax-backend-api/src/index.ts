@@ -11447,8 +11447,11 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
     const [pobox, tdi, aereo, maritimo, dhl, fcl] = await Promise.all([
       // PO Box USA — incluye service_type=POBOX_USA y legacy (NULL + US-)
       safeQuery(`
-        SELECT p.tracking_internal AS tracking, p.box_id,
-          u.full_name AS client_name, p.status, p.created_at
+        SELECT p.tracking_internal AS tracking,
+          COALESCE(u.box_id, p.box_id) AS box_id,
+          COALESCE(u.full_name, p.box_id) AS client_name,
+          p.status, p.created_at,
+          (p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p LEFT JOIN users u ON u.id = p.user_id
         WHERE (p.service_type = 'POBOX_USA' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
           AND p.status NOT IN ('delivered', 'cancelled', 'lost')
@@ -11459,8 +11462,11 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
       `),
       // TDI Express — incluye service_type=TDI_EXPRESS y variantes
       safeQuery(`
-        SELECT p.tracking_internal AS tracking, p.box_id,
-          u.full_name AS client_name, p.status, p.created_at
+        SELECT p.tracking_internal AS tracking,
+          COALESCE(u.box_id, p.box_id) AS box_id,
+          COALESCE(u.full_name, p.box_id) AS client_name,
+          p.status, p.created_at,
+          (p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p LEFT JOIN users u ON u.id = p.user_id
         WHERE p.service_type IN ('TDI_EXPRESS', 'TDI_AIR', 'tdi_express')
           AND p.status NOT IN ('delivered', 'cancelled', 'lost')
@@ -11469,19 +11475,25 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           AND p.national_tracking IS NULL
         ORDER BY p.created_at DESC LIMIT 200
       `),
-      // Aéreo Chino — china_receipts usa national_tracking (no tiene delivery_address_id)
+      // Aéreo Chino — shipping_mark es el box_id del cliente para clientes legacy
       safeQuery(`
-        SELECT cr.fno AS tracking, u.box_id,
-          u.full_name AS client_name, cr.status, cr.created_at
+        SELECT cr.fno AS tracking,
+          COALESCE(u.box_id, cr.shipping_mark) AS box_id,
+          COALESCE(u.full_name, cr.shipping_mark) AS client_name,
+          cr.status, cr.created_at,
+          (cr.user_id IS NULL AND cr.shipping_mark IS NOT NULL) AS is_legacy
         FROM china_receipts cr LEFT JOIN users u ON u.id = cr.user_id
         WHERE cr.status NOT IN ('delivered', 'cancelled')
           AND (cr.national_tracking IS NULL OR cr.national_tracking = '')
         ORDER BY cr.created_at DESC LIMIT 200
       `),
-      // Marítimo China (LCL)
+      // Marítimo China (LCL) — shipping_mark como fallback de box_id
       safeQuery(`
-        SELECT mo.ordersn AS tracking, u.box_id,
-          u.full_name AS client_name, mo.status, mo.created_at
+        SELECT mo.ordersn AS tracking,
+          COALESCE(u.box_id, mo.shipping_mark) AS box_id,
+          COALESCE(u.full_name, mo.shipping_mark) AS client_name,
+          mo.status, mo.created_at,
+          (mo.user_id IS NULL AND mo.shipping_mark IS NOT NULL) AS is_legacy
         FROM maritime_orders mo LEFT JOIN users u ON u.id = mo.user_id
         WHERE mo.status NOT IN ('delivered', 'cancelled')
           AND mo.delivery_address_id IS NULL

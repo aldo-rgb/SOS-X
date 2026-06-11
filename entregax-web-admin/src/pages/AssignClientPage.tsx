@@ -78,6 +78,7 @@ interface NoInstructionsGuide {
     client_name: string | null;
     status: string;
     created_at: string;
+    is_legacy?: boolean;
 }
 
 interface ServiceSection {
@@ -218,7 +219,12 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                                                 </TableCell>
                                                 <TableCell>
                                                     {g.box_id ? (
-                                                        <Chip label={g.box_id} size="small" sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700, fontSize: '0.75rem' }} />
+                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                            <Chip label={g.box_id} size="small" sx={{ bgcolor: BLACK, color: '#FFF', fontWeight: 700, fontSize: '0.75rem' }} />
+                                                            {g.is_legacy && (
+                                                                <Chip label="Sin alta" size="small" sx={{ bgcolor: '#E65100', color: '#FFF', fontWeight: 600, fontSize: '0.65rem' }} />
+                                                            )}
+                                                        </Box>
                                                     ) : <Typography variant="caption" color="text.disabled">—</Typography>}
                                                 </TableCell>
                                                 <TableCell>
