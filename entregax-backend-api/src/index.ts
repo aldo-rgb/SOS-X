@@ -12860,7 +12860,7 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
       if (hasInstrucciones) {
         // Inyectar dirección de EntregaX independientemente de si hay guía de salida
         const pkgRes = await pool.query(
-          `SELECT user_id FROM packages WHERE tracking_internal = $1 OR child_no = $1 LIMIT 1`, [guia]
+          `SELECT user_id FROM packages WHERE tracking_internal = $1 OR child_no = $1 OR child_no LIKE $1 || '-%' LIMIT 1`, [guia]
         );
         const addrId = await upsertAddress(pkgRes.rows[0]?.user_id);
         if (addrId) { params.push(addrId); updates.push(`delivery_address_id = $${params.length}`); }
@@ -12869,9 +12869,12 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
       if (safeNewStatus) { params.push(safeNewStatus); updates.push(`status = $${params.length}`); syncedFields.push('status'); }
       if (updates.length > 0) {
         params.push(guia);
+        // Para TDI Aéreo el guía del master es la base guía (sin sufijo -NNN); buscar también por LIKE
+        const pkgWhere = service === 'tdi_aereo'
+          ? `tracking_internal = $${params.length} OR child_no = $${params.length} OR child_no LIKE $${params.length} || '-%'`
+          : `tracking_internal = $${params.length} OR child_no = $${params.length}`;
         await pool.query(
-          `UPDATE packages SET ${updates.join(', ')}, updated_at = NOW()
-           WHERE tracking_internal = $${params.length} OR child_no = $${params.length}`,
+          `UPDATE packages SET ${updates.join(', ')}, updated_at = NOW() WHERE ${pkgWhere}`,
           params
         );
       }

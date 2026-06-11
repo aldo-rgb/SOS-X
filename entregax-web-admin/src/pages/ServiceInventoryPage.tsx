@@ -331,10 +331,16 @@ export default function ServiceInventoryPage() {
     setExProgress(0);
     const entries: { storeKey: string; queryKey: string }[] = rows
       .filter(r => r.guia)
-      .map(r => ({
-        storeKey: r.guia,
-        queryKey: service === 'pobox_usa' ? (usGuias[r.guia]?.guia_unica || r.guia_origen || r.guia) : r.guia,
-      }));
+      .map(r => {
+        let queryKey = r.guia;
+        if (service === 'tdi_aereo' && r.children && r.children.length > 0) {
+          // Master virtual: consultar con guía de la primera hija (que sí existe en EntregaX)
+          queryKey = r.children[0].guia;
+        } else if (service === 'pobox_usa') {
+          queryKey = usGuias[r.guia]?.guia_unica || r.guia_origen || r.guia;
+        }
+        return { storeKey: r.guia, queryKey };
+      });
     const BATCH = 5;
     let done = 0;
     for (let i = 0; i < entries.length; i += BATCH) {
