@@ -14,6 +14,44 @@ if (typeof (window as any).global === 'undefined') {
   (window as any).global = window;
 }
 
+// ── AUTO-RELOAD ON STALE CHUNK ───────────────────────────────────────────────
+// Cuando publicamos un nuevo deploy en Vercel, los nombres de los chunks
+// cambian (hash-based). Si el navegador tiene cacheado el index.html viejo,
+// pedirá un chunk con hash que ya no existe → Vercel sirve index.html →
+// Chrome lanza "Failed to load module script: Expected JS-Wasm…" y la pantalla
+// queda en blanco. Detectamos el error UNA vez y forzamos un reload limpio.
+// Sólo en producción para no interferir con HMR de Vite en dev.
+if (import.meta.env.PROD) {
+  const RELOAD_FLAG = 'entregax_chunk_reload_once';
+  const isChunkError = (msg?: string) =>
+    !!msg && (
+      msg.includes('Failed to load module script') ||
+      msg.includes('Failed to fetch dynamically imported module') ||
+      msg.includes('Importing a module script failed') ||
+      msg.includes('error loading dynamically imported module')
+    );
+
+  const safeReload = () => {
+    // Evita loops si el reload tampoco arregla nada.
+    if (sessionStorage.getItem(RELOAD_FLAG)) return;
+    sessionStorage.setItem(RELOAD_FLAG, '1');
+    // Pequeño delay para que Sentry alcance a enviar el error antes del reload.
+    setTimeout(() => window.location.reload(), 50);
+  };
+
+  window.addEventListener('error', (e) => {
+    if (isChunkError(e.message)) safeReload();
+  });
+  window.addEventListener('unhandledrejection', (e) => {
+    const msg = (e.reason && (e.reason.message || String(e.reason))) || '';
+    if (isChunkError(msg)) safeReload();
+  });
+
+  // Si llegamos al render sin error, limpiar el flag para que en el próximo
+  // deploy roto el reload vuelva a estar disponible.
+  setTimeout(() => sessionStorage.removeItem(RELOAD_FLAG), 5000);
+}
+
 // Inicializar Sentry antes de cualquier render (no-op si no hay DSN)
 initSentry()
 
