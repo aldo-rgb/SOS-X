@@ -341,6 +341,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
 
       {/* Formulario */}
       <ScrollView
+        style={{ flex: 1 }}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ flexGrow: 1 }}
@@ -504,10 +505,11 @@ const styles = StyleSheet.create({
     backgroundColor: BLACK,
   },
   header: {
-    flex: 0.32,
+    height: '32%',
     justifyContent: 'flex-end',
     alignItems: 'center',
     paddingBottom: 6,
+    overflow: 'visible',
   },
   logoRow: {
     flexDirection: 'row',
