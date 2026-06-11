@@ -428,12 +428,15 @@ export const capturePoboxPaypalPayment = async (req: Request, res: Response): Pr
                         payment_status = 'paid',
                         monto_pagado = COALESCE(monto_pagado, 0) + $1,
                         saldo_pendiente = 0,
-                        costing_paid = TRUE,
-                        client_paid = TRUE,
-                        costing_paid_at = CURRENT_TIMESTAMP
+                        client_paid = TRUE
                     WHERE (id = ANY($2) OR master_id = ANY($2))
                       AND COALESCE(payment_status, '') <> 'paid'
                 `, [payment.amount, packageIds]);
+                // costing_paid solo en los paquetes explícitamente en la orden (no cascadear a hijos)
+                await pool.query(`
+                    UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP
+                    WHERE id = ANY($1)
+                `, [packageIds]);
 
                 // Registrar en openpay_webhook_logs (idempotente por transaction_id)
                 await pool.query(`
@@ -1252,15 +1255,17 @@ export const confirmPoboxCashPayment = async (req: AuthRequest, res: Response): 
                     VALUES ($1, $2, $3)
                 `, [cajaTransaccionId, pkgId, montoAplicado]);
 
-                // Actualizar paquete (y cascada a hijas si es master)
+                // Actualizar paquete — payment_status/saldo cascadean a hijos, costing_paid solo al paquete explícito
                 await client.query(`
-                    UPDATE packages SET 
+                    UPDATE packages SET
                         payment_status = 'paid',
                         monto_pagado = assigned_cost_mxn,
-                        saldo_pendiente = 0,
-                        costing_paid = TRUE,
-                        costing_paid_at = CURRENT_TIMESTAMP
+                        saldo_pendiente = 0
                     WHERE id = $1 OR master_id = $1
+                `, [pkgId]);
+                await client.query(`
+                    UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP
+                    WHERE id = $1
                 `, [pkgId]);
             }
         }
@@ -1337,14 +1342,16 @@ export const handlePoboxOpenpayWebhook = async (req: Request, res: Response): Pr
                         : payment.package_ids;
 
                     await pool.query(`
-                        UPDATE packages SET 
+                        UPDATE packages SET
                             payment_status = 'paid',
                             monto_pagado = COALESCE(monto_pagado, 0) + $1,
-                            saldo_pendiente = 0,
-                            costing_paid = TRUE,
-                            costing_paid_at = CURRENT_TIMESTAMP
+                            saldo_pendiente = 0
                         WHERE id = ANY($2) OR master_id = ANY($2)
                     `, [payment.amount, packageIds]);
+                    await pool.query(`
+                        UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP
+                        WHERE id = ANY($1)
+                    `, [packageIds]);
 
                     // Registrar en openpay_webhook_logs para el dashboard de cobranza
                     await pool.query(`
@@ -2009,10 +2016,12 @@ export const payPoboxOrderInternal = async (req: AuthRequest, res: Response): Pr
                     payment_status = 'paid',
                     monto_pagado = COALESCE(assigned_cost_mxn, 0),
                     saldo_pendiente = 0,
-                    costing_paid = TRUE,
-                    client_paid = TRUE,
-                    costing_paid_at = CURRENT_TIMESTAMP
+                    client_paid = TRUE
                  WHERE id = ANY($1) OR master_id = ANY($1)`,
+                [packageIds]
+            );
+            await client.query(
+                `UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP WHERE id = ANY($1)`,
                 [packageIds]
             );
 
@@ -2250,10 +2259,12 @@ export const applyCreditToPoboxOrder = async (req: AuthRequest, res: Response): 
                         payment_status='paid',
                         monto_pagado = COALESCE(assigned_cost_mxn, 0),
                         saldo_pendiente = 0,
-                        costing_paid = TRUE,
-                        client_paid = TRUE,
-                        costing_paid_at = CURRENT_TIMESTAMP
+                        client_paid = TRUE
                      WHERE id = ANY($1) OR master_id = ANY($1)`,
+                    [packageIds]
+                );
+                await client.query(
+                    `UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP WHERE id = ANY($1)`,
                     [packageIds]
                 );
             }
@@ -2499,10 +2510,12 @@ export const applyWalletToPoboxOrder = async (req: AuthRequest, res: Response): 
                         payment_status='paid',
                         monto_pagado = COALESCE(assigned_cost_mxn, 0),
                         saldo_pendiente = 0,
-                        costing_paid = TRUE,
-                        client_paid = TRUE,
-                        costing_paid_at = CURRENT_TIMESTAMP
+                        client_paid = TRUE
                      WHERE id = ANY($1) OR master_id = ANY($1)`,
+                    [packageIds]
+                );
+                await client.query(
+                    `UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP WHERE id = ANY($1)`,
                     [packageIds]
                 );
             }

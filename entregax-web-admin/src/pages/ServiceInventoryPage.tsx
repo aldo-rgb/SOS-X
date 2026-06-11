@@ -128,9 +128,37 @@ export default function ServiceInventoryPage() {
     if (Object.keys(saved).length > 0) setUsGuias(prev => ({ ...saved, ...prev }));
   }, [rows, service]);
 
+  // Normaliza nombre de paquetería para comparación fuzzy
+  const normalizeCarrier = (c: string) => c.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  const carriersMatch = (a?: string | null, b?: string | null): boolean => {
+    if (!a || !b) return true;
+    const na = normalizeCarrier(a);
+    const nb = normalizeCarrier(b);
+    if (na === nb) return true;
+    const minLen = Math.min(na.length, nb.length, 6);
+    if (minLen < 3) return true;
+    return na.includes(nb.slice(0, minLen)) || nb.includes(na.slice(0, minLen));
+  };
+
+  // Devuelve razones de mismatch entre nuestros datos y EntregaX; array vacío = datos válidos
+  const getExMismatches = (row: PackageRow, ex: EntregaxRow | undefined): string[] => {
+    if (!ex || ex.state !== 'done') return [];
+    const issues: string[] = [];
+    // 1. Paquetería de salida debe coincidir (si ambas están presentes)
+    if (row.paqueteria && ex.paqueteria && !carriersMatch(row.paqueteria, ex.paqueteria))
+      issues.push(`Paquetería: nuestro sistema="${row.paqueteria}" EntregaX="${ex.paqueteria}"`);
+    // 2. Guía de salida debe coincidir (si ambas están presentes)
+    if (row.guia_salida && ex.guiaSalida &&
+        row.guia_salida.trim().toUpperCase() !== ex.guiaSalida.trim().toUpperCase())
+      issues.push(`Guía salida: nuestro sistema="${row.guia_salida}" EntregaX="${ex.guiaSalida}"`);
+    return issues;
+  };
+
   // Determina si una fila necesita sincronización (EntregaX tiene más que nuestro sistema)
   const needsSync = (row: PackageRow, ex: EntregaxRow | undefined): boolean => {
     if (!ex || ex.state !== 'done') return false;
+    if (getExMismatches(row, ex).length > 0) return false; // carrier/guia mismatch → no sync
     return (!!ex.hasPago && !row.costing_paid) || (!!ex.hasInstrucciones && !row.has_instructions);
   };
 
@@ -480,25 +508,33 @@ export default function ServiceInventoryPage() {
                     <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="error">Sin datos</Typography></TableCell>
                   );
                   // EntregaX data loaded — render columns + sync
+                  const mismatches = getExMismatches(r, ex);
+                  const hasMismatch = mismatches.length > 0;
                   const desynced = needsSync(r, ex);
                   const sState = syncState[r.guia] || 'idle';
                   return (
                     <>
                       <TableCell align="center">
                         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                          <Tooltip title={ex.hasPago ? 'Pago en EntregaX' : 'Sin pago en EntregaX'}>
+                          <Tooltip title={hasMismatch ? `⚠️ ${mismatches.join(' | ')}` : ex.hasPago ? 'Pago en EntregaX' : 'Sin pago en EntregaX'}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                              {ex.hasPago ? <CheckCircleIcon sx={{ fontSize: 16, color: '#2E7D32' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
-                              <Typography variant="caption" sx={{ color: ex.hasPago ? '#2E7D32' : '#9E9E9E', fontSize: '0.65rem' }}>Pago</Typography>
+                              {hasMismatch
+                                ? <CheckCircleIcon sx={{ fontSize: 16, color: '#F9A825' }} />
+                                : ex.hasPago
+                                  ? <CheckCircleIcon sx={{ fontSize: 16, color: '#2E7D32' }} />
+                                  : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
+                              <Typography variant="caption" sx={{ color: hasMismatch ? '#F9A825' : ex.hasPago ? '#2E7D32' : '#9E9E9E', fontSize: '0.65rem' }}>
+                                {hasMismatch ? '⚠️' : ''}Pago
+                              </Typography>
                             </Box>
                           </Tooltip>
                           <Tooltip title={ex.hasInstrucciones ? 'Con instrucciones en EntregaX' : 'Sin instrucciones en EntregaX'}>
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                              {ex.hasInstrucciones ? <CheckCircleIcon sx={{ fontSize: 16, color: '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
-                              <Typography variant="caption" sx={{ color: ex.hasInstrucciones ? '#1565C0' : '#9E9E9E', fontSize: '0.65rem' }}>Inst.</Typography>
+                              {ex.hasInstrucciones ? <CheckCircleIcon sx={{ fontSize: 16, color: hasMismatch ? '#F9A825' : '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
+                              <Typography variant="caption" sx={{ color: hasMismatch ? '#F9A825' : ex.hasInstrucciones ? '#1565C0' : '#9E9E9E', fontSize: '0.65rem' }}>Inst.</Typography>
                             </Box>
                           </Tooltip>
-                          {ex.paqueteria && <Typography variant="caption" sx={{ fontSize: '0.6rem', color: '#555', fontWeight: 600 }}>{ex.paqueteria}</Typography>}
+                          {ex.paqueteria && <Typography variant="caption" sx={{ fontSize: '0.6rem', color: hasMismatch ? '#F9A825' : '#555', fontWeight: 600 }}>{ex.paqueteria}</Typography>}
                         </Box>
                       </TableCell>
                       <TableCell>

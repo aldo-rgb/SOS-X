@@ -1466,9 +1466,13 @@ export const verifyOpenpayCharge = async (req: AuthRequest, res: Response): Prom
 
     await pool.query(
       `UPDATE packages SET payment_status = 'paid', monto_pagado = COALESCE(monto_pagado, 0) + $1, saldo_pendiente = 0,
-                            costing_paid = TRUE, client_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP, payment_reference = $2
+                            client_paid = TRUE, payment_reference = $2
        WHERE (id = ANY($3) OR master_id = ANY($3)) AND user_id = $4`,
       [amount, ref, pkgIds, userId]
+    );
+    await pool.query(
+      `UPDATE packages SET costing_paid = TRUE, costing_paid_at = CURRENT_TIMESTAMP WHERE id = ANY($1) AND user_id = $2`,
+      [pkgIds, userId]
     );
 
     // Actualizar webhook log
