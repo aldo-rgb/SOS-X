@@ -164,9 +164,6 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     [...pendingPackages, ...loaded].forEach((p: any) => {
       const rawCarrier = p.national_carrier || '';
       if (!rawCarrier || isLocalCarrier(rawCarrier)) return;
-      // Solo mostrar si tiene guía de despacho generada (national_tracking)
-      // Evita mostrar paquetes cuyo carrier llegó del exterior pero aún no tienen instrucciones de salida
-      if (!p.national_tracking) return;
       const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') || String(p.delivery_status || '').includes('in_transit');
       if (!isLoaded && requireLabel && !p.has_label) return;
       const c = normalizeCarrier(rawCarrier);
