@@ -12741,6 +12741,43 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
       }
     }
 
+    // Fallback inverso: guía EntregaX (US-...) sin datos → buscar carrier tracking
+    // en nuestra DB y consultar get-waybill con ese número (UPS 1Z..., FedEx, etc.)
+    if (!payments && !history && !waybill && isKnownEntregaxPrefix) {
+      const carrierLookup = await pool.query(
+        `SELECT COALESCE(NULLIF(p.tracking_provider,''), p.international_tracking) AS carrier_tracking
+         FROM packages p
+         WHERE UPPER(p.tracking_internal) = UPPER($1)
+            OR UPPER(p.child_no) = UPPER($1)
+            OR UPPER(p.child_no) LIKE UPPER(REGEXP_REPLACE($1, '-[0-9]+$', '')) || '-%'
+         ORDER BY (p.tracking_provider IS NOT NULL AND p.tracking_provider <> '') DESC
+         LIMIT 1`,
+        [rawGuide]
+      ).catch(() => ({ rows: [] as any[] }));
+      const carrierTracking: string | undefined = carrierLookup.rows[0]?.carrier_tracking;
+      if (carrierTracking) {
+        try {
+          const cwRes = await fetch(`${BASE}/get-waybill/usa/${encodeURIComponent(carrierTracking)}`, { headers: H });
+          if (cwRes.ok) {
+            const cw = await cwRes.json().catch(() => null);
+            if ((cw as any)?.status === 'success' && (cw as any)?.message) {
+              return (res as any).json({
+                status: 'success',
+                data: {
+                  ctz: rawGuide,
+                  guia_unica: (cw as any).message.guia_unica || rawGuide,
+                  guias: [],
+                  pagos: [],
+                  historial: [],
+                  waybill: (cw as any).message,
+                },
+              });
+            }
+          }
+        } catch { /* ignore */ }
+      }
+    }
+
     if (!payments && !history && !waybill) {
       const fallback = paymentsRes.status === 'fulfilled'
         ? await paymentsRes.value.json().catch(() => ({ error: 'Sin datos' }))
