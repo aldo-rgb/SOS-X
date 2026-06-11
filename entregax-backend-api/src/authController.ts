@@ -798,7 +798,12 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
             res.status(404).json({ error: 'Usuario no encontrado' });
             return;
         }
-        res.json(userQuery.rows[0]);
+        const u = userQuery.rows[0];
+        const statusOk = ['verified', 'approved'].includes((u.verification_status || '').toLowerCase());
+        res.json({
+            ...u,
+            isVerified: u.is_verified === true || statusOk,
+        });
     } catch (fullQueryError) {
         // Fallback: query mínimo con sólo columnas seguras del schema original
         console.warn('[getProfile] Query completo falló, usando fallback:', (fullQueryError as Error).message);
