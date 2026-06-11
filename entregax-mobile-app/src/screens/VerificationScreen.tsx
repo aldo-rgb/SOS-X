@@ -19,7 +19,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import SignatureScreen from 'react-native-signature-canvas';
-import { api, API_URL } from '../services/api';
+import { API_URL } from '../services/api';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 
@@ -110,7 +110,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
     const visualStep = currentStep <= STEP_INE_BACK ? 1 : currentStep - 1;
     const [constanciaFiscal, setConstanciaFiscal] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
     const [signature, setSignature] = useState<string | null>(null);
-    const [loading, setLoading] = useState(false);
+
     const [verifying, setVerifying] = useState(false);
     const [termsAccepted, setTermsAccepted] = useState(false);
     const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);
@@ -148,11 +148,6 @@ export default function VerificationScreen({ navigation, route }: Props) {
     const signatureRef = useRef<any>(null);
     const cameraRef = useRef<any>(null);
     const [permission, requestPermission] = useCameraPermissions();
-
-    // Manejadores de firma
-    const handleSignatureOK = (sig: string) => {
-        setSignature(sig);
-    };
 
     const handleSignatureEmpty = () => {
         Alert.alert('Error', 'Por favor dibuja tu firma');
@@ -261,7 +256,8 @@ export default function VerificationScreen({ navigation, route }: Props) {
         }
     };
 
-    const handleSubmit = async () => {
+    const handleSubmit = async (sigOverride?: string) => {
+        const sig = sigOverride ?? signature;
         // Validar que tenemos todos los documentos
         if (!images[SLOT_INE_FRONT] || !images[SLOT_INE_BACK] || !images[SLOT_SELFIE]) {
             Alert.alert('Faltan documentos', 'Por favor completa todos los pasos de verificación.');
@@ -272,7 +268,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
             return;
         }
 
-        if (!signature) {
+        if (!sig) {
             Alert.alert('Falta firma', 'Por favor dibuja tu firma y presiona Confirmar.');
             return;
         }
@@ -310,7 +306,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                     ineFrontBase64: `data:image/jpeg;base64,${ineFrontBase64}`,
                     ineBackBase64: `data:image/jpeg;base64,${ineBackBase64}`,
                     selfieBase64: `data:image/jpeg;base64,${selfieBase64}`,
-                    signatureBase64: signature || 'signature_data',
+                    signatureBase64: sig,
                     constanciaFiscalBase64,
                 }),
             });
@@ -374,6 +370,11 @@ export default function VerificationScreen({ navigation, route }: Props) {
         } finally {
             setVerifying(false);
         }
+    };
+
+    const handleSignatureOK = (sig: string) => {
+        setSignature(sig);
+        handleSubmit(sig);
     };
 
     const renderStepIndicator = () => (
@@ -786,7 +787,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                     </TouchableOpacity>
                 )}
 
-                {currentStep < STEPS.length ? (
+                {currentStep < STEPS.length && (
                     <TouchableOpacity
                         style={[
                             styles.nextButton,
@@ -800,18 +801,6 @@ export default function VerificationScreen({ navigation, route }: Props) {
                             {currentStep === STEP_CSF && !isAdvisor && !constanciaFiscal ? 'Omitir' : 'Siguiente'}
                         </Text>
                         <Ionicons name="arrow-forward" size={24} color="#FFF" />
-                    </TouchableOpacity>
-                ) : (
-                    <TouchableOpacity
-                        style={[
-                            styles.submitButton,
-                            !signature && styles.nextButtonDisabled,
-                        ]}
-                        onPress={handleSubmit}
-                        disabled={!signature}
-                    >
-                        <Ionicons name="shield-checkmark" size={24} color="#FFF" />
-                        <Text style={styles.submitText}>Verificar Identidad</Text>
                     </TouchableOpacity>
                 )}
             </View>
