@@ -2877,6 +2877,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
     const search = String(req.query.search || '').trim();
     const dateFrom = String(req.query.date_from || '');
     const dateTo   = String(req.query.date_to   || '');
+    const statusFilter = String(req.query.status || '').trim();
 
     let rows: any[] = [];
     let total = 0;
@@ -2890,6 +2891,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       if (search) { params.push(`%${search}%`); params.push(search); where += ` AND (p.tracking_internal ILIKE $${params.length-1} OR p.child_no ILIKE $${params.length-1} OR p.international_tracking ILIKE $${params.length-1} OR UPPER(u.box_id) = UPPER($${params.length}) OR u.full_name ILIKE $${params.length-1})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
+      if (statusFilter) { params.push(statusFilter); where += ` AND p.status = $${params.length}`; }
       // child_no = guía AIR completa (AIR2608808pOYsr-001), tracking_internal = guía corta (CN-OYsr-001)
       const q = `SELECT COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia,
                         p.tracking_internal AS guia_corta,
@@ -2914,6 +2916,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       if (search) { params.push(`%${search}%`); params.push(search); where += ` AND (p.tracking_internal ILIKE $${params.length-1} OR p.international_tracking ILIKE $${params.length-1} OR UPPER(u.box_id) = UPPER($${params.length}) OR u.full_name ILIKE $${params.length-1})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
+      if (statusFilter) { params.push(statusFilter); where += ` AND p.status = $${params.length}`; }
       // Para TDI Express: tracking_internal ES la guía principal (TDX-...), child_no no aplica
       const q = `SELECT p.tracking_internal AS guia,
                         NULL AS guia_corta,
@@ -2942,6 +2945,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       if (search) { params.push(`%${search}%`); params.push(search); where += ` AND (p.tracking_internal ILIKE $${params.length-1} OR p.tracking_provider ILIKE $${params.length-1} OR UPPER(COALESCE(u.box_id, lc.box_id, p.box_id)) = UPPER($${params.length}) OR COALESCE(u.full_name, lc.full_name) ILIKE $${params.length-1})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
+      if (statusFilter) { params.push(statusFilter); where += ` AND p.status = $${params.length}`; }
       const q = `SELECT p.tracking_internal AS guia,
                         COALESCE(NULLIF(p.tracking_provider,''), p.international_tracking) AS guia_origen,
                         p.origin_carrier AS guia_origen_carrier,
@@ -2967,6 +2971,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       if (search) { params.push(`%${search}%`); params.push(search); where += ` AND (mo.ordersn ILIKE $${params.length-1} OR UPPER(u.box_id) = UPPER($${params.length}) OR UPPER(mo.shipping_mark) = UPPER($${params.length}) OR u.full_name ILIKE $${params.length-1})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(mo.created_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(mo.created_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
+      if (statusFilter) { params.push(statusFilter); where += ` AND mo.status = $${params.length}`; }
       const q = `SELECT mo.ordersn AS guia, NULL AS guia_origen,
                         mo.created_at AS received_at, mo.updated_at, mo.status,
                         COALESCE(u.box_id, mo.shipping_mark) AS box_id,
@@ -2990,6 +2995,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       if (search) { params.push(`%${search}%`); params.push(search); where += ` AND (d.inbound_tracking ILIKE $${params.length-1} OR d.secondary_tracking ILIKE $${params.length-1} OR UPPER(u.box_id) = UPPER($${params.length}) OR u.full_name ILIKE $${params.length-1})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(d.inspected_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(d.inspected_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
+      if (statusFilter) { params.push(statusFilter); where += ` AND d.status = $${params.length}`; }
       const q = `SELECT
                         -- Si inbound_tracking empieza con JJD, el número real es secondary_tracking
                         CASE WHEN d.inbound_tracking LIKE 'JJD%' THEN COALESCE(d.secondary_tracking, d.inbound_tracking)

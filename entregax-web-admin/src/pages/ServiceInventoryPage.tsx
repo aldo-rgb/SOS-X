@@ -3,6 +3,7 @@ import {
   Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
   Chip, CircularProgress, TextField, Button, ToggleButtonGroup, ToggleButton,
   TablePagination, InputAdornment, Tooltip, IconButton, LinearProgress,
+  Select, MenuItem, FormControl, InputLabel,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -79,6 +80,7 @@ export default function ServiceInventoryPage() {
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(50);
   const [exData, setExData] = useState<Record<string, EntregaxRow>>({});
@@ -104,7 +106,7 @@ export default function ServiceInventoryPage() {
     setLoading(true);
     try {
       const r = await api.get('/packages/service-inventory', {
-        params: { service, limit: rowsPerPage, offset: page * rowsPerPage, search: search || undefined, date_from: dateFrom || undefined, date_to: dateTo || undefined },
+        params: { service, limit: rowsPerPage, offset: page * rowsPerPage, search: search || undefined, date_from: dateFrom || undefined, date_to: dateTo || undefined, status: statusFilter || undefined },
       });
       setRows(r.data.rows || []);
       setTotal(r.data.total || 0);
@@ -112,7 +114,7 @@ export default function ServiceInventoryPage() {
     finally { setLoading(false); }
   }, [service, page, rowsPerPage, search, dateFrom, dateTo]);
 
-  useEffect(() => { setPage(0); setExData({}); setSyncState({}); setUsGuias({}); }, [service]);
+  useEffect(() => { setPage(0); setStatusFilter(''); setExData({}); setSyncState({}); setUsGuias({}); }, [service]);
   useEffect(() => { load(); setExData({}); setSyncState({}); setUsGuias({}); }, [load]);
 
   // Determina si una fila necesita sincronización (EntregaX tiene más que nuestro sistema)
@@ -288,6 +290,21 @@ export default function ServiceInventoryPage() {
           />
           <TextField size="small" label="Desde" type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} InputLabelProps={{ shrink: true }} />
           <TextField size="small" label="Hasta" type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} InputLabelProps={{ shrink: true }} />
+          <FormControl size="small" sx={{ minWidth: 180 }}>
+            <InputLabel>Último Status</InputLabel>
+            <Select
+              label="Último Status"
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+            >
+              <MenuItem value=""><em>Todos</em></MenuItem>
+              {Object.entries(STATUS_LABELS).map(([key, meta]) => (
+                <MenuItem key={key} value={key}>
+                  <Chip label={meta.label} size="small" sx={{ bgcolor: meta.bg, color: meta.color, fontWeight: 600, fontSize: '0.7rem', cursor: 'pointer' }} />
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <Button variant="contained" size="small" onClick={load} startIcon={<SearchIcon />} sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d44e22' } }}>
             Filtrar
           </Button>
