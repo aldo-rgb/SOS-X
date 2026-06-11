@@ -1637,7 +1637,7 @@ export const getShipmentByTracking = async (req: Request, res: Response): Promis
                     pkg._master_tracking_internal = m.tracking_internal;
                     // El master rige el cobro y el progreso "público" del envío.
                     pkg.payment_status = m.payment_status ?? pkg.payment_status;
-                    pkg.client_paid = m.client_paid ?? pkg.client_paid;
+                    pkg.client_paid = m.client_paid || pkg.client_paid;
                     pkg.client_paid_at = m.client_paid_at ?? pkg.client_paid_at;
                     pkg.monto_pagado = m.monto_pagado ?? pkg.monto_pagado;
                     pkg.saldo_pendiente = m.saldo_pendiente ?? pkg.saldo_pendiente;
