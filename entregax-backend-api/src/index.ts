@@ -4994,7 +4994,7 @@ app.get('/api/admin/syncfy/links', authenticateToken, requireMinLevel(ROLES.DIRE
 app.post('/api/admin/syncfy/links', authenticateToken, requireMinLevel(ROLES.DIRECTOR), registerSyncfyLink);
 app.delete('/api/admin/syncfy/links/:id', authenticateToken, requireMinLevel(ROLES.DIRECTOR), deleteSyncfyLink);
 app.post('/api/admin/syncfy/sync', authenticateToken, requireMinLevel(ROLES.DIRECTOR), syncSyncfyTransactions);
-app.get('/api/admin/syncfy/stats', authenticateToken, requireMinLevel(ROLES.ADMIN), getSyncfyStats);
+app.get('/api/admin/syncfy/stats', authenticateToken, requireMinLevel(ROLES.DIRECTOR), getSyncfyStats);
 app.post('/api/admin/syncfy/match', authenticateToken, requireMinLevel(ROLES.ADMIN), syncfyManualMatch);
 app.post('/api/admin/syncfy/ignore', authenticateToken, requireMinLevel(ROLES.ADMIN), syncfyIgnoreTransaction);
 // Webhook (público, recibe notificaciones de Syncfy)
