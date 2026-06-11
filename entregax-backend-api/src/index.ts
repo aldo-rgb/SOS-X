@@ -2955,7 +2955,8 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
                         COALESCE(p.costing_paid, FALSE) AS costing_paid,
-                        (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
+                        (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions,
+                        NULLIF(p.child_no, '') AS guia_us_saved
                    FROM packages p ${PB_JOIN}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
@@ -12712,6 +12713,21 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
   } catch (err: any) {
     console.error('[PAYMENT-QUERY]', err.message);
     return (res as any).status(502).json({ error: 'No se pudo contactar a sistemaentregax.com' });
+  }
+});
+
+// POST /api/packages/save-guia-us — persiste la guía única PO Box USA en child_no
+app.post('/api/packages/save-guia-us', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
+  try {
+    const { tracking_internal, guia_unica } = req.body as { tracking_internal: string; guia_unica: string };
+    if (!tracking_internal || !guia_unica) return (res as any).status(400).json({ error: 'tracking_internal y guia_unica requeridos' });
+    await pool.query(
+      `UPDATE packages SET child_no = $1, updated_at = NOW() WHERE tracking_internal = $2 AND service_type = 'POBOX_USA' AND (child_no IS NULL OR child_no = '')`,
+      [guia_unica, tracking_internal]
+    );
+    return res.json({ ok: true });
+  } catch (err: any) {
+    return (res as any).status(500).json({ error: err.message });
   }
 });
 

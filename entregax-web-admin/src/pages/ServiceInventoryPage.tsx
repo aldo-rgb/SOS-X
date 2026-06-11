@@ -49,6 +49,7 @@ interface PackageRow {
   guia_salida?: string;
   costing_paid?: boolean;
   has_instructions?: boolean;
+  guia_us_saved?: string;
 }
 
 interface DireccionEntregax {
@@ -117,6 +118,16 @@ export default function ServiceInventoryPage() {
   useEffect(() => { setPage(0); setStatusFilter(''); setExData({}); setSyncState({}); setUsGuias({}); }, [service]);
   useEffect(() => { load(); setExData({}); setSyncState({}); setUsGuias({}); }, [load]);
 
+  // Pre-popular usGuias desde guia_us_saved cuando llegan las filas (PO Box)
+  useEffect(() => {
+    if (service !== 'pobox_usa') return;
+    const saved: Record<string, { state: 'done'; guia_unica: string }> = {};
+    rows.forEach(r => {
+      if (r.guia_us_saved) saved[r.guia] = { state: 'done', guia_unica: r.guia_us_saved };
+    });
+    if (Object.keys(saved).length > 0) setUsGuias(prev => ({ ...saved, ...prev }));
+  }, [rows, service]);
+
   // Determina si una fila necesita sincronización (EntregaX tiene más que nuestro sistema)
   const needsSync = (row: PackageRow, ex: EntregaxRow | undefined): boolean => {
     if (!ex || ex.state !== 'done') return false;
@@ -160,7 +171,11 @@ export default function ServiceInventoryPage() {
     usAbortRef.current = false;
     setUsFetching(true);
     setUsProgress(0);
-    const entries = rows.filter(r => r.guia_origen).map(r => ({ storeKey: r.guia, queryKey: r.guia_origen! }));
+    // Solo consultar filas que aún no tienen guía US guardada
+    const entries = rows
+      .filter(r => r.guia_origen && !r.guia_us_saved && !usGuias[r.guia]?.guia_unica)
+      .map(r => ({ storeKey: r.guia, queryKey: r.guia_origen! }));
+    if (entries.length === 0) { setUsFetching(false); return; }
     const BATCH = 5;
     let done = 0;
     for (let i = 0; i < entries.length; i += BATCH) {
@@ -179,6 +194,8 @@ export default function ServiceInventoryPage() {
           const d = res?.data?.status === 'success' ? res.data.data : null;
           if (d?.guia_unica) {
             setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'done', guia_unica: d.guia_unica } }));
+            // Guardar en BD para no volver a consultar
+            api.post('/packages/save-guia-us', { tracking_internal: storeKey, guia_unica: d.guia_unica }).catch(() => {});
           } else {
             setUsGuias(prev => ({ ...prev, [storeKey]: { state: res?._notfound ? 'notfound' : 'error' } }));
           }
@@ -190,7 +207,7 @@ export default function ServiceInventoryPage() {
       setUsProgress(Math.round((done / entries.length) * 100));
     }
     setUsFetching(false);
-  }, [rows, service]);
+  }, [rows, service, usGuias]);
 
   const fetchEntregax = useCallback(async () => {
     if (rows.length === 0) return;
@@ -311,16 +328,19 @@ export default function ServiceInventoryPage() {
           <Tooltip title="Recargar">
             <IconButton size="small" onClick={load}><RefreshIcon fontSize="small" /></IconButton>
           </Tooltip>
-          {service === 'pobox_usa' && (
-            <Button
-              variant="outlined" size="small"
-              onClick={() => { if (usFetching) { usAbortRef.current = true; } else { fetchGuiaUS(); } }}
-              startIcon={usFetching ? <CircularProgress size={14} /> : <LocalShippingIcon fontSize="small" />}
-              sx={{ borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#F3E5F5' }, whiteSpace: 'nowrap' }}
-            >
-              {usFetching ? `Guia US ${usProgress}%` : 'Consultar Guia US'}
-            </Button>
-          )}
+          {service === 'pobox_usa' && (() => {
+            const pending = rows.filter(r => r.guia_origen && !r.guia_us_saved && !usGuias[r.guia]?.guia_unica).length;
+            return (
+              <Button
+                variant="outlined" size="small"
+                onClick={() => { if (usFetching) { usAbortRef.current = true; } else { fetchGuiaUS(); } }}
+                startIcon={usFetching ? <CircularProgress size={14} /> : <LocalShippingIcon fontSize="small" />}
+                sx={{ borderColor: '#7B1FA2', color: '#7B1FA2', '&:hover': { bgcolor: '#F3E5F5' }, whiteSpace: 'nowrap' }}
+              >
+                {usFetching ? `Guia US ${usProgress}%` : pending > 0 ? `Consultar Guia US (${pending} pendientes)` : 'Guia US ✓ al día'}
+              </Button>
+            );
+          })()}
           <Button
             variant="outlined" size="small"
             onClick={() => { if (exFetching) { fetchAbortRef.current = true; } else { fetchEntregax(); } }}
