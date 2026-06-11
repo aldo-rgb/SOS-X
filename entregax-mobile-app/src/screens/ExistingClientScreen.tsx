@@ -8,6 +8,7 @@ import {
   ScrollView,
   Alert,
   Image,
+  TouchableOpacity,
 } from 'react-native';
 import {
   Text,
@@ -487,14 +488,14 @@ export default function ExistingClientScreen({ navigation }: ExistingClientScree
 
       {/* Header */}
       <View style={styles.header}>
-        <Image 
-          source={require('../../assets/logo.png')} 
+        <TouchableOpacity style={styles.headerBack} onPress={() => navigation.goBack()}>
+          <Text style={styles.headerBackText}>‹</Text>
+        </TouchableOpacity>
+        <Image
+          source={require('../../assets/x-logo-entregax.png')}
           style={styles.logoImage}
           resizeMode="contain"
         />
-        <Text style={styles.logoText}>
-          Entrega<Text style={styles.logoX}>X</Text>
-        </Text>
         <Text style={styles.subtitle}>Activa tu cuenta existente</Text>
       </View>
 
@@ -533,19 +534,24 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  logoImage: {
-    width: 70,
-    height: 70,
-    marginBottom: 5,
-    borderRadius: 14,
+  headerBack: {
+    position: 'absolute',
+    top: 52,
+    left: 16,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  logoText: {
+  headerBackText: {
     fontSize: 36,
-    fontWeight: 'bold',
-    color: 'white',
+    color: '#FFF',
+    lineHeight: 40,
   },
-  logoX: {
-    color: ORANGE,
+  logoImage: {
+    width: 180,
+    height: 52,
+    marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
