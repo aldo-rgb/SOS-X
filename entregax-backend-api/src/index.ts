@@ -12748,6 +12748,8 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
       return (res as any).status(404).json(fallback);
     }
 
+    const waybillMsg = (waybill as any)?.status === 'success' ? (waybill as any).message : null;
+    console.log(`[PAYMENT-QUERY] guide=${rawGuide} waybill_keys=${waybillMsg ? Object.keys(waybillMsg).join(',') : 'null'} instrucciones=${waybillMsg?.instrucciones} direccion_entrega=${JSON.stringify(waybillMsg?.direccion_entrega)}`);
     return (res as any).json({
       status: 'success',
       data: {
@@ -12756,7 +12758,7 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
         guias: paymentsGuias,
         pagos: (payments as any)?.data?.pagos || [],
         historial: (history as any)?.data || [],
-        waybill: (waybill as any)?.status === 'success' ? (waybill as any).message : null,
+        waybill: waybillMsg,
       },
     });
   } catch (err: any) {
@@ -12795,6 +12797,7 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
     const VALID_STATUSES = ['received', 'received_china', 'received_mty', 'in_transit', 'shipped', 'out_for_delivery', 'delivered'];
     const safeNewStatus = newStatus && VALID_STATUSES.includes(newStatus) ? newStatus : undefined;
     if (!guia || !service) return (res as any).status(400).json({ error: 'guia y service son requeridos' });
+    console.log(`[sync-entregax] guia=${guia} hasPago=${hasPago} hasInstr=${hasInstrucciones} guia_salida=${guia_salida} paqueteria=${paqueteria} direccion_entrega=${JSON.stringify(direccion_entrega)}`);
 
     const syncedFields: string[] = [];
 
