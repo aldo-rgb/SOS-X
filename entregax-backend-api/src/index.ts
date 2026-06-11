@@ -2886,47 +2886,77 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
     const JOIN_USERS_DHL = `LEFT JOIN users u ON d.user_id = u.id`;
 
     if (service === 'tdi_aereo') {
-      const params: any[] = [];
-      let where = `(p.service_type = 'AIR_CHN_MX')`;
-      if (search) { params.push(`%${search}%`); params.push(search); where += ` AND (p.tracking_internal ILIKE $${params.length-1} OR p.child_no ILIKE $${params.length-1} OR p.international_tracking ILIKE $${params.length-1} OR UPPER(u.box_id) = UPPER($${params.length}) OR u.full_name ILIKE $${params.length-1})`; }
-      if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
-      if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
-      if (statusFilter) { params.push(statusFilter); where += ` AND p.status = $${params.length}`; }
-      // Selección reutilizable para masters e hijos
+      const filterParams: any[] = [];
+      let baseWhere = `(p.service_type = 'AIR_CHN_MX')`;
+      if (search) { filterParams.push(`%${search}%`); filterParams.push(search); baseWhere += ` AND (p.tracking_internal ILIKE $${filterParams.length-1} OR p.child_no ILIKE $${filterParams.length-1} OR p.international_tracking ILIKE $${filterParams.length-1} OR UPPER(u.box_id) = UPPER($${filterParams.length}) OR u.full_name ILIKE $${filterParams.length-1})`; }
+      if (dateFrom) { filterParams.push(dateFrom); baseWhere += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${filterParams.length}::date`; }
+      if (dateTo)   { filterParams.push(dateTo);   baseWhere += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${filterParams.length}::date`; }
+      if (statusFilter) { filterParams.push(statusFilter); baseWhere += ` AND p.status = $${filterParams.length}`; }
+
+      // base_guia: strip sufijo -NNN de child_no para identificar el envío consolidado
+      const BASE_EXPR = `CASE WHEN p.child_no IS NOT NULL AND p.child_no != '' THEN REGEXP_REPLACE(p.child_no, '-[0-9]+$', '') ELSE p.tracking_internal END`;
+
       const TDI_SEL = `COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia,
                        p.id AS pkg_id, p.tracking_internal AS guia_corta,
                        p.international_tracking AS guia_origen,
+                       ${BASE_EXPR} AS base_guia,
                        p.received_at, p.updated_at, p.status,
                        u.box_id AS box_id, u.full_name AS cliente_nombre,
                        p.national_carrier AS paqueteria, p.national_tracking AS guia_salida,
                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
-                       (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions,
-                       p.master_id`;
-      // Sin búsqueda: paginar solo sobre roots (master_id IS NULL); con búsqueda: incluir hijos que coincidan (modo plano)
-      const rootWhere = search ? where : `${where} AND p.master_id IS NULL`;
-      const countParams = [...params];
-      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${JOIN_USERS} WHERE ${rootWhere}`, countParams);
+                       (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions`;
+
+      // COUNT = grupos distintos (no paquetes individuales)
+      const cr = await pool.query(`SELECT COUNT(DISTINCT ${BASE_EXPR}) FROM packages p ${JOIN_USERS} WHERE ${baseWhere}`, filterParams);
       total = parseInt(cr.rows[0].count);
-      params.push(limit, offset);
-      const rootRows = (await pool.query(
-        `SELECT ${TDI_SEL} FROM packages p ${JOIN_USERS} WHERE ${rootWhere} ORDER BY p.received_at DESC LIMIT $${params.length-1} OFFSET $${params.length}`,
-        params
-      )).rows;
-      // Sin búsqueda: embeber hijos de cada master
-      if (!search) {
-        const rootIds = rootRows.map((r: any) => r.pkg_id).filter(Boolean) as number[];
-        const childMap: Record<number, any[]> = {};
-        if (rootIds.length > 0) {
-          (await pool.query(
-            `SELECT ${TDI_SEL} FROM packages p ${JOIN_USERS} WHERE p.master_id = ANY($1::int[]) ORDER BY p.id`,
-            [rootIds]
-          )).rows.forEach((c: any) => {
-            const mid = c.master_id as number | null; if (mid) { if (!childMap[mid]) childMap[mid] = []; childMap[mid].push(c); }
-          });
-        }
-        rows = rootRows.map((r: any) => ({ ...r, children: childMap[r.pkg_id] ?? [] }));
+
+      if (search) {
+        // Modo búsqueda: devolver plano con base_guia como metadato
+        const qp = [...filterParams, limit, offset];
+        rows = (await pool.query(`SELECT ${TDI_SEL} FROM packages p ${JOIN_USERS} WHERE ${baseWhere} ORDER BY p.received_at DESC LIMIT $${qp.length-1} OFFSET $${qp.length}`, qp)).rows.map((r: any) => ({ ...r, children: [] }));
       } else {
-        rows = rootRows.map((r: any) => ({ ...r, children: [] }));
+        // Modo agrupado: paginar por envío (base_guia), embeber todas las piezas
+        const qp = [...filterParams, limit, offset];
+        const groupsRes = await pool.query(
+          `SELECT ${BASE_EXPR} AS bg FROM packages p ${JOIN_USERS} WHERE ${baseWhere} GROUP BY ${BASE_EXPR} ORDER BY MAX(p.received_at) DESC LIMIT $${qp.length-1} OFFSET $${qp.length}`,
+          qp
+        );
+        const baseGuias: string[] = groupsRes.rows.map((r: any) => r.bg).filter(Boolean);
+        if (baseGuias.length === 0) {
+          rows = [];
+        } else {
+          // Traer todas las piezas de los grupos seleccionados (sin límite)
+          const allRes = await pool.query(
+            `SELECT ${TDI_SEL} FROM packages p ${JOIN_USERS} WHERE (p.service_type = 'AIR_CHN_MX') AND ${BASE_EXPR} = ANY($1::text[]) ORDER BY ${BASE_EXPR} DESC, p.id`,
+            [baseGuias]
+          );
+          // Agrupar por base_guia
+          const groupMap = new Map<string, { master?: any; pieces: any[] }>();
+          baseGuias.forEach((bg: string) => groupMap.set(bg, { pieces: [] }));
+          allRes.rows.forEach((r: any) => {
+            const bg: string = r.base_guia;
+            if (!groupMap.has(bg)) return;
+            const g = groupMap.get(bg)!;
+            if (r.guia === bg) g.master = r; // paquete master real (guía sin sufijo)
+            else g.pieces.push(r);
+          });
+          // Un row por grupo: master real o row virtual con datos agregados
+          rows = baseGuias.map((bg: string) => {
+            const g = groupMap.get(bg);
+            if (!g) return null;
+            const pieces = g.pieces;
+            if (g.master) return { ...g.master, children: pieces };
+            if (pieces.length > 0) {
+              const latest = pieces.reduce((a: any, b: any) => new Date(a.updated_at || 0) > new Date(b.updated_at || 0) ? a : b);
+              return { ...pieces[0], guia: bg, guia_corta: bg,
+                costing_paid: pieces.some((c: any) => c.costing_paid),
+                has_instructions: pieces.some((c: any) => c.has_instructions),
+                updated_at: latest.updated_at, status: latest.status,
+                children: pieces };
+            }
+            return null;
+          }).filter(Boolean);
+        }
       }
 
     } else if (service === 'tdi_express') {

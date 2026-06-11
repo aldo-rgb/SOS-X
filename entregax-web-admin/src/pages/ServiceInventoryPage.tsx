@@ -55,6 +55,7 @@ interface PackageRow {
   guia_us_saved?: string;
   pkg_id?: number;
   master_id?: number | null;
+  base_guia?: string;
   children?: PackageRow[];
 }
 
