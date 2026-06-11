@@ -1125,19 +1125,24 @@ export default function DashboardClient() {
     const p2 = padded.substring(0, 2);
     const inMtyMetro = ['64','65','66','67'].includes(p2);
     const inCdmxMetro = ['01','02','03','04','05','06','07','08','09','10','11','12','13','14','15','16','50','51','52','53','54','55','56','57'].includes(p2);
+    // PO Box USA: EntregaX Local CDMX nunca es válido
+    const isPoboxSelection = selectedPackageIds.some(pkgId => {
+      const pkg = packages.find(p => p.id === pkgId);
+      return String(pkg?.shipment_type || pkg?.servicio || '').toUpperCase() === 'POBOX_USA';
+    });
     const id = String(selectedCarrierService || '').toLowerCase();
     const isLocalMty = id === 'local' || id === 'entregax_local_mty' || id === 'entregax_local';
     const isLocalCdmx = id === 'entregax_local_cdmx';
     const isPqtx = id === 'paquete_express' || id === 'paquete_express_pc';
     let valid = true;
     if (inMtyMetro) valid = isLocalMty;
-    else if (inCdmxMetro) valid = isLocalCdmx;
+    else if (inCdmxMetro && !isPoboxSelection) valid = isLocalCdmx;
     else valid = isPqtx || selectedCarrierService === 'por_cobrar';
 
     if (!valid) {
       const fallback = inMtyMetro
         ? (carrierServices.find(s => ['local','entregax_local_mty','entregax_local'].includes(String(s.id).toLowerCase()))?.id)
-        : inCdmxMetro
+        : (inCdmxMetro && !isPoboxSelection)
           ? (carrierServices.find(s => String(s.id).toLowerCase() === 'entregax_local_cdmx')?.id)
           : (carrierServices.find(s => String(s.id).toLowerCase() === 'paquete_express')?.id);
       if (fallback) setSelectedCarrierService(fallback);
@@ -9517,15 +9522,24 @@ export default function DashboardClient() {
                     return svc === 'TDI_EXPRESS' || svc === 'TDI_AEREO';
                   });
 
+                  // PO Box USA: EntregaX Local CDMX nunca es opción válida
+                  const isPoboxSelection = selectedPackageIds.some(pkgId => {
+                    const pkg = packages.find(p => p.id === pkgId);
+                    return String(pkg?.shipment_type || pkg?.servicio || '').toUpperCase() === 'POBOX_USA';
+                  });
+
                   // Reglas de filtrado:
+                  //  - PO Box USA → nunca CDMX local
                   //  - MTY metro  → Entregax Local MTY + (Paquete Express si !TDI) + Por Cobrar
-                  //  - CDMX metro → Entregax Local CDMX + (Paquete Express si !TDI) + Por Cobrar
+                  //  - CDMX metro → Entregax Local CDMX (solo si NO es PO Box) + (Paquete Express si !TDI) + Por Cobrar
                   //  - Fuera de ambas → ocultar locales (queda Paquete Express / Por Cobrar)
                   const filterByZip = (s: { id: string }) => {
                     const id = String(s.id || '').toLowerCase();
                     const isLocalMty = id === 'local' || id === 'entregax_local_mty' || id === 'entregax_local';
                     const isLocalCdmx = id === 'entregax_local_cdmx';
                     const isPaqueteExpress = id === 'paquete_express' || id === 'paquete_express_pc';
+                    // PO Box USA: nunca mostrar CDMX local
+                    if (isPoboxSelection && isLocalCdmx) return false;
                     // TDI en zona metro: ocultar Paquete Express
                     if (isTdiService && inMetro && isPaqueteExpress) return false;
                     // En MTY metro ocultamos Local CDMX y viceversa.
