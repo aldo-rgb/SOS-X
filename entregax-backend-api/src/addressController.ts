@@ -26,8 +26,10 @@ export const getAddresses = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
+        // Clientes no ven direcciones internas (creadas por sync); admins sí las ven
+        const internalFilter = isClient ? `AND (internal_only IS NULL OR internal_only = FALSE)` : '';
         const result = await pool.query(
-            `SELECT * FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, created_at DESC`,
+            `SELECT * FROM addresses WHERE user_id = $1 ${internalFilter} ORDER BY is_default DESC, created_at DESC`,
             [targetUserId]
         );
 
@@ -470,7 +472,7 @@ export const getMyAddresses = async (req: Request, res: Response): Promise<void>
                     neighborhood as colony, city, state, zip_code, phone, reference, reception_hours,
                     is_default, default_for_service, carrier_config, created_at
              FROM addresses
-             WHERE user_id = $1
+             WHERE user_id = $1 AND (internal_only IS NULL OR internal_only = FALSE)
              ORDER BY is_default DESC, created_at DESC`,
             [userId]
         );

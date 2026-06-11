@@ -12801,15 +12801,25 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
 
     const syncedFields: string[] = [];
 
-    // Helper: crea dirección en addresses y devuelve su id
+    // Helper: crea o reutiliza dirección desde EntregaX; oculta para el usuario (internal_only)
     const upsertAddress = async (userId: number | null): Promise<number | null> => {
       if (!userId || !direccion_entrega) return null;
       const { quienrecibe, calle, numeroext, colonia, cp, estado } = direccion_entrega;
       if (!calle && !cp) return null; // dirección vacía, no creamos nada
+      // Reutilizar si ya existe una dirección interna con mismos datos para este usuario
+      const existing = await pool.query(
+        `SELECT id FROM addresses
+         WHERE user_id = $1 AND internal_only = TRUE
+           AND LOWER(COALESCE(street,'')) = LOWER(COALESCE($2,''))
+           AND LOWER(COALESCE(zip_code,'')) = LOWER(COALESCE($3,''))
+         LIMIT 1`,
+        [userId, calle || '', cp || '']
+      );
+      if (existing.rows[0]) return existing.rows[0].id;
       const r = await pool.query(
         `INSERT INTO addresses (user_id, alias, recipient_name, street, exterior_number,
-                                neighborhood, zip_code, state, is_default)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE)
+                                neighborhood, zip_code, state, is_default, internal_only)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, FALSE, TRUE)
          RETURNING id`,
         [userId, `EntregaX Sync · ${guia}`, quienrecibe || null, calle || null,
          numeroext || null, colonia || null, cp || null, estado || null]
@@ -13274,6 +13284,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS reception_hours TEXT`),
     pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS default_for_service TEXT`),
     pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS carrier_config JSONB`),
+    pool.query(`ALTER TABLE addresses ADD COLUMN IF NOT EXISTS internal_only BOOLEAN DEFAULT FALSE`),
   ]).catch(() => {});
 
   // Columna fuente en exchange_rate_config (idempotente)
