@@ -305,12 +305,16 @@ function EmitterDashboard({ emitter }: { emitter: Emitter }) {
         <Tabs
           value={tab}
           onChange={(_, v) => setTab(v)}
+          variant="scrollable"
+          scrollButtons="auto"
+          allowScrollButtonsMobile
           sx={{
             bgcolor: '#fafafa',
             borderBottom: '1px solid #e5e7eb',
             '& .MuiTab-root': { textTransform: 'none', fontWeight: 600, color: BLACK },
             '& .Mui-selected': { color: `${ORANGE} !important` },
             '& .MuiTabs-indicator': { bgcolor: ORANGE, height: 3 },
+            '& .MuiTabs-scrollButtons.Mui-disabled': { opacity: 0.3 },
           }}
         >
           <Tab label="Facturas Emitidas" icon={<ReceiptLongIcon />} iconPosition="start" />
@@ -2621,7 +2625,7 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           <Table size="small">
             <TableHead sx={{ bgcolor: BLACK }}>
               <TableRow>
-                {['Fecha', 'Descripción', 'Referencia', 'Banco', 'Tipo', 'Monto', 'Conciliación', 'Match'].map(h => (
+                {['Fecha', 'Descripción', 'Referencia', 'Tipo', 'Monto', 'Conciliación', 'Match'].map(h => (
                   <TableCell key={h} sx={{ color: 'white', fontWeight: 700 }}>{h}</TableCell>
                 ))}
               </TableRow>
@@ -2635,7 +2639,6 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
                     {m.merchant_name && <Typography variant="caption" color="text.secondary">{m.merchant_name}</Typography>}
                   </TableCell>
                   <TableCell><Typography variant="caption" sx={{ fontFamily: 'monospace' }}>{m.reference || '—'}</Typography></TableCell>
-                  <TableCell>{m.institution_name}</TableCell>
                   <TableCell>
                     {m.type === 'INFLOW'
                       ? <Chip size="small" label="Ingreso" sx={{ bgcolor: '#16a34a', color: 'white' }} />

@@ -12139,6 +12139,13 @@ async function ensureRequiredColumns() {
     await pool.query(`ALTER TABLE facturas_emitidas ADD COLUMN IF NOT EXISTS payment_method VARCHAR(10)`);
     await pool.query(`ALTER TABLE syncfy_credentials ADD COLUMN IF NOT EXISTS last_sync_at TIMESTAMP`);
     await pool.query(`ALTER TABLE syncfy_credentials ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+    // Auto-sync diferido: cuando el usuario re-autentica un banco (BBVA QR / 2FA),
+    // Syncfy tarda unos minutos en correr el primer fetch_jobs y dejar disponibles
+    // los movimientos. Marcamos next_auto_sync_at = NOW() + 10min y un cron lo
+    // procesa cuando ya pasó la hora. Al ejecutarse el sync se limpia (NULL).
+    await pool.query(`ALTER TABLE syncfy_credentials ADD COLUMN IF NOT EXISTS next_auto_sync_at TIMESTAMP`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_syncfy_credentials_next_auto_sync
+        ON syncfy_credentials (next_auto_sync_at) WHERE next_auto_sync_at IS NOT NULL`);
   } catch (err: any) {
     console.error('⚠️ [STARTUP] Error asegurando columnas:', err.message);
   }

@@ -160,17 +160,28 @@ export default function POBoxConsolidationReceptionWizard({ onBack }: Props) {
         try {
             const res = await api.get(`/admin/pobox/consolidations/${c.id}/packages`);
             const pkgs: Pkg[] = res.data.packages || [];
-            setPackages(pkgs);
-            // Pre-marcar SOLO si la consolidación es parcial (ya se abrió antes): en ese
-            // caso las guías con status 'received_mty' ya fueron escaneadas previamente.
-            // Para consolidaciones nuevas (in_transit) nada debe estar pre-marcado.
+            // Pre-marcar SOLO si la consolidación es parcial (ya se abrió antes).
+            // Importante: un paquete escaneado previamente puede haber avanzado
+            // de status (received_mty → ready_pickup → shipped → delivered, etc.).
+            // Si filtráramos solo por `received_mty` los paquetes ya entregados
+            // aparecerían como "faltantes" en una re-apertura de la consolidación,
+            // disparando falsos positivos como "ayer faltaban 1, hoy faltan 6".
+            // Regla correcta: un paquete está pre-escaneado si no está marcado
+            // como `missing_on_arrival` (independiente del status actual).
+            const NEVER_RECEIVED_STATUSES = new Set([
+                'in_transit', 'received', 'pending', 'reception_failed', 'cancelled'
+            ]);
             const preScanned = new Set<number>(
                 c.status === 'received_partial'
                     ? pkgs
-                        .filter((p) => p.status === 'received_mty' && !p.missing_on_arrival)
+                        .filter((p) =>
+                            !p.missing_on_arrival
+                            && !NEVER_RECEIVED_STATUSES.has(String(p.status || '').toLowerCase())
+                        )
                         .map((p) => p.id)
                     : []
             );
+            setPackages(pkgs);
             setScannedIds(preScanned);
             setSelected(c);
             setStep(1);

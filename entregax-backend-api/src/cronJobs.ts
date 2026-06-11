@@ -694,6 +694,52 @@ export const startDatabaseBackupCron = () => {
 };
 
 /**
+ * CRON JOB: Auto-sync diferido de Syncfy
+ * Cada 2 minutos busca credenciales con next_auto_sync_at <= NOW() y dispara
+ * el sync. Esto soporta el flujo "reconectar banco con 2FA": al terminar el
+ * widget se programa el auto-sync 10 min después (Syncfy necesita ese tiempo
+ * para correr el primer fetch_jobs del banco antes de que haya movimientos
+ * disponibles). Tras ejecutar se limpia el flag.
+ */
+export const startSyncfyAutoSyncCron = () => {
+  cron.schedule('*/2 * * * *', async () => {
+    try {
+      const due = await pool.query(`
+        SELECT DISTINCT emitter_id
+        FROM syncfy_credentials
+        WHERE next_auto_sync_at IS NOT NULL
+          AND next_auto_sync_at <= NOW()
+          AND is_active = TRUE
+      `);
+      if (due.rows.length === 0) return;
+
+      console.log(`⏰ [Syncfy auto-sync] ${due.rows.length} emisor(es) listo(s) para sync diferido`);
+      const { syncEmitter } = await import('./syncfyService');
+
+      for (const row of due.rows) {
+        const emitterId = row.emitter_id;
+        try {
+          const result = await syncEmitter(Number(emitterId), 30);
+          console.log(`   ✅ emitter ${emitterId}: new=${result.new_count} dup=${result.duplicate_count} matched=${result.matched_count}`);
+        } catch (e: any) {
+          console.warn(`   ⚠️ emitter ${emitterId}: ${e.message}`);
+        } finally {
+          // Limpiar el flag para no re-ejecutar (independiente de si tuvo éxito o falló).
+          await pool.query(
+            `UPDATE syncfy_credentials SET next_auto_sync_at = NULL, updated_at = NOW()
+             WHERE emitter_id = $1 AND next_auto_sync_at IS NOT NULL`,
+            [emitterId]
+          );
+        }
+      }
+    } catch (err: any) {
+      console.error('[CRON] Syncfy auto-sync error:', err.message);
+    }
+  });
+  console.log('📅 [CRON] Syncfy auto-sync programado: cada 2 minutos');
+};
+
+/**
  * Inicializar todos los CRON jobs
  */
 export const initCronJobs = () => {
@@ -712,6 +758,7 @@ export const initCronJobs = () => {
   startAutoCheckoutCron();
   startDatabaseBackupCron();
   startEntangledSyncCron();
+  startSyncfyAutoSyncCron();
 };
 
 export default initCronJobs;

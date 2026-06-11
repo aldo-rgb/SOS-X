@@ -95,13 +95,31 @@ export async function getLinks(req: Request, res: Response): Promise<any> {
 // POST /api/admin/syncfy/links  body: { emitter_id, id_credential }
 // El widget de Syncfy crea la credencial server-side; este endpoint
 // solo sincroniza nuestro mirror local.
+// AUTO-SYNC: tras conectar / re-autenticar, programamos un sync diferido
+// 10 minutos después. Syncfy normalmente tarda unos minutos en correr el
+// primer fetch_jobs del banco; al hacer sync inmediato suele devolver 0
+// movimientos. El cron `startSyncfyAutoSyncCron` lo procesa cuando vence.
 export async function registerLink(req: Request, res: Response): Promise<any> {
   try {
     const { emitter_id } = req.body || {};
     if (!emitter_id) return res.status(400).json({ error: 'Falta emitter_id' });
     const userId = (req as any).user?.userId || (req as any).user?.id;
     const rows = await syncfy.refreshCredentialsForEmitter(Number(emitter_id), userId);
-    res.json({ success: true, links: rows });
+
+    // Programar auto-sync diferido para todas las credenciales activas del emisor.
+    try {
+      await pool.query(
+        `UPDATE syncfy_credentials
+           SET next_auto_sync_at = NOW() + INTERVAL '10 minutes', updated_at = NOW()
+         WHERE emitter_id = $1 AND is_active = TRUE`,
+        [Number(emitter_id)]
+      );
+      console.log(`⏰ [Syncfy] Auto-sync programado en 10 min para emitter ${emitter_id}`);
+    } catch (e: any) {
+      console.warn('[Syncfy] No se pudo programar auto-sync:', e.message);
+    }
+
+    res.json({ success: true, links: rows, auto_sync_scheduled_in_minutes: 10 });
   } catch (e: any) {
     console.error('Syncfy registerLink error:', e.message);
     res.status(500).json({ error: 'Error registrando credencial', details: e.message });

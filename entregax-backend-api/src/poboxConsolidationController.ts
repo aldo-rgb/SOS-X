@@ -199,8 +199,26 @@ export const receiveConsolidation = async (req: AuthRequest, res: Response): Pro
                missing_reported_at = NULL,
                current_branch_id = COALESCE($2::int, current_branch_id),
                updated_at = NOW()
-         WHERE id = ANY($1::int[])`,
+         WHERE id = ANY($1::int[])
+           -- Solo retroceder a 'received_mty' si el paquete sigue en tránsito.
+           -- Si ya avanzó (ready_pickup, shipped, out_for_delivery, delivered,
+           -- etc.) NO debemos retrocederle el estado al re-finalizar una
+           -- consolidación parcial. Solo limpiamos los flags de faltante.
+           AND status::text IN ('in_transit', 'in_transit_mty', 'received', 'reception_failed')`,
         [scanned, mtyBranchId]
+      );
+
+      // Para paquetes que ya están en estados posteriores, solo limpiamos
+      // los flags de faltante sin tocar status / received_at / current_branch_id.
+      await client.query(
+        `UPDATE packages
+           SET missing_on_arrival = FALSE,
+               missing_reported_at = NULL,
+               updated_at = NOW()
+         WHERE id = ANY($1::int[])
+           AND status::text NOT IN ('in_transit', 'in_transit_mty', 'received', 'reception_failed')
+           AND COALESCE(missing_on_arrival, FALSE) = TRUE`,
+        [scanned]
       );
 
       // Registrar en historial: tránsito previo + recepción en MTY

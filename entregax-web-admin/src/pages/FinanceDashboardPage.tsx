@@ -1848,6 +1848,27 @@ export default function FinanceDashboardPage({ onBack }: { onBack?: () => void }
                   {empresaFiltrada.syncfy_last_sync && (
                     <span>Última sync: {new Date(empresaFiltrada.syncfy_last_sync).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
                   )}
+                  {/* Solo descargar: salta el widget 2FA y va directo al endpoint /sync.
+                      Útil cuando el QR ya se completó y solo falta jalar movimientos. */}
+                  <SyncfyRefreshButton
+                    emitterId={empresaFiltrada.id}
+                    size="small"
+                    color="primary"
+                    variant="outlined"
+                    label="Solo descargar"
+                    skipWidget
+                    sx={{ ml: 1 }}
+                    onSuccess={async ({ new_count, matched_count }) => {
+                      setSnackbar({
+                        open: true,
+                        message: new_count > 0
+                          ? `✅ ${new_count} nuevas, ${matched_count} conciliadas`
+                          : 'Sin movimientos nuevos por descargar',
+                        severity: new_count > 0 ? 'success' : 'info',
+                      });
+                      await loadSavedBankEntries();
+                    }}
+                  />
                   <SyncfyRefreshButton
                     emitterId={empresaFiltrada.id}
                     size="small"
