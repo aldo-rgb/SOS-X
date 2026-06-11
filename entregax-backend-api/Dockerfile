@@ -68,14 +68,17 @@ WORKDIR /app
 # Copiar package files
 COPY package*.json ./
 
-# Instalar dependencias
-RUN npm ci --only=production
+# Instalar TODAS las dependencias (incluye TypeScript para compilar)
+RUN npm ci
 
 # Copiar código fuente
 COPY . .
 
-# Compilar TypeScript
-RUN npm run build || true
+# Compilar TypeScript (debe exitir; falla el build si hay errores)
+RUN npm run build
+
+# Eliminar devDependencies para imagen de producción más ligera
+RUN npm prune --omit=dev
 
 # Variables de entorno para Puppeteer
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
