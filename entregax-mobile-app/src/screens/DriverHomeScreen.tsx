@@ -158,13 +158,14 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     };
     // Canonicaliza nombre de carrier para evitar grupos duplicados por variantes de casing
     const canonicalCarrier = (raw: string): string => {
-      const s = raw.trim().replace(/\s+/g, ' ').toLowerCase().replace(/\s/g, '');
+      // Normalizar: quitar espacios y guiones bajos para comparación
+      const s = raw.trim().replace(/[\s_]+/g, '').toLowerCase();
       if (s.includes('paqueteexpress') || s.includes('paquetexpress') || s === 'pqtx') return 'Paquete Express';
       if (s === 'dhl') return 'DHL';
       if (s.includes('fedex') || s.startsWith('fdx')) return 'FedEx';
       if (s === 'ups') return 'UPS';
-      // fallback: title case
-      return raw.trim().replace(/\s+/g, ' ').split(' ')
+      // fallback: title case (underscores → spaces)
+      return raw.trim().replace(/[\s_]+/g, ' ').split(' ')
         .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     };
     const carrierMap: Record<string, any[]> = {};
