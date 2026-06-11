@@ -133,7 +133,9 @@ export default function ServiceInventoryPage() {
     const ls = (ex.lastStatus || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     if (ls.includes('entregado') || ls.includes('delivered')) return 'delivered';
     if (ls.includes('en ruta') || ls.includes('en camino') || ls.includes('out_for_delivery')) return 'out_for_delivery';
-    if (ex.guiaSalida || ls.includes('enviado') || ls.includes('shipped') || ls.includes('sent')) return 'shipped';
+    // Paquetería local (entregax_local_mty) no mapea a 'shipped' — es entrega local, no envío nacional
+    const isLocalCarrier = (ex.paqueteria || '').toLowerCase().includes('local');
+    if (!isLocalCarrier && (ex.guiaSalida || ls.includes('enviado') || ls.includes('shipped') || ls.includes('sent'))) return 'shipped';
     if (ls.includes('transito') || ls.includes('transit')) return 'in_transit';
     return undefined;
   };
