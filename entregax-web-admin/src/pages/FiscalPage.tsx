@@ -1971,7 +1971,19 @@ export default function FiscalPage() {
       </Dialog>
 
       {/* ========== Modal Syncfy - Reemplazo de Belvo ========== */}
-      <Dialog open={openSyncfyModal} onClose={() => setOpenSyncfyModal(false)} maxWidth="sm" fullWidth>
+      {/* disableEnforceFocus + disableAutoFocus + disableRestoreFocus: el widget */}
+      {/* de Syncfy/BBVA abre popups (QR, login) en portales fuera del Dialog. Sin */}
+      {/* estos flags MUI atrapa el foco del teclado dentro del Dialog y los inputs */}
+      {/* del popup BBVA no reciben teclas. */}
+      <Dialog
+        open={openSyncfyModal}
+        onClose={() => setOpenSyncfyModal(false)}
+        maxWidth="sm"
+        fullWidth
+        disableEnforceFocus
+        disableAutoFocus
+        disableRestoreFocus
+      >
         <DialogTitle sx={{ bgcolor: '#1e88e5', color: 'white', fontWeight: 'bold' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             <LinkIcon /> Syncfy - Conexión Bancaria - {selectedEmpresaSyncfy?.alias}
@@ -2065,6 +2077,9 @@ export default function FiscalPage() {
       </Dialog>
 
       {/* Dialog dedicado para el widget Syncfy (full-size) */}
+      {/* Mismas flags: el widget Syncfy abre popups (BBVA QR, 2FA, login) en portales */}
+      {/* propios fuera del Dialog. Hay que desactivar el focus trap de MUI para que */}
+      {/* esos inputs reciban teclas. */}
       <Dialog
         open={syncfyWidgetVisible}
         onClose={() => {
@@ -2080,6 +2095,9 @@ export default function FiscalPage() {
         }}
         maxWidth="md"
         fullWidth
+        disableEnforceFocus
+        disableAutoFocus
+        disableRestoreFocus
       >
         <DialogTitle sx={{ bgcolor: '#1e88e5', color: 'white' }}>
           🏦 Conectar Banco — Syncfy
