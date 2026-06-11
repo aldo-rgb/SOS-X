@@ -975,23 +975,42 @@ export default function SupportBoardPage() {
             <ArchiveIcon sx={{ fontSize: 18, color: '#9E9E9E' }} />
             <Typography variant="subtitle1" fontWeight="bold" sx={{ flex: 1, color: '#616161' }}>Archivados</Typography>
             <Box sx={{ bgcolor: '#e0e0e0', borderRadius: 10, px: 0.8, fontSize: 11, fontWeight: 600, lineHeight: '18px', color: '#616161' }}>
-              {archivedTickets.length}
+              {searchQuery
+                ? archivedTickets.filter(t => {
+                    const q = searchQuery.toLowerCase();
+                    return t.ticket_folio.toLowerCase().includes(q) ||
+                      t.full_name?.toLowerCase().includes(q) ||
+                      t.subject?.toLowerCase().includes(q);
+                  }).length
+                : archivedTickets.length}
             </Box>
           </Box>
-          {archivedTickets.length === 0 ? (
-            <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>Sin archivados</Typography>
-          ) : (
-            archivedTickets.slice(0, 30).map((ticket) => (
-              <TicketCard
-                key={ticket.id}
-                ticket={ticket}
-                onClick={() => handleOpenTicket(ticket)}
-                formatTime={formatTimeAgo}
-                isArchived
-                onArchive={handleArchiveTicket}
-              />
-            ))
-          )}
+          {(() => {
+            const filteredArchived = searchQuery
+              ? archivedTickets.filter(t => {
+                  const q = searchQuery.toLowerCase();
+                  return t.ticket_folio.toLowerCase().includes(q) ||
+                    t.full_name?.toLowerCase().includes(q) ||
+                    t.subject?.toLowerCase().includes(q);
+                })
+              : archivedTickets;
+            return filteredArchived.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" textAlign="center" sx={{ py: 4 }}>
+                {searchQuery ? 'Sin resultados' : 'Sin archivados'}
+              </Typography>
+            ) : (
+              filteredArchived.slice(0, 50).map((ticket) => (
+                <TicketCard
+                  key={ticket.id}
+                  ticket={ticket}
+                  onClick={() => handleOpenTicket(ticket)}
+                  formatTime={formatTimeAgo}
+                  isArchived
+                  onArchive={handleArchiveTicket}
+                />
+              ))
+            );
+          })()}
         </Paper>
       </Box>
 
