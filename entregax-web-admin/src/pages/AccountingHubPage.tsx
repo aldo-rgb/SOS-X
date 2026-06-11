@@ -2612,8 +2612,10 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           onSuccess={async ({ new_count, credential_warning }) => {
             if (credential_warning) {
               setError(`⚠️ ${credential_warning}`);
-            } else if (new_count === 0 && links.some((l: any) => l.twofa_required)) {
-              setError('No se descargaron movimientos nuevos. El banco puede requerir re-autenticación 2FA.');
+            } else if (new_count === 0) {
+              setError('✅ Re-autenticación completada. La descarga automática está programada (~10 min). El banco puede mostrar "sesión activa" mientras Syncfy termina — es normal, espera unos minutos antes de entrar al banco manualmente.');
+            } else {
+              setError(null);
             }
             await load();
           }}
