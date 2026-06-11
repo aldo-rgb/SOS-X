@@ -12734,15 +12734,17 @@ app.post('/api/packages/save-guia-us', authenticateToken, requireMinLevel(ROLES.
 // POST /api/packages/sync-from-entregax — sincroniza pago, instrucciones y dirección desde EntregaX
 app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
   try {
-    const { guia, service, hasPago, hasInstrucciones, paqueteria, guia_salida, direccion_entrega } = req.body as {
+    const { guia, service, hasPago, hasInstrucciones, paqueteria, guia_salida, direccion_entrega, newStatus } = req.body as {
       guia: string; service: string;
       hasPago: boolean; hasInstrucciones: boolean;
-      paqueteria?: string; guia_salida?: string;
+      paqueteria?: string; guia_salida?: string; newStatus?: string;
       direccion_entrega?: {
         quienrecibe?: string; calle?: string; numeroext?: string;
         colonia?: string; cp?: string; estado?: string; pais?: string;
       };
     };
+    const VALID_STATUSES = ['received', 'received_china', 'received_mty', 'in_transit', 'shipped', 'out_for_delivery', 'delivered'];
+    const safeNewStatus = newStatus && VALID_STATUSES.includes(newStatus) ? newStatus : undefined;
     if (!guia || !service) return (res as any).status(400).json({ error: 'guia y service son requeridos' });
 
     const syncedFields: string[] = [];
@@ -12780,6 +12782,7 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
         if (addrId) { params.push(addrId); updates.push(`delivery_address_id = $${params.length}`); }
         syncedFields.push('instrucciones');
       }
+      if (safeNewStatus) { params.push(safeNewStatus); updates.push(`status = $${params.length}`); syncedFields.push('status'); }
       if (updates.length > 0) {
         params.push(guia);
         await pool.query(
@@ -12811,6 +12814,7 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
         if (addrId) { params.push(addrId); updates.push(`delivery_address_id = $${params.length}`); }
         syncedFields.push('instrucciones');
       }
+      if (safeNewStatus) { params.push(safeNewStatus); updates.push(`status = $${params.length}`); syncedFields.push('status'); }
       if (updates.length > 0) {
         params.push(guia);
         await pool.query(

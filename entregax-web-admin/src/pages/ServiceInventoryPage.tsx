@@ -128,6 +128,22 @@ export default function ServiceInventoryPage() {
     if (Object.keys(saved).length > 0) setUsGuias(prev => ({ ...saved, ...prev }));
   }, [rows, service]);
 
+  // Orden de avance de status — solo actualizamos si es un avance, no un retroceso
+  const STATUS_ORDER: Record<string, number> = {
+    received: 0, received_china: 1, received_mty: 1, in_transit: 2,
+    shipped: 3, out_for_delivery: 4, delivered: 5,
+  };
+
+  // Mapea status de EntregaX a nuestro valor interno
+  const mapExStatusToInternal = (ex: EntregaxRow): string | undefined => {
+    const ls = (ex.lastStatus || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (ls.includes('entregado') || ls.includes('delivered')) return 'delivered';
+    if (ls.includes('en ruta') || ls.includes('en camino') || ls.includes('out_for_delivery')) return 'out_for_delivery';
+    if (ex.guiaSalida || ls.includes('enviado') || ls.includes('shipped') || ls.includes('sent')) return 'shipped';
+    if (ls.includes('transito') || ls.includes('transit')) return 'in_transit';
+    return undefined;
+  };
+
   // Normaliza nombre de paquetería para comparación fuzzy
   const normalizeCarrier = (c: string) => c.toLowerCase().replace(/[^a-z0-9]/g, '');
 
@@ -164,6 +180,9 @@ export default function ServiceInventoryPage() {
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
     // EntregaX tiene instrucciones pero sin guía de salida → inyectar dirección
     if (!ex.guiaSalida && !!ex.hasInstrucciones && !row.has_instructions) return true;
+    // EntregaX tiene un status más avanzado
+    const mappedStatus = mapExStatusToInternal(ex);
+    if (mappedStatus && (STATUS_ORDER[mappedStatus] ?? -1) > (STATUS_ORDER[row.status] ?? -1)) return true;
     return false;
   };
 
@@ -172,6 +191,10 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return;
     setSyncState(prev => ({ ...prev, [row.guia]: 'syncing' }));
     const hasGuiaSalida = !!ex.guiaSalida;
+    // Calcular nuevo status solo si es un avance
+    const mappedStatus = mapExStatusToInternal(ex);
+    const newStatus = mappedStatus && (STATUS_ORDER[mappedStatus] ?? -1) > (STATUS_ORDER[row.status] ?? -1)
+      ? mappedStatus : undefined;
     try {
       await api.post('/packages/sync-from-entregax', {
         guia: row.guia,
@@ -183,6 +206,7 @@ export default function ServiceInventoryPage() {
         guia_salida: hasGuiaSalida ? ex.guiaSalida : undefined,
         // Dirección solo cuando no hay guía de salida (paquete aún no enviado)
         direccion_entrega: !hasGuiaSalida ? ex.direccionEntrega : undefined,
+        newStatus,
       });
       // Actualiza la fila localmente para reflejar el sync
       setRows(prev => prev.map(r => {
@@ -193,6 +217,7 @@ export default function ServiceInventoryPage() {
           has_instructions: r.has_instructions || !!ex.hasInstrucciones || hasGuiaSalida,
           paqueteria: ex.paqueteria || r.paqueteria,
           guia_salida: ex.guiaSalida || r.guia_salida,
+          status: newStatus || r.status,
         };
       }));
       setSyncState(prev => ({ ...prev, [row.guia]: 'done' }));
