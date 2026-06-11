@@ -2954,7 +2954,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         COALESCE(u.full_name, lc.full_name) AS cliente_nombre,
                         p.national_carrier AS paqueteria,
                         p.national_tracking AS guia_salida,
-                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
+                        COALESCE(p.client_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions,
                         NULLIF(p.child_no, '') AS guia_us_saved
                    FROM packages p ${PB_JOIN}
