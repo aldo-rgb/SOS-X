@@ -12076,20 +12076,43 @@ async function ensureRequiredColumns() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_version ON legal_document_versions(document_id, version DESC)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_ldv_doc_saved_at ON legal_document_versions(document_id, saved_at DESC)`);
-    // Índices de expresión para acelerar queries de ruta del repartidor
+    // Índices para acelerar queries de ruta del repartidor.
+    // Antes usábamos `to_jsonb(packages)->>'col'` para tolerar columnas
+    // ausentes, pero PostgreSQL rechaza esa expresión en índices porque
+    // `to_jsonb(row)` no es IMMUTABLE (depende del row type). En su lugar
+    // verificamos qué columnas existen y creamos índices simples (más
+    // baratos y sin warning al arranque).
     try {
-      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_delivery_status_expr
-          ON packages ((COALESCE(to_jsonb(packages)->>'delivery_status', to_jsonb(packages)->>'status')))`);
-      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_assigned_driver_expr
-          ON packages ((to_jsonb(packages)->>'assigned_driver_id'))
-          WHERE to_jsonb(packages)->>'assigned_driver_id' IS NOT NULL`);
-      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_master_id_int
-          ON packages (((to_jsonb(packages)->>'master_id')::int))
-          WHERE to_jsonb(packages)->>'master_id' IS NOT NULL`);
-      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_updated_at ON packages (updated_at DESC)`);
-      console.log('✅ [STARTUP] Índices de expresión packages verificados');
+      const colRes = await pool.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_schema='public' AND table_name='packages'`
+      );
+      const cols = new Set<string>(colRes.rows.map((r: any) => r.column_name));
+
+      // CONCURRENTLY no puede correr dentro de una transacción; los pool.query()
+      // de pg corren sin tx implícita salvo BEGIN, así que está OK.
+      if (cols.has('delivery_status')) {
+        await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_delivery_status
+            ON packages (delivery_status)`);
+      } else if (cols.has('status')) {
+        await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_status
+            ON packages (status)`);
+      }
+      if (cols.has('assigned_driver_id')) {
+        await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_assigned_driver
+            ON packages (assigned_driver_id) WHERE assigned_driver_id IS NOT NULL`);
+      }
+      if (cols.has('master_id')) {
+        await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_master_id
+            ON packages (master_id) WHERE master_id IS NOT NULL`);
+      }
+      await pool.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_packages_updated_at
+          ON packages (updated_at DESC)`);
+      console.log('✅ [STARTUP] Índices packages verificados');
     } catch (e: any) {
-      console.warn('⚠️ [STARTUP] Índices expresión (puede estar ya corriendo CONCURRENTLY):', e.message?.slice(0, 80));
+      // 23505 = unique_violation, 42P07 = relation already exists, ya están creados.
+      // 0A000 si CONCURRENTLY está en tx (no debería pasar aquí).
+      console.warn('⚠️ [STARTUP] Índices packages (puede estar ya corriendo o sin permisos):', e.message?.slice(0, 120));
     }
     // Columnas de usuario que pueden no existir en instancias antiguas
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS gex_auto_enabled BOOLEAN DEFAULT FALSE`);

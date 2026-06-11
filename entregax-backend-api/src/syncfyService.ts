@@ -190,14 +190,34 @@ export async function deleteCredential(dbCredentialId: number): Promise<boolean>
   if (r.rows.length === 0) return false;
   const cred = r.rows[0];
 
+  // Syncfy / Paybook requiere SESSION TOKEN del usuario para operar sobre
+  // sus credenciales — la API key del app por sí sola devuelve 401 "Invalid user".
+  // Replicamos el patrón ya usado en fetchTransactionsRemote.
   try {
-    const client = getAppClient();
-    const delUrl = `${SYNCFY_PATHS.credentials}/${encodeURIComponent(cred.id_credential)}`;
-    console.warn(`[Syncfy] deleteCredential remote: DELETE ${delUrl}`);
-    const delResp = await client.delete(delUrl);
-    console.warn(`[Syncfy] deleteCredential remote OK: status=${delResp.status}`);
+    const idUser: string | null = cred.syncfy_user_id
+      || (await pool.query('SELECT id_user FROM syncfy_users WHERE emitter_id=$1', [cred.emitter_id])).rows[0]?.id_user
+      || null;
+
+    if (!idUser) {
+      console.warn(`[Syncfy] deleteCredential: no id_user disponible para cred db=${dbCredentialId} emitter=${cred.emitter_id} — solo se hará soft-delete local.`);
+    } else {
+      const sessionToken = await createSessionToken(idUser);
+      const sessionClient = getSessionClient(sessionToken);
+      const delUrl = `${SYNCFY_PATHS.credentials}/${encodeURIComponent(cred.id_credential)}`;
+      console.warn(`[Syncfy] deleteCredential remote: DELETE ${delUrl} (con session token de id_user=${idUser})`);
+      const delResp = await sessionClient.delete(delUrl);
+      console.warn(`[Syncfy] deleteCredential remote OK: status=${delResp.status}`);
+    }
   } catch (e: any) {
-    console.warn(`[Syncfy] deleteCredential remote FAILED: ${e.response?.status} ${JSON.stringify(e.response?.data || e.message).slice(0, 200)}`);
+    // Tolerante: si Syncfy responde 404 la credencial ya no existe remotamente.
+    // Cualquier otro error solo se loggea — el soft-delete local debe completarse igual.
+    const status = e.response?.status;
+    const body = JSON.stringify(e.response?.data || e.message).slice(0, 200);
+    if (status === 404) {
+      console.warn(`[Syncfy] deleteCredential remote 404 (ya no existe en Syncfy): ${body}`);
+    } else {
+      console.warn(`[Syncfy] deleteCredential remote FAILED: ${status} ${body}`);
+    }
   }
 
   // Soft-delete: marcar como inactivo para que no reaparezca al re-sincronizar con Syncfy
