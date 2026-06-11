@@ -10,6 +10,9 @@ import {
   Modal,
   ActivityIndicator,
   TouchableOpacity,
+  TouchableWithoutFeedback,
+  ScrollView,
+  Keyboard,
 } from 'react-native';
 import {
   Text,
@@ -317,7 +320,9 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
       <StatusBar barStyle="light-content" backgroundColor={BLACK} />
       
       {/* Header con logo + cajito mascota */}
@@ -336,6 +341,11 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       </View>
 
       {/* Formulario */}
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ flexGrow: 1 }}
+      >
       <Surface style={styles.formContainer} elevation={4}>
         <Text style={styles.welcomeText}>{t.welcome}</Text>
         <Text style={styles.instructionText}>{t.instruction}</Text>
@@ -428,6 +438,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           {t.register}
         </Button>
       </View>
+      </ScrollView>
 
       {/* Modal: ¿Olvidaste tu contraseña? */}
       <Modal
@@ -484,6 +495,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           </View>
         </View>
       </Modal>
+      </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   );
 }
