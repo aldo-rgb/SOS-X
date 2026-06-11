@@ -166,6 +166,8 @@ export default function SyncfyRefreshButton({
         }}
         maxWidth="md"
         fullWidth
+        disableEnforceFocus
+        disableRestoreFocus
         PaperProps={{ sx: { minHeight: 600, borderRadius: 3 } }}
       >
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', pb: 1 }}>
