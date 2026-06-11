@@ -612,7 +612,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   };
 
   const handleLogout = () => {
-    navigation.replace('Login');
+    navigation.reset({ index: 0, routes: [{ name: 'Login' }] });
   };
 
   // 🌐 Cambiar idioma
