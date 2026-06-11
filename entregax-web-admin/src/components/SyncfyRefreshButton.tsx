@@ -25,6 +25,13 @@ interface Props {
   color?: 'primary' | 'success' | 'inherit';
   disabled?: boolean;
   sx?: object;
+  /**
+   * Si es true, NUNCA abre el widget de re-autenticación 2FA aunque la
+   * credencial lo requiera. Solo llama al endpoint /sync. Útil cuando el
+   * usuario ya completó el QR/2FA hace poco y solo le falta descargar los
+   * movimientos (el job de Syncfy ya esta listo).
+   */
+  skipWidget?: boolean;
 }
 
 export default function SyncfyRefreshButton({
@@ -36,6 +43,7 @@ export default function SyncfyRefreshButton({
   color = 'success',
   disabled = false,
   sx = {},
+  skipWidget = false,
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [widgetOpen, setWidgetOpen] = useState(false);
@@ -94,20 +102,40 @@ export default function SyncfyRefreshButton({
           if (typeof widget.open === 'function') { try { widget.open(); } catch { /* noop */ } }
 
           if (typeof widget.on === 'function') {
-            const onDone = async () => {
+            // Bug observado en BBVA Empresas: tras el QR el widget cierra con
+            // 'exit' SIN disparar credential-created/success. Si solo confiamos
+            // en esos eventos, runSync nunca se llama y el usuario queda en la
+            // misma pantalla "sin que pase nada". Solución: bandera + fallback
+            // en exit que también dispara la sync (idempotente — si el job de
+            // Syncfy todavía no terminó, devolverá 0 tx pero no rompe nada).
+            let syncTriggered = false;
+            const triggerSync = async () => {
+              if (syncTriggered) return;
+              syncTriggered = true;
               setWidgetOpen(false);
               await runSync();
             };
-            widget.on('credential-created', onDone);
-            widget.on('credentials', onDone);
-            widget.on('success', onDone);
-            widget.on('auth_success', onDone);
-            widget.on('updated', onDone);
+
+            widget.on('credential-created', triggerSync);
+            widget.on('credentials', triggerSync);
+            widget.on('success', triggerSync);
+            widget.on('auth_success', triggerSync);
+            widget.on('updated', triggerSync);
             widget.on('error', async (err: any) => {
-              if (err?.id_credential) { await onDone(); }
+              if (err?.id_credential) { await triggerSync(); }
               else { setWidgetOpen(false); setLoading(false); }
             });
-            widget.on('exit', () => { setWidgetOpen(false); setLoading(false); });
+            widget.on('exit', async () => {
+              // Si ya se disparó la sync (por algún success previo) solo cerrar.
+              if (syncTriggered) { setWidgetOpen(false); setLoading(false); return; }
+              // Fallback: BBVA suele cerrar el widget tras el QR sin emitir
+              // success. Damos un pequeño margen para que Syncfy registre el
+              // refresh y luego intentamos la sync.
+              setWidgetOpen(false);
+              syncTriggered = true;
+              await new Promise(r => setTimeout(r, 1500));
+              await runSync();
+            });
           }
 
           widgetInstanceRef.current = widget;
@@ -126,6 +154,11 @@ export default function SyncfyRefreshButton({
   const handleClick = async () => {
     if (loading) return;
     setLoading(true);
+    // Modo "solo sincronizar": ignora 2FA y llama directo al endpoint.
+    if (skipWidget) {
+      await runSync();
+      return;
+    }
     try {
       const res = await api.get('/admin/syncfy/links', { params: { emitter_id: emitterId } });
       const links: any[] = res.data.links || [];

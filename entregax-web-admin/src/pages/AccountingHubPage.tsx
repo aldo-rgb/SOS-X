@@ -2579,9 +2579,29 @@ function BankMovementsTab({ emitter }: { emitter: Emitter }) {
           sx={{ flex: 1, minWidth: 200 }}
         />
         <Button variant="outlined" onClick={load} sx={{ borderColor: BLACK, color: BLACK }}>Aplicar</Button>
+        {/* Botón "Solo descargar movimientos": no abre el widget de 2FA aunque
+            la credencial lo requiera. Útil cuando el usuario ya completó el
+            QR/2FA hace poco y solo le falta descargar lo nuevo. */}
         <SyncfyRefreshButton
           emitterId={emitter.id}
           disabled={links.length === 0}
+          label="Solo descargar"
+          variant="outlined"
+          color="primary"
+          skipWidget
+          sx={{ borderColor: ORANGE, color: ORANGE }}
+          onSuccess={async ({ new_count, matched_count }) => {
+            setError(null);
+            if (new_count === 0) {
+              setError(`Sin movimientos nuevos. Conciliados: ${matched_count}.`);
+            }
+            await load();
+          }}
+        />
+        <SyncfyRefreshButton
+          emitterId={emitter.id}
+          disabled={links.length === 0}
+          label="Sincronizar (re-autenticar)"
           sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94e1f' } }}
           onSuccess={async ({ new_count }) => {
             if (new_count === 0 && links.some((l: any) => l.twofa_required)) {
