@@ -422,7 +422,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         <Button
           mode="text"
           compact
-          onPress={() => navigation.navigate('Register' as never)}
+          onPress={() => navigation.navigate('PreRegister' as never)}
           labelStyle={{ color: ORANGE, fontWeight: 'bold' }}
         >
           {t.register}

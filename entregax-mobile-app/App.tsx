@@ -14,6 +14,7 @@ import LoginScreen from './src/screens/LoginScreen';
 import BootstrapScreen from './src/screens/BootstrapScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
 import ExistingClientScreen from './src/screens/ExistingClientScreen';
+import PreRegisterScreen from './src/screens/PreRegisterScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import ConsolidationSummary from './src/screens/ConsolidationSummary';
 import PaymentScreen from './src/screens/PaymentScreen';
@@ -125,6 +126,7 @@ export type RootStackParamList = {
   Login: undefined;
   GuestTracking: { initialLang?: 'es' | 'en' | 'zh' };
   Register: undefined;
+  PreRegister: undefined;
   ExistingClient: undefined;
   ChangePassword: { user: any; token: string; currentPassword: string };
   Verification: { user: any; token: string };
@@ -270,6 +272,7 @@ function App() {
           <Stack.Screen name="Bootstrap" component={BootstrapScreen} options={{ animation: 'fade' }} />
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="GuestTracking" component={GuestTrackingScreen} options={{ headerShown: false }} />
+          <Stack.Screen name="PreRegister" component={PreRegisterScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
           <Stack.Screen name="ExistingClient" component={ExistingClientScreen} />
           <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} />
