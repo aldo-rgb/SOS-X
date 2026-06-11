@@ -156,12 +156,20 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       const s = String(c || '').toLowerCase();
       return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
     };
+    // Normaliza nombre: "PAQUETE EXPRESS" / "paquete express" → "Paquete Express"
+    const normalizeCarrier = (c: string) =>
+      c.trim().replace(/\s+/g, ' ')
+        .split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
     const carrierMap: Record<string, any[]> = {};
     [...pendingPackages, ...loaded].forEach((p: any) => {
-      const c = p.national_carrier || '';
-      if (!c || isLocalCarrier(c)) return;
+      const rawCarrier = p.national_carrier || '';
+      if (!rawCarrier || isLocalCarrier(rawCarrier)) return;
+      // Solo mostrar si tiene guía de despacho generada (national_tracking)
+      // Evita mostrar paquetes cuyo carrier llegó del exterior pero aún no tienen instrucciones de salida
+      if (!p.national_tracking) return;
       const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') || String(p.delivery_status || '').includes('in_transit');
       if (!isLoaded && requireLabel && !p.has_label) return;
+      const c = normalizeCarrier(rawCarrier);
       if (!carrierMap[c]) carrierMap[c] = [];
       carrierMap[c].push(p);
     });
