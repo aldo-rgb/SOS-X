@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   View,
@@ -150,7 +150,10 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   // 🔔 Estado para contador de notificaciones no leídas
   const [unreadNotifications, setUnreadNotifications] = useState(0);
 
-  // �🔐 Verificar si el usuario está verificado
+  const isMounted = useRef(true);
+  useEffect(() => { return () => { isMounted.current = false; }; }, []);
+
+  // 🔐 Verificar si el usuario está verificado
   const isUserVerified = user.isVerified === true;
   const verificationStatus = user.verificationStatus || 'not_started';
   const isPendingReview = verificationStatus === 'pending_review';
@@ -477,12 +480,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const fetchPackages = useCallback(async () => {
     try {
       const data = await getMyPackagesApi(user.id, token);
-      setPackages(data);
+      if (isMounted.current) setPackages(data);
     } catch (error) {
       console.error('Error fetching packages:', error);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isMounted.current) { setLoading(false); setRefreshing(false); }
     }
   }, [user.id, token]);
 
@@ -509,7 +511,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           priority: slide.priority,
           isActive: slide.isActive !== undefined ? slide.isActive : slide.is_active,
         }));
-        setCarouselSlides(mappedSlides);
+        if (isMounted.current) setCarouselSlides(mappedSlides);
       }
     } catch (error) {
       console.error('Error fetching carousel slides:', error);
@@ -540,7 +542,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       });
       if (response.ok) {
         const data = await response.json();
-        setUnreadNotifications(data.count || 0);
+        if (isMounted.current) setUnreadNotifications(data.count || 0);
       }
     } catch (error) {
       console.error('Error fetching notifications:', error);
@@ -553,11 +555,11 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       const response = await fetch(`${API_URL}/api/auth/profile`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (response.ok) {
+      if (response.ok && isMounted.current) {
         const data = await response.json();
         setUser(prev => ({
           ...prev,
-          isVerified: data.is_verified,
+          isVerified: data.isVerified ?? data.is_verified,
           verificationStatus: data.verification_status,
           isEmployeeOnboarded: data.is_employee_onboarded,
         }));
@@ -1346,29 +1348,28 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   // Si la guía está en la cuenta del usuario → muestra su paquete.
   // Si no → consulta /api/public/track/:tracking y muestra los datos públicos
   // con la opción de "Agregar a mi seguimiento".
-  const handleTrnSubmit = useCallback(async () => {
-    const q = trnFilter.trim().toUpperCase();
+  const doPublicTrack = useCallback(async (q: string, cachedSnapshot?: PublicTrackingSnapshot) => {
+    q = q.trim().toUpperCase();
     if (!q) return;
     setPublicSearchError(null);
-    setPublicSearchResult(null);
     setTrackedPackage(null);
     setTrackingError('');
-    // Sincronizar con el input interno del modal por compatibilidad
     setTrackingSearch(q);
 
-    // 1. Buscar primero en sus paquetes locales (todas las series)
     const own = packages.find(p => {
-      const t = String(p.tracking_internal || '').toUpperCase();
+      const ti = String(p.tracking_internal || '').toUpperCase();
       const ext = String((p as any).external_tracking || (p as any).tracking_provider || '').toUpperCase();
-      return t === q || ext === q || t.includes(q) || ext.includes(q);
+      return ti === q || ext === q || ti.includes(q) || ext.includes(q);
     });
     if (own) {
       setTrackedPackage(own);
+      setPublicSearchResult(null);
       setShowTrackingModal(true);
       return;
     }
 
-    // 2. No es suya → consultar endpoint público
+    // Show cached snapshot immediately while fetching fresh data
+    if (cachedSnapshot) setPublicSearchResult(cachedSnapshot);
     setPublicSearchLoading(true);
     setShowTrackingModal(true);
     try {
@@ -1388,19 +1389,25 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         children: data.children,
         fetchedAt: new Date().toISOString(),
       };
-      setPublicSearchResult(snapshot);
-      // Si ya está en seguimiento, refrescar snapshot en cache local
+      if (isMounted.current) setPublicSearchResult(snapshot);
       const isFol = followed.some(f => f.tracking === snapshot.tracking);
       if (isFol) {
         await updateFollowedSnapshot(snapshot.tracking, snapshot);
-        setFollowed(await getFollowedTrackings());
+        if (isMounted.current) setFollowed(await getFollowedTrackings());
       }
     } catch (err: any) {
-      setPublicSearchError(err?.message || 'Error de conexión');
+      if (isMounted.current && !cachedSnapshot) setPublicSearchError(err?.message || 'Error de conexión');
     } finally {
-      setPublicSearchLoading(false);
+      if (isMounted.current) setPublicSearchLoading(false);
     }
-  }, [trnFilter, packages, followed]);
+  }, [packages, followed]);
+
+  const handleTrnSubmit = useCallback(async () => {
+    const q = trnFilter.trim().toUpperCase();
+    if (!q) return;
+    setPublicSearchResult(null);
+    await doPublicTrack(q);
+  }, [trnFilter, doPublicTrack]);
 
   // Cerrar modal de tracking y limpiar estado
   const closeTrackingModal = () => {
@@ -1430,7 +1437,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
   const formatMilestoneLabel = (idx: number): string => {
     const m = publicSearchResult?.milestones?.[idx];
     if (!m) return '';
-    return m.label_es || '';
+    return (uiLang === 'en' ? m.label_en : uiLang === 'zh' ? m.label_zh : m.label_es) || m.label_es || '';
   };
 
   // Mensajes contextuales sutiles según el servicio filtrado.
@@ -2076,7 +2083,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       {publicSearchResult.tracking}
                     </Text>
                     <Text style={styles.trackedPackageDescription} numberOfLines={1}>
-                      {publicSearchResult.service?.es || 'Envío'}
+                      {(uiLang === 'en' ? publicSearchResult.service?.en : uiLang === 'zh' ? publicSearchResult.service?.zh : publicSearchResult.service?.es) || publicSearchResult.service?.es || 'Envío'}
                     </Text>
                   </View>
                   <View style={[styles.trackedStatusBadge, styles.trackedStatusTransit]}>
@@ -2106,7 +2113,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                             styles.timelineTitle,
                             !reached && { color: '#999' },
                           ]}>
-                            {m.label_es}
+                            {(uiLang === 'en' ? m.label_en : uiLang === 'zh' ? m.label_zh : m.label_es) || m.label_es}
                           </Text>
                         </View>
                       </View>
@@ -2152,7 +2159,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                             {child.tracking}
                           </Text>
                           <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
-                            {child.status_label?.es || ''}
+                            {(uiLang === 'en' ? child.status_label?.en : uiLang === 'zh' ? child.status_label?.zh : child.status_label?.es) || child.status_label?.es || ''}
                             {child.weight ? ` · ${child.weight} kg` : ''}
                             {child.dimensions ? ` · ${child.dimensions}` : ''}
                           </Text>
@@ -2173,7 +2180,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: ORANGE, marginTop: 6, marginRight: 8 }} />
                         <View style={{ flex: 1 }}>
                           <Text style={{ fontSize: 13, color: '#111' }}>
-                            {mv.description_es || ''}
+                            {(uiLang === 'en' ? mv.description_en : uiLang === 'zh' ? mv.description_zh : mv.description_es) || mv.description_es || ''}
                           </Text>
                           <Text style={{ fontSize: 11, color: '#888' }}>
                             {mv.location ? `${mv.location} · ` : ''}
@@ -2720,6 +2727,59 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
           </>
         }
         ListEmptyComponent={renderEmptyList}
+        ListFooterComponent={followed.length > 0 ? (
+          <View style={{ paddingHorizontal: 12, paddingBottom: 24, paddingTop: 4 }}>
+            <Text style={{ fontSize: 11, fontWeight: '700', color: '#9CA3AF', marginBottom: 8, letterSpacing: 0.5 }}>
+              {uiLang === 'en' ? 'WATCHED SHIPMENTS' : uiLang === 'zh' ? '追踪中的货物' : 'EN SEGUIMIENTO'}
+            </Text>
+            {followed.map(f => {
+              const snap = f.lastSnapshot;
+              const ml = snap?.milestones?.[snap.current_milestone ?? 0];
+              const statusLabel = ml
+                ? ((uiLang === 'en' ? ml.label_en : uiLang === 'zh' ? ml.label_zh : ml.label_es) || ml.label_es)
+                : '';
+              const svcName = snap?.service
+                ? ((uiLang === 'en' ? snap.service.en : uiLang === 'zh' ? snap.service.zh : snap.service.es) || snap.service.es)
+                : '';
+              return (
+                <Pressable
+                  key={f.tracking}
+                  onPress={() => {
+                    setTrnFilter(f.tracking);
+                    doPublicTrack(f.tracking, snap ?? undefined);
+                  }}
+                  style={{
+                    flexDirection: 'row', alignItems: 'center',
+                    backgroundColor: '#FFF', borderRadius: 12,
+                    padding: 12, marginBottom: 8,
+                    borderWidth: 1, borderColor: '#E5E7EB',
+                    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
+                    shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+                  }}
+                >
+                  <View style={{
+                    width: 36, height: 36, borderRadius: 18,
+                    backgroundColor: '#F0F9FF', alignItems: 'center',
+                    justifyContent: 'center', marginRight: 10,
+                  }}>
+                    <Ionicons name="globe-outline" size={18} color="#0EA5E9" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#111' }}>
+                      {f.tracking}
+                    </Text>
+                    {(svcName || statusLabel) ? (
+                      <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
+                        {[svcName, statusLabel].filter(Boolean).join(' · ')}
+                      </Text>
+                    ) : null}
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
         showsVerticalScrollIndicator={false}
       />
 

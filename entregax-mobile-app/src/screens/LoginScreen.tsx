@@ -322,8 +322,9 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
+        <StatusBar barStyle="light-content" backgroundColor={BLACK} />
       <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <StatusBar barStyle="light-content" backgroundColor={BLACK} />
+      <View style={{ flex: 1 }}>
       
       {/* Header con logo + cajito mascota */}
       <View style={styles.header}>
@@ -439,6 +440,8 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         </Button>
       </View>
       </ScrollView>
+      </View>
+      </TouchableWithoutFeedback>
 
       {/* Modal: ¿Olvidaste tu contraseña? */}
       <Modal
@@ -495,7 +498,6 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           </View>
         </View>
       </Modal>
-      </TouchableWithoutFeedback>
     </KeyboardAvoidingView>
   );
 }
