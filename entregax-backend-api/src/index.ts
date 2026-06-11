@@ -12861,13 +12861,44 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
         params.push(paqueteria); updates.push(`national_carrier = $${params.length}`);
       }
       if (hasInstrucciones) {
-        // Inyectar dirección de EntregaX independientemente de si hay guía de salida
+        // Inyectar dirección independientemente de si hay guía de salida (paquete express)
         const pkgRes = await pool.query(
-          `SELECT user_id FROM packages WHERE tracking_internal = $1 OR child_no = $1 OR child_no LIKE $1 || '-%' LIMIT 1`, [guia]
+          `SELECT p.user_id FROM packages p
+           WHERE p.tracking_internal = $1 OR p.child_no = $1 OR p.child_no LIKE $1 || '-%' LIMIT 1`, [guia]
         );
-        const addrId = await upsertAddress(pkgRes.rows[0]?.user_id);
-        if (addrId) { params.push(addrId); updates.push(`delivery_address_id = $${params.length}`); }
-        syncedFields.push('instrucciones');
+        const userId = pkgRes.rows[0]?.user_id ?? null;
+
+        // Intentar crear dirección desde datos de EntregaX (requiere direccion_entrega no nulo)
+        let addrId: number | null = await upsertAddress(userId);
+
+        // Fallback: cuando EntregaX no devuelve dirección, usar la del usuario en nuestra DB
+        if (!addrId && userId) {
+          const addrRes = await pool.query(
+            `SELECT id FROM addresses
+             WHERE user_id = $1
+               AND default_for_service IS NOT NULL
+               AND (default_for_service ILIKE '%po_box%' OR default_for_service ILIKE '%usa%' OR default_for_service ILIKE '%all%')
+             ORDER BY id DESC LIMIT 1`,
+            [userId]
+          );
+          if (!addrRes.rows[0]) {
+            // Último recurso: cualquier dirección del usuario ordenada por is_default
+            const fallRes = await pool.query(
+              `SELECT id FROM addresses WHERE user_id = $1 ORDER BY is_default DESC, id DESC LIMIT 1`,
+              [userId]
+            );
+            addrId = fallRes.rows[0]?.id ?? null;
+          } else {
+            addrId = addrRes.rows[0].id;
+          }
+        }
+
+        if (addrId) {
+          // Usar assigned_address_id (igual que el flujo normal de asignación para PO Box)
+          params.push(addrId); updates.push(`assigned_address_id = $${params.length}`);
+          updates.push(`needs_instructions = FALSE`);
+          syncedFields.push('instrucciones');
+        }
       }
       if (safeNewStatus) { params.push(safeNewStatus); updates.push(`status = $${params.length}`); syncedFields.push('status'); }
       if (updates.length > 0) {
