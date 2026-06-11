@@ -181,9 +181,9 @@ export default function ServiceInventoryPage() {
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
     // EntregaX tiene instrucciones pero sin guía de salida → inyectar dirección
     if (!ex.guiaSalida && !!ex.hasInstrucciones && !row.has_instructions) return true;
-    // EntregaX tiene un status más avanzado
+    // EntregaX tiene un status diferente → sobrescribir el nuestro
     const mappedStatus = mapExStatusToInternal(ex);
-    if (mappedStatus && (STATUS_ORDER[mappedStatus] ?? -1) > (STATUS_ORDER[row.status] ?? -1)) return true;
+    if (mappedStatus && mappedStatus !== row.status) return true;
     return false;
   };
 
@@ -194,8 +194,7 @@ export default function ServiceInventoryPage() {
     const hasGuiaSalida = !!ex.guiaSalida;
     // Calcular nuevo status solo si es un avance
     const mappedStatus = mapExStatusToInternal(ex);
-    const newStatus = mappedStatus && (STATUS_ORDER[mappedStatus] ?? -1) > (STATUS_ORDER[row.status] ?? -1)
-      ? mappedStatus : undefined;
+    const newStatus = mappedStatus && mappedStatus !== row.status ? mappedStatus : undefined;
     try {
       await api.post('/packages/sync-from-entregax', {
         guia: row.guia,
