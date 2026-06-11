@@ -193,12 +193,13 @@ export default function ServiceInventoryPage() {
         guia: row.guia,
         service,
         hasPago: ex.hasPago && !row.costing_paid,
-        // Inyectar instrucciones/dirección solo cuando EntregaX no tiene guía de salida aún
+        // Inyectar instrucciones/dirección solo cuando aún no hay instrucciones en nuestro sistema
         hasInstrucciones: !hasGuiaSalida && !!ex.hasInstrucciones && !row.has_instructions,
-        paqueteria: ex.paqueteria,
+        // No sobrescribir paquetería si ya tenemos instrucciones asignadas
+        paqueteria: !row.has_instructions ? ex.paqueteria : undefined,
         guia_salida: hasGuiaSalida ? ex.guiaSalida : undefined,
-        // Dirección solo cuando no hay guía de salida (paquete aún no enviado)
-        direccion_entrega: !hasGuiaSalida ? ex.direccionEntrega : undefined,
+        // Dirección solo cuando no hay instrucciones ni guía de salida
+        direccion_entrega: !hasGuiaSalida && !row.has_instructions ? ex.direccionEntrega : undefined,
         newStatus,
       });
       // Actualiza la fila localmente para reflejar el sync
@@ -208,12 +209,14 @@ export default function ServiceInventoryPage() {
           ...r,
           costing_paid: r.costing_paid || (ex.hasPago ?? false),
           has_instructions: r.has_instructions || !!ex.hasInstrucciones || hasGuiaSalida,
-          paqueteria: ex.paqueteria || r.paqueteria,
+          paqueteria: row.has_instructions ? r.paqueteria : (ex.paqueteria || r.paqueteria),
           guia_salida: ex.guiaSalida || r.guia_salida,
           status: newStatus || r.status,
         };
       }));
       setSyncState(prev => ({ ...prev, [row.guia]: 'done' }));
+      // Auto-reset a 'idle' para permitir re-sincronizar
+      setTimeout(() => setSyncState(prev => prev[row.guia] === 'done' ? { ...prev, [row.guia]: 'idle' } : prev), 3000);
     } catch {
       setSyncState(prev => ({ ...prev, [row.guia]: 'error' }));
     }
