@@ -10,7 +10,7 @@ import {
   Modal,
   ActivityIndicator,
   TouchableOpacity,
-  TouchableWithoutFeedback,
+  Pressable,
   ScrollView,
   Keyboard,
 } from 'react-native';
@@ -322,12 +322,10 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
     >
-        <StatusBar barStyle="light-content" backgroundColor={BLACK} />
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={{ flex: 1 }}>
-      
-      {/* Header con logo + cajito mascota */}
-      <View style={styles.header}>
+      <StatusBar barStyle="light-content" backgroundColor={BLACK} />
+
+      {/* Header con logo + cajito mascota — Pressable para cerrar teclado al tocar */}
+      <Pressable style={styles.header} onPress={Keyboard.dismiss} accessible={false}>
         <Image
           source={require('../../assets/logo.png')}
           style={styles.logoImage}
@@ -339,7 +337,7 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
           resizeMode="contain"
         />
         <Text style={styles.subtitle}>{t.subtitle}</Text>
-      </View>
+      </Pressable>
 
       {/* Formulario */}
       <ScrollView
@@ -440,8 +438,6 @@ export default function LoginScreen({ navigation }: LoginScreenProps) {
         </Button>
       </View>
       </ScrollView>
-      </View>
-      </TouchableWithoutFeedback>
 
       {/* Modal: ¿Olvidaste tu contraseña? */}
       <Modal
