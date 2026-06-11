@@ -407,7 +407,10 @@ export default function ServiceInventoryPage() {
               )}
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>CLIENTE</TableCell>
               {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
-                <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>PAQUETERÍA / GUÍA SALIDA</TableCell>
+                <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>PAQUETERÍA</TableCell>
+              )}
+              {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
+                <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>GUÍA SALIDA</TableCell>
               )}
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>FECHA INGRESO</TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>ÚLTIMO MOVIMIENTO</TableCell>
@@ -452,14 +455,19 @@ export default function ServiceInventoryPage() {
                 </TableCell>
                 {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
                   <TableCell>
-                    {r.paqueteria && <Typography variant="caption" display="block" fontWeight={600}>{r.paqueteria}</Typography>}
-                    {r.guia_salida && (
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                        <Typography variant="caption" fontFamily="monospace">{r.guia_salida}</Typography>
-                        <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(r.guia_salida!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
-                      </Box>
-                    )}
-                    {!r.paqueteria && !r.guia_salida && <Typography variant="caption" color="text.disabled">—</Typography>}
+                    {r.paqueteria
+                      ? <Typography variant="caption" fontWeight={600}>{r.paqueteria}</Typography>
+                      : <Typography variant="caption" color="text.disabled">—</Typography>}
+                  </TableCell>
+                )}
+                {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
+                  <TableCell>
+                    {r.guia_salida
+                      ? <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                          <Typography variant="caption" fontFamily="monospace">{r.guia_salida}</Typography>
+                          <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(r.guia_salida!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
+                        </Box>
+                      : <Typography variant="caption" color="text.disabled">—</Typography>}
                   </TableCell>
                 )}
                 <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
