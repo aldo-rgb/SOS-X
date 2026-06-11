@@ -29,8 +29,8 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }
   received_china:        { label: 'Recibido en China',     color: '#E65100', bg: '#FFF3E0' },
   received_mty:          { label: 'Recibido en MTY',       color: '#2E7D32', bg: '#E8F5E9' },
   in_transit:            { label: 'En Tránsito',           color: '#6A1B9A', bg: '#F3E5F5' },
-  shipped:               { label: 'Despachado',            color: '#0277BD', bg: '#E1F5FE' },
   out_for_delivery:      { label: 'En Ruta de Entrega',    color: '#EF6C00', bg: '#FFF3E0' },
+  shipped:               { label: 'Enviado',               color: '#0277BD', bg: '#E1F5FE' },
   delivered:             { label: 'Entregado',             color: '#2E7D32', bg: '#E8F5E9' },
   returned_to_warehouse: { label: 'Devuelto a Bodega',     color: '#B71C1C', bg: '#FFEBEE' },
 };
@@ -129,9 +129,10 @@ export default function ServiceInventoryPage() {
   }, [rows, service]);
 
   // Orden de avance de status — solo actualizamos si es un avance, no un retroceso
+  // shipped = final (mismo nivel que delivered), va DESPUÉS de out_for_delivery
   const STATUS_ORDER: Record<string, number> = {
     received: 0, received_china: 1, received_mty: 1, in_transit: 2,
-    shipped: 3, out_for_delivery: 4, delivered: 5,
+    out_for_delivery: 3, shipped: 4, delivered: 4,
   };
 
   // Mapea status de EntregaX a nuestro valor interno
