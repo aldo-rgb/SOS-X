@@ -2892,23 +2892,42 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
       if (statusFilter) { params.push(statusFilter); where += ` AND p.status = $${params.length}`; }
-      // child_no = guía AIR completa (AIR2608808pOYsr-001), tracking_internal = guía corta (CN-OYsr-001)
-      const q = `SELECT COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia,
-                        p.tracking_internal AS guia_corta,
-                        p.international_tracking AS guia_origen,
-                        p.received_at, p.updated_at, p.status,
-                        u.box_id AS box_id,
-                        u.full_name AS cliente_nombre, p.national_carrier AS paqueteria,
-                        p.national_tracking AS guia_salida,
-                        COALESCE(p.costing_paid, FALSE) AS costing_paid,
-                        (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions
-                   FROM packages p ${JOIN_USERS}
-                  WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
-      params.push(limit, offset);
-      const r = await pool.query(q, params);
-      rows = r.rows;
-      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${JOIN_USERS} WHERE ${where}`, params.slice(0, -2));
+      // Selección reutilizable para masters e hijos
+      const TDI_SEL = `COALESCE(NULLIF(p.child_no,''), p.tracking_internal) AS guia,
+                       p.id AS pkg_id, p.tracking_internal AS guia_corta,
+                       p.international_tracking AS guia_origen,
+                       p.received_at, p.updated_at, p.status,
+                       u.box_id AS box_id, u.full_name AS cliente_nombre,
+                       p.national_carrier AS paqueteria, p.national_tracking AS guia_salida,
+                       COALESCE(p.costing_paid, FALSE) AS costing_paid,
+                       (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions,
+                       p.master_id`;
+      // Sin búsqueda: paginar solo sobre roots (master_id IS NULL); con búsqueda: incluir hijos que coincidan (modo plano)
+      const rootWhere = search ? where : `${where} AND p.master_id IS NULL`;
+      const countParams = [...params];
+      const cr = await pool.query(`SELECT COUNT(*) FROM packages p ${JOIN_USERS} WHERE ${rootWhere}`, countParams);
       total = parseInt(cr.rows[0].count);
+      params.push(limit, offset);
+      const rootRows = (await pool.query(
+        `SELECT ${TDI_SEL} FROM packages p ${JOIN_USERS} WHERE ${rootWhere} ORDER BY p.received_at DESC LIMIT $${params.length-1} OFFSET $${params.length}`,
+        params
+      )).rows;
+      // Sin búsqueda: embeber hijos de cada master
+      if (!search) {
+        const rootIds = rootRows.map((r: any) => r.pkg_id).filter(Boolean) as number[];
+        const childMap: Record<number, any[]> = {};
+        if (rootIds.length > 0) {
+          (await pool.query(
+            `SELECT ${TDI_SEL} FROM packages p ${JOIN_USERS} WHERE p.master_id = ANY($1::int[]) ORDER BY p.id`,
+            [rootIds]
+          )).rows.forEach((c: any) => {
+            const mid = c.master_id as number | null; if (mid) { if (!childMap[mid]) childMap[mid] = []; childMap[mid].push(c); }
+          });
+        }
+        rows = rootRows.map((r: any) => ({ ...r, children: childMap[r.pkg_id] ?? [] }));
+      } else {
+        rows = rootRows.map((r: any) => ({ ...r, children: [] }));
+      }
 
     } else if (service === 'tdi_express') {
       const params: any[] = [];

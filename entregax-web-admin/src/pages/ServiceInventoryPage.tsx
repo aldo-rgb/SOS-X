@@ -1,9 +1,9 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, Fragment } from 'react';
 import {
   Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
   Chip, CircularProgress, TextField, Button, ToggleButtonGroup, ToggleButton,
   TablePagination, InputAdornment, Tooltip, IconButton, LinearProgress,
-  Select, MenuItem, FormControl, InputLabel,
+  Select, MenuItem, FormControl, InputLabel, Collapse,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -12,6 +12,8 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import SyncIcon from '@mui/icons-material/Sync';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
+import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import api from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -50,6 +52,10 @@ interface PackageRow {
   costing_paid?: boolean;
   has_instructions?: boolean;
   guia_us_saved?: string;
+  // TDI Aéreo: estructura master/hijos
+  pkg_id?: number;
+  master_id?: number | null;
+  children?: PackageRow[];
 }
 
 interface DireccionEntregax {
@@ -94,6 +100,8 @@ export default function ServiceInventoryPage() {
   const [usFetching, setUsFetching] = useState(false);
   const [usProgress, setUsProgress] = useState(0);
   const usAbortRef = useRef(false);
+  // TDI Aéreo: masters expandidos
+  const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
 
   const fmt = (d?: string | null) =>
     d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
@@ -113,9 +121,9 @@ export default function ServiceInventoryPage() {
       setTotal(r.data.total || 0);
     } catch { setRows([]); setTotal(0); }
     finally { setLoading(false); }
-  }, [service, page, rowsPerPage, search, dateFrom, dateTo]);
+  }, [service, page, rowsPerPage, search, dateFrom, dateTo, statusFilter]);
 
-  useEffect(() => { setPage(0); setStatusFilter(''); setExData({}); setSyncState({}); setUsGuias({}); }, [service]);
+  useEffect(() => { setPage(0); setStatusFilter(''); setExData({}); setSyncState({}); setUsGuias({}); setExpandedMasters(new Set()); }, [service]);
   useEffect(() => { load(); setExData({}); setSyncState({}); setUsGuias({}); }, [load]);
 
   // Pre-popular usGuias desde guia_us_saved cuando llegan las filas (PO Box)
@@ -157,26 +165,20 @@ export default function ServiceInventoryPage() {
   const getExMismatches = (row: PackageRow, ex: EntregaxRow | undefined): string[] => {
     if (!ex || ex.state !== 'done') return [];
     const issues: string[] = [];
-    // 1. Paquetería de salida debe coincidir (si ambas están presentes)
     if (row.paqueteria && ex.paqueteria && !carriersMatch(row.paqueteria, ex.paqueteria))
       issues.push(`Paquetería: nuestro sistema="${row.paqueteria}" EntregaX="${ex.paqueteria}"`);
-    // 2. Guía de salida debe coincidir (si ambas están presentes)
     if (row.guia_salida && ex.guiaSalida &&
         row.guia_salida.trim().toUpperCase() !== ex.guiaSalida.trim().toUpperCase())
       issues.push(`Guía salida: nuestro sistema="${row.guia_salida}" EntregaX="${ex.guiaSalida}"`);
     return issues;
   };
 
-  // Determina si una fila necesita sincronización (EntregaX tiene más que nuestro sistema)
-  // El mismatch (⚠️) solo advierte, NO bloquea — EntregaX es fuente de verdad para guia/paquetería
+  // Determina si una fila necesita sincronización
   const needsSync = (row: PackageRow, ex: EntregaxRow | undefined): boolean => {
     if (!ex || ex.state !== 'done') return false;
     if (!!ex.hasPago && !row.costing_paid) return true;
-    // EntregaX tiene guía de salida que nuestro sistema no tiene o es diferente
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
-    // EntregaX tiene instrucciones pero sin guía de salida → inyectar dirección
     if (!ex.guiaSalida && !!ex.hasInstrucciones && !row.has_instructions) return true;
-    // EntregaX tiene un status diferente → sobrescribir el nuestro
     const mappedStatus = mapExStatusToInternal(ex);
     if (mappedStatus && mappedStatus !== row.status) return true;
     return false;
@@ -187,7 +189,6 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return;
     setSyncState(prev => ({ ...prev, [row.guia]: 'syncing' }));
     const hasGuiaSalida = !!ex.guiaSalida;
-    // Calcular nuevo status solo si es un avance
     const mappedStatus = mapExStatusToInternal(ex);
     const newStatus = mappedStatus && mappedStatus !== row.status ? mappedStatus : undefined;
     try {
@@ -195,16 +196,12 @@ export default function ServiceInventoryPage() {
         guia: row.guia,
         service,
         hasPago: ex.hasPago && !row.costing_paid,
-        // Inyectar instrucciones/dirección solo cuando aún no hay instrucciones en nuestro sistema
         hasInstrucciones: !hasGuiaSalida && !!ex.hasInstrucciones && !row.has_instructions,
-        // No sobrescribir paquetería si ya tenemos instrucciones asignadas
         paqueteria: !row.has_instructions ? ex.paqueteria : undefined,
         guia_salida: hasGuiaSalida ? ex.guiaSalida : undefined,
-        // Dirección solo cuando no hay instrucciones ni guía de salida
         direccion_entrega: !hasGuiaSalida && !row.has_instructions ? ex.direccionEntrega : undefined,
         newStatus,
       });
-      // Actualiza la fila localmente para reflejar el sync
       setRows(prev => prev.map(r => {
         if (r.guia !== row.guia) return r;
         return {
@@ -217,7 +214,6 @@ export default function ServiceInventoryPage() {
         };
       }));
       setSyncState(prev => ({ ...prev, [row.guia]: 'done' }));
-      // Auto-reset a 'idle' para permitir re-sincronizar
       setTimeout(() => setSyncState(prev => prev[row.guia] === 'done' ? { ...prev, [row.guia]: 'idle' } : prev), 3000);
     } catch {
       setSyncState(prev => ({ ...prev, [row.guia]: 'error' }));
@@ -230,7 +226,6 @@ export default function ServiceInventoryPage() {
     usAbortRef.current = false;
     setUsFetching(true);
     setUsProgress(0);
-    // Solo consultar filas que aún no tienen guía US guardada
     const entries = rows
       .filter(r => r.guia_origen && !r.guia_us_saved && !usGuias[r.guia]?.guia_unica)
       .map(r => ({ storeKey: r.guia, queryKey: r.guia_origen! }));
@@ -253,7 +248,6 @@ export default function ServiceInventoryPage() {
           const d = res?.data?.status === 'success' ? res.data.data : null;
           if (d?.guia_unica) {
             setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'done', guia_unica: d.guia_unica } }));
-            // Guardar en BD para no volver a consultar
             api.post('/packages/save-guia-us', { tracking_internal: storeKey, guia_unica: d.guia_unica }).catch(() => {});
           } else {
             setUsGuias(prev => ({ ...prev, [storeKey]: { state: res?._notfound ? 'notfound' : 'error' } }));
@@ -273,8 +267,6 @@ export default function ServiceInventoryPage() {
     fetchAbortRef.current = false;
     setExFetching(true);
     setExProgress(0);
-    // Para PO Box: si ya se hizo "Consultar Guia US" usa guia_unica directamente,
-    // si no, usa guia_origen para que el backend haga el match.
     const entries: { storeKey: string; queryKey: string }[] = rows
       .filter(r => r.guia)
       .map(r => ({
@@ -304,14 +296,12 @@ export default function ServiceInventoryPage() {
           if (d) {
             const historial = d.historial || [];
             const lastH = historial[historial.length - 1];
-            // guia_unica: backend lo extrae de guias[].guia_usa match con el carrier tracking
             const guiaUnica = d.guia_unica || d.waybill?.guia_unica || d.guias?.[0]?.guia_unica || undefined;
             setExData(prev => ({
               ...prev,
               [storeKey]: {
                 state: 'done',
                 hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
-                // PO Box: instrucciones = tiene dirección de entrega; otros: campo instrucciones="1"
                 hasInstrucciones: d.waybill?.instrucciones === '1' || !!d.waybill?.direccion_entrega,
                 guiaSalida: d.waybill?.guiasalida || d.waybill?.guia_salida || undefined,
                 guiaIngreso: guiaUnica,
@@ -332,6 +322,326 @@ export default function ServiceInventoryPage() {
     }
     setExFetching(false);
   }, [rows, service, usGuias]);
+
+  // ── Celdas de EntregaX + Sync (reutilizadas para master y filas planas) ──
+  const renderExCells = (r: PackageRow) => {
+    const ex = exData[r.guia];
+    const exColSpan = service === 'pobox_usa' ? 4 : 3;
+    if (!ex || ex.state === 'idle') return (
+      <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
+    );
+    if (ex.state === 'loading') return (
+      <TableCell align="center" colSpan={exColSpan}><CircularProgress size={14} /></TableCell>
+    );
+    if (ex.state === 'notfound') return (
+      <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
+    );
+    if (ex.state === 'error') return (
+      <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="error">Sin datos</Typography></TableCell>
+    );
+    const mismatches = getExMismatches(r, ex);
+    const hasMismatch = mismatches.length > 0;
+    const desynced = needsSync(r, ex);
+    const sState = syncState[r.guia] || 'idle';
+    return (
+      <>
+        <TableCell align="center">
+          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+            <Tooltip title={hasMismatch ? `⚠️ ${mismatches.join(' | ')}` : ex.hasPago ? 'Pago en EntregaX' : 'Sin pago en EntregaX'}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                {hasMismatch
+                  ? <CheckCircleIcon sx={{ fontSize: 16, color: '#F9A825' }} />
+                  : ex.hasPago
+                    ? <CheckCircleIcon sx={{ fontSize: 16, color: '#2E7D32' }} />
+                    : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
+                <Typography variant="caption" sx={{ color: hasMismatch ? '#F9A825' : ex.hasPago ? '#2E7D32' : '#9E9E9E', fontSize: '0.65rem' }}>
+                  {hasMismatch ? '⚠️' : ''}Pago
+                </Typography>
+              </Box>
+            </Tooltip>
+            <Tooltip title={ex.hasInstrucciones ? 'Con instrucciones en EntregaX' : 'Sin instrucciones en EntregaX'}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                {ex.hasInstrucciones ? <CheckCircleIcon sx={{ fontSize: 16, color: hasMismatch ? '#F9A825' : '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
+                <Typography variant="caption" sx={{ color: hasMismatch ? '#F9A825' : ex.hasInstrucciones ? '#1565C0' : '#9E9E9E', fontSize: '0.65rem' }}>Inst.</Typography>
+              </Box>
+            </Tooltip>
+            {ex.paqueteria && <Typography variant="caption" sx={{ fontSize: '0.6rem', color: hasMismatch ? '#F9A825' : '#555', fontWeight: 600 }}>{ex.paqueteria}</Typography>}
+          </Box>
+        </TableCell>
+        <TableCell>
+          {ex.guiaSalida ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              <Chip label="🚚 Enviado" size="small" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontSize: '0.65rem' }} />
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+                <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.65rem' }}>{ex.guiaSalida}</Typography>
+                <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(ex.guiaSalida!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
+              </Box>
+            </Box>
+          ) : ex.lastStatus ? (
+            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>{ex.lastStatus}</Typography>
+          ) : (
+            <Typography variant="caption" color="text.disabled">—</Typography>
+          )}
+        </TableCell>
+        {service === 'pobox_usa' && (
+          <TableCell>
+            {ex.guiaIngreso ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.7rem' }}>{ex.guiaIngreso}</Typography>
+                <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(ex.guiaIngreso!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
+              </Box>
+            ) : <Typography variant="caption" color="text.disabled">—</Typography>}
+          </TableCell>
+        )}
+        <TableCell align="center">
+          {sState === 'syncing' ? (
+            <CircularProgress size={16} />
+          ) : sState === 'done' ? (
+            <Chip label="✅ Sincronizado" size="small" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontSize: '0.65rem' }} />
+          ) : sState === 'error' ? (
+            <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>Error</Typography>
+          ) : desynced ? (
+            <Tooltip title="EntregaX tiene datos más actualizados">
+              <Button
+                size="small" variant="outlined"
+                onClick={() => syncRow(r)}
+                startIcon={<SyncIcon sx={{ fontSize: 13 }} />}
+                sx={{ fontSize: '0.62rem', py: 0.25, px: 0.75, borderColor: '#F05A28', color: '#F05A28', '&:hover': { bgcolor: '#FFF3E0' } }}
+              >
+                Sincronizar
+              </Button>
+            </Tooltip>
+          ) : (
+            <Chip label="✅ Sync" size="small" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 600, fontSize: '0.62rem' }} />
+          )}
+        </TableCell>
+      </>
+    );
+  };
+
+  // ── Celda Pago/Inst compartida ──
+  const renderPagoInst = (paid: boolean | undefined, hasInst: boolean | undefined, small = false) => (
+    <TableCell align="center">
+      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
+        <Tooltip title={paid ? 'Pago registrado' : 'Sin pago registrado'}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+            {paid ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#2E7D32' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: '#BDBDBD' }} />}
+            <Typography variant="caption" sx={{ color: paid ? '#2E7D32' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Pago</Typography>
+          </Box>
+        </Tooltip>
+        <Tooltip title={hasInst ? 'Con instrucciones de envío' : 'Sin instrucciones'}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
+            {hasInst ? <CheckCircleIcon sx={{ fontSize: small ? 14 : 16, color: '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: small ? 14 : 16, color: '#BDBDBD' }} />}
+            <Typography variant="caption" sx={{ color: hasInst ? '#1565C0' : '#9E9E9E', fontSize: small ? '0.6rem' : '0.65rem', lineHeight: 1 }}>Inst.</Typography>
+          </Box>
+        </Tooltip>
+      </Box>
+    </TableCell>
+  );
+
+  // ── Fila genérica (no TDI master) ──
+  const renderFlatRow = (r: PackageRow, i: number) => (
+    <TableRow key={i} hover>
+      <TableCell>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Typography variant="body2" fontWeight={700} fontFamily="monospace">{r.guia || '—'}</Typography>
+          {r.guia && <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(r.guia)}><ContentCopyIcon sx={{ fontSize: 13 }} /></IconButton></Tooltip>}
+        </Box>
+        {r.guia_corta && r.guia_corta !== r.guia && (
+          <Typography variant="caption" color="text.secondary" fontFamily="monospace">{r.guia_corta}</Typography>
+        )}
+      </TableCell>
+      {service !== 'maritimo' && (
+        <TableCell>
+          {r.guia_origen
+            ? <>
+                <Typography variant="caption" fontFamily="monospace" color="text.secondary" display="block">{r.guia_origen}</Typography>
+                {r.guia_origen_carrier && <Typography variant="caption" sx={{ color: '#888', fontSize: '0.65rem' }}>{r.guia_origen_carrier}</Typography>}
+              </>
+            : <Typography variant="caption" color="text.disabled">—</Typography>}
+        </TableCell>
+      )}
+      <TableCell>
+        <Typography variant="body2" fontWeight={600}>{r.box_id || '—'}</Typography>
+        {r.cliente_nombre && <Typography variant="caption" color="text.secondary" display="block">{r.cliente_nombre}</Typography>}
+      </TableCell>
+      {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
+        <TableCell>
+          {r.paqueteria
+            ? <Typography variant="caption" fontWeight={600}>{r.paqueteria}</Typography>
+            : <Typography variant="caption" color="text.disabled">—</Typography>}
+        </TableCell>
+      )}
+      {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
+        <TableCell>
+          {r.guia_salida
+            ? <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Typography variant="caption" fontFamily="monospace">{r.guia_salida}</Typography>
+                <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(r.guia_salida!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
+              </Box>
+            : <Typography variant="caption" color="text.disabled">—</Typography>}
+        </TableCell>
+      )}
+      <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
+      <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
+      <TableCell>{statusChip(r.status)}</TableCell>
+      {renderPagoInst(r.costing_paid, r.has_instructions)}
+      {renderExCells(r)}
+      {service === 'pobox_usa' && (() => {
+        const us = usGuias[r.guia];
+        return (
+          <TableCell>
+            {us?.state === 'loading' ? (
+              <CircularProgress size={12} sx={{ color: '#7B1FA2' }} />
+            ) : us?.guia_unica ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.7rem', color: '#7B1FA2', fontWeight: 600 }}>{us.guia_unica}</Typography>
+                <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(us.guia_unica!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
+              </Box>
+            ) : us?.state === 'error' ? (
+              <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>Error</Typography>
+            ) : (
+              <Typography variant="caption" color="text.disabled">—</Typography>
+            )}
+          </TableCell>
+        );
+      })()}
+    </TableRow>
+  );
+
+  // ── Filas TDI Aéreo con grupos master/hijos ──
+  const renderTdiRows = () => rows.map((r, i) => {
+    const children = r.children ?? [];
+    const isMasterRow = children.length > 0;
+    const isExpanded = expandedMasters.has(r.guia);
+    const toggleExpand = () => setExpandedMasters(prev => {
+      const next = new Set(prev);
+      if (next.has(r.guia)) next.delete(r.guia); else next.add(r.guia);
+      return next;
+    });
+
+    return (
+      <Fragment key={r.guia || i}>
+        {/* Fila master o standalone */}
+        <TableRow
+          hover
+          sx={isMasterRow ? { bgcolor: '#EDE7F6', cursor: 'pointer', '& td': { borderBottom: isExpanded ? '1px solid #D1C4E9' : undefined } } : undefined}
+          onClick={isMasterRow ? toggleExpand : undefined}
+        >
+          <TableCell>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+              {isMasterRow && (
+                <IconButton size="small" onClick={e => { e.stopPropagation(); toggleExpand(); }} sx={{ p: 0.25 }}>
+                  {isExpanded
+                    ? <KeyboardArrowUpIcon sx={{ fontSize: 18, color: '#7B1FA2' }} />
+                    : <KeyboardArrowDownIcon sx={{ fontSize: 18, color: '#7B1FA2' }} />}
+                </IconButton>
+              )}
+              <Typography variant="body2" fontWeight={700} fontFamily="monospace" sx={{ fontSize: isMasterRow ? '0.88rem' : '0.82rem' }}>
+                {r.guia || '—'}
+              </Typography>
+              {r.guia && (
+                <Tooltip title="Copiar">
+                  <IconButton size="small" onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(r.guia); }}>
+                    <ContentCopyIcon sx={{ fontSize: 13 }} />
+                  </IconButton>
+                </Tooltip>
+              )}
+              {isMasterRow && (
+                <Chip
+                  label={`${children.length} piez.`}
+                  size="small"
+                  sx={{ fontSize: '0.62rem', bgcolor: '#7B1FA2', color: '#fff', fontWeight: 700, height: 18 }}
+                />
+              )}
+            </Box>
+            {r.guia_corta && r.guia_corta !== r.guia && (
+              <Typography variant="caption" color="text.secondary" fontFamily="monospace">{r.guia_corta}</Typography>
+            )}
+          </TableCell>
+          <TableCell>
+            {r.guia_origen
+              ? <Typography variant="caption" fontFamily="monospace" color="text.secondary">{r.guia_origen}</Typography>
+              : <Typography variant="caption" color="text.disabled">—</Typography>}
+          </TableCell>
+          <TableCell>
+            <Typography variant="body2" fontWeight={600}>{r.box_id || '—'}</Typography>
+            {r.cliente_nombre && <Typography variant="caption" color="text.secondary" display="block">{r.cliente_nombre}</Typography>}
+          </TableCell>
+          <TableCell>
+            {r.paqueteria ? <Typography variant="caption" fontWeight={600}>{r.paqueteria}</Typography>
+                          : <Typography variant="caption" color="text.disabled">—</Typography>}
+          </TableCell>
+          <TableCell>
+            {r.guia_salida
+              ? <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <Typography variant="caption" fontFamily="monospace">{r.guia_salida}</Typography>
+                  <Tooltip title="Copiar">
+                    <IconButton size="small" onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(r.guia_salida!); }}>
+                      <ContentCopyIcon sx={{ fontSize: 11 }} />
+                    </IconButton>
+                  </Tooltip>
+                </Box>
+              : <Typography variant="caption" color="text.disabled">—</Typography>}
+          </TableCell>
+          <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
+          <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
+          <TableCell>{statusChip(r.status)}</TableCell>
+          {renderPagoInst(r.costing_paid, r.has_instructions)}
+          {renderExCells(r)}
+        </TableRow>
+
+        {/* Filas hijas (visibles cuando master está expandido) */}
+        {isMasterRow && children.map((child, ci) => (
+          <TableRow
+            key={`child-${ci}`}
+            sx={{
+              display: isExpanded ? undefined : 'none',
+              bgcolor: '#FAFAFA',
+              '& td': { borderBottom: '1px dashed #E0E0E0', py: '4px' },
+            }}
+          >
+            <TableCell sx={{ pl: 5 }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Typography variant="caption" sx={{ color: '#BDBDBD', fontSize: '0.85rem' }}>↳</Typography>
+                <Typography variant="body2" fontFamily="monospace" sx={{ color: '#555', fontSize: '0.78rem', fontWeight: 600 }}>
+                  {child.guia}
+                </Typography>
+                <Tooltip title="Copiar">
+                  <IconButton size="small" onClick={() => navigator.clipboard.writeText(child.guia)}>
+                    <ContentCopyIcon sx={{ fontSize: 11 }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            </TableCell>
+            {/* Guía origen y cliente se omiten — son los mismos del master */}
+            <TableCell><Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.65rem' }}>↑</Typography></TableCell>
+            <TableCell><Typography variant="caption" color="text.disabled" sx={{ fontSize: '0.65rem' }}>↑</Typography></TableCell>
+            <TableCell>
+              {child.paqueteria
+                ? <Typography variant="caption">{child.paqueteria}</Typography>
+                : <Typography variant="caption" color="text.disabled">—</Typography>}
+            </TableCell>
+            <TableCell>
+              {child.guia_salida
+                ? <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.72rem' }}>{child.guia_salida}</Typography>
+                    <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(child.guia_salida!)}><ContentCopyIcon sx={{ fontSize: 10 }} /></IconButton></Tooltip>
+                  </Box>
+                : <Typography variant="caption" color="text.disabled">—</Typography>}
+            </TableCell>
+            <TableCell><Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{fmt(child.received_at)}</Typography></TableCell>
+            <TableCell><Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>{fmt(child.updated_at)}</Typography></TableCell>
+            <TableCell>{statusChip(child.status)}</TableCell>
+            {/* Pago/Inst heredado del master */}
+            {renderPagoInst(r.costing_paid, r.has_instructions, true)}
+            {/* Sin EntregaX/Sync en hijos individuales */}
+            <TableCell colSpan={3} />
+          </TableRow>
+        ))}
+      </Fragment>
+    );
+  });
 
   return (
     <Box>
@@ -409,7 +719,7 @@ export default function ServiceInventoryPage() {
             {exFetching ? `EntregaX ${exProgress}%` : 'Consultar EntregaX'}
           </Button>
           <Typography variant="caption" color="text.secondary" sx={{ ml: 'auto' }}>
-            {loading ? 'Cargando…' : `${total.toLocaleString()} guías`}
+            {loading ? 'Cargando…' : `${total.toLocaleString()} ${service === 'tdi_aereo' && !search ? 'envíos' : 'guías'}`}
           </Typography>
         </Box>
       </Paper>
@@ -456,200 +766,14 @@ export default function ServiceInventoryPage() {
           </TableHead>
           <TableBody>
             {loading ? (
-              <TableRow><TableCell colSpan={service === 'maritimo' ? 9 : 10} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
+              <TableRow><TableCell colSpan={service === 'maritimo' ? 9 : 12} align="center" sx={{ py: 4 }}><CircularProgress size={28} /></TableCell></TableRow>
             ) : rows.length === 0 ? (
-              <TableRow><TableCell colSpan={service === 'maritimo' ? 9 : 10} align="center" sx={{ py: 4, color: '#999' }}>Sin resultados</TableCell></TableRow>
-            ) : rows.map((r, i) => (
-              <TableRow key={i} hover>
-                <TableCell>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <Typography variant="body2" fontWeight={700} fontFamily="monospace">{r.guia || '—'}</Typography>
-                    {r.guia && <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(r.guia)}><ContentCopyIcon sx={{ fontSize: 13 }} /></IconButton></Tooltip>}
-                  </Box>
-                  {r.guia_corta && r.guia_corta !== r.guia && (
-                    <Typography variant="caption" color="text.secondary" fontFamily="monospace">{r.guia_corta}</Typography>
-                  )}
-                </TableCell>
-                {service !== 'maritimo' && (
-                  <TableCell>
-                    {r.guia_origen
-                      ? <>
-                          <Typography variant="caption" fontFamily="monospace" color="text.secondary" display="block">{r.guia_origen}</Typography>
-                          {r.guia_origen_carrier && <Typography variant="caption" sx={{ color: '#888', fontSize: '0.65rem' }}>{r.guia_origen_carrier}</Typography>}
-                        </>
-                      : <Typography variant="caption" color="text.disabled">—</Typography>}
-                  </TableCell>
-                )}
-                <TableCell>
-                  <Typography variant="body2" fontWeight={600}>{r.box_id || '—'}</Typography>
-                  {r.cliente_nombre && <Typography variant="caption" color="text.secondary" display="block">{r.cliente_nombre}</Typography>}
-                </TableCell>
-                {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
-                  <TableCell>
-                    {r.paqueteria
-                      ? <Typography variant="caption" fontWeight={600}>{r.paqueteria}</Typography>
-                      : <Typography variant="caption" color="text.disabled">—</Typography>}
-                  </TableCell>
-                )}
-                {(service === 'tdi_aereo' || service === 'tdi_express' || service === 'pobox_usa' || service === 'dhl') && (
-                  <TableCell>
-                    {r.guia_salida
-                      ? <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="caption" fontFamily="monospace">{r.guia_salida}</Typography>
-                          <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(r.guia_salida!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
-                        </Box>
-                      : <Typography variant="caption" color="text.disabled">—</Typography>}
-                  </TableCell>
-                )}
-                <TableCell><Typography variant="caption">{fmt(r.received_at)}</Typography></TableCell>
-                <TableCell><Typography variant="caption" color="text.secondary">{fmt(r.updated_at)}</Typography></TableCell>
-                <TableCell>{statusChip(r.status)}</TableCell>
-                <TableCell align="center">
-                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                    <Tooltip title={r.costing_paid ? 'Pago registrado' : 'Sin pago registrado'}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                        {r.costing_paid
-                          ? <CheckCircleIcon sx={{ fontSize: 16, color: '#2E7D32' }} />
-                          : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
-                        <Typography variant="caption" sx={{ color: r.costing_paid ? '#2E7D32' : '#9E9E9E', fontSize: '0.65rem', lineHeight: 1 }}>
-                          Pago
-                        </Typography>
-                      </Box>
-                    </Tooltip>
-                    <Tooltip title={r.has_instructions ? 'Con instrucciones de envío' : 'Sin instrucciones'}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                        {r.has_instructions
-                          ? <CheckCircleIcon sx={{ fontSize: 16, color: '#1565C0' }} />
-                          : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
-                        <Typography variant="caption" sx={{ color: r.has_instructions ? '#1565C0' : '#9E9E9E', fontSize: '0.65rem', lineHeight: 1 }}>
-                          Inst.
-                        </Typography>
-                      </Box>
-                    </Tooltip>
-                  </Box>
-                </TableCell>
-                {/* ENTREGAX column */}
-                {(() => {
-                  const ex = exData[r.guia];
-                  // ENTREGAX + STATUS ENTREGAX + (GUÍA ORIGEN EX si pobox) + SINC.
-                  // PO Box: ENTREGAX + STATUS ENTREGAX + GUÍA ORIGEN (EX) + SINC. = 4 (GUÍA US es columna independiente)
-                  const exColSpan = service === 'pobox_usa' ? 4 : 3;
-                  if (!ex || ex.state === 'idle') return (
-                    <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
-                  );
-                  if (ex.state === 'loading') return (
-                    <TableCell align="center" colSpan={exColSpan}><CircularProgress size={14} /></TableCell>
-                  );
-                  if (ex.state === 'notfound') return (
-                    <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="text.disabled">—</Typography></TableCell>
-                  );
-                  if (ex.state === 'error') return (
-                    <TableCell align="center" colSpan={exColSpan}><Typography variant="caption" color="error">Sin datos</Typography></TableCell>
-                  );
-                  // EntregaX data loaded — render columns + sync
-                  const mismatches = getExMismatches(r, ex);
-                  const hasMismatch = mismatches.length > 0;
-                  const desynced = needsSync(r, ex);
-                  const sState = syncState[r.guia] || 'idle';
-                  return (
-                    <>
-                      <TableCell align="center">
-                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 0.5 }}>
-                          <Tooltip title={hasMismatch ? `⚠️ ${mismatches.join(' | ')}` : ex.hasPago ? 'Pago en EntregaX' : 'Sin pago en EntregaX'}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                              {hasMismatch
-                                ? <CheckCircleIcon sx={{ fontSize: 16, color: '#F9A825' }} />
-                                : ex.hasPago
-                                  ? <CheckCircleIcon sx={{ fontSize: 16, color: '#2E7D32' }} />
-                                  : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
-                              <Typography variant="caption" sx={{ color: hasMismatch ? '#F9A825' : ex.hasPago ? '#2E7D32' : '#9E9E9E', fontSize: '0.65rem' }}>
-                                {hasMismatch ? '⚠️' : ''}Pago
-                              </Typography>
-                            </Box>
-                          </Tooltip>
-                          <Tooltip title={ex.hasInstrucciones ? 'Con instrucciones en EntregaX' : 'Sin instrucciones en EntregaX'}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                              {ex.hasInstrucciones ? <CheckCircleIcon sx={{ fontSize: 16, color: hasMismatch ? '#F9A825' : '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
-                              <Typography variant="caption" sx={{ color: hasMismatch ? '#F9A825' : ex.hasInstrucciones ? '#1565C0' : '#9E9E9E', fontSize: '0.65rem' }}>Inst.</Typography>
-                            </Box>
-                          </Tooltip>
-                          {ex.paqueteria && <Typography variant="caption" sx={{ fontSize: '0.6rem', color: hasMismatch ? '#F9A825' : '#555', fontWeight: 600 }}>{ex.paqueteria}</Typography>}
-                        </Box>
-                      </TableCell>
-                      <TableCell>
-                        {ex.guiaSalida ? (
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                            <Chip label="🚚 Enviado" size="small" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontSize: '0.65rem' }} />
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                              <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.65rem' }}>{ex.guiaSalida}</Typography>
-                              <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(ex.guiaSalida!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
-                            </Box>
-                          </Box>
-                        ) : ex.lastStatus ? (
-                          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>{ex.lastStatus}</Typography>
-                        ) : (
-                          <Typography variant="caption" color="text.disabled">—</Typography>
-                        )}
-                      </TableCell>
-                      {/* GUÍA ORIGEN EntregaX — solo PO Box */}
-                      {service === 'pobox_usa' && (
-                        <TableCell>
-                          {ex.guiaIngreso ? (
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.7rem' }}>{ex.guiaIngreso}</Typography>
-                              <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(ex.guiaIngreso!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
-                            </Box>
-                          ) : <Typography variant="caption" color="text.disabled">—</Typography>}
-                        </TableCell>
-                      )}
-                      {/* SINC. column */}
-                      <TableCell align="center">
-                        {sState === 'syncing' ? (
-                          <CircularProgress size={16} />
-                        ) : sState === 'done' ? (
-                          <Chip label="✅ Sincronizado" size="small" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontSize: '0.65rem' }} />
-                        ) : sState === 'error' ? (
-                          <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>Error</Typography>
-                        ) : desynced ? (
-                          <Tooltip title={`EntregaX tiene ${ex.hasPago && !r.costing_paid ? 'pago' : ''}${ex.hasPago && !r.costing_paid && ex.hasInstrucciones && !r.has_instructions ? ' e ' : ''}${ex.hasInstrucciones && !r.has_instructions ? 'instrucciones' : ''} que nuestro sistema no refleja`}>
-                            <Button
-                              size="small" variant="outlined"
-                              onClick={() => syncRow(r)}
-                              startIcon={<SyncIcon sx={{ fontSize: 13 }} />}
-                              sx={{ fontSize: '0.62rem', py: 0.25, px: 0.75, borderColor: '#F05A28', color: '#F05A28', '&:hover': { bgcolor: '#FFF3E0' } }}
-                            >
-                              Sincronizar
-                            </Button>
-                          </Tooltip>
-                        ) : (
-                          <Chip label="✅ Sync" size="small" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 600, fontSize: '0.62rem' }} />
-                        )}
-                      </TableCell>
-                    </>
-                  );
-                })()}
-                {/* GUÍA US — columna independiente, poblada por "Consultar Guia US" */}
-                {service === 'pobox_usa' && (() => {
-                  const us = usGuias[r.guia];
-                  return (
-                    <TableCell>
-                      {us?.state === 'loading' ? (
-                        <CircularProgress size={12} sx={{ color: '#7B1FA2' }} />
-                      ) : us?.guia_unica ? (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                          <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.7rem', color: '#7B1FA2', fontWeight: 600 }}>{us.guia_unica}</Typography>
-                          <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(us.guia_unica!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
-                        </Box>
-                      ) : us?.state === 'error' ? (
-                        <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>Error</Typography>
-                      ) : (
-                        <Typography variant="caption" color="text.disabled">—</Typography>
-                      )}
-                    </TableCell>
-                  );
-                })()}
-              </TableRow>
-            ))}
+              <TableRow><TableCell colSpan={service === 'maritimo' ? 9 : 12} align="center" sx={{ py: 4, color: '#999' }}>Sin resultados</TableCell></TableRow>
+            ) : service === 'tdi_aereo' ? (
+              renderTdiRows()
+            ) : (
+              rows.map((r, i) => renderFlatRow(r, i))
+            )}
           </TableBody>
         </Table>
         <TablePagination
