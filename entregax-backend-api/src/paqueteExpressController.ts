@@ -1332,13 +1332,21 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     }
 
     // Cargar paquete + dirección + cliente
+    // COALESCE: usa assigned_address_id primero; si no tiene CP válido, cae a delivery_address_id
     const pkgRes = await pool.query(
       `SELECT p.*, u.full_name AS user_name, u.email AS user_email,
               a.recipient_name, a.street, a.exterior_number, a.interior_number,
               a.neighborhood, a.city, a.state, a.zip_code, a.phone, a.reference
          FROM packages p
          LEFT JOIN users u ON p.user_id = u.id
-         LEFT JOIN addresses a ON p.assigned_address_id = a.id
+         LEFT JOIN addresses a ON a.id = COALESCE(
+           CASE WHEN p.assigned_address_id IS NOT NULL
+                 AND (SELECT zip_code FROM addresses WHERE id = p.assigned_address_id) IS NOT NULL
+                 AND (SELECT zip_code FROM addresses WHERE id = p.assigned_address_id) <> ''
+                THEN p.assigned_address_id END,
+           p.delivery_address_id,
+           p.assigned_address_id
+         )
         WHERE p.id = $1`,
       [packageId]
     );
@@ -1348,8 +1356,8 @@ export async function pqtxGenerateForPackage(req: Request, res: Response) {
     }
     const pkg = pkgRes.rows[0];
 
-    if (!pkg.assigned_address_id || !pkg.zip_code) {
-      console.warn(`[PQTX-GEN] Sin dirección/CP: packageId=${packageId}, assigned_address_id=${pkg.assigned_address_id}, zip_code=${pkg.zip_code}`);
+    if (!pkg.zip_code) {
+      console.warn(`[PQTX-GEN] Sin CP: packageId=${packageId}, assigned_address_id=${pkg.assigned_address_id}, delivery_address_id=${pkg.delivery_address_id}, zip_code=${pkg.zip_code}`);
       res.status(400).json({ success: false, error: 'El paquete no tiene dirección de entrega asignada con código postal' });
       return;
     }
