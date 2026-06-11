@@ -211,6 +211,11 @@ const CARRIER_DISPLAY_NAMES: Record<string, string> = {
     'entregax local': 'Entregax Local',
     'entregax_local_cdmx': 'Entregax Local CDMX',
     'entregax local cdmx': 'Entregax Local CDMX',
+    'entregax_local_mty': 'Entregax Local MTY',
+    'entregax local mty': 'Entregax Local MTY',
+    'local mty': 'EntregaX Local MTY',
+    'local cdmx': 'EntregaX Local CDMX',
+    'paqueteexpress': 'Paquete Express',
     'fedex': 'FedEx',
     'estafeta': 'Estafeta',
     'dhl': 'DHL',
@@ -264,6 +269,7 @@ const getAssignedCarrier = (shipment: ShipmentData | null): { displayName: strin
 
 const isPaqueteExpressCarrier = (normalized: string): boolean => (
     normalized.includes('paquete express') ||
+    normalized.includes('paqueteexpress') ||
     normalized.includes('paquetexpress') ||
     normalized.includes('pqtx')
 );
@@ -278,7 +284,11 @@ const isEntregaxLocalCarrier = (normalized: string): boolean => (
 
 const isEntregaxNacionalCarrier = (normalized: string): boolean => (
     normalized.includes('entregax nacional') ||
-    normalized.includes('entregax_nacional')
+    normalized.includes('entregax_nacional') ||
+    normalized.includes('entregax local mty') ||
+    normalized.includes('entregax local cdmx') ||
+    normalized.includes('local mty') ||
+    normalized.includes('local cdmx')
 );
 
 
