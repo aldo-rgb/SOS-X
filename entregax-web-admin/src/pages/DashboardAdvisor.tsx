@@ -788,10 +788,17 @@ export default function DashboardAdvisor() {
     return tabs;
   }, [t, isMobile, dashboardData, advisorTickets, advisorPaymentOrderEnabled]);
 
-  // Load data on tab change — use tabConfig id to avoid hardcoded index issues
+  // ID estable de la pestaña activa. Lo usamos como dependencia en los efectos
+  // de carga para EVITAR un loop infinito: `tabConfig` cambia de referencia
+  // cada vez que `advisorTickets` se actualiza (porque depende de él en el
+  // useMemo de arriba). Si `tabConfig` fuese la dependencia, la secuencia
+  // fetch → setAdvisorTickets → nuevo tabConfig → fetch volvería a dispararse
+  // sin parar (causando "Mis Tickets" en carga eterna y parpadeando).
+  const activeTabId = tabConfig[activeTab]?.id;
+
+  // Load data on tab change — use activeTabId to avoid hardcoded index issues
   useEffect(() => {
-    const tid = tabConfig[activeTab]?.id;
-    if (tid === 'instructions') {
+    if (activeTabId === 'instructions') {
       fetchShipments();
       if (clients.length === 0) {
         api.get('/advisor/clients', { params: { limit: 500 } })
@@ -799,7 +806,7 @@ export default function DashboardAdvisor() {
           .catch(() => {});
       }
     }
-    if (tid === 'payment_order') {
+    if (activeTabId === 'payment_order') {
       fetchPaymentOrders();
       if (clients.length === 0) {
         api.get('/advisor/clients', { params: { limit: 500 } })
@@ -807,18 +814,18 @@ export default function DashboardAdvisor() {
           .catch(() => {});
       }
     }
-  }, [activeTab, tabConfig, fetchShipments, fetchPaymentOrders]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId, fetchShipments, fetchPaymentOrders]);
 
   useEffect(() => {
-    const tid = tabConfig[activeTab]?.id;
-    if (tid === 'commissions') fetchCommissions();
-  }, [activeTab, tabConfig, fetchCommissions]);
+    if (activeTabId === 'commissions') fetchCommissions();
+  }, [activeTabId, fetchCommissions]);
 
   useEffect(() => {
-    const tid = tabConfig[activeTab]?.id;
-    if (tid === 'tickets' || tid === 'quotes') fetchAdvisorTickets();
-    if (tid === 'quotes') fetchFormalQuotesList();
-  }, [activeTab, tabConfig]);
+    if (activeTabId === 'tickets' || activeTabId === 'quotes') fetchAdvisorTickets();
+    if (activeTabId === 'quotes') fetchFormalQuotesList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
 
   // Carga inicial de tickets para mostrar puntos de notificación en pestañas
   useEffect(() => {
@@ -827,9 +834,9 @@ export default function DashboardAdvisor() {
   }, []);
 
   useEffect(() => {
-    const tid = tabConfig[activeTab]?.id;
-    if (tid === 'team') fetchTeam();
-  }, [activeTab, tabConfig]);
+    if (activeTabId === 'team') fetchTeam();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
 
   const fetchTeam = async () => {
     setTeamLoading(true);
