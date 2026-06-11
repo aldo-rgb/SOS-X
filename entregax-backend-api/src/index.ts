@@ -2941,7 +2941,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
       const PB_JOIN = `LEFT JOIN users u ON p.user_id = u.id OR (p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id) = UPPER(u.box_id))
                        LEFT JOIN legacy_clients lc ON p.user_id IS NULL AND p.box_id IS NOT NULL AND UPPER(p.box_id) = UPPER(lc.box_id) AND u.id IS NULL`;
       const params: any[] = [];
-      let where = `p.service_type = 'POBOX_USA'`;
+      let where = `p.service_type = 'POBOX_USA' AND NOT EXISTS (SELECT 1 FROM packages c WHERE c.master_id = p.id LIMIT 1)`;
       if (search) { params.push(`%${search}%`); params.push(search); where += ` AND (p.tracking_internal ILIKE $${params.length-1} OR p.tracking_provider ILIKE $${params.length-1} OR UPPER(COALESCE(u.box_id, lc.box_id, p.box_id)) = UPPER($${params.length}) OR COALESCE(u.full_name, lc.full_name) ILIKE $${params.length-1})`; }
       if (dateFrom) { params.push(dateFrom); where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') >= $${params.length}::date`; }
       if (dateTo)   { params.push(dateTo);   where += ` AND DATE(p.received_at AT TIME ZONE 'America/Monterrey') <= $${params.length}::date`; }
