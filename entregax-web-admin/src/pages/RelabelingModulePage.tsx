@@ -276,6 +276,12 @@ const isEntregaxLocalCarrier = (normalized: string): boolean => (
     normalized.includes('local cdmx')
 );
 
+const isEntregaxNacionalCarrier = (normalized: string): boolean => (
+    normalized.includes('entregax nacional') ||
+    normalized.includes('entregax_nacional')
+);
+
+
 const with4x6Format = (url: string): string => {
     if (!url) return url;
     if (/([?&])format=/.test(url)) return url;
@@ -1096,6 +1102,8 @@ ${body}
     const hasAssignedCarrier = Boolean(assignedCarrier);
     const isPaqueteExpressAssigned = Boolean(assignedCarrier && isPaqueteExpressCarrier(assignedCarrier.normalized));
     const isEntregaxLocalAssigned = Boolean(assignedCarrier && isEntregaxLocalCarrier(assignedCarrier.normalized));
+    const isEntregaxNacionalAssigned = Boolean(assignedCarrier && isEntregaxNacionalCarrier(assignedCarrier.normalized));
+    const isEntregaxOwnDeliveryAssigned = isEntregaxLocalAssigned || isEntregaxNacionalAssigned;
     const carrierGuideTitle = assignedCarrier ? `Guía ${assignedCarrier.displayName}` : 'Guía de paquetería';
 
     const getAssignedCarrierGuideUrl = (opts?: { format4x6?: boolean }): string | null => {
@@ -1687,7 +1695,7 @@ ${body}
                             </>
                         )}
 
-                        {hasAssignedCarrier && !isEntregaxLocalAssigned && !(isPaqueteExpressAssigned && pqtxGuides.length > 0) && (
+                        {hasAssignedCarrier && !isEntregaxOwnDeliveryAssigned && !(isPaqueteExpressAssigned && pqtxGuides.length > 0) && (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Paper
                                     variant="outlined"
@@ -1798,7 +1806,7 @@ ${body}
                             </Grid>
                         )}
 
-                        {shipment.master.assignedAddress && (!hasAssignedCarrier || isEntregaxLocalAssigned) && (
+                        {shipment.master.assignedAddress && (!hasAssignedCarrier || isEntregaxOwnDeliveryAssigned) && (
                             <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                                 <Paper
                                     variant="outlined"
@@ -1815,11 +1823,13 @@ ${body}
                                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
                                         <LocalShippingIcon sx={{ color: '#F05A28' }} />
                                         <Typography variant="body2" fontWeight={800} sx={{ color: '#F05A28' }}>
-                                            Entrega Local EntregaX
+                                            {isEntregaxNacionalAssigned ? 'Entrega EntregaX Nacional' : 'Entrega Local EntregaX'}
                                         </Typography>
                                     </Box>
                                     <Typography variant="caption" color="text.secondary" sx={{ mb: 0.5 }}>
-                                        Etiqueta con marca EntregaX para repartidor local.
+                                        {isEntregaxNacionalAssigned
+                                            ? 'Etiqueta con marca EntregaX para envío nacional.'
+                                            : 'Etiqueta con marca EntregaX para repartidor local.'}
                                     </Typography>
                                     <Typography variant="caption" sx={{ display: 'block', mb: 1, fontWeight: 600 }}>
                                         🏠 {shipment.master.assignedAddress.alias || shipment.master.assignedAddress.recipientName}
@@ -1834,7 +1844,7 @@ ${body}
                                         onClick={handlePrintLocalDelivery}
                                         sx={{ bgcolor: '#F05A28', '&:hover': { bgcolor: '#C1272D' } }}
                                     >
-                                        Imprimir Etiqueta Local
+                                        {isEntregaxNacionalAssigned ? 'Imprimir Etiqueta Nacional' : 'Imprimir Etiqueta Local'}
                                     </Button>
                                 </Paper>
                             </Grid>
