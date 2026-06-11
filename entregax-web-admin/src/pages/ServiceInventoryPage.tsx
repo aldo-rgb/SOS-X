@@ -130,6 +130,7 @@ export default function ServiceInventoryPage() {
   const [exProgress, setExProgress] = useState(0);
   const fetchAbortRef = useRef(false);
   const [syncState, setSyncState] = useState<Record<string, 'idle' | 'syncing' | 'done' | 'error'>>({});
+  const [syncErrors, setSyncErrors] = useState<Record<string, string>>({});
   const [usGuias, setUsGuias] = useState<Record<string, { state: 'idle'|'loading'|'done'|'notfound'|'error'; guia_unica?: string }>>({});
   const [usFetching, setUsFetching] = useState(false);
   const [usProgress, setUsProgress] = useState(0);
@@ -285,7 +286,9 @@ export default function ServiceInventoryPage() {
       }));
       setSyncState(prev => ({ ...prev, [row.guia]: 'done' }));
       setTimeout(() => setSyncState(prev => prev[row.guia] === 'done' ? { ...prev, [row.guia]: 'idle' } : prev), 3000);
-    } catch {
+    } catch (err: any) {
+      const msg = err?.response?.data?.error || err?.message || 'Error desconocido';
+      setSyncErrors(prev => ({ ...prev, [row.guia]: msg }));
       setSyncState(prev => ({ ...prev, [row.guia]: 'error' }));
     }
   };
@@ -431,7 +434,15 @@ export default function ServiceInventoryPage() {
           ) : sState === 'done' ? (
             <Chip label="✅ Sincronizado" size="small" sx={{ bgcolor: '#E8F5E9', color: '#2E7D32', fontWeight: 700, fontSize: '0.65rem' }} />
           ) : sState === 'error' ? (
-            <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>Error</Typography>
+            <Tooltip title={syncErrors[r.guia] || 'Error al sincronizar'}>
+              <Button
+                size="small" variant="text"
+                onClick={() => { setSyncState(prev => ({ ...prev, [r.guia]: 'idle' })); syncRow(r); }}
+                sx={{ fontSize: '0.62rem', py: 0.25, px: 0.5, color: 'error.main', minWidth: 0 }}
+              >
+                ⚠ Reintentar
+              </Button>
+            </Tooltip>
           ) : desynced ? (
             <Tooltip title="EntregaX tiene datos más actualizados">
               <Button
