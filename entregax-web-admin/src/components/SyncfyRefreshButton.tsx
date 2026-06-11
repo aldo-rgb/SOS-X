@@ -67,6 +67,17 @@ export default function SyncfyRefreshButton({
     }
   };
 
+  // Registra/actualiza la credencial en nuestra DB Y programa auto-sync diferido 10 min.
+  // Debe llamarse siempre que el widget cierre con éxito, ANTES de runSync.
+  const registerAndSync = async () => {
+    try {
+      await api.post('/admin/syncfy/links', { emitter_id: emitterId });
+    } catch (err: any) {
+      console.warn('[SyncfyRefreshButton] registerLink error (non-fatal):', err.message);
+    }
+    await runSync();
+  };
+
   const openWidget = async (idCredential: string) => {
     try {
       const tokenRes = await api.post('/admin/syncfy/widget-token', { emitter_id: emitterId });
@@ -118,7 +129,9 @@ export default function SyncfyRefreshButton({
               if (syncTriggered) return;
               syncTriggered = true;
               setWidgetOpen(false);
-              await runSync();
+              // registerLink registra la credencial actualizada Y programa auto-sync
+              // diferido 10 min (cron descargará automáticamente si runSync da 0 ahora)
+              await registerAndSync();
             };
 
             widget.on('credential-created', triggerSync);
@@ -133,13 +146,12 @@ export default function SyncfyRefreshButton({
             widget.on('exit', async () => {
               // Si ya se disparó la sync (por algún success previo) solo cerrar.
               if (syncTriggered) { setWidgetOpen(false); setLoading(false); return; }
-              // Fallback: BBVA suele cerrar el widget tras el QR sin emitir
-              // success. Damos un pequeño margen para que Syncfy registre el
-              // refresh y luego intentamos la sync.
+              // Fallback: BBVA suele cerrar el widget tras el QR sin emitir success.
+              // Registrar credencial + intentar sync con pequeño margen de espera.
               setWidgetOpen(false);
               syncTriggered = true;
               await new Promise(r => setTimeout(r, 1500));
-              await runSync();
+              await registerAndSync();
             });
           }
 
