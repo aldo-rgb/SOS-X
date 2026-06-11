@@ -156,17 +156,24 @@ export default function DriverHomeScreen({ navigation, route }: any) {
       const s = String(c || '').toLowerCase();
       return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
     };
-    // Normaliza nombre: "PAQUETE EXPRESS" / "paquete express" → "Paquete Express"
-    const normalizeCarrier = (c: string) =>
-      c.trim().replace(/\s+/g, ' ')
-        .split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    // Canonicaliza nombre de carrier para evitar grupos duplicados por variantes de casing
+    const canonicalCarrier = (raw: string): string => {
+      const s = raw.trim().replace(/\s+/g, ' ').toLowerCase().replace(/\s/g, '');
+      if (s.includes('paqueteexpress') || s.includes('paquetexpress') || s === 'pqtx') return 'Paquete Express';
+      if (s === 'dhl') return 'DHL';
+      if (s.includes('fedex') || s.startsWith('fdx')) return 'FedEx';
+      if (s === 'ups') return 'UPS';
+      // fallback: title case
+      return raw.trim().replace(/\s+/g, ' ').split(' ')
+        .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+    };
     const carrierMap: Record<string, any[]> = {};
     [...pendingPackages, ...loaded].forEach((p: any) => {
       const rawCarrier = p.national_carrier || '';
       if (!rawCarrier || isLocalCarrier(rawCarrier)) return;
       const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') || String(p.delivery_status || '').includes('in_transit');
       if (!isLoaded && requireLabel && !p.has_label) return;
-      const c = normalizeCarrier(rawCarrier);
+      const c = canonicalCarrier(rawCarrier);
       if (!carrierMap[c]) carrierMap[c] = [];
       carrierMap[c].push(p);
     });
