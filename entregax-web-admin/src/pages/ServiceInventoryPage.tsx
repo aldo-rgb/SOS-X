@@ -128,13 +128,6 @@ export default function ServiceInventoryPage() {
     if (Object.keys(saved).length > 0) setUsGuias(prev => ({ ...saved, ...prev }));
   }, [rows, service]);
 
-  // Orden de avance de status — solo actualizamos si es un avance, no un retroceso
-  // shipped = final (mismo nivel que delivered), va DESPUÉS de out_for_delivery
-  const STATUS_ORDER: Record<string, number> = {
-    received: 0, received_china: 1, received_mty: 1, in_transit: 2,
-    out_for_delivery: 3, shipped: 4, delivered: 4,
-  };
-
   // Mapea status de EntregaX a nuestro valor interno
   const mapExStatusToInternal = (ex: EntregaxRow): string | undefined => {
     const ls = (ex.lastStatus || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
