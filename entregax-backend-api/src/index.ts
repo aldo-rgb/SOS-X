@@ -11445,24 +11445,24 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
     };
 
     const [pobox, tdi, aereo, maritimo, dhl, fcl] = await Promise.all([
-      // PO Box USA
+      // PO Box USA — incluye service_type=POBOX_USA y legacy (NULL + US-)
       safeQuery(`
         SELECT p.tracking_internal AS tracking, p.box_id,
           u.full_name AS client_name, p.status, p.created_at
         FROM packages p LEFT JOIN users u ON u.id = p.user_id
-        WHERE p.service_type = 'POBOX_USA'
+        WHERE (p.service_type = 'POBOX_USA' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
           AND p.status NOT IN ('delivered', 'cancelled', 'lost')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
           AND p.national_tracking IS NULL
         ORDER BY p.created_at DESC LIMIT 200
       `),
-      // TDI Express
+      // TDI Express — incluye service_type=TDI_EXPRESS y variantes
       safeQuery(`
         SELECT p.tracking_internal AS tracking, p.box_id,
           u.full_name AS client_name, p.status, p.created_at
         FROM packages p LEFT JOIN users u ON u.id = p.user_id
-        WHERE p.service_type = 'TDI_EXPRESS'
+        WHERE p.service_type IN ('TDI_EXPRESS', 'TDI_AIR', 'tdi_express')
           AND p.status NOT IN ('delivered', 'cancelled', 'lost')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
