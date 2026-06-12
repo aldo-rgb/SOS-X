@@ -1004,19 +1004,22 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     const c = String(carrier || '').toLowerCase();
                     return !c || c.includes('local') || c.includes('entregax') || c.includes('pickup') || c.includes('pick up') || c.includes('bodega');
                 };
+                const isPoBox = (p: any) => /^US-/i.test(String(p.tracking_number || ''));
 
-                // pendingToLoad = paquetes visibles en "Entrega Local"
-                // dhl_shipments ahora llevan su national_carrier real (local/EntregaX/paquete_express)
-                const allPendingForCount = [...pendingRes.rows, ...dhlPendingRes.rows];
+                // Cuando toggle ON: ocultar PO Box sin instrucciones de Asignados Hoy y Salidas Locales
+                const visiblePending = reqLabel
+                    ? allPendingRows.filter(p => !isPoBox(p) || !!p.assigned_address_id)
+                    : allPendingRows;
+
+                // pendingToLoad = paquetes locales visibles en "Salidas Locales"
                 const pendingToLoad = reqLabel
-                    ? allPendingForCount.filter(p => p.assigned_address_id && isLocalCarrier(String(p.national_carrier || ''))).length
-                    : allPendingForCount.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
+                    ? visiblePending.filter(p => p.assigned_address_id && isLocalCarrier(String(p.national_carrier || ''))).length
+                    : visiblePending.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
                 const loadedToday = loadedRes.rows.length;
                 const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
                 const outStatus = await getOutForDeliveryWriteStatus();
                 const allPkgs = [...pendingRes.rows, ...loadedRes.rows];
-                // paqueteriaCount = TODOS los paquetes con carrier externo (el toggle de etiqueta
-                // aplica solo a Entrega Local, no a Envío Paquetería)
+                // paqueteriaCount = paquetes con carrier externo (toggle no aplica a paqueterías)
                 const paqueteriaCount = allPkgs.filter(p => {
                     const carrier = p.national_carrier || '';
                     return !!(carrier && !isLocalCarrier(carrier));
@@ -1027,7 +1030,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
             route: {
                 totalAssigned, loadedToday, deliveredToday,
                 pendingToLoad, paqueteriaCount, requireLabelToLoad: reqLabel,
-                pendingPackages: allPendingRows,
+                pendingPackages: visiblePending,
                 loadedPackages: loadedRes.rows,
                 deliveredPackages: deliveredTodayRes.rows,
             },
