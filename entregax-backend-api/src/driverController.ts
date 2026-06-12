@@ -1006,14 +1006,13 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 };
 
                 // pendingToLoad = paquetes visibles en "Entrega Local"
-                // Siempre excluir carriers externos (van por Envío Paquetería)
-                // Toggle ON además requiere instrucciones (assigned_address_id)
-                const pendingToLoad = reqLabel
+                // Incluye dhl_shipments (is_dhl_shipment=true) que son entregas locales
+                const localRegular = reqLabel
                     ? pendingRes.rows.filter(p => p.assigned_address_id && isLocalCarrier(String(p.national_carrier || ''))).length
                     : pendingRes.rows.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
+                const pendingToLoad = localRegular + dhlPendingRes.rows.length;
                 const loadedToday = loadedRes.rows.length;
-                // DHL siempre suma al total asignado (son entregas locales pendientes)
-                const totalAssigned = pendingToLoad + loadedToday + deliveredToday + dhlPendingRes.rows.length;
+                const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
                 const outStatus = await getOutForDeliveryWriteStatus();
                 const allPkgs = [...pendingRes.rows, ...loadedRes.rows];
                 // paqueteriaCount = TODOS los paquetes con carrier externo (el toggle de etiqueta
