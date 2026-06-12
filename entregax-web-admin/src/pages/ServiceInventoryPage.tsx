@@ -223,8 +223,13 @@ export default function ServiceInventoryPage() {
     const ls = (ex.lastStatus || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
     if (ls.includes('entregado') || ls.includes('delivered')) return 'delivered';
     if (ls.includes('en ruta') || ls.includes('en camino') || ls.includes('out_for_delivery')) return 'out_for_delivery';
-    const isLocalCarrier = (ex.paqueteria || '').toLowerCase().includes('local');
-    if (!isLocalCarrier && (ex.guiaSalida || ls.includes('enviado') || ls.includes('shipped') || ls.includes('sent'))) return 'shipped';
+    const pak = (ex.paqueteria || '').toLowerCase();
+    const isLocalDelivery = pak.includes('local') || pak.includes('nacional') || pak.startsWith('entregax');
+    const isSent = ls.includes('enviado') || ls.includes('shipped') || ls.includes('sent');
+    // Entregax Nacional (repartidor local) enviado = entregado al cliente final
+    if (isLocalDelivery && isSent) return 'delivered';
+    // Paquete Express enviado = sale hacia paquetería externa
+    if (!isLocalDelivery && (ex.guiaSalida || isSent)) return 'shipped';
     if (ls.includes('transito') || ls.includes('transit')) return 'in_transit';
     return undefined;
   };
