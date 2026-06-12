@@ -3005,6 +3005,7 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         p.national_tracking AS guia_salida,
                         COALESCE(p.client_paid, FALSE) AS costing_paid,
                         (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL OR p.national_tracking IS NOT NULL) AS has_instructions,
+                        (p.delivery_address_id IS NOT NULL OR p.assigned_address_id IS NOT NULL) AS has_delivery_address,
                         NULLIF(p.child_no, '') AS guia_us_saved
                    FROM packages p ${PB_JOIN}
                   WHERE ${where} ORDER BY p.received_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;

@@ -55,6 +55,7 @@ interface PackageRow {
   guia_salida?: string;
   costing_paid?: boolean;
   has_instructions?: boolean;
+  has_delivery_address?: boolean;
   guia_us_saved?: string;
   pkg_id?: number;
   master_id?: number | null;
@@ -265,8 +266,10 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return false;
     if (!!ex.hasPago && !row.costing_paid) return true;
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
-    // Solo marcar como pendiente de sync si hay dirección física que inyectar
-    if (!!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_instructions) return true;
+    // Solo inyectar dirección si: EntregaX tiene datos físicos, el paquete no tiene address_id,
+    // y el status aún lo requiere (recibido en alguna etapa, no enviado/entregado)
+    const canInjectAddr = ['received', 'received_china', 'received_mty'].includes(row.status);
+    if (!!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_delivery_address && canInjectAddr) return true;
     // Paquetería diferente → siempre actualizar (ej. DHL en nuestro sistema pero EntregaX dice Local)
     if (ex.paqueteria && ex.paqueteria.toUpperCase() !== (row.paqueteria || '').toUpperCase()) return true;
     const mappedStatus = mapExStatusToInternal(ex);
@@ -279,7 +282,8 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return;
     setSyncState(prev => ({ ...prev, [row.guia]: 'syncing' }));
     const hasGuiaSalida = !!ex.guiaSalida;
-    const shouldInjectInstrucciones = !!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_instructions;
+    const canInjectAddr = ['received', 'received_china', 'received_mty'].includes(row.status);
+    const shouldInjectInstrucciones = !!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_delivery_address && canInjectAddr;
     const mappedStatus = mapExStatusToInternal(ex);
     // No cambiar recibido en MTY → enviado (el paquete sigue en nuestro almacén)
     const newStatus = mappedStatus && mappedStatus !== row.status
@@ -303,6 +307,7 @@ export default function ServiceInventoryPage() {
           ...r,
           costing_paid: r.costing_paid || (ex.hasPago ?? false),
           has_instructions: r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida,
+          has_delivery_address: r.has_delivery_address || shouldInjectInstrucciones,
           paqueteria: (ex.paqueteria && ex.paqueteria.toUpperCase() !== (r.paqueteria || '').toUpperCase())
             ? ex.paqueteria
             : (r.has_instructions ? r.paqueteria : (ex.paqueteria || r.paqueteria)),
