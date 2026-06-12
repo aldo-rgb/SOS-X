@@ -11502,35 +11502,47 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
     };
 
     const [pobox, tdi, aereo, maritimo, dhl, fcl] = await Promise.all([
-      // PO Box USA — incluye service_type=POBOX_USA y legacy (NULL + US-)
+      // PO Box USA — agrupa por master (strip sufijo -NNNN), muestra conteo de cajas
       safeQuery(`
-        SELECT p.tracking_internal AS tracking,
+        SELECT
+          REGEXP_REPLACE(p.tracking_internal, '-\\d+$', '') AS tracking,
           COALESCE(u.box_id, p.box_id) AS box_id,
           COALESCE(u.full_name, p.box_id) AS client_name,
-          p.status, p.created_at,
-          (p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
+          MIN(p.status) AS status,
+          MIN(p.created_at) AS created_at,
+          COUNT(*) AS total_boxes,
+          BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p LEFT JOIN users u ON u.id = p.user_id
         WHERE (p.service_type = 'POBOX_USA' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
           AND p.status IN ('received', 'in_transit', 'received_mty')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM addresses a WHERE a.user_id = p.user_id)
-        ORDER BY p.created_at DESC LIMIT 200
+        GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d+$', ''),
+                 COALESCE(u.box_id, p.box_id),
+                 COALESCE(u.full_name, p.box_id)
+        ORDER BY MIN(p.created_at) DESC LIMIT 200
       `),
-      // TDI Express — incluye service_type=TDI_EXPRESS y variantes
+      // TDI Express — agrupa por master
       safeQuery(`
-        SELECT p.tracking_internal AS tracking,
+        SELECT
+          REGEXP_REPLACE(p.tracking_internal, '-\\d+$', '') AS tracking,
           COALESCE(u.box_id, p.box_id) AS box_id,
           COALESCE(u.full_name, p.box_id) AS client_name,
-          p.status, p.created_at,
-          (p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
+          MIN(p.status) AS status,
+          MIN(p.created_at) AS created_at,
+          COUNT(*) AS total_boxes,
+          BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p LEFT JOIN users u ON u.id = p.user_id
         WHERE p.service_type IN ('TDI_EXPRESS', 'TDI_AIR', 'tdi_express')
           AND p.status IN ('received', 'in_transit', 'received_mty')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM addresses a WHERE a.user_id = p.user_id)
-        ORDER BY p.created_at DESC LIMIT 200
+        GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d+$', ''),
+                 COALESCE(u.box_id, p.box_id),
+                 COALESCE(u.full_name, p.box_id)
+        ORDER BY MIN(p.created_at) DESC LIMIT 200
       `),
       // Aéreo Chino — shipping_mark es el box_id del cliente para clientes legacy
       safeQuery(`

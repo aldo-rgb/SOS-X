@@ -79,6 +79,7 @@ interface NoInstructionsGuide {
     status: string;
     created_at: string;
     is_legacy?: boolean;
+    total_boxes?: number;
 }
 
 interface ServiceSection {
@@ -215,7 +216,12 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                                         return (
                                             <TableRow key={idx} hover>
                                                 <TableCell sx={{ fontFamily: 'monospace', fontWeight: 700, color: ORANGE, fontSize: '0.8rem' }}>
-                                                    {g.tracking || '—'}
+                                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                                        {g.tracking || '—'}
+                                                        {g.total_boxes && g.total_boxes > 1 && (
+                                                            <Chip label={`${g.total_boxes} cajas`} size="small" sx={{ bgcolor: '#E3F2FD', color: '#1565C0', fontWeight: 700, fontSize: '0.65rem' }} />
+                                                        )}
+                                                    </Box>
                                                 </TableCell>
                                                 <TableCell>
                                                     {g.box_id ? (
