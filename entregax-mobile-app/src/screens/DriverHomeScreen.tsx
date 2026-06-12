@@ -170,6 +170,8 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     };
     const carrierMap: Record<string, any[]> = {};
     [...pendingPackages, ...loaded].forEach((p: any) => {
+      // dhl_shipments son entregas locales, no paqueterías externas
+      if (p.is_dhl_shipment) return;
       const rawCarrier = p.national_carrier || '';
       if (!rawCarrier || isLocalCarrier(rawCarrier)) return;
       const isLoaded = String(p.delivery_status || '').includes('out_for_delivery') || String(p.delivery_status || '').includes('in_transit');
