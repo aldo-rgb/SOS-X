@@ -247,6 +247,8 @@ export default function ServiceInventoryPage() {
     if (!!ex.hasPago && !row.costing_paid) return true;
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
     if (!!ex.hasInstrucciones && !row.has_instructions) return true;
+    // Paquetería diferente → siempre actualizar (ej. DHL en nuestro sistema pero EntregaX dice Local)
+    if (ex.paqueteria && ex.paqueteria.toUpperCase() !== (row.paqueteria || '').toUpperCase()) return true;
     const mappedStatus = mapExStatusToInternal(ex);
     if (mappedStatus && mappedStatus !== row.status && !(row.status === 'received_mty' && mappedStatus === 'shipped')) return true;
     return false;
@@ -268,7 +270,9 @@ export default function ServiceInventoryPage() {
         guia: row.guia, service,
         hasPago: ex.hasPago && !row.costing_paid,
         hasInstrucciones: shouldInjectInstrucciones,
-        paqueteria: !row.has_instructions ? ex.paqueteria : undefined,
+        paqueteria: (ex.paqueteria && ex.paqueteria.toUpperCase() !== (row.paqueteria || '').toUpperCase())
+          ? ex.paqueteria
+          : (!row.has_instructions ? ex.paqueteria : undefined),
         guia_salida: hasGuiaSalida ? ex.guiaSalida : undefined,
         direccion_entrega: shouldInjectInstrucciones ? ex.direccionEntrega : undefined,
         newStatus,
@@ -279,7 +283,9 @@ export default function ServiceInventoryPage() {
           ...r,
           costing_paid: r.costing_paid || (ex.hasPago ?? false),
           has_instructions: r.has_instructions || !!ex.hasInstrucciones || hasGuiaSalida,
-          paqueteria: row.has_instructions ? r.paqueteria : (ex.paqueteria || r.paqueteria),
+          paqueteria: (ex.paqueteria && ex.paqueteria.toUpperCase() !== (r.paqueteria || '').toUpperCase())
+            ? ex.paqueteria
+            : (r.has_instructions ? r.paqueteria : (ex.paqueteria || r.paqueteria)),
           guia_salida: ex.guiaSalida || r.guia_salida,
           status: newStatus || r.status,
         };
@@ -336,17 +342,28 @@ export default function ServiceInventoryPage() {
     fetchAbortRef.current = false;
     setExFetching(true);
     setExProgress(0);
-    const entries: { storeKey: string; queryKey: string }[] = rows
+
+    // Para PO Box: mapa local de guia_unica (estado + nuevos hallazgos en esta sesión)
+    const localUsGuias: Record<string, string> = {};
+    if (service === 'pobox_usa') {
+      rows.forEach(r => {
+        const known = usGuias[r.guia]?.guia_unica;
+        if (known) localUsGuias[r.guia] = known;
+      });
+    }
+
+    const entries: { storeKey: string; queryKey: string; isPoBox: boolean; guia_origen?: string }[] = rows
       .filter(r => r.guia)
       .map(r => {
         let queryKey = r.guia;
+        let isPoBox = false;
         if (service === 'tdi_aereo' && r.children && r.children.length > 0) {
-          // Master virtual: consultar con guía de la primera hija (que sí existe en EntregaX)
           queryKey = r.children[0].guia;
         } else if (service === 'pobox_usa') {
-          queryKey = usGuias[r.guia]?.guia_unica || r.guia_origen || r.guia;
+          isPoBox = true;
+          queryKey = localUsGuias[r.guia] || r.guia_origen || r.guia;
         }
-        return { storeKey: r.guia, queryKey };
+        return { storeKey: r.guia, queryKey, isPoBox, guia_origen: r.guia_origen };
       });
     const BATCH = 5;
     let done = 0;
@@ -354,15 +371,43 @@ export default function ServiceInventoryPage() {
       if (fetchAbortRef.current) break;
       const batch = entries.slice(i, i + BATCH);
       setExData(prev => { const next = { ...prev }; batch.forEach(e => { next[e.storeKey] = { state: 'loading' }; }); return next; });
-      await Promise.all(batch.map(async ({ storeKey, queryKey }) => {
+      await Promise.all(batch.map(async ({ storeKey, queryKey, isPoBox, guia_origen }) => {
         try {
-          const res = await api.get(`/national/payment-query/${encodeURIComponent(queryKey)}`).catch((err: any) => ({ data: null, _notfound: err?.response?.status === 404 } as any));
-          const d = res?.data?.status === 'success' ? res.data.data : null;
-          const notfound = res?._notfound ?? false;
+          const queryFn = async (key: string) => {
+            const r = await api.get(`/national/payment-query/${encodeURIComponent(key)}`).catch((err: any) => ({ data: null, _notfound: err?.response?.status === 404 } as any));
+            return { d: r?.data?.status === 'success' ? r.data.data : null, notfound: r?._notfound ?? false };
+          };
+
+          let { d, notfound } = await queryFn(queryKey);
+
+          // PO Box: si encontramos guia_unica pero sin waybill, reintentar con guia_unica
+          if (isPoBox && d) {
+            const foundGuiaUnica = d.guia_unica || d.waybill?.guia_unica || d.guias?.[0]?.guia_unica;
+            if (foundGuiaUnica && !localUsGuias[storeKey]) {
+              // Guardar guia_unica encontrada para uso futuro
+              localUsGuias[storeKey] = foundGuiaUnica;
+              setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'done', guia_unica: foundGuiaUnica } }));
+              setCachedUs(storeKey, foundGuiaUnica);
+              api.post('/packages/save-guia-us', { tracking_internal: storeKey, guia_unica: foundGuiaUnica }).catch(() => {});
+            }
+            // Si la query fue con guia_origen (no con guia_unica) y no hay waybill, reintentar con guia_unica
+            if (!d.waybill && foundGuiaUnica && queryKey !== foundGuiaUnica) {
+              const retry = await queryFn(foundGuiaUnica);
+              if (retry.d) { d = retry.d; notfound = retry.notfound; }
+            }
+          }
+
           if (d) {
             const historial = d.historial || [];
             const lastH = historial[historial.length - 1];
             const guiaUnica = d.guia_unica || d.waybill?.guia_unica || d.guias?.[0]?.guia_unica || undefined;
+            // PO Box: guardar guia_unica si aún no está guardada
+            if (isPoBox && guiaUnica && !localUsGuias[storeKey]) {
+              localUsGuias[storeKey] = guiaUnica;
+              setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'done', guia_unica: guiaUnica } }));
+              setCachedUs(storeKey, guiaUnica);
+              api.post('/packages/save-guia-us', { tracking_internal: storeKey, guia_unica: guiaUnica }).catch(() => {});
+            }
             const exEntry: EntregaxRow = {
               state: 'done',
               hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
