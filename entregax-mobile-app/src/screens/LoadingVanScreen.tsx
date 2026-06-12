@@ -378,8 +378,6 @@ export default function LoadingVanScreen({ navigation, route }: any) {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (res.data.success) {
-        const dhlCount = (res.data.route.pendingPackages || []).filter((p: any) => p.is_dhl_shipment).length;
-        console.log('[LoadingVan] pendingPackages total:', (res.data.route.pendingPackages || []).length, '| dhl_shipments:', dhlCount);
         setRouteData(res.data.route);
         setScannedCount(res.data.route.loadedToday || 0);
         
