@@ -26,8 +26,9 @@ export const getAddresses = async (req: Request, res: Response): Promise<void> =
             return;
         }
 
-        // Clientes no ven direcciones internas (creadas por sync); admins sí las ven
-        const internalFilter = isClient ? `AND (internal_only IS NULL OR internal_only = FALSE)` : '';
+        // Solo super_admin ve direcciones internas (creadas por sync); clientes y asesores no
+        const isSuperAdmin = authRole === 'super_admin';
+        const internalFilter = isSuperAdmin ? '' : `AND (internal_only IS NULL OR internal_only = FALSE)`;
         const result = await pool.query(
             `SELECT * FROM addresses WHERE user_id = $1 ${internalFilter} ORDER BY is_default DESC, created_at DESC`,
             [targetUserId]
