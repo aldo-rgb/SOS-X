@@ -23,6 +23,16 @@ interface Movimiento {
   fecha: string;
 }
 
+type DireccionWaybill = {
+  quienrecibe?: string;
+  calle?: string;
+  numeroext?: string;
+  colonia?: string;
+  cp?: string;
+  estado?: string;
+  pais?: string;
+};
+
 interface Waybill {
   guia_ingreso?: string;
   guia_unica?: string;
@@ -31,15 +41,9 @@ interface Waybill {
   paqueteria?: string;
   cliente?: string;
   estado?: string;
-  direccion_entrega?: {
-    quienrecibe?: string;
-    calle?: string;
-    numeroext?: string;
-    colonia?: string;
-    cp?: string;
-    estado?: string;
-    pais?: string;
-  };
+  // EntregaX puede devolver la dirección bajo "direccion_entrega" o bajo "instrucciones"
+  direccion_entrega?: DireccionWaybill;
+  instrucciones?: DireccionWaybill;
 }
 
 interface Guia {
