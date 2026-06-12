@@ -353,7 +353,13 @@ export default function ServiceInventoryPage() {
     }
 
     const entries: { storeKey: string; queryKey: string; isPoBox: boolean; guia_origen?: string }[] = rows
-      .filter(r => r.guia)
+      .filter(r => {
+        if (!r.guia) return false;
+        // PO Box: solo consultar si tenemos guia_unica (US-120-...) O guia_origen (carrier tracking)
+        // Nunca usar nuestro formato interno (US-XXXXXXXXXX) pues sistemaentregax.com no lo reconoce
+        if (service === 'pobox_usa') return !!(localUsGuias[r.guia] || r.guia_origen);
+        return true;
+      })
       .map(r => {
         let queryKey = r.guia;
         let isPoBox = false;
@@ -361,7 +367,8 @@ export default function ServiceInventoryPage() {
           queryKey = r.children[0].guia;
         } else if (service === 'pobox_usa') {
           isPoBox = true;
-          queryKey = localUsGuias[r.guia] || r.guia_origen || r.guia;
+          // Prioridad: guia_unica (US-120-...) > carrier tracking (1Z..., 4888...)
+          queryKey = localUsGuias[r.guia] || r.guia_origen!;
         }
         return { storeKey: r.guia, queryKey, isPoBox, guia_origen: r.guia_origen };
       });
