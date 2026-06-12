@@ -702,10 +702,10 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const requireLabelFlag = routeData?.requireLabelToLoad ?? true;
   const filteredPending = routeData
     ? requireLabelFlag
-      // Toggle ON: solo locales con instrucciones asignadas
-      ? routeData.pendingPackages.filter(p => p.assigned_address_id && isLocalCarrierFn(p.national_carrier))
-      // Toggle OFF: excluir carriers externos (van por Envío Paquetería, no por Entrega Local)
-      : routeData.pendingPackages.filter(p => isLocalCarrierFn(p.national_carrier))
+      // Toggle ON: locales con instrucciones + dhl_shipments (siempre tienen delivery_address_id)
+      ? routeData.pendingPackages.filter(p => p.is_dhl_shipment || (p.assigned_address_id && isLocalCarrierFn(p.national_carrier)))
+      // Toggle OFF: excluir carriers externos salvo dhl_shipments que son entrega local
+      : routeData.pendingPackages.filter(p => p.is_dhl_shipment || isLocalCarrierFn(p.national_carrier))
     : [];
   const totalPackages = filteredPending.length + (routeData?.loadedToday || 0);
 
