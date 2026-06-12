@@ -2872,7 +2872,7 @@ app.post('/api/dashboard/notify-stale-rates', authenticateToken, async (req: Aut
 app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(ROLES.COUNTER_STAFF), async (req: AuthRequest, res: Response) => {
   try {
     const service = String(req.query.service || 'tdi_aereo');
-    const limit  = Math.min(500, parseInt(String(req.query.limit  || '200')));
+    const limit  = Math.min(5000, parseInt(String(req.query.limit  || '200')));
     const offset = parseInt(String(req.query.offset || '0'));
     const search = String(req.query.search || '').trim();
     const dateFrom = String(req.query.date_from || '');

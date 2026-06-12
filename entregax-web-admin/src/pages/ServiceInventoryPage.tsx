@@ -153,9 +153,14 @@ export default function ServiceInventoryPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // Cuando hay filtro de Estado EntregaX activo, cargar TODAS las guías (sin paginación)
+      // para que el filtro client-side aplique sobre el total y no solo la página actual
+      const useAllRows = !!syncFilter;
       const r = await api.get('/packages/service-inventory', {
         params: {
-          service, limit: rowsPerPage, offset: page * rowsPerPage,
+          service,
+          limit: useAllRows ? 5000 : rowsPerPage,
+          offset: useAllRows ? 0 : page * rowsPerPage,
           search: search || undefined,
           date_from: dateFrom || undefined,
           date_to: dateTo || undefined,
@@ -166,7 +171,7 @@ export default function ServiceInventoryPage() {
       setTotal(r.data.total || 0);
     } catch { setRows([]); setTotal(0); }
     finally { setLoading(false); }
-  }, [service, page, rowsPerPage, search, dateFrom, dateTo, statusFilter]);
+  }, [service, page, rowsPerPage, search, dateFrom, dateTo, statusFilter, syncFilter]);
 
   // Service change: reset todo
   useEffect(() => {
@@ -855,7 +860,7 @@ export default function ServiceInventoryPage() {
             </Typography>
             {syncFilter && (
               <Typography variant="caption" sx={{ color: '#E65100', fontSize: '0.65rem' }}>
-                Filtro EntregaX: {displayRows.length} de {rows.length} en esta página
+                Filtro EntregaX: {displayRows.length} de {total} guías totales
               </Typography>
             )}
           </Box>
@@ -910,17 +915,19 @@ export default function ServiceInventoryPage() {
             )}
           </TableBody>
         </Table>
-        <TablePagination
-          component="div"
-          count={total}
-          page={page}
-          rowsPerPage={rowsPerPage}
-          onPageChange={(_, p) => setPage(p)}
-          onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value)); setPage(0); }}
-          rowsPerPageOptions={[25, 50, 100, 200]}
-          labelRowsPerPage="Filas:"
-          labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
-        />
+        {!syncFilter && (
+          <TablePagination
+            component="div"
+            count={total}
+            page={page}
+            rowsPerPage={rowsPerPage}
+            onPageChange={(_, p) => setPage(p)}
+            onRowsPerPageChange={e => { setRowsPerPage(parseInt(e.target.value)); setPage(0); }}
+            rowsPerPageOptions={[25, 50, 100, 200]}
+            labelRowsPerPage="Filas:"
+            labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+          />
+        )}
       </Paper>
     </Box>
   );
