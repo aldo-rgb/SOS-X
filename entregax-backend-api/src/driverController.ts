@@ -1006,14 +1006,14 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 };
                 const isPoBox = (p: any) => /^US-/i.test(String(p.tracking_number || ''));
 
-                // Cuando toggle ON: ocultar PO Box sin instrucciones de Asignados Hoy y Salidas Locales
+                // Cuando toggle ON: ocultar PO Box sin etiqueta impresa (has_label=false)
                 const visiblePending = reqLabel
-                    ? allPendingRows.filter(p => !isPoBox(p) || !!p.assigned_address_id)
+                    ? allPendingRows.filter(p => !isPoBox(p) || !!p.has_label)
                     : allPendingRows;
 
                 // pendingToLoad = paquetes locales visibles en "Salidas Locales"
                 const pendingToLoad = reqLabel
-                    ? visiblePending.filter(p => p.assigned_address_id && isLocalCarrier(String(p.national_carrier || ''))).length
+                    ? visiblePending.filter(p => p.has_label && isLocalCarrier(String(p.national_carrier || ''))).length
                     : visiblePending.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
                 const loadedToday = loadedRes.rows.length;
                 const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
