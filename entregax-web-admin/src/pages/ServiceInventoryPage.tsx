@@ -14,6 +14,9 @@ import LocalShippingIcon from '@mui/icons-material/LocalShipping';
 import SyncIcon from '@mui/icons-material/Sync';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
+import EditIcon from '@mui/icons-material/Edit';
+import CheckIcon from '@mui/icons-material/Check';
+import CloseIcon from '@mui/icons-material/Close';
 import api from '../services/api';
 
 const ORANGE = '#F05A28';
@@ -135,6 +138,8 @@ export default function ServiceInventoryPage() {
   const [usFetching, setUsFetching] = useState(false);
   const [usProgress, setUsProgress] = useState(0);
   const usAbortRef = useRef(false);
+  const [editingUsGuias, setEditingUsGuias] = useState<Set<string>>(new Set());
+  const [manualUsInputs, setManualUsInputs] = useState<Record<string, string>>({});
   const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
 
   const fmt = (d?: string | null) =>
@@ -336,6 +341,40 @@ export default function ServiceInventoryPage() {
     }
     setUsFetching(false);
   }, [rows, service, usGuias]);
+
+  const handleManualUsGuia = async (storeKey: string) => {
+    const guia_unica = (manualUsInputs[storeKey] || '').trim();
+    if (!guia_unica) return;
+    setEditingUsGuias(prev => { const next = new Set(prev); next.delete(storeKey); return next; });
+    setUsGuias(prev => ({ ...prev, [storeKey]: { state: 'done', guia_unica } }));
+    setCachedUs(storeKey, guia_unica);
+    api.post('/packages/save-guia-us', { tracking_internal: storeKey, guia_unica }).catch(() => {});
+    // Consultar inmediatamente con la guia manual
+    setExData(prev => ({ ...prev, [storeKey]: { state: 'loading' } }));
+    try {
+      const res = await api.get(`/national/payment-query/${encodeURIComponent(guia_unica)}`).catch((err: any) => ({ data: null, _notfound: err?.response?.status === 404 } as any));
+      const d = res?.data?.status === 'success' ? res.data.data : null;
+      if (d) {
+        const historial = d.historial || [];
+        const lastH = historial[historial.length - 1];
+        const foundGuia = d.guia_unica || d.waybill?.guia_unica || d.guias?.[0]?.guia_unica || guia_unica;
+        const exEntry: EntregaxRow = {
+          state: 'done',
+          hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
+          hasInstrucciones: d.waybill?.instrucciones === '1' || !!d.waybill?.direccion_entrega,
+          guiaSalida: d.waybill?.guiasalida || d.waybill?.guia_salida || undefined,
+          guiaIngreso: foundGuia,
+          paqueteria: d.waybill?.paqueteria && d.waybill.paqueteria !== '0' ? d.waybill.paqueteria : undefined,
+          lastStatus: d.waybill?.estado || lastH?.estado || undefined,
+          direccionEntrega: d.waybill?.direccion_entrega || undefined,
+        };
+        setExData(prev => ({ ...prev, [storeKey]: exEntry }));
+        setCachedEx(service, storeKey, exEntry);
+      } else {
+        setExData(prev => ({ ...prev, [storeKey]: { state: res?._notfound ? 'notfound' : 'error' } }));
+      }
+    } catch { setExData(prev => ({ ...prev, [storeKey]: { state: 'error' } })); }
+  };
 
   const fetchEntregax = useCallback(async () => {
     if (rows.length === 0) return;
@@ -581,6 +620,7 @@ export default function ServiceInventoryPage() {
       {renderExCells(r)}
       {service === 'pobox_usa' && (() => {
         const us = usGuias[r.guia];
+        const isEditing = editingUsGuias.has(r.guia);
         return (
           <TableCell>
             {us?.state === 'loading' ? <CircularProgress size={12} sx={{ color: '#7B1FA2' }} />
@@ -590,7 +630,42 @@ export default function ServiceInventoryPage() {
                 <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(us.guia_unica!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
               </Box>
             ) : us?.state === 'error' ? <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>Error</Typography>
-            : <Typography variant="caption" color="text.disabled">—</Typography>}
+            : isEditing ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                <TextField
+                  autoFocus
+                  size="small"
+                  variant="outlined"
+                  placeholder="US-120-..."
+                  value={manualUsInputs[r.guia] || ''}
+                  onChange={e => setManualUsInputs(prev => ({ ...prev, [r.guia]: e.target.value }))}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') handleManualUsGuia(r.guia);
+                    if (e.key === 'Escape') setEditingUsGuias(prev => { const next = new Set(prev); next.delete(r.guia); return next; });
+                  }}
+                  inputProps={{ style: { fontSize: '0.68rem', fontFamily: 'monospace', padding: '2px 6px', width: 120 } }}
+                />
+                <Tooltip title="Guardar y consultar">
+                  <IconButton size="small" onClick={() => handleManualUsGuia(r.guia)}>
+                    <CheckIcon sx={{ fontSize: 13, color: '#2E7D32' }} />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Cancelar">
+                  <IconButton size="small" onClick={() => setEditingUsGuias(prev => { const next = new Set(prev); next.delete(r.guia); return next; })}>
+                    <CloseIcon sx={{ fontSize: 13, color: '#B71C1C' }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            ) : (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                <Typography variant="caption" color="text.disabled">—</Typography>
+                <Tooltip title="Agregar guía US manualmente">
+                  <IconButton size="small" onClick={() => setEditingUsGuias(prev => new Set([...prev, r.guia]))}>
+                    <EditIcon sx={{ fontSize: 12, color: '#7B1FA2' }} />
+                  </IconButton>
+                </Tooltip>
+              </Box>
+            )}
           </TableCell>
         );
       })()}
