@@ -11951,6 +11951,25 @@ async function ensureRequiredColumns() {
     `);
     console.log('✅ [STARTUP] Triggers de auto-instrucciones (packages + maritime_orders) creados');
 
+    // Trigger: cuando una hija se marca delivered → master también delivered
+    await pool.query(`
+      CREATE OR REPLACE FUNCTION propagate_delivered_to_master() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.status = 'delivered' AND NEW.master_id IS NOT NULL THEN
+          UPDATE packages SET status = 'delivered', updated_at = NOW()
+          WHERE id = NEW.master_id AND status != 'delivered';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_child_delivered_to_master ON packages;
+      CREATE TRIGGER trg_child_delivered_to_master
+        AFTER INSERT OR UPDATE OF status ON packages
+        FOR EACH ROW EXECUTE FUNCTION propagate_delivered_to_master();
+    `);
+    console.log('✅ [STARTUP] Trigger propagate_delivered_to_master creado');
+
     // Backfill: aplica las auto-instrucciones a los paquetes/órdenes que
     // ya estaban en el sistema sin dirección asignada y cuyo dueño tiene
     // default_for_service configurado. Idempotente — sólo afecta las que
