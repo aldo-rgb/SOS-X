@@ -3938,7 +3938,10 @@ app.get('/api/packages/history', authenticateToken, async (req: AuthRequest, res
         END as has_delivery_instructions
       FROM packages
       WHERE user_id = $1
-        AND status IN ('delivered', 'sent')
+        AND (
+          status IN ('delivered', 'sent')
+          OR (status = 'shipped' AND client_paid = true)
+        )
         AND (is_master = true OR master_id IS NULL)
       ORDER BY COALESCE(delivered_at, updated_at) DESC
       LIMIT 50
