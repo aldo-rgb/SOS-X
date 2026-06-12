@@ -57,6 +57,7 @@ interface PackageItem {
   reference_hint?: string;
   box_number?: number | string;
   total_boxes?: number | string;
+  is_dhl_shipment?: boolean;
 }
 
 interface FeedbackMessage {
