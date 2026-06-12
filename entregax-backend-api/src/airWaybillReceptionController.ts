@@ -469,8 +469,9 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
     const offsetNum = parseInt(String(offset)) || 0;
 
     const params: (string | number)[] = [];
-    // Solo guías con número AIR/AWB asignado (excluye paquetes que aún están en China sin AWB)
-    let where = `WHERE p.service_type = 'AIR_CHN_MX' AND p.international_tracking IS NOT NULL AND p.international_tracking <> ''`;
+    const IS_TDI_EXPRESS = `(p.air_source = 'tdi_express' OR LOWER(COALESCE(p.service_type,'')) = 'tdi_express')`;
+    const IS_AIR_CHN = `(p.service_type = 'AIR_CHN_MX' AND p.international_tracking IS NOT NULL AND p.international_tracking <> '')`;
+    let where = `WHERE (${IS_AIR_CHN} OR ${IS_TDI_EXPRESS})`;
 
     if (status && status !== 'all') {
       const s = String(status);
@@ -535,10 +536,12 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
       `
         SELECT
           p.id,
-          CASE WHEN p.child_no IS NOT NULL AND p.child_no LIKE 'AIR%' THEN p.child_no ELSE p.tracking_internal END AS tracking_internal,
+          CASE WHEN p.child_no IS NOT NULL AND (p.child_no LIKE 'AIR%' OR p.child_no LIKE 'TDX%') THEN p.child_no ELSE p.tracking_internal END AS tracking_internal,
           p.tracking_internal AS tracking_internal_raw,
           p.child_no,
           p.international_tracking AS awb_number,
+          p.air_source,
+          LOWER(COALESCE(p.service_type,'')) AS service_type_lower,
           p.status,
           cr.status AS china_status,
           p.description,
@@ -583,7 +586,7 @@ export const getAirInventory = async (req: AuthRequest, res: Response): Promise<
           COUNT(*) FILTER (WHERE COALESCE(p.missing_on_arrival, FALSE) = TRUE)::int AS missing
         FROM packages p
         LEFT JOIN china_receipts cr ON cr.id = p.china_receipt_id
-        WHERE p.service_type = 'AIR_CHN_MX'
+        WHERE (${IS_AIR_CHN} OR ${IS_TDI_EXPRESS})
       `
     );
 
