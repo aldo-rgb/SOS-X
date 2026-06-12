@@ -95,9 +95,11 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
     : null;
 
   const instruccionesStatus = result
-    ? result.waybill
+    ? result.waybill?.direccion_entrega
       ? { label: 'Con instrucciones de envío', color: '#1565C0', bg: '#E3F2FD', icon: '📋' }
-      : { label: 'Sin instrucciones', color: '#9E9E9E', bg: '#F5F5F5', icon: '📋' }
+      : result.waybill
+        ? { label: 'Instrucciones sin dirección', color: '#E65100', bg: '#FFF3E0', icon: '📋' }
+        : { label: 'Sin instrucciones', color: '#9E9E9E', bg: '#F5F5F5', icon: '📋' }
     : null;
 
   const enviado = result?.waybill?.guia_salida

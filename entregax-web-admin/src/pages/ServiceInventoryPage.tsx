@@ -545,10 +545,23 @@ export default function ServiceInventoryPage() {
                 <Typography variant="caption" sx={{ color: hasMismatch ? '#F9A825' : ex.hasPago ? '#2E7D32' : '#9E9E9E', fontSize: '0.65rem' }}>{hasMismatch ? '⚠️' : ''}Pago</Typography>
               </Box>
             </Tooltip>
-            <Tooltip title={ex.hasInstrucciones ? 'Con instrucciones en EntregaX' : 'Sin instrucciones en EntregaX'}>
+            <Tooltip title={
+              ex.hasInstrucciones && ex.direccionEntrega
+                ? 'Con instrucciones y dirección de entrega'
+                : ex.hasInstrucciones
+                  ? 'Con instrucciones · sin dirección (pendiente en EntregaX)'
+                  : 'Sin instrucciones en EntregaX'
+            }>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.25 }}>
-                {ex.hasInstrucciones ? <CheckCircleIcon sx={{ fontSize: 16, color: hasMismatch ? '#F9A825' : '#1565C0' }} /> : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
-                <Typography variant="caption" sx={{ color: hasMismatch ? '#F9A825' : ex.hasInstrucciones ? '#1565C0' : '#9E9E9E', fontSize: '0.65rem' }}>Inst.</Typography>
+                {ex.hasInstrucciones && ex.direccionEntrega
+                  ? <CheckCircleIcon sx={{ fontSize: 16, color: hasMismatch ? '#F9A825' : '#1565C0' }} />
+                  : ex.hasInstrucciones
+                    ? <CheckCircleIcon sx={{ fontSize: 16, color: '#F9A825' }} />
+                    : <RadioButtonUncheckedIcon sx={{ fontSize: 16, color: '#BDBDBD' }} />}
+                <Typography variant="caption" sx={{
+                  color: hasMismatch ? '#F9A825' : ex.hasInstrucciones && ex.direccionEntrega ? '#1565C0' : ex.hasInstrucciones ? '#F9A825' : '#9E9E9E',
+                  fontSize: '0.65rem'
+                }}>Inst.</Typography>
               </Box>
             </Tooltip>
             {ex.paqueteria && <Typography variant="caption" sx={{ fontSize: '0.6rem', color: hasMismatch ? '#F9A825' : '#555', fontWeight: 600 }}>{ex.paqueteria}</Typography>}

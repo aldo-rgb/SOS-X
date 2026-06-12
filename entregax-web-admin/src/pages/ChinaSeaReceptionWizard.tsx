@@ -114,6 +114,7 @@ const RED = '#E53935';
 const TEAL = '#0097A7';
 
 export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props) {
+    const isSuperAdmin = (() => { try { return JSON.parse(localStorage.getItem('user') || '{}').role === 'super_admin'; } catch { return false; } })();
     const [step, setStep] = useState(0);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -1124,7 +1125,7 @@ export default function ChinaSeaReceptionWizard({ onBack, mode = 'LCL' }: Props)
                                 '&:hover': { bgcolor: statusFilter === 'all' ? '#00838F' : '#CFD8DC' },
                             }}
                         />
-                        {FCL_STATUSES.filter((s) => s.value !== 'received_origin' && s.value !== 'consolidated').map((s) => {
+                        {FCL_STATUSES.filter((s) => s.value !== 'received_origin' && s.value !== 'consolidated' && (s.value !== 'delivered' || isSuperAdmin)).map((s) => {
                             const count = statusCounts[s.value] || 0;
                             const isActive = statusFilter === s.value;
                             return (
