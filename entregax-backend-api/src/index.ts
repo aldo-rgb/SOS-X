@@ -11517,6 +11517,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           AND p.status IN ('received', 'in_transit', 'received_mty')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
+          AND p.user_id IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM addresses a WHERE a.user_id = p.user_id)
         GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', ''),
                  COALESCE(u.box_id, p.box_id),
@@ -11538,6 +11539,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           AND p.status IN ('received', 'in_transit', 'received_mty')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
+          AND p.user_id IS NOT NULL
           AND NOT EXISTS (SELECT 1 FROM addresses a WHERE a.user_id = p.user_id)
         GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', ''),
                  COALESCE(u.box_id, p.box_id),
