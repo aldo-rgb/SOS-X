@@ -534,7 +534,7 @@ export default function DriverHomeScreen({ navigation, route }: any) {
     const tracking = String(pkg.tracking_number || '');
     if (assignedCarrierFilter === 'po_box') return /^US-/i.test(tracking);
     if (assignedCarrierFilter === 'tdi') return carrier.includes('tdi') || /^TDX-/i.test(tracking);
-    if (assignedCarrierFilter === 'dhl') return carrier.includes('dhl');
+    if (assignedCarrierFilter === 'dhl') return carrier.includes('dhl') || !!pkg.is_dhl_shipment;
     return true;
   };
   const modalDelivered = deliveredPackages.filter(matchesCarrierFilter);
