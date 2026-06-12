@@ -3,7 +3,7 @@ import {
   Box, Typography, Paper, Table, TableHead, TableRow, TableCell, TableBody,
   Chip, CircularProgress, TextField, Button, ToggleButtonGroup, ToggleButton,
   TablePagination, InputAdornment, Tooltip, IconButton, LinearProgress,
-  Select, MenuItem, FormControl, InputLabel,
+  Select, MenuItem, FormControl, InputLabel, Checkbox,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
@@ -143,6 +143,7 @@ export default function ServiceInventoryPage() {
   const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
   const [syncingAll, setSyncingAll] = useState(false);
   const [syncAllProgress, setSyncAllProgress] = useState({ done: 0, total: 0 });
+  const [selectedGuias, setSelectedGuias] = useState<Set<string>>(new Set());
 
   const fmt = (d?: string | null) =>
     d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
@@ -184,6 +185,7 @@ export default function ServiceInventoryPage() {
     setSyncState({});
     setUsGuias({});
     setExpandedMasters(new Set());
+    setSelectedGuias(new Set());
   }, [service]);
 
   // Recargar cuando cambian los parámetros de carga
@@ -320,7 +322,7 @@ export default function ServiceInventoryPage() {
   const syncAll = async () => {
     const toSync = displayRows.filter(r => {
       const ex = exData[r.guia];
-      return ex?.state === 'done' && needsSync(r, ex) && (syncState[r.guia] || 'idle') === 'idle';
+      return selectedGuias.has(r.guia) && ex?.state === 'done' && needsSync(r, ex) && (syncState[r.guia] || 'idle') === 'idle';
     });
     if (toSync.length === 0) return;
     setSyncingAll(true);
@@ -606,7 +608,13 @@ export default function ServiceInventoryPage() {
 
   // ── Fila genérica (no TDI master) ──
   const renderFlatRow = (r: PackageRow, i: number) => (
-    <TableRow key={i} hover>
+    <TableRow key={i} hover selected={selectedGuias.has(r.guia)}>
+      <TableCell sx={{ p: 0.5, width: 44 }}>
+        <Checkbox size="small" checked={selectedGuias.has(r.guia)}
+          onChange={() => setSelectedGuias(prev => { const n = new Set(prev); n.has(r.guia) ? n.delete(r.guia) : n.add(r.guia); return n; })}
+          sx={{ p: 0.5 }}
+        />
+      </TableCell>
       <TableCell>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
           <Typography variant="body2" fontWeight={700} fontFamily="monospace">{r.guia || '—'}</Typography>
@@ -719,9 +727,16 @@ export default function ServiceInventoryPage() {
       <Fragment key={r.guia || i}>
         <TableRow
           hover
+          selected={selectedGuias.has(r.guia)}
           sx={isMasterRow ? { bgcolor: '#EDE7F6', cursor: 'pointer' } : undefined}
           onClick={isMasterRow ? toggleExpand : undefined}
         >
+          <TableCell sx={{ p: 0.5, width: 44 }} onClick={e => e.stopPropagation()}>
+            <Checkbox size="small" checked={selectedGuias.has(r.guia)}
+              onChange={() => setSelectedGuias(prev => { const n = new Set(prev); n.has(r.guia) ? n.delete(r.guia) : n.add(r.guia); return n; })}
+              sx={{ p: 0.5 }}
+            />
+          </TableCell>
           <TableCell>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
               {isMasterRow && (
@@ -883,7 +898,7 @@ export default function ServiceInventoryPage() {
           </Button>
 
           {service === 'pobox_usa' && (() => {
-            const pendingSync = displayRows.filter(r => { const ex = exData[r.guia]; return ex?.state === 'done' && needsSync(r, ex); }).length;
+            const pendingSync = displayRows.filter(r => { const ex = exData[r.guia]; return selectedGuias.has(r.guia) && ex?.state === 'done' && needsSync(r, ex); }).length;
             if (pendingSync === 0) return null;
             return (
               <Button variant="outlined" size="small"
@@ -927,6 +942,21 @@ export default function ServiceInventoryPage() {
         <Table size="small" stickyHeader>
           <TableHead>
             <TableRow>
+              <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700, width: 44, p: 0.5 }}>
+                {(() => {
+                  const guias = displayRows.map(r => r.guia);
+                  const allSel = guias.length > 0 && guias.every(g => selectedGuias.has(g));
+                  const someSel = guias.some(g => selectedGuias.has(g));
+                  return (
+                    <Tooltip title={allSel ? 'Deseleccionar todo' : 'Seleccionar todo'}>
+                      <Checkbox size="small" checked={allSel} indeterminate={someSel && !allSel}
+                        onChange={() => setSelectedGuias(allSel ? new Set() : new Set(guias))}
+                        sx={{ color: '#fff', '&.Mui-checked,&.MuiCheckbox-indeterminate': { color: '#bbb' }, p: 0.5 }}
+                      />
+                    </Tooltip>
+                  );
+                })()}
+              </TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>GUÍA</TableCell>
               {service !== 'maritimo' && <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>{service === 'dhl' ? 'GUÍA HIJA' : 'GUÍA ORIGEN'}</TableCell>}
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>CLIENTE</TableCell>
