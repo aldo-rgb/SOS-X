@@ -417,7 +417,7 @@ export default function ServiceInventoryPage() {
       if (fetchAbortRef.current) break;
       const batch = entries.slice(i, i + BATCH);
       setExData(prev => { const next = { ...prev }; batch.forEach(e => { next[e.storeKey] = { state: 'loading' }; }); return next; });
-      await Promise.all(batch.map(async ({ storeKey, queryKey, isPoBox, guia_origen }) => {
+      await Promise.all(batch.map(async ({ storeKey, queryKey, isPoBox }) => {
         try {
           const queryFn = async (key: string) => {
             const r = await api.get(`/national/payment-query/${encodeURIComponent(key)}`).catch((err: any) => ({ data: null, _notfound: err?.response?.status === 404 } as any));
