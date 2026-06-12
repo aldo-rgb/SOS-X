@@ -629,10 +629,15 @@ export default function ServiceInventoryPage() {
         return (
           <TableCell>
             {us?.state === 'loading' ? <CircularProgress size={12} sx={{ color: '#7B1FA2' }} />
-            : us?.guia_unica ? (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+            : us?.guia_unica && !isEditing ? (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
                 <Typography variant="caption" fontFamily="monospace" sx={{ fontSize: '0.7rem', color: '#7B1FA2', fontWeight: 600 }}>{us.guia_unica}</Typography>
                 <Tooltip title="Copiar"><IconButton size="small" onClick={() => navigator.clipboard.writeText(us.guia_unica!)}><ContentCopyIcon sx={{ fontSize: 11 }} /></IconButton></Tooltip>
+                <Tooltip title="Editar guía US">
+                  <IconButton size="small" onClick={() => { setManualUsInputs(prev => ({ ...prev, [r.guia]: us.guia_unica! })); setEditingUsGuias(prev => new Set([...prev, r.guia])); }}>
+                    <EditIcon sx={{ fontSize: 11, color: '#7B1FA2' }} />
+                  </IconButton>
+                </Tooltip>
               </Box>
             ) : us?.state === 'error' ? <Typography variant="caption" color="error" sx={{ fontSize: '0.65rem' }}>Error</Typography>
             : isEditing ? (
