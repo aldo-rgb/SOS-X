@@ -261,7 +261,8 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return false;
     if (!!ex.hasPago && !row.costing_paid) return true;
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
-    if (!!ex.hasInstrucciones && !row.has_instructions) return true;
+    // Solo marcar como pendiente de sync si hay dirección física que inyectar
+    if (!!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_instructions) return true;
     // Paquetería diferente → siempre actualizar (ej. DHL en nuestro sistema pero EntregaX dice Local)
     if (ex.paqueteria && ex.paqueteria.toUpperCase() !== (row.paqueteria || '').toUpperCase()) return true;
     const mappedStatus = mapExStatusToInternal(ex);
@@ -274,7 +275,7 @@ export default function ServiceInventoryPage() {
     if (!ex || ex.state !== 'done') return;
     setSyncState(prev => ({ ...prev, [row.guia]: 'syncing' }));
     const hasGuiaSalida = !!ex.guiaSalida;
-    const shouldInjectInstrucciones = !!ex.hasInstrucciones && !row.has_instructions;
+    const shouldInjectInstrucciones = !!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_instructions;
     const mappedStatus = mapExStatusToInternal(ex);
     // No cambiar recibido en MTY → enviado (el paquete sigue en nuestro almacén)
     const newStatus = mappedStatus && mappedStatus !== row.status
@@ -297,7 +298,7 @@ export default function ServiceInventoryPage() {
         return {
           ...r,
           costing_paid: r.costing_paid || (ex.hasPago ?? false),
-          has_instructions: r.has_instructions || !!ex.hasInstrucciones || hasGuiaSalida,
+          has_instructions: r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida,
           paqueteria: (ex.paqueteria && ex.paqueteria.toUpperCase() !== (r.paqueteria || '').toUpperCase())
             ? ex.paqueteria
             : (r.has_instructions ? r.paqueteria : (ex.paqueteria || r.paqueteria)),
@@ -371,7 +372,7 @@ export default function ServiceInventoryPage() {
         const exEntry: EntregaxRow = {
           state: 'done',
           hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
-          hasInstrucciones: d.waybill?.instrucciones === '1' || !!d.waybill?.direccion_entrega,
+          hasInstrucciones: !!d.waybill,
           guiaSalida: d.waybill?.guiasalida || d.waybill?.guia_salida || undefined,
           guiaIngreso: foundGuia,
           paqueteria: d.waybill?.paqueteria && d.waybill.paqueteria !== '0' ? d.waybill.paqueteria : undefined,
@@ -467,7 +468,7 @@ export default function ServiceInventoryPage() {
             const exEntry: EntregaxRow = {
               state: 'done',
               hasPago: (d.pagos || []).length > 0 || d.waybill?.pagado === '1',
-              hasInstrucciones: d.waybill?.instrucciones === '1' || !!d.waybill?.direccion_entrega,
+              hasInstrucciones: !!d.waybill,
               guiaSalida: d.waybill?.guiasalida || d.waybill?.guia_salida || undefined,
               guiaIngreso: guiaUnica,
               paqueteria: d.waybill?.paqueteria && d.waybill.paqueteria !== '0' ? d.waybill.paqueteria : undefined,
