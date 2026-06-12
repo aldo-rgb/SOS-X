@@ -968,7 +968,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     'DHL-' || ds.id::text AS id,
                     COALESCE(NULLIF(ds.secondary_tracking,''), ds.inbound_tracking) AS tracking_number,
                     ds.inbound_tracking AS national_tracking,
-                    'DHL' AS national_carrier,
+                    COALESCE(NULLIF(ds.national_carrier, ''), 'DHL') AS national_carrier,
                     ds.status AS delivery_status,
                     COALESCE(
                         a.street || ' ' || a.exterior_number,
@@ -1006,11 +1006,11 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 };
 
                 // pendingToLoad = paquetes visibles en "Entrega Local"
-                // Incluye dhl_shipments (is_dhl_shipment=true) que son entregas locales
-                const localRegular = reqLabel
-                    ? pendingRes.rows.filter(p => p.assigned_address_id && isLocalCarrier(String(p.national_carrier || ''))).length
-                    : pendingRes.rows.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
-                const pendingToLoad = localRegular + dhlPendingRes.rows.length;
+                // dhl_shipments ahora llevan su national_carrier real (local/EntregaX/paquete_express)
+                const allPendingForCount = [...pendingRes.rows, ...dhlPendingRes.rows];
+                const pendingToLoad = reqLabel
+                    ? allPendingForCount.filter(p => p.assigned_address_id && isLocalCarrier(String(p.national_carrier || ''))).length
+                    : allPendingForCount.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
                 const loadedToday = loadedRes.rows.length;
                 const totalAssigned = pendingToLoad + loadedToday + deliveredToday;
                 const outStatus = await getOutForDeliveryWriteStatus();
