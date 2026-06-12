@@ -20,7 +20,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import api from '../services/api';
 
 const ORANGE = '#F05A28';
-const EX_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 horas
+const EX_CACHE_TTL = 2 * 60 * 60 * 1000; // 2 horas
 
 const SERVICES = [
   { key: 'tdi_aereo',   label: 'TDI Aéreo',        emoji: '✈️',  color: '#1565C0' },
@@ -98,9 +98,15 @@ function setCachedEx(service: string, guia: string, data: EntregaxRow) {
   try {
     const cache = readExCache(service);
     const now = Date.now();
-    // Evict stale entries
     (Object.keys(cache) as string[]).forEach(k => { if (now - cache[k].ts > EX_CACHE_TTL) delete cache[k]; });
     cache[guia] = { data, ts: now };
+    localStorage.setItem(`ex_cache_${service}`, JSON.stringify(cache));
+  } catch {}
+}
+function removeCachedEx(service: string, guia: string) {
+  try {
+    const cache = readExCache(service);
+    delete cache[guia];
     localStorage.setItem(`ex_cache_${service}`, JSON.stringify(cache));
   } catch {}
 }
@@ -315,6 +321,9 @@ export default function ServiceInventoryPage() {
           status: newStatus || r.status,
         };
       }));
+      // Invalidar cache para forzar re-fetch fresco en el próximo Actualizar EntregaX
+      removeCachedEx(service, row.guia);
+      setExData(prev => { const next = { ...prev }; delete next[row.guia]; return next; });
       setSyncState(prev => ({ ...prev, [row.guia]: 'done' }));
       setTimeout(() => setSyncState(prev => prev[row.guia] === 'done' ? { ...prev, [row.guia]: 'idle' } : prev), 3000);
     } catch (err: any) {
