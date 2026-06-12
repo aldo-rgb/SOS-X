@@ -702,12 +702,13 @@ export default function LoadingVanScreen({ navigation, route }: any) {
     return !s || s.includes('local') || s.includes('entregax') || s.includes('pickup') || s.includes('pick up') || s.includes('bodega');
   };
   const requireLabelFlag = routeData?.requireLabelToLoad ?? true;
+  const isLocalOrDhl = (p: PackageItem) => p.is_dhl_shipment || isLocalCarrierFn(p.national_carrier);
   const filteredPending = routeData
     ? requireLabelFlag
-      // Toggle "Requerir Etiqueta Impresa" ON: solo locales con etiqueta impresa + dhl_shipments
-      ? routeData.pendingPackages.filter(p => p.is_dhl_shipment || (p.has_label && isLocalCarrierFn(p.national_carrier)))
+      // Toggle "Requerir Etiqueta Impresa" ON: locales + dhl_shipments que ya tienen etiqueta
+      ? routeData.pendingPackages.filter(p => isLocalOrDhl(p) && !!p.has_label)
       // Toggle OFF: todos los locales + dhl_shipments (sin filtro de etiqueta)
-      : routeData.pendingPackages.filter(p => p.is_dhl_shipment || isLocalCarrierFn(p.national_carrier))
+      : routeData.pendingPackages.filter(p => isLocalOrDhl(p))
     : [];
   const totalPackages = filteredPending.length + (routeData?.loadedToday || 0);
 

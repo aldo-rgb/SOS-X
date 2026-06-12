@@ -982,7 +982,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                     ds.box_id AS client_number,
                     true AS is_dhl_shipment,
                     ds.delivery_address_id AS assigned_address_id,
-                    true AS has_label
+                    (ds.national_tracking IS NOT NULL OR ds.national_label_url IS NOT NULL) AS has_label
                 FROM dhl_shipments ds
                 LEFT JOIN users u ON u.id = ds.user_id
                 LEFT JOIN addresses a ON a.id = ds.delivery_address_id
