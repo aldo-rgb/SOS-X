@@ -141,6 +141,8 @@ export default function ServiceInventoryPage() {
   const [editingUsGuias, setEditingUsGuias] = useState<Set<string>>(new Set());
   const [manualUsInputs, setManualUsInputs] = useState<Record<string, string>>({});
   const [expandedMasters, setExpandedMasters] = useState<Set<string>>(new Set());
+  const [syncingAll, setSyncingAll] = useState(false);
+  const [syncAllProgress, setSyncAllProgress] = useState({ done: 0, total: 0 });
 
   const fmt = (d?: string | null) =>
     d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
@@ -313,6 +315,21 @@ export default function ServiceInventoryPage() {
       setSyncErrors(prev => ({ ...prev, [row.guia]: msg }));
       setSyncState(prev => ({ ...prev, [row.guia]: 'error' }));
     }
+  };
+
+  const syncAll = async () => {
+    const toSync = displayRows.filter(r => {
+      const ex = exData[r.guia];
+      return ex?.state === 'done' && needsSync(r, ex) && (syncState[r.guia] || 'idle') === 'idle';
+    });
+    if (toSync.length === 0) return;
+    setSyncingAll(true);
+    setSyncAllProgress({ done: 0, total: toSync.length });
+    for (let i = 0; i < toSync.length; i++) {
+      await syncRow(toSync[i]);
+      setSyncAllProgress({ done: i + 1, total: toSync.length });
+    }
+    setSyncingAll(false);
   };
 
   const fetchGuiaUS = useCallback(async () => {
@@ -864,6 +881,21 @@ export default function ServiceInventoryPage() {
           >
             {exFetching ? `EntregaX ${exProgress}%` : exConsultedCount > 0 ? `Actualizar EntregaX (${exConsultedCount}/${rows.length})` : 'Consultar EntregaX'}
           </Button>
+
+          {service === 'pobox_usa' && (() => {
+            const pendingSync = displayRows.filter(r => { const ex = exData[r.guia]; return ex?.state === 'done' && needsSync(r, ex); }).length;
+            if (pendingSync === 0) return null;
+            return (
+              <Button variant="outlined" size="small"
+                onClick={syncAll}
+                disabled={syncingAll || exFetching}
+                startIcon={syncingAll ? <CircularProgress size={14} /> : <SyncIcon fontSize="small" />}
+                sx={{ borderColor: '#E65100', color: '#E65100', '&:hover': { bgcolor: '#FFF3E0' }, whiteSpace: 'nowrap' }}
+              >
+                {syncingAll ? `Sincronizando… ${syncAllProgress.done}/${syncAllProgress.total}` : `Sincronizar Todo (${pendingSync})`}
+              </Button>
+            );
+          })()}
 
           <Box sx={{ ml: 'auto', textAlign: 'right' }}>
             <Typography variant="caption" color="text.secondary" display="block">
