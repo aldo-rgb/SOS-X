@@ -11511,10 +11511,9 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           (p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p LEFT JOIN users u ON u.id = p.user_id
         WHERE (p.service_type = 'POBOX_USA' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
-          AND p.status NOT IN ('delivered', 'cancelled', 'lost')
+          AND p.status IN ('received', 'received_china', 'received_mty')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
-          AND p.national_tracking IS NULL
         ORDER BY p.created_at DESC LIMIT 200
       `),
       // TDI Express — incluye service_type=TDI_EXPRESS y variantes
@@ -11526,10 +11525,9 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           (p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p LEFT JOIN users u ON u.id = p.user_id
         WHERE p.service_type IN ('TDI_EXPRESS', 'TDI_AIR', 'tdi_express')
-          AND p.status NOT IN ('delivered', 'cancelled', 'lost')
+          AND p.status IN ('received', 'received_china', 'received_mty')
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
-          AND p.national_tracking IS NULL
         ORDER BY p.created_at DESC LIMIT 200
       `),
       // Aéreo Chino — shipping_mark es el box_id del cliente para clientes legacy
