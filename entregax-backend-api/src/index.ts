@@ -11505,7 +11505,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
       // PO Box USA — agrupa por master (strip sufijo -NNNN), muestra conteo de cajas
       safeQuery(`
         SELECT
-          REGEXP_REPLACE(p.tracking_internal, '-\\d+$', '') AS tracking,
+          REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', '') AS tracking,
           COALESCE(u.box_id, p.box_id) AS box_id,
           COALESCE(u.full_name, p.box_id) AS client_name,
           MIN(p.status) AS status,
@@ -11518,7 +11518,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM addresses a WHERE a.user_id = p.user_id)
-        GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d+$', ''),
+        GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', ''),
                  COALESCE(u.box_id, p.box_id),
                  COALESCE(u.full_name, p.box_id)
         ORDER BY MIN(p.created_at) DESC LIMIT 200
@@ -11526,7 +11526,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
       // TDI Express — agrupa por master
       safeQuery(`
         SELECT
-          REGEXP_REPLACE(p.tracking_internal, '-\\d+$', '') AS tracking,
+          REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', '') AS tracking,
           COALESCE(u.box_id, p.box_id) AS box_id,
           COALESCE(u.full_name, p.box_id) AS client_name,
           MIN(p.status) AS status,
@@ -11539,7 +11539,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
           AND NOT EXISTS (SELECT 1 FROM addresses a WHERE a.user_id = p.user_id)
-        GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d+$', ''),
+        GROUP BY REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', ''),
                  COALESCE(u.box_id, p.box_id),
                  COALESCE(u.full_name, p.box_id)
         ORDER BY MIN(p.created_at) DESC LIMIT 200
