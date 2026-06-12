@@ -58,6 +58,7 @@ interface PackageItem {
   box_number?: number | string;
   total_boxes?: number | string;
   is_dhl_shipment?: boolean;
+  has_label?: boolean;
 }
 
 interface FeedbackMessage {
@@ -703,9 +704,9 @@ export default function LoadingVanScreen({ navigation, route }: any) {
   const requireLabelFlag = routeData?.requireLabelToLoad ?? true;
   const filteredPending = routeData
     ? requireLabelFlag
-      // Toggle ON: locales con instrucciones + dhl_shipments (siempre tienen delivery_address_id)
-      ? routeData.pendingPackages.filter(p => p.is_dhl_shipment || (p.assigned_address_id && isLocalCarrierFn(p.national_carrier)))
-      // Toggle OFF: excluir carriers externos salvo dhl_shipments que son entrega local
+      // Toggle "Requerir Etiqueta Impresa" ON: solo locales con etiqueta impresa + dhl_shipments
+      ? routeData.pendingPackages.filter(p => p.is_dhl_shipment || (p.has_label && isLocalCarrierFn(p.national_carrier)))
+      // Toggle OFF: todos los locales + dhl_shipments (sin filtro de etiqueta)
       : routeData.pendingPackages.filter(p => p.is_dhl_shipment || isLocalCarrierFn(p.national_carrier))
     : [];
   const totalPackages = filteredPending.length + (routeData?.loadedToday || 0);

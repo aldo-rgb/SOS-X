@@ -104,7 +104,7 @@ export const invalidateRouteCache = (driverId: number) => {
     }
 };
 
-interface LoadingFlags { requirePayment: boolean; requireLabel: boolean; }
+interface LoadingFlags { requirePayment: boolean; requireLabel: boolean; requirePoboxInstructions: boolean; }
 let loadingFlagsCache: LoadingFlags | null = null;
 let loadingFlagsCacheAt: number | null = null;
 const LOADING_FLAGS_TTL_MS = 15_000;
@@ -117,17 +117,18 @@ const getLoadingFlags = async (): Promise<LoadingFlags> => {
     try {
         const r = await pool.query(
             `SELECT config_key, config_value FROM system_configurations
-             WHERE config_key IN ('require_payment_to_load', 'require_label_to_load') AND is_active = TRUE`
+             WHERE config_key IN ('require_payment_to_load', 'require_label_to_load', 'require_instructions_to_load_pobox') AND is_active = TRUE`
         );
         const byKey: Record<string, any> = {};
         r.rows.forEach((row: any) => { byKey[row.config_key] = row.config_value; });
         loadingFlagsCache = {
-            requirePayment: byKey['require_payment_to_load'] !== undefined ? byKey['require_payment_to_load']?.enabled !== false : true,
-            requireLabel:   byKey['require_label_to_load']   !== undefined ? byKey['require_label_to_load']?.enabled   !== false : true,
+            requirePayment:          byKey['require_payment_to_load']              !== undefined ? byKey['require_payment_to_load']?.enabled              !== false : true,
+            requireLabel:            byKey['require_label_to_load']                !== undefined ? byKey['require_label_to_load']?.enabled                !== false : true,
+            requirePoboxInstructions: byKey['require_instructions_to_load_pobox']  !== undefined ? byKey['require_instructions_to_load_pobox']?.enabled    === true  : false,
         };
         loadingFlagsCacheAt = now;
     } catch {
-        loadingFlagsCache = { requirePayment: true, requireLabel: true };
+        loadingFlagsCache = { requirePayment: true, requireLabel: true, requirePoboxInstructions: false };
         loadingFlagsCacheAt = now;
     }
     return loadingFlagsCache;
@@ -775,7 +776,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
         // (pagados + etiquetados) tal como se ve en panel de etiquetado.
         // IMPORTANTE: excluimos masters (no son cajas físicas). Las hijas heredan
         // payment/label/carrier del master via LEFT JOIN.
-        const { requirePayment: reqPay, requireLabel: reqLabel } = await getLoadingFlags();
+        const { requirePayment: reqPay, requireLabel: reqLabel, requirePoboxInstructions: reqPobox } = await getLoadingFlags();
         const paymentWhereClause = reqPay ? `AND (
                         LOWER(COALESCE(to_jsonb(p)->>'payment_status', '')) = 'paid'
                      OR LOWER(COALESCE(to_jsonb(m)->>'payment_status', '')) = 'paid'
@@ -1006,12 +1007,12 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
                 };
                 const isPoBox = (p: any) => /^US-/i.test(String(p.tracking_number || ''));
 
-                // Cuando toggle ON: ocultar PO Box sin etiqueta impresa (has_label=false)
-                const visiblePending = reqLabel
-                    ? allPendingRows.filter(p => !isPoBox(p) || !!p.has_label)
+                // Requerir Instrucciones Asignadas (solo PO Box): ocultar US- sin assigned_address_id
+                const visiblePending = reqPobox
+                    ? allPendingRows.filter(p => !isPoBox(p) || !!p.assigned_address_id)
                     : allPendingRows;
 
-                // pendingToLoad = paquetes locales visibles en "Salidas Locales"
+                // pendingToLoad = paquetes locales visibles con etiqueta impresa (Requerir Etiqueta Impresa)
                 const pendingToLoad = reqLabel
                     ? visiblePending.filter(p => p.has_label && isLocalCarrier(String(p.national_carrier || ''))).length
                     : visiblePending.filter(p => isLocalCarrier(String(p.national_carrier || ''))).length;
@@ -1029,7 +1030,7 @@ export const getDriverRouteToday = async (req: Request, res: Response): Promise<
             success: true,
             route: {
                 totalAssigned, loadedToday, deliveredToday,
-                pendingToLoad, paqueteriaCount, requireLabelToLoad: reqLabel,
+                pendingToLoad, paqueteriaCount, requireLabelToLoad: reqLabel, requirePoboxInstructions: reqPobox,
                 pendingPackages: visiblePending,
                 loadedPackages: loadedRes.rows,
                 deliveredPackages: deliveredTodayRes.rows,
