@@ -279,7 +279,7 @@ export default function ServiceInventoryPage() {
     // Paquetería diferente → siempre actualizar (ej. DHL en nuestro sistema pero EntregaX dice Local)
     if (ex.paqueteria && ex.paqueteria.toUpperCase() !== (row.paqueteria || '').toUpperCase()) return true;
     const mappedStatus = mapExStatusToInternal(ex);
-    if (mappedStatus && mappedStatus !== row.status && !(row.status === 'received_mty' && mappedStatus === 'shipped')) return true;
+    if (mappedStatus && mappedStatus !== row.status) return true;
     return false;
   };
 
@@ -291,10 +291,7 @@ export default function ServiceInventoryPage() {
     const canInjectAddr = ['received', 'received_china', 'received_mty'].includes(row.status);
     const shouldInjectInstrucciones = !!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_delivery_address && canInjectAddr;
     const mappedStatus = mapExStatusToInternal(ex);
-    // No cambiar recibido en MTY → enviado (el paquete sigue en nuestro almacén)
-    const newStatus = mappedStatus && mappedStatus !== row.status
-      && !(row.status === 'received_mty' && mappedStatus === 'shipped')
-      ? mappedStatus : undefined;
+    const newStatus = mappedStatus && mappedStatus !== row.status ? mappedStatus : undefined;
     try {
       await api.post('/packages/sync-from-entregax', {
         guia: row.guia, service,
