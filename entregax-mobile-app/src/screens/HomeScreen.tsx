@@ -939,13 +939,16 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
       || brandKey === 'pending' || brandKey === 'pending_classification'
       || (brandKey === '' && (merchKey === 'pending' || merchKey === 'pending_classification'));
     const hasPendingOrder = !!(item as any).has_pending_payment_order;
-    const canContractGEX = !hasPendingOrder && (item.has_gex || (gexEnabled && !isPendingClass && !((isMaritime || isChinaAir) && isLogoMerch) && (isMaritime
-      ? (item.status === 'received_china') // Marítimo: puede contratar antes de zarpar
+    // Elegibilidad pura para contratar GEX (sin considerar si ya tiene ni si hay orden pendiente)
+    const gexEligible = gexEnabled && !isPendingClass && !((isMaritime || isChinaAir) && isLogoMerch) && (isMaritime
+      ? (item.status === 'received_china')
       : isChinaAir
-        ? (item.status === 'received_origin') // ✈️🇨🇳 China Air: puede contratar en bodega China
+        ? (item.status === 'received_origin')
         : (['received', 'processing'].includes(item.status) &&
            item.consolidation_status !== 'in_transit' &&
-           item.consolidation_status !== 'shipped'))));
+           item.consolidation_status !== 'shipped'));
+    // "Sin Garantía" solo se ofrece si es elegible Y no hay orden de pago pendiente
+    const canContractGEX = !hasPendingOrder && gexEligible;
 
     const handlePress = () => {
       // 🚢/✈️/🚚 Marítimo, China Air o DHL → navegar al detalle del embarque
@@ -1310,7 +1313,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     Protegido: pill con borde negro, escudo negro + palomita
                                 naranja, texto negro.
                     Sin garantía: solo texto rojo con escudo rojo (sin recuadro). */}
-                {canContractGEX && (
+                {/* "Protegido" siempre visible si tiene GEX; "Sin Garantía" solo si no hay orden pendiente */}
+                {(item.has_gex || canContractGEX) && (
                   <View style={styles.gexTextRow}>
                     {item.has_gex ? (
                       <View style={styles.gexTextRowInner}>
