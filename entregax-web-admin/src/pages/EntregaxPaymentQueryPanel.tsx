@@ -44,6 +44,7 @@ interface Waybill {
   // EntregaX puede devolver la dirección bajo "direccion_entrega" o bajo "instrucciones"
   direccion_entrega?: DireccionWaybill;
   instrucciones?: DireccionWaybill;
+  pagado?: string;
 }
 
 interface Guia {
