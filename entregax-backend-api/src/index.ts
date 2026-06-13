@@ -3375,11 +3375,11 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
         ))
       )
         AND status::text NOT IN ('cancelled', 'returned')
+        AND NOT (status::text IN ('shipped', 'delivered') AND client_paid = true)
         AND (
           status::text NOT IN ('delivered', 'sent')
           OR updated_at >= NOW() - INTERVAL '7 days'
         )
-        AND NOT (status::text = 'shipped' AND client_paid = true)
         AND (is_master = true OR master_id IS NULL)
       ORDER BY
         CASE WHEN status::text = 'ready_pickup' THEN 0 ELSE 1 END,
