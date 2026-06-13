@@ -3029,7 +3029,8 @@ app.get('/api/packages/service-inventory', authenticateToken, requireMinLevel(RO
                         u.full_name AS cliente_nombre,
                         mo.national_carrier AS paqueteria, mo.national_tracking AS guia_salida,
                         (mo.payment_status = 'paid') AS costing_paid,
-                        (mo.delivery_address_id IS NOT NULL OR mo.national_tracking IS NOT NULL) AS has_instructions
+                        (mo.delivery_address_id IS NOT NULL OR mo.national_tracking IS NOT NULL OR mo.instructions_confirmed = TRUE) AS has_instructions,
+                        mo.national_label_url IS NOT NULL AS has_label
                    FROM maritime_orders mo LEFT JOIN users u ON mo.user_id = u.id
                   WHERE ${where} ORDER BY mo.created_at DESC LIMIT $${params.length+1} OFFSET $${params.length+2}`;
       params.push(limit, offset);
@@ -11709,6 +11710,8 @@ async function ensureRequiredColumns() {
       CREATE INDEX IF NOT EXISTS idx_packages_loaded_vehicle_id ON packages(loaded_vehicle_id);
       -- 🚛 Chofer asignado al paquete para entrega a domicilio
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS assigned_driver_id INTEGER;
+      -- 📋 Marítimo: confirmación de instrucciones sin inyectar dirección
+      ALTER TABLE maritime_orders ADD COLUMN IF NOT EXISTS instructions_confirmed BOOLEAN DEFAULT FALSE;
       -- 📋 Instrucciones de entrega (dirección asignada por el cliente)
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS needs_instructions BOOLEAN DEFAULT TRUE;
       ALTER TABLE packages ADD COLUMN IF NOT EXISTS instructions_assigned_at TIMESTAMP;
@@ -12909,12 +12912,11 @@ app.post('/api/packages/sync-from-entregax', authenticateToken, requireMinLevel(
         params.push(paqueteria || null); updates.push(`national_carrier = $${params.length}`);
         params.push(guia_salida);       updates.push(`national_tracking = $${params.length}`);
         syncedFields.push('guia_salida');
-      } else if (hasInstrucciones) {
-        // Sin guía de salida → inyectar dirección de EntregaX + paquetería
-        if (paqueteria) { params.push(paqueteria); updates.push(`national_carrier = $${params.length}`); }
-        const moRes = await pool.query(`SELECT user_id FROM maritime_orders WHERE ordersn = $1 LIMIT 1`, [guia]);
-        const addrId = await upsertAddress(moRes.rows[0]?.user_id);
-        if (addrId) { params.push(addrId); updates.push(`delivery_address_id = $${params.length}`); }
+      }
+      if (hasInstrucciones) {
+        // Marcar instrucciones confirmadas + etiqueta impresa (sin inyectar dirección)
+        updates.push(`instructions_confirmed = TRUE`);
+        updates.push(`national_label_url = COALESCE(national_label_url, 'manual-printed')`);
         syncedFields.push('instrucciones');
       }
       if (safeNewStatus) { params.push(safeNewStatus); updates.push(`status = $${params.length}`); syncedFields.push('status'); }

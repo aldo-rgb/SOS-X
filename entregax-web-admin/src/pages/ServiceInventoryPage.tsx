@@ -272,6 +272,8 @@ export default function ServiceInventoryPage() {
 
   const needsSync = (row: PackageRow, ex: EntregaxRow | undefined): boolean => {
     if (!ex || ex.state !== 'done') return false;
+    // Marítimo: instrucciones en EntregaX pero no en nuestro sistema
+    if (service === 'maritimo' && !!ex.hasInstrucciones && !row.has_instructions) return true;
     // Marítimo: pago + instrucciones en EntregaX → debe marcarse como entregado
     if (service === 'maritimo' && !!ex.hasPago && !!ex.hasInstrucciones && row.status !== 'delivered') return true;
     if (!!ex.hasPago && !row.costing_paid) return true;
@@ -293,7 +295,9 @@ export default function ServiceInventoryPage() {
     setSyncState(prev => ({ ...prev, [row.guia]: 'syncing' }));
     const hasGuiaSalida = !!ex.guiaSalida;
     const canInjectAddr = ['received', 'received_china', 'received_mty'].includes(row.status);
-    const shouldInjectInstrucciones = !!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_delivery_address && canInjectAddr;
+    // Marítimo: marcar instrucciones confirmadas sin inyectar dirección
+    const maritimeMarkInstr = service === 'maritimo' && !!ex.hasInstrucciones && !row.has_instructions;
+    const shouldInjectInstrucciones = maritimeMarkInstr || (!!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_delivery_address && canInjectAddr);
     const mappedStatus = mapExStatusToInternal(ex);
     // Marítimo: si EntregaX tiene pago + instrucciones → el paquete ya fue entregado
     const maritimeDelivered = service === 'maritimo' && !!ex.hasPago && !!ex.hasInstrucciones && row.status !== 'delivered';
@@ -315,7 +319,7 @@ export default function ServiceInventoryPage() {
         return {
           ...r,
           costing_paid: r.costing_paid || (ex.hasPago ?? false),
-          has_instructions: r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeDelivered,
+          has_instructions: r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeDelivered || maritimeMarkInstr,
           has_delivery_address: r.has_delivery_address || shouldInjectInstrucciones,
           paqueteria: (ex.paqueteria && ex.paqueteria.toUpperCase() !== (r.paqueteria || '').toUpperCase())
             ? ex.paqueteria
