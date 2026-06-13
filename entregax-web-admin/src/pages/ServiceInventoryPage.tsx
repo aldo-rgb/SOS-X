@@ -272,6 +272,8 @@ export default function ServiceInventoryPage() {
 
   const needsSync = (row: PackageRow, ex: EntregaxRow | undefined): boolean => {
     if (!ex || ex.state !== 'done') return false;
+    // Marítimo: pago + instrucciones en EntregaX → debe marcarse como entregado
+    if (service === 'maritimo' && !!ex.hasPago && !!ex.hasInstrucciones && row.status !== 'delivered') return true;
     if (!!ex.hasPago && !row.costing_paid) return true;
     if (ex.guiaSalida && ex.guiaSalida.trim().toUpperCase() !== (row.guia_salida || '').trim().toUpperCase()) return true;
     // Solo inyectar dirección si: EntregaX tiene datos físicos, el paquete no tiene address_id,
@@ -293,7 +295,9 @@ export default function ServiceInventoryPage() {
     const canInjectAddr = ['received', 'received_china', 'received_mty'].includes(row.status);
     const shouldInjectInstrucciones = !!ex.hasInstrucciones && !!ex.direccionEntrega && !row.has_delivery_address && canInjectAddr;
     const mappedStatus = mapExStatusToInternal(ex);
-    const newStatus = mappedStatus && mappedStatus !== row.status ? mappedStatus : undefined;
+    // Marítimo: si EntregaX tiene pago + instrucciones → el paquete ya fue entregado
+    const maritimeDelivered = service === 'maritimo' && !!ex.hasPago && !!ex.hasInstrucciones && row.status !== 'delivered';
+    const newStatus = maritimeDelivered ? 'delivered' : (mappedStatus && mappedStatus !== row.status ? mappedStatus : undefined);
     try {
       await api.post('/packages/sync-from-entregax', {
         guia: row.guia, service,
@@ -311,7 +315,7 @@ export default function ServiceInventoryPage() {
         return {
           ...r,
           costing_paid: r.costing_paid || (ex.hasPago ?? false),
-          has_instructions: r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida,
+          has_instructions: r.has_instructions || shouldInjectInstrucciones || hasGuiaSalida || maritimeDelivered,
           has_delivery_address: r.has_delivery_address || shouldInjectInstrucciones,
           paqueteria: (ex.paqueteria && ex.paqueteria.toUpperCase() !== (r.paqueteria || '').toUpperCase())
             ? ex.paqueteria
@@ -925,7 +929,7 @@ export default function ServiceInventoryPage() {
             {exFetching ? `EntregaX ${exProgress}%` : exConsultedCount > 0 ? `Actualizar EntregaX (${exConsultedCount}/${rows.length})` : 'Consultar EntregaX'}
           </Button>
 
-          {service === 'pobox_usa' && (() => {
+          {(() => {
             const pendingSync = displayRows.filter(r => { const ex = exData[r.guia]; return selectedGuias.has(r.guia) && ex?.state === 'done' && needsSync(r, ex); }).length;
             if (pendingSync === 0) return null;
             return (
