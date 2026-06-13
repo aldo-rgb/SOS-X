@@ -1378,6 +1378,7 @@ export default function DashboardClient() {
   // Pagar en línea (tarjeta / PayPal) desde diálogo de Instrucciones
   const [onlinePayDialog, setOnlinePayDialog] = useState<{ open: boolean; order: any | null }>({ open: false, order: null });
   const [onlinePayLoading, setOnlinePayLoading] = useState<'card' | 'paypal' | 'wallet' | 'credit' | null>(null);
+  const [openpayAvailable, setOpenpayAvailable] = useState<boolean>(true);
   const [onlinePayInvoice, setOnlinePayInvoice] = useState(false);
   // Aplicación parcial de crédito: cuando el crédito del servicio < monto total, el usuario
   // puede aplicar ese crédito y pagar el restante con tarjeta/paypal/saldo.
@@ -1965,6 +1966,12 @@ export default function DashboardClient() {
     }
     setPaymentInstructionsDialog(null);
     setOnlinePayDialog({ open: true, order });
+    // Verificar disponibilidad de OpenPay para este servicio
+    const svcType = order?.packages?.[0]?.service_type || order?.service_type || 'po_box';
+    setOpenpayAvailable(true); // optimista mientras consulta
+    api.get(`/payments/openpay/available?service=${svcType}`)
+      .then((r: any) => setOpenpayAvailable(!!r.data?.available))
+      .catch(() => setOpenpayAvailable(false));
     // Refrescar saldo y créditos para que aparezcan métodos internos actualizados
     try { loadWalletStatus(); } catch {}
     try { loadServiceCredits(); } catch {}
@@ -12944,7 +12951,8 @@ export default function DashboardClient() {
 
           <Typography variant="subtitle2" sx={{ mb: 1.5, color: '#555' }}>Selecciona tu método de pago:</Typography>
 
-          {/* Opción Tarjeta */}
+          {/* Opción Tarjeta — solo si OpenPay está configurado para este servicio */}
+          {openpayAvailable && (
           <Paper
             onClick={() => !onlinePayLoading && handlePayOnlineCard()}
             sx={{
@@ -12974,6 +12982,7 @@ export default function DashboardClient() {
               <ChevronRightIcon sx={{ color: '#999' }} />
             )}
           </Paper>
+          )}
 
           {/* Opción PayPal */}
           <Paper
