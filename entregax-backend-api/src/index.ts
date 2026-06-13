@@ -12823,18 +12823,33 @@ app.get('/api/national/payment-query/:guide', authenticateToken, async (req: Aut
       return (res as any).status(404).json(fallback);
     }
 
-    const waybillMsg = (waybill as any)?.status === 'success' ? (waybill as any).message : null;
-    console.log(`[PAYMENT-QUERY] guide=${rawGuide} waybill_keys=${waybillMsg ? Object.keys(waybillMsg).join(',') : 'null'} instrucciones=${waybillMsg?.instrucciones} direccion_entrega=${JSON.stringify(waybillMsg?.direccion_entrega)}`);
+    let waybillMsg = (waybill as any)?.status === 'success' ? (waybill as any).message : null;
+
+    // Si el waybill existe pero no tiene dirección, reintentar con ctz del propio waybill
+    const waybillCtz: string | undefined = waybillMsg?.ctz || waybillMsg?.cotizacion;
+    if (waybillMsg && !waybillMsg.direccion_entrega?.calle && waybillCtz && waybillCtz !== rawGuide) {
+      try {
+        const ctzRes = await fetch(`${BASE}/get-waybill/${inferTipo(waybillCtz)}/${encodeURIComponent(waybillCtz)}`, { headers: H });
+        if (ctzRes.ok) {
+          const ctzWb = await ctzRes.json().catch(() => null);
+          const ctzMsg = (ctzWb as any)?.status === 'success' ? (ctzWb as any).message : null;
+          if (ctzMsg?.direccion_entrega?.calle) waybillMsg = ctzMsg;
+        }
+      } catch { /* ignore */ }
+    }
+
+    console.log(`[PAYMENT-QUERY] guide=${rawGuide} waybill_keys=${waybillMsg ? Object.keys(waybillMsg).join(',') : 'null'} instrucciones=${JSON.stringify(waybillMsg?.instrucciones)} direccion_entrega=${JSON.stringify(waybillMsg?.direccion_entrega)}`);
     return (res as any).json({
       status: 'success',
       data: {
         ctz: ctzFromPayments || guide,
-        // guiaUnica viene de pagos (guias[]); si no hay pagos, usar el del waybill
         guia_unica: guiaUnica || waybillMsg?.guia_unica || undefined,
         guias: paymentsGuias,
         pagos: (payments as any)?.data?.pagos || [],
         historial: (history as any)?.data || [],
         waybill: waybillMsg,
+        // Datos crudos del waybill para debug (todos los campos disponibles)
+        rawWaybill: waybillMsg ? { ...waybillMsg } : null,
       },
     });
   } catch (err: any) {

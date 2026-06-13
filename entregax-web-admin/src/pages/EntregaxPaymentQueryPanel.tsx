@@ -59,6 +59,7 @@ interface QueryResult {
   pagos: Pago[];
   historial: Movimiento[];
   waybill: Waybill | null;
+  rawWaybill?: Record<string, any> | null;
 }
 
 interface Props {
@@ -100,8 +101,11 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
       : { label: 'Sin pagos registrados', color: '#F59E0B', bg: '#FEF3C7', icon: '⏳' }
     : null;
 
+  // Dirección real: puede estar en direccion_entrega o en instrucciones (fallback)
+  const direccionReal = (d: DireccionWaybill | undefined) => !!(d?.calle || d?.quienrecibe || d?.colonia || d?.cp);
+  const hasDireccion = direccionReal(result?.waybill?.direccion_entrega) || direccionReal(result?.waybill?.instrucciones);
   const instruccionesStatus = result
-    ? result.waybill?.direccion_entrega
+    ? hasDireccion
       ? { label: 'Con instrucciones de envío', color: '#1565C0', bg: '#E3F2FD', icon: '📋' }
       : result.waybill
         ? { label: 'Instrucciones sin dirección', color: '#E65100', bg: '#FFF3E0', icon: '📋' }
@@ -408,8 +412,14 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
                       </Box>
                     </Box>
                   )}
-                  {result.waybill.direccion_entrega && (() => {
-                    const d = result.waybill!.direccion_entrega!;
+                  {(() => {
+                    // Usar direccion_entrega si tiene datos reales, si no intentar instrucciones
+                    const d = direccionReal(result.waybill!.direccion_entrega)
+                      ? result.waybill!.direccion_entrega!
+                      : direccionReal(result.waybill!.instrucciones)
+                        ? result.waybill!.instrucciones!
+                        : null;
+                    if (!d) return null;
                     return (
                       <>
                         {d.quienrecibe && (
@@ -433,6 +443,24 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
                   })()}
                 </Box>
               </Paper>
+              {/* Datos crudos de EntregaX — todos los campos disponibles */}
+              {result.rawWaybill && (
+                <Box sx={{ mt: 1.5 }}>
+                  <Typography variant="caption" color="text.secondary" fontWeight={700}>Datos crudos de EntregaX:</Typography>
+                  <Paper variant="outlined" sx={{ p: 1.5, mt: 0.5, borderRadius: 1, bgcolor: '#F9F9F9' }}>
+                    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+                      {Object.entries(result.rawWaybill).map(([k, v]) => v != null && v !== '' && (
+                        <Box key={k} sx={{ minWidth: 120 }}>
+                          <Typography variant="caption" color="text.secondary">{k}</Typography>
+                          <Typography variant="body2" fontFamily="monospace" fontSize="0.72rem" fontWeight={600}>
+                            {typeof v === 'object' ? JSON.stringify(v) : String(v)}
+                          </Typography>
+                        </Box>
+                      ))}
+                    </Box>
+                  </Paper>
+                </Box>
+              )}
             </Box>
           )}
         </Box>
