@@ -46,6 +46,7 @@ export interface PublicTrackingSnapshot {
         dimensions?: string | null;
     }>;
     fetchedAt: string;
+    received_at?: string | null;
 }
 
 const normalize = (t: string): string => String(t || '').trim().toUpperCase();

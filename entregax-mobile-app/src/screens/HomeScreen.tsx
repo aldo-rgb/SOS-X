@@ -1389,6 +1389,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         total_boxes: data.total_boxes,
         children: data.children,
         fetchedAt: new Date().toISOString(),
+        received_at: data.received_at || null,
       };
       if (isMounted.current) setPublicSearchResult(snapshot);
       const isFol = followed.some(f => f.tracking === snapshot.tracking);
@@ -2764,6 +2765,12 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               const lastDate = lastMovement?.date
                 ? new Date(lastMovement.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
                 : null;
+              const lastTime = lastMovement?.date
+                ? new Date(lastMovement.date).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hour12: true })
+                : null;
+              const receivedAtDate = snap?.received_at
+                ? new Date(snap.received_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                : null;
               // Buscar en paquetes propios para obtener peso y medidas
               const ownPkg = packages.find(p => {
                 const norm = f.tracking.toUpperCase();
@@ -2804,8 +2811,8 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                       <Text style={{ fontSize: 13, fontWeight: '700', color: '#111' }}>
                         {f.tracking}
                       </Text>
-                      {lastDate && (
-                        <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{lastDate}</Text>
+                      {receivedAtDate && (
+                        <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{receivedAtDate}</Text>
                       )}
                     </View>
                     {(svcName || statusLabel) ? (
@@ -2815,7 +2822,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     ) : null}
                     {lastDetail ? (
                       <Text style={{ fontSize: 11, color: '#0EA5E9', marginTop: 2 }} numberOfLines={1}>
-                        {lastDetail}
+                        {[lastDetail, lastDate && lastTime ? `${lastDate} ${lastTime}` : lastDate || lastTime].filter(Boolean).join('  ·  ')}
                       </Text>
                     ) : null}
                     {(weight || dims) ? (

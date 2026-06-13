@@ -10723,6 +10723,7 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
       milestones: MILESTONES,
       movements,
       found: true,
+      received_at: row.created_at || null,
       // Master/hijas (sólo packages)
       ...(row.is_master ? {
         is_master: true,
