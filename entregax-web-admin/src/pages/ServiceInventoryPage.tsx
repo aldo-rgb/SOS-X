@@ -133,6 +133,7 @@ export default function ServiceInventoryPage() {
   const [dateTo, setDateTo] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [syncFilter, setSyncFilter] = useState<'' | 'synced' | 'needs_sync' | 'not_found'>('');
+  const [instrFilter, setInstrFilter] = useState<'' | 'with' | 'without'>('');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(50);
   const [exData, setExData] = useState<Record<string, EntregaxRow>>({});
@@ -165,7 +166,7 @@ export default function ServiceInventoryPage() {
     try {
       // Cuando hay filtro de Estado EntregaX activo, cargar TODAS las guías (sin paginación)
       // para que el filtro client-side aplique sobre el total y no solo la página actual
-      const useAllRows = !!syncFilter;
+      const useAllRows = !!syncFilter || !!instrFilter;
       const r = await api.get('/packages/service-inventory', {
         params: {
           service,
@@ -181,13 +182,14 @@ export default function ServiceInventoryPage() {
       setTotal(r.data.total || 0);
     } catch { setRows([]); setTotal(0); }
     finally { setLoading(false); }
-  }, [service, page, rowsPerPage, search, dateFrom, dateTo, statusFilter, syncFilter]);
+  }, [service, page, rowsPerPage, search, dateFrom, dateTo, statusFilter, syncFilter, instrFilter]);
 
   // Service change: reset todo
   useEffect(() => {
     setPage(0);
     setStatusFilter('');
     setSyncFilter('');
+    setInstrFilter('');
     setExData({});
     setSyncState({});
     setUsGuias({});
@@ -827,16 +829,18 @@ export default function ServiceInventoryPage() {
     );
   });
 
-  // ── Aplicar filtro de sync (client-side sobre datos ya cargados) ──
-  const displayRows = syncFilter
-    ? rows.filter(r => {
-        const ex = exData[r.guia];
-        if (syncFilter === 'synced') return ex?.state === 'done' && !needsSync(r, ex);
-        if (syncFilter === 'needs_sync') return ex?.state === 'done' && needsSync(r, ex);
-        if (syncFilter === 'not_found') return ex?.state === 'notfound';
-        return true;
-      })
-    : rows;
+  // ── Aplicar filtros client-side ──
+  const displayRows = rows.filter(r => {
+    if (syncFilter) {
+      const ex = exData[r.guia];
+      if (syncFilter === 'synced' && !(ex?.state === 'done' && !needsSync(r, ex))) return false;
+      if (syncFilter === 'needs_sync' && !(ex?.state === 'done' && needsSync(r, ex))) return false;
+      if (syncFilter === 'not_found' && ex?.state !== 'notfound') return false;
+    }
+    if (instrFilter === 'with' && !r.has_instructions && !r.has_delivery_address) return false;
+    if (instrFilter === 'without' && (r.has_instructions || r.has_delivery_address)) return false;
+    return true;
+  });
 
   const exConsultedCount = rows.filter(r => exData[r.guia] && exData[r.guia].state !== 'idle' && exData[r.guia].state !== 'loading').length;
 
@@ -989,7 +993,22 @@ export default function ServiceInventoryPage() {
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>FECHA INGRESO</TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>ÚLTIMO MOVIMIENTO</TableCell>
               <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }}>ÚLTIMO STATUS</TableCell>
-              <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }} align="center">PAGO / INST.</TableCell>
+              <TableCell sx={{ bgcolor: '#111', color: '#fff', fontWeight: 700 }} align="center">
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                  PAGO / INST.
+                  {service !== 'pobox_usa' && service !== 'dhl' && (
+                    <Tooltip title={instrFilter === 'without' ? 'Mostrando: Sin instrucciones' : instrFilter === 'with' ? 'Mostrando: Con instrucciones' : 'Filtrar por instrucciones'}>
+                      <Box
+                        component="span"
+                        onClick={() => setInstrFilter(prev => prev === '' ? 'without' : prev === 'without' ? 'with' : '')}
+                        sx={{ cursor: 'pointer', fontSize: '0.65rem', bgcolor: instrFilter === 'without' ? '#EF5350' : instrFilter === 'with' ? '#66BB6A' : '#444', color: '#fff', borderRadius: 1, px: 0.75, py: 0.25, userSelect: 'none', whiteSpace: 'nowrap' }}
+                      >
+                        {instrFilter === 'without' ? 'Sin inst.' : instrFilter === 'with' ? 'Con inst.' : 'Todas'}
+                      </Box>
+                    </Tooltip>
+                  )}
+                </Box>
+              </TableCell>
               <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }} align="center">ENTREGAX</TableCell>
               <TableCell sx={{ bgcolor: '#1565C0', color: '#fff', fontWeight: 700 }}>STATUS ENTREGAX</TableCell>
               {service === 'pobox_usa' && <TableCell sx={{ bgcolor: '#7B1FA2', color: '#fff', fontWeight: 700 }}>GUÍA US</TableCell>}
