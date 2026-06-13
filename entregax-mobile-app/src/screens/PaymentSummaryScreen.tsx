@@ -618,7 +618,7 @@ export default function PaymentSummaryScreen({ route, navigation }: PaymentSumma
                 mode="contained"
                 onPress={() => {
                   setShowCashInstructions(false);
-                  navigation.navigate('Home', { user, token });
+                  navigation.navigate('MyPayments' as any, { user, token, initialTab: 'orders' });
                 }}
                 style={styles.cashDoneButton}
                 buttonColor={GREEN}

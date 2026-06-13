@@ -980,6 +980,7 @@ import {
   createServiceInvoice as createMultiServiceInvoice,
   getAdminServiceSummary,
   processOpenPayCard,
+  checkOpenpayAvailable,
   createPayPalPayment,
   createBranchPayment,
   testConfirmPayment,
@@ -3378,6 +3379,7 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
           status::text NOT IN ('delivered', 'sent')
           OR updated_at >= NOW() - INTERVAL '7 days'
         )
+        AND NOT (status::text = 'shipped' AND client_paid = true)
         AND (is_master = true OR master_id IS NULL)
       ORDER BY
         CASE WHEN status::text = 'ready_pickup' THEN 0 ELSE 1 END,
@@ -3810,11 +3812,29 @@ app.get('/api/dashboard/client', authenticateToken, async (req: AuthRequest, res
       console.log('Exchange rate config not available, using defaults');
     }
 
+    // Marcar paquetes que ya tienen una orden de pago pendiente
+    const pendingOrdersRes = await pool.query(
+      `SELECT package_ids FROM pobox_payments WHERE user_id = $1 AND status IN ('pending', 'pending_payment', 'pending_review')`,
+      [userId]
+    );
+    const pendingPackageIds = new Set<number>();
+    for (const row of pendingOrdersRes.rows) {
+      try {
+        const ids: number[] = Array.isArray(row.package_ids)
+          ? row.package_ids
+          : JSON.parse(row.package_ids || '[]');
+        ids.forEach((id: number) => pendingPackageIds.add(Number(id)));
+      } catch {}
+    }
+
     // Firmar URLs de S3 para fotos de paquetes (bucket privado)
     const { signS3UrlIfNeeded } = await import('./s3Service');
     const allPackagesSigned = await Promise.all(allPackages.map(async (pkg: any) => {
-      if (!pkg.image_url) return pkg;
-      return { ...pkg, image_url: await signS3UrlIfNeeded(pkg.image_url) };
+      const withPending = pendingPackageIds.has(Number(pkg.id))
+        ? { ...pkg, has_pending_payment_order: true }
+        : pkg;
+      if (!withPending.image_url) return withPending;
+      return { ...withPending, image_url: await signS3UrlIfNeeded(withPending.image_url) };
     }));
 
     // 6. Construir respuesta
@@ -4698,6 +4718,7 @@ app.get('/api/payments/status/:consolidationId', authenticateToken, getPaymentSt
 
 // --- RUTAS DE PAGOS NUEVAS - GATEWAY INTEGRATIONS ---
 app.post('/api/payments/openpay/card', authenticateToken, processOpenPayCard);
+app.get('/api/payments/openpay/available', authenticateToken, checkOpenpayAvailable);
 app.post('/api/payments/paypal/create', authenticateToken, paymentLimiter, createPayPalPayment);
 app.post('/api/payments/branch/reference', authenticateToken, createBranchPayment);
 
@@ -10339,7 +10360,7 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
     shipped: 1, in_transit: 1, received_china: 1, received_origin: 1, en_transito: 1,
     loading: 1, at_port: 1, in_warehouse: 1, processing: 1,
     in_transit_china: 1, at_warehouse_china: 1, in_warehouse_china: 1,
-    // Milestone 2 — Cruce Aduanal
+    // Milestone 2 — Tramite Aduanal
     in_customs: 2, customs: 2, cruce_aduanal: 2, at_customs: 2,
     in_transit_mx: 2, pending_inspection: 2,
     // Milestone 3 — En Bodega MTY
@@ -10353,7 +10374,7 @@ app.get('/api/public/track/:tracking', async (req: Request, res: Response) => {
   const MILESTONES = [
     { key: 'ordered',   label_es: 'Ordenado',               label_en: 'Ordered',              label_zh: '已下单',     icon: 'check-circle' },
     { key: 'transit',   label_es: 'En Tránsito',             label_en: 'In Transit',            label_zh: '运输中',     icon: 'local-shipping' },
-    { key: 'customs',   label_es: 'Cruce Aduanal',           label_en: 'Customs',               label_zh: '清关中',     icon: 'security' },
+    { key: 'customs',   label_es: 'Tramite Aduanal',           label_en: 'Customs',               label_zh: '清关中',     icon: 'security' },
     { key: 'warehouse', label_es: 'En Bodega MTY',           label_en: 'At Warehouse',          label_zh: '仓库中',     icon: 'warehouse' },
     { key: 'ready',     label_es: 'Listo para Entrega',      label_en: 'Ready for Delivery',    label_zh: '待派送',     icon: 'inventory' },
     { key: 'delivered', label_es: 'Entregado',               label_en: 'Delivered',             label_zh: '已签收',     icon: 'done-all' },

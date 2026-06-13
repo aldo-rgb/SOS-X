@@ -712,6 +712,18 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             console.log(`[LEGACY-CLAIM] ✅ ${claimedPkgs.rowCount} paquetes reclamados para ${boxId.toUpperCase()} (user ${newUserId}):`, byService);
         }
 
+        // 6.2 Auto-reclamar órdenes marítimas huérfanas (user_id NULL + mismo shipping_mark).
+        const claimedMaritime = await client.query(`
+            UPDATE maritime_orders
+            SET user_id = $1, updated_at = NOW()
+            WHERE user_id IS NULL
+              AND UPPER(TRIM(shipping_mark)) = $2
+            RETURNING id
+        `, [newUserId, boxId.toUpperCase().trim()]);
+        if (claimedMaritime.rowCount && claimedMaritime.rowCount > 0) {
+            console.log(`[LEGACY-CLAIM] ✅ ${claimedMaritime.rowCount} órdenes marítimas reclamadas para ${boxId.toUpperCase()} (user ${newUserId})`);
+        }
+
         // 7. Procesar código de referido (asesor o amigo)
         let hasAdvisor = false;
         let referredBy = null;

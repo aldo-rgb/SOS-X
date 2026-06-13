@@ -152,6 +152,7 @@ const MyPaymentsScreen = () => {
   // ============ ONLINE PAY DIALOG STATES (igual que web) ============
   const [onlinePayOrder, setOnlinePayOrder] = useState<PaymentOrder | null>(null);
   const [onlinePayLoading, setOnlinePayLoading] = useState<'card' | 'paypal' | 'wallet' | 'credit' | null>(null);
+  const [openpayAvailable, setOpenpayAvailable] = useState<boolean>(false);
   const [onlinePayInvoice, setOnlinePayInvoice] = useState(false);
   const [walletStatus, setWalletStatus] = useState<{ wallet_balance?: number; is_credit_blocked?: boolean } | null>(null);
   const [serviceCredits, setServiceCredits] = useState<any[]>([]);
@@ -619,6 +620,7 @@ const MyPaymentsScreen = () => {
     // Cargar wallet, créditos y datos fiscales en paralelo
     setOnlinePayOrder(order);
     setOnlinePayInvoice(false);
+    setOpenpayAvailable(false);
     // Si la orden ya tiene crédito o wallet aplicado, hidratar
     const preCredit = Number((order as any).credit_applied || 0);
     if (preCredit > 0 && (order as any).credit_service) {
@@ -632,6 +634,11 @@ const MyPaymentsScreen = () => {
     } else {
       setWalletPartial(null);
     }
+    // Verificar si OpenPay está configurado para el servicio de esta orden
+    const serviceType = (order as any).service_type || 'po_box';
+    fetch(`${API_URL}/api/payments/openpay/available?service=${serviceType}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    }).then(r => r.json()).then(d => setOpenpayAvailable(!!d.available)).catch(() => setOpenpayAvailable(false));
     loadWalletStatus();
     loadServiceCredits();
     loadFiscalData();
@@ -1339,11 +1346,12 @@ const MyPaymentsScreen = () => {
                   {(order.status === 'pending_payment' || order.status === 'pending') && (
                     <View style={{ flexDirection: 'row', gap: 10, marginTop: 10, justifyContent: 'flex-end' }}>
                       <TouchableOpacity
-                        style={styles.iconActionBtn}
+                        style={[styles.iconActionBtn, { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12 }]}
                         onPress={() => setSelectedOrder(order)}
-                        accessibilityLabel="Pagar"
+                        accessibilityLabel="Pagar en Línea"
                       >
                         <Ionicons name="cash-outline" size={22} color="#FF6B00" />
+                        <Text style={{ color: '#FF6B00', fontWeight: '700', fontSize: 13 }}>Pagar en Línea</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={styles.iconActionBtn}
@@ -1894,7 +1902,8 @@ const MyPaymentsScreen = () => {
                       </View>
                     )}
 
-                    {/* Tarjeta */}
+                    {/* Tarjeta - solo si OpenPay está configurado */}
+                    {openpayAvailable && (
                     <TouchableOpacity disabled={!!onlinePayLoading || amount <= 0} onPress={handlePayOnlineCard} style={{ flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#1A1A1A', marginBottom: 10, backgroundColor: '#FFF', opacity: onlinePayLoading ? 0.6 : 1 }}>
                       <View style={{ width: 40, height: 40, borderRadius: 8, backgroundColor: '#FFF4EC', alignItems: 'center', justifyContent: 'center' }}>
                         <Ionicons name="card" size={22} color="#FF6B00" />
@@ -1905,6 +1914,7 @@ const MyPaymentsScreen = () => {
                       </View>
                       {onlinePayLoading === 'card' ? <ActivityIndicator color="#FF6B00" /> : <Ionicons name="chevron-forward" size={20} color="#1A1A1A" />}
                     </TouchableOpacity>
+                    )}
 
                     {/* PayPal */}
                     <TouchableOpacity disabled={!!onlinePayLoading || amount <= 0} onPress={handlePayOnlinePaypal} style={{ flexDirection: 'row', alignItems: 'center', padding: 14, borderRadius: 12, borderWidth: 1, borderColor: '#1A1A1A', marginBottom: 10, backgroundColor: '#FFF', opacity: onlinePayLoading ? 0.6 : 1 }}>

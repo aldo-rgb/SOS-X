@@ -791,7 +791,7 @@ export default function DashboardClient() {
     // Si el super_admin apagó GEX a nivel sistema, ningún paquete es
     // elegible — los chips "Contratar Aquí" simplemente no aparecen.
     if (!gexEnabled) return false;
-    if (pkg.client_paid || pkg.has_gex) return false;
+    if (pkg.client_paid || pkg.has_gex || (pkg as any).has_pending_payment_order) return false;
 
     // 🚫 Mercancía clasificada como Logotipo NO permite contratar GEX.
     // Aplica solo a marítimo/aéreo (en PO Box no hay clasificación).
@@ -9968,6 +9968,7 @@ export default function DashboardClient() {
                     <TableCell>{t('cd.history.tracking')}</TableCell>
                     <TableCell>{t('cd.history.description')}</TableCell>
                     <TableCell>{t('cd.history.status')}</TableCell>
+                    <TableCell>Fecha</TableCell>
                     <TableCell align="center">Acciones</TableCell>
                   </TableRow>
                 </TableHead>
@@ -9989,6 +9990,15 @@ export default function DashboardClient() {
                             border: '1px solid #FFD0A8'
                           }}
                         />
+                      </TableCell>
+                      <TableCell>
+                        <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
+                          {(pkg as any).fecha_entrega || ((pkg as any).delivered_at
+                            ? new Date((pkg as any).delivered_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                            : pkg.updated_at
+                              ? new Date(pkg.updated_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                              : '—')}
+                        </Typography>
                       </TableCell>
                       <TableCell align="center">
                         <Button

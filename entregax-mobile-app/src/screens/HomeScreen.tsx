@@ -938,13 +938,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
     const isPendingClass = !!(item as any).pending_classification
       || brandKey === 'pending' || brandKey === 'pending_classification'
       || (brandKey === '' && (merchKey === 'pending' || merchKey === 'pending_classification'));
-    const canContractGEX = item.has_gex || (gexEnabled && !isPendingClass && !((isMaritime || isChinaAir) && isLogoMerch) && (isMaritime
+    const hasPendingOrder = !!(item as any).has_pending_payment_order;
+    const canContractGEX = !hasPendingOrder && (item.has_gex || (gexEnabled && !isPendingClass && !((isMaritime || isChinaAir) && isLogoMerch) && (isMaritime
       ? (item.status === 'received_china') // Marítimo: puede contratar antes de zarpar
       : isChinaAir
         ? (item.status === 'received_origin') // ✈️🇨🇳 China Air: puede contratar en bodega China
         : (['received', 'processing'].includes(item.status) &&
            item.consolidation_status !== 'in_transit' &&
-           item.consolidation_status !== 'shipped')));
+           item.consolidation_status !== 'shipped'))));
 
     const handlePress = () => {
       // 🚢/✈️/🚚 Marítimo, China Air o DHL → navegar al detalle del embarque
@@ -1469,7 +1470,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
         return {
           emoji: '📦',
           title: 'Despacho aduanal MTY',
-          subtitle: 'Cruce aduanal y despacho de tu carga DHL en Monterrey.',
+          subtitle: 'Tramite aduanal y despacho de tu carga DHL en Monterrey.',
           cta: 'Cotizar despacho',
         };
       default:
@@ -1793,8 +1794,22 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 keyExtractor={(item) => item.id.toString()}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingBottom: 20 }}
-                renderItem={({ item }) => (
-                  <View style={styles.historyCard}>
+                renderItem={({ item }) => {
+                  const isMaritime = (item as any).shipment_type === 'maritime' || (item as any).servicio === 'SEA_CHN_MX';
+                  const isChinaAir = (item as any).shipment_type === 'china_air' || (item as any).servicio === 'AIR_CHN_MX';
+                  const isDHL = (item as any).shipment_type === 'dhl';
+                  const handleHistoryPress = () => {
+                    setShowHistoryModal(false);
+                    setTimeout(() => {
+                      if (isMaritime || isChinaAir || isDHL) {
+                        navigation.navigate('MaritimeDetail', { package: item, user, token });
+                      } else {
+                        navigation.navigate('PackageDetail', { package: item, user, token });
+                      }
+                    }, 300);
+                  };
+                  return (
+                  <TouchableOpacity style={styles.historyCard} onPress={handleHistoryPress} activeOpacity={0.75}>
                     <View style={styles.historyCardHeader}>
                       <TouchableOpacity
                         style={styles.historyTrackingBadge}
@@ -1821,17 +1836,17 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         <Text style={styles.historyDeliveredText}>Entregado</Text>
                       </View>
                     </View>
-                    
+
                     <Text style={styles.historyDescription} numberOfLines={1}>
                       {item.description || 'Sin descripción'}
                     </Text>
-                    
+
                     <View style={styles.historyDetailsRow}>
-                      {item.delivered_at && (
+                      {(item.delivered_at || (item as any).updated_at) && (
                         <View style={styles.historyDetailItem}>
                           <Ionicons name="calendar-outline" size={14} color="#666" />
                           <Text style={styles.historyDetailText}>
-                            {new Date(item.delivered_at).toLocaleDateString('es-MX', {
+                            {new Date(item.delivered_at || (item as any).updated_at).toLocaleDateString('es-MX', {
                               day: '2-digit',
                               month: 'short',
                               year: 'numeric'
@@ -1846,7 +1861,7 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         </View>
                       )}
                     </View>
-                    
+
                     {(item as any).received_by && (
                       <View style={styles.historyReceivedBy}>
                         <Ionicons name="person-outline" size={12} color="#888" />
@@ -1855,8 +1870,9 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                         </Text>
                       </View>
                     )}
-                  </View>
-                )}
+                  </TouchableOpacity>
+                  );
+                }}
               />
             )}
           </View>
@@ -2467,14 +2483,14 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                 width: 40,
                 height: 40,
                 borderRadius: 10,
-                backgroundColor: !trnFilter.trim() || publicSearchLoading ? '#E5E7EB' : ORANGE,
+                backgroundColor: !trnFilter.trim() ? '#E5E7EB' : ORANGE,
                 alignItems: 'center',
                 justifyContent: 'center',
               }}
             >
               {publicSearchLoading
                 ? <ActivityIndicator size="small" color="#fff" />
-                : <Ionicons name="arrow-forward" size={18} color="#fff" />}
+                : <Ionicons name="search" size={18} color="#fff" />}
             </Pressable>
           </View>
         )}
@@ -2741,6 +2757,25 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
               const svcName = snap?.service
                 ? ((uiLang === 'en' ? snap.service.en : uiLang === 'zh' ? snap.service.zh : snap.service.es) || snap.service.es)
                 : '';
+              const lastMovement = snap?.movements?.[0];
+              const lastDetail = lastMovement
+                ? (uiLang === 'en' ? lastMovement.description_en : uiLang === 'zh' ? lastMovement.description_zh : lastMovement.description_es) || lastMovement.description_es
+                : null;
+              const lastDate = lastMovement?.date
+                ? new Date(lastMovement.date).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: 'numeric' })
+                : null;
+              // Buscar en paquetes propios para obtener peso y medidas
+              const ownPkg = packages.find(p => {
+                const norm = f.tracking.toUpperCase();
+                return String(p.tracking_internal || '').toUpperCase() === norm
+                  || String((p as any).tracking_provider || '').toUpperCase() === norm;
+              });
+              const weight = ownPkg?.weight;
+              const dims = (ownPkg as any)?.dimensions || (
+                (ownPkg as any)?.pkg_length && (ownPkg as any)?.pkg_width && (ownPkg as any)?.pkg_height
+                  ? `${(ownPkg as any).pkg_length}×${(ownPkg as any).pkg_width}×${(ownPkg as any).pkg_height} cm`
+                  : null
+              );
               return (
                 <Pressable
                   key={f.tracking}
@@ -2765,16 +2800,31 @@ export default function HomeScreen({ navigation, route }: HomeScreenProps) {
                     <Ionicons name="globe-outline" size={18} color="#0EA5E9" />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={{ fontSize: 13, fontWeight: '700', color: '#111' }}>
-                      {f.tracking}
-                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: '#111' }}>
+                        {f.tracking}
+                      </Text>
+                      {lastDate && (
+                        <Text style={{ fontSize: 10, color: '#9CA3AF' }}>{lastDate}</Text>
+                      )}
+                    </View>
                     {(svcName || statusLabel) ? (
                       <Text style={{ fontSize: 11, color: '#666', marginTop: 2 }}>
                         {[svcName, statusLabel].filter(Boolean).join(' · ')}
                       </Text>
                     ) : null}
+                    {lastDetail ? (
+                      <Text style={{ fontSize: 11, color: '#0EA5E9', marginTop: 2 }} numberOfLines={1}>
+                        {lastDetail}
+                      </Text>
+                    ) : null}
+                    {(weight || dims) ? (
+                      <Text style={{ fontSize: 10, color: '#9CA3AF', marginTop: 2 }} numberOfLines={1}>
+                        {[weight ? `${weight} kg` : null, dims].filter(Boolean).join(' · ')}
+                      </Text>
+                    ) : null}
                   </View>
-                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" />
+                  <Ionicons name="chevron-forward" size={16} color="#9CA3AF" style={{ marginLeft: 8 }} />
                 </Pressable>
               );
             })}

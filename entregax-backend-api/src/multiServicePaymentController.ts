@@ -90,6 +90,24 @@ const getServiceTypeFromPackages = async (packageIds: number[]): Promise<Service
 };
 
 // ============================================
+// VERIFICAR SI OPENPAY ESTÁ DISPONIBLE PARA UN SERVICIO
+// ============================================
+
+export const checkOpenpayAvailable = async (req: AuthRequest, res: Response): Promise<any> => {
+  try {
+    const service = (req.query.service as string) || 'po_box';
+    try {
+      await getOpenpayCredentials(service as ServiceType);
+      return res.json({ available: true });
+    } catch {
+      return res.json({ available: false });
+    }
+  } catch (err: any) {
+    return res.json({ available: false });
+  }
+};
+
+// ============================================
 // OBTENER PAGOS PENDIENTES DEL USUARIO
 // Agrupa por servicio para mostrar separados
 // ============================================
