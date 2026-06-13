@@ -92,10 +92,11 @@ export default function EntregaxPaymentQueryPanel({ enabled }: Props) {
   };
 
   const totalPagado = result?.pagos.reduce((acc, p) => acc + parseFloat(p.cantidad || '0'), 0) ?? 0;
+  const isPaid = result ? (result.pagos.length > 0 || result.waybill?.pagado === '1') : false;
   const statusInferido = result
-    ? result.pagos.length === 0
-      ? { label: 'Sin pagos registrados', color: '#F59E0B', bg: '#FEF3C7', icon: '⏳' }
-      : { label: 'Con pagos registrados', color: '#047857', bg: '#ECFDF5', icon: '✅' }
+    ? isPaid
+      ? { label: 'Con pagos registrados', color: '#047857', bg: '#ECFDF5', icon: '✅' }
+      : { label: 'Sin pagos registrados', color: '#F59E0B', bg: '#FEF3C7', icon: '⏳' }
     : null;
 
   const instruccionesStatus = result
