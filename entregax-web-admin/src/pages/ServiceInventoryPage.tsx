@@ -41,6 +41,17 @@ const STATUS_LABELS: Record<string, { label: string; color: string; bg: string }
   returned_to_warehouse: { label: 'Devuelto a Bodega',     color: '#B71C1C', bg: '#FFEBEE' },
 };
 
+const MARITIME_STATUS_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  received_china:  { label: 'Recibido en China',   color: '#E65100', bg: '#FFF3E0' },
+  in_transit:      { label: 'En Tránsito',          color: '#6A1B9A', bg: '#F3E5F5' },
+  customs_mx:      { label: 'Aduana MX',            color: '#7B1FA2', bg: '#F3E5F5' },
+  customs_cleared: { label: 'Aduana Liberada',      color: '#1565C0', bg: '#E3F2FD' },
+  received_mty:    { label: 'Recibido en MTY',      color: '#2E7D32', bg: '#E8F5E9' },
+  received_cdmx:   { label: 'Recibido en CDMX',    color: '#2E7D32', bg: '#E8F5E9' },
+  delivered:       { label: 'Entregado',            color: '#2E7D32', bg: '#E8F5E9' },
+  pending_api:     { label: 'Pendiente API',        color: '#9E9E9E', bg: '#F5F5F5' },
+};
+
 interface PackageRow {
   guia: string;
   guia_corta?: string;
@@ -156,8 +167,9 @@ export default function ServiceInventoryPage() {
   const fmt = (d?: string | null) =>
     d ? new Date(d).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 
+  const activeStatusLabels = service === 'maritimo' ? MARITIME_STATUS_LABELS : STATUS_LABELS;
   const statusChip = (s: string) => {
-    const meta = STATUS_LABELS[s] || { label: s, color: '#555', bg: '#eee' };
+    const meta = activeStatusLabels[s] || STATUS_LABELS[s] || { label: s, color: '#555', bg: '#eee' };
     return <Chip label={meta.label} size="small" sx={{ bgcolor: meta.bg, color: meta.color, fontWeight: 600, fontSize: '0.7rem' }} />;
   };
 
@@ -886,7 +898,7 @@ export default function ServiceInventoryPage() {
             <InputLabel>Último Status</InputLabel>
             <Select label="Último Status" value={statusFilter} onChange={e => { setStatusFilter(e.target.value); setPage(0); }}>
               <MenuItem value=""><em>Todos</em></MenuItem>
-              {Object.entries(STATUS_LABELS).map(([key, meta]) => (
+              {Object.entries(activeStatusLabels).map(([key, meta]) => (
                 <MenuItem key={key} value={key}>
                   <Chip label={meta.label} size="small" sx={{ bgcolor: meta.bg, color: meta.color, fontWeight: 600, fontSize: '0.7rem', cursor: 'pointer' }} />
                 </MenuItem>
