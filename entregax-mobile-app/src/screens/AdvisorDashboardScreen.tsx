@@ -87,6 +87,25 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     tc_operativo: number | null;
   } | null>(null);
 
+  // Reactivación de Clientes (Chartback)
+  interface ChartbackClient { id: number; box_id: string; full_name: string | null; email: string | null; phone: string | null; }
+  const [chartbackClients, setChartbackClients] = useState<ChartbackClient[]>([]);
+  const [chartbackLoading, setChartbackLoading] = useState(false);
+  const [showChartbackModal, setShowChartbackModal] = useState(false);
+  const [chartbackSearch, setChartbackSearch] = useState('');
+
+  const loadChartback = useCallback(async () => {
+    setChartbackLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/legacy/chartback`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const d = await res.json();
+        setChartbackClients(d.clients || []);
+      }
+    } catch {}
+    finally { setChartbackLoading(false); }
+  }, [token]);
+
   const loadDashboard = useCallback(async () => {
     try {
       setError(null);
@@ -124,7 +143,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     }
   }, [token]);
 
-  useEffect(() => { loadDashboard(); }, [loadDashboard]);
+  useEffect(() => { loadDashboard(); loadChartback(); }, [loadDashboard, loadChartback]);
 
   useEffect(() => {
     registerForPushNotifications(token).catch(() => {});
@@ -140,7 +159,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
     return () => { if (cleanup) cleanup(); };
   }, [token, user, navigation]);
 
-  const onRefresh = () => { setRefreshing(true); loadDashboard(); };
+  const onRefresh = () => { setRefreshing(true); loadDashboard(); loadChartback(); };
 
   const openTransitClientPicker = async () => {
     setTransitClientSearch('');
@@ -593,6 +612,32 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           </>
         )}
 
+        {/* Reactivación de Clientes (Chartback) */}
+        <View style={s.sectionHeader}>
+          <View style={s.sectionBar} />
+          <Text style={s.sectionTitle}>REACTIVACIÓN DE CLIENTES</Text>
+        </View>
+        <TouchableOpacity
+          style={s.chartbackCard}
+          activeOpacity={0.8}
+          onPress={() => { setChartbackSearch(''); setShowChartbackModal(true); }}
+        >
+          <View style={[s.chartbackAccent, { backgroundColor: '#1565C0' }]} />
+          <View style={s.chartbackIconWrap}>
+            <Ionicons name="refresh-circle" size={36} color="#1565C0" />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.chartbackCount}>
+              {chartbackLoading ? '—' : chartbackClients.length}
+            </Text>
+            <Text style={s.chartbackLabel}>clientes para reactivar</Text>
+          </View>
+          <View style={s.chartbackArrow}>
+            <Text style={s.chartbackArrowText}>Ver lista</Text>
+            <Ionicons name="arrow-forward" size={16} color="#1565C0" />
+          </View>
+        </TouchableOpacity>
+
         {/* Cotizaciones */}
         <View style={s.sectionHeader}>
           <View style={s.sectionBar} />
@@ -653,6 +698,102 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
 
         <View style={{ height: 48 }} />
       </ScrollView>
+
+      {/* ── Modal Reactivación de Clientes (Chartback) ── */}
+      <Modal visible={showChartbackModal} animationType="slide" transparent onRequestClose={() => setShowChartbackModal(false)}>
+        <View style={s.chartbackOverlay}>
+          <View style={s.chartbackModal}>
+            {/* Handle */}
+            <View style={s.chartbackHandle} />
+
+            {/* Header */}
+            <View style={s.chartbackModalHeader}>
+              <Ionicons name="refresh-circle" size={22} color="#1565C0" />
+              <Text style={s.chartbackModalTitle}>Reactivación de Clientes</Text>
+              <TouchableOpacity onPress={() => setShowChartbackModal(false)} style={{ padding: 4 }}>
+                <Ionicons name="close" size={22} color="#888" />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={s.chartbackModalSub}>
+              {chartbackClients.length} cliente(s) marcados para reactivar
+            </Text>
+
+            {/* Search */}
+            <View style={s.chartbackSearchWrap}>
+              <Ionicons name="search" size={16} color="#888" style={{ marginRight: 8 }} />
+              <TextInput
+                style={s.chartbackSearchInput}
+                placeholder="Buscar por nombre, correo o casillero..."
+                placeholderTextColor="#aaa"
+                value={chartbackSearch}
+                onChangeText={setChartbackSearch}
+                autoCorrect={false}
+              />
+            </View>
+
+            {/* Lista */}
+            {chartbackLoading ? (
+              <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+                <ActivityIndicator color="#1565C0" />
+              </View>
+            ) : (() => {
+              const q = chartbackSearch.toLowerCase().trim();
+              const filtered = q
+                ? chartbackClients.filter(c =>
+                    (c.full_name || '').toLowerCase().includes(q) ||
+                    (c.email || '').toLowerCase().includes(q) ||
+                    (c.box_id || '').toLowerCase().includes(q)
+                  )
+                : chartbackClients;
+              if (filtered.length === 0) {
+                return (
+                  <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+                    <Ionicons name="people-outline" size={40} color="#ccc" />
+                    <Text style={{ color: '#999', marginTop: 8 }}>Sin clientes</Text>
+                  </View>
+                );
+              }
+              return (
+                <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                  {filtered.map((c, idx) => (
+                    <View key={c.id} style={[s.chartbackItem, idx > 0 && { borderTopWidth: 1, borderTopColor: '#1E2A3A' }]}>
+                      <View style={s.chartbackItemLeft}>
+                        <Text style={s.chartbackItemName}>{c.full_name || 'Sin nombre'}</Text>
+                        <Text style={s.chartbackItemBox}>{c.box_id}</Text>
+                      </View>
+                      <View style={s.chartbackItemRight}>
+                        {c.phone ? (
+                          <TouchableOpacity
+                            style={s.chartbackContactBtn}
+                            onPress={() => Linking.openURL(`tel:${c.phone}`)}
+                          >
+                            <Ionicons name="call" size={14} color="#4CAF50" />
+                            <Text style={[s.chartbackContactText, { color: '#4CAF50' }]}>{c.phone}</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {c.email ? (
+                          <TouchableOpacity
+                            style={[s.chartbackContactBtn, { marginTop: 4 }]}
+                            onPress={() => Linking.openURL(`mailto:${c.email}`)}
+                          >
+                            <Ionicons name="mail" size={14} color="#90CAF9" />
+                            <Text style={[s.chartbackContactText, { color: '#90CAF9' }]} numberOfLines={1}>{c.email}</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                        {!c.phone && !c.email && (
+                          <Text style={{ color: '#555', fontSize: 11 }}>Sin contacto</Text>
+                        )}
+                      </View>
+                    </View>
+                  ))}
+                  <View style={{ height: 20 }} />
+                </ScrollView>
+              );
+            })()}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -837,6 +978,51 @@ const s = StyleSheet.create({
   supportIcon:    { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', marginBottom: 8 },
   supportBtnLabel:{ color: '#fff', fontSize: 14, fontWeight: '700' },
   supportBtnSub:  { color: '#666', fontSize: 11, marginTop: 2 },
+
+  // Chartback widget
+  chartbackCard: {
+    backgroundColor: CARD_BG,
+    marginHorizontal: 16,
+    borderRadius: CARD_RADIUS,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#C5D8F5',
+    marginBottom: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    overflow: 'hidden',
+  },
+  chartbackAccent: { position: 'absolute', left: 0, top: 0, bottom: 0, width: 4, borderTopLeftRadius: CARD_RADIUS, borderBottomLeftRadius: CARD_RADIUS },
+  chartbackIconWrap: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#1565C018', alignItems: 'center', justifyContent: 'center' },
+  chartbackCount: { fontSize: 30, fontWeight: '900', color: '#1565C0', lineHeight: 34 },
+  chartbackLabel: { fontSize: 12, color: '#555', marginTop: 2 },
+  chartbackArrow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  chartbackArrowText: { color: '#1565C0', fontWeight: '600', fontSize: 13 },
+
+  // Chartback modal
+  chartbackOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  chartbackModal: {
+    backgroundColor: '#111827',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: '85%',
+    paddingHorizontal: 16,
+    paddingBottom: 0,
+  },
+  chartbackHandle: { width: 40, height: 4, backgroundColor: '#334155', borderRadius: 2, alignSelf: 'center', marginTop: 12, marginBottom: 4 },
+  chartbackModalHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14 },
+  chartbackModalTitle: { flex: 1, color: '#fff', fontSize: 16, fontWeight: '700' },
+  chartbackModalSub: { color: '#64748B', fontSize: 12, marginBottom: 12 },
+  chartbackSearchWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E2A3A', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12 },
+  chartbackSearchInput: { flex: 1, color: '#fff', fontSize: 14, padding: 0 },
+  chartbackItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
+  chartbackItemLeft: { flex: 1, paddingRight: 8 },
+  chartbackItemName: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  chartbackItemBox: { color: '#1565C0', fontSize: 12, fontWeight: '700', marginTop: 2 },
+  chartbackItemRight: { alignItems: 'flex-end' },
+  chartbackContactBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  chartbackContactText: { fontSize: 12, fontWeight: '500' },
 
   // Alert
   alertCard: {

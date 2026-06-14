@@ -983,6 +983,32 @@ export const verifyLegacyName = async (req: Request, res: Response): Promise<any
 };
 
 /**
+ * Clientes chartback del asesor actual
+ * GET /api/advisor/legacy/chartback
+ */
+export const getAdvisorChartbackClients = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const userId = (req as any).user?.userId;
+        const nameRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [userId]);
+        const advisorName = nameRes.rows[0]?.full_name;
+        if (!advisorName) return res.status(404).json({ error: 'Asesor no encontrado' });
+
+        const result = await pool.query(
+            `SELECT id, box_id, full_name, email, phone, asesor, created_at
+             FROM legacy_clients
+             WHERE chartback = true
+               AND asesor ILIKE $1
+             ORDER BY full_name ASC`,
+            [advisorName]
+        );
+        return res.json({ clients: result.rows, total: result.rowCount });
+    } catch (error: any) {
+        console.error('Error obteniendo chartback del asesor:', error);
+        res.status(500).json({ error: 'Error al obtener clientes chartback' });
+    }
+};
+
+/**
  * Marcar/desmarcar chartback en bulk
  * POST /api/legacy/clients/chartback
  * body: { ids: number[], chartback: boolean }
