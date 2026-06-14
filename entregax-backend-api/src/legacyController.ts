@@ -333,7 +333,16 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
                             THEN COALESCE(EXCLUDED.email, legacy_clients.email)
                             ELSE legacy_clients.email END,
                         asesor = COALESCE(EXCLUDED.asesor, legacy_clients.asesor),
-                        phone = COALESCE(EXCLUDED.phone, legacy_clients.phone)
+                        phone = COALESCE(EXCLUDED.phone, legacy_clients.phone),
+                        -- Si tenía chartback activo y ahora se le asigna asesor → recuperado
+                        chartback = CASE
+                            WHEN legacy_clients.chartback = true AND EXCLUDED.asesor IS NOT NULL
+                            THEN false
+                            ELSE legacy_clients.chartback END,
+                        chartback_status = CASE
+                            WHEN legacy_clients.chartback = true AND EXCLUDED.asesor IS NOT NULL
+                            THEN 'recovered'
+                            ELSE legacy_clients.chartback_status END
                     RETURNING (xmax = 0) AS inserted
                 `, [rawBoxId, fullName, email, asesor, phone]);
 
@@ -988,16 +997,64 @@ export const verifyLegacyName = async (req: Request, res: Response): Promise<any
  */
 export const getAdvisorChartbackClients = async (req: Request, res: Response): Promise<any> => {
     try {
+        // Solo muestra clientes listos para contactar (next_contact_at nulo o ya vencido)
         const result = await pool.query(
-            `SELECT id, box_id, full_name, email, phone, asesor, created_at
+            `SELECT id, box_id, full_name, email, phone, chartback_status, next_contact_at, chartback_notes
              FROM legacy_clients
              WHERE chartback = true
-             ORDER BY asesor ASC, full_name ASC`
+               AND chartback_status != 'recovered'
+               AND (next_contact_at IS NULL OR next_contact_at <= NOW())
+             ORDER BY full_name ASC`
         );
         return res.json({ clients: result.rows, total: result.rowCount });
     } catch (error: any) {
         console.error('Error obteniendo chartback del asesor:', error);
         res.status(500).json({ error: 'Error al obtener clientes chartback' });
+    }
+};
+
+/**
+ * Acción CRM sobre un cliente chartback
+ * POST /api/advisor/legacy/chartback/:id/action
+ * body: { action: 'no_answer' | 'callback' | 'recovered', callback_at?: ISO string, notes?: string }
+ */
+export const chartbackAction = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { id } = req.params;
+        const { action, callback_at, notes } = req.body;
+
+        let next_contact_at: string | null = null;
+        let chartback_status = action;
+
+        if (action === 'no_answer') {
+            // Vuelve a aparecer en 24 horas
+            next_contact_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+        } else if (action === 'callback') {
+            if (!callback_at) return res.status(400).json({ error: 'callback_at requerido' });
+            next_contact_at = new Date(callback_at).toISOString();
+            chartback_status = 'callback';
+        } else if (action === 'recovered') {
+            // Sale del chartback permanentemente
+            await pool.query(
+                `UPDATE legacy_clients SET chartback = false, chartback_status = 'recovered', next_contact_at = NULL WHERE id = $1`,
+                [id]
+            );
+            return res.json({ success: true, action: 'recovered' });
+        } else {
+            return res.status(400).json({ error: 'action inválido' });
+        }
+
+        await pool.query(
+            `UPDATE legacy_clients
+             SET chartback_status = $1, next_contact_at = $2, chartback_notes = COALESCE($3, chartback_notes)
+             WHERE id = $4`,
+            [chartback_status, next_contact_at, notes || null, id]
+        );
+
+        return res.json({ success: true, action, next_contact_at });
+    } catch (error: any) {
+        console.error('Error en chartback action:', error);
+        res.status(500).json({ error: 'Error al registrar acción' });
     }
 };
 
@@ -1013,10 +1070,13 @@ export const setChartback = async (req: Request, res: Response): Promise<any> =>
             return res.status(400).json({ error: 'ids requerido' });
         }
         const placeholders = ids.map((_: any, i: number) => `$${i + 2}`).join(',');
-        // Al marcar chartback=true, el cliente queda disponible para cualquier asesor → limpiar asesor
-        const asesorUpdate = chartback ? ', asesor = NULL' : '';
+        // Al marcar chartback=true: limpiar asesor y reiniciar estado CRM
+        // Al quitar chartback: marcar como recovered
+        const extraFields = chartback
+            ? `, asesor = NULL, chartback_status = 'pending', next_contact_at = NULL`
+            : `, chartback_status = 'recovered'`;
         await pool.query(
-            `UPDATE legacy_clients SET chartback = $1${asesorUpdate} WHERE id IN (${placeholders})`,
+            `UPDATE legacy_clients SET chartback = $1${extraFields} WHERE id IN (${placeholders})`,
             [!!chartback, ...ids]
         );
         return res.json({ success: true, updated: ids.length });

@@ -912,6 +912,7 @@ import {
   deleteLegacyClient,
   setChartback,
   getAdvisorChartbackClients,
+  chartbackAction,
   uploadMiddleware,
   syncExternalLegacyClients,
   listCustomersForExternalSync
@@ -6041,6 +6042,7 @@ app.put('/api/gex/auto-config', authenticateToken, async (req: AuthRequest, res:
 
 // ========== PANEL DEL ASESOR (self-service) ==========
 app.get('/api/advisor/legacy/chartback', authenticateToken, getAdvisorChartbackClients);
+app.post('/api/advisor/legacy/chartback/:id/action', authenticateToken, chartbackAction);
 app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
 app.get('/api/advisor/packages', authenticateToken, getAdvisorPackages);
 
