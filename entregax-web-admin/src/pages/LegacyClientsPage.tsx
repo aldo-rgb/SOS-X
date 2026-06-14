@@ -61,6 +61,7 @@ interface LegacyClient {
   claimed_at: string | null;
   created_at: string;
   asesor: string | null;
+  asesor_entregax: string | null;
 }
 
 interface AsesorStat {
@@ -500,7 +501,8 @@ export default function LegacyClientsPage() {
               <TableCell><strong>Teléfono</strong></TableCell>
               <TableCell><strong>Fecha Alta Original</strong></TableCell>
               <TableCell align="center"><strong>Estado</strong></TableCell>
-              <TableCell><strong>Asesor</strong></TableCell>
+              <TableCell><strong>Asesor (Sistema EX)</strong></TableCell>
+              <TableCell><strong>Asesor (EntregaX)</strong></TableCell>
               <TableCell><strong>Reclamado Por</strong></TableCell>
               <TableCell align="center"><strong>Acciones</strong></TableCell>
             </TableRow>
@@ -508,13 +510,13 @@ export default function LegacyClientsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No se encontraron clientes
                   </Typography>
@@ -556,6 +558,11 @@ export default function LegacyClientsPage() {
                   <TableCell>
                     <Typography variant="body2" color={client.asesor ? 'text.primary' : 'text.disabled'}>
                       {client.asesor || '-'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color={client.asesor_entregax ? 'text.primary' : 'text.disabled'}>
+                      {client.asesor_entregax || '-'}
                     </Typography>
                   </TableCell>
                   <TableCell>

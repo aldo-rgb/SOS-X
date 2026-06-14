@@ -506,9 +506,12 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
 
         const dataParams = [...params, limitNum, offset];
         const result = await pool.query(
-            `SELECT lc.*, u.full_name as claimed_by_name
+            `SELECT lc.*,
+                    u.full_name as claimed_by_name,
+                    adv.full_name as asesor_entregax
              FROM legacy_clients lc
              LEFT JOIN users u ON u.id = lc.claimed_by_user_id
+             LEFT JOIN users adv ON adv.id = u.advisor_id
              ${whereClause}
              ORDER BY lc.created_at DESC
              LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
