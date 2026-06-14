@@ -26,7 +26,11 @@ import {
   Grid,
   Tooltip,
   FormControlLabel,
-  Switch
+  Switch,
+  Select,
+  MenuItem,
+  FormControl,
+  InputLabel
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -49,6 +53,7 @@ interface LegacyClient {
   box_id: string;
   full_name: string | null;
   email: string | null;
+  phone: string | null;
   registration_date: string | null;
   is_claimed: boolean;
   claimed_by_user_id: number | null;
@@ -58,10 +63,18 @@ interface LegacyClient {
   asesor: string | null;
 }
 
+interface AsesorStat {
+  asesor: string;
+  total: number;
+  reclamados: number;
+  pendientes: number;
+}
+
 interface Stats {
   total: number;
   claimed: number;
   pending: number;
+  por_asesor: AsesorStat[];
 }
 
 interface ImportResult {
@@ -97,6 +110,10 @@ export default function LegacyClientsPage() {
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [clientToDelete, setClientToDelete] = useState<LegacyClient | null>(null);
 
+  // Filtro por asesor
+  const [asesorFilter, setAsesorFilter] = useState('');
+  const [asesorOptions, setAsesorOptions] = useState<string[]>([]);
+
   // Sync external dialog
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{
@@ -128,21 +145,25 @@ export default function LegacyClientsPage() {
         page: String(page + 1),
         limit: String(rowsPerPage),
         ...(search && { search }),
-        ...(showOnlyClaimed && { claimed: 'true' })
+        ...(showOnlyClaimed && { claimed: 'true' }),
+        ...(asesorFilter && { asesor: asesorFilter })
       });
-      
+
       const response = await fetch(`${API_URL}/api/legacy/clients?${params}`, { headers });
       if (response.ok) {
         const data = await response.json();
         setClients(data.clients);
         setTotalClients(data.pagination.total);
-      }
+        // Cargar opciones únicas de asesores solo la primera vez (sin filtro activo)
+        if (!asesorFilter && data.asesores) {
+          setAsesorOptions(data.asesores);
+        }
     } catch (error) {
       console.error('Error fetching clients:', error);
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, showOnlyClaimed]);
+  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter]);
 
   useEffect(() => {
     fetchStats();
@@ -385,6 +406,46 @@ export default function LegacyClientsPage() {
         </Grid>
       )}
 
+      {/* Widget: clientes por asesor */}
+      {stats?.por_asesor && stats.por_asesor.filter(a => a.asesor !== 'Sin Asesor').length > 0 && (
+        <Paper sx={{ p: 2, mb: 2 }}>
+          <Typography variant="subtitle2" fontWeight="bold" sx={{ mb: 1.5, color: '#555' }}>
+            Clientes por Asesor
+          </Typography>
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            {stats.por_asesor
+              .filter(a => a.asesor !== 'Sin Asesor')
+              .map((a) => (
+                <Box
+                  key={a.asesor}
+                  onClick={() => { setAsesorFilter(a.asesor); setPage(0); }}
+                  sx={{
+                    px: 2, py: 1, borderRadius: 2, cursor: 'pointer',
+                    border: asesorFilter === a.asesor ? '2px solid #E65100' : '1px solid #e5e7eb',
+                    bgcolor: asesorFilter === a.asesor ? '#fff7ed' : '#fafafa',
+                    transition: 'all 0.15s',
+                    '&:hover': { borderColor: '#E65100', bgcolor: '#fff7ed' },
+                    minWidth: 130,
+                  }}
+                >
+                  <Typography variant="body2" fontWeight="bold" noWrap sx={{ color: '#111' }}>
+                    {a.asesor}
+                  </Typography>
+                  <Box sx={{ display: 'flex', gap: 1, mt: 0.5, alignItems: 'center' }}>
+                    <Typography variant="caption" sx={{ color: '#E65100', fontWeight: 700 }}>
+                      {a.total} total
+                    </Typography>
+                    <Typography variant="caption" color="text.disabled">·</Typography>
+                    <Typography variant="caption" sx={{ color: '#2e7d32' }}>
+                      {a.reclamados} ✓
+                    </Typography>
+                  </Box>
+                </Box>
+              ))}
+          </Box>
+        </Paper>
+      )}
+
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 2 }}>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
@@ -402,6 +463,19 @@ export default function LegacyClientsPage() {
               )
             }}
           />
+          <FormControl size="small" sx={{ minWidth: 200 }}>
+            <InputLabel>Asesor</InputLabel>
+            <Select
+              value={asesorFilter}
+              label="Asesor"
+              onChange={(e) => { setAsesorFilter(e.target.value); setPage(0); }}
+            >
+              <MenuItem value="">Todos los asesores</MenuItem>
+              {asesorOptions.map((a) => (
+                <MenuItem key={a} value={a}>{a}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
           <FormControlLabel
             control={
               <Switch
@@ -422,6 +496,7 @@ export default function LegacyClientsPage() {
               <TableCell><strong>Casillero</strong></TableCell>
               <TableCell><strong>Nombre</strong></TableCell>
               <TableCell><strong>Correo</strong></TableCell>
+              <TableCell><strong>Teléfono</strong></TableCell>
               <TableCell><strong>Fecha Alta Original</strong></TableCell>
               <TableCell align="center"><strong>Estado</strong></TableCell>
               <TableCell><strong>Asesor</strong></TableCell>
@@ -432,13 +507,13 @@ export default function LegacyClientsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={9} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No se encontraron clientes
                   </Typography>
@@ -454,6 +529,11 @@ export default function LegacyClientsPage() {
                   </TableCell>
                   <TableCell>{client.full_name || '-'}</TableCell>
                   <TableCell>{client.email || '-'}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" sx={{ whiteSpace: 'nowrap' }}>
+                      {client.phone || '-'}
+                    </Typography>
+                  </TableCell>
                   <TableCell>{formatDate(client.registration_date)}</TableCell>
                   <TableCell align="center">
                     {client.is_claimed ? (

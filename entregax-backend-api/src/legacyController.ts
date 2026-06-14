@@ -464,95 +464,71 @@ export const listCustomersForExternalSync = async (req: Request, res: Response):
  */
 export const getLegacyClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { page = 1, limit = 50, search, claimed } = req.query;
+        const { page = 1, limit = 50, search, claimed, asesor } = req.query;
         const offset = (Number(page) - 1) * Number(limit);
         const limitNum = Number(limit);
 
-        let baseQuery = '';
-        let countQuery = '';
-        let queryParams: any[] = [];
-        
+        const conditions: string[] = [];
+        const params: any[] = [];
+
+        // Filtro texto (casillero, nombre, correo)
         if (search && String(search).trim() !== '') {
-            const searchText = String(search).trim();
-            const words = searchText.split(/\s+/).filter(w => w.length > 0);
-            
+            const words = String(search).trim().split(/\s+/).filter(w => w.length > 0);
             if (words.length === 1) {
-                // Una sola palabra - búsqueda simple
-                const searchPattern = `%${words[0]}%`;
-                
-                countQuery = `
-                    SELECT COUNT(*) FROM legacy_clients 
-                    WHERE box_id ILIKE $1 OR full_name ILIKE $1 OR email ILIKE $1
-                `;
-                
-                // Ordenar priorizando coincidencias exactas en box_id
-                baseQuery = `
-                    SELECT lc.*, u.full_name as claimed_by_name
-                    FROM legacy_clients lc
-                    LEFT JOIN users u ON u.id = lc.claimed_by_user_id
-                    WHERE lc.box_id ILIKE $1 OR lc.full_name ILIKE $1 OR lc.email ILIKE $1
-                    ORDER BY 
-                        CASE WHEN lc.box_id ILIKE $4 THEN 0 ELSE 1 END,
-                        LENGTH(lc.box_id),
-                        lc.box_id
-                    LIMIT $2 OFFSET $3
-                `;
-                queryParams = [searchPattern, limitNum, offset, words[0]];
-                
-                const countResult = await pool.query(countQuery, [searchPattern]);
-                const total = parseInt(countResult.rows[0].count);
-                const result = await pool.query(baseQuery, queryParams);
-                
-                return res.json({
-                    clients: result.rows,
-                    pagination: { page: Number(page), limit: limitNum, total, totalPages: Math.ceil(total / limitNum) }
-                });
+                params.push(`%${words[0]}%`);
+                conditions.push(`(lc.box_id ILIKE $${params.length} OR lc.full_name ILIKE $${params.length} OR lc.email ILIKE $${params.length})`);
             } else {
-                // Múltiples palabras - todas deben estar en el nombre
-                const conditions = words.map((_, i) => `full_name ILIKE $${i + 1}`).join(' AND ');
-                const patterns = words.map(w => `%${w}%`);
-                
-                countQuery = `SELECT COUNT(*) FROM legacy_clients WHERE ${conditions}`;
-                
-                const paramOffset = words.length;
-                baseQuery = `
-                    SELECT lc.*, u.full_name as claimed_by_name
-                    FROM legacy_clients lc
-                    LEFT JOIN users u ON u.id = lc.claimed_by_user_id
-                    WHERE ${conditions}
-                    ORDER BY lc.created_at DESC
-                    LIMIT $${paramOffset + 1} OFFSET $${paramOffset + 2}
-                `;
-                
-                const countResult = await pool.query(countQuery, patterns);
-                const total = parseInt(countResult.rows[0].count);
-                const result = await pool.query(baseQuery, [...patterns, limitNum, offset]);
-                
-                return res.json({
-                    clients: result.rows,
-                    pagination: { page: Number(page), limit: limitNum, total, totalPages: Math.ceil(total / limitNum) }
-                });
+                for (const w of words) {
+                    params.push(`%${w}%`);
+                    conditions.push(`lc.full_name ILIKE $${params.length}`);
+                }
             }
-        } else {
-            // Sin búsqueda - traer todos
-            countQuery = `SELECT COUNT(*) FROM legacy_clients`;
-            baseQuery = `
-                SELECT lc.*, u.full_name as claimed_by_name
-                FROM legacy_clients lc
-                LEFT JOIN users u ON u.id = lc.claimed_by_user_id
-                ORDER BY lc.created_at DESC
-                LIMIT $1 OFFSET $2
-            `;
-            
-            const countResult = await pool.query(countQuery);
-            const total = parseInt(countResult.rows[0].count);
-            const result = await pool.query(baseQuery, [limitNum, offset]);
-            
-            return res.json({
-                clients: result.rows,
-                pagination: { page: Number(page), limit: limitNum, total, totalPages: Math.ceil(total / limitNum) }
-            });
         }
+
+        // Filtro claimed
+        if (claimed === 'true') {
+            conditions.push(`lc.is_claimed = TRUE`);
+        }
+
+        // Filtro asesor
+        if (asesor && String(asesor).trim() !== '') {
+            params.push(String(asesor).trim());
+            conditions.push(`lc.asesor = $${params.length}`);
+        }
+
+        const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+        const countResult = await pool.query(
+            `SELECT COUNT(*) FROM legacy_clients lc ${whereClause}`,
+            params
+        );
+        const total = parseInt(countResult.rows[0].count);
+
+        const dataParams = [...params, limitNum, offset];
+        const result = await pool.query(
+            `SELECT lc.*, u.full_name as claimed_by_name
+             FROM legacy_clients lc
+             LEFT JOIN users u ON u.id = lc.claimed_by_user_id
+             ${whereClause}
+             ORDER BY lc.created_at DESC
+             LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+            dataParams
+        );
+
+        // Lista de asesores únicos para el dropdown (solo cuando no hay filtro de asesor activo)
+        let asesores: string[] = [];
+        if (!asesor) {
+            const asesorRes = await pool.query(
+                `SELECT DISTINCT asesor FROM legacy_clients WHERE asesor IS NOT NULL AND asesor <> '' ORDER BY asesor`
+            );
+            asesores = asesorRes.rows.map((r: any) => r.asesor);
+        }
+
+        return res.json({
+            clients: result.rows,
+            pagination: { page: Number(page), limit: limitNum, total, totalPages: Math.ceil(total / limitNum) },
+            asesores,
+        });
     } catch (error: any) {
         console.error('Error obteniendo clientes legacy:', error.message);
         res.status(500).json({ error: 'Error al obtener clientes', details: error.message });
@@ -565,15 +541,30 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
  */
 export const getLegacyStats = async (req: Request, res: Response): Promise<any> => {
     try {
-        const result = await pool.query(`
-            SELECT 
-                COUNT(*) as total,
-                COUNT(*) FILTER (WHERE is_claimed = true) as claimed,
-                COUNT(*) FILTER (WHERE is_claimed = false) as pending
-            FROM legacy_clients
-        `);
+        const [totalsRes, asesorRes] = await Promise.all([
+            pool.query(`
+                SELECT
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE is_claimed = true) as claimed,
+                    COUNT(*) FILTER (WHERE is_claimed = false) as pending
+                FROM legacy_clients
+            `),
+            pool.query(`
+                SELECT
+                    COALESCE(asesor, 'Sin Asesor') as asesor,
+                    COUNT(*) as total,
+                    COUNT(*) FILTER (WHERE is_claimed = true) as reclamados,
+                    COUNT(*) FILTER (WHERE is_claimed = false) as pendientes
+                FROM legacy_clients
+                GROUP BY COALESCE(asesor, 'Sin Asesor')
+                ORDER BY COUNT(*) DESC
+            `)
+        ]);
 
-        res.json(result.rows[0]);
+        res.json({
+            ...totalsRes.rows[0],
+            por_asesor: asesorRes.rows,
+        });
 
     } catch (error: any) {
         console.error('Error obteniendo estadísticas:', error);
