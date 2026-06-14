@@ -758,31 +758,34 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                 <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
                   {filtered.map((c, idx) => (
                     <View key={c.id} style={[s.chartbackItem, idx > 0 && { borderTopWidth: 1, borderTopColor: '#1E2A3A' }]}>
-                      <View style={s.chartbackItemLeft}>
-                        <Text style={s.chartbackItemName}>{c.full_name || 'Sin nombre'}</Text>
-                        <Text style={s.chartbackItemBox}>{c.box_id}</Text>
-                      </View>
-                      <View style={s.chartbackItemRight}>
+                      {/* Info */}
+                      <Text style={s.chartbackItemName}>{c.full_name || 'Sin nombre'}</Text>
+                      <Text style={s.chartbackItemBox}>{c.box_id}</Text>
+                      {/* Botones de contacto */}
+                      <View style={s.chartbackBtnsRow}>
                         {c.phone ? (
                           <TouchableOpacity
-                            style={s.chartbackContactBtn}
+                            style={s.chartbackBtnCall}
                             onPress={() => Linking.openURL(`tel:${c.phone}`)}
                           >
-                            <Ionicons name="call" size={14} color="#4CAF50" />
-                            <Text style={[s.chartbackContactText, { color: '#4CAF50' }]}>{c.phone}</Text>
+                            <Ionicons name="call" size={14} color="#fff" />
+                            <Text style={s.chartbackBtnText}>Llamar</Text>
                           </TouchableOpacity>
                         ) : null}
-                        {c.email ? (
+                        {c.phone ? (
                           <TouchableOpacity
-                            style={[s.chartbackContactBtn, { marginTop: 4 }]}
-                            onPress={() => Linking.openURL(`mailto:${c.email}`)}
+                            style={s.chartbackBtnWA}
+                            onPress={() => {
+                              const num = (c.phone || '').replace(/\D/g, '');
+                              Linking.openURL(`https://wa.me/${num}`);
+                            }}
                           >
-                            <Ionicons name="mail" size={14} color="#90CAF9" />
-                            <Text style={[s.chartbackContactText, { color: '#90CAF9' }]} numberOfLines={1}>{c.email}</Text>
+                            <Ionicons name="logo-whatsapp" size={14} color="#fff" />
+                            <Text style={s.chartbackBtnText}>WhatsApp</Text>
                           </TouchableOpacity>
                         ) : null}
-                        {!c.phone && !c.email && (
-                          <Text style={{ color: '#555', fontSize: 11 }}>Sin contacto</Text>
+                        {!c.phone && (
+                          <Text style={{ color: '#475569', fontSize: 11, marginTop: 6 }}>Sin teléfono</Text>
                         )}
                       </View>
                     </View>
@@ -1016,13 +1019,13 @@ const s = StyleSheet.create({
   chartbackModalSub: { color: '#64748B', fontSize: 12, marginBottom: 12 },
   chartbackSearchWrap: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1E2A3A', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12 },
   chartbackSearchInput: { flex: 1, color: '#fff', fontSize: 14, padding: 0 },
-  chartbackItem: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12 },
-  chartbackItemLeft: { flex: 1, paddingRight: 8 },
-  chartbackItemName: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  chartbackItemBox: { color: '#1565C0', fontSize: 12, fontWeight: '700', marginTop: 2 },
-  chartbackItemRight: { alignItems: 'flex-end' },
-  chartbackContactBtn: { flexDirection: 'row', alignItems: 'center', gap: 4 },
-  chartbackContactText: { fontSize: 12, fontWeight: '500' },
+  chartbackItem: { paddingVertical: 14 },
+  chartbackItemName: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  chartbackItemBox: { color: '#60A5FA', fontSize: 12, fontWeight: '700', marginTop: 2 },
+  chartbackBtnsRow: { flexDirection: 'row', gap: 8, marginTop: 10 },
+  chartbackBtnCall: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#16A34A', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
+  chartbackBtnWA: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#25D366', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 8 },
+  chartbackBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
   // Alert
   alertCard: {
