@@ -988,18 +988,11 @@ export const verifyLegacyName = async (req: Request, res: Response): Promise<any
  */
 export const getAdvisorChartbackClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        const userId = (req as any).user?.userId;
-        const nameRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [userId]);
-        const advisorName = nameRes.rows[0]?.full_name;
-        if (!advisorName) return res.status(404).json({ error: 'Asesor no encontrado' });
-
         const result = await pool.query(
             `SELECT id, box_id, full_name, email, phone, asesor, created_at
              FROM legacy_clients
              WHERE chartback = true
-               AND asesor ILIKE $1
-             ORDER BY full_name ASC`,
-            [advisorName]
+             ORDER BY asesor ASC, full_name ASC`
         );
         return res.json({ clients: result.rows, total: result.rowCount });
     } catch (error: any) {

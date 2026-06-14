@@ -88,7 +88,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   } | null>(null);
 
   // Reactivación de Clientes (Chartback)
-  interface ChartbackClient { id: number; box_id: string; full_name: string | null; email: string | null; phone: string | null; }
+  interface ChartbackClient { id: number; box_id: string; full_name: string | null; email: string | null; phone: string | null; asesor: string | null; }
   const [chartbackClients, setChartbackClients] = useState<ChartbackClient[]>([]);
   const [chartbackLoading, setChartbackLoading] = useState(false);
   const [showChartbackModal, setShowChartbackModal] = useState(false);
@@ -760,7 +760,10 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                     <View key={c.id} style={[s.chartbackItem, idx > 0 && { borderTopWidth: 1, borderTopColor: '#1E2A3A' }]}>
                       <View style={s.chartbackItemLeft}>
                         <Text style={s.chartbackItemName}>{c.full_name || 'Sin nombre'}</Text>
-                        <Text style={s.chartbackItemBox}>{c.box_id}</Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
+                          <Text style={s.chartbackItemBox}>{c.box_id}</Text>
+                          {c.asesor ? <Text style={{ color: '#64748B', fontSize: 11 }}>· {c.asesor}</Text> : null}
+                        </View>
                       </View>
                       <View style={s.chartbackItemRight}>
                         {c.phone ? (
