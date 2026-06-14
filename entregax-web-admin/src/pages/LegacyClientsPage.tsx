@@ -420,7 +420,7 @@ export default function LegacyClientsPage() {
               .map((a) => (
                 <Box
                   key={a.asesor}
-                  onClick={() => { setAsesorFilter(a.asesor); setPage(0); }}
+                  onClick={() => { setAsesorFilter(a.asesor); setShowOnlyClaimed(false); setPage(0); }}
                   sx={{
                     px: 2, py: 1, borderRadius: 2, cursor: 'pointer',
                     border: asesorFilter === a.asesor ? '2px solid #E65100' : '1px solid #e5e7eb',
