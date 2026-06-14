@@ -319,11 +319,12 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
                 const fullName = row?.nombre ? String(row.nombre).trim() : null;
                 const email = row?.correo ? String(row.correo).toLowerCase().trim() : null;
                 const asesor = row?.asesor ? String(row.asesor).trim() : null;
+                const phone = row?.telefono ? String(row.telefono).trim() : null;
 
-                // Upsert: nombre/correo solo para no reclamados; asesor siempre (viene del sistema externo)
+                // Upsert: nombre/correo solo para no reclamados; asesor y phone siempre (vienen del sistema externo)
                 const result = await pool.query(`
-                    INSERT INTO legacy_clients (box_id, full_name, email, registration_date, asesor)
-                    VALUES ($1, $2, $3, NULL, $4)
+                    INSERT INTO legacy_clients (box_id, full_name, email, registration_date, asesor, phone)
+                    VALUES ($1, $2, $3, NULL, $4, $5)
                     ON CONFLICT (box_id) DO UPDATE SET
                         full_name = CASE WHEN legacy_clients.is_claimed = FALSE
                             THEN COALESCE(EXCLUDED.full_name, legacy_clients.full_name)
@@ -331,9 +332,10 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
                         email = CASE WHEN legacy_clients.is_claimed = FALSE
                             THEN COALESCE(EXCLUDED.email, legacy_clients.email)
                             ELSE legacy_clients.email END,
-                        asesor = COALESCE(EXCLUDED.asesor, legacy_clients.asesor)
+                        asesor = COALESCE(EXCLUDED.asesor, legacy_clients.asesor),
+                        phone = COALESCE(EXCLUDED.phone, legacy_clients.phone)
                     RETURNING (xmax = 0) AS inserted
-                `, [rawBoxId, fullName, email, asesor]);
+                `, [rawBoxId, fullName, email, asesor, phone]);
 
                 if (result.rowCount && result.rowCount > 0) {
                     if ((result.rows[0] as any)?.inserted) {
