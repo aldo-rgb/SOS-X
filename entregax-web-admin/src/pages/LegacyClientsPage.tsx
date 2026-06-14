@@ -55,6 +55,7 @@ interface LegacyClient {
   claimed_by_name: string | null;
   claimed_at: string | null;
   created_at: string;
+  asesor: string | null;
 }
 
 interface Stats {
@@ -423,6 +424,7 @@ export default function LegacyClientsPage() {
               <TableCell><strong>Correo</strong></TableCell>
               <TableCell><strong>Fecha Alta Original</strong></TableCell>
               <TableCell align="center"><strong>Estado</strong></TableCell>
+              <TableCell><strong>Asesor</strong></TableCell>
               <TableCell><strong>Reclamado Por</strong></TableCell>
               <TableCell align="center"><strong>Acciones</strong></TableCell>
             </TableRow>
@@ -430,13 +432,13 @@ export default function LegacyClientsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={8} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No se encontraron clientes
                   </Typography>
@@ -469,6 +471,11 @@ export default function LegacyClientsPage() {
                         size="small"
                       />
                     )}
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color={client.asesor ? 'text.primary' : 'text.disabled'}>
+                      {client.asesor || '-'}
+                    </Typography>
                   </TableCell>
                   <TableCell>
                     {client.is_claimed ? (

@@ -318,17 +318,19 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
                 }
                 const fullName = row?.nombre ? String(row.nombre).trim() : null;
                 const email = row?.correo ? String(row.correo).toLowerCase().trim() : null;
+                const asesor = row?.asesor ? String(row.asesor).trim() : null;
 
                 // Upsert respetando los registros ya reclamados (no machacar datos del usuario)
                 const result = await pool.query(`
-                    INSERT INTO legacy_clients (box_id, full_name, email, registration_date)
-                    VALUES ($1, $2, $3, NULL)
+                    INSERT INTO legacy_clients (box_id, full_name, email, registration_date, asesor)
+                    VALUES ($1, $2, $3, NULL, $4)
                     ON CONFLICT (box_id) DO UPDATE SET
                         full_name = COALESCE(EXCLUDED.full_name, legacy_clients.full_name),
-                        email = COALESCE(EXCLUDED.email, legacy_clients.email)
+                        email = COALESCE(EXCLUDED.email, legacy_clients.email),
+                        asesor = COALESCE(EXCLUDED.asesor, legacy_clients.asesor)
                     WHERE legacy_clients.is_claimed = FALSE
                     RETURNING (xmax = 0) AS inserted
-                `, [rawBoxId, fullName, email]);
+                `, [rawBoxId, fullName, email, asesor]);
 
                 if (result.rowCount && result.rowCount > 0) {
                     if ((result.rows[0] as any)?.inserted) {
