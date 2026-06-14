@@ -760,10 +760,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                     <View key={c.id} style={[s.chartbackItem, idx > 0 && { borderTopWidth: 1, borderTopColor: '#1E2A3A' }]}>
                       <View style={s.chartbackItemLeft}>
                         <Text style={s.chartbackItemName}>{c.full_name || 'Sin nombre'}</Text>
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 }}>
-                          <Text style={s.chartbackItemBox}>{c.box_id}</Text>
-                          {c.asesor ? <Text style={{ color: '#64748B', fontSize: 11 }}>· {c.asesor}</Text> : null}
-                        </View>
+                        <Text style={s.chartbackItemBox}>{c.box_id}</Text>
                       </View>
                       <View style={s.chartbackItemRight}>
                         {c.phone ? (
@@ -1009,7 +1006,7 @@ const s = StyleSheet.create({
     backgroundColor: '#111827',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    maxHeight: '85%',
+    height: '78%',
     paddingHorizontal: 16,
     paddingBottom: 0,
   },

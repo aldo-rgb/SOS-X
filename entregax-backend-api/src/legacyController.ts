@@ -1013,8 +1013,10 @@ export const setChartback = async (req: Request, res: Response): Promise<any> =>
             return res.status(400).json({ error: 'ids requerido' });
         }
         const placeholders = ids.map((_: any, i: number) => `$${i + 2}`).join(',');
+        // Al marcar chartback=true, el cliente queda disponible para cualquier asesor → limpiar asesor
+        const asesorUpdate = chartback ? ', asesor = NULL' : '';
         await pool.query(
-            `UPDATE legacy_clients SET chartback = $1 WHERE id IN (${placeholders})`,
+            `UPDATE legacy_clients SET chartback = $1${asesorUpdate} WHERE id IN (${placeholders})`,
             [!!chartback, ...ids]
         );
         return res.json({ success: true, updated: ids.length });
