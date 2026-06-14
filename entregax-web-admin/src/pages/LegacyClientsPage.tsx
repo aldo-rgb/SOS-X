@@ -158,6 +158,7 @@ export default function LegacyClientsPage() {
         if (!asesorFilter && data.asesores) {
           setAsesorOptions(data.asesores);
         }
+      }
     } catch (error) {
       console.error('Error fetching clients:', error);
     } finally {
