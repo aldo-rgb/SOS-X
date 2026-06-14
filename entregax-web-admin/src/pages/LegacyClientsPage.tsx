@@ -30,7 +30,9 @@ import {
   Select,
   MenuItem,
   FormControl,
-  InputLabel
+  InputLabel,
+  Checkbox,
+  Snackbar
 } from '@mui/material';
 import {
   Search as SearchIcon,
@@ -41,7 +43,9 @@ import {
   Refresh as RefreshIcon,
   People as PeopleIcon,
   HowToReg as ClaimedIcon,
-  CloudSync as SyncIcon
+  CloudSync as SyncIcon,
+  Replay as ReplayIcon,
+  CheckBox as CheckBoxIcon
 } from '@mui/icons-material';
 import { useTranslation } from 'react-i18next';
 import * as XLSX from 'xlsx';
@@ -62,6 +66,7 @@ interface LegacyClient {
   created_at: string;
   asesor: string | null;
   asesor_entregax: string | null;
+  chartback: boolean;
 }
 
 interface AsesorStat {
@@ -75,6 +80,7 @@ interface Stats {
   total: number;
   claimed: number;
   pending: number;
+  chartback_count: number;
   por_asesor: AsesorStat[];
 }
 
@@ -96,6 +102,7 @@ export default function LegacyClientsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showOnlyClaimed, setShowOnlyClaimed] = useState(false);
+  const [showOnlyChartback, setShowOnlyChartback] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [totalClients, setTotalClients] = useState(0);
@@ -124,6 +131,11 @@ export default function LegacyClientsPage() {
   } | null>(null);
   const [syncDialogOpen, setSyncDialogOpen] = useState(false);
 
+  // Chartback selection
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [chartbackSaving, setChartbackSaving] = useState(false);
+  const [snackMsg, setSnackMsg] = useState('');
+
   const token = localStorage.getItem('token');
   const headers = { Authorization: `Bearer ${token}` };
 
@@ -147,7 +159,8 @@ export default function LegacyClientsPage() {
         limit: String(rowsPerPage),
         ...(search && { search }),
         ...(showOnlyClaimed && { claimed: 'true' }),
-        ...(asesorFilter && { asesor: asesorFilter })
+        ...(asesorFilter && { asesor: asesorFilter }),
+        ...(showOnlyChartback && { chartback: 'true' })
       });
 
       const response = await fetch(`${API_URL}/api/legacy/clients?${params}`, { headers });
@@ -155,7 +168,6 @@ export default function LegacyClientsPage() {
         const data = await response.json();
         setClients(data.clients);
         setTotalClients(data.pagination.total);
-        // Cargar opciones únicas de asesores solo la primera vez (sin filtro activo)
         if (!asesorFilter && data.asesores) {
           setAsesorOptions(data.asesores);
         }
@@ -165,15 +177,19 @@ export default function LegacyClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter]);
+  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback]);
 
   useEffect(() => {
     fetchStats();
     fetchClients();
   }, [fetchStats, fetchClients]);
 
+  // Reset selection when page/filter changes
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback]);
+
   const previewFromRows = (rows: string[][]) => {
-    // Detectar header
     const firstRow = rows[0] || [];
     const firstRowJoined = firstRow.join(' ').toLowerCase();
     const hasHeader = firstRowJoined.includes('casillero') ||
@@ -262,7 +278,7 @@ export default function LegacyClientsPage() {
       });
 
       const data = await response.json();
-      
+
       if (response.ok) {
         setUploadResult(data);
       } else {
@@ -305,6 +321,55 @@ export default function LegacyClientsPage() {
   const formatDate = (dateStr: string | null) => {
     if (!dateStr) return '-';
     return new Date(dateStr).toLocaleDateString('es-MX');
+  };
+
+  // Chartback helpers
+  const allVisibleIds = clients.map(c => c.id);
+  const allSelected = allVisibleIds.length > 0 && allVisibleIds.every(id => selectedIds.has(id));
+  const someSelected = allVisibleIds.some(id => selectedIds.has(id)) && !allSelected;
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      const next = new Set(selectedIds);
+      allVisibleIds.forEach(id => next.delete(id));
+      setSelectedIds(next);
+    } else {
+      const next = new Set(selectedIds);
+      allVisibleIds.forEach(id => next.add(id));
+      setSelectedIds(next);
+    }
+  };
+
+  const toggleOne = (id: number) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const handleSetChartback = async (value: boolean) => {
+    if (selectedIds.size === 0) return;
+    setChartbackSaving(true);
+    try {
+      const resp = await fetch(`${API_URL}/api/legacy/clients/chartback`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds), chartback: value })
+      });
+      if (resp.ok) {
+        setSnackMsg(value
+          ? `${selectedIds.size} cliente(s) marcados como Chartback`
+          : `${selectedIds.size} cliente(s) desmarcados de Chartback`
+        );
+        setSelectedIds(new Set());
+        fetchStats();
+        fetchClients();
+      }
+    } catch (e) {
+      setSnackMsg('Error al actualizar');
+    } finally {
+      setChartbackSaving(false);
+    }
   };
 
   return (
@@ -408,6 +473,42 @@ export default function LegacyClientsPage() {
         </Grid>
       )}
 
+      {/* Widget: Chartback */}
+      <Paper
+        sx={{
+          p: 2.5,
+          mb: 2,
+          border: '1.5px solid',
+          borderColor: showOnlyChartback ? '#1565c0' : '#e3eaf5',
+          bgcolor: showOnlyChartback ? '#e8f0fe' : '#f5f8ff',
+          cursor: 'pointer',
+          transition: 'all 0.15s',
+          '&:hover': { borderColor: '#1565c0', bgcolor: '#e8f0fe' },
+        }}
+        onClick={() => { setShowOnlyChartback(v => !v); setPage(0); setShowOnlyClaimed(false); }}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+          <ReplayIcon sx={{ fontSize: 36, color: '#1565c0' }} />
+          <Box sx={{ flex: 1 }}>
+            <Typography variant="subtitle2" sx={{ color: '#1565c0', fontWeight: 700, letterSpacing: 0.5, textTransform: 'uppercase', fontSize: 11 }}>
+              Chartback — Reactivación de Clientes
+            </Typography>
+            <Typography variant="h4" fontWeight="bold" sx={{ color: '#1565c0', lineHeight: 1.2 }}>
+              {stats?.chartback_count ?? '—'}
+              <Typography component="span" variant="body2" sx={{ color: '#555', ml: 1, fontWeight: 400 }}>
+                clientes marcados
+              </Typography>
+            </Typography>
+          </Box>
+          {showOnlyChartback && (
+            <Chip label="Filtrando" size="small" color="primary" sx={{ fontWeight: 700 }} />
+          )}
+          <Typography variant="caption" sx={{ color: '#1565c0', opacity: 0.7 }}>
+            {showOnlyChartback ? 'Ver todos' : 'Ver lista →'}
+          </Typography>
+        </Box>
+      </Paper>
+
       {/* Widget: clientes por asesor */}
       {stats?.por_asesor && stats.por_asesor.filter(a => a.asesor !== 'Sin Asesor').length > 0 && (
         <Paper sx={{ p: 2, mb: 2 }}>
@@ -450,7 +551,7 @@ export default function LegacyClientsPage() {
 
       {/* Filters */}
       <Paper sx={{ p: 2, mb: 2 }}>
-        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
           <TextField
             placeholder="Buscar por casillero, nombre o correo..."
             size="small"
@@ -485,22 +586,73 @@ export default function LegacyClientsPage() {
                 onChange={(e) => { setShowOnlyClaimed(e.target.checked); setPage(0); }}
               />
             }
-            label="Mostrar solo reclamados"
+            label="Solo reclamados"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showOnlyChartback}
+                onChange={(e) => { setShowOnlyChartback(e.target.checked); setPage(0); setShowOnlyClaimed(false); }}
+                color="primary"
+              />
+            }
+            label="Solo Chartback"
           />
         </Box>
       </Paper>
+
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <Paper sx={{ p: 1.5, mb: 1, display: 'flex', alignItems: 'center', gap: 2, bgcolor: '#e8f0fe', border: '1.5px solid #1565c0' }}>
+          <CheckBoxIcon sx={{ color: '#1565c0' }} />
+          <Typography variant="body2" fontWeight="bold" sx={{ color: '#1565c0', flex: 1 }}>
+            {selectedIds.size} cliente(s) seleccionado(s)
+          </Typography>
+          <Button
+            size="small"
+            variant="contained"
+            sx={{ bgcolor: '#1565c0' }}
+            disabled={chartbackSaving}
+            startIcon={chartbackSaving ? <CircularProgress size={14} color="inherit" /> : <ReplayIcon />}
+            onClick={() => handleSetChartback(true)}
+          >
+            Marcar Chartback
+          </Button>
+          <Button
+            size="small"
+            variant="outlined"
+            sx={{ borderColor: '#1565c0', color: '#1565c0' }}
+            disabled={chartbackSaving}
+            onClick={() => handleSetChartback(false)}
+          >
+            Quitar Chartback
+          </Button>
+          <Button size="small" color="inherit" onClick={() => setSelectedIds(new Set())}>
+            Cancelar
+          </Button>
+        </Paper>
+      )}
 
       {/* Table */}
       <TableContainer component={Paper}>
         <Table size="small">
           <TableHead>
             <TableRow sx={{ backgroundColor: 'grey.100' }}>
+              <TableCell padding="checkbox">
+                <Checkbox
+                  indeterminate={someSelected}
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  size="small"
+                />
+              </TableCell>
               <TableCell><strong>Casillero</strong></TableCell>
               <TableCell><strong>Nombre</strong></TableCell>
               <TableCell><strong>Correo</strong></TableCell>
               <TableCell><strong>Teléfono</strong></TableCell>
               <TableCell><strong>Fecha Alta Original</strong></TableCell>
               <TableCell align="center"><strong>Estado</strong></TableCell>
+              <TableCell align="center"><strong>Chartback</strong></TableCell>
               <TableCell><strong>Asesor (Sistema EX)</strong></TableCell>
               <TableCell><strong>Asesor (EntregaX)</strong></TableCell>
               <TableCell><strong>Reclamado Por</strong></TableCell>
@@ -510,13 +662,13 @@ export default function LegacyClientsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={10} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No se encontraron clientes
                   </Typography>
@@ -524,7 +676,19 @@ export default function LegacyClientsPage() {
               </TableRow>
             ) : (
               clients.map((client) => (
-                <TableRow key={client.id} hover>
+                <TableRow
+                  key={client.id}
+                  hover
+                  selected={selectedIds.has(client.id)}
+                  sx={client.chartback ? { bgcolor: '#f0f4ff' } : undefined}
+                >
+                  <TableCell padding="checkbox">
+                    <Checkbox
+                      size="small"
+                      checked={selectedIds.has(client.id)}
+                      onChange={() => toggleOne(client.id)}
+                    />
+                  </TableCell>
                   <TableCell>
                     <Typography fontWeight="bold" color="primary">
                       {client.box_id}
@@ -553,6 +717,18 @@ export default function LegacyClientsPage() {
                         color="warning"
                         size="small"
                       />
+                    )}
+                  </TableCell>
+                  <TableCell align="center">
+                    {client.chartback ? (
+                      <Chip
+                        icon={<ReplayIcon />}
+                        label="Chartback"
+                        size="small"
+                        sx={{ bgcolor: '#1565c0', color: '#fff', fontWeight: 700 }}
+                      />
+                    ) : (
+                      <Typography variant="caption" color="text.disabled">—</Typography>
                     )}
                   </TableCell>
                   <TableCell>
@@ -800,6 +976,15 @@ export default function LegacyClientsPage() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Snackbar confirmación */}
+      <Snackbar
+        open={!!snackMsg}
+        autoHideDuration={3500}
+        onClose={() => setSnackMsg('')}
+        message={snackMsg}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      />
     </Box>
   );
 }

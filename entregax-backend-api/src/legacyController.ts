@@ -469,7 +469,7 @@ export const listCustomersForExternalSync = async (req: Request, res: Response):
  */
 export const getLegacyClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { page = 1, limit = 50, search, claimed, asesor } = req.query;
+        const { page = 1, limit = 50, search, claimed, asesor, chartback } = req.query;
         const offset = (Number(page) - 1) * Number(limit);
         const limitNum = Number(limit);
 
@@ -499,6 +499,11 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
         if (asesor && String(asesor).trim() !== '') {
             params.push(String(asesor).trim());
             conditions.push(`lc.asesor = $${params.length}`);
+        }
+
+        // Filtro chartback
+        if (chartback === 'true') {
+            conditions.push(`lc.chartback = TRUE`);
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -569,8 +574,13 @@ export const getLegacyStats = async (req: Request, res: Response): Promise<any> 
             `)
         ]);
 
+        const chartbackRes = await pool.query(
+            `SELECT COUNT(*) FILTER (WHERE chartback = true) as chartback_count FROM legacy_clients`
+        );
+
         res.json({
             ...totalsRes.rows[0],
+            chartback_count: parseInt(chartbackRes.rows[0].chartback_count || '0'),
             por_asesor: asesorRes.rows,
         });
 
@@ -969,6 +979,29 @@ export const verifyLegacyName = async (req: Request, res: Response): Promise<any
     } catch (error: any) {
         console.error('Error verificando nombre:', error.message, error.stack);
         res.status(500).json({ error: 'Error al verificar', details: error.message });
+    }
+};
+
+/**
+ * Marcar/desmarcar chartback en bulk
+ * POST /api/legacy/clients/chartback
+ * body: { ids: number[], chartback: boolean }
+ */
+export const setChartback = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { ids, chartback } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'ids requerido' });
+        }
+        const placeholders = ids.map((_: any, i: number) => `$${i + 2}`).join(',');
+        await pool.query(
+            `UPDATE legacy_clients SET chartback = $1 WHERE id IN (${placeholders})`,
+            [!!chartback, ...ids]
+        );
+        return res.json({ success: true, updated: ids.length });
+    } catch (error: any) {
+        console.error('Error actualizando chartback:', error);
+        res.status(500).json({ error: 'Error al actualizar chartback' });
     }
 };
 

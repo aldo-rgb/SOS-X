@@ -910,6 +910,7 @@ import {
   verifyLegacyBox,
   verifyLegacyName,
   deleteLegacyClient,
+  setChartback,
   uploadMiddleware,
   syncExternalLegacyClients,
   listCustomersForExternalSync
@@ -2466,6 +2467,7 @@ app.post('/api/legacy/import', authenticateToken, requireRole(ROLES.SUPER_ADMIN)
 app.post('/api/legacy/sync-external', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.DIRECTOR), syncExternalLegacyClients);
 app.get('/api/legacy/clients', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.ADMIN, ROLES.DIRECTOR, ROLES.WAREHOUSE_OPS), getLegacyClients);
 app.get('/api/legacy/stats', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER), getLegacyStats);
+app.post('/api/legacy/clients/chartback', authenticateToken, requireRole(ROLES.SUPER_ADMIN, ROLES.BRANCH_MANAGER, ROLES.DIRECTOR), setChartback);
 app.delete('/api/legacy/clients/:id', authenticateToken, requireRole(ROLES.SUPER_ADMIN), deleteLegacyClient);
 
 // Multer + S3 upload helper para registrar gastos desde la app
