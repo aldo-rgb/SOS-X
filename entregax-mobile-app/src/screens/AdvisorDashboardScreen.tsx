@@ -644,7 +644,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             <TouchableOpacity
               style={s.chartbackCard}
               activeOpacity={0.8}
-              onPress={() => { setChartbackSearch(''); setShowChartbackModal(true); }}
+              onPress={() => { setChartbackSearch(''); setShowChartbackModal(true); loadChartback(); }}
             >
               <View style={[s.chartbackAccent, { backgroundColor: '#1565C0' }]} />
               <View style={s.chartbackIconWrap}>
