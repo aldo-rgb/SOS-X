@@ -1258,7 +1258,7 @@ ${body}
   .service-box { flex: 1; border: 1px solid #ddd; border-radius: 4px; padding: 5px; }
   .service-box .lbl { font-size: 7px; color: #888; font-weight: 700; letter-spacing: 1px; }
   .service-box .val { font-size: 12px; font-weight: 900; color: #111; }
-  .service-box .sub { font-size: 10px; color: #1565C0; font-weight: 700; }
+  .service-box .sub { font-size: 18px; color: #1565C0; font-weight: 900; letter-spacing: 1px; }
 </style></head><body>
 ${labelsHtml}
 <script>
