@@ -729,16 +729,28 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         if (existingUserId) {
             // Actualizar cuenta existente (mismo cliente, reclama de nuevo)
-            await client.query(`
-                UPDATE users
-                SET password = $1,
-                    phone = COALESCE($2, phone),
-                    full_name = COALESCE($3, full_name),
-                    email = $5,
-                    verification_status = 'not_started',
-                    is_verified = FALSE
-                WHERE id = $4
-            `, [hashedPassword, phone || null, finalName, existingUserId, finalEmail]);
+            // Chartback re-activations keep their existing verification status
+            if (isChartbackReactivation) {
+                await client.query(`
+                    UPDATE users
+                    SET password = $1,
+                        phone = COALESCE($2, phone),
+                        full_name = COALESCE($3, full_name),
+                        email = $5
+                    WHERE id = $4
+                `, [hashedPassword, phone || null, finalName, existingUserId, finalEmail]);
+            } else {
+                await client.query(`
+                    UPDATE users
+                    SET password = $1,
+                        phone = COALESCE($2, phone),
+                        full_name = COALESCE($3, full_name),
+                        email = $5,
+                        verification_status = 'not_started',
+                        is_verified = FALSE
+                    WHERE id = $4
+                `, [hashedPassword, phone || null, finalName, existingUserId, finalEmail]);
+            }
             newUserId = existingUserId;
         } else {
             // Generar código de referido único
