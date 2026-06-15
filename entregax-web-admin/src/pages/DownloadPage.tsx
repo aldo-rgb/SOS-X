@@ -73,12 +73,33 @@ export default function DownloadPage() {
         top: '35%', left: '50%', transform: 'translate(-50%, -50%)', pointerEvents: 'none',
       }} />
 
+      {/* Top nav */}
+      <Box sx={{ position: 'relative', zIndex: 2 }}>
+        <Container maxWidth="lg">
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end', pt: 2.5, pb: 1 }}>
+            <Button
+              component="a"
+              href="/login"
+              variant="outlined"
+              size="small"
+              sx={{
+                borderColor: 'rgba(255,255,255,0.3)', color: '#fff', borderRadius: 2.5,
+                textTransform: 'none', fontWeight: 600, fontSize: 13, px: 2.5, py: 0.8,
+                '&:hover': { borderColor: '#E65100', bgcolor: 'rgba(230,81,0,0.1)' },
+              }}
+            >
+              Ingresar al portal web →
+            </Button>
+          </Box>
+        </Container>
+      </Box>
+
       {/* Main */}
       <Container maxWidth="lg" sx={{ flex: 1, position: 'relative', zIndex: 1 }}>
         <Box sx={{
           display: 'flex', flexDirection: { xs: 'column', md: 'row' },
           alignItems: 'center', gap: { xs: 6, md: 8 },
-          minHeight: { md: '85vh' }, py: { xs: 6, md: 0 },
+          minHeight: { md: '80vh' }, py: { xs: 6, md: 0 },
         }}>
           {/* Left */}
           <Box sx={{ flex: 1 }}>
@@ -93,7 +114,7 @@ export default function DownloadPage() {
             </Typography>
 
             <Typography sx={{ color: 'rgba(255,255,255,0.5)', mb: 4, maxWidth: 420, fontSize: 16 }}>
-              Rastrea envíos aéreos y marítimos, gestiona tu casillero y mantén el control de tus importaciones desde una sola app.
+              Rastrea envíos aéreos y marítimos, gestiona tu Suite y mantén el control de tus importaciones desde una sola app.
             </Typography>
 
             {/* Store buttons */}
@@ -191,11 +212,14 @@ export default function DownloadPage() {
       <Box sx={{ py: 2, borderTop: '1px solid rgba(255,255,255,0.04)', position: 'relative', zIndex: 1 }}>
         <Container maxWidth="lg" sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
           <Stack direction="row" spacing={3}>
-            {['Privacy policy', 'Contact us'].map((link) => (
-              <Typography key={link} variant="caption" sx={{ color: 'rgba(255,255,255,0.2)', cursor: 'pointer', '&:hover': { color: 'rgba(255,255,255,0.5)' } }}>
-                {link}
-              </Typography>
-            ))}
+            <Typography component="a" href="/privacy-policy" variant="caption"
+              sx={{ color: 'rgba(255,255,255,0.2)', textDecoration: 'none', '&:hover': { color: 'rgba(255,255,255,0.5)' } }}>
+              Privacy policy
+            </Typography>
+            <Typography component="a" href="mailto:contacto@entregax.com" variant="caption"
+              sx={{ color: 'rgba(255,255,255,0.2)', textDecoration: 'none', '&:hover': { color: 'rgba(255,255,255,0.5)' } }}>
+              Contact us
+            </Typography>
             <Typography component="a" href="/login" variant="caption"
               sx={{ color: 'rgba(255,255,255,0.2)', textDecoration: 'none', '&:hover': { color: '#E65100' } }}>
               Portal web →
