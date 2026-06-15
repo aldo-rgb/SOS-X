@@ -56,7 +56,7 @@ function PhoneMockup() {
 const FEATURES = [
   { icon: '🚢', title: 'Marítimo China', desc: 'Cotización instantánea y rastreo directo' },
   { icon: '✈️', title: 'Aéreo China', desc: 'Visibilidad de costos y tiempos' },
-  { icon: '📦', title: 'PO Box USA', desc: 'Historial completo y gestión centralizada' },
+  { icon: '📦', title: 'Despacho Aduanal USA a Mexico', desc: 'Historial completo y gestión centralizada' },
 ];
 
 export default function DownloadPage() {
