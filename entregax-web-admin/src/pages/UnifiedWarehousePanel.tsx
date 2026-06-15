@@ -61,6 +61,7 @@ import {
   ArrowBack as ArrowBackIcon,
   Draw as SignatureIcon,
   Close as CloseIcon,
+  SupportAgent as AdvisorIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -183,6 +184,7 @@ interface ShipmentClient {
   name: string;
   email: string;
   boxId: string;
+  advisor?: { id: number; name: string } | null;
 }
 
 interface ShipmentResponse {
@@ -1199,6 +1201,21 @@ const UnifiedWarehousePanel: React.FC<{ onBack?: () => void }> = ({ onBack }) =>
                     <Typography variant="body2" color="text.secondary">
                       BOX: <strong>{client?.boxId || 'N/A'}</strong>
                       {client?.email ? ` · ${client.email}` : ''}
+                    </Typography>
+                  </Box>
+                </Stack>
+              </Grid>
+
+              {/* Asesor asignado */}
+              <Grid size={{ xs: 12, md: 6 }}>
+                <Stack direction="row" spacing={1.5} alignItems="flex-start">
+                  <AdvisorIcon color="action" />
+                  <Box>
+                    <Typography variant="overline" color="text.secondary">
+                      Asesor asignado
+                    </Typography>
+                    <Typography variant="body1" fontWeight="bold">
+                      {client?.advisor?.name || '—'}
                     </Typography>
                   </Box>
                 </Stack>
