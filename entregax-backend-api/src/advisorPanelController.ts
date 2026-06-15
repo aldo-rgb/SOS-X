@@ -302,17 +302,18 @@ export const getAdvisorClients = async (req: Request, res: Response): Promise<an
     }
 
     if (status === 'verified') {
-      whereClause += ` AND u.is_verified = true`;
+      whereClause += ` AND (u.is_verified = true OR LOWER(u.verification_status) IN ('verified', 'approved'))`;
     } else if (status === 'pending') {
-      whereClause += ` AND u.verification_status = 'unverified' AND u.is_verified = false`;
+      whereClause += ` AND u.is_verified = false AND LOWER(u.verification_status) NOT IN ('verified', 'approved')`;
     } else if (status === 'unverified') {
-      whereClause += ` AND u.is_verified = false`;
+      whereClause += ` AND u.is_verified = false AND LOWER(u.verification_status) NOT IN ('verified', 'approved')`;
     }
 
     const clientsRes = await pool.query(`
       SELECT 
-        u.id, u.full_name, u.email, u.phone, u.box_id, 
-        u.is_verified, u.verification_status,
+        u.id, u.full_name, u.email, u.phone, u.box_id,
+        (u.is_verified = true OR LOWER(u.verification_status) IN ('verified', 'approved')) as is_verified,
+        u.verification_status,
         u.created_at, u.recovery_status,
         -- Último envío (de las 3 tablas)
         GREATEST(
