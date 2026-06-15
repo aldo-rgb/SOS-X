@@ -52,6 +52,19 @@ import * as XLSX from 'xlsx';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+interface LastSend {
+  Estado?: string;
+  estado?: string;
+  'Guia de ingreso'?: string;
+  'Fecha de salida'?: string;
+  'Fecha de ingreso'?: string;
+  kilos?: string | number;
+  cbm?: string | number;
+  peso?: string | number;
+  bultos?: string | number;
+  [key: string]: any;
+}
+
 interface LegacyClient {
   id: number;
   box_id: string;
@@ -67,6 +80,8 @@ interface LegacyClient {
   asesor: string | null;
   asesor_entregax: string | null;
   chartback: boolean;
+  last_send: LastSend | null;
+  last_send_maritimo: LastSend | null;
 }
 
 interface AsesorStat {
@@ -655,6 +670,7 @@ export default function LegacyClientsPage() {
               <TableCell align="center"><strong>Chartback</strong></TableCell>
               <TableCell><strong>Asesor (Sistema EX)</strong></TableCell>
               <TableCell><strong>Asesor (EntregaX)</strong></TableCell>
+              <TableCell><strong>Último Envío</strong></TableCell>
               <TableCell><strong>Reclamado Por</strong></TableCell>
               <TableCell align="center"><strong>Acciones</strong></TableCell>
             </TableRow>
@@ -662,13 +678,13 @@ export default function LegacyClientsPage() {
           <TableBody>
             {loading ? (
               <TableRow>
-                <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
                   <CircularProgress />
                 </TableCell>
               </TableRow>
             ) : clients.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={12} align="center" sx={{ py: 4 }}>
+                <TableCell colSpan={13} align="center" sx={{ py: 4 }}>
                   <Typography color="text.secondary">
                     No se encontraron clientes
                   </Typography>
@@ -740,6 +756,37 @@ export default function LegacyClientsPage() {
                     <Typography variant="body2" color={client.asesor_entregax ? 'text.primary' : 'text.disabled'}>
                       {client.asesor_entregax || '-'}
                     </Typography>
+                  </TableCell>
+                  <TableCell sx={{ minWidth: 160 }}>
+                    {(() => {
+                      const aero = client.last_send;
+                      const mar = client.last_send_maritimo;
+                      if (!aero && !mar) return <Typography variant="caption" color="text.disabled">—</Typography>;
+                      const items = [];
+                      if (aero) {
+                        const fecha = aero['Fecha de ingreso'] || aero['Fecha de salida'] || null;
+                        const guia = aero['Guia de ingreso'] || null;
+                        items.push(
+                          <Box key="aero" sx={{ mb: mar ? 1 : 0 }}>
+                            <Chip label="Aéreo" size="small" sx={{ bgcolor: '#e3f2fd', color: '#1565c0', fontSize: 10, height: 18, mb: 0.5 }} />
+                            {guia && <Typography variant="caption" display="block" sx={{ fontWeight: 600 }}>{guia}</Typography>}
+                            {fecha && <Typography variant="caption" display="block" color="text.secondary">{fecha}</Typography>}
+                          </Box>
+                        );
+                      }
+                      if (mar) {
+                        const fecha = mar['Fecha de ingreso'] || mar['Fecha de salida'] || null;
+                        const guia = mar['Guia de ingreso'] || null;
+                        items.push(
+                          <Box key="mar">
+                            <Chip label="Marítimo" size="small" sx={{ bgcolor: '#e8f5e9', color: '#2e7d32', fontSize: 10, height: 18, mb: 0.5 }} />
+                            {guia && <Typography variant="caption" display="block" sx={{ fontWeight: 600 }}>{guia}</Typography>}
+                            {fecha && <Typography variant="caption" display="block" color="text.secondary">{fecha}</Typography>}
+                          </Box>
+                        );
+                      }
+                      return <>{items}</>;
+                    })()}
                   </TableCell>
                   <TableCell>
                     {client.is_claimed ? (
