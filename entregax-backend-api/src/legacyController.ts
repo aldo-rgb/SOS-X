@@ -768,19 +768,6 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             WHERE box_id = $2
         `, [newUserId, boxId.toUpperCase()]);
 
-        // 6.0 Chartback recovery: asignar el asesor que lo recuperó
-        if (isChartbackReactivation) {
-            const activities: any[] = legacyUser.chartback_activity || [];
-            const lastAdvisorEntry = [...activities].reverse().find((a: any) => a.advisor_id);
-            if (lastAdvisorEntry?.advisor_id) {
-                await client.query(
-                    'UPDATE users SET advisor_id = $1 WHERE id = $2',
-                    [lastAdvisorEntry.advisor_id, newUserId]
-                );
-                console.log(`[CHARTBACK] ✅ Asesor ${lastAdvisorEntry.advisor_id} asignado a user ${newUserId} (recovered)`);
-            }
-        }
-
         // 6.1 Auto-reclamar paquetes huérfanos (user_id NULL + mismo box_id).
         const claimedPkgs = await client.query(`
             UPDATE packages
