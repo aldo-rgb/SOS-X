@@ -1884,17 +1884,17 @@ export default function AdminHubPage({ users = [], loading = false, onRefresh, p
 
                 {/* Tarjeta: Gestión Chartback */}
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#1565C0', boxShadow: '0 8px 24px rgba(21,101,192,0.12)', transform: 'translateY(-2px)' } }}>
+                    <Card sx={{ height: '100%', borderRadius: 2, border: '1px solid #ECECEC', boxShadow: '0 1px 2px rgba(0,0,0,0.04)', transition: 'all 0.2s ease', overflow: 'hidden', '&:hover': { borderColor: '#F05A28', boxShadow: '0 8px 24px rgba(240,90,40,0.12)', transform: 'translateY(-2px)' } }}>
                         <CardActionArea
                             onClick={() => setShowChartback(true)}
                             sx={{ height: '100%' }}
                         >
-                            <Box sx={{ height: 4, bgcolor: '#1565C0' }} />
+                            <Box sx={{ height: 4, bgcolor: '#F05A28' }} />
                             <Box sx={{ px: 3, pt: 2.5, pb: 0.5, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
                                 <Box sx={{
                                     width: 48, height: 48, borderRadius: 1.5,
                                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                    bgcolor: '#1565C015', color: '#1565C0',
+                                    bgcolor: '#F05A2815', color: '#F05A28',
                                     '& svg': { fontSize: 26 }
                                 }}>
                                     <svg xmlns="http://www.w3.org/2000/svg" height="26" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
