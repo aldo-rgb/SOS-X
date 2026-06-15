@@ -484,7 +484,7 @@ export const listCustomersForExternalSync = async (req: Request, res: Response):
  */
 export const getLegacyClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { page = 1, limit = 50, search, claimed, asesor, chartback } = req.query;
+        const { page = 1, limit = 50, search, claimed, asesor, chartback, lastSendFrom, lastSendTo } = req.query;
         const offset = (Number(page) - 1) * Number(limit);
         const limitNum = Number(limit);
 
@@ -519,6 +519,22 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
         // Filtro chartback
         if (chartback === 'true') {
             conditions.push(`lc.chartback = TRUE`);
+        }
+
+        // Filtro por fecha de último envío (aéreo o marítimo)
+        const lastSendExpr = `GREATEST(
+            lc.last_send->>'Fecha de ingreso',
+            lc.last_send->>'Fecha de salida',
+            lc.last_send_maritimo->>'Fecha de ingreso',
+            lc.last_send_maritimo->>'Fecha de salida'
+        )`;
+        if (lastSendFrom && String(lastSendFrom).trim() !== '') {
+            params.push(String(lastSendFrom).trim());
+            conditions.push(`${lastSendExpr} >= $${params.length}`);
+        }
+        if (lastSendTo && String(lastSendTo).trim() !== '') {
+            params.push(String(lastSendTo).trim() + ' 23:59:59');
+            conditions.push(`${lastSendExpr} <= $${params.length}`);
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';

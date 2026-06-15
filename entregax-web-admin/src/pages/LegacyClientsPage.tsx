@@ -134,6 +134,10 @@ export default function LegacyClientsPage() {
   const [asesorFilter, setAsesorFilter] = useState('');
   const [asesorOptions, setAsesorOptions] = useState<string[]>([]);
 
+  // Filtro por fecha de último envío
+  const [lastSendFrom, setLastSendFrom] = useState('');
+  const [lastSendTo, setLastSendTo] = useState('');
+
   // Sync external dialog
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{
@@ -172,7 +176,9 @@ export default function LegacyClientsPage() {
         ...(search && { search }),
         ...(showOnlyClaimed && { claimed: 'true' }),
         ...(asesorFilter && { asesor: asesorFilter }),
-        ...(showOnlyChartback && { chartback: 'true' })
+        ...(showOnlyChartback && { chartback: 'true' }),
+        ...(lastSendFrom && { lastSendFrom }),
+        ...(lastSendTo && { lastSendTo })
       });
 
       const response = await fetch(`${API_URL}/api/legacy/clients?${params}`, { headers });
@@ -189,7 +195,7 @@ export default function LegacyClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback]);
+  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, lastSendFrom, lastSendTo]);
 
   useEffect(() => {
     fetchStats();
@@ -199,7 +205,7 @@ export default function LegacyClientsPage() {
   // Reset selection when page/filter changes
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback]);
+  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback, lastSendFrom, lastSendTo]);
 
   const previewFromRows = (rows: string[][]) => {
     const firstRow = rows[0] || [];
@@ -610,6 +616,34 @@ export default function LegacyClientsPage() {
             }
             label="Solo Chartback"
           />
+          <TextField
+            label="Último envío desde"
+            type="date"
+            size="small"
+            value={lastSendFrom}
+            onChange={(e) => { setLastSendFrom(e.target.value); setPage(0); }}
+            InputLabelProps={{ shrink: true }}
+            sx={{ minWidth: 160 }}
+          />
+          <TextField
+            label="Último envío hasta"
+            type="date"
+            size="small"
+            value={lastSendTo}
+            onChange={(e) => { setLastSendTo(e.target.value); setPage(0); }}
+            InputLabelProps={{ shrink: true }}
+            sx={{ minWidth: 160 }}
+          />
+          {(lastSendFrom || lastSendTo) && (
+            <Button
+              size="small"
+              variant="text"
+              onClick={() => { setLastSendFrom(''); setLastSendTo(''); setPage(0); }}
+              sx={{ color: '#666', minWidth: 'auto', px: 1 }}
+            >
+              Limpiar fechas
+            </Button>
+          )}
         </Box>
       </Paper>
 
