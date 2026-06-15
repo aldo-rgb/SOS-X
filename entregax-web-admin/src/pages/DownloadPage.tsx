@@ -83,7 +83,7 @@ export default function DownloadPage() {
           {/* Left */}
           <Box sx={{ flex: 1 }}>
             <Box sx={{ mb: 4 }}>
-              <img src="/logo-paqeteria.png" alt="EntregaX" style={{ height: 48, objectFit: 'contain' }} />
+              <img src="/logo-paqeteria.png" alt="EntregaX" style={{ height: 192, objectFit: 'contain' }} />
             </Box>
 
             <Typography variant="h3" fontWeight="bold" sx={{ color: '#fff', mb: 2, lineHeight: 1.15, letterSpacing: '-0.5px' }}>
