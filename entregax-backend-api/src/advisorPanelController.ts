@@ -80,7 +80,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
       `SELECT id, full_name, email, referral_code, box_id, role, created_at,
               is_verified, verification_status,
               privacy_accepted_at, privacy_signature_url,
-              profile_photo_url
+              profile_photo_url, can_recovery
        FROM users WHERE id = $1`, [advisorId]
     );
     if (advisorRes.rows.length === 0) return res.status(404).json({ error: 'Asesor no encontrado' });
@@ -235,6 +235,7 @@ export const getAdvisorDashboard = async (req: Request, res: Response): Promise<
         privacyAcceptedAt: advisor.privacy_accepted_at,
         hasPrivacySignature: !!advisor.privacy_signature_url,
         profilePhotoUrl: advisor.profile_photo_url || null,
+        canRecovery: !!advisor.can_recovery,
       },
       clients: {
         total: parseInt(clientStats.total_clients) || 0,

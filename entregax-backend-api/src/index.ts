@@ -197,6 +197,7 @@ import {
   markCommissionsAsPaid,
   getCommissionsByAdvisor,
   runCommissionBackfill,
+  toggleAdvisorRecovery,
 } from './commissionController';
 import {
   getFiscalEmitters,
@@ -4997,6 +4998,7 @@ app.put('/api/admin/logistics-services/:id', authenticateToken, requireMinLevel(
 // --- RUTAS DE ASESORES (Gestión de Jerarquía) ---
 app.get('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.ADMIN), getAdvisors);
 app.post('/api/admin/advisors', authenticateToken, requireMinLevel(ROLES.DIRECTOR), createAdvisor);
+app.patch('/api/admin/advisors/:id/recovery', authenticateToken, requireMinLevel(ROLES.ADMIN), toggleAdvisorRecovery);
 
 // --- RUTAS DE VERIFICACIÓN (Usuario) ---
 app.get('/api/verification/status', authenticateToken, getVerificationStatus);

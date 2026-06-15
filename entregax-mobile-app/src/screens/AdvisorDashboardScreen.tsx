@@ -36,6 +36,7 @@ interface AdvisorDashboardData {
   advisor: {
     id: number; fullName: string; email: string;
     referralCode: string; boxId: string; role: string; joinedAt: string;
+    canRecovery: boolean;
   };
   clients: {
     total: number; new7d: number; new30d: number;
@@ -633,31 +634,35 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
           </>
         )}
 
-        {/* Reactivación de Clientes (Chartback) */}
-        <View style={s.sectionHeader}>
-          <View style={s.sectionBar} />
-          <Text style={s.sectionTitle}>REACTIVACIÓN DE CLIENTES</Text>
-        </View>
-        <TouchableOpacity
-          style={s.chartbackCard}
-          activeOpacity={0.8}
-          onPress={() => { setChartbackSearch(''); setShowChartbackModal(true); }}
-        >
-          <View style={[s.chartbackAccent, { backgroundColor: '#1565C0' }]} />
-          <View style={s.chartbackIconWrap}>
-            <Ionicons name="refresh-circle" size={36} color="#1565C0" />
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.chartbackCount}>
-              {chartbackLoading ? '—' : chartbackClients.length}
-            </Text>
-            <Text style={s.chartbackLabel}>clientes para reactivar</Text>
-          </View>
-          <View style={s.chartbackArrow}>
-            <Text style={s.chartbackArrowText}>Ver lista</Text>
-            <Ionicons name="arrow-forward" size={16} color="#1565C0" />
-          </View>
-        </TouchableOpacity>
+        {/* Reactivación de Clientes (Chartback) — solo si el asesor tiene permiso */}
+        {data.advisor.canRecovery && (
+          <>
+            <View style={s.sectionHeader}>
+              <View style={s.sectionBar} />
+              <Text style={s.sectionTitle}>REACTIVACIÓN DE CLIENTES</Text>
+            </View>
+            <TouchableOpacity
+              style={s.chartbackCard}
+              activeOpacity={0.8}
+              onPress={() => { setChartbackSearch(''); setShowChartbackModal(true); }}
+            >
+              <View style={[s.chartbackAccent, { backgroundColor: '#1565C0' }]} />
+              <View style={s.chartbackIconWrap}>
+                <Ionicons name="refresh-circle" size={36} color="#1565C0" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.chartbackCount}>
+                  {chartbackLoading ? '—' : chartbackClients.length}
+                </Text>
+                <Text style={s.chartbackLabel}>clientes para reactivar</Text>
+              </View>
+              <View style={s.chartbackArrow}>
+                <Text style={s.chartbackArrowText}>Ver lista</Text>
+                <Ionicons name="arrow-forward" size={16} color="#1565C0" />
+              </View>
+            </TouchableOpacity>
+          </>
+        )}
 
         {/* Cotizaciones */}
         <View style={s.sectionHeader}>

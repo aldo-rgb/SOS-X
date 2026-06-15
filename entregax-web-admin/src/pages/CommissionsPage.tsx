@@ -1,13 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { useTranslation } from 'react-i18next';
-import { 
-  Box, Typography, Table, TableBody, TableCell, TableContainer, 
+import {
+  Box, Typography, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, Paper, TextField, Button, InputAdornment,
   Card, CardContent, Chip, Avatar, CircularProgress,
   Alert, Snackbar, Tooltip, IconButton, Divider,
   Dialog, DialogTitle, DialogContent, DialogActions,
-  FormControl, InputLabel, Select, MenuItem, Tabs, Tab
+  FormControl, InputLabel, Select, MenuItem, Tabs, Tab,
+  Switch
 } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import MonetizationOnIcon from '@mui/icons-material/MonetizationOn';
@@ -86,6 +87,7 @@ interface Advisor {
   leader_name: string | null;
   referral_count: number;
   created_at: string;
+  can_recovery: boolean;
 }
 
 const getServiceIcon = (serviceType: string) => {
@@ -180,6 +182,20 @@ export default function CommissionsPage() {
       setSnackbar({ open: true, message: axiosError.response?.data?.error || 'Error al crear asesor', severity: 'error' });
     } finally {
       setCreatingAdvisor(false);
+    }
+  };
+
+  const handleToggleRecovery = async (advisorId: number, value: boolean) => {
+    setAdvisors(prev => prev.map(a => a.id === advisorId ? { ...a, can_recovery: value } : a));
+    try {
+      await axios.patch(
+        `${API_URL}/admin/advisors/${advisorId}/recovery`,
+        { can_recovery: value },
+        { headers: { Authorization: `Bearer ${getToken()}` } }
+      );
+    } catch {
+      setAdvisors(prev => prev.map(a => a.id === advisorId ? { ...a, can_recovery: !value } : a));
+      setSnackbar({ open: true, message: 'Error al actualizar permiso', severity: 'error' });
     }
   };
 
@@ -436,6 +452,7 @@ export default function CommissionsPage() {
                     <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Líder' : 'Leader'}</TableCell>
                     <TableCell sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Código' : 'Code'}</TableCell>
                     <TableCell align="center" sx={{ fontWeight: 'bold' }}>{i18n.language === 'es' ? 'Referidos' : 'Referrals'}</TableCell>
+                    <TableCell align="center" sx={{ fontWeight: 'bold' }}>Recovery</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
@@ -479,10 +496,20 @@ export default function CommissionsPage() {
                       <TableCell align="center">
                         <Chip label={advisor.referral_count} color="primary" size="small" />
                       </TableCell>
+                      <TableCell align="center">
+                        <Tooltip title={advisor.can_recovery ? 'Quitar acceso a Reactivación' : 'Dar acceso a Reactivación'}>
+                          <Switch
+                            checked={!!advisor.can_recovery}
+                            onChange={(e) => handleToggleRecovery(advisor.id, e.target.checked)}
+                            size="small"
+                            color="warning"
+                          />
+                        </Tooltip>
+                      </TableCell>
                     </TableRow>
                   )) : (
                     <TableRow>
-                      <TableCell colSpan={5} align="center" sx={{ py: 4 }}>
+                      <TableCell colSpan={6} align="center" sx={{ py: 4 }}>
                         <PeopleIcon sx={{ fontSize: 48, color: 'grey.300', mb: 1 }} />
                         <Typography color="text.secondary">
                           {i18n.language === 'es' ? 'No hay asesores registrados. Usa "Alta de Asesores" para crear uno.' : 'No advisors yet. Use "Add Advisor" to create one.'}

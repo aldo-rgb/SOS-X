@@ -324,6 +324,7 @@ export const getAdvisors = async (req: Request, res: Response): Promise<any> => 
                 u.referred_by_id as leader_id,
                 l.full_name as leader_name,
                 u.created_at,
+                u.can_recovery,
                 COALESCE(
                     (SELECT COUNT(*) FROM users r WHERE r.advisor_id = u.id),
                     0
@@ -666,5 +667,29 @@ export const runCommissionBackfill = async (req: Request, res: Response): Promis
     } catch (error) {
         console.error('Error running commission backfill:', error);
         res.status(500).json({ error: 'Error al ejecutar backfill' });
+    }
+};
+
+// ADMIN: Toggle can_recovery flag on advisor
+export const toggleAdvisorRecovery = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { id } = req.params;
+        const { can_recovery } = req.body;
+        if (typeof can_recovery !== 'boolean') {
+            return res.status(400).json({ error: 'can_recovery debe ser boolean' });
+        }
+        const result = await pool.query(
+            `UPDATE users SET can_recovery = $1
+             WHERE id = $2 AND role IN ('asesor', 'asesor_lider', 'advisor', 'sub_advisor')
+             RETURNING id, full_name, can_recovery`,
+            [can_recovery, id]
+        );
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Asesor no encontrado' });
+        }
+        res.json({ ok: true, advisor: result.rows[0] });
+    } catch (error) {
+        console.error('Error toggling advisor recovery:', error);
+        res.status(500).json({ error: 'Error al actualizar permiso' });
     }
 };
