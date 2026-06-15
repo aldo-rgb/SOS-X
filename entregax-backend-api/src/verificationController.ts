@@ -659,9 +659,8 @@ export const verifyLegacyTerms = async (req: Request, res: Response): Promise<an
         const userId = (req as any).user?.userId;
         if (!userId) return res.status(401).json({ error: 'No autenticado' });
 
-        // Solo permitir si el usuario fue creado via flujo legacy (claimed_from_legacy)
         const userRes = await pool.query(
-            'SELECT id, full_name, claimed_from_legacy, verification_status FROM users WHERE id = $1',
+            'SELECT id, full_name, verification_status FROM users WHERE id = $1',
             [userId]
         );
         const user = userRes.rows[0];
