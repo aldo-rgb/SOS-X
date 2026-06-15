@@ -1,58 +1,5 @@
 import { Box, Typography, Button, Stack, Container } from '@mui/material';
 
-function PhoneMockup() {
-  return (
-    <Box sx={{
-      width: 260, height: 520, bgcolor: '#0f0f0f', borderRadius: '40px',
-      border: '8px solid #2a2a2a',
-      boxShadow: '0 0 0 1px #3a3a3a, 0 32px 80px rgba(0,0,0,0.7), 0 0 60px rgba(230,81,0,0.2)',
-      position: 'relative', overflow: 'hidden', mx: 'auto',
-    }}>
-      {/* Notch */}
-      <Box sx={{
-        position: 'absolute', top: 0, left: '50%', transform: 'translateX(-50%)',
-        width: 100, height: 28, bgcolor: '#0f0f0f', borderRadius: '0 0 18px 18px', zIndex: 10,
-      }} />
-      {/* Screen */}
-      <Box sx={{ width: '100%', height: '100%', bgcolor: '#fff', pt: 5, px: 2.5, boxSizing: 'border-box' }}>
-        <Box sx={{ textAlign: 'center', mb: 2 }}>
-          <img src="/logo-paqeteria.png" alt="EntregaX" style={{ height: 28, objectFit: 'contain' }} />
-        </Box>
-        <Typography sx={{ fontSize: 18, fontWeight: 700, color: '#111', mb: 0.3 }}>Bienvenido</Typography>
-        <Typography sx={{ fontSize: 10, color: '#666', mb: 2.5 }}>
-          ¡Tu suite inteligente de paquetería,<br />ahora en tu bolsillo!
-        </Typography>
-        <Box sx={{ mb: 1.5 }}>
-          <Typography sx={{ fontSize: 9, fontWeight: 600, color: '#444', mb: 0.5 }}>Email</Typography>
-          <Box sx={{ border: '1px solid #ddd', borderRadius: 1.5, px: 1.5, py: 1, bgcolor: '#fafafa' }}>
-            <Typography sx={{ fontSize: 9, color: '#bbb' }}>Email or mail@gmail.com</Typography>
-          </Box>
-        </Box>
-        <Box sx={{ mb: 0.5 }}>
-          <Box sx={{ border: '1px solid #ddd', borderRadius: 1.5, px: 1.5, py: 1, bgcolor: '#fafafa', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Typography sx={{ fontSize: 9, color: '#bbb' }}>Contraseña</Typography>
-            <Box sx={{ width: 12, height: 12, borderRadius: '50%', border: '1.5px solid #bbb' }} />
-          </Box>
-        </Box>
-        <Typography sx={{ fontSize: 8, color: '#E65100', textAlign: 'right', mb: 2 }}>¿Olvidaste tu password?</Typography>
-        <Box sx={{ bgcolor: '#E65100', borderRadius: 2, py: 1, textAlign: 'center', mb: 1.5 }}>
-          <Typography sx={{ fontSize: 11, fontWeight: 700, color: '#fff' }}>Ingresar</Typography>
-        </Box>
-        <Typography sx={{ fontSize: 8.5, color: '#E65100', textAlign: 'center', mb: 2.5 }}>¿Ingresar con contraseña?</Typography>
-        <Typography sx={{ fontSize: 8, color: '#888', textAlign: 'center', mb: 1 }}>Idioma</Typography>
-        <Box sx={{ display: 'flex', justifyContent: 'center', gap: 2 }}>
-          {[{ flag: '🇲🇽', label: 'MX' }, { flag: '🇺🇸', label: 'US' }, { flag: '🇨🇳', label: 'China' }].map((l) => (
-            <Box key={l.label} sx={{ textAlign: 'center' }}>
-              <Typography sx={{ fontSize: 16 }}>{l.flag}</Typography>
-              <Typography sx={{ fontSize: 7, color: '#555' }}>{l.label}</Typography>
-            </Box>
-          ))}
-        </Box>
-      </Box>
-    </Box>
-  );
-}
-
 const FEATURES = [
   { icon: '🚢', title: 'Marítimo China', desc: 'Cotización instantánea y rastreo directo' },
   { icon: '✈️', title: 'Aéreo China', desc: 'Visibilidad de costos y tiempos' },
@@ -175,9 +122,13 @@ export default function DownloadPage() {
             </Box>
           </Box>
 
-          {/* Right — phone */}
-          <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center' }}>
-            <PhoneMockup />
+          {/* Right — cajito */}
+          <Box sx={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+            <img
+              src="/cajito-full-blanco1.png"
+              alt="Cajito EntregaX"
+              style={{ maxHeight: 480, maxWidth: '100%', objectFit: 'contain', filter: 'drop-shadow(0 24px 48px rgba(230,81,0,0.25))' }}
+            />
           </Box>
         </Box>
       </Container>
