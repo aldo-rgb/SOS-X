@@ -106,6 +106,7 @@ import ExternalProviderPage from './pages/ExternalProviderPage';
 import ProfileClient from './pages/ProfileClient';
 import ClientTicketsPage from './pages/ClientTicketsPage';
 import MyProfilePage from './pages/MyProfilePage';
+import DownloadPage from './pages/DownloadPage';
 import PersonIcon from '@mui/icons-material/Person';
 import ConfirmationNumberIcon from '@mui/icons-material/ConfirmationNumber';
 
@@ -1015,6 +1016,35 @@ function App() {
         <ResetPasswordPage />
       </ThemeProvider>
     );
+  }
+
+  // / — página de descarga de la app (pública, sin auth requerida)
+  if (typeof window !== 'undefined' && window.location.pathname === '/') {
+    if (!isAuthenticated) {
+      return (
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
+          <DownloadPage />
+        </ThemeProvider>
+      );
+    }
+    // Si ya está autenticado en /, redirigir al dashboard
+    window.location.replace('/dashboard');
+    return null;
+  }
+
+  // /login — página de inicio de sesión
+  if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+    if (!isAuthenticated) {
+      return (
+        <ThemeProvider theme={theme}>
+          <CssBaseline />
+          <LoginPage onLoginSuccess={handleLoginSuccess} />
+        </ThemeProvider>
+      );
+    }
+    window.location.replace('/dashboard');
+    return null;
   }
 
   // Si no está autenticado, mostrar página de login
