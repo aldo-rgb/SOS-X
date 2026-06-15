@@ -703,110 +703,6 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
         <View style={{ height: 48 }} />
       </ScrollView>
 
-      {/* ── Modal CRM: resultado de llamada ── */}
-      <Modal visible={showCrmMenu} animationType="fade" transparent onRequestClose={() => setShowCrmMenu(false)}>
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
-          <View style={{ backgroundColor: '#1E2A3A', borderRadius: 16, padding: 20, width: '100%' }}>
-            <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 4 }}>
-              {crmClient?.full_name || 'Cliente'}
-            </Text>
-            <Text style={{ color: '#60A5FA', fontSize: 12, marginBottom: 16 }}>{crmClient?.box_id}</Text>
-
-            {crmSaving ? (
-              <View style={{ alignItems: 'center', paddingVertical: 24 }}>
-                <ActivityIndicator color="#60A5FA" />
-              </View>
-            ) : (<>
-              {/* No contestó → 24h */}
-              <TouchableOpacity
-                style={s.crmOption}
-                onPress={async () => {
-                  if (!crmClient) return;
-                  setCrmSaving(true);
-                  await fetch(`${API_URL}/api/advisor/legacy/chartback/${crmClient.id}/action`, {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'no_answer' }),
-                  });
-                  setCrmSaving(false); setShowCrmMenu(false); loadChartback();
-                }}
-              >
-                <View style={[s.crmOptionIcon, { backgroundColor: '#F59E0B22' }]}>
-                  <Ionicons name="call-outline" size={20} color="#F59E0B" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={s.crmOptionTitle}>No contestó</Text>
-                  <Text style={s.crmOptionSub}>Vuelve a aparecer en 24 horas</Text>
-                </View>
-              </TouchableOpacity>
-
-              {/* Me contestó — opciones de agenda */}
-              <Text style={{ color: '#475569', fontSize: 11, fontWeight: '700', marginTop: 14, marginBottom: 8, letterSpacing: 0.5 }}>
-                ME CONTESTÓ — AGENDAR CALLBACK
-              </Text>
-
-              {[
-                { label: 'Mañana', sub: 'Volver a llamar mañana', days: 1 },
-                { label: 'En 3 días', sub: 'Volver a llamar en 3 días', days: 3 },
-                { label: 'En 1 semana', sub: 'Volver a llamar en 7 días', days: 7 },
-                { label: 'En 2 semanas', sub: 'Volver a llamar en 14 días', days: 14 },
-              ].map(opt => (
-                <TouchableOpacity
-                  key={opt.days}
-                  style={s.crmOption}
-                  onPress={async () => {
-                    if (!crmClient) return;
-                    setCrmSaving(true);
-                    const callbackAt = new Date(Date.now() + opt.days * 24 * 60 * 60 * 1000).toISOString();
-                    await fetch(`${API_URL}/api/advisor/legacy/chartback/${crmClient.id}/action`, {
-                      method: 'POST',
-                      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ action: 'callback', callback_at: callbackAt }),
-                    });
-                    setCrmSaving(false); setShowCrmMenu(false); loadChartback();
-                  }}
-                >
-                  <View style={[s.crmOptionIcon, { backgroundColor: '#1565C022' }]}>
-                    <Ionicons name="calendar-outline" size={20} color="#60A5FA" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={s.crmOptionTitle}>{opt.label}</Text>
-                    <Text style={s.crmOptionSub}>{opt.sub}</Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-
-              {/* Ya recuperado */}
-              <TouchableOpacity
-                style={[s.crmOption, { marginTop: 6, borderTopWidth: 1, borderTopColor: '#1E2A3A', paddingTop: 14 }]}
-                onPress={async () => {
-                  if (!crmClient) return;
-                  setCrmSaving(true);
-                  await fetch(`${API_URL}/api/advisor/legacy/chartback/${crmClient.id}/action`, {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'recovered' }),
-                  });
-                  setCrmSaving(false); setShowCrmMenu(false); loadChartback();
-                }}
-              >
-                <View style={[s.crmOptionIcon, { backgroundColor: '#16A34A22' }]}>
-                  <Ionicons name="checkmark-circle-outline" size={20} color="#4ADE80" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.crmOptionTitle, { color: '#4ADE80' }]}>Cliente recuperado ✓</Text>
-                  <Text style={s.crmOptionSub}>Sale del chartback permanentemente</Text>
-                </View>
-              </TouchableOpacity>
-
-              <TouchableOpacity onPress={() => setShowCrmMenu(false)} style={{ alignItems: 'center', paddingTop: 16 }}>
-                <Text style={{ color: '#64748B', fontSize: 13 }}>Cancelar</Text>
-              </TouchableOpacity>
-            </>)}
-          </View>
-        </View>
-      </Modal>
-
       {/* ── Modal Reactivación de Clientes (Chartback) ── */}
       <Modal visible={showChartbackModal} animationType="slide" transparent onRequestClose={() => setShowChartbackModal(false)}>
         <View style={s.chartbackOverlay}>
@@ -902,6 +798,95 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                 </ScrollView>
               );
             })()}
+
+            {/* ── Overlay CRM dentro del modal (evita modal anidado) ── */}
+            {showCrmMenu && crmClient && (
+              <View style={s.crmOverlay}>
+                <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={() => !crmSaving && setShowCrmMenu(false)} />
+                <View style={s.crmBox}>
+                  <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 2 }}>
+                    {crmClient.full_name || 'Cliente'}
+                  </Text>
+                  <Text style={{ color: '#60A5FA', fontSize: 12, marginBottom: 14 }}>{crmClient.box_id}</Text>
+
+                  {crmSaving ? (
+                    <View style={{ alignItems: 'center', paddingVertical: 20 }}>
+                      <ActivityIndicator color="#60A5FA" />
+                    </View>
+                  ) : (<>
+                    {/* No contestó */}
+                    <TouchableOpacity style={s.crmOption} onPress={async () => {
+                      setCrmSaving(true);
+                      await fetch(`${API_URL}/api/advisor/legacy/chartback/${crmClient.id}/action`, {
+                        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'no_answer' }),
+                      });
+                      setCrmSaving(false); setShowCrmMenu(false); loadChartback();
+                    }}>
+                      <View style={[s.crmOptionIcon, { backgroundColor: '#F59E0B22' }]}>
+                        <Ionicons name="call-outline" size={20} color="#F59E0B" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.crmOptionTitle}>No contestó</Text>
+                        <Text style={s.crmOptionSub}>Vuelve a aparecer en 24 horas</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <Text style={{ color: '#475569', fontSize: 10, fontWeight: '700', marginTop: 12, marginBottom: 6, letterSpacing: 0.5 }}>
+                      ME CONTESTÓ — AGENDAR CALLBACK
+                    </Text>
+
+                    {[
+                      { label: 'Mañana', sub: 'Llamar mañana', days: 1 },
+                      { label: 'En 3 días', sub: 'Llamar en 3 días', days: 3 },
+                      { label: 'En 1 semana', sub: 'Llamar en 7 días', days: 7 },
+                      { label: 'En 2 semanas', sub: 'Llamar en 14 días', days: 14 },
+                    ].map(opt => (
+                      <TouchableOpacity key={opt.days} style={s.crmOption} onPress={async () => {
+                        setCrmSaving(true);
+                        const cb = new Date(Date.now() + opt.days * 86400000).toISOString();
+                        await fetch(`${API_URL}/api/advisor/legacy/chartback/${crmClient.id}/action`, {
+                          method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ action: 'callback', callback_at: cb }),
+                        });
+                        setCrmSaving(false); setShowCrmMenu(false); loadChartback();
+                      }}>
+                        <View style={[s.crmOptionIcon, { backgroundColor: '#1565C022' }]}>
+                          <Ionicons name="calendar-outline" size={20} color="#60A5FA" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <Text style={s.crmOptionTitle}>{opt.label}</Text>
+                          <Text style={s.crmOptionSub}>{opt.sub}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+
+                    <View style={{ height: 1, backgroundColor: '#334155', marginVertical: 10 }} />
+
+                    <TouchableOpacity style={s.crmOption} onPress={async () => {
+                      setCrmSaving(true);
+                      await fetch(`${API_URL}/api/advisor/legacy/chartback/${crmClient.id}/action`, {
+                        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'recovered' }),
+                      });
+                      setCrmSaving(false); setShowCrmMenu(false); loadChartback();
+                    }}>
+                      <View style={[s.crmOptionIcon, { backgroundColor: '#16A34A22' }]}>
+                        <Ionicons name="checkmark-circle-outline" size={20} color="#4ADE80" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[s.crmOptionTitle, { color: '#4ADE80' }]}>Cliente recuperado ✓</Text>
+                        <Text style={s.crmOptionSub}>Sale del chartback permanentemente</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity onPress={() => setShowCrmMenu(false)} style={{ alignItems: 'center', paddingTop: 14 }}>
+                      <Text style={{ color: '#64748B', fontSize: 13 }}>Cancelar</Text>
+                    </TouchableOpacity>
+                  </>)}
+                </View>
+              </View>
+            )}
           </View>
         </View>
       </Modal>
@@ -1136,11 +1121,13 @@ const s = StyleSheet.create({
   chartbackBtnNoAnswer: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#334155', borderRadius: 8, paddingHorizontal: 14, paddingVertical: 7 },
   chartbackBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
 
-  // CRM options
-  crmOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 10 },
-  crmOptionIcon: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },
+  // CRM overlay (dentro del modal de chartback)
+  crmOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.75)', justifyContent: 'center', alignItems: 'center', paddingHorizontal: 16, borderRadius: 20, zIndex: 10 },
+  crmBox: { backgroundColor: '#0F172A', borderRadius: 16, padding: 18, width: '100%', borderWidth: 1, borderColor: '#1E2A3A' },
+  crmOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 9 },
+  crmOptionIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   crmOptionTitle: { color: '#fff', fontSize: 14, fontWeight: '600' },
-  crmOptionSub: { color: '#64748B', fontSize: 12, marginTop: 1 },
+  crmOptionSub: { color: '#64748B', fontSize: 11, marginTop: 1 },
 
   // Alert
   alertCard: {
