@@ -43,7 +43,7 @@ export default function DownloadPage() {
         {/* Cajito */}
         <Box sx={{ mb: 3 }}>
           <img
-            src="/cajito-full-blanco.png"
+            src="/cajito-full-blanco1.png"
             alt=""
             style={{ height: 160, objectFit: 'contain', filter: 'drop-shadow(0 8px 40px rgba(230,81,0,0.35))' }}
           />
