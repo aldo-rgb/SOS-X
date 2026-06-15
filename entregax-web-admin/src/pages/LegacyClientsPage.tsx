@@ -798,22 +798,7 @@ export default function LegacyClientsPage() {
                       </Box>
                     ) : '-'}
                   </TableCell>
-                  <TableCell align="center">
-                    {!client.is_claimed && (
-                      <Tooltip title="Eliminar">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={() => {
-                            setClientToDelete(client);
-                            setDeleteDialogOpen(true);
-                          }}
-                        >
-                          <DeleteIcon />
-                        </IconButton>
-                      </Tooltip>
-                    )}
-                  </TableCell>
+                  <TableCell align="center" />
                 </TableRow>
               ))
             )}
