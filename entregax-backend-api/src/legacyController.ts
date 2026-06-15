@@ -1119,19 +1119,85 @@ export const verifyLegacyName = async (req: Request, res: Response): Promise<any
  */
 export const getAdvisorChartbackClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        // Solo muestra clientes listos para contactar (next_contact_at nulo o ya vencido)
+        const userId = (req as any).user?.userId;
+        // Solo muestra clientes asignados a este asesor, listos para contactar
         const result = await pool.query(
             `SELECT id, box_id, full_name, email, phone, chartback_status, next_contact_at,
                     chartback_notes, chartback_activity, asesor
              FROM legacy_clients
              WHERE chartback = true
                AND chartback_status != 'recovered'
+               AND recovery_advisor_id = $1
                AND (next_contact_at IS NULL OR next_contact_at <= NOW())
-             ORDER BY full_name ASC`
+             ORDER BY full_name ASC`,
+            [userId]
         );
         return res.json({ clients: result.rows, total: result.rowCount });
     } catch (error: any) {
         console.error('Error obteniendo chartback del asesor:', error);
+        res.status(500).json({ error: 'Error al obtener clientes chartback' });
+    }
+};
+
+/**
+ * Asignar asesor de recuperación a clientes chartback (admin)
+ * PATCH /api/admin/legacy/chartback/assign
+ * body: { ids: number[], advisor_id: number | null }
+ */
+export const assignChartbackAdvisor = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { ids, advisor_id } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'ids requerido' });
+        }
+        const advisorIdVal = advisor_id != null ? Number(advisor_id) : null;
+        const placeholders = ids.map((_: any, i: number) => `$${i + 2}`).join(',');
+        await pool.query(
+            `UPDATE legacy_clients SET recovery_advisor_id = $1
+             WHERE id IN (${placeholders}) AND chartback = true`,
+            [advisorIdVal, ...ids]
+        );
+        return res.json({ success: true, updated: ids.length });
+    } catch (error: any) {
+        console.error('Error asignando asesor chartback:', error);
+        res.status(500).json({ error: 'Error al asignar asesor' });
+    }
+};
+
+/**
+ * Obtener todos los clientes chartback para el admin (con info del asesor asignado)
+ * GET /api/admin/legacy/chartback
+ */
+export const getAdminChartbackClients = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const { search, advisor_id } = req.query;
+        const conditions: string[] = ['lc.chartback = true'];
+        const params: any[] = [];
+
+        if (search && String(search).trim()) {
+            params.push(`%${String(search).trim()}%`);
+            conditions.push(`(lc.box_id ILIKE $${params.length} OR lc.full_name ILIKE $${params.length} OR lc.email ILIKE $${params.length})`);
+        }
+        if (advisor_id && String(advisor_id) !== 'all') {
+            params.push(Number(advisor_id));
+            conditions.push(`lc.recovery_advisor_id = $${params.length}`);
+        }
+
+        const where = `WHERE ${conditions.join(' AND ')}`;
+        const result = await pool.query(
+            `SELECT lc.id, lc.box_id, lc.full_name, lc.email, lc.phone,
+                    lc.chartback_status, lc.next_contact_at, lc.asesor,
+                    lc.recovery_advisor_id,
+                    adv.full_name as recovery_advisor_name
+             FROM legacy_clients lc
+             LEFT JOIN users adv ON adv.id = lc.recovery_advisor_id
+             ${where}
+             ORDER BY lc.full_name ASC`,
+            params
+        );
+        return res.json({ clients: result.rows, total: result.rowCount });
+    } catch (error: any) {
+        console.error('Error obteniendo chartback admin:', error);
         res.status(500).json({ error: 'Error al obtener clientes chartback' });
     }
 };

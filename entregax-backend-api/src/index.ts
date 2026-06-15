@@ -915,6 +915,8 @@ import {
   setChartback,
   getAdvisorChartbackClients,
   chartbackAction,
+  assignChartbackAdvisor,
+  getAdminChartbackClients,
   uploadMiddleware,
   syncExternalLegacyClients,
   listCustomersForExternalSync
@@ -6047,6 +6049,10 @@ app.put('/api/gex/auto-config', authenticateToken, async (req: AuthRequest, res:
 // ========== PANEL DEL ASESOR (self-service) ==========
 app.get('/api/advisor/legacy/chartback', authenticateToken, getAdvisorChartbackClients);
 app.post('/api/advisor/legacy/chartback/:id/action', authenticateToken, chartbackAction);
+
+// ========== ADMIN: GESTIÓN CHARTBACK ==========
+app.get('/api/admin/legacy/chartback', authenticateToken, requireMinLevel(ROLES.ADMIN), getAdminChartbackClients);
+app.patch('/api/admin/legacy/chartback/assign', authenticateToken, requireMinLevel(ROLES.ADMIN), assignChartbackAdvisor);
 app.get('/api/advisor/dashboard', authenticateToken, getAdvisorDashboard);
 app.get('/api/advisor/packages', authenticateToken, getAdvisorPackages);
 
