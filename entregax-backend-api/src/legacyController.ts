@@ -672,38 +672,64 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             });
         }
 
-        // 4. Verificar que el email no esté en uso por otro usuario
+        // 4. Verificar que el email no esté en uso por OTRO usuario distinto
         const emailExists = await client.query(
-            'SELECT id FROM users WHERE email = $1',
+            'SELECT id, box_id FROM users WHERE email = $1',
             [email.toLowerCase().trim()]
         );
 
+        let existingUserId: number | null = null;
+
         if (emailExists.rows.length > 0) {
-            await client.query('ROLLBACK');
-            return res.status(400).json({ 
-                error: 'Este correo ya está registrado en el sistema.',
-                code: 'EMAIL_EXISTS'
-            });
+            const existingUser = emailExists.rows[0];
+            const sameBox = existingUser.box_id?.toUpperCase() === boxId.toUpperCase();
+            if (sameBox || legacyUser.chartback) {
+                // Mismo cliente que ya tenía cuenta — se le permite reutilizar el email
+                existingUserId = existingUser.id;
+            } else {
+                await client.query('ROLLBACK');
+                return res.status(400).json({
+                    error: 'Este correo ya está registrado en el sistema.',
+                    code: 'EMAIL_EXISTS'
+                });
+            }
         }
 
-        // 5. Crear el usuario oficial
+        // 5. Crear o actualizar el usuario oficial
         const hashedPassword = await bcrypt.hash(newPassword, 10);
         const finalName = fullName || legacyUser.full_name;
         const finalEmail = email.toLowerCase().trim();
 
-        // Generar código de referido único
-        const myReferralCode = `EX${Date.now().toString(36).toUpperCase()}`;
+        let newUserId: number;
 
-        const newUser = await client.query(`
-            INSERT INTO users (
-                full_name, email, password, role, box_id, phone,
-                referral_code, verification_status, is_verified, created_at
-            )
-            VALUES ($1, $2, $3, 'client', $4, $5, $6, 'not_started', FALSE, NOW())
-            RETURNING id, full_name, email, role, box_id
-        `, [finalName, finalEmail, hashedPassword, boxId.toUpperCase(), phone || null, myReferralCode]);
+        if (existingUserId) {
+            // Actualizar cuenta existente (mismo cliente, reclama de nuevo)
+            await client.query(`
+                UPDATE users
+                SET password = $1,
+                    phone = COALESCE($2, phone),
+                    full_name = COALESCE($3, full_name),
+                    verification_status = 'not_started',
+                    is_verified = FALSE,
+                    updated_at = NOW()
+                WHERE id = $4
+            `, [hashedPassword, phone || null, finalName, existingUserId]);
+            newUserId = existingUserId;
+        } else {
+            // Generar código de referido único
+            const myReferralCode = `EX${Date.now().toString(36).toUpperCase()}`;
 
-        const newUserId = newUser.rows[0].id;
+            const newUser = await client.query(`
+                INSERT INTO users (
+                    full_name, email, password, role, box_id, phone,
+                    referral_code, verification_status, is_verified, created_at
+                )
+                VALUES ($1, $2, $3, 'client', $4, $5, $6, 'not_started', FALSE, NOW())
+                RETURNING id, full_name, email, role, box_id
+            `, [finalName, finalEmail, hashedPassword, boxId.toUpperCase(), phone || null, myReferralCode]);
+
+            newUserId = newUser.rows[0].id;
+        }
 
         // 6. Marcar como reclamado y LIMPIAR datos sensibles del legacy.
         //    Los datos (email, full_name) ya viven en users; mantenerlos
@@ -833,7 +859,11 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             message: '¡Bienvenido de vuelta! Tu casillero ha sido vinculado exitosamente.',
             token,
             user: {
-                ...newUser.rows[0],
+                id: newUserId,
+                full_name: finalName,
+                email: finalEmail,
+                role: 'client',
+                box_id: boxId.toUpperCase(),
                 phone: phone || null,
                 phoneVerified: false,
                 hasAdvisor,
