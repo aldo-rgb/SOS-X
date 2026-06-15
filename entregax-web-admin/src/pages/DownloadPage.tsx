@@ -61,7 +61,7 @@ export default function DownloadPage() {
           variant="body1"
           sx={{ color: 'rgba(255,255,255,0.6)', mb: 4, maxWidth: 380, mx: 'auto' }}
         >
-          Rastrea tus paquetes, gestiona tus envíos y accede a tu casillero desde cualquier lugar.
+          Rastrea tus paquetes, gestiona tus envíos y accede a tu suite desde cualquier lugar.
         </Typography>
 
         {/* Store buttons */}
@@ -69,7 +69,9 @@ export default function DownloadPage() {
           {/* App Store */}
           <Button
             component="a"
-            href="https://entregax.app/login"
+            href="https://apps.apple.com/mx/app/entregax/id6762685124"
+            target="_blank"
+            rel="noopener noreferrer"
             sx={{
               bgcolor: '#fff',
               color: '#000',
