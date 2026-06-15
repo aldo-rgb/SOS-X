@@ -88,15 +88,31 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   } | null>(null);
 
   // Reactivación de Clientes (Chartback)
-  interface ChartbackClient { id: number; box_id: string; full_name: string | null; email: string | null; phone: string | null; asesor: string | null; chartback_status: string | null; next_contact_at: string | null; }
+  interface ActivityEntry { ts: string; type: string; advisor: string; note?: string; callback_at?: string; asesor?: string; }
+  interface ChartbackClient { id: number; box_id: string; full_name: string | null; email: string | null; phone: string | null; asesor: string | null; chartback_status: string | null; next_contact_at: string | null; chartback_activity: ActivityEntry[] | null; chartback_notes: string | null; }
   const [chartbackClients, setChartbackClients] = useState<ChartbackClient[]>([]);
   const [chartbackLoading, setChartbackLoading] = useState(false);
   const [showChartbackModal, setShowChartbackModal] = useState(false);
   const [chartbackSearch, setChartbackSearch] = useState('');
-  // CRM: acción sobre un cliente específico
+  // CRM
   const [crmClient, setCrmClient] = useState<ChartbackClient | null>(null);
   const [showCrmMenu, setShowCrmMenu] = useState(false);
   const [crmSaving, setCrmSaving] = useState(false);
+  const [crmNote, setCrmNote] = useState('');
+  const [crmError, setCrmError] = useState('');
+
+  const crmAction = async (clientId: number, body: object): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const r = await fetch(`${API_URL}/api/advisor/legacy/chartback/${clientId}/action`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const d = await r.json();
+      if (!r.ok) return { ok: false, error: d.error || 'Error' };
+      return { ok: true };
+    } catch { return { ok: false, error: 'Error de red' }; }
+  };
 
   const loadChartback = useCallback(async () => {
     setChartbackLoading(true);
@@ -764,7 +780,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                     <View key={c.id} style={[s.chartbackItem, idx > 0 && { borderTopWidth: 1, borderTopColor: '#1E2A3A' }]}>
                       <Text style={s.chartbackItemName}>{c.full_name || 'Sin nombre'}</Text>
                       <Text style={s.chartbackItemBox}>{c.box_id}</Text>
-                      {/* Contacto */}
+                      {/* Botones de contacto */}
                       <View style={s.chartbackBtnsRow}>
                         {c.phone ? (
                           <TouchableOpacity style={s.chartbackBtnCall} onPress={() => Linking.openURL(`tel:${c.phone}`)}>
@@ -773,25 +789,38 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                           </TouchableOpacity>
                         ) : null}
                         {c.phone ? (
-                          <TouchableOpacity style={s.chartbackBtnWA} onPress={() => {
+                          <TouchableOpacity style={s.chartbackBtnWA} onPress={async () => {
                             const num = (c.phone || '').replace(/\D/g, '');
                             Linking.openURL(`https://wa.me/${num}`);
+                            await crmAction(c.id, { action: 'whatsapp' });
+                            loadChartback();
                           }}>
                             <Ionicons name="logo-whatsapp" size={13} color="#fff" />
                             <Text style={s.chartbackBtnText}>WhatsApp</Text>
                           </TouchableOpacity>
                         ) : null}
-                      </View>
-                      {/* Resultado de la llamada */}
-                      <View style={[s.chartbackBtnsRow, { marginTop: 6 }]}>
                         <TouchableOpacity
                           style={s.chartbackBtnNoAnswer}
-                          onPress={() => { setCrmClient(c); setShowCrmMenu(true); }}
+                          onPress={() => { setCrmClient(c); setCrmNote(''); setCrmError(''); setShowCrmMenu(true); }}
                         >
                           <Ionicons name="options" size={13} color="#fff" />
-                          <Text style={s.chartbackBtnText}>Registrar resultado</Text>
+                          <Text style={s.chartbackBtnText}>Registrar</Text>
                         </TouchableOpacity>
                       </View>
+                      {/* Historial reciente (últimas 2 entradas) */}
+                      {(c.chartback_activity || []).slice(-2).reverse().map((a, ai) => (
+                        <View key={ai} style={s.activityEntry}>
+                          <Ionicons
+                            name={a.type === 'whatsapp' ? 'logo-whatsapp' : a.type === 'no_answer' ? 'call-outline' : a.type === 'callback' ? 'calendar-outline' : a.type === 'recovered' ? 'checkmark-circle' : 'create-outline'}
+                            size={11} color="#475569"
+                          />
+                          <Text style={s.activityText} numberOfLines={1}>
+                            {new Date(a.ts).toLocaleDateString('es-MX', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
+                            {' · '}{a.advisor}
+                            {a.note ? ` — ${a.note}` : ''}
+                          </Text>
+                        </View>
+                      ))}
                     </View>
                   ))}
                   <View style={{ height: 20 }} />
@@ -807,7 +836,26 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                   <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700', marginBottom: 2 }}>
                     {crmClient.full_name || 'Cliente'}
                   </Text>
-                  <Text style={{ color: '#60A5FA', fontSize: 12, marginBottom: 14 }}>{crmClient.box_id}</Text>
+                  <Text style={{ color: '#60A5FA', fontSize: 12, marginBottom: 12 }}>{crmClient.box_id}</Text>
+
+                  {/* Campo de notas global */}
+                  <TextInput
+                    style={s.crmNoteInput}
+                    placeholder="Notas del resultado (opcional)..."
+                    placeholderTextColor="#475569"
+                    value={crmNote}
+                    onChangeText={setCrmNote}
+                    multiline
+                    editable={!crmSaving}
+                  />
+
+                  {/* Error display */}
+                  {!!crmError && (
+                    <View style={s.crmErrorBox}>
+                      <Ionicons name="alert-circle" size={14} color="#F87171" />
+                      <Text style={s.crmErrorText}>{crmError}</Text>
+                    </View>
+                  )}
 
                   {crmSaving ? (
                     <View style={{ alignItems: 'center', paddingVertical: 20 }}>
@@ -816,12 +864,11 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                   ) : (<>
                     {/* No contestó */}
                     <TouchableOpacity style={s.crmOption} onPress={async () => {
-                      setCrmSaving(true);
-                      await fetch(`${API_URL}/api/advisor/legacy/chartback/${crmClient.id}/action`, {
-                        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'no_answer' }),
-                      });
-                      setCrmSaving(false); setShowCrmMenu(false); loadChartback();
+                      setCrmSaving(true); setCrmError('');
+                      const r = await crmAction(crmClient.id, { action: 'no_answer', notes: crmNote });
+                      setCrmSaving(false);
+                      if (r.ok) { setShowCrmMenu(false); setCrmNote(''); loadChartback(); }
+                      else setCrmError(r.error || 'Error');
                     }}>
                       <View style={[s.crmOptionIcon, { backgroundColor: '#F59E0B22' }]}>
                         <Ionicons name="call-outline" size={20} color="#F59E0B" />
@@ -829,6 +876,24 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                       <View style={{ flex: 1 }}>
                         <Text style={s.crmOptionTitle}>No contestó</Text>
                         <Text style={s.crmOptionSub}>Vuelve a aparecer en 24 horas</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    {/* Registrar nota de llamada (dejé mensaje, habló con alguien, etc.) */}
+                    <TouchableOpacity style={s.crmOption} onPress={async () => {
+                      if (!crmNote.trim()) { setCrmError('Escribe una nota antes de registrar la llamada'); return; }
+                      setCrmSaving(true); setCrmError('');
+                      const r = await crmAction(crmClient.id, { action: 'call_note', notes: crmNote });
+                      setCrmSaving(false);
+                      if (r.ok) { setShowCrmMenu(false); setCrmNote(''); loadChartback(); }
+                      else setCrmError(r.error || 'Error');
+                    }}>
+                      <View style={[s.crmOptionIcon, { backgroundColor: '#7C3AED22' }]}>
+                        <Ionicons name="create-outline" size={20} color="#A78BFA" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.crmOptionTitle}>Registrar nota de llamada</Text>
+                        <Text style={s.crmOptionSub}>Guarda notas sin cambiar el estado</Text>
                       </View>
                     </TouchableOpacity>
 
@@ -843,13 +908,12 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                       { label: 'En 2 semanas', sub: 'Llamar en 14 días', days: 14 },
                     ].map(opt => (
                       <TouchableOpacity key={opt.days} style={s.crmOption} onPress={async () => {
-                        setCrmSaving(true);
+                        setCrmSaving(true); setCrmError('');
                         const cb = new Date(Date.now() + opt.days * 86400000).toISOString();
-                        await fetch(`${API_URL}/api/advisor/legacy/chartback/${crmClient.id}/action`, {
-                          method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ action: 'callback', callback_at: cb }),
-                        });
-                        setCrmSaving(false); setShowCrmMenu(false); loadChartback();
+                        const r = await crmAction(crmClient.id, { action: 'callback', callback_at: cb, notes: crmNote });
+                        setCrmSaving(false);
+                        if (r.ok) { setShowCrmMenu(false); setCrmNote(''); loadChartback(); }
+                        else setCrmError(r.error || 'Error');
                       }}>
                         <View style={[s.crmOptionIcon, { backgroundColor: '#1565C022' }]}>
                           <Ionicons name="calendar-outline" size={20} color="#60A5FA" />
@@ -864,12 +928,11 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                     <View style={{ height: 1, backgroundColor: '#334155', marginVertical: 10 }} />
 
                     <TouchableOpacity style={s.crmOption} onPress={async () => {
-                      setCrmSaving(true);
-                      await fetch(`${API_URL}/api/advisor/legacy/chartback/${crmClient.id}/action`, {
-                        method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'recovered' }),
-                      });
-                      setCrmSaving(false); setShowCrmMenu(false); loadChartback();
+                      setCrmSaving(true); setCrmError('');
+                      const r = await crmAction(crmClient.id, { action: 'recovered', notes: crmNote });
+                      setCrmSaving(false);
+                      if (r.ok) { setShowCrmMenu(false); setCrmNote(''); loadChartback(); }
+                      else setCrmError(r.error || 'Error');
                     }}>
                       <View style={[s.crmOptionIcon, { backgroundColor: '#16A34A22' }]}>
                         <Ionicons name="checkmark-circle-outline" size={20} color="#4ADE80" />
@@ -880,7 +943,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                       </View>
                     </TouchableOpacity>
 
-                    <TouchableOpacity onPress={() => setShowCrmMenu(false)} style={{ alignItems: 'center', paddingTop: 14 }}>
+                    <TouchableOpacity onPress={() => { setShowCrmMenu(false); setCrmNote(''); setCrmError(''); }} style={{ alignItems: 'center', paddingTop: 14 }}>
                       <Text style={{ color: '#64748B', fontSize: 13 }}>Cancelar</Text>
                     </TouchableOpacity>
                   </>)}
@@ -1128,6 +1191,11 @@ const s = StyleSheet.create({
   crmOptionIcon: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
   crmOptionTitle: { color: '#fff', fontSize: 14, fontWeight: '600' },
   crmOptionSub: { color: '#64748B', fontSize: 11, marginTop: 1 },
+  crmNoteInput: { backgroundColor: '#1E2A3A', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, color: '#fff', fontSize: 13, minHeight: 56, marginBottom: 10, borderWidth: 1, borderColor: '#334155', textAlignVertical: 'top' },
+  crmErrorBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, backgroundColor: '#F8717122', borderRadius: 8, padding: 10, marginBottom: 10 },
+  crmErrorText: { color: '#F87171', fontSize: 12, flex: 1 },
+  activityEntry: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
+  activityText: { color: '#475569', fontSize: 10, flex: 1 },
 
   // Alert
   alertCard: {
