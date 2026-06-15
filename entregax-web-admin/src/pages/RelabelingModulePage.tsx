@@ -1139,13 +1139,27 @@ ${body}
         return null;
     };
 
-    const handlePrintAssignedCarrierGuide = (opts?: { format4x6?: boolean }) => {
+    const handlePrintAssignedCarrierGuide = async (opts?: { format4x6?: boolean }) => {
         const guideUrl = getAssignedCarrierGuideUrl(opts);
         if (!guideUrl) {
             setError('No hay guía disponible para la paquetería asignada');
             return;
         }
-        window.open(guideUrl, '_blank');
+        try {
+            const resp = await fetch(guideUrl);
+            if (!resp.ok) {
+                let msg = `Error al obtener guía (${resp.status})`;
+                try { const j = await resp.json(); msg = j.error || msg; } catch { /* ignore */ }
+                setError(msg);
+                return;
+            }
+            const blob = await resp.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            window.open(blobUrl, '_blank');
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
+        } catch (e: any) {
+            setError(e?.message || 'Error al descargar la guía');
+        }
     };
 
     const handlePrintCarrierDelivery = () => {

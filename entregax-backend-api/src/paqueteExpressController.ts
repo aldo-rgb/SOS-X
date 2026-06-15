@@ -700,7 +700,7 @@ export async function pqtxLabelPdf(req: Request, res: Response) {
         errorMessage = `PQTX: ${bodyPreview.trim()}`;
       }
 
-      return res.status(502).json({
+      return res.status(422).json({
         success: false,
         error: errorMessage,
         tracking: trackingNumber,
