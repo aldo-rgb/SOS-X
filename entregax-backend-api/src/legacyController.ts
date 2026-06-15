@@ -952,27 +952,27 @@ export const verifyLegacyName = async (req: Request, res: Response): Promise<any
         }
 
         const result = await pool.query(
-            `SELECT id, box_id, full_name, email, is_claimed, registration_date
-             FROM legacy_clients 
+            `SELECT id, box_id, full_name, email, is_claimed, chartback, registration_date
+             FROM legacy_clients
              WHERE box_id = $1`,
             [boxId.toUpperCase().trim()]
         );
 
         if (result.rows.length === 0) {
-            return res.status(404).json({ 
-                exists: false, 
-                error: 'No encontramos este número de cliente' 
+            return res.status(404).json({
+                exists: false,
+                error: 'No encontramos este número de cliente'
             });
         }
 
         const client = result.rows[0];
 
-        // Verificar si ya fue reclamado
-        if (client.is_claimed) {
-            return res.status(400).json({ 
+        // Chartback clients can always re-activate even if already claimed
+        if (client.is_claimed && !client.chartback) {
+            return res.status(400).json({
                 exists: true,
                 isClaimed: true,
-                error: 'Este número de cliente ya fue registrado. Si eres el dueño, contacta soporte.' 
+                error: 'Este número de cliente ya fue registrado. Si eres el dueño, contacta soporte.'
             });
         }
 
