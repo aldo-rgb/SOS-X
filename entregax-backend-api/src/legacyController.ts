@@ -634,7 +634,7 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         // 1. Buscar en la base de datos legacy
         const legacyCheck = await client.query(
-            'SELECT id, box_id, full_name, email, is_claimed, chartback FROM legacy_clients WHERE box_id = $1',
+            'SELECT id, box_id, full_name, email, is_claimed, chartback, chartback_activity FROM legacy_clients WHERE box_id = $1',
             [boxId.toUpperCase().trim()]
         );
 
@@ -657,41 +657,66 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
             });
         }
 
-        // 3. Validar identidad - El correo o nombre debe coincidir
-        const emailMatch = legacyUser.email && 
-            legacyUser.email.toLowerCase() === email.toLowerCase().trim();
-        
-        const nameMatch = legacyUser.full_name && fullName &&
-            legacyUser.full_name.toLowerCase().includes(fullName.toLowerCase().trim().split(' ')[0]);
+        const isChartbackReactivation = !!(legacyUser.is_claimed && legacyUser.chartback);
 
-        if (!emailMatch && !nameMatch) {
-            await client.query('ROLLBACK');
-            return res.status(403).json({ 
-                error: 'Los datos proporcionados no coinciden con el casillero. Verifica tu información.',
-                code: 'DATA_MISMATCH'
-            });
+        // 3. Validar identidad - omitir para chartback re-activaciones (email/nombre ya fueron limpiados al primer claim)
+        if (!isChartbackReactivation) {
+            const emailMatch = legacyUser.email &&
+                legacyUser.email.toLowerCase() === email.toLowerCase().trim();
+
+            const nameMatch = legacyUser.full_name && fullName &&
+                legacyUser.full_name.toLowerCase().includes(fullName.toLowerCase().trim().split(' ')[0]);
+
+            if (!emailMatch && !nameMatch) {
+                await client.query('ROLLBACK');
+                return res.status(403).json({
+                    error: 'Los datos proporcionados no coinciden con el casillero. Verifica tu información.',
+                    code: 'DATA_MISMATCH'
+                });
+            }
         }
 
-        // 4. Verificar que el email no esté en uso por OTRO usuario distinto
-        const emailExists = await client.query(
-            'SELECT id, box_id FROM users WHERE email = $1',
-            [email.toLowerCase().trim()]
-        );
-
+        // 4. Buscar usuario existente
         let existingUserId: number | null = null;
 
-        if (emailExists.rows.length > 0) {
-            const existingUser = emailExists.rows[0];
-            const sameBox = existingUser.box_id?.toUpperCase() === boxId.toUpperCase();
-            if (sameBox || legacyUser.chartback) {
-                // Mismo cliente que ya tenía cuenta — se le permite reutilizar el email
-                existingUserId = existingUser.id;
-            } else {
+        if (isChartbackReactivation) {
+            // El cliente ya tiene cuenta — buscar por box_id (email fue limpiado en legacy_clients)
+            const byBox = await client.query(
+                'SELECT id FROM users WHERE UPPER(TRIM(box_id)) = $1 ORDER BY created_at DESC LIMIT 1',
+                [boxId.toUpperCase().trim()]
+            );
+            if (byBox.rows.length > 0) {
+                existingUserId = byBox.rows[0].id;
+            }
+            // Verificar que el nuevo correo no esté tomado por otro usuario
+            const emailConflict = await client.query(
+                'SELECT id FROM users WHERE email = $1 AND UPPER(TRIM(box_id)) != $2',
+                [email.toLowerCase().trim(), boxId.toUpperCase().trim()]
+            );
+            if (emailConflict.rows.length > 0) {
                 await client.query('ROLLBACK');
                 return res.status(400).json({
                     error: 'Este correo ya está registrado en el sistema.',
                     code: 'EMAIL_EXISTS'
                 });
+            }
+        } else {
+            const emailExists = await client.query(
+                'SELECT id, box_id FROM users WHERE email = $1',
+                [email.toLowerCase().trim()]
+            );
+            if (emailExists.rows.length > 0) {
+                const existingUser = emailExists.rows[0];
+                const sameBox = existingUser.box_id?.toUpperCase() === boxId.toUpperCase();
+                if (sameBox) {
+                    existingUserId = existingUser.id;
+                } else {
+                    await client.query('ROLLBACK');
+                    return res.status(400).json({
+                        error: 'Este correo ya está registrado en el sistema.',
+                        code: 'EMAIL_EXISTS'
+                    });
+                }
             }
         }
 
@@ -732,11 +757,6 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
         }
 
         // 6. Marcar como reclamado y LIMPIAR datos sensibles del legacy.
-        //    Los datos (email, full_name) ya viven en users; mantenerlos
-        //    aquí provoca colisiones tipo "este correo ya está asociado a
-        //    otra cuenta" en validaciones posteriores que escanean toda la BD.
-        //    Conservamos box_id (para trazabilidad histórica), is_claimed y
-        //    claimed_by_user_id (para el join legacy → users).
         await client.query(`
             UPDATE legacy_clients
             SET is_claimed = TRUE,
@@ -744,8 +764,22 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
                 claimed_at = NOW(),
                 email = NULL,
                 full_name = NULL
+                ${isChartbackReactivation ? ", chartback_status = 'recovered', chartback = FALSE" : ''}
             WHERE box_id = $2
         `, [newUserId, boxId.toUpperCase()]);
+
+        // 6.0 Chartback recovery: asignar el asesor que lo recuperó
+        if (isChartbackReactivation) {
+            const activities: any[] = legacyUser.chartback_activity || [];
+            const lastAdvisorEntry = [...activities].reverse().find((a: any) => a.advisor_id);
+            if (lastAdvisorEntry?.advisor_id) {
+                await client.query(
+                    'UPDATE users SET advisor_id = $1 WHERE id = $2',
+                    [lastAdvisorEntry.advisor_id, newUserId]
+                );
+                console.log(`[CHARTBACK] ✅ Asesor ${lastAdvisorEntry.advisor_id} asignado a user ${newUserId} (recovered)`);
+            }
+        }
 
         // 6.1 Auto-reclamar paquetes huérfanos (user_id NULL + mismo box_id).
         const claimedPkgs = await client.query(`
@@ -976,6 +1010,27 @@ export const verifyLegacyName = async (req: Request, res: Response): Promise<any
             });
         }
 
+        // Chartback re-activation: email/name were cleared on first claim — fetch from users table
+        if (client.is_claimed && client.chartback) {
+            const userRow = await pool.query(
+                'SELECT full_name, email, phone FROM users WHERE UPPER(TRIM(box_id)) = $1 LIMIT 1',
+                [boxId.toUpperCase().trim()]
+            );
+            const userData = userRow.rows[0];
+            return res.json({
+                exists: true,
+                nameMatch: true,
+                isClaimed: false,
+                clientData: {
+                    boxId: client.box_id,
+                    fullName: userData?.full_name || '',
+                    email: userData?.email || '',
+                    phone: userData?.phone || '',
+                    registrationDate: client.registration_date
+                }
+            });
+        }
+
         // Normalizar nombres para comparación flexible
         const inputNormalized = normalizeText(fullName);
         const storedNormalized = normalizeText(client.full_name || '');
@@ -1174,6 +1229,17 @@ export const setChartback = async (req: Request, res: Response): Promise<any> =>
             `UPDATE legacy_clients SET chartback = $1${extraFields} WHERE id IN (${placeholders})`,
             [!!chartback, ...ids]
         );
+        // Al marcar chartback=true, también desasignar asesor en tabla users
+        if (chartback) {
+            const userPlaceholders = ids.map((_: any, i: number) => `$${i + 1}`).join(',');
+            await pool.query(
+                `UPDATE users SET advisor_id = NULL
+                 WHERE UPPER(TRIM(box_id)) IN (
+                     SELECT UPPER(TRIM(box_id)) FROM legacy_clients WHERE id IN (${userPlaceholders})
+                 )`,
+                [...ids]
+            );
+        }
         return res.json({ success: true, updated: ids.length });
     } catch (error: any) {
         console.error('Error actualizando chartback:', error);
