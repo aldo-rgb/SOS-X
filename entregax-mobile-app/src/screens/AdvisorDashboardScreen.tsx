@@ -100,6 +100,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [crmSaving, setCrmSaving] = useState(false);
   const [crmNote, setCrmNote] = useState('');
   const [crmError, setCrmError] = useState('');
+  const [expandedHistory, setExpandedHistory] = useState<Set<number>>(new Set());
 
   const crmAction = async (clientId: number, body: object): Promise<{ ok: boolean; error?: string }> => {
     try {
@@ -807,20 +808,49 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                           <Text style={s.chartbackBtnText}>Registrar</Text>
                         </TouchableOpacity>
                       </View>
-                      {/* Historial reciente (últimas 2 entradas) */}
-                      {(c.chartback_activity || []).slice(-2).reverse().map((a, ai) => (
-                        <View key={ai} style={s.activityEntry}>
-                          <Ionicons
-                            name={a.type === 'whatsapp' ? 'logo-whatsapp' : a.type === 'no_answer' ? 'call-outline' : a.type === 'callback' ? 'calendar-outline' : a.type === 'recovered' ? 'checkmark-circle' : 'create-outline'}
-                            size={11} color="#475569"
-                          />
-                          <Text style={s.activityText} numberOfLines={1}>
-                            {new Date(a.ts).toLocaleDateString('es-MX', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}
-                            {' · '}{a.advisor}
-                            {a.note ? ` — ${a.note}` : ''}
-                          </Text>
-                        </View>
-                      ))}
+                      {/* Historial de actividad */}
+                      {(() => {
+                        const acts = (c.chartback_activity || []).slice().reverse();
+                        if (acts.length === 0) return null;
+                        const isExpanded = expandedHistory.has(c.id);
+                        const visible = isExpanded ? acts : acts.slice(0, 2);
+                        const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : 'create-outline';
+                        const typeLabel = (t: string) => t === 'whatsapp' ? 'WA' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : 'Nota';
+                        return (
+                          <View style={{ marginTop: 6 }}>
+                            <View style={s.activityHeader}>
+                              <Ionicons name="time-outline" size={11} color="#334155" />
+                              <Text style={s.activityHeaderText}>HISTORIAL</Text>
+                            </View>
+                            {visible.map((a, ai) => (
+                              <View key={ai} style={s.activityRow}>
+                                <Ionicons name={typeIcon(a.type) as any} size={12} color={a.type === 'whatsapp' ? '#25D366' : a.type === 'recovered' ? '#4ADE80' : a.type === 'no_answer' ? '#F59E0B' : '#60A5FA'} />
+                                <View style={{ flex: 1 }}>
+                                  <View style={{ flexDirection: 'row', gap: 6, alignItems: 'center' }}>
+                                    <Text style={s.activityType}>{typeLabel(a.type)}</Text>
+                                    <Text style={s.activityAdvisor}>{a.advisor}</Text>
+                                  </View>
+                                  <Text style={s.activityTs}>
+                                    {new Date(a.ts).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                  </Text>
+                                  {a.note ? <Text style={s.activityNote} numberOfLines={2}>{a.note}</Text> : null}
+                                  {a.callback_at ? <Text style={s.activityNote}>Agendar: {new Date(a.callback_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text> : null}
+                                </View>
+                              </View>
+                            ))}
+                            {acts.length > 2 && (
+                              <TouchableOpacity style={s.activityToggle} onPress={() => setExpandedHistory(prev => {
+                                const next = new Set(prev);
+                                isExpanded ? next.delete(c.id) : next.add(c.id);
+                                return next;
+                              })}>
+                                <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={11} color="#60A5FA" />
+                                <Text style={s.activityToggleText}>{isExpanded ? 'Ocultar' : `Ver ${acts.length - 2} más`}</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        );
+                      })()}
                     </View>
                   ))}
                   <View style={{ height: 20 }} />
@@ -1196,6 +1226,15 @@ const s = StyleSheet.create({
   crmErrorText: { color: '#F87171', fontSize: 12, flex: 1 },
   activityEntry: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 4 },
   activityText: { color: '#475569', fontSize: 10, flex: 1 },
+  activityHeader: { flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 4 },
+  activityHeaderText: { color: '#334155', fontSize: 9, fontWeight: '700', letterSpacing: 0.5 },
+  activityRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 7, paddingVertical: 4, borderTopWidth: 1, borderTopColor: '#1E2A3A' },
+  activityType: { color: '#94A3B8', fontSize: 10, fontWeight: '700' },
+  activityAdvisor: { color: '#64748B', fontSize: 10, flex: 1 },
+  activityTs: { color: '#334155', fontSize: 9, marginTop: 1 },
+  activityNote: { color: '#94A3B8', fontSize: 10, marginTop: 2, fontStyle: 'italic' },
+  activityToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingTop: 5, justifyContent: 'center' },
+  activityToggleText: { color: '#60A5FA', fontSize: 10 },
 
   // Alert
   alertCard: {
