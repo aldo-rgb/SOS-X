@@ -634,13 +634,13 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         // 1. Buscar en la base de datos legacy
         const legacyCheck = await client.query(
-            'SELECT id, box_id, full_name, email, is_claimed FROM legacy_clients WHERE box_id = $1',
+            'SELECT id, box_id, full_name, email, is_claimed, chartback FROM legacy_clients WHERE box_id = $1',
             [boxId.toUpperCase().trim()]
         );
 
         if (legacyCheck.rows.length === 0) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ 
+            return res.status(404).json({
                 error: 'Número de casillero no encontrado. Verifica que sea correcto o contacta a soporte.',
                 code: 'BOX_NOT_FOUND'
             });
@@ -648,10 +648,10 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         const legacyUser = legacyCheck.rows[0];
 
-        // 2. Verificar que no haya sido reclamado
-        if (legacyUser.is_claimed) {
+        // 2. Verificar que no haya sido reclamado (chartback clients can always re-activate)
+        if (legacyUser.is_claimed && !legacyUser.chartback) {
             await client.query('ROLLBACK');
-            return res.status(400).json({ 
+            return res.status(400).json({
                 error: 'Este casillero ya fue registrado. Si eres el dueño legítimo, contacta a soporte.',
                 code: 'ALREADY_CLAIMED'
             });
@@ -894,11 +894,11 @@ export const verifyLegacyBox = async (req: Request, res: Response): Promise<any>
         }
 
         const result = await pool.query(
-            `SELECT box_id, full_name, is_claimed, 
-                    CASE WHEN email IS NOT NULL THEN 
+            `SELECT box_id, full_name, is_claimed, chartback,
+                    CASE WHEN email IS NOT NULL THEN
                         CONCAT(LEFT(email, 2), '***@', SPLIT_PART(email, '@', 2))
                     ELSE NULL END as email_hint
-             FROM legacy_clients 
+             FROM legacy_clients
              WHERE box_id = $1`,
             [boxId.toUpperCase()]
         );
@@ -908,11 +908,14 @@ export const verifyLegacyBox = async (req: Request, res: Response): Promise<any>
         }
 
         const client = result.rows[0];
-        
+        // Chartback clients are allowed to re-activate even if already claimed
+        const effectivelyClaimed = client.is_claimed && !client.chartback;
+
         res.json({
             exists: true,
-            isClaimed: client.is_claimed,
-            nameHint: client.full_name ? 
+            isClaimed: effectivelyClaimed,
+            isChartback: !!client.chartback,
+            nameHint: client.full_name ?
                 client.full_name.split(' ')[0] + ' ***' : null,
             emailHint: client.email_hint
         });
