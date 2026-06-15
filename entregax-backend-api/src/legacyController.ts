@@ -522,19 +522,30 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
         }
 
         // Filtro por fecha de último envío (aéreo o marítimo)
-        const lastSendExpr = `GREATEST(
-            lc.last_send->>'Fecha de ingreso',
-            lc.last_send->>'Fecha de salida',
-            lc.last_send_maritimo->>'Fecha de ingreso',
-            lc.last_send_maritimo->>'Fecha de salida'
-        )`;
-        if (lastSendFrom && String(lastSendFrom).trim() !== '') {
-            params.push(String(lastSendFrom).trim());
-            conditions.push(`${lastSendExpr} >= $${params.length}`);
-        }
-        if (lastSendTo && String(lastSendTo).trim() !== '') {
-            params.push(String(lastSendTo).trim() + ' 23:59:59');
-            conditions.push(`${lastSendExpr} <= $${params.length}`);
+        if ((lastSendFrom && String(lastSendFrom).trim() !== '') || (lastSendTo && String(lastSendTo).trim() !== '')) {
+            // Derivar la fecha más reciente disponible entre los cuatro campos posibles
+            const latestDateExpr = `COALESCE(
+                GREATEST(
+                    lc.last_send->>'Fecha de ingreso',
+                    lc.last_send->>'Fecha de salida'
+                ),
+                GREATEST(
+                    lc.last_send_maritimo->>'Fecha de ingreso',
+                    lc.last_send_maritimo->>'Fecha de salida'
+                )
+            )`;
+            // Sólo mostrar clientes que tienen al menos un envío registrado
+            conditions.push(`(lc.last_send IS NOT NULL OR lc.last_send_maritimo IS NOT NULL)`);
+            conditions.push(`${latestDateExpr} IS NOT NULL`);
+
+            if (lastSendFrom && String(lastSendFrom).trim() !== '') {
+                params.push(String(lastSendFrom).trim());
+                conditions.push(`${latestDateExpr} >= $${params.length}`);
+            }
+            if (lastSendTo && String(lastSendTo).trim() !== '') {
+                params.push(String(lastSendTo).trim() + ' 23:59:59');
+                conditions.push(`${latestDateExpr} <= $${params.length}`);
+            }
         }
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
