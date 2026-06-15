@@ -800,9 +800,11 @@ export const getProfile = async (req: AuthRequest, res: Response): Promise<void>
         }
         const u = userQuery.rows[0];
         const statusOk = ['verified', 'approved'].includes((u.verification_status || '').toLowerCase());
+        const isLegacy = !!(req.user as any)?.isLegacy;
         res.json({
             ...u,
             isVerified: u.is_verified === true || statusOk,
+            isLegacy,
         });
     } catch (fullQueryError) {
         // Fallback: query mínimo con sólo columnas seguras del schema original

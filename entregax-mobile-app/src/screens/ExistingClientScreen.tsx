@@ -33,7 +33,7 @@ type RootStackParamList = {
   Login: undefined;
   Register: undefined;
   ExistingClient: undefined;
-  Verification: { user: any; token: string };
+  Verification: { user: any; token: string; isLegacy?: boolean };
   Home: { user: any; token: string };
 };
 
@@ -215,6 +215,7 @@ export default function ExistingClientScreen({ navigation }: ExistingClientScree
               navigation.replace('Verification', {
                 user: userData,
                 token: response.data.token,
+                isLegacy: true,
               });
             },
           },

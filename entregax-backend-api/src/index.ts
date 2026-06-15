@@ -155,7 +155,8 @@ import {
   approveVerification,
   rejectVerification,
   reanalyzeVerification,
-  getVerificationStats
+  getVerificationStats,
+  verifyLegacyTerms
 } from './verificationController';
 import {
   getAddresses,
@@ -4848,6 +4849,7 @@ app.post('/api/admin/voucher/reject/:id', authenticateToken, requireMinLevel(ROL
 
 // --- RUTAS DE VERIFICACIÓN KYC ---
 app.post('/api/verify/documents', authenticateToken, verifyLimiter, uploadVerificationDocuments);
+app.post('/api/verify/legacy-terms', authenticateToken, verifyLegacyTerms);
 app.get('/api/verify/status', authenticateToken, getVerificationStatus);
 app.get('/api/verify/address', authenticateToken, checkAddress);
 app.post('/api/verify/address', authenticateToken, verifyLimiter, registerAddress);

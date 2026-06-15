@@ -70,6 +70,7 @@ interface UserProfile {
   two_factor_enabled: boolean;
   rfc: string;
   whatsapp_verified: boolean;
+  isLegacy?: boolean;
 }
 
 const ProfileClient = ({ onBack }: ProfileClientProps) => {
@@ -470,6 +471,25 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
       case 3: return termsAccepted && termsScrolled;
       case 4: return !!signature;
       default: return false;
+    }
+  };
+
+  // Verificación simplificada para clientes legacy (solo T&C)
+  const submitLegacyTerms = async () => {
+    if (!termsAccepted) {
+      setSnackbar({ open: true, message: 'Debes aceptar los términos y condiciones', severity: 'warning' });
+      return;
+    }
+    setVerifying(true);
+    try {
+      await api.post('/verify/legacy-terms');
+      setSnackbar({ open: true, message: '✅ ¡Cuenta activada! Ya puedes usar EntregaX.', severity: 'success' });
+      closeVerificationModal();
+      loadProfile();
+    } catch (error: any) {
+      setSnackbar({ open: true, message: error.response?.data?.error || 'Error al activar cuenta', severity: 'error' });
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -1288,14 +1308,16 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
       >
         <DialogTitle sx={{ bgcolor: '#1a3c5a', color: 'white', display: 'flex', alignItems: 'center', gap: 1, py: isMobile ? 1.5 : undefined }}>
           <BadgeIcon />
-          <Typography variant={isMobile ? 'subtitle1' : 'h6'} sx={{ fontWeight: 'bold' }}>Verificación de Identidad</Typography>
+          <Typography variant={isMobile ? 'subtitle1' : 'h6'} sx={{ fontWeight: 'bold' }}>
+            {profile?.isLegacy ? 'Activar cuenta' : 'Verificación de Identidad'}
+          </Typography>
           <Box sx={{ flex: 1 }} />
-          <Typography variant="body2">Paso {verificationStep + 1} de 5</Typography>
+          {!profile?.isLegacy && <Typography variant="body2">Paso {verificationStep + 1} de 5</Typography>}
         </DialogTitle>
-        
+
         <DialogContent sx={{ p: 0 }}>
-          {/* Advertencia de cámara */}
-          {hasCamera === false && verificationStep < 3 && (
+          {/* Advertencia de cámara — solo para flujo normal */}
+          {!profile?.isLegacy && hasCamera === false && verificationStep < 3 && (
             <Box sx={{ bgcolor: '#fff3e0', p: 2, display: 'flex', alignItems: 'flex-start', gap: 1.5, borderBottom: '1px solid #ffe0b2' }}>
               <PhoneIphoneIcon sx={{ color: ORANGE, mt: 0.3 }} />
               <Box>
@@ -1303,23 +1325,25 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
                   Recomendamos usar un celular
                 </Typography>
                 <Typography variant="body2" sx={{ color: '#bf360c' }}>
-                  No detectamos cámara en tu dispositivo. Para tomar la selfie necesitas cámara. 
+                  No detectamos cámara en tu dispositivo. Para tomar la selfie necesitas cámara.
                   Puedes continuar subiendo fotos desde archivos, pero recomendamos hacer este proceso desde tu celular.
                 </Typography>
               </Box>
             </Box>
           )}
 
-          {/* Stepper */}
-          <Box sx={{ px: isMobile ? 1 : 3, pt: 2, pb: 1 }}>
-            <Stepper activeStep={verificationStep} alternativeLabel sx={{ '& .MuiStepLabel-label': { fontSize: isMobile ? '0.7rem' : undefined } }}>
-              {['ID Frente', 'ID Reverso', 'Selfie', 'Términos', 'Firma'].map((label, index) => (
-                <Step key={label} completed={isStepComplete(index)}>
-                  <StepLabel>{label}</StepLabel>
-                </Step>
-              ))}
-            </Stepper>
-          </Box>
+          {/* Stepper — solo para flujo normal */}
+          {!profile?.isLegacy && (
+            <Box sx={{ px: isMobile ? 1 : 3, pt: 2, pb: 1 }}>
+              <Stepper activeStep={verificationStep} alternativeLabel sx={{ '& .MuiStepLabel-label': { fontSize: isMobile ? '0.7rem' : undefined } }}>
+                {['ID Frente', 'ID Reverso', 'Selfie', 'Términos', 'Firma'].map((label, index) => (
+                  <Step key={label} completed={isStepComplete(index)}>
+                    <StepLabel>{label}</StepLabel>
+                  </Step>
+                ))}
+              </Stepper>
+            </Box>
+          )}
 
           {/* Preview de cámara */}
           {showCameraPreview && videoStream && (
@@ -1339,8 +1363,39 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
             </Box>
           )}
 
-          {/* Contenido del paso actual */}
-          {!showCameraPreview && (
+          {/* Modo legacy: solo T&C */}
+          {profile?.isLegacy && (
+            <Box sx={{ p: 3 }}>
+              <Typography variant="h6" sx={{ fontWeight: 700, mb: 1, textAlign: 'center' }}>Términos y Condiciones</Typography>
+              <Typography variant="body2" sx={{ color: '#666', mb: 2, textAlign: 'center' }}>
+                Lee y acepta los términos para activar tu cuenta EntregaX
+              </Typography>
+              <Box
+                sx={{ maxHeight: 300, overflowY: 'auto', border: '1px solid #e0e0e0', borderRadius: 2, p: 2, mb: 2, fontSize: 13, lineHeight: 1.7, color: '#333', whiteSpace: 'pre-wrap' }}
+                onScroll={(e: any) => {
+                  const el = e.target;
+                  if (el.scrollHeight - el.scrollTop - el.clientHeight < 40) setTermsScrolled(true);
+                }}
+              >
+                {TERMS_AND_CONDITIONS}
+                <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1, color: '#4CAF50' }}>
+                  <CheckCircleIcon fontSize="small" /> Fin del documento
+                </Box>
+              </Box>
+              <Box
+                sx={{ display: 'flex', alignItems: 'center', gap: 1, cursor: termsScrolled ? 'pointer' : 'not-allowed', opacity: termsScrolled ? 1 : 0.5 }}
+                onClick={() => termsScrolled && setTermsAccepted(a => !a)}
+              >
+                <Box sx={{ width: 22, height: 22, border: '2px solid', borderColor: termsAccepted ? '#4CAF50' : '#aaa', borderRadius: 1, bgcolor: termsAccepted ? '#4CAF50' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {termsAccepted && <CheckCircleIcon sx={{ color: '#fff', fontSize: 16 }} />}
+                </Box>
+                <Typography variant="body2">{termsScrolled ? 'He leído y acepto los términos y condiciones' : 'Debes leer todo el documento primero'}</Typography>
+              </Box>
+            </Box>
+          )}
+
+          {/* Contenido del paso actual — flujo normal */}
+          {!profile?.isLegacy && !showCameraPreview && (
             <Box sx={{ p: 3 }}>
               {/* Paso 0: INE Frente */}
               {verificationStep === 0 && (
@@ -1618,7 +1673,22 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
         </DialogContent>
 
         <DialogActions sx={{ p: 2, borderTop: '1px solid #eee' }}>
-          {showCameraPreview ? (
+          {/* Flujo legacy: solo botón de activar */}
+          {profile?.isLegacy ? (
+            <>
+              <Button onClick={closeVerificationModal} sx={{ color: '#666' }}>Cancelar</Button>
+              <Box sx={{ flex: 1 }} />
+              <Button
+                variant="contained"
+                onClick={submitLegacyTerms}
+                disabled={!termsAccepted || verifying}
+                startIcon={verifying ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}
+                sx={{ bgcolor: '#4CAF50', '&:hover': { bgcolor: '#388E3C' } }}
+              >
+                {verifying ? 'Activando...' : 'Activar cuenta'}
+              </Button>
+            </>
+          ) : showCameraPreview ? (
             <>
               <Button onClick={() => {
                 if (videoStream) {
@@ -1630,9 +1700,9 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
                 Cancelar
               </Button>
               <Box sx={{ flex: 1 }} />
-              <Button 
-                variant="contained" 
-                onClick={takePhoto} 
+              <Button
+                variant="contained"
+                onClick={takePhoto}
                 startIcon={<CameraIcon />}
                 sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' }, borderRadius: 2, px: 3 }}
               >
@@ -1651,8 +1721,8 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
                 </Button>
               )}
               {verificationStep < 4 ? (
-                <Button 
-                  variant="contained" 
+                <Button
+                  variant="contained"
                   onClick={() => setVerificationStep(s => s + 1)}
                   disabled={!isStepComplete(verificationStep)}
                   sx={{ bgcolor: ORANGE, '&:hover': { bgcolor: '#d94d1f' } }}
@@ -1660,8 +1730,8 @@ JURISDICCIÓN. Para la interpretación y cumplimiento, las partes se someten a l
                   Siguiente →
                 </Button>
               ) : (
-                <Button 
-                  variant="contained" 
+                <Button
+                  variant="contained"
                   onClick={submitVerification}
                   disabled={!isStepComplete(4) || verifying}
                   startIcon={verifying ? <CircularProgress size={16} color="inherit" /> : <CheckCircleIcon />}

@@ -24,7 +24,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RouteProp } from '@react-navigation/native';
 
 type RootStackParamList = {
-    Verification: { user: any; token: string };
+    Verification: { user: any; token: string; isLegacy?: boolean };
     Home: { user: any; token: string };
 };
 
@@ -80,18 +80,22 @@ FIRMA DIGITAL. Las Partes manifiestan su consentimiento para el uso de la firma 
 
 FECHA DE FIRMA Y JURISDICCIÓN. Las partes acuerdan celebrar el presente Contrato el día de en el entendido que su consentimiento fue otorgado libre de todo vicio de voluntad, error, dolo, mala fe y/o violencia. Para la interpretación y cumplimiento de los presentes términos y condiciones, así como para todo aquello que no esté contemplado en los mismos, las partes acuerdan someterse a la jurisdicción y leyes aplicables en la ciudad de Monterrey, Nuevo León, renunciando expresamente a cualquier otro fuero que por razón de sus domicilios presentes o futuros pudiera corresponderles.`;
 
+const LEGACY_STEPS = [
+    { id: 1, title: 'Términos y Condiciones', icon: 'document-text-outline', instruction: 'Lee y acepta los términos de nuestro contrato de prestación de servicios' },
+];
+
 export default function VerificationScreen({ navigation, route }: Props) {
-    const { token, user } = route.params;
+    const { token, user, isLegacy = false } = route.params;
     const userRole = String(user?.role || '').toLowerCase();
     const isAdvisor = ['advisor', 'asesor', 'asesor_lider', 'sub_advisor'].includes(userRole);
-    const STEPS = React.useMemo(() => buildSteps(isAdvisor), [isAdvisor]);
+    const STEPS = React.useMemo(() => isLegacy ? LEGACY_STEPS : buildSteps(isAdvisor), [isAdvisor, isLegacy]);
     const STEP_INE_FRONT = 1;
     const STEP_INE_BACK = 2;
     const STEP_CSF = 3;
     const STEP_SELFIE = 4;
-    const STEP_TERMS = 5;
+    const STEP_TERMS = isLegacy ? 1 : 5;
     const STEP_SIGNATURE = 6;
-    const PHOTO_STEPS = [STEP_INE_FRONT, STEP_INE_BACK, STEP_SELFIE];
+    const PHOTO_STEPS = isLegacy ? [] : [STEP_INE_FRONT, STEP_INE_BACK, STEP_SELFIE];
     // Slots: claves estables para las fotos (independientes del número de paso)
     type PhotoSlot = 'ineFront' | 'ineBack' | 'selfie';
     const SLOT_INE_FRONT: PhotoSlot = 'ineFront';
@@ -105,9 +109,8 @@ export default function VerificationScreen({ navigation, route }: Props) {
     };
     const [currentStep, setCurrentStep] = useState(1);
     const [images, setImages] = useState<{ [key: string]: string }>({});
-    // Indicador visual: colapsa INE Frente + Reverso en 1 punto (5 puntos en total)
-    const VISUAL_TOTAL = 5;
-    const visualStep = currentStep <= STEP_INE_BACK ? 1 : currentStep - 1;
+    const VISUAL_TOTAL = isLegacy ? 1 : 5;
+    const visualStep = isLegacy ? 1 : (currentStep <= STEP_INE_BACK ? 1 : currentStep - 1);
     const [constanciaFiscal, setConstanciaFiscal] = useState<{ uri: string; name: string; mimeType: string } | null>(null);
     const [signature, setSignature] = useState<string | null>(null);
 
@@ -234,7 +237,7 @@ export default function VerificationScreen({ navigation, route }: Props) {
                 }
             }
             // Validar Constancia Fiscal solo si es asesor (obligatoria)
-            if (currentStep === STEP_CSF && isAdvisor && !constanciaFiscal) {
+            if (!isLegacy && currentStep === STEP_CSF && isAdvisor && !constanciaFiscal) {
                 Alert.alert(
                     'Constancia Fiscal requerida',
                     'Como asesor comercial necesitas adjuntar tu Constancia de Situación Fiscal para poder cobrar comisiones.'
@@ -247,6 +250,32 @@ export default function VerificationScreen({ navigation, route }: Props) {
                 return;
             }
             setCurrentStep(prev => prev + 1);
+        }
+    };
+
+    // Verificación simplificada para clientes legacy (solo T&C)
+    const handleLegacySubmit = async () => {
+        if (!termsAccepted) {
+            Alert.alert('Términos requeridos', 'Debes aceptar los términos y condiciones para continuar.');
+            return;
+        }
+        setVerifying(true);
+        try {
+            const response = await fetch(`${API_URL}/api/verify/legacy-terms`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Error');
+            Alert.alert(
+                '¡Cuenta activada!',
+                'Tu cuenta ha sido verificada. Ya puedes gestionar tus paquetes.',
+                [{ text: 'Continuar', onPress: () => navigation.replace('Home', { user, token }) }]
+            );
+        } catch (err: any) {
+            Alert.alert('Error', err.message || 'No se pudo verificar la cuenta');
+        } finally {
+            setVerifying(false);
         }
     };
 
@@ -749,21 +778,21 @@ export default function VerificationScreen({ navigation, route }: Props) {
         return (
             <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#0A2540" />
-                <Text style={styles.loadingText}>Verificando identidad...</Text>
-                <Text style={styles.loadingSubtext}>
-                    Comparando rostro con documento de identidad
-                </Text>
+                <Text style={styles.loadingText}>{isLegacy ? 'Activando cuenta...' : 'Verificando identidad...'}</Text>
+                {!isLegacy && (
+                    <Text style={styles.loadingSubtext}>Comparando rostro con documento de identidad</Text>
+                )}
             </View>
         );
     }
 
     return (
         <View style={styles.container}>
-            {renderCameraModal()}
+            {!isLegacy && renderCameraModal()}
             <View style={styles.header}>
-                <Text style={styles.headerTitle}>Verificación de Identidad</Text>
+                <Text style={styles.headerTitle}>{isLegacy ? 'Activar cuenta' : 'Verificación de Identidad'}</Text>
                 <Text style={styles.headerSubtitle}>
-                    Paso {visualStep} de {VISUAL_TOTAL}
+                    {isLegacy ? 'Acepta los términos para continuar' : `Paso ${visualStep} de ${VISUAL_TOTAL}`}
                 </Text>
             </View>
 
@@ -787,7 +816,20 @@ export default function VerificationScreen({ navigation, route }: Props) {
                     </TouchableOpacity>
                 )}
 
-                {currentStep < STEPS.length && (
+                {/* Flujo legacy: solo botón de activar en el paso de T&C */}
+                {isLegacy && (
+                    <TouchableOpacity
+                        style={[styles.nextButton, !termsAccepted && styles.nextButtonDisabled]}
+                        onPress={handleLegacySubmit}
+                        disabled={!termsAccepted}
+                    >
+                        <Text style={styles.nextText}>Activar cuenta</Text>
+                        <Ionicons name="checkmark-circle" size={24} color="#FFF" />
+                    </TouchableOpacity>
+                )}
+
+                {/* Flujo normal */}
+                {!isLegacy && currentStep < STEPS.length && (
                     <TouchableOpacity
                         style={[
                             styles.nextButton,

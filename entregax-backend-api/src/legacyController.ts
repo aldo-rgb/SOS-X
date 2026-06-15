@@ -320,11 +320,13 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
                 const email = row?.correo ? String(row.correo).toLowerCase().trim() : null;
                 const asesor = row?.asesor ? String(row.asesor).trim() : null;
                 const phone = row?.telefono ? String(row.telefono).trim() : null;
+                const lastSend = row?.last_send || null;
+                const lastSendMaritimo = row?.last_send_maritimo || null;
 
-                // Upsert: nombre/correo solo para no reclamados; asesor y phone siempre (vienen del sistema externo)
+                // Upsert: nombre/correo solo para no reclamados; asesor, phone y last_send siempre
                 const result = await pool.query(`
-                    INSERT INTO legacy_clients (box_id, full_name, email, registration_date, asesor, phone)
-                    VALUES ($1, $2, $3, NULL, $4, $5)
+                    INSERT INTO legacy_clients (box_id, full_name, email, registration_date, asesor, phone, last_send, last_send_maritimo)
+                    VALUES ($1, $2, $3, NULL, $4, $5, $6, $7)
                     ON CONFLICT (box_id) DO UPDATE SET
                         full_name = CASE WHEN legacy_clients.is_claimed = FALSE
                             THEN COALESCE(EXCLUDED.full_name, legacy_clients.full_name)
@@ -334,6 +336,8 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
                             ELSE legacy_clients.email END,
                         asesor = COALESCE(EXCLUDED.asesor, legacy_clients.asesor),
                         phone = COALESCE(EXCLUDED.phone, legacy_clients.phone),
+                        last_send = EXCLUDED.last_send,
+                        last_send_maritimo = EXCLUDED.last_send_maritimo,
                         -- Si tenía chartback activo y ahora se le asigna asesor → recuperado
                         chartback = CASE
                             WHEN legacy_clients.chartback = true AND EXCLUDED.asesor IS NOT NULL
@@ -344,7 +348,9 @@ export const syncExternalLegacyClients = async (_req: Request, res: Response): P
                             THEN 'recovered'
                             ELSE legacy_clients.chartback_status END
                     RETURNING (xmax = 0) AS inserted
-                `, [rawBoxId, fullName, email, asesor, phone]);
+                `, [rawBoxId, fullName, email, asesor, phone,
+                    lastSend ? JSON.stringify(lastSend) : null,
+                    lastSendMaritimo ? JSON.stringify(lastSendMaritimo) : null]);
 
                 if (result.rowCount && result.rowCount > 0) {
                     if ((result.rows[0] as any)?.inserted) {
@@ -690,10 +696,10 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         const newUser = await client.query(`
             INSERT INTO users (
-                full_name, email, password, role, box_id, phone, 
-                referral_code, verification_status, created_at
+                full_name, email, password, role, box_id, phone,
+                referral_code, verification_status, is_verified, created_at
             )
-            VALUES ($1, $2, $3, 'client', $4, $5, $6, 'verified', NOW())
+            VALUES ($1, $2, $3, 'client', $4, $5, $6, 'not_started', FALSE, NOW())
             RETURNING id, full_name, email, role, box_id
         `, [finalName, finalEmail, hashedPassword, boxId.toUpperCase(), phone || null, myReferralCode]);
 
@@ -811,11 +817,12 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
 
         // 8. Generar JWT
         const token = jwt.sign(
-            { 
-                userId: newUserId, 
-                email: finalEmail, 
+            {
+                userId: newUserId,
+                email: finalEmail,
                 role: 'client',
-                boxId: boxId.toUpperCase()
+                boxId: boxId.toUpperCase(),
+                isLegacy: true
             },
             JWT_SECRET,
             { expiresIn: '7d' }
@@ -830,7 +837,8 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
                 phone: phone || null,
                 phoneVerified: false,
                 hasAdvisor,
-                referredBy
+                referredBy,
+                isLegacy: true
             }
         });
 
@@ -999,7 +1007,8 @@ export const getAdvisorChartbackClients = async (req: Request, res: Response): P
     try {
         // Solo muestra clientes listos para contactar (next_contact_at nulo o ya vencido)
         const result = await pool.query(
-            `SELECT id, box_id, full_name, email, phone, chartback_status, next_contact_at, chartback_notes
+            `SELECT id, box_id, full_name, email, phone, chartback_status, next_contact_at,
+                    chartback_notes, chartback_activity, asesor
              FROM legacy_clients
              WHERE chartback = true
                AND chartback_status != 'recovered'
@@ -1016,39 +1025,92 @@ export const getAdvisorChartbackClients = async (req: Request, res: Response): P
 /**
  * Acción CRM sobre un cliente chartback
  * POST /api/advisor/legacy/chartback/:id/action
- * body: { action: 'no_answer' | 'callback' | 'recovered', callback_at?: ISO string, notes?: string }
+ * body: { action: 'no_answer'|'callback'|'recovered'|'whatsapp'|'call_note', callback_at?, notes? }
  */
 export const chartbackAction = async (req: Request, res: Response): Promise<any> => {
     try {
         const { id } = req.params;
         const { action, callback_at, notes } = req.body;
+        const userId = (req as any).user?.userId;
+
+        // Obtener nombre del asesor y asesor asignado al cliente
+        const [userRes, clientRes] = await Promise.all([
+            pool.query('SELECT full_name FROM users WHERE id = $1', [userId]),
+            pool.query('SELECT asesor FROM legacy_clients WHERE id = $1', [id])
+        ]);
+        const advisorName = userRes.rows[0]?.full_name || 'Asesor';
+        const clientAsesor = clientRes.rows[0]?.asesor;
+
+        const now = new Date().toISOString();
+        const entry: Record<string, any> = { ts: now, advisor: advisorName, advisor_id: userId };
 
         let next_contact_at: string | null = null;
-        let chartback_status = action;
+        let chartback_status: string | null = null;
 
         if (action === 'no_answer') {
-            // Vuelve a aparecer en 24 horas
             next_contact_at = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+            chartback_status = 'no_answer';
+            entry.type = 'no_answer';
+            if (notes) entry.note = notes;
         } else if (action === 'callback') {
             if (!callback_at) return res.status(400).json({ error: 'callback_at requerido' });
             next_contact_at = new Date(callback_at).toISOString();
             chartback_status = 'callback';
+            entry.type = 'callback';
+            entry.callback_at = next_contact_at;
+            if (notes) entry.note = notes;
         } else if (action === 'recovered') {
-            // Sale del chartback permanentemente
+            // Validar que el cliente ya tiene asesor asignado
+            if (!clientAsesor) {
+                return res.status(400).json({
+                    error: 'Este cliente aún no tiene asesor asignado. Asigna un asesor antes de marcarlo como recuperado.'
+                });
+            }
+            entry.type = 'recovered';
+            entry.asesor = clientAsesor;
+            if (notes) entry.note = notes;
             await pool.query(
-                `UPDATE legacy_clients SET chartback = false, chartback_status = 'recovered', next_contact_at = NULL WHERE id = $1`,
-                [id]
+                `UPDATE legacy_clients
+                 SET chartback = false, chartback_status = 'recovered', next_contact_at = NULL,
+                     chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $1::jsonb
+                 WHERE id = $2`,
+                [JSON.stringify(entry), id]
             );
             return res.json({ success: true, action: 'recovered' });
+        } else if (action === 'whatsapp') {
+            // Solo registra actividad, no cambia estado
+            entry.type = 'whatsapp';
+            if (notes) entry.note = notes;
+            await pool.query(
+                `UPDATE legacy_clients
+                 SET chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $1::jsonb
+                 WHERE id = $2`,
+                [JSON.stringify(entry), id]
+            );
+            return res.json({ success: true, action: 'whatsapp' });
+        } else if (action === 'call_note') {
+            // Registra nota de llamada sin cambiar estado
+            entry.type = 'call_note';
+            entry.note = notes || '';
+            await pool.query(
+                `UPDATE legacy_clients
+                 SET chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $1::jsonb,
+                     chartback_notes = $2
+                 WHERE id = $3`,
+                [JSON.stringify(entry), notes || null, id]
+            );
+            return res.json({ success: true, action: 'call_note' });
         } else {
             return res.status(400).json({ error: 'action inválido' });
         }
 
         await pool.query(
             `UPDATE legacy_clients
-             SET chartback_status = $1, next_contact_at = $2, chartback_notes = COALESCE($3, chartback_notes)
-             WHERE id = $4`,
-            [chartback_status, next_contact_at, notes || null, id]
+             SET chartback_status = $1, next_contact_at = $2,
+                 chartback_notes = COALESCE($3, chartback_notes),
+                 chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $4::jsonb
+             WHERE id = $5`,
+            [chartback_status, next_contact_at, notes || null, JSON.stringify(entry), id]
         );
 
         return res.json({ success: true, action, next_contact_at });

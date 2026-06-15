@@ -651,6 +651,44 @@ export const rejectVerification = async (req: Request, res: Response): Promise<v
     }
 };
 
+// ============ LEGACY CLIENT: VERIFICACIÓN SOLO CON TÉRMINOS ============
+// Para clientes que ya tenían cuenta en Sistema EX y se dan de alta por el flujo
+// "Ya soy cliente". No requieren INE, selfie ni firma — solo aceptar T&C.
+export const verifyLegacyTerms = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const userId = (req as any).user?.userId;
+        if (!userId) return res.status(401).json({ error: 'No autenticado' });
+
+        // Solo permitir si el usuario fue creado via flujo legacy (claimed_from_legacy)
+        const userRes = await pool.query(
+            'SELECT id, full_name, claimed_from_legacy, verification_status FROM users WHERE id = $1',
+            [userId]
+        );
+        const user = userRes.rows[0];
+        if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+        await pool.query(`
+            UPDATE users
+            SET verification_status = 'verified',
+                is_verified = TRUE,
+                verification_reviewed_at = NOW(),
+                verification_submitted_at = NOW()
+            WHERE id = $1
+        `, [userId]);
+
+        await createNotification(
+            userId,
+            'VERIFICATION_APPROVED',
+            '¡Bienvenido a EntregaX! Tu cuenta ha sido activada. Ya puedes gestionar tus paquetes.',
+        );
+
+        return res.json({ success: true, message: 'Cuenta verificada exitosamente' });
+    } catch (error) {
+        console.error('Error en verifyLegacyTerms:', error);
+        return res.status(500).json({ error: 'Error al verificar cuenta' });
+    }
+};
+
 // ============ ADMIN: OBTENER ESTADÍSTICAS DE VERIFICACIÓN ============
 export const getVerificationStats = async (_req: Request, res: Response): Promise<void> => {
     try {
