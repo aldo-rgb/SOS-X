@@ -500,7 +500,9 @@ export default function DeliveryInstructionsScreen({ navigation, route }: Props)
       });
       const data = await response.json();
       if (response.ok) {
-        const addrs = data.addresses || data || [];
+        const addrs = (data.addresses || data || []).filter(
+          (a: Address) => !a.alias?.startsWith('EntregaX Sync')
+        );
         setAddresses(addrs);
         // Si no hay dirección seleccionada (nueva asignación), seleccionar la default
         if (!selectedAddressId) {

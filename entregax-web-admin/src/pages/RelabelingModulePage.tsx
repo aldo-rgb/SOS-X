@@ -1148,6 +1148,130 @@ ${body}
         window.open(guideUrl, '_blank');
     };
 
+    const handlePrintCarrierDelivery = () => {
+        if (!shipment?.master.assignedAddress) return;
+        const a = shipment.master.assignedAddress;
+        const carrierLabel = assignedCarrier?.displayName?.toUpperCase() || 'PAQUETERÍA ASIGNADA';
+        const printWindow = window.open('', '_blank', 'width=400,height=600');
+        if (!printWindow) { setError('Permite ventanas emergentes para imprimir'); return; }
+        const recipient = (a.recipientName || shipment.client.name || 'CLIENTE').toUpperCase();
+        const street = `${a.street || ''} ${a.exterior || ''}${a.interior ? ` Int. ${a.interior}` : ''}`.trim();
+        const cityLine = `${a.city || ''}${a.state ? ', ' + a.state : ''}`.trim();
+        const colZip = `${a.neighborhood ? 'Col. ' + a.neighborhood + ' · ' : ''}C.P. ${a.zip || '—'}`;
+        const masterTn = shipment.master.tracking;
+        const masterTnCompact = String(masterTn || '').toUpperCase();
+        const today = new Date().toLocaleDateString('es-MX');
+        const svc = getServiceInfo(masterTn);
+        const totalBoxes = shipment.master.totalBoxes || 1;
+        const boxes: Array<{ boxNum: number; tn: string; tnCompact: string; weight: number | null }> = [];
+        if (totalBoxes > 1 && shipment.children?.length > 0) {
+            const sorted = [...shipment.children].sort((a, b) => (a.boxNumber || 0) - (b.boxNumber || 0));
+            sorted.forEach(c => boxes.push({ boxNum: c.boxNumber, tn: c.tracking || masterTn, tnCompact: String(c.tracking || masterTn).toUpperCase(), weight: c.weight || null }));
+        } else {
+            boxes.push({ boxNum: 1, tn: masterTn, tnCompact: masterTnCompact, weight: shipment.master.weight });
+        }
+        const labelsHtml = boxes.map((box, idx) => {
+            const isLast = idx === boxes.length - 1;
+            return `
+  <div class="label-page${isLast ? '' : ' page-break'}">
+    <div class="brand">
+      <div class="logo">Entrega<span>X</span></div>
+      <div class="brand-right">
+        <div class="badge">🚚 ${carrierLabel}</div>
+        ${totalBoxes > 1 ? `<div class="box-badge">CAJA ${box.boxNum} / ${totalBoxes}</div>` : ''}
+      </div>
+    </div>
+    <div class="tracking-row">
+      <div class="tn">${box.tnCompact}</div>
+      <div class="date">${today}</div>
+    </div>
+    <div class="barcode-box"><svg id="barcode_${idx}"></svg></div>
+    <div class="dest">
+      <div class="lbl">ENTREGAR A</div>
+      <div class="name">${recipient}</div>
+      <div class="line">${street || '—'}</div>
+      <div class="line">${colZip}</div>
+      <div class="city">${cityLine}</div>
+      ${a.phone ? `<div class="phone">📞 ${a.phone}</div>` : ''}
+      ${a.reference ? `<div class="ref-box">Ref: ${a.reference}</div>` : ''}
+    </div>
+    <div class="dest-code">
+      <div class="lbl">DESTINO</div>
+      <div class="code">${shipment.master.destinationCode || '—'}</div>
+    </div>
+    <div class="pkg-info">
+      <div class="cell"><div class="lbl">CLIENTE</div><div class="val">${shipment.client.boxId}</div></div>
+      <div class="cell"><div class="lbl">PESO</div><div class="val">${box.weight ? Number(box.weight).toFixed(1) + ' kg' : '—'}</div></div>
+      <div class="cell"><div class="lbl">CAJA</div><div class="val">${totalBoxes > 1 ? `${box.boxNum}/${totalBoxes}` : '1/1'}</div></div>
+    </div>
+    <div class="footer">
+      <div class="qr-box">
+        <div id="qrcode_${idx}"></div>
+        <div class="qr-label">Tracking</div>
+      </div>
+      <div class="service-box">
+        <div class="lbl">SERVICIO</div>
+        <div class="val">${svc.emoji} ${svc.label.toUpperCase()}</div>
+        <div class="sub">${carrierLabel}</div>
+      </div>
+    </div>
+  </div>`;
+        }).join('\n');
+        const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"/><title>Etiqueta ${carrierLabel} ${masterTn}</title>
+<script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.min.js"></script>
+<style>
+  @page { size: 4in 6in; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; font-size: 11px; }
+  .label-page { padding: 0.18in; width: 4in; height: 6in; display: flex; flex-direction: column; }
+  .page-break { page-break-after: always; }
+  .brand { display: flex; align-items: center; justify-content: space-between; border-bottom: 3px solid #F05A28; padding-bottom: 6px; margin-bottom: 6px; }
+  .brand .logo { font-size: 22px; font-weight: 900; color: #F05A28; letter-spacing: 1px; font-family: 'Arial Black', sans-serif; }
+  .brand .logo span { color: #111; }
+  .brand-right { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+  .badge { background: #1565C0; color: #fff; padding: 4px 10px; font-size: 10px; font-weight: 800; border-radius: 4px; letter-spacing: 1px; }
+  .box-badge { background: #111; color: #fff; padding: 3px 8px; font-size: 12px; font-weight: 900; border-radius: 4px; letter-spacing: 1px; }
+  .tracking-row { display: flex; justify-content: space-between; align-items: center; margin: 4px 0; }
+  .tracking-row .tn { font-family: 'Courier New', monospace; font-size: 16px; font-weight: 900; }
+  .tracking-row .date { font-size: 10px; color: #555; }
+  .barcode-box { text-align: center; margin: 4px 0; }
+  .dest { border: 2px solid #111; border-radius: 6px; padding: 8px; margin: 6px 0; }
+  .dest .lbl { font-size: 8px; color: #888; font-weight: 700; letter-spacing: 1px; margin-bottom: 2px; }
+  .dest .name { font-size: 16px; font-weight: 900; color: #111; }
+  .dest .line { font-size: 11px; color: #333; }
+  .dest .city { font-size: 12px; font-weight: 700; color: #111; margin-top: 2px; }
+  .dest .phone { font-size: 11px; color: #F05A28; margin-top: 4px; }
+  .dest .ref-box { background: #fff3cd; border: 1px solid #ffc107; border-radius: 4px; padding: 3px 6px; font-size: 10px; margin-top: 4px; }
+  .dest-code { display: flex; align-items: center; gap: 10px; margin: 4px 0; }
+  .dest-code .lbl { font-size: 8px; color: #888; font-weight: 700; letter-spacing: 1px; }
+  .dest-code .code { font-size: 22px; font-weight: 900; color: #1565C0; }
+  .pkg-info { display: flex; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; margin: 4px 0; }
+  .pkg-info .cell { flex: 1; padding: 5px; text-align: center; border-right: 1px solid #ddd; }
+  .pkg-info .cell:last-child { border-right: none; }
+  .pkg-info .lbl { font-size: 7px; color: #888; font-weight: 700; letter-spacing: 1px; }
+  .pkg-info .val { font-size: 13px; font-weight: 900; color: #111; }
+  .footer { display: flex; gap: 10px; margin-top: auto; align-items: flex-end; }
+  .qr-box { text-align: center; }
+  .qr-label { font-size: 7px; color: #888; margin-top: 2px; }
+  .service-box { flex: 1; border: 1px solid #ddd; border-radius: 4px; padding: 5px; }
+  .service-box .lbl { font-size: 7px; color: #888; font-weight: 700; letter-spacing: 1px; }
+  .service-box .val { font-size: 12px; font-weight: 900; color: #111; }
+  .service-box .sub { font-size: 10px; color: #1565C0; font-weight: 700; }
+</style></head><body>
+${labelsHtml}
+<script>
+  ${boxes.map((box, idx) => `
+  JsBarcode('#barcode_${idx}', '${String(box.tnCompact).replace(/'/g, "\\'")}', {format:'CODE128',displayValue:false,height:40,width:1.4});
+  (function(){var qr=qrcode(0,'M');qr.addData('${String(box.tnCompact).replace(/'/g, "\\'")}');qr.make();document.getElementById('qrcode_${idx}').innerHTML=qr.createImgTag(3,0);})();
+  `).join('')}
+  window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 400); });
+</script></body></html>`;
+        printWindow.document.write(html);
+        printWindow.document.close();
+    };
+
     const getUploadedExternalGuideUrl = (): string | null => {
         if (!shipment) return null;
         const raw = String(shipment.master.deliveryDocuments?.guiaExterna?.url || '').trim();
@@ -1799,10 +1923,10 @@ ${body}
                                                     fullWidth
                                                     variant="contained"
                                                     startIcon={<PrintIcon />}
-                                                    disabled
-                                                    sx={{ bgcolor: '#90A4AE', '&.Mui-disabled': { bgcolor: '#B0BEC5', color: '#ECEFF1' } }}
+                                                    onClick={() => handlePrintCarrierDelivery()}
+                                                    sx={{ bgcolor: '#1565C0', '&:hover': { bgcolor: '#0d47a1' } }}
                                                 >
-                                                    Guía no disponible
+                                                    Imprimir etiqueta {assignedCarrier?.displayName || 'paquetería'}
                                                 </Button>
                                             )}
                                         </>
