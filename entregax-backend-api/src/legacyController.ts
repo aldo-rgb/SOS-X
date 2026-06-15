@@ -734,11 +734,11 @@ export const claimLegacyAccount = async (req: Request, res: Response): Promise<a
                 SET password = $1,
                     phone = COALESCE($2, phone),
                     full_name = COALESCE($3, full_name),
+                    email = $5,
                     verification_status = 'not_started',
-                    is_verified = FALSE,
-                    updated_at = NOW()
+                    is_verified = FALSE
                 WHERE id = $4
-            `, [hashedPassword, phone || null, finalName, existingUserId]);
+            `, [hashedPassword, phone || null, finalName, existingUserId, finalEmail]);
             newUserId = existingUserId;
         } else {
             // Generar código de referido único
