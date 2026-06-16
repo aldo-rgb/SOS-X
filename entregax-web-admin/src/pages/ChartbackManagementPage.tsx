@@ -133,12 +133,17 @@ export default function ChartbackManagementPage() {
     }
 
     const skipped = selected.size - unassignedIds.length;
+
+    // Reparto equitativo: barajar IDs y asignar por round-robin entre asesores
+    const shuffled = [...unassignedIds].sort(() => Math.random() - 0.5);
+    const shuffledAdvisors = [...recoveryAdvisors].sort(() => Math.random() - 0.5);
     const groups = new Map<number, number[]>();
-    for (const id of unassignedIds) {
-      const advisor = recoveryAdvisors[Math.floor(Math.random() * recoveryAdvisors.length)];
+    shuffled.forEach((id, i) => {
+      const advisor = shuffledAdvisors[i % shuffledAdvisors.length];
       if (!groups.has(advisor.id)) groups.set(advisor.id, []);
       groups.get(advisor.id)!.push(id);
-    }
+    });
+
     setAssigning(true);
     setError(null);
     try {
@@ -148,7 +153,12 @@ export default function ChartbackManagementPage() {
         )
       );
       const skippedMsg = skipped > 0 ? ` (${skipped} ya ten\u00edan asesor y se omitieron)` : '';
-      setSuccess(`${unassignedIds.length} cliente(s) asignados aleatoriamente entre ${groups.size} asesor(es)${skippedMsg}`);
+      const perAdvisor = Math.floor(unassignedIds.length / shuffledAdvisors.length);
+      const extra = unassignedIds.length % shuffledAdvisors.length;
+      const distMsg = extra === 0
+        ? `${perAdvisor} c/u`
+        : `${perAdvisor}-${perAdvisor + 1} c/u`;
+      setSuccess(`${unassignedIds.length} cliente(s) repartidos equitativamente entre ${groups.size} asesor(es) (${distMsg})${skippedMsg}`);
       setSelected(new Set());
       setAssignAdvisorId('');
       fetchClients();
