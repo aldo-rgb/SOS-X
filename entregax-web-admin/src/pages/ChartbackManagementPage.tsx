@@ -3,13 +3,18 @@ import {
   Box, Typography, Paper, Table, TableBody, TableCell, TableContainer,
   TableHead, TableRow, TextField, InputAdornment, Select, MenuItem,
   FormControl, InputLabel, Chip, CircularProgress, Alert, Button,
-  Checkbox, Tooltip, Stack, IconButton,
+  Checkbox, Tooltip, Stack, IconButton, Dialog, DialogTitle,
+  DialogContent, DialogActions, Divider, Grid2 as Grid,
 } from '@mui/material';
 import {
   Search as SearchIcon,
   Refresh as RefreshIcon,
   PersonAdd as AssignIcon,
   PersonOff as UnassignIcon,
+  Casino as RandomIcon,
+  LocalShipping as ShippingIcon,
+  Close as CloseIcon,
+  Inventory2 as BoxIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -50,6 +55,9 @@ export default function ChartbackManagementPage() {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [assigning, setAssigning] = useState(false);
   const [assignAdvisorId, setAssignAdvisorId] = useState<string>('');
+  const [cargoModal, setCargoModal] = useState<{ open: boolean; client: ChartbackClient | null; data: any; loading: boolean }>({
+    open: false, client: null, data: null, loading: false,
+  });
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -93,6 +101,43 @@ export default function ChartbackManagementPage() {
       else next.delete(id);
       return next;
     });
+  };
+
+  const handleOpenCargo = async (client: ChartbackClient) => {
+    setCargoModal({ open: true, client, data: null, loading: true });
+    try {
+      const res = await api.get(`/admin/legacy/chartback/${client.box_id}/cargo`);
+      setCargoModal(prev => ({ ...prev, data: res.data, loading: false }));
+    } catch {
+      setCargoModal(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleRandomAssign = async () => {
+    if (selected.size === 0 || recoveryAdvisors.length === 0) return;
+    const groups = new Map<number, number[]>();
+    for (const id of selected) {
+      const advisor = recoveryAdvisors[Math.floor(Math.random() * recoveryAdvisors.length)];
+      if (!groups.has(advisor.id)) groups.set(advisor.id, []);
+      groups.get(advisor.id)!.push(id);
+    }
+    setAssigning(true);
+    setError(null);
+    try {
+      await Promise.all(
+        Array.from(groups.entries()).map(([advisorId, ids]) =>
+          api.patch('/admin/legacy/chartback/assign', { ids, advisor_id: advisorId })
+        )
+      );
+      setSuccess(`${selected.size} cliente(s) asignados aleatoriamente entre ${groups.size} asesor(es)`);
+      setSelected(new Set());
+      setAssignAdvisorId('');
+      fetchClients();
+    } catch (e: any) {
+      setError(e?.response?.data?.error || 'Error al asignar');
+    } finally {
+      setAssigning(false);
+    }
   };
 
   const handleAssign = async (advisorIdVal: number | null) => {
@@ -195,6 +240,20 @@ export default function ChartbackManagementPage() {
             >
               Asignar
             </Button>
+            <Tooltip title={`Repartir aleatoriamente entre los ${recoveryAdvisors.length} asesores con Recovery activo`}>
+              <span>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={assigning ? <CircularProgress size={14} /> : <RandomIcon />}
+                  disabled={assigning || recoveryAdvisors.length === 0}
+                  onClick={handleRandomAssign}
+                  sx={{ borderColor: '#7C3AED', color: '#7C3AED', '&:hover': { borderColor: '#6D28D9', bgcolor: '#F5F3FF' } }}
+                >
+                  Aleatoria
+                </Button>
+              </span>
+            </Tooltip>
             <Tooltip title="Quitar asesor asignado de los seleccionados">
               <Button
                 variant="outlined"
@@ -257,7 +316,11 @@ export default function ChartbackManagementPage() {
                   key={client.id}
                   hover
                   selected={selected.has(client.id)}
-                  sx={{ '&.Mui-selected': { bgcolor: '#EEF2FF' } }}
+                  sx={{ '&.Mui-selected': { bgcolor: '#EEF2FF' }, cursor: 'pointer' }}
+                  onClick={e => {
+                    if ((e.target as HTMLElement).closest('input[type="checkbox"]')) return;
+                    handleOpenCargo(client);
+                  }}
                 >
                   <TableCell padding="checkbox">
                     <Checkbox
@@ -305,6 +368,133 @@ export default function ChartbackManagementPage() {
       <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
         {clients.length} cliente(s) · Solo asesores con permiso Recovery pueden ver clientes en la app
       </Typography>
+
+      {/* Modal de carga en tránsito */}
+      <Dialog
+        open={cargoModal.open}
+        onClose={() => setCargoModal(prev => ({ ...prev, open: false }))}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
+          <ShippingIcon color="warning" />
+          <Box flex={1}>
+            <Typography fontWeight={700}>Carga en Tránsito</Typography>
+            {cargoModal.client && (
+              <Typography variant="body2" color="text.secondary">
+                {cargoModal.client.box_id} · {cargoModal.client.full_name || '—'}
+              </Typography>
+            )}
+          </Box>
+          <IconButton size="small" onClick={() => setCargoModal(prev => ({ ...prev, open: false }))}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent dividers>
+          {cargoModal.loading ? (
+            <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
+          ) : !cargoModal.data ? (
+            <Alert severity="error">No se pudo cargar la información</Alert>
+          ) : (
+            <Stack spacing={3}>
+              {/* Pendientes en sistema EntregaX */}
+              <Box>
+                <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <BoxIcon fontSize="small" color="warning" /> Sistema EntregaX (Legado)
+                </Typography>
+                {!cargoModal.data.legacy ? (
+                  <Alert severity="info" sx={{ mb: 1 }}>Cliente no encontrado en sistema EntregaX</Alert>
+                ) : (
+                  <>
+                    {/* Pendientes por servicio */}
+                    <Grid container spacing={2}>
+                      {(['usa', 'tdi', 'dhl', 'maritimo'] as const).map(service => {
+                        const svc = cargoModal.data.legacy?.pending?.[service];
+                        if (!svc || svc.count === 0) return null;
+                        return (
+                          <Grid key={service} size={{ xs: 12, sm: 6 }}>
+                            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                              <Typography variant="overline" color="text.secondary">{service.toUpperCase()} ({svc.count})</Typography>
+                              {svc.data.map((pkg: any, i: number) => (
+                                <Box key={i} sx={{ mt: 0.5 }}>
+                                  <Typography variant="body2" fontWeight={600}>{pkg.guiaus || pkg.guia || '—'}</Typography>
+                                  <Typography variant="caption" color="text.secondary">{pkg.estado || '—'}</Typography>
+                                </Box>
+                              ))}
+                            </Paper>
+                          </Grid>
+                        );
+                      })}
+                      {['usa','tdi','dhl','maritimo'].every(s => !(cargoModal.data.legacy?.pending?.[s]?.count)) && (
+                        <Grid size={{ xs: 12 }}>
+                          <Typography variant="body2" color="text.secondary">Sin paquetes pendientes en EntregaX</Typography>
+                        </Grid>
+                      )}
+                    </Grid>
+
+                    {/* Último envío */}
+                    {cargoModal.data.legacy?.last_send && (
+                      <>
+                        <Divider sx={{ my: 2 }} />
+                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Último envío registrado</Typography>
+                        <Grid container spacing={1}>
+                          {Object.entries(cargoModal.data.legacy.last_send).map(([k, v]) => (
+                            <Grid key={k} size={{ xs: 6, sm: 4 }}>
+                              <Typography variant="caption" color="text.secondary" display="block">{k}</Typography>
+                              <Typography variant="body2" fontWeight={500}>{String(v) || '—'}</Typography>
+                            </Grid>
+                          ))}
+                        </Grid>
+                      </>
+                    )}
+                  </>
+                )}
+              </Box>
+
+              {/* Paquetes en nuestro sistema */}
+              <Box>
+                <Divider sx={{ mb: 2 }} />
+                <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <ShippingIcon fontSize="small" color="primary" /> Nuestro Sistema
+                </Typography>
+                {cargoModal.data.our_packages?.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">Sin paquetes activos en nuestro sistema</Typography>
+                ) : (
+                  <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: '#F9FAFB' }}>
+                          <TableCell><strong>Tracking</strong></TableCell>
+                          <TableCell><strong>Carrier</strong></TableCell>
+                          <TableCell><strong>Estado</strong></TableCell>
+                          <TableCell><strong>Peso</strong></TableCell>
+                          <TableCell><strong>Fecha</strong></TableCell>
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {cargoModal.data.our_packages.map((pkg: any) => (
+                          <TableRow key={pkg.id} hover>
+                            <TableCell><Typography variant="caption" fontFamily="monospace">{pkg.tracking_number || '—'}</Typography></TableCell>
+                            <TableCell>{pkg.carrier || '—'}</TableCell>
+                            <TableCell>
+                              <Chip label={pkg.status || '—'} size="small" color="info" variant="outlined" />
+                            </TableCell>
+                            <TableCell>{pkg.weight_kg ? `${pkg.weight_kg} kg` : '—'}</TableCell>
+                            <TableCell>{pkg.created_at ? new Date(pkg.created_at).toLocaleDateString('es-MX') : '—'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                )}
+              </Box>
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCargoModal(prev => ({ ...prev, open: false }))}>Cerrar</Button>
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 }
