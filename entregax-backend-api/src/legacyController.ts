@@ -575,9 +575,10 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
                     COALESCE(lc.full_name, u_s.full_name) as full_name,
                     COALESCE(lc.email, u_s.email) as email,
                     u_s.full_name as claimed_by_name,
-                    adv.full_name as asesor_entregax
+                    COALESCE(adv.full_name, rec_adv.full_name) as asesor_entregax
              ${joinClause}
              LEFT JOIN users adv ON adv.id = u_s.advisor_id
+             LEFT JOIN users rec_adv ON rec_adv.id = lc.recovery_advisor_id
              ${whereClause}
              ORDER BY lc.created_at DESC
              LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
@@ -1417,11 +1418,10 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
         } else if (action === 'recovered') {
             entry.type = 'recovered';
             if (notes) entry.note = notes;
-            // Asignar el asesor de Entregax (claimed_by_user_id) que marcó la recuperación
             await pool.query(
                 `UPDATE legacy_clients
                  SET chartback = false, chartback_status = 'recovered', next_contact_at = NULL,
-                     claimed_by_user_id = $1,
+                     recovery_advisor_id = $1,
                      chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $2::jsonb
                  WHERE id = $3`,
                 [userId, JSON.stringify(entry), id]
