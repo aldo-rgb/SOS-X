@@ -1254,7 +1254,8 @@ export const getChartbackClientCargo = async (req: Request, res: Response): Prom
         // 1. Datos locales ya sincronizados de sistemaentregax.com
         const localResult = await pool.query(
             `SELECT box_id, full_name, email, phone, asesor,
-                    last_send, last_send_maritimo, chartback_status, next_contact_at
+                    last_send, last_send_maritimo, chartback_status, next_contact_at,
+                    chartback_activity, chartback_notes
              FROM legacy_clients WHERE UPPER(TRIM(box_id)) = $1 LIMIT 1`,
             [boxId]
         );

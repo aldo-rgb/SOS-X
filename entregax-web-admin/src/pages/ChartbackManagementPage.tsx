@@ -15,6 +15,7 @@ import {
   LocalShipping as ShippingIcon,
   Close as CloseIcon,
   Inventory2 as BoxIcon,
+  History as HistoryIcon,
 } from '@mui/icons-material';
 import api from '../services/api';
 
@@ -58,6 +59,7 @@ export default function ChartbackManagementPage() {
   const [cargoModal, setCargoModal] = useState<{ open: boolean; client: ChartbackClient | null; data: any; loading: boolean }>({
     open: false, client: null, data: null, loading: false,
   });
+  const [cargoTab, setCargoTab] = useState<'carga' | 'historial'>('carga');
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -104,6 +106,7 @@ export default function ChartbackManagementPage() {
   };
 
   const handleOpenCargo = async (client: ChartbackClient) => {
+    setCargoTab('carga');
     setCargoModal({ open: true, client, data: null, loading: true });
     try {
       const res = await api.get(`/admin/legacy/chartback/${client.box_id}/cargo`);
@@ -379,12 +382,36 @@ export default function ChartbackManagementPage() {
         <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1, pb: 1 }}>
           <ShippingIcon color="warning" />
           <Box flex={1}>
-            <Typography fontWeight={700}>Carga en Tránsito</Typography>
+            <Typography fontWeight={700}>
+              {cargoModal.client?.full_name || cargoModal.client?.box_id || '—'}
+            </Typography>
             {cargoModal.client && (
               <Typography variant="body2" color="text.secondary">
-                {cargoModal.client.box_id} · {cargoModal.client.full_name || '—'}
+                {cargoModal.client.box_id} · {cargoModal.client.asesor || 'Sin asesor'}
               </Typography>
             )}
+          </Box>
+          {/* Tabs */}
+          <Box sx={{ display: 'flex', gap: 0.5, mr: 1 }}>
+            <Button
+              size="small"
+              variant={cargoTab === 'carga' ? 'contained' : 'outlined'}
+              startIcon={<ShippingIcon />}
+              onClick={() => setCargoTab('carga')}
+              sx={{ borderRadius: 2, textTransform: 'none', fontSize: 12 }}
+            >
+              Carga
+            </Button>
+            <Button
+              size="small"
+              variant={cargoTab === 'historial' ? 'contained' : 'outlined'}
+              color="secondary"
+              startIcon={<HistoryIcon />}
+              onClick={() => setCargoTab('historial')}
+              sx={{ borderRadius: 2, textTransform: 'none', fontSize: 12 }}
+            >
+              Historial
+            </Button>
           </Box>
           <IconButton size="small" onClick={() => setCargoModal(prev => ({ ...prev, open: false }))}>
             <CloseIcon />
@@ -395,6 +422,63 @@ export default function ChartbackManagementPage() {
             <Box display="flex" justifyContent="center" py={4}><CircularProgress /></Box>
           ) : !cargoModal.data ? (
             <Alert severity="error">No se pudo cargar la información</Alert>
+          ) : cargoTab === 'historial' ? (
+            /* ── Tab Historial ── */
+            (() => {
+              const raw = cargoModal.data.local_client?.chartback_activity;
+              const acts: any[] = Array.isArray(raw) ? [...raw].reverse() : [];
+              const typeLabel = (t: string) => ({ whatsapp: 'WhatsApp', no_answer: 'No contestó', callback: 'Llamar después', recovered: 'Recuperado', call_note: 'Nota de llamada' }[t] || t);
+              const typeColor = (t: string): string => ({ whatsapp: '#25D366', no_answer: '#F59E0B', callback: '#7C3AED', recovered: '#16A34A', call_note: '#3B82F6' }[t] || '#6B7280');
+              if (acts.length === 0) {
+                return (
+                  <Box textAlign="center" py={6}>
+                    <HistoryIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                    <Typography color="text.secondary">Sin movimientos registrados para este cliente</Typography>
+                  </Box>
+                );
+              }
+              return (
+                <Box>
+                  {acts.map((a, idx) => (
+                    <Box
+                      key={idx}
+                      sx={{
+                        display: 'flex', gap: 2, py: 1.5, px: 1,
+                        borderBottom: idx < acts.length - 1 ? '1px solid' : 'none',
+                        borderColor: 'divider',
+                        '&:hover': { bgcolor: 'action.hover' },
+                        borderRadius: 1,
+                      }}
+                    >
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: typeColor(a.type), mt: 0.7, flexShrink: 0 }} />
+                      <Box flex={1}>
+                        <Box display="flex" justifyContent="space-between" alignItems="center">
+                          <Typography variant="body2" fontWeight={700} sx={{ color: typeColor(a.type) }}>
+                            {typeLabel(a.type)}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {new Date(a.ts).toLocaleString('es-MX', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        </Box>
+                        <Typography variant="caption" color="text.secondary">
+                          Asesor: {a.advisor || '—'}
+                        </Typography>
+                        {a.note && (
+                          <Typography variant="body2" sx={{ mt: 0.5, color: 'text.primary', fontStyle: 'italic' }}>
+                            "{a.note}"
+                          </Typography>
+                        )}
+                        {a.callback_at && (
+                          <Typography variant="caption" sx={{ color: '#7C3AED', display: 'block', mt: 0.3 }}>
+                            Agendar contacto: {new Date(a.callback_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Box>
+                  ))}
+                </Box>
+              );
+            })()
           ) : (
             <Stack spacing={3}>
               {/* Sistema EntregaX Legado */}
