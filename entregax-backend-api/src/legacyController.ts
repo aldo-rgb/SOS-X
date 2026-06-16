@@ -1227,18 +1227,24 @@ export const getChartbackClientCargo = async (req: Request, res: Response): Prom
         );
         const localClient = localResult.rows[0] || null;
 
-        // 2. Paquetes en nuestro sistema — busca por box_id directo en packages O por usuario registrado
+        // 2. Paquetes en nuestro sistema: por usuario registrado + por box_id directo en packages
         const ourPkgsResult = await pool.query(
-            `SELECT DISTINCT ON (p.id)
-                    p.id, p.tracking_number, p.status, p.carrier, p.created_at,
-                    p.weight_kg, p.description, p.service_type, p.box_id as pkg_box_id
+            `SELECT p.id, p.tracking_number, p.status, p.carrier, p.created_at,
+                    p.weight_kg, p.description, p.service_type,
+                    p.box_id as pkg_box_id, u.box_id as user_box_id
              FROM packages p
-             LEFT JOIN users u ON u.id = p.user_id
-             WHERE (
-               UPPER(TRIM(p.box_id)) = $1
-               OR UPPER(TRIM(u.box_id)) = $1
-             )
-             ORDER BY p.id DESC, p.created_at DESC LIMIT 50`,
+             JOIN users u ON p.user_id = u.id
+             WHERE UPPER(TRIM(u.box_id)) = $1
+             UNION
+             SELECT p.id, p.tracking_number, p.status, p.carrier, p.created_at,
+                    p.weight_kg, p.description, p.service_type,
+                    p.box_id as pkg_box_id, NULL as user_box_id
+             FROM packages p
+             WHERE UPPER(TRIM(p.box_id)) = $1
+               AND (p.user_id IS NULL OR p.user_id NOT IN (
+                 SELECT id FROM users WHERE UPPER(TRIM(box_id)) = $1
+               ))
+             ORDER BY created_at DESC LIMIT 50`,
             [boxId]
         ).catch(() => ({ rows: [] as any[] }));
 
