@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component } from 'react';
+import type { ReactNode } from 'react';
 import axios from 'axios';
 import {
   Box,
@@ -150,6 +151,14 @@ const LT = {
     socialSignUpHint: '完成注册以创建您的客户编号。登录时您的 {provider} 账户将被关联。',
   },
 } as const;
+
+// Isolated error boundary so Google/Apple OAuth crashes don't take down the full login page
+class SocialAuthErrorBoundary extends Component<{ children: ReactNode }, { crashed: boolean }> {
+  state = { crashed: false };
+  static getDerivedStateFromError() { return { crashed: true }; }
+  componentDidCatch(err: unknown) { console.warn('[SocialAuth] crash caught by boundary:', err); }
+  render() { return this.state.crashed ? null : this.props.children; }
+}
 
 export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
   const [tabValue, setTabValue] = useState(0);
@@ -498,8 +507,8 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
         referralCodeInput: referralCode.trim().toUpperCase() || undefined,
       });
 
-      const advisorMsg = response.data.user.hasAdvisor ? '\n\u00a1Tu asesor ha sido asignado!' : '';
-      const referralMsg = response.data.user.referredBy ? '\n\u00a1Recibir\u00e1s tu bono de bienvenida!' : '';
+      const advisorMsg = response.data.user?.hasAdvisor ? '\n\u00a1Tu asesor ha sido asignado!' : '';
+      const referralMsg = response.data.user?.referredBy ? '\n\u00a1Recibir\u00e1s tu bono de bienvenida!' : '';
 
       // Guardar token y user para que el dialog de OTP pueda usarlos
       if (response.data.token) {
@@ -512,7 +521,7 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
       setPendingPhone(registerPhone);
       setPhoneVerifyOpen(true);
 
-      setSuccess(`\u00a1Registro exitoso! Tu casillero es ${response.data.user.boxId}.${advisorMsg}${referralMsg}`);
+      setSuccess(`\u00a1Registro exitoso! Tu casillero es ${response.data.user?.boxId ?? response.data.boxId ?? ''}.${advisorMsg}${referralMsg}`);
     } catch (err: any) {
       const data = err.response?.data;
       // Si el correo corresponde a un cliente anterior (legacy), redirigir
@@ -909,19 +918,21 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 </Box>
 
                 {/* Sign in with Google / Apple (feature-flagged via VITE envs) */}
-                <SocialAuthButtons
-                  onSuccess={({ user, access }) => onLoginSuccess({ user, access })}
-                  onError={(msg) => setError(msg)}
-                  onNotRegistered={(prefill) => {
-                    setRegisterName(prefill.fullName || '');
-                    setRegisterEmail(prefill.email || '');
-                    setTabValue(1);
-                    setError('');
-                    setSuccess(`Aún no tienes cuenta con ${prefill.provider === 'google' ? 'Google' : 'Apple'}. Completa tu registro para crear tu Número Cliente.`);
-                    setTimeout(() => setSuccess(''), 8000);
-                  }}
-                  disabled={loading}
-                />
+                <SocialAuthErrorBoundary>
+                  <SocialAuthButtons
+                    onSuccess={({ user, access }) => onLoginSuccess({ user, access })}
+                    onError={(msg) => setError(msg)}
+                    onNotRegistered={(prefill) => {
+                      setRegisterName(prefill.fullName || '');
+                      setRegisterEmail(prefill.email || '');
+                      setTabValue(1);
+                      setError('');
+                      setSuccess(`Aún no tienes cuenta con ${prefill.provider === 'google' ? 'Google' : 'Apple'}. Completa tu registro para crear tu Número Cliente.`);
+                      setTimeout(() => setSuccess(''), 8000);
+                    }}
+                    disabled={loading}
+                  />
+                </SocialAuthErrorBoundary>
 
                 {/* Botón para clientes legacy con Número Cliente existente */}
                 <Button
@@ -1219,18 +1230,20 @@ export default function LoginPage({ onLoginSuccess }: LoginPageProps) {
                 </Button>
 
                 {/* Sign up with Google / Apple (feature-flagged via VITE envs) */}
-                <SocialAuthButtons
-                  onSuccess={({ user, access }) => onLoginSuccess({ user, access })}
-                  onError={(msg) => setError(msg)}
-                  onNotRegistered={(prefill) => {
-                    setRegisterName(prefill.fullName || '');
-                    setRegisterEmail(prefill.email || '');
-                    setError('');
-                    setSuccess(lt.socialSignUpHint.replace('{provider}', prefill.provider === 'google' ? 'Google' : 'Apple'));
-                    setTimeout(() => setSuccess(''), 8000);
-                  }}
-                  disabled={loading}
-                />
+                <SocialAuthErrorBoundary>
+                  <SocialAuthButtons
+                    onSuccess={({ user, access }) => onLoginSuccess({ user, access })}
+                    onError={(msg) => setError(msg)}
+                    onNotRegistered={(prefill) => {
+                      setRegisterName(prefill.fullName || '');
+                      setRegisterEmail(prefill.email || '');
+                      setError('');
+                      setSuccess(lt.socialSignUpHint.replace('{provider}', prefill.provider === 'google' ? 'Google' : 'Apple'));
+                      setTimeout(() => setSuccess(''), 8000);
+                    }}
+                    disabled={loading}
+                  />
+                </SocialAuthErrorBoundary>
 
                 {/* Botón para clientes legacy con Número Cliente existente */}
                 <Button
