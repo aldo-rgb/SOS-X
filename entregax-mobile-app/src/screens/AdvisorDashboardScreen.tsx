@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View,
   ScrollView,
@@ -201,6 +202,14 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   }, [token]);
 
   useEffect(() => { loadDashboard(); loadChartback(); }, [loadDashboard, loadChartback]);
+
+  // Refrescar contadores cada vez que vuelve esta pantalla (p.ej., tras crear orden de pago)
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboard();
+      loadChartback();
+    }, [loadDashboard, loadChartback])
+  );
 
   useEffect(() => {
     registerForPushNotifications(token).catch(() => {});
