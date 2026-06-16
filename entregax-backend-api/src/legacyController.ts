@@ -1149,6 +1149,57 @@ export const getAdvisorChartbackClients = async (req: Request, res: Response): P
 };
 
 /**
+ * Carga en tránsito de un cliente chartback (para asesores)
+ * GET /api/advisor/legacy/chartback/:boxId/cargo
+ */
+export const getAdvisorChartbackClientCargo = async (req: Request, res: Response): Promise<any> => {
+    const rawBoxId = req.params.boxId;
+    const boxId = String(Array.isArray(rawBoxId) ? rawBoxId[0] : rawBoxId).toUpperCase().trim();
+    if (!boxId) return res.status(400).json({ error: 'boxId requerido' });
+    const advisorId = (req as any).user?.userId;
+    try {
+        const localResult = await pool.query(
+            `SELECT box_id, full_name, email, phone, asesor,
+                    last_send, last_send_maritimo, chartback_status,
+                    chartback_activity, chartback_notes, next_contact_at
+             FROM legacy_clients
+             WHERE UPPER(TRIM(box_id)) = $1
+               AND recovery_advisor_id = $2
+             LIMIT 1`,
+            [boxId, advisorId]
+        );
+        const localClient = localResult.rows[0] || null;
+        if (!localClient) return res.status(404).json({ error: 'Cliente no encontrado o no asignado a ti' });
+
+        let livePending: any = null;
+        try {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 10000);
+            try {
+                const r = await (globalThis as any).fetch(
+                    'https://sistemaentregax.com/api/customers/list-customers-admin',
+                    { headers: { Accept: 'application/json' }, signal: ctrl.signal as any }
+                );
+                if (r.ok) {
+                    const payload = await r.json();
+                    const rows: any[] = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+                    const norm = boxId.replace(/\s/g, '');
+                    const match = rows.find((row: any) =>
+                        (row?.suite ?? '').toString().trim().toUpperCase().replace(/\s/g, '') === norm
+                    );
+                    if (match) livePending = match.pending || null;
+                }
+            } finally { clearTimeout(t); }
+        } catch { /* timeout */ }
+
+        return res.json({ box_id: boxId, local_client: localClient, live_pending: livePending });
+    } catch (error: any) {
+        console.error('Error cargo advisor:', error);
+        return res.status(500).json({ error: 'Error al consultar carga' });
+    }
+};
+
+/**
  * Historial general de movimientos chartback del asesor
  * GET /api/advisor/legacy/chartback/history
  */

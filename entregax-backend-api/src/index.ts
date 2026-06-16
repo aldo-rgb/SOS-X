@@ -914,6 +914,7 @@ import {
   deleteLegacyClient,
   setChartback,
   getAdvisorChartbackClients,
+  getAdvisorChartbackClientCargo,
   getAdvisorChartbackHistory,
   chartbackAction,
   assignChartbackAdvisor,
@@ -6051,6 +6052,7 @@ app.put('/api/gex/auto-config', authenticateToken, async (req: AuthRequest, res:
 // ========== PANEL DEL ASESOR (self-service) ==========
 app.get('/api/advisor/legacy/chartback', authenticateToken, getAdvisorChartbackClients);
 app.get('/api/advisor/legacy/chartback/history', authenticateToken, getAdvisorChartbackHistory);
+app.get('/api/advisor/legacy/chartback/:boxId/cargo', authenticateToken, getAdvisorChartbackClientCargo);
 app.post('/api/advisor/legacy/chartback/:id/action', authenticateToken, chartbackAction);
 
 // ========== ADMIN: GESTIÓN CHARTBACK ==========

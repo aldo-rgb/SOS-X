@@ -106,6 +106,22 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [crmNote, setCrmNote] = useState('');
   const [crmError, setCrmError] = useState('');
   const [expandedHistory, setExpandedHistory] = useState<Set<number>>(new Set());
+  const [clientDetail, setClientDetail] = useState<{ client: ChartbackClient; tab: 'historial' | 'carga'; cargoData: any; cargoLoading: boolean } | null>(null);
+
+  const openClientDetail = async (c: ChartbackClient, tab: 'historial' | 'carga') => {
+    setClientDetail({ client: c, tab, cargoData: null, cargoLoading: tab === 'carga' });
+    if (tab === 'carga') {
+      try {
+        const r = await fetch(`${API_URL}/api/advisor/legacy/chartback/${c.box_id}/cargo`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const d = r.ok ? await r.json() : null;
+        setClientDetail(prev => prev ? { ...prev, cargoData: d, cargoLoading: false } : null);
+      } catch {
+        setClientDetail(prev => prev ? { ...prev, cargoLoading: false } : null);
+      }
+    }
+  };
 
   const crmAction = async (clientId: number, body: object): Promise<{ ok: boolean; error?: string }> => {
     try {
@@ -904,6 +920,25 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                           <Text style={s.chartbackBtnText}>Registrar</Text>
                         </TouchableOpacity>
                       </View>
+                      {/* Fila secundaria: Historial + Carga */}
+                      <View style={{ flexDirection: 'row', gap: 8, marginTop: 6 }}>
+                        <TouchableOpacity
+                          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: '#1E2A3A', borderRadius: 8, paddingVertical: 7, borderWidth: 1, borderColor: '#334155' }}
+                          onPress={() => openClientDetail(c, 'historial')}
+                        >
+                          <Ionicons name="time-outline" size={13} color="#60A5FA" />
+                          <Text style={{ color: '#60A5FA', fontSize: 12, fontWeight: '700' }}>
+                            Historial {(c.chartback_activity?.length ?? 0) > 0 ? `(${c.chartback_activity!.length})` : ''}
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, backgroundColor: '#1E2A3A', borderRadius: 8, paddingVertical: 7, borderWidth: 1, borderColor: '#334155' }}
+                          onPress={() => openClientDetail(c, 'carga')}
+                        >
+                          <Ionicons name="cube-outline" size={13} color="#FB923C" />
+                          <Text style={{ color: '#FB923C', fontSize: 12, fontWeight: '700' }}>Carga</Text>
+                        </TouchableOpacity>
+                      </View>
                       {/* Historial de actividad */}
                       {(() => {
                         const acts = (c.chartback_activity || []).slice().reverse();
@@ -953,6 +988,132 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                 </ScrollView>
               );
             })())}
+
+            {/* ── Overlay Detalle Cliente (Historial / Carga) ── */}
+            {clientDetail && (
+              <View style={s.crmOverlay}>
+                <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={() => setClientDetail(null)} />
+                <View style={[s.crmBox, { maxHeight: '85%' }]}>
+                  {/* Header */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{clientDetail.client.full_name || 'Cliente'}</Text>
+                    <TouchableOpacity onPress={() => setClientDetail(null)}><Ionicons name="close" size={20} color="#888" /></TouchableOpacity>
+                  </View>
+                  <Text style={{ color: '#60A5FA', fontSize: 12, marginBottom: 10 }}>{clientDetail.client.box_id}</Text>
+                  {/* Tabs */}
+                  <View style={{ flexDirection: 'row', backgroundColor: '#0F172A', borderRadius: 8, padding: 3, marginBottom: 12 }}>
+                    {(['historial', 'carga'] as const).map(tab => (
+                      <TouchableOpacity
+                        key={tab}
+                        style={{ flex: 1, paddingVertical: 6, borderRadius: 6, alignItems: 'center', backgroundColor: clientDetail.tab === tab ? (tab === 'historial' ? '#1E3A5F' : '#7C2D12') : 'transparent' }}
+                        onPress={() => {
+                          if (tab === 'carga' && !clientDetail.cargoData && !clientDetail.cargoLoading) {
+                            setClientDetail(prev => prev ? { ...prev, tab, cargoLoading: true } : null);
+                            fetch(`${API_URL}/api/advisor/legacy/chartback/${clientDetail.client.box_id}/cargo`, { headers: { Authorization: `Bearer ${token}` } })
+                              .then(r => r.ok ? r.json() : null)
+                              .then(d => setClientDetail(prev => prev ? { ...prev, cargoData: d, cargoLoading: false } : null))
+                              .catch(() => setClientDetail(prev => prev ? { ...prev, cargoLoading: false } : null));
+                          } else {
+                            setClientDetail(prev => prev ? { ...prev, tab } : null);
+                          }
+                        }}
+                      >
+                        <Text style={{ color: clientDetail.tab === tab ? '#fff' : '#666', fontSize: 12, fontWeight: '700' }}>
+                          {tab === 'historial' ? '📋 Historial' : '📦 Carga'}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  {/* Contenido */}
+                  <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                    {clientDetail.tab === 'historial' ? (() => {
+                      const acts = [...(clientDetail.client.chartback_activity || [])].reverse();
+                      if (acts.length === 0) return <Text style={{ color: '#666', textAlign: 'center', marginTop: 20 }}>Sin movimientos registrados</Text>;
+                      const typeLabel = (t: string) => ({ whatsapp: 'WhatsApp', no_answer: 'No contestó', callback: 'Llamar después', recovered: 'Recuperado', call_note: 'Nota' }[t] || t);
+                      const typeColor = (t: string) => ({ whatsapp: '#25D366', no_answer: '#F59E0B', callback: '#A78BFA', recovered: '#4ADE80', call_note: '#60A5FA' }[t] || '#94A3B8');
+                      return (
+                        <>
+                          {acts.map((a, i) => (
+                            <View key={i} style={{ paddingVertical: 10, borderBottomWidth: i < acts.length - 1 ? 1 : 0, borderBottomColor: '#1E2A3A' }}>
+                              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                                <Text style={{ color: typeColor(a.type), fontWeight: '700', fontSize: 13 }}>{typeLabel(a.type)}</Text>
+                                <Text style={{ color: '#475569', fontSize: 11 }}>{new Date(a.ts).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>
+                              </View>
+                              <Text style={{ color: '#64748B', fontSize: 11, marginTop: 2 }}>Asesor: {a.advisor}</Text>
+                              {a.note ? <Text style={{ color: '#CBD5E1', fontSize: 12, marginTop: 4, fontStyle: 'italic' }}>"{a.note}"</Text> : null}
+                              {a.callback_at ? <Text style={{ color: '#A78BFA', fontSize: 12, marginTop: 3 }}>Agendar: {new Date(a.callback_at).toLocaleString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text> : null}
+                            </View>
+                          ))}
+                        </>
+                      );
+                    })() : clientDetail.cargoLoading ? (
+                      <ActivityIndicator color="#FB923C" style={{ marginTop: 30 }} />
+                    ) : !clientDetail.cargoData ? (
+                      <Text style={{ color: '#666', textAlign: 'center', marginTop: 20 }}>No se pudo cargar la información</Text>
+                    ) : (() => {
+                      const lc = clientDetail.cargoData.local_client;
+                      const lp = clientDetail.cargoData.live_pending;
+                      const ls = lc?.last_send ? (typeof lc.last_send === 'string' ? JSON.parse(lc.last_send) : lc.last_send) : null;
+                      const lm = lc?.last_send_maritimo ? (typeof lc.last_send_maritimo === 'string' ? JSON.parse(lc.last_send_maritimo) : lc.last_send_maritimo) : null;
+                      const services = ['usa', 'tdi', 'dhl', 'maritimo'] as const;
+                      const hasPending = lp && services.some(s => lp[s]?.count > 0);
+                      return (
+                        <>
+                          {/* Pendientes en vivo */}
+                          {hasPending ? (
+                            <>
+                              <Text style={{ color: '#FB923C', fontWeight: '700', fontSize: 13, marginBottom: 8 }}>📡 Pendientes en vivo</Text>
+                              {services.map(svc => {
+                                const d = lp?.[svc];
+                                if (!d || d.count === 0) return null;
+                                return (
+                                  <View key={svc} style={{ backgroundColor: '#1E2A3A', borderRadius: 8, padding: 10, marginBottom: 8 }}>
+                                    <Text style={{ color: '#FB923C', fontWeight: '700', fontSize: 12 }}>{svc.toUpperCase()} — {d.count} paq.</Text>
+                                    {(d.data || []).slice(0, 3).map((p: any, pi: number) => (
+                                      <Text key={pi} style={{ color: '#94A3B8', fontSize: 11, marginTop: 2 }}>{p.guiaus || p.guia || p.tracking || '—'} · {p.estado || '—'}</Text>
+                                    ))}
+                                  </View>
+                                );
+                              })}
+                            </>
+                          ) : (
+                            <Text style={{ color: '#475569', fontSize: 12, marginBottom: 10 }}>Sin pendientes activos en sistemaentregax.com</Text>
+                          )}
+                          {/* Último envío aéreo */}
+                          {ls && (
+                            <>
+                              <Text style={{ color: '#60A5FA', fontWeight: '700', fontSize: 13, marginTop: 10, marginBottom: 6 }}>✈️ Último envío aéreo</Text>
+                              {Object.entries(ls).slice(0, 6).map(([k, v]) => (
+                                <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                                  <Text style={{ color: '#64748B', fontSize: 11 }}>{k}</Text>
+                                  <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', maxWidth: '60%', textAlign: 'right' }}>{String(v)}</Text>
+                                </View>
+                              ))}
+                            </>
+                          )}
+                          {/* Último envío marítimo */}
+                          {lm && (
+                            <>
+                              <Text style={{ color: '#34D399', fontWeight: '700', fontSize: 13, marginTop: 10, marginBottom: 6 }}>🚢 Último envío marítimo</Text>
+                              {Object.entries(lm).slice(0, 6).map(([k, v]) => (
+                                <View key={k} style={{ flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 3 }}>
+                                  <Text style={{ color: '#64748B', fontSize: 11 }}>{k}</Text>
+                                  <Text style={{ color: '#CBD5E1', fontSize: 11, fontWeight: '600', maxWidth: '60%', textAlign: 'right' }}>{String(v)}</Text>
+                                </View>
+                              ))}
+                            </>
+                          )}
+                          {!ls && !lm && !hasPending && (
+                            <Text style={{ color: '#666', textAlign: 'center', marginTop: 20 }}>Sin información de carga disponible</Text>
+                          )}
+                        </>
+                      );
+                    })()}
+                    <View style={{ height: 20 }} />
+                  </ScrollView>
+                </View>
+              </View>
+            )}
 
             {/* ── Overlay CRM dentro del modal (evita modal anidado) ── */}
             {showCrmMenu && crmClient && (
