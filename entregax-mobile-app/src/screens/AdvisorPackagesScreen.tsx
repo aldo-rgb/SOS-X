@@ -420,7 +420,10 @@ export default function AdvisorPackagesScreen({ navigation, route }: any) {
           : Promise.resolve(null),
       ]);
       const addrData = await addrRes.json();
-      setInstrAddresses(Array.isArray(addrData) ? addrData : []);
+      const addrList = Array.isArray(addrData) ? addrData : [];
+      // Ocultar direcciones EntregaX Sync (no son seleccionables como destino real)
+      const filteredAddrs = addrList.filter((a: any) => !String(a?.alias || '').startsWith('EntregaX Sync'));
+      setInstrAddresses(filteredAddrs);
       if (carrierRes) {
         const carrierData = await carrierRes.json();
         setInstrCarriers(carrierData?.data || []);
