@@ -1208,7 +1208,9 @@ export const getAdminChartbackClients = async (req: Request, res: Response): Pro
  * Consulta nuestro sistema + sistemaentregax.com
  */
 export const getChartbackClientCargo = async (req: Request, res: Response): Promise<any> => {
-    const boxId = (req.params.boxId || '').toUpperCase().trim();
+    const rawBoxId = req.params.boxId;
+    const pick = Array.isArray(rawBoxId) ? (rawBoxId[0] ?? '') : (rawBoxId ?? '');
+    const boxId = String(pick).toUpperCase().trim();
     if (!boxId) return res.status(400).json({ error: 'boxId requerido' });
 
     const [legacyResult, ourPackages] = await Promise.allSettled([
