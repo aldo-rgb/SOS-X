@@ -1213,39 +1213,65 @@ export const getChartbackClientCargo = async (req: Request, res: Response): Prom
     const boxId = String(pick).toUpperCase().trim();
     if (!boxId) return res.status(400).json({ error: 'boxId requerido' });
 
-    const [legacyResult, ourPackages] = await Promise.allSettled([
-        (async () => {
+    try {
+        // 1. Datos locales ya sincronizados de sistemaentregax.com
+        const localResult = await pool.query(
+            `SELECT box_id, full_name, email, phone, asesor,
+                    last_send, last_send_maritimo, chartback_status, next_contact_at
+             FROM legacy_clients WHERE UPPER(TRIM(box_id)) = $1 LIMIT 1`,
+            [boxId]
+        );
+        const localClient = localResult.rows[0] || null;
+
+        // 2. Paquetes en nuestro sistema (clientes registrados)
+        const ourPkgsResult = await pool.query(
+            `SELECT p.id, p.tracking_number, p.status, p.carrier, p.created_at,
+                    p.weight_kg, p.description, p.service_type
+             FROM packages p
+             INNER JOIN users u ON u.id = p.user_id
+             WHERE UPPER(TRIM(u.box_id)) = $1
+               AND p.status NOT IN ('delivered','cancelled','returned')
+             ORDER BY p.created_at DESC LIMIT 30`,
+            [boxId]
+        ).catch(() => ({ rows: [] as any[] }));
+
+        // 3. Intentar obtener pendientes EN VIVO desde sistemaentregax.com
+        let livePending: any = null;
+        try {
             const ctrl = new AbortController();
-            const t = setTimeout(() => ctrl.abort(), 15000);
+            const t = setTimeout(() => ctrl.abort(), 12000);
             try {
                 const r = await (globalThis as any).fetch(
                     'https://sistemaentregax.com/api/customers/list-customers-admin',
                     { headers: { 'Accept': 'application/json' }, signal: ctrl.signal as any }
                 );
-                if (!r.ok) return null;
-                const payload = await r.json();
-                const rows: any[] = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : []);
-                return rows.find((row: any) => (row?.suite ?? '').toString().trim().toUpperCase() === boxId) || null;
+                if (r.ok) {
+                    const payload = await r.json();
+                    const rows: any[] = Array.isArray(payload?.data) ? payload.data
+                        : (Array.isArray(payload) ? payload : []);
+                    // Buscar por suite exacto (case-insensitive, sin espacios)
+                    const normalizedBoxId = boxId.replace(/\s/g, '');
+                    const match = rows.find((row: any) => {
+                        const suite = (row?.suite ?? '').toString().trim().toUpperCase().replace(/\s/g, '');
+                        return suite === normalizedBoxId;
+                    });
+                    if (match) livePending = match.pending || null;
+                }
             } finally {
                 clearTimeout(t);
             }
-        })(),
-        pool.query(
-            `SELECT p.id, p.tracking_number, p.status, p.carrier, p.created_at,
-                    p.weight_kg, p.description, p.service_type
-             FROM packages p
-             LEFT JOIN users u ON u.id = p.user_id
-             WHERE u.box_id = $1 AND p.status NOT IN ('delivered','cancelled','returned')
-             ORDER BY p.created_at DESC LIMIT 30`,
-            [boxId]
-        ).catch(() => ({ rows: [] }))
-    ]);
+        } catch { /* timeout o error de red — usar solo datos locales */ }
 
-    return res.json({
-        box_id: boxId,
-        legacy: legacyResult.status === 'fulfilled' ? legacyResult.value : null,
-        our_packages: ourPackages.status === 'fulfilled' ? (ourPackages.value as any).rows : [],
-    });
+        return res.json({
+            box_id: boxId,
+            local_client: localClient,
+            live_pending: livePending,
+            our_packages: (ourPkgsResult as any).rows || [],
+        });
+    } catch (error: any) {
+        console.error('Error cargo chartback:', error);
+        return res.status(500).json({ error: 'Error al consultar carga' });
+    }
 };
 
 /**

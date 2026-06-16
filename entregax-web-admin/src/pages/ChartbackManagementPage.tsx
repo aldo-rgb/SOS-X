@@ -397,57 +397,73 @@ export default function ChartbackManagementPage() {
             <Alert severity="error">No se pudo cargar la información</Alert>
           ) : (
             <Stack spacing={3}>
-              {/* Pendientes en sistema EntregaX */}
+              {/* Sistema EntregaX Legado */}
               <Box>
                 <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <BoxIcon fontSize="small" color="warning" /> Sistema EntregaX (Legado)
                 </Typography>
-                {!cargoModal.data.legacy ? (
-                  <Alert severity="info" sx={{ mb: 1 }}>Cliente no encontrado en sistema EntregaX</Alert>
-                ) : (
-                  <>
-                    {/* Pendientes por servicio */}
-                    <Grid container spacing={2}>
-                      {(['usa', 'tdi', 'dhl', 'maritimo'] as const).map(service => {
-                        const svc = cargoModal.data.legacy?.pending?.[service];
-                        if (!svc || svc.count === 0) return null;
-                        return (
-                          <Grid key={service} size={{ xs: 12, sm: 6 }}>
-                            <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
-                              <Typography variant="overline" color="text.secondary">{service.toUpperCase()} ({svc.count})</Typography>
-                              {svc.data.map((pkg: any, i: number) => (
-                                <Box key={i} sx={{ mt: 0.5 }}>
-                                  <Typography variant="body2" fontWeight={600}>{pkg.guiaus || pkg.guia || '—'}</Typography>
-                                  <Typography variant="caption" color="text.secondary">{pkg.estado || '—'}</Typography>
-                                </Box>
-                              ))}
-                            </Paper>
-                          </Grid>
-                        );
-                      })}
-                      {['usa','tdi','dhl','maritimo'].every(s => !(cargoModal.data.legacy?.pending?.[s]?.count)) && (
-                        <Grid size={{ xs: 12 }}>
-                          <Typography variant="body2" color="text.secondary">Sin paquetes pendientes en EntregaX</Typography>
-                        </Grid>
-                      )}
-                    </Grid>
 
-                    {/* Último envío */}
-                    {cargoModal.data.legacy?.last_send && (
-                      <>
-                        <Divider sx={{ my: 2 }} />
-                        <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>Último envío registrado</Typography>
-                        <Grid container spacing={1}>
-                          {Object.entries(cargoModal.data.legacy.last_send).map(([k, v]) => (
-                            <Grid key={k} size={{ xs: 6, sm: 4 }}>
-                              <Typography variant="caption" color="text.secondary" display="block">{k}</Typography>
-                              <Typography variant="body2" fontWeight={500}>{String(v) || '—'}</Typography>
-                            </Grid>
-                          ))}
+                {/* Paquetes pendientes EN VIVO */}
+                {cargoModal.data.live_pending ? (
+                  <Grid container spacing={2} sx={{ mb: 2 }}>
+                    {(['usa', 'tdi', 'dhl', 'maritimo'] as const).map(service => {
+                      const svc = cargoModal.data.live_pending?.[service];
+                      if (!svc || svc.count === 0) return null;
+                      return (
+                        <Grid key={service} size={{ xs: 12, sm: 6 }}>
+                          <Paper variant="outlined" sx={{ p: 1.5, borderRadius: 2 }}>
+                            <Typography variant="overline" color="text.secondary" display="block">
+                              {service.toUpperCase()} — {svc.count} paquete(s)
+                            </Typography>
+                            {svc.data.map((pkg: any, i: number) => (
+                              <Box key={i} sx={{ mt: 0.5 }}>
+                                <Typography variant="body2" fontWeight={600} fontFamily="monospace">
+                                  {pkg.guiaus || pkg.guia || pkg.tracking || '—'}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">{pkg.estado || '—'}</Typography>
+                              </Box>
+                            ))}
+                          </Paper>
                         </Grid>
-                      </>
+                      );
+                    })}
+                    {['usa','tdi','dhl','maritimo'].every(s => !(cargoModal.data.live_pending?.[s]?.count)) && (
+                      <Grid size={{ xs: 12 }}>
+                        <Typography variant="body2" color="text.secondary">Sin paquetes pendientes en sistemaentregax.com</Typography>
+                      </Grid>
                     )}
-                  </>
+                  </Grid>
+                ) : (
+                  <Alert severity="warning" sx={{ mb: 2 }}>
+                    No se encontraron pendientes en vivo desde sistemaentregax.com (puede ser timeout o el cliente no existe allí)
+                  </Alert>
+                )}
+
+                {/* Último envío — desde nuestra DB */}
+                {cargoModal.data.local_client?.last_send && (() => {
+                  const ls = typeof cargoModal.data.local_client.last_send === 'string'
+                    ? JSON.parse(cargoModal.data.local_client.last_send)
+                    : cargoModal.data.local_client.last_send;
+                  return (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                        Último envío registrado (sincronizado)
+                      </Typography>
+                      <Grid container spacing={1}>
+                        {Object.entries(ls).map(([k, v]) => (
+                          <Grid key={k} size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="caption" color="text.secondary" display="block">{k}</Typography>
+                            <Typography variant="body2" fontWeight={500}>{String(v) || '—'}</Typography>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    </>
+                  );
+                })()}
+
+                {!cargoModal.data.local_client && !cargoModal.data.live_pending && (
+                  <Alert severity="info">Este cliente no tiene datos en el sistema EntregaX legado</Alert>
                 )}
               </Box>
 
@@ -457,7 +473,7 @@ export default function ChartbackManagementPage() {
                 <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
                   <ShippingIcon fontSize="small" color="primary" /> Nuestro Sistema
                 </Typography>
-                {cargoModal.data.our_packages?.length === 0 ? (
+                {!cargoModal.data.our_packages?.length ? (
                   <Typography variant="body2" color="text.secondary">Sin paquetes activos en nuestro sistema</Typography>
                 ) : (
                   <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
@@ -476,9 +492,7 @@ export default function ChartbackManagementPage() {
                           <TableRow key={pkg.id} hover>
                             <TableCell><Typography variant="caption" fontFamily="monospace">{pkg.tracking_number || '—'}</Typography></TableCell>
                             <TableCell>{pkg.carrier || '—'}</TableCell>
-                            <TableCell>
-                              <Chip label={pkg.status || '—'} size="small" color="info" variant="outlined" />
-                            </TableCell>
+                            <TableCell><Chip label={pkg.status || '—'} size="small" color="info" variant="outlined" /></TableCell>
                             <TableCell>{pkg.weight_kg ? `${pkg.weight_kg} kg` : '—'}</TableCell>
                             <TableCell>{pkg.created_at ? new Date(pkg.created_at).toLocaleDateString('es-MX') : '—'}</TableCell>
                           </TableRow>
