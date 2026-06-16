@@ -11565,7 +11565,7 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
         FROM packages p LEFT JOIN users u ON u.id = p.user_id
         WHERE (p.service_type = 'POBOX_USA' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
-          AND p.status IN ('received', 'in_transit', 'received_mty')
+          AND p.status = 'received'
           AND p.delivery_address_id IS NULL
           AND p.assigned_address_id IS NULL
           AND (p.user_id IS NOT NULL OR p.box_id IS NOT NULL)
