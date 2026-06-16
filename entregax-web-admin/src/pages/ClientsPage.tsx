@@ -199,16 +199,17 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
     return t(`roles.${role}`, role);
   };
 
-  // Filtrar usuarios
+  // Filtrar usuarios — búsqueda multi-palabra: cada palabra debe aparecer en algún campo
   const filteredUsers = users.filter(user => {
-    const matchesSearch = 
-      user.full_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.box_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (user.phone || '').replace(/\D/g, '').includes(searchTerm.replace(/\D/g, ''));
-    
+    const words = searchTerm.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    const haystack = [
+      user.full_name || '',
+      user.email || '',
+      user.box_id || '',
+      user.phone || '',
+    ].join(' ').toLowerCase();
+    const matchesSearch = words.length === 0 || words.every(w => haystack.includes(w));
     const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    
     return matchesSearch && matchesRole;
   });
 
