@@ -70,8 +70,12 @@ export default function ChartbackManagementPage() {
   const fetchAdvisors = async () => {
     try {
       const res = await api.get('/admin/advisors');
-      setAdvisors(Array.isArray(res.data) ? res.data : []);
-    } catch { /* ignore */ }
+      const list = Array.isArray(res.data) ? res.data : [];
+      setAdvisors(list);
+    } catch (e: any) {
+      console.error('Error cargando asesores:', e);
+      setError('Error al cargar asesores: ' + (e?.response?.data?.error || e?.message));
+    }
   };
 
   useEffect(() => { fetchAdvisors(); }, []);
@@ -126,8 +130,11 @@ export default function ChartbackManagementPage() {
       <Typography variant="h5" fontWeight={700} sx={{ mb: 0.5 }}>
         Gestión Chartback — Reactivación
       </Typography>
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
         Asigna asesores a clientes chartback para que los contacten desde la app móvil.
+      </Typography>
+      <Typography variant="caption" color="text.disabled" sx={{ mb: 3, display: 'block' }}>
+        Asesores cargados: {advisors.length} total · {recoveryAdvisors.length} con Recovery activo
       </Typography>
 
       {/* Filtros */}
