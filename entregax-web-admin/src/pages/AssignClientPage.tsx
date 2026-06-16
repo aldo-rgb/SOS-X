@@ -76,6 +76,7 @@ interface NoInstructionsGuide {
     tracking: string;
     box_id: string | null;
     client_name: string | null;
+    asesor: string | null;
     status: string;
     created_at: string;
     is_legacy?: boolean;
@@ -147,7 +148,7 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
         const term = search.trim().toLowerCase();
         if (!term) return section.guides;
         return section.guides.filter(g => {
-            const hay = [g.tracking, g.box_id, g.client_name].filter(Boolean).join(' ').toLowerCase();
+            const hay = [g.tracking, g.box_id, g.client_name, g.asesor].filter(Boolean).join(' ').toLowerCase();
             return hay.includes(term);
         });
     }, [section.guides, search]);
@@ -206,6 +207,7 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                                         <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Guía / Tracking</TableCell>
                                         <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Casillero</TableCell>
                                         <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Cliente</TableCell>
+                                        <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Asesor</TableCell>
                                         <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Estado</TableCell>
                                         <TableCell sx={{ fontWeight: 700, bgcolor: '#F5F5F5' }}>Creado</TableCell>
                                     </TableRow>
@@ -239,6 +241,13 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                                                     </Typography>
                                                 </TableCell>
                                                 <TableCell>
+                                                    {g.asesor ? (
+                                                        <Chip label={g.asesor} size="small" sx={{ bgcolor: '#D1FAE5', color: '#065F46', fontWeight: 600, fontSize: '0.7rem' }} />
+                                                    ) : (
+                                                        <Typography variant="caption" color="text.disabled">—</Typography>
+                                                    )}
+                                                </TableCell>
+                                                <TableCell>
                                                     <Chip label={g.status} size="small" sx={{ bgcolor: stColor, color: '#FFF', fontWeight: 600, fontSize: '0.7rem' }} />
                                                 </TableCell>
                                                 <TableCell>
@@ -249,7 +258,7 @@ function NoInstructionsSection({ section }: { section: ServiceSection }) {
                                     })}
                                     {filtered.length > 100 && (
                                         <TableRow>
-                                            <TableCell colSpan={5} sx={{ textAlign: 'center', color: 'text.secondary', py: 1 }}>
+                                            <TableCell colSpan={6} sx={{ textAlign: 'center', color: 'text.secondary', py: 1 }}>
                                                 … y {filtered.length - 100} más
                                             </TableCell>
                                         </TableRow>

@@ -11559,11 +11559,15 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', '') AS tracking,
           COALESCE(u.box_id, p.box_id) AS box_id,
           COALESCE(u.full_name, p.box_id) AS client_name,
+          COALESCE(MAX(adv.full_name), MAX(lc.asesor)) AS asesor,
           MIN(p.status) AS status,
           MIN(p.created_at) AS created_at,
           COUNT(*) AS total_boxes,
           BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
-        FROM packages p LEFT JOIN users u ON u.id = p.user_id
+        FROM packages p
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, p.box_id)))
         WHERE (p.service_type = 'POBOX_USA' OR (p.service_type IS NULL AND p.tracking_internal LIKE 'US-%'))
           AND p.status = 'received'
           AND p.delivery_address_id IS NULL
@@ -11580,11 +11584,15 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
           REGEXP_REPLACE(p.tracking_internal, '-\\d{1,4}$', '') AS tracking,
           COALESCE(u.box_id, p.box_id) AS box_id,
           COALESCE(u.full_name, p.box_id) AS client_name,
+          COALESCE(MAX(adv.full_name), MAX(lc.asesor)) AS asesor,
           MIN(p.status) AS status,
           MIN(p.created_at) AS created_at,
           COUNT(*) AS total_boxes,
           BOOL_OR(p.user_id IS NULL AND p.box_id IS NOT NULL) AS is_legacy
-        FROM packages p LEFT JOIN users u ON u.id = p.user_id
+        FROM packages p
+        LEFT JOIN users u ON u.id = p.user_id
+        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, p.box_id)))
         WHERE p.service_type IN ('TDI_EXPRESS', 'TDI_AIR', 'tdi_express')
           AND p.status IN ('received', 'in_transit', 'received_mty')
           AND p.delivery_address_id IS NULL
@@ -11600,9 +11608,13 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
         SELECT cr.fno AS tracking,
           COALESCE(u.box_id, cr.shipping_mark) AS box_id,
           COALESCE(u.full_name, cr.shipping_mark) AS client_name,
+          COALESCE(adv.full_name, lc.asesor) AS asesor,
           cr.status, cr.created_at,
           (cr.user_id IS NULL AND cr.shipping_mark IS NOT NULL) AS is_legacy
-        FROM china_receipts cr LEFT JOIN users u ON u.id = cr.user_id
+        FROM china_receipts cr
+        LEFT JOIN users u ON u.id = cr.user_id
+        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, cr.shipping_mark)))
         WHERE cr.status NOT IN ('delivered', 'cancelled')
           AND (cr.national_tracking IS NULL OR cr.national_tracking = '')
         ORDER BY cr.created_at DESC LIMIT 200
@@ -11612,9 +11624,13 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
         SELECT mo.ordersn AS tracking,
           COALESCE(u.box_id, mo.shipping_mark) AS box_id,
           COALESCE(u.full_name, mo.shipping_mark) AS client_name,
+          COALESCE(adv.full_name, lc.asesor) AS asesor,
           mo.status, mo.created_at,
           (mo.user_id IS NULL AND mo.shipping_mark IS NOT NULL) AS is_legacy
-        FROM maritime_orders mo LEFT JOIN users u ON u.id = mo.user_id
+        FROM maritime_orders mo
+        LEFT JOIN users u ON u.id = mo.user_id
+        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(COALESCE(u.box_id, mo.shipping_mark)))
         WHERE mo.status NOT IN ('delivered', 'cancelled')
           AND mo.delivery_address_id IS NULL
           AND (mo.national_tracking IS NULL OR mo.national_tracking = '')
@@ -11623,8 +11639,13 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
       // DHL Monterrey
       safeQuery(`
         SELECT COALESCE(ds.secondary_tracking, ds.inbound_tracking) AS tracking,
-          u.box_id, u.full_name AS client_name, ds.status, ds.created_at
-        FROM dhl_shipments ds LEFT JOIN users u ON u.id = ds.user_id
+          u.box_id, u.full_name AS client_name,
+          COALESCE(adv.full_name, lc.asesor) AS asesor,
+          ds.status, ds.created_at
+        FROM dhl_shipments ds
+        LEFT JOIN users u ON u.id = ds.user_id
+        LEFT JOIN users adv ON adv.id = u.advisor_id
+        LEFT JOIN legacy_clients lc ON UPPER(TRIM(lc.box_id)) = UPPER(TRIM(u.box_id))
         WHERE ds.status NOT IN ('delivered', 'cancelled')
           AND ds.delivery_address_id IS NULL
         ORDER BY ds.created_at DESC LIMIT 200
@@ -11633,10 +11654,13 @@ app.get('/api/cs/no-instructions', authenticateToken, requireMinLevel(ROLES.CUST
       safeQuery(`
         SELECT COALESCE(c.container_number, c.bl_number, c.reference_code::text) AS tracking,
           COALESCE(lc.box_id, u.box_id) AS box_id,
-          COALESCE(lc.full_name, u.full_name) AS client_name, c.status, c.created_at
+          COALESCE(lc.full_name, u.full_name) AS client_name,
+          COALESCE(adv.full_name, lc.asesor) AS asesor,
+          c.status, c.created_at
         FROM containers c
         LEFT JOIN legacy_clients lc ON lc.id = c.legacy_client_id
         LEFT JOIN users u ON u.id = c.client_user_id
+        LEFT JOIN users adv ON adv.id = u.advisor_id
         WHERE c.status NOT IN ('delivered', 'cancelled')
           AND c.delivery_address_id IS NULL
         ORDER BY c.created_at DESC LIMIT 200
