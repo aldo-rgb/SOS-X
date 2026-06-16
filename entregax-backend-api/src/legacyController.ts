@@ -1272,8 +1272,13 @@ export const getAdminChartbackClients = async (req: Request, res: Response): Pro
             conditions.push(`(lc.box_id ILIKE $${params.length} OR lc.full_name ILIKE $${params.length} OR lc.email ILIKE $${params.length})`);
         }
         if (advisor_id && String(advisor_id) !== 'all') {
-            params.push(Number(advisor_id));
-            conditions.push(`lc.recovery_advisor_id = $${params.length}`);
+            const advisorIdNum = Number(advisor_id);
+            if (advisorIdNum === -1 || String(advisor_id) === 'none' || String(advisor_id) === 'null') {
+                conditions.push(`lc.recovery_advisor_id IS NULL`);
+            } else {
+                params.push(advisorIdNum);
+                conditions.push(`lc.recovery_advisor_id = $${params.length}`);
+            }
         }
 
         const where = `WHERE ${conditions.join(' AND ')}`;
