@@ -120,8 +120,21 @@ export default function ChartbackManagementPage() {
 
   const handleRandomAssign = async () => {
     if (selected.size === 0 || recoveryAdvisors.length === 0) return;
+
+    // Solo repartir entre los clientes seleccionados que NO tienen asesor de recovery asignado
+    const selectedClients = clients.filter(c => selected.has(c.id));
+    const unassignedIds = selectedClients
+      .filter(c => c.recovery_advisor_id == null)
+      .map(c => c.id);
+
+    if (unassignedIds.length === 0) {
+      setError('Todos los clientes seleccionados ya tienen asesor asignado');
+      return;
+    }
+
+    const skipped = selected.size - unassignedIds.length;
     const groups = new Map<number, number[]>();
-    for (const id of selected) {
+    for (const id of unassignedIds) {
       const advisor = recoveryAdvisors[Math.floor(Math.random() * recoveryAdvisors.length)];
       if (!groups.has(advisor.id)) groups.set(advisor.id, []);
       groups.get(advisor.id)!.push(id);
@@ -134,7 +147,8 @@ export default function ChartbackManagementPage() {
           api.patch('/admin/legacy/chartback/assign', { ids, advisor_id: advisorId })
         )
       );
-      setSuccess(`${selected.size} cliente(s) asignados aleatoriamente entre ${groups.size} asesor(es)`);
+      const skippedMsg = skipped > 0 ? ` (${skipped} ya ten\u00edan asesor y se omitieron)` : '';
+      setSuccess(`${unassignedIds.length} cliente(s) asignados aleatoriamente entre ${groups.size} asesor(es)${skippedMsg}`);
       setSelected(new Set());
       setAssignAdvisorId('');
       fetchClients();
