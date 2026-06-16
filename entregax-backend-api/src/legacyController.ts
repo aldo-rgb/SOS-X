@@ -1393,13 +1393,8 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
         const { action, callback_at, notes } = req.body;
         const userId = (req as any).user?.userId;
 
-        // Obtener nombre del asesor y asesor asignado al cliente
-        const [userRes, clientRes] = await Promise.all([
-            pool.query('SELECT full_name FROM users WHERE id = $1', [userId]),
-            pool.query('SELECT asesor FROM legacy_clients WHERE id = $1', [id])
-        ]);
+        const userRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [userId]);
         const advisorName = userRes.rows[0]?.full_name || 'Asesor';
-        const clientAsesor = clientRes.rows[0]?.asesor;
 
         const now = new Date().toISOString();
         const entry: Record<string, any> = { ts: now, advisor: advisorName, advisor_id: userId };
@@ -1420,21 +1415,16 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
             entry.callback_at = next_contact_at;
             if (notes) entry.note = notes;
         } else if (action === 'recovered') {
-            // Validar que el cliente ya tiene asesor asignado
-            if (!clientAsesor) {
-                return res.status(400).json({
-                    error: 'Este cliente aún no tiene asesor asignado. Asigna un asesor antes de marcarlo como recuperado.'
-                });
-            }
             entry.type = 'recovered';
-            entry.asesor = clientAsesor;
             if (notes) entry.note = notes;
+            // Asignar el asesor de Entregax (claimed_by_user_id) que marcó la recuperación
             await pool.query(
                 `UPDATE legacy_clients
                  SET chartback = false, chartback_status = 'recovered', next_contact_at = NULL,
-                     chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $1::jsonb
-                 WHERE id = $2`,
-                [JSON.stringify(entry), id]
+                     claimed_by_user_id = $1,
+                     chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $2::jsonb
+                 WHERE id = $3`,
+                [userId, JSON.stringify(entry), id]
             );
             return res.json({ success: true, action: 'recovered' });
         } else if (action === 'whatsapp') {
