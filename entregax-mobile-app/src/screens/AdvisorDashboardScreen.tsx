@@ -108,19 +108,22 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [expandedHistory, setExpandedHistory] = useState<Set<number>>(new Set());
   const [clientDetail, setClientDetail] = useState<{ client: ChartbackClient; tab: 'historial' | 'carga'; cargoData: any; cargoLoading: boolean } | null>(null);
 
-  const openClientDetail = async (c: ChartbackClient, tab: 'historial' | 'carga') => {
-    setClientDetail({ client: c, tab, cargoData: null, cargoLoading: tab === 'carga' });
-    if (tab === 'carga') {
-      try {
-        const r = await fetch(`${API_URL}/api/advisor/legacy/chartback/${c.box_id}/cargo`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const d = r.ok ? await r.json() : null;
-        setClientDetail(prev => prev ? { ...prev, cargoData: d, cargoLoading: false } : null);
-      } catch {
-        setClientDetail(prev => prev ? { ...prev, cargoLoading: false } : null);
-      }
+  const loadCargoForClient = async (boxId: string) => {
+    setClientDetail(prev => prev ? { ...prev, cargoLoading: true } : null);
+    try {
+      const r = await fetch(`${API_URL}/api/advisor/legacy/chartback/${encodeURIComponent(boxId)}/cargo`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const d = r.ok ? await r.json() : null;
+      setClientDetail(prev => prev ? { ...prev, cargoData: d, cargoLoading: false } : null);
+    } catch {
+      setClientDetail(prev => prev ? { ...prev, cargoLoading: false } : null);
     }
+  };
+
+  const openClientDetail = (c: ChartbackClient, tab: 'historial' | 'carga') => {
+    setClientDetail({ client: c, tab, cargoData: null, cargoLoading: false });
+    if (tab === 'carga') loadCargoForClient(c.box_id);
   };
 
   const crmAction = async (clientId: number, body: object): Promise<{ ok: boolean; error?: string }> => {
@@ -993,7 +996,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
             {clientDetail && (
               <View style={s.crmOverlay}>
                 <TouchableOpacity style={StyleSheet.absoluteFillObject} onPress={() => setClientDetail(null)} />
-                <View style={[s.crmBox, { maxHeight: '85%' }]}>
+                <View style={[s.crmBox, { flex: 1, maxHeight: '88%' }]}>
                   {/* Header */}
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                     <Text style={{ color: '#fff', fontSize: 15, fontWeight: '700' }}>{clientDetail.client.full_name || 'Cliente'}</Text>
@@ -1007,14 +1010,9 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                         key={tab}
                         style={{ flex: 1, paddingVertical: 6, borderRadius: 6, alignItems: 'center', backgroundColor: clientDetail.tab === tab ? (tab === 'historial' ? '#1E3A5F' : '#7C2D12') : 'transparent' }}
                         onPress={() => {
+                          setClientDetail(prev => prev ? { ...prev, tab } : null);
                           if (tab === 'carga' && !clientDetail.cargoData && !clientDetail.cargoLoading) {
-                            setClientDetail(prev => prev ? { ...prev, tab, cargoLoading: true } : null);
-                            fetch(`${API_URL}/api/advisor/legacy/chartback/${clientDetail.client.box_id}/cargo`, { headers: { Authorization: `Bearer ${token}` } })
-                              .then(r => r.ok ? r.json() : null)
-                              .then(d => setClientDetail(prev => prev ? { ...prev, cargoData: d, cargoLoading: false } : null))
-                              .catch(() => setClientDetail(prev => prev ? { ...prev, cargoLoading: false } : null));
-                          } else {
-                            setClientDetail(prev => prev ? { ...prev, tab } : null);
+                            loadCargoForClient(clientDetail.client.box_id);
                           }
                         }}
                       >
@@ -1025,7 +1023,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                     ))}
                   </View>
                   {/* Contenido */}
-                  <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                  <ScrollView style={{ flexGrow: 1, flexShrink: 1 }} keyboardShouldPersistTaps="handled">
                     {clientDetail.tab === 'historial' ? (() => {
                       const acts = [...(clientDetail.client.chartback_activity || [])].reverse();
                       if (acts.length === 0) return <Text style={{ color: '#666', textAlign: 'center', marginTop: 20 }}>Sin movimientos registrados</Text>;
