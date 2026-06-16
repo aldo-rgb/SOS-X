@@ -1149,6 +1149,34 @@ export const getAdvisorChartbackClients = async (req: Request, res: Response): P
 };
 
 /**
+ * Historial general de movimientos chartback del asesor
+ * GET /api/advisor/legacy/chartback/history
+ */
+export const getAdvisorChartbackHistory = async (req: Request, res: Response): Promise<any> => {
+    try {
+        const userId = (req as any).user?.userId;
+        const result = await pool.query(
+            `SELECT
+                lc.id, lc.box_id,
+                COALESCE(lc.full_name, u.full_name, lc.box_id) AS full_name,
+                lc.chartback_status,
+                act.value AS activity
+             FROM legacy_clients lc
+             LEFT JOIN users u ON u.id = lc.claimed_by_user_id
+             CROSS JOIN LATERAL jsonb_array_elements(COALESCE(lc.chartback_activity, '[]'::jsonb)) AS act(value)
+             WHERE lc.recovery_advisor_id = $1
+             ORDER BY (act.value->>'ts') DESC
+             LIMIT 150`,
+            [userId]
+        );
+        return res.json({ history: result.rows });
+    } catch (error: any) {
+        console.error('Error historial chartback:', error);
+        return res.status(500).json({ error: 'Error al obtener historial' });
+    }
+};
+
+/**
  * Asignar asesor de recuperación a clientes chartback (admin)
  * PATCH /api/admin/legacy/chartback/assign
  * body: { ids: number[], advisor_id: number | null }

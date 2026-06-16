@@ -95,6 +95,10 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
   const [chartbackLoading, setChartbackLoading] = useState(false);
   const [showChartbackModal, setShowChartbackModal] = useState(false);
   const [chartbackSearch, setChartbackSearch] = useState('');
+  const [chartbackTab, setChartbackTab] = useState<'active' | 'history'>('active');
+  interface HistoryEntry { id: number; box_id: string; full_name: string; chartback_status: string | null; activity: ActivityEntry; }
+  const [chartbackHistory, setChartbackHistory] = useState<HistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   // CRM
   const [crmClient, setCrmClient] = useState<ChartbackClient | null>(null);
   const [showCrmMenu, setShowCrmMenu] = useState(false);
@@ -126,6 +130,18 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
       }
     } catch {}
     finally { setChartbackLoading(false); }
+  }, [token]);
+
+  const loadChartbackHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/advisor/legacy/chartback/history`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) {
+        const d = await res.json();
+        setChartbackHistory(d.history || []);
+      }
+    } catch {}
+    finally { setHistoryLoading(false); }
   }, [token]);
 
   const loadDashboard = useCallback(async () => {
@@ -741,11 +757,28 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
               </TouchableOpacity>
             </View>
 
-            <Text style={s.chartbackModalSub}>
-              {chartbackClients.length} cliente(s) marcados para reactivar
-            </Text>
+            {/* Tabs */}
+            <View style={{ flexDirection: 'row', marginHorizontal: 16, marginBottom: 8, backgroundColor: '#0F172A', borderRadius: 10, padding: 3 }}>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center', backgroundColor: chartbackTab === 'active' ? '#1565C0' : 'transparent' }}
+                onPress={() => setChartbackTab('active')}
+              >
+                <Text style={{ color: chartbackTab === 'active' ? '#fff' : '#888', fontSize: 13, fontWeight: '600' }}>
+                  Activos ({chartbackClients.length})
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center', backgroundColor: chartbackTab === 'history' ? '#1E3A5F' : 'transparent' }}
+                onPress={() => { setChartbackTab('history'); loadChartbackHistory(); }}
+              >
+                <Text style={{ color: chartbackTab === 'history' ? '#60A5FA' : '#888', fontSize: 13, fontWeight: '600' }}>
+                  Historial
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-            {/* Search */}
+            {/* Search (solo en tab activos) */}
+            {chartbackTab === 'active' && (
             <View style={s.chartbackSearchWrap}>
               <Ionicons name="search" size={16} color="#888" style={{ marginRight: 8 }} />
               <TextInput
@@ -757,9 +790,67 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                 autoCorrect={false}
               />
             </View>
+            )}
 
-            {/* Lista */}
-            {chartbackLoading ? (
+            {/* Tab: Historial */}
+            {chartbackTab === 'history' && (
+              historyLoading ? (
+                <View style={{ alignItems: 'center', paddingVertical: 32 }}>
+                  <ActivityIndicator color="#60A5FA" />
+                </View>
+              ) : chartbackHistory.length === 0 ? (
+                <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                  <Ionicons name="time-outline" size={40} color="#334155" />
+                  <Text style={{ color: '#666', marginTop: 10, fontSize: 14 }}>Sin movimientos registrados</Text>
+                </View>
+              ) : (() => {
+                const typeIcon = (t: string) => t === 'whatsapp' ? 'logo-whatsapp' : t === 'no_answer' ? 'call-outline' : t === 'callback' ? 'calendar-outline' : t === 'recovered' ? 'checkmark-circle' : 'create-outline';
+                const typeLabel = (t: string) => t === 'whatsapp' ? 'WhatsApp' : t === 'no_answer' ? 'No contestó' : t === 'callback' ? 'Callback' : t === 'recovered' ? 'Recuperado' : 'Nota';
+                const typeColor = (t: string) => t === 'whatsapp' ? '#25D366' : t === 'recovered' ? '#4ADE80' : t === 'no_answer' ? '#F59E0B' : t === 'callback' ? '#A78BFA' : '#60A5FA';
+                return (
+                  <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+                    {chartbackHistory.map((row, idx) => (
+                      <View key={idx} style={{ paddingHorizontal: 16, paddingVertical: 10, borderTopWidth: idx > 0 ? 1 : 0, borderTopColor: '#1E2A3A' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                          <View style={{ marginTop: 2 }}>
+                            <Ionicons name={typeIcon(row.activity.type) as any} size={18} color={typeColor(row.activity.type)} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={{ color: typeColor(row.activity.type), fontWeight: '700', fontSize: 13 }}>
+                                {typeLabel(row.activity.type)}
+                              </Text>
+                              <Text style={{ color: '#475569', fontSize: 11 }}>
+                                {new Date(row.activity.ts).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </Text>
+                            </View>
+                            <Text style={{ color: '#94A3B8', fontSize: 12, marginTop: 1 }}>
+                              {row.full_name || row.box_id}
+                              <Text style={{ color: '#475569' }}> · {row.box_id}</Text>
+                            </Text>
+                            {row.activity.note ? (
+                              <Text style={{ color: '#CBD5E1', fontSize: 12, marginTop: 3, fontStyle: 'italic' }}>"{row.activity.note}"</Text>
+                            ) : null}
+                            {row.activity.callback_at ? (
+                              <Text style={{ color: '#A78BFA', fontSize: 12, marginTop: 3 }}>
+                                Agendar: {new Date(row.activity.callback_at).toLocaleDateString('es-MX', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                              </Text>
+                            ) : null}
+                            <Text style={{ color: '#475569', fontSize: 11, marginTop: 2 }}>
+                              Asesor: {row.activity.advisor}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    ))}
+                    <View style={{ height: 20 }} />
+                  </ScrollView>
+                );
+              })()
+            )}
+
+            {/* Tab: Lista activos */}
+            {chartbackTab === 'active' && (chartbackLoading ? (
               <View style={{ alignItems: 'center', paddingVertical: 32 }}>
                 <ActivityIndicator color="#1565C0" />
               </View>
@@ -861,7 +952,7 @@ export default function AdvisorDashboardScreen({ navigation, route }: any) {
                   <View style={{ height: 20 }} />
                 </ScrollView>
               );
-            })()}
+            })())}
 
             {/* ── Overlay CRM dentro del modal (evita modal anidado) ── */}
             {showCrmMenu && crmClient && (
