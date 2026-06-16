@@ -1203,6 +1203,50 @@ export const getAdminChartbackClients = async (req: Request, res: Response): Pro
 };
 
 /**
+ * Cargo en tránsito de un cliente chartback
+ * GET /api/admin/legacy/chartback/:boxId/cargo
+ * Consulta nuestro sistema + sistemaentregax.com
+ */
+export const getChartbackClientCargo = async (req: Request, res: Response): Promise<any> => {
+    const boxId = (req.params.boxId || '').toUpperCase().trim();
+    if (!boxId) return res.status(400).json({ error: 'boxId requerido' });
+
+    const [legacyResult, ourPackages] = await Promise.allSettled([
+        (async () => {
+            const ctrl = new AbortController();
+            const t = setTimeout(() => ctrl.abort(), 15000);
+            try {
+                const r = await (globalThis as any).fetch(
+                    'https://sistemaentregax.com/api/customers/list-customers-admin',
+                    { headers: { 'Accept': 'application/json' }, signal: ctrl.signal as any }
+                );
+                if (!r.ok) return null;
+                const payload = await r.json();
+                const rows: any[] = Array.isArray(payload?.data) ? payload.data : (Array.isArray(payload) ? payload : []);
+                return rows.find((row: any) => (row?.suite ?? '').toString().trim().toUpperCase() === boxId) || null;
+            } finally {
+                clearTimeout(t);
+            }
+        })(),
+        pool.query(
+            `SELECT p.id, p.tracking_number, p.status, p.carrier, p.created_at,
+                    p.weight_kg, p.description, p.service_type
+             FROM packages p
+             LEFT JOIN users u ON u.id = p.user_id
+             WHERE u.box_id = $1 AND p.status NOT IN ('delivered','cancelled','returned')
+             ORDER BY p.created_at DESC LIMIT 30`,
+            [boxId]
+        ).catch(() => ({ rows: [] }))
+    ]);
+
+    return res.json({
+        box_id: boxId,
+        legacy: legacyResult.status === 'fulfilled' ? legacyResult.value : null,
+        our_packages: ourPackages.status === 'fulfilled' ? (ourPackages.value as any).rows : [],
+    });
+};
+
+/**
  * Acción CRM sobre un cliente chartback
  * POST /api/advisor/legacy/chartback/:id/action
  * body: { action: 'no_answer'|'callback'|'recovered'|'whatsapp'|'call_note', callback_at?, notes? }
