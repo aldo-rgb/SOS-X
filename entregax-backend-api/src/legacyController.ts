@@ -491,17 +491,17 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
         const conditions: string[] = [];
         const params: any[] = [];
 
-        // Filtro texto (casillero, nombre, correo)
+        // Filtro texto (casillero, nombre, correo) — incluye datos del usuario reclamado si el legacy está borrado
         if (search && String(search).trim() !== '') {
             const words = String(search).trim().split(/\s+/).filter(w => w.length > 0);
-            if (words.length === 1) {
-                params.push(`%${words[0]}%`);
-                conditions.push(`(lc.box_id ILIKE $${params.length} OR lc.full_name ILIKE $${params.length} OR lc.email ILIKE $${params.length})`);
-            } else {
-                for (const w of words) {
-                    params.push(`%${w}%`);
-                    conditions.push(`lc.full_name ILIKE $${params.length}`);
-                }
+            for (const w of words) {
+                params.push(`%${w}%`);
+                const p = params.length;
+                conditions.push(
+                    `(lc.box_id ILIKE $${p}
+                      OR COALESCE(lc.full_name, u_s.full_name) ILIKE $${p}
+                      OR COALESCE(lc.email, u_s.email) ILIKE $${p})`
+                );
             }
         }
 
@@ -550,8 +550,11 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
 
         const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+        const joinClause = `FROM legacy_clients lc
+             LEFT JOIN users u_s ON u_s.id = lc.claimed_by_user_id`;
+
         const countResult = await pool.query(
-            `SELECT COUNT(*) FROM legacy_clients lc ${whereClause}`,
+            `SELECT COUNT(*) ${joinClause} ${whereClause}`,
             params
         );
         const total = parseInt(countResult.rows[0].count);
@@ -559,11 +562,12 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
         const dataParams = [...params, limitNum, offset];
         const result = await pool.query(
             `SELECT lc.*,
-                    u.full_name as claimed_by_name,
+                    COALESCE(lc.full_name, u_s.full_name) as full_name,
+                    COALESCE(lc.email, u_s.email) as email,
+                    u_s.full_name as claimed_by_name,
                     adv.full_name as asesor_entregax
-             FROM legacy_clients lc
-             LEFT JOIN users u ON u.id = lc.claimed_by_user_id
-             LEFT JOIN users adv ON adv.id = u.advisor_id
+             ${joinClause}
+             LEFT JOIN users adv ON adv.id = u_s.advisor_id
              ${whereClause}
              ORDER BY lc.created_at DESC
              LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
