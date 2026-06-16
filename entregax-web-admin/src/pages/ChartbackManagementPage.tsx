@@ -474,7 +474,7 @@ export default function ChartbackManagementPage() {
                   <ShippingIcon fontSize="small" color="primary" /> Nuestro Sistema
                 </Typography>
                 {!cargoModal.data.our_packages?.length ? (
-                  <Typography variant="body2" color="text.secondary">Sin paquetes activos en nuestro sistema</Typography>
+                  <Typography variant="body2" color="text.secondary">Sin paquetes en nuestro sistema</Typography>
                 ) : (
                   <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 2 }}>
                     <Table size="small">

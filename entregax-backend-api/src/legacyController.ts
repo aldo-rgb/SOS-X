@@ -1227,15 +1227,18 @@ export const getChartbackClientCargo = async (req: Request, res: Response): Prom
         );
         const localClient = localResult.rows[0] || null;
 
-        // 2. Paquetes en nuestro sistema (clientes registrados)
+        // 2. Paquetes en nuestro sistema — busca por box_id directo en packages O por usuario registrado
         const ourPkgsResult = await pool.query(
-            `SELECT p.id, p.tracking_number, p.status, p.carrier, p.created_at,
-                    p.weight_kg, p.description, p.service_type
+            `SELECT DISTINCT ON (p.id)
+                    p.id, p.tracking_number, p.status, p.carrier, p.created_at,
+                    p.weight_kg, p.description, p.service_type, p.box_id as pkg_box_id
              FROM packages p
-             INNER JOIN users u ON u.id = p.user_id
-             WHERE UPPER(TRIM(u.box_id)) = $1
-               AND p.status NOT IN ('delivered','cancelled','returned')
-             ORDER BY p.created_at DESC LIMIT 30`,
+             LEFT JOIN users u ON u.id = p.user_id
+             WHERE (
+               UPPER(TRIM(p.box_id)) = $1
+               OR UPPER(TRIM(u.box_id)) = $1
+             )
+             ORDER BY p.id DESC, p.created_at DESC LIMIT 50`,
             [boxId]
         ).catch(() => ({ rows: [] as any[] }));
 
