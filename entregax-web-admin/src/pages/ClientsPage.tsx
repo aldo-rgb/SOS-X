@@ -166,7 +166,8 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
-  const [userStats, setUserStats] = useState<{ inTransit: number; delivered: number } | null>(null);
+  const [userStats, setUserStats] = useState<{ inTransit: number; delivered: number; transitPkgs: any[]; deliveredPkgs: any[] } | null>(null);
+  const [statsFilter, setStatsFilter] = useState<'transit' | 'delivered' | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [verificationDetail, setVerificationDetail] = useState<VerificationDetail | null>(null);
   const [loadingVerification, setLoadingVerification] = useState(false);
@@ -232,6 +233,7 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
   const handleViewDetails = (user: User) => {
     setSelectedUser(user);
     setUserStats(null);
+    setStatsFilter(null);
     setDetailsOpen(true);
   };
 
@@ -251,9 +253,9 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
         if (!res.ok) return;
         const pkgs: any[] = await res.json();
         if (cancelled) return;
-        const delivered = pkgs.filter(p => String(p.status) === 'delivered').length;
-        const inTransit = pkgs.filter(p => String(p.status) !== 'delivered').length;
-        setUserStats({ inTransit, delivered });
+        const deliveredPkgs = pkgs.filter(p => String(p.status) === 'delivered');
+        const transitPkgs = pkgs.filter(p => String(p.status) !== 'delivered');
+        setUserStats({ inTransit: transitPkgs.length, delivered: deliveredPkgs.length, transitPkgs, deliveredPkgs });
       } catch {
         // ignore
       }
@@ -772,17 +774,60 @@ export default function ClientsPage({ users, loading, onRefresh, currentUser }: 
                 Estadísticas
               </Typography>
               <Box sx={{ display: 'flex', gap: 2 }}>
-                <Paper sx={{ p: 2, flex: 1, textAlign: 'center', bgcolor: 'rgba(240, 90, 40, 0.05)', borderRadius: 2 }}>
+                <Paper
+                  onClick={() => setStatsFilter(prev => prev === 'transit' ? null : 'transit')}
+                  sx={{
+                    p: 2, flex: 1, textAlign: 'center', borderRadius: 2, cursor: 'pointer',
+                    bgcolor: statsFilter === 'transit' ? 'rgba(240, 90, 40, 0.15)' : 'rgba(240, 90, 40, 0.05)',
+                    border: statsFilter === 'transit' ? '1.5px solid #F05A28' : '1.5px solid transparent',
+                    transition: 'all 0.15s',
+                    '&:hover': { bgcolor: 'rgba(240, 90, 40, 0.12)' },
+                  }}
+                >
                   <LocalShippingIcon sx={{ color: '#F05A28', mb: 1 }} />
                   <Typography variant="h5" fontWeight={700}>{userStats?.inTransit ?? '—'}</Typography>
                   <Typography variant="caption" color="text.secondary">En tránsito</Typography>
                 </Paper>
-                <Paper sx={{ p: 2, flex: 1, textAlign: 'center', bgcolor: 'rgba(16, 185, 129, 0.05)', borderRadius: 2 }}>
+                <Paper
+                  onClick={() => setStatsFilter(prev => prev === 'delivered' ? null : 'delivered')}
+                  sx={{
+                    p: 2, flex: 1, textAlign: 'center', borderRadius: 2, cursor: 'pointer',
+                    bgcolor: statsFilter === 'delivered' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.05)',
+                    border: statsFilter === 'delivered' ? '1.5px solid #10B981' : '1.5px solid transparent',
+                    transition: 'all 0.15s',
+                    '&:hover': { bgcolor: 'rgba(16, 185, 129, 0.12)' },
+                  }}
+                >
                   <InventoryIcon sx={{ color: '#10B981', mb: 1 }} />
                   <Typography variant="h5" fontWeight={700}>{userStats?.delivered ?? '—'}</Typography>
                   <Typography variant="caption" color="text.secondary">Entregados</Typography>
                 </Paper>
               </Box>
+              {/* Lista de paquetes al hacer click */}
+              {statsFilter && userStats && (
+                <Box sx={{ mt: 1.5, maxHeight: 220, overflowY: 'auto', borderRadius: 2, border: '1px solid #E5E7EB', bgcolor: '#FAFAFA' }}>
+                  {(statsFilter === 'transit' ? userStats.transitPkgs : userStats.deliveredPkgs).length === 0 ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ p: 2, textAlign: 'center' }}>Sin paquetes</Typography>
+                  ) : (
+                    (statsFilter === 'transit' ? userStats.transitPkgs : userStats.deliveredPkgs).map((pkg: any, i: number) => (
+                      <Box key={pkg.id ?? i} sx={{ px: 2, py: 1, borderBottom: '1px solid #F0F0F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: 12 }}>
+                          {pkg.guiaus || pkg.tracking || pkg.master_tracking || `#${pkg.id}`}
+                        </Typography>
+                        <Chip
+                          label={pkg.status}
+                          size="small"
+                          sx={{
+                            fontSize: 10, height: 20, fontWeight: 600,
+                            bgcolor: statsFilter === 'transit' ? 'rgba(240,90,40,0.1)' : 'rgba(16,185,129,0.1)',
+                            color: statsFilter === 'transit' ? '#C2410C' : '#065F46',
+                          }}
+                        />
+                      </Box>
+                    ))
+                  )}
+                </Box>
+              )}
 
               {/* ============ VERIFICACIÓN DE IDENTIDAD ============ */}
               <Divider sx={{ my: 3 }} />
