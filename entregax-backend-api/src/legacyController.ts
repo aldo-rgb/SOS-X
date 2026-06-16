@@ -1510,8 +1510,16 @@ export const adminMarkRecovered = async (req: Request, res: Response): Promise<a
         }
         return res.json({ success: true, box_id: result.rows[0].box_id });
     } catch (error: any) {
-        console.error('Error marcando como recuperado:', error);
-        res.status(500).json({ error: 'Error al marcar como recuperado' });
+        console.error('Error marcando como recuperado:', {
+            message: error?.message,
+            code: error?.code,
+            detail: error?.detail,
+            stack: error?.stack,
+        });
+        res.status(500).json({
+            error: error?.message || 'Error al marcar como recuperado',
+            code: error?.code,
+        });
     }
 };
 

@@ -2663,6 +2663,24 @@ const buildChinaAirMovementsResponse = async (receipt: any) => {
             created_by_name: null,
             source: 'system'
         });
+    } else {
+        // Si el estado actual difiere del último evento registrado,
+        // inyectar entrada sintética al inicio para que el historial refleje el estado real.
+        const latestLoggedStatus = movements[0]?.status;
+        if (latestLoggedStatus && latestLoggedStatus !== receipt.status) {
+            movements.unshift({
+                id: -2,
+                package_id: null,
+                tracking: receipt.fno,
+                status: receipt.status,
+                status_label: getChinaAirStatusLabel(receipt.status),
+                notes: 'Estado actualizado',
+                created_at: receipt.updated_at || receipt.created_at,
+                created_by: null,
+                created_by_name: null,
+                source: 'system'
+            });
+        }
     }
 
     return {

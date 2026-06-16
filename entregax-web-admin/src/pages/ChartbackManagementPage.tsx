@@ -182,7 +182,11 @@ export default function ChartbackManagementPage() {
       setCargoModal(prev => ({ ...prev, open: false }));
       fetchClients();
     } catch (e: any) {
-      setError(e?.response?.data?.error || 'Error al marcar como recuperado');
+      const status = e?.response?.status;
+      const serverMsg = e?.response?.data?.error || e?.response?.data?.message;
+      const detail = serverMsg ? `${serverMsg}${status ? ` (HTTP ${status})` : ''}` : `Error al marcar como recuperado${status ? ` (HTTP ${status})` : ''}`;
+      console.error('Mark recovered failed', { clientId, status, data: e?.response?.data, message: e?.message });
+      setError(detail);
     } finally {
       setRecoveringId(null);
     }
@@ -307,12 +311,12 @@ export default function ChartbackManagementPage() {
                 />
               </TableCell>
               <TableCell><strong>Casillero</strong></TableCell>
+              <TableCell><strong>Acciones</strong></TableCell>
               <TableCell><strong>Nombre</strong></TableCell>
               <TableCell><strong>Correo / Tel</strong></TableCell>
               <TableCell><strong>Estado CRM</strong></TableCell>
               <TableCell><strong>Próximo contacto</strong></TableCell>
               <TableCell><strong>Asesor asignado</strong></TableCell>
-              <TableCell><strong>Acciones</strong></TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
@@ -356,6 +360,23 @@ export default function ChartbackManagementPage() {
                       {client.box_id}
                     </Typography>
                   </TableCell>
+                  <TableCell onClick={e => e.stopPropagation()}>
+                    <Tooltip title="Marcar como Recuperado — desaparece de esta lista">
+                      <span>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          color="success"
+                          startIcon={recoveringId === client.id ? <CircularProgress size={12} color="inherit" /> : <RecoveredIcon />}
+                          disabled={recoveringId === client.id}
+                          onClick={() => handleMarkRecovered(client.id, client.full_name)}
+                          sx={{ textTransform: 'none', fontSize: 11, py: 0.3, px: 1, whiteSpace: 'nowrap' }}
+                        >
+                          Recuperado
+                        </Button>
+                      </span>
+                    </Tooltip>
+                  </TableCell>
                   <TableCell>
                     <Typography variant="body2">{client.full_name || '—'}</Typography>
                   </TableCell>
@@ -379,23 +400,6 @@ export default function ChartbackManagementPage() {
                     ) : (
                       <Typography variant="caption" color="text.disabled">Sin asignar</Typography>
                     )}
-                  </TableCell>
-                  <TableCell onClick={e => e.stopPropagation()}>
-                    <Tooltip title="Marcar como Recuperado — desaparece de esta lista">
-                      <span>
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          color="success"
-                          startIcon={recoveringId === client.id ? <CircularProgress size={12} color="inherit" /> : <RecoveredIcon />}
-                          disabled={recoveringId === client.id}
-                          onClick={() => handleMarkRecovered(client.id, client.full_name)}
-                          sx={{ textTransform: 'none', fontSize: 11, py: 0.3, px: 1, whiteSpace: 'nowrap' }}
-                        >
-                          Recuperado
-                        </Button>
-                      </span>
-                    </Tooltip>
                   </TableCell>
                 </TableRow>
               );
