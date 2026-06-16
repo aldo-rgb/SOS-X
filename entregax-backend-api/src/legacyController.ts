@@ -484,7 +484,7 @@ export const listCustomersForExternalSync = async (req: Request, res: Response):
  */
 export const getLegacyClients = async (req: Request, res: Response): Promise<any> => {
     try {
-        const { page = 1, limit = 50, search, claimed, asesor, chartback, recovered, lastSendFrom, lastSendTo } = req.query;
+        const { page = 1, limit = 50, search, claimed, asesor, chartback, recovered, hideRecovered, lastSendFrom, lastSendTo } = req.query;
         const offset = (Number(page) - 1) * Number(limit);
         const limitNum = Number(limit);
 
@@ -524,6 +524,11 @@ export const getLegacyClients = async (req: Request, res: Response): Promise<any
         // Filtro recuperados
         if (recovered === 'true') {
             conditions.push(`lc.chartback_status = 'recovered'`);
+        }
+
+        // Ocultar recuperados
+        if (hideRecovered === 'true') {
+            conditions.push(`(lc.chartback_status IS DISTINCT FROM 'recovered')`);
         }
 
         // Filtro por fecha de último envío (aéreo o marítimo)

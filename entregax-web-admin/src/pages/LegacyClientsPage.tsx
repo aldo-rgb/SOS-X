@@ -117,6 +117,7 @@ export default function LegacyClientsPage() {
   const [showOnlyClaimed, setShowOnlyClaimed] = useState(false);
   const [showOnlyChartback, setShowOnlyChartback] = useState(false);
   const [showOnlyRecovered, setShowOnlyRecovered] = useState(false);
+  const [hideRecovered, setHideRecovered] = useState(false);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const [totalClients, setTotalClients] = useState(0);
@@ -180,6 +181,7 @@ export default function LegacyClientsPage() {
         ...(asesorFilter && { asesor: asesorFilter }),
         ...(showOnlyChartback && { chartback: 'true' }),
         ...(showOnlyRecovered && { recovered: 'true' }),
+        ...(hideRecovered && { hideRecovered: 'true' }),
         ...(lastSendFrom && { lastSendFrom }),
         ...(lastSendTo && { lastSendTo })
       });
@@ -198,7 +200,7 @@ export default function LegacyClientsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, lastSendFrom, lastSendTo]);
+  }, [page, rowsPerPage, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, hideRecovered, lastSendFrom, lastSendTo]);
 
   useEffect(() => {
     fetchStats();
@@ -208,7 +210,7 @@ export default function LegacyClientsPage() {
   // Reset selection when page/filter changes
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, lastSendFrom, lastSendTo]);
+  }, [page, search, showOnlyClaimed, asesorFilter, showOnlyChartback, showOnlyRecovered, hideRecovered, lastSendFrom, lastSendTo]);
 
   const previewFromRows = (rows: string[][]) => {
     const firstRow = rows[0] || [];
@@ -623,11 +625,21 @@ export default function LegacyClientsPage() {
             control={
               <Switch
                 checked={showOnlyRecovered}
-                onChange={(e) => { setShowOnlyRecovered(e.target.checked); setPage(0); setShowOnlyClaimed(false); setShowOnlyChartback(false); }}
+                onChange={(e) => { setShowOnlyRecovered(e.target.checked); setPage(0); setShowOnlyClaimed(false); setShowOnlyChartback(false); if (e.target.checked) setHideRecovered(false); }}
                 sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#2e7d32' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#2e7d32' } }}
               />
             }
             label="Solo Recuperados"
+          />
+          <FormControlLabel
+            control={
+              <Switch
+                checked={hideRecovered}
+                onChange={(e) => { setHideRecovered(e.target.checked); setPage(0); if (e.target.checked) setShowOnlyRecovered(false); }}
+                sx={{ '& .MuiSwitch-switchBase.Mui-checked': { color: '#757575' }, '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': { bgcolor: '#757575' } }}
+              />
+            }
+            label="Ocultar Recuperados"
           />
           <TextField
             label="Último envío desde"
