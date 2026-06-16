@@ -439,7 +439,7 @@ export default function ChartbackManagementPage() {
                   </Alert>
                 )}
 
-                {/* Último envío — desde nuestra DB */}
+                {/* Último envío aéreo — desde nuestra DB */}
                 {cargoModal.data.local_client?.last_send && (() => {
                   const ls = typeof cargoModal.data.local_client.last_send === 'string'
                     ? JSON.parse(cargoModal.data.local_client.last_send)
@@ -448,10 +448,33 @@ export default function ChartbackManagementPage() {
                     <>
                       <Divider sx={{ my: 2 }} />
                       <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
-                        Último envío registrado (sincronizado)
+                        ✈️ Último envío aéreo (sincronizado)
                       </Typography>
                       <Grid container spacing={1}>
                         {Object.entries(ls).map(([k, v]) => (
+                          <Grid key={k} size={{ xs: 6, sm: 4 }}>
+                            <Typography variant="caption" color="text.secondary" display="block">{k}</Typography>
+                            <Typography variant="body2" fontWeight={500}>{String(v) || '—'}</Typography>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    </>
+                  );
+                })()}
+
+                {/* Último envío marítimo — desde nuestra DB */}
+                {cargoModal.data.local_client?.last_send_maritimo && (() => {
+                  const lm = typeof cargoModal.data.local_client.last_send_maritimo === 'string'
+                    ? JSON.parse(cargoModal.data.local_client.last_send_maritimo)
+                    : cargoModal.data.local_client.last_send_maritimo;
+                  return (
+                    <>
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle2" fontWeight={700} sx={{ mb: 1 }}>
+                        🚢 Último envío marítimo (sincronizado)
+                      </Typography>
+                      <Grid container spacing={1}>
+                        {Object.entries(lm).map(([k, v]) => (
                           <Grid key={k} size={{ xs: 6, sm: 4 }}>
                             <Typography variant="caption" color="text.secondary" display="block">{k}</Typography>
                             <Typography variant="body2" fontWeight={500}>{String(v) || '—'}</Typography>
