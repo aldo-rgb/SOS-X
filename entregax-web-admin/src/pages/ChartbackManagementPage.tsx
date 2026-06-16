@@ -172,8 +172,7 @@ export default function ChartbackManagementPage() {
     }
   };
 
-  const handleMarkRecovered = async (clientId: number, clientName: string | null) => {
-    if (!window.confirm(`¿Marcar a "${clientName || clientId}" como Recuperado? Desaparecerá de esta lista.`)) return;
+  const handleMarkRecovered = async (clientId: number, _clientName: string | null) => {
     setRecoveringId(clientId);
     setError(null);
     try {

@@ -1482,33 +1482,53 @@ export const chartbackAction = async (req: Request, res: Response): Promise<any>
 export const adminMarkRecovered = async (req: Request, res: Response): Promise<any> => {
     try {
         const { id } = req.params;
-        const { notes } = req.body;
+        const { notes } = (req.body || {}) as { notes?: string };
         const userId = (req as any).user?.userId;
 
+        // Obtener nombre del admin/usuario que ejecuta la acción
         const userRes = await pool.query('SELECT full_name FROM users WHERE id = $1', [userId]);
-        const advisorName = userRes.rows[0]?.full_name || 'Admin';
+        const actorName = userRes.rows[0]?.full_name || 'Admin';
+
+        // Obtener asesor de recovery asignado al cliente para guardarlo como `asesor`
+        const clientRes = await pool.query(
+            `SELECT lc.recovery_advisor_id, adv.full_name AS recovery_advisor_name
+             FROM legacy_clients lc
+             LEFT JOIN users adv ON adv.id = lc.recovery_advisor_id
+             WHERE lc.id = $1`,
+            [id]
+        );
+        if (clientRes.rowCount === 0) {
+            return res.status(404).json({ error: 'Cliente no encontrado' });
+        }
+        const recoveryAdvisorName: string | null = clientRes.rows[0]?.recovery_advisor_name || null;
 
         const entry = {
             ts: new Date().toISOString(),
             type: 'recovered',
-            advisor: advisorName,
-            advisor_id: userId,
+            advisor: recoveryAdvisorName || actorName,
+            advisor_id: clientRes.rows[0]?.recovery_advisor_id || userId,
+            marked_by: actorName,
+            marked_by_id: userId,
             ...(notes ? { note: notes } : {}),
         };
 
+        // Si hay asesor de recovery, lo copiamos a la columna `asesor` (visible en la lista principal)
         const result = await pool.query(
             `UPDATE legacy_clients
-             SET chartback = false, chartback_status = 'recovered', next_contact_at = NULL,
+             SET chartback = false,
+                 chartback_status = 'recovered',
+                 next_contact_at = NULL,
+                 asesor = COALESCE($3, asesor),
                  chartback_activity = COALESCE(chartback_activity, '[]'::jsonb) || $1::jsonb
              WHERE id = $2
-             RETURNING box_id`,
-            [JSON.stringify(entry), id]
+             RETURNING box_id, asesor`,
+            [JSON.stringify(entry), id, recoveryAdvisorName]
         );
 
         if (result.rowCount === 0) {
             return res.status(404).json({ error: 'Cliente no encontrado' });
         }
-        return res.json({ success: true, box_id: result.rows[0].box_id });
+        return res.json({ success: true, box_id: result.rows[0].box_id, asesor: result.rows[0].asesor });
     } catch (error: any) {
         console.error('Error marcando como recuperado:', {
             message: error?.message,
